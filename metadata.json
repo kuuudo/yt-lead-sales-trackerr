@@ -1,0 +1,6 @@
+{
+  "name": "YT Lead \u0026 Sales Tracker ver.5 (new redirect system)",
+  "description": "need to add in new redirect system\ni need to be able to delete the video i added in track new video, and need to be able to edit (whether it is add new lead magnets, or change video goals)\nfixed the newly tracked video interface is not good\nfixed i didnt see the previous video i add here)\nfixed lead magnet cant be save, \nfixed cant import video in track video\nupdated function (tracked video, select multiple video goal, and option to add lead magnet)",
+  "requestFramePermissions": [],
+  "majorCapabilities": []
+}

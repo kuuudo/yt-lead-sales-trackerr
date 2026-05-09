@@ -1,0 +1,26 @@
+@import "tailwindcss";
+
+@theme {
+  --font-sans: "Inter", ui-sans-serif, system-ui, sans-serif;
+  --color-zinc-950: #050505;
+  --color-zinc-900: #111111;
+  --color-zinc-800: #222222;
+}
+
+@layer base {
+  body {
+    @apply bg-zinc-950 text-gray-200 antialiased;
+  }
+
+  .bento-card {
+    @apply bg-zinc-900 border border-zinc-800 rounded-xl p-6 transition-all duration-200 hover:border-zinc-700;
+  }
+
+  .label-caps {
+    @apply text-[10px] font-semibold uppercase tracking-widest text-zinc-500;
+  }
+
+  .metric-value {
+    @apply text-3xl font-bold tracking-tighter text-white;
+  }
+}
