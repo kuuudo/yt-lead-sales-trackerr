@@ -65,11 +65,15 @@ export const createRedirectLink = async (
 };
 
 export const resolveRedirectToken = async (token: string): Promise<RedirectLink | null> => {
+  console.log('Looking up token:', token);
+  
   const { data, error } = await supabase
     .from('redirect_links')
     .select('*')
     .eq('token', token)
     .single();
+
+  console.log('Result:', { data, error });
 
   if (error || !data) return null;
   return data as RedirectLink;
