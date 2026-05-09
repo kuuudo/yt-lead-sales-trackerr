@@ -138,12 +138,17 @@ function PageWrapper({ children }: { children: React.ReactNode }) {
 export default function App() {
   return (
     <Router>
-      <AuthProvider>
-        <div className="min-h-screen bg-zinc-950 text-zinc-100 selection:bg-red-500/30 selection:text-white font-sans antialiased">
-          <Navigation />
-          <MainContent />
-        </div>
-      </AuthProvider>
+      <Routes>
+        <Route path="/track/:token" element={<Track />} />
+        <Route path="*" element={
+          <AuthProvider>
+            <div className="min-h-screen bg-zinc-950 text-zinc-100 selection:bg-red-500/30 selection:text-white font-sans antialiased">
+              <Navigation />
+              <MainContent />
+            </div>
+          </AuthProvider>
+        } />
+      </Routes>
     </Router>
   );
 }
