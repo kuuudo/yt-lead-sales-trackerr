@@ -87,17 +87,17 @@ function MainContent() {
   const { user, loading } = useAuth();
   useTracker();
 
+  // Public route — check FIRST before any auth logic
+  if (window.location.pathname.startsWith('/track/')) {
+    return <Track />;
+  }
+
   if (loading) {
     return (
       <div className="min-h-screen bg-zinc-950 flex items-center justify-center">
         <Loader2 className="text-red-600 animate-spin" size={32} />
       </div>
     );
-  }
-
-  // Public route — no login needed
-  if (window.location.pathname.startsWith('/track/')) {
-    return <Track />;
   }
 
   if (!user) {
@@ -115,6 +115,7 @@ function MainContent() {
         <Route path="/analytics" element={<PageWrapper><Analytics /></PageWrapper>} />
         <Route path="/analytics/indepth" element={<InDepthAnalytics />} />
         <Route path="/installation" element={<PageWrapper><Installation /></PageWrapper>} />
+        <Route path="/track/:token" element={<Track />} />
         <Route path="*" element={<Navigate to="/dashboard" replace />} />
       </Routes>
     </AnimatePresence>
