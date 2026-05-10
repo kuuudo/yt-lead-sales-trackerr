@@ -102,6 +102,16 @@ export const logRedirectEvent = async (link: RedirectLink) => {
     localStorage.setItem(sessionKey, sessionId);
   }
 
+  // Pass video_id and campaign_id directly into the event
+  await supabase.from('events').insert({
+    session_id: sessionId,
+    video_id: link.video_id,
+    campaign_id: link.campaign_id,
+    event_type: link.link_type,
+    value: null,
+  });
+};
+
   await supabase.from('events').insert({
     session_id: sessionId,
     video_id: link.video_id,
