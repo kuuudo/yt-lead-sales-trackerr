@@ -358,7 +358,7 @@ export default function Videos() {
           .eq('link_type', 'landing_page')
           .single();
 
-        const finalLink = linkData ? `${appBaseUrl}/track/${linkData.token}` : null;
+        const finalLink = linkData ? `${appBaseUrl}/${linkData.token}` : null;
 
         if (editingVideoId) {
           setVideos(videos.map(v => v.id === editingVideoId ? savedVideo : v));
@@ -807,7 +807,7 @@ export default function Videos() {
                       .single();
 
                     const link = linkData
-                      ? `${window.location.origin}/track/${linkData.token}`
+                      ? `${window.location.origin}/${linkData.token}`
                       : (() => {
                           const campaign = campaigns.find(c => c.id === v.campaign_id);
                           if (!campaign) return '';
