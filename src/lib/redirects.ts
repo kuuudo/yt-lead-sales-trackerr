@@ -61,7 +61,7 @@ export const createRedirectLink = async (
     return null;
   }
 
-  return `${appBaseUrl}/track/${token}`;
+  return `${appBaseUrl}/${token}`;
 };
 
 export const resolveRedirectToken = async (token: string): Promise<RedirectLink | null> => {
