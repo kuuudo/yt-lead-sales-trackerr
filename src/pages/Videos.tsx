@@ -112,6 +112,15 @@ export default function Videos() {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [copied, setCopied] = useState<string | null>(null);
+   // ADD THESE NEW STATES HERE
+  const [savedLinks, setSavedLinks] = useState<
+    { token: string; link_type: string; label: string }[]
+  >([]);
+
+  const [showLinksModal, setShowLinksModal] = useState(false);
+
+  const [copiedLink, setCopiedLink] = useState<string | null>(null);
+
   const [editingVideoId, setEditingVideoId] = useState<string | null>(null);
   const [deletingVideoId, setDeletingVideoId] = useState<string | null>(null);
 
@@ -293,102 +302,119 @@ export default function Videos() {
   };
 
   const handleSave = async () => {
-    if (!generated || !user) return;
-    setSaving(true);
-    try {
-      const payload = {
-        ...generated.video,
-        user_id: user.id
-      };
-      
-      let error;
-      let data;
-      
-      if (editingVideoId) {
-        const { data: updateData, error: updateError } = await supabase
-          .from('videos')
-          .update(payload)
-          .eq('id', editingVideoId)
-          .select();
-        error = updateError;
-        data = updateData;
-      } else {
-        const { data: insertData, error: insertError } = await supabase
-          .from('videos')
-          .insert([payload])
-          .select();
-        error = insertError;
-        data = insertData;
-      }
+  if (!generated || !user) return;
+  setSaving(true);
+  try {
+    const payload = { ...generated.video, user_id: user.id };
+    let error, data;
 
-      if (error) {
-        console.error('Supabase Video Save Error:', error);
-        throw new Error(error.message);
-      }
-      
-      if (data) {
-        const savedVideo = data[0];
-        const campaign = generated.campaign;
-        const appBaseUrl = window.location.origin;
-
-        if (campaign) {
-          const redirectJobs: Array<[string, string]> = [
-            ['landing_page', campaign.landing_page_url],
-          ];
-          if (campaign.checkout_url) redirectJobs.push(['checkout', campaign.checkout_url]);
-          if (campaign.purchase_thankyou_url) redirectJobs.push(['purchase_thankyou', campaign.purchase_thankyou_url]);
-          if (campaign.newsletter_url) redirectJobs.push(['newsletter', campaign.newsletter_url]);
-          if (campaign.newsletter_thankyou_url) redirectJobs.push(['newsletter_thankyou', campaign.newsletter_thankyou_url]);
-          if (campaign.sales_call_booking_url) redirectJobs.push(['sales_call', campaign.sales_call_booking_url]);
-          if (campaign.sales_call_thankyou_url) redirectJobs.push(['sales_call_thankyou', campaign.sales_call_thankyou_url]);
-          if (campaign.consultation_booking_url) redirectJobs.push(['consultation', campaign.consultation_booking_url]);
-          if (campaign.consultation_thankyou_url) redirectJobs.push(['consultation_thankyou', campaign.consultation_thankyou_url]);
-
-          await Promise.all(
-            redirectJobs.map(([type, url]) =>
-              createRedirectLink(savedVideo.id, savedVideo.campaign_id, type as any, url, appBaseUrl)
-            )
-          );
-        }
-
-        const { data: linkData } = await supabase
-          .from('redirect_links')
-          .select('token')
-          .eq('video_id', savedVideo.id)
-          .eq('link_type', 'landing_page')
-          .single();
-
-        const finalLink = linkData ? `${appBaseUrl}/${linkData.token}` : null;
-
-        if (editingVideoId) {
-          setVideos(videos.map(v => v.id === editingVideoId ? savedVideo : v));
-        } else {
-          setVideos([savedVideo, ...videos]);
-        }
-        setShowAdd(false);
-        setEditingVideoId(null);
-        setFormData({ 
-          url: '', 
-          campaign_id: campaigns[0]?.id || '', 
-          objectives: ['sales'],
-          hasLeadMagnet: false,
-          selectedLeadMagnets: []
-        });
-
-        if (finalLink) {
-          showAlert(
-            '🎉 Video Saved!',
-            `Your tracking link is ready — copy it and paste into your YouTube description:\n\n${finalLink}`,
-            'success'
-          );
-        }
-      }
-    } catch (err: any) {
-      showAlert('Save Error', err.message || 'An unexpected error occurred while saving.', 'danger');
-    } finally {
-      setSaving(false);
+    if (editingVideoId) {
+      const { data: updateData, error: updateError } = await supabase
+        .from('videos').update(payload).eq('id', editingVideoId).select();
+      error = updateError; data = updateData;
+    } else {
+      const { data: insertData, error: insertError } = await supabase
+        .from('videos').insert([payload]).select();
+      error = insertError; data = insertData;
     }
+
+    if (error) throw new Error(error.message);
+
+    if (data) {
+      const savedVideo = data[0];
+      const campaign = generated.campaign;
+      const appBaseUrl = window.location.origin;
+
+      if (campaign) {
+        const redirectJobs: Array<[string, string, string]> = [
+          ['landing_page', campaign.landing_page_url, '🏠 Landing Page'],
+        ];
+        if (campaign.newsletter_url) redirectJobs.push(['newsletter', campaign.newsletter_url, '📧 Newsletter']);
+        if (campaign.sales_call_booking_url) redirectJobs.push(['sales_call', campaign.sales_call_booking_url, '📞 Sales Call']);
+        if (campaign.consultation_booking_url) redirectJobs.push(['consultation', campaign.consultation_booking_url, '💼 Consultation']);
+        if (campaign.checkout_url) redirectJobs.push(['checkout', campaign.checkout_url, '🛒 Checkout']);
+        if (campaign.purchase_thankyou_url) redirectJobs.push(['purchase_thankyou', campaign.purchase_thankyou_url, '✅ Purchase Thank You']);
+        if (campaign.newsletter_thankyou_url) redirectJobs.push(['newsletter_thankyou', campaign.newsletter_thankyou_url, '✅ Newsletter Thank You']);
+
+        // Create redirect links for all funnel steps
+        await Promise.all(
+          redirectJobs.map(([type, url]) =>
+            createRedirectLink(savedVideo.id, savedVideo.campaign_id, type as any, url, appBaseUrl)
+          )
+        );
+
+        // Create redirect links for selected lead magnets
+        if (generated.video.selected_lead_magnet_ids && generated.video.selected_lead_magnet_ids.length > 0) {
+          const { data: lmData } = await supabase
+            .from('lead_magnets')
+            .select('*')
+            .in('id', generated.video.selected_lead_magnet_ids);
+
+          if (lmData) {
+            await Promise.all(
+              lmData.map((lm: any) =>
+                createRedirectLink(savedVideo.id, savedVideo.campaign_id, 'lead_magnet' as any, lm.lead_magnet_url, appBaseUrl, lm.id)
+              )
+            );
+          }
+        }
+
+        // Fetch all generated links to display
+        const { data: allLinks } = await supabase
+          .from('redirect_links')
+          .select('token, link_type, destination_url')
+          .eq('video_id', savedVideo.id);
+
+        // Fetch lead magnet names for display
+        let lmNames: Record<string, string> = {};
+        if (generated.video.selected_lead_magnet_ids && generated.video.selected_lead_magnet_ids.length > 0) {
+          const { data: lmData } = await supabase
+            .from('lead_magnets')
+            .select('id, lead_magnet_name')
+            .in('id', generated.video.selected_lead_magnet_ids);
+          if (lmData) lmData.forEach((lm: any) => { lmNames[lm.id] = lm.lead_magnet_name; });
+        }
+
+        if (allLinks) {
+          setSavedLinks(allLinks.map((l: any) => ({ ...l, label: getLinkLabel(l.link_type, lmNames) })));
+          setShowLinksModal(true);
+        }
+      }
+
+      if (editingVideoId) {
+        setVideos(videos.map(v => v.id === editingVideoId ? savedVideo : v));
+      } else {
+        setVideos([savedVideo, ...videos]);
+      }
+      setShowAdd(false);
+      setEditingVideoId(null);
+      setFormData({
+        url: '', campaign_id: campaigns[0]?.id || '',
+        objectives: ['sales'], hasLeadMagnet: false, selectedLeadMagnets: []
+      });
+    }
+  } catch (err: any) {
+    showAlert('Save Error', err.message || 'An unexpected error occurred.', 'danger');
+  } finally {
+    setSaving(false);
+  }
+};
+
+const getLinkLabel = (linkType: string, lmNames: Record<string, string> = {}) => {
+  const labels: Record<string, string> = {
+    landing_page: '🏠 Landing Page',
+    newsletter: '📧 Newsletter',
+    newsletter_thankyou: '✅ Newsletter Thank You',
+    checkout: '🛒 Checkout',
+    purchase_thankyou: '✅ Purchase Thank You',
+    sales_call: '📞 Sales Call',
+    sales_call_thankyou: '✅ Sales Call Thank You',
+    consultation: '💼 Consultation',
+    consultation_thankyou: '✅ Consultation Thank You',
+    lead_magnet: '📦 Lead Magnet',
   };
+  return labels[linkType] || linkType;
+};
 
   const getStatusColor = (status: VideoStatus) => {
     switch (status) {
@@ -887,7 +913,80 @@ export default function Videos() {
             </motion.div>
           ))
         )}
-      </div>
+            </div>
+
+      {/* Links Modal */}
+      {showLinksModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm p-4">
+          <motion.div
+            initial={{ opacity: 0, scale: 0.95 }}
+            animate={{ opacity: 1, scale: 1 }}
+            className="bg-zinc-900 border border-zinc-800 rounded-2xl p-6 w-full max-w-lg space-y-4"
+          >
+            <div className="flex items-center justify-between">
+              <h3 className="text-white font-black uppercase tracking-tight text-lg">
+                🎉 Video Saved!
+              </h3>
+
+              <button
+                onClick={() => setShowLinksModal(false)}
+                className="text-zinc-500 hover:text-white"
+              >
+                <X size={20} />
+              </button>
+            </div>
+
+            <p className="text-zinc-500 text-[10px] uppercase tracking-widest font-bold">
+              Copy these links and paste into your YouTube description
+            </p>
+
+            <div className="space-y-2 max-h-80 overflow-y-auto custom-scrollbar">
+              {savedLinks.map((l) => (
+                <div
+                  key={l.token}
+                  className="flex items-center justify-between gap-3 bg-zinc-950 border border-zinc-800 rounded-xl p-3"
+                >
+                  <div className="flex-1 min-w-0">
+                    <p className="text-[10px] font-black uppercase text-zinc-400 mb-1">
+                      {l.label}
+                    </p>
+
+                    <p className="font-mono text-[11px] text-blue-400 truncate">
+                      {window.location.origin}/{l.token}
+                    </p>
+                  </div>
+
+                  <button
+                    onClick={() => {
+                      navigator.clipboard.writeText(
+                        `${window.location.origin}/${l.token}`
+                      );
+
+                      setCopiedLink(l.token);
+
+                      setTimeout(() => setCopiedLink(null), 2000);
+                    }}
+                    className="shrink-0 h-8 w-8 flex items-center justify-center rounded-lg border border-zinc-700 hover:bg-zinc-800 transition-all"
+                  >
+                    {copiedLink === l.token ? (
+                      <Check size={14} className="text-green-500" />
+                    ) : (
+                      <Copy size={14} className="text-zinc-400" />
+                    )}
+                  </button>
+                </div>
+              ))}
+            </div>
+
+            <button
+              onClick={() => setShowLinksModal(false)}
+              className="w-full h-10 bg-zinc-800 hover:bg-zinc-700 text-white rounded-xl text-[10px] font-black uppercase tracking-widest transition-all"
+            >
+              Done
+            </button>
+          </motion.div>
+        </div>
+      )}
 
       <Modal
         isOpen={modalConfig.isOpen}
