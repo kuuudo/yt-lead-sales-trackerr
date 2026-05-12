@@ -6,11 +6,12 @@ import { useAuth } from '../lib/auth';
 import { 
   ArrowLeft, Youtube, DollarSign, Users, Activity, 
   TrendingUp, MousePointer2, Phone, Briefcase, 
-  ExternalLink, BarChart3, Clock, Edit2, Trash2, Save, X, Loader2, Check
+  ExternalLink, BarChart3, Clock, Edit2, Trash2, Save, X, Loader2, Check, Link2, Plus, Copy
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { ResponsiveContainer, AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip } from 'recharts';
 import { Modal } from '../components/Modal';
+import { createRedirectLink, RedirectLinkType } from '../lib/redirects';
 
 export default function VideoDetail() {
   const { id } = useParams();
@@ -30,6 +31,19 @@ export default function VideoDetail() {
   const [deleting, setDeleting] = useState(false);
   const [timeRange, setTimeRange] = useState('7days');
   const [availableCampaignLeadMagnets, setAvailableCampaignLeadMagnets] = useState<LeadMagnet[]>([]);
+  const [copiedLinkToken, setCopiedLinkToken] = useState<string | null>(null);
+
+  // All redirect links for this video
+  const [redirectLinks, setRedirectLinks] = useState<any[]>([]);
+  const [allLeadMagnetNames, setAllLeadMagnetNames] = useState<Record<string, string>>({});
+
+  // Extra link form state
+  const [showAddLink, setShowAddLink] = useState(false);
+  const [extraLinkType, setExtraLinkType] = useState<RedirectLinkType>('landing_page');
+  const [extraLinkUrl, setExtraLinkUrl] = useState('');
+  const [extraLinkLeadMagnetId, setExtraLinkLeadMagnetId] = useState('');
+  const [savingExtraLink, setSavingExtraLink] = useState(false);
+  const [deletingLinkToken, setDeletingLinkToken] = useState<string | null>(null);
 
   // Edit Form State
   const [editForm, setEditForm] = useState({
@@ -94,6 +108,21 @@ export default function VideoDetail() {
         .eq('campaign_id', vData.campaign_id);
       setAvailableCampaignLeadMagnets(campaignLms || []);
 
+      // Fetch all redirect links for this video
+      const { data: linksData } = await supabase
+        .from('redirect_links')
+        .select('token, link_type, destination_url, lead_magnet_id, created_at')
+        .eq('video_id', id)
+        .order('created_at', { ascending: true });
+      setRedirectLinks(linksData || []);
+
+      // Build lead magnet name lookup for all campaign lead magnets
+      if (campaignLms && campaignLms.length > 0) {
+        const nameMap: Record<string, string> = {};
+        campaignLms.forEach((lm: any) => { nameMap[lm.id] = lm.lead_magnet_name; });
+        setAllLeadMagnetNames(nameMap);
+      }
+
       const { data: eData } = await supabase
         .from('events')
         .select('*')
@@ -104,6 +133,96 @@ export default function VideoDetail() {
       console.error('Error fetching video detail:', err);
     } finally {
       setLoading(false);
+    }
+  };
+
+  const getLinkLabel = (linkType: string, leadMagnetId?: string) => {
+    if (linkType === 'lead_magnet' && leadMagnetId && allLeadMagnetNames[leadMagnetId]) {
+      return `📦 ${allLeadMagnetNames[leadMagnetId]}`;
+    }
+    const labels: Record<string, string> = {
+      landing_page: '🏠 Landing Page',
+      newsletter: '📧 Newsletter',
+      newsletter_thankyou: '✅ Newsletter Thank You',
+      checkout: '🛒 Checkout',
+      purchase_thankyou: '✅ Purchase Thank You',
+      sales_call: '📞 Sales Call',
+      sales_call_thankyou: '✅ Sales Call Thank You',
+      consultation: '💼 Consultation',
+      consultation_thankyou: '✅ Consultation Thank You',
+      lead_magnet: '📦 Lead Magnet',
+    };
+    return labels[linkType] || linkType;
+  };
+
+  const LINKS_ORDER = [
+    'landing_page', 'checkout', 'newsletter',
+    'consultation', 'sales_call', 'lead_magnet'
+  ];
+
+  const sortedLinks = [...redirectLinks].sort((a, b) => {
+    const ai = LINKS_ORDER.indexOf(a.link_type);
+    const bi = LINKS_ORDER.indexOf(b.link_type);
+    if (ai === -1 && bi === -1) return 0;
+    if (ai === -1) return 1;
+    if (bi === -1) return -1;
+    return ai - bi;
+  });
+
+  // A link is "extra" if created more than 2 minutes after the video was saved
+  const isExtraLink = (link: any) => {
+    if (!video) return false;
+    const videoSavedAt = new Date(video.created_at).getTime();
+    const linkCreatedAt = new Date(link.created_at).getTime();
+    return linkCreatedAt - videoSavedAt > 2 * 60 * 1000;
+  };
+
+  const handleAddExtraLink = async () => {
+    if (!video || !campaign) return;
+    setSavingExtraLink(true);
+    try {
+      const appBaseUrl = window.location.origin;
+      const urlToUse = extraLinkType === 'lead_magnet'
+        ? availableCampaignLeadMagnets.find(lm => lm.id === extraLinkLeadMagnetId)?.lead_magnet_url || ''
+        : extraLinkUrl;
+
+      if (!urlToUse) {
+        showAlert('URL Required', 'Please enter a destination URL.', 'info');
+        return;
+      }
+
+      const leadMagnetId = extraLinkType === 'lead_magnet' ? extraLinkLeadMagnetId : undefined;
+      await createRedirectLink(video.id, video.campaign_id, extraLinkType, urlToUse, appBaseUrl, leadMagnetId);
+
+      // Refresh links
+      const { data: linksData } = await supabase
+        .from('redirect_links')
+        .select('token, link_type, destination_url, lead_magnet_id, created_at')
+        .eq('video_id', video.id)
+        .order('created_at', { ascending: true });
+      setRedirectLinks(linksData || []);
+
+      setShowAddLink(false);
+      setExtraLinkUrl('');
+      setExtraLinkLeadMagnetId('');
+      setExtraLinkType('landing_page');
+    } catch (err: any) {
+      showAlert('Error', err.message || 'Could not create link.', 'danger');
+    } finally {
+      setSavingExtraLink(false);
+    }
+  };
+
+  const handleDeleteExtraLink = async (token: string) => {
+    setDeletingLinkToken(token);
+    try {
+      const { error } = await supabase.from('redirect_links').delete().eq('token', token);
+      if (error) throw error;
+      setRedirectLinks(prev => prev.filter(l => l.token !== token));
+    } catch (err: any) {
+      showAlert('Error', err.message || 'Could not delete link.', 'danger');
+    } finally {
+      setDeletingLinkToken(null);
     }
   };
 
@@ -417,6 +536,158 @@ export default function VideoDetail() {
             </div>
             <span className="text-[10px] font-black text-white uppercase">{metrics?.lastConversion}</span>
           </div>
+        </div>
+      </section>
+
+      {/* Tracking Links Section */}
+      <section className="bento-card p-8 space-y-6">
+        <div className="flex items-center justify-between">
+          <h3 className="label-caps !text-white flex items-center gap-2 font-black uppercase tracking-widest">
+            <Link2 size={14} className="text-red-600" /> Tracking Links
+          </h3>
+          <button
+            onClick={() => setShowAddLink(!showAddLink)}
+            className="flex items-center gap-2 h-9 px-4 rounded-xl border border-zinc-800 hover:bg-zinc-900 text-[10px] font-black uppercase tracking-widest text-zinc-400 hover:text-white transition-all"
+          >
+            <Plus size={14} /> Add Link
+          </button>
+        </div>
+
+        {/* Add Extra Link Form */}
+        <AnimatePresence>
+          {showAddLink && (
+            <motion.div
+              initial={{ opacity: 0, y: -8 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: -8 }}
+              className="p-5 bg-zinc-950 border border-zinc-800 rounded-2xl space-y-4"
+            >
+              <p className="text-[10px] font-black uppercase text-zinc-500 tracking-widest">Generate New Tracking Link</p>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div className="space-y-1">
+                  <label className="label-caps">Link Type</label>
+                  <select
+                    value={extraLinkType}
+                    onChange={e => {
+                      setExtraLinkType(e.target.value as RedirectLinkType);
+                      setExtraLinkUrl('');
+                      setExtraLinkLeadMagnetId('');
+                    }}
+                    className="w-full bg-zinc-900 border border-zinc-800 rounded-xl p-3 text-[11px] font-bold uppercase outline-none focus:border-red-600 appearance-none"
+                  >
+                    <option value="landing_page">🏠 Landing Page</option>
+                    <option value="newsletter">📧 Newsletter</option>
+                    <option value="checkout">🛒 Checkout</option>
+                    <option value="consultation">💼 Consultation</option>
+                    <option value="sales_call">📞 Sales Call</option>
+                    <option value="lead_magnet">📦 Lead Magnet</option>
+                  </select>
+                </div>
+
+                {extraLinkType === 'lead_magnet' ? (
+                  <div className="space-y-1">
+                    <label className="label-caps">Select Lead Magnet</label>
+                    {availableCampaignLeadMagnets.length === 0 ? (
+                      <div className="p-3 bg-zinc-900 border border-zinc-800 rounded-xl">
+                        <p className="text-[10px] text-zinc-500 font-bold">No lead magnets found.</p>
+                        <a href="/campaigns" className="text-[10px] text-red-500 font-bold underline mt-1 inline-block">
+                          Go to Campaign to add one first →
+                        </a>
+                      </div>
+                    ) : (
+                      <select
+                        value={extraLinkLeadMagnetId}
+                        onChange={e => setExtraLinkLeadMagnetId(e.target.value)}
+                        className="w-full bg-zinc-900 border border-zinc-800 rounded-xl p-3 text-[11px] font-bold uppercase outline-none focus:border-red-600 appearance-none"
+                      >
+                        <option value="">Select lead magnet...</option>
+                        {availableCampaignLeadMagnets.map(lm => (
+                          <option key={lm.id} value={lm.id}>{lm.lead_magnet_name}</option>
+                        ))}
+                      </select>
+                    )}
+                  </div>
+                ) : (
+                  <div className="space-y-1">
+                    <label className="label-caps">Destination URL</label>
+                    <input
+                      value={extraLinkUrl}
+                      onChange={e => setExtraLinkUrl(e.target.value)}
+                      placeholder="https://..."
+                      className="w-full bg-zinc-900 border border-zinc-800 rounded-xl p-3 text-sm font-mono text-zinc-400 outline-none focus:border-red-600 transition-all"
+                    />
+                  </div>
+                )}
+              </div>
+
+              <div className="flex gap-3">
+                <button
+                  onClick={() => { setShowAddLink(false); setExtraLinkUrl(''); setExtraLinkLeadMagnetId(''); }}
+                  className="flex-1 h-10 bg-zinc-900 border border-zinc-800 text-zinc-400 rounded-xl text-[10px] font-black uppercase tracking-widest hover:text-white transition-all"
+                >
+                  Cancel
+                </button>
+                <button
+                  onClick={handleAddExtraLink}
+                  disabled={savingExtraLink || (extraLinkType === 'lead_magnet' ? !extraLinkLeadMagnetId : !extraLinkUrl)}
+                  className="flex-1 h-10 bg-red-600 text-white rounded-xl text-[10px] font-black uppercase tracking-widest flex items-center justify-center gap-2 disabled:opacity-40 disabled:cursor-not-allowed transition-all"
+                >
+                  {savingExtraLink ? <Loader2 size={14} className="animate-spin" /> : <><Plus size={14} /> Generate</>}
+                </button>
+              </div>
+            </motion.div>
+          )}
+        </AnimatePresence>
+
+        {/* All Links List */}
+        <div className="space-y-2">
+          {sortedLinks.length === 0 ? (
+            <p className="text-[10px] text-zinc-600 font-bold uppercase tracking-widest text-center py-6">No tracking links found</p>
+          ) : (
+            sortedLinks.map(l => (
+              <div
+                key={l.token}
+                className="flex items-center justify-between gap-3 bg-zinc-950 border border-zinc-800 rounded-xl p-3"
+              >
+                <div className="flex-1 min-w-0">
+                  <p className="text-[10px] font-black uppercase text-zinc-400 mb-1">
+                    {getLinkLabel(l.link_type, l.lead_magnet_id)}
+                    {isExtraLink(l) && (
+                      <span className="ml-2 text-[8px] text-red-500 border border-red-500/30 rounded px-1 py-0.5">ADDED</span>
+                    )}
+                  </p>
+                  <p className="font-mono text-[11px] text-blue-400 truncate">
+                    {window.location.origin}/{l.token}
+                  </p>
+                </div>
+                <div className="flex items-center gap-2 shrink-0">
+                  <button
+                    onClick={() => {
+                      navigator.clipboard.writeText(`${window.location.origin}/${l.token}`);
+                      setCopiedLinkToken(l.token);
+                      setTimeout(() => setCopiedLinkToken(null), 2000);
+                    }}
+                    className="h-8 w-8 flex items-center justify-center rounded-lg border border-zinc-700 hover:bg-zinc-800 transition-all"
+                  >
+                    {copiedLinkToken === l.token ? (
+                      <Check size={14} className="text-green-500" />
+                    ) : (
+                      <Copy size={14} className="text-zinc-400" />
+                    )}
+                  </button>
+                  {isExtraLink(l) && (
+                    <button
+                      onClick={() => handleDeleteExtraLink(l.token)}
+                      disabled={deletingLinkToken === l.token}
+                      className="h-8 w-8 flex items-center justify-center rounded-lg border border-zinc-800 hover:bg-zinc-900 hover:border-red-500/50 text-zinc-600 hover:text-red-500 transition-all disabled:opacity-40"
+                    >
+                      {deletingLinkToken === l.token ? <Loader2 size={14} className="animate-spin" /> : <Trash2 size={14} />}
+                    </button>
+                  )}
+                </div>
+              </div>
+            ))
+          )}
         </div>
       </section>
 

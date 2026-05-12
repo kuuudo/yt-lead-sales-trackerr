@@ -114,7 +114,7 @@ export default function Videos() {
   const [copied, setCopied] = useState<string | null>(null);
    // ADD THESE NEW STATES HERE
   const [savedLinks, setSavedLinks] = useState<
-    { token: string; link_type: string; label: string }[]
+    { token: string; link_type: string; label: string; lead_magnet_id?: string }[]
   >([]);
 
   const [showLinksModal, setShowLinksModal] = useState(false);
@@ -362,7 +362,7 @@ export default function Videos() {
         // Fetch all generated links to display
         const { data: allLinks } = await supabase
           .from('redirect_links')
-          .select('token, link_type, destination_url')
+          .select('token, link_type, destination_url, lead_magnet_id')
           .eq('video_id', savedVideo.id);
 
         // Fetch lead magnet names for display
@@ -376,7 +376,10 @@ export default function Videos() {
         }
 
         if (allLinks) {
-          setSavedLinks(allLinks.map((l: any) => ({ ...l, label: getLinkLabel(l.link_type, lmNames) })));
+          setSavedLinks(allLinks.map((l: any) => ({
+            ...l,
+            label: getLinkLabel(l.link_type, lmNames, l.lead_magnet_id)
+          })));
           setShowLinksModal(true);
         }
       }
@@ -400,7 +403,10 @@ export default function Videos() {
   }
 };
 
-const getLinkLabel = (linkType: string, lmNames: Record<string, string> = {}) => {
+const getLinkLabel = (linkType: string, lmNames: Record<string, string> = {}, leadMagnetId?: string) => {
+  if (linkType === 'lead_magnet' && leadMagnetId && lmNames[leadMagnetId]) {
+    return `📦 ${lmNames[leadMagnetId]}`;
+  }
   const labels: Record<string, string> = {
     landing_page: '🏠 Landing Page',
     newsletter: '📧 Newsletter',
@@ -927,7 +933,6 @@ const getLinkLabel = (linkType: string, lmNames: Record<string, string> = {}) =>
               <h3 className="text-white font-black uppercase tracking-tight text-lg">
                 🎉 Video Saved!
               </h3>
-
               <button
                 onClick={() => setShowLinksModal(false)}
                 className="text-zinc-500 hover:text-white"
@@ -937,45 +942,45 @@ const getLinkLabel = (linkType: string, lmNames: Record<string, string> = {}) =>
             </div>
 
             <p className="text-zinc-500 text-[10px] uppercase tracking-widest font-bold">
-              Copy these links and paste into your YouTube description
+              Copy these links and paste into your YouTube description — other links, go to Video Info to see the rest
             </p>
 
             <div className="space-y-2 max-h-80 overflow-y-auto custom-scrollbar">
-              {savedLinks.map((l) => (
-                <div
-                  key={l.token}
-                  className="flex items-center justify-between gap-3 bg-zinc-950 border border-zinc-800 rounded-xl p-3"
-                >
-                  <div className="flex-1 min-w-0">
-                    <p className="text-[10px] font-black uppercase text-zinc-400 mb-1">
-                      {l.label}
-                    </p>
-
-                    <p className="font-mono text-[11px] text-blue-400 truncate">
-                      {window.location.origin}/{l.token}
-                    </p>
-                  </div>
-
-                  <button
-                    onClick={() => {
-                      navigator.clipboard.writeText(
-                        `${window.location.origin}/${l.token}`
-                      );
-
-                      setCopiedLink(l.token);
-
-                      setTimeout(() => setCopiedLink(null), 2000);
-                    }}
-                    className="shrink-0 h-8 w-8 flex items-center justify-center rounded-lg border border-zinc-700 hover:bg-zinc-800 transition-all"
+              {(() => {
+                const PRIORITY_ORDER = ['landing_page', 'newsletter', 'consultation', 'sales_call', 'lead_magnet'];
+                const priorityLinks = PRIORITY_ORDER.flatMap(type =>
+                  savedLinks.filter(l => l.link_type === type)
+                );
+                return priorityLinks.map((l) => (
+                  <div
+                    key={l.token}
+                    className="flex items-center justify-between gap-3 bg-zinc-950 border border-zinc-800 rounded-xl p-3"
                   >
-                    {copiedLink === l.token ? (
-                      <Check size={14} className="text-green-500" />
-                    ) : (
-                      <Copy size={14} className="text-zinc-400" />
-                    )}
-                  </button>
-                </div>
-              ))}
+                    <div className="flex-1 min-w-0">
+                      <p className="text-[10px] font-black uppercase text-zinc-400 mb-1">
+                        {l.label}
+                      </p>
+                      <p className="font-mono text-[11px] text-blue-400 truncate">
+                        {window.location.origin}/{l.token}
+                      </p>
+                    </div>
+                    <button
+                      onClick={() => {
+                        navigator.clipboard.writeText(`${window.location.origin}/${l.token}`);
+                        setCopiedLink(l.token);
+                        setTimeout(() => setCopiedLink(null), 2000);
+                      }}
+                      className="shrink-0 h-8 w-8 flex items-center justify-center rounded-lg border border-zinc-700 hover:bg-zinc-800 transition-all"
+                    >
+                      {copiedLink === l.token ? (
+                        <Check size={14} className="text-green-500" />
+                      ) : (
+                        <Copy size={14} className="text-zinc-400" />
+                      )}
+                    </button>
+                  </div>
+                ));
+              })()}
             </div>
 
             <button
