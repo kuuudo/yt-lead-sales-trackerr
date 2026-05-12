@@ -34,20 +34,23 @@ export const createRedirectLink = async (
   linkType: RedirectLinkType,
   destinationUrl: string,
   appBaseUrl: string,
-  leadMagnetId?: string
+  leadMagnetId?: string,
+  allowDuplicate?: boolean
 ): Promise<string | null> => {
-  let existingQuery = supabase
-    .from('redirect_links')
-    .select('token')
-    .eq('video_id', videoId)
-    .eq('link_type', linkType);
+  if (!allowDuplicate) {
+    let existingQuery = supabase
+      .from('redirect_links')
+      .select('token')
+      .eq('video_id', videoId)
+      .eq('link_type', linkType);
 
-  if (leadMagnetId) existingQuery = existingQuery.eq('lead_magnet_id', leadMagnetId);
+    if (leadMagnetId) existingQuery = existingQuery.eq('lead_magnet_id', leadMagnetId);
 
-  const { data: existing } = await existingQuery.single();
+    const { data: existing } = await existingQuery.single();
 
-  if (existing?.token) {
-    return `${appBaseUrl}/${existing.token}`;
+    if (existing?.token) {
+      return `${appBaseUrl}/${existing.token}`;
+    }
   }
 
   const token = generateToken();

@@ -136,9 +136,10 @@ export default function VideoDetail() {
     }
   };
 
-  const getLinkLabel = (linkType: string, leadMagnetId?: string) => {
+  const getLinkLabel = (linkType: string, leadMagnetId?: string, dupIndex?: number) => {
+    const suffix = dupIndex && dupIndex > 1 ? ` ${dupIndex}` : '';
     if (linkType === 'lead_magnet' && leadMagnetId && allLeadMagnetNames[leadMagnetId]) {
-      return `📦 ${allLeadMagnetNames[leadMagnetId]}`;
+      return `📦 ${allLeadMagnetNames[leadMagnetId]}${suffix}`;
     }
     const labels: Record<string, string> = {
       landing_page: '🏠 Landing Page',
@@ -152,7 +153,7 @@ export default function VideoDetail() {
       consultation_thankyou: '✅ Consultation Thank You',
       lead_magnet: '📦 Lead Magnet',
     };
-    return labels[linkType] || linkType;
+    return (labels[linkType] || linkType) + suffix;
   };
 
   const LINKS_ORDER = [
@@ -192,7 +193,7 @@ export default function VideoDetail() {
       }
 
       const leadMagnetId = extraLinkType === 'lead_magnet' ? extraLinkLeadMagnetId : undefined;
-      await createRedirectLink(video.id, video.campaign_id, extraLinkType, urlToUse, appBaseUrl, leadMagnetId);
+      await createRedirectLink(video.id, video.campaign_id, extraLinkType, urlToUse, appBaseUrl, leadMagnetId, true);
 
       // Refresh links
       const { data: linksData } = await supabase
@@ -643,51 +644,59 @@ export default function VideoDetail() {
         <div className="space-y-2">
           {sortedLinks.length === 0 ? (
             <p className="text-[10px] text-zinc-600 font-bold uppercase tracking-widest text-center py-6">No tracking links found</p>
-          ) : (
-            sortedLinks.map(l => (
-              <div
-                key={l.token}
-                className="flex items-center justify-between gap-3 bg-zinc-950 border border-zinc-800 rounded-xl p-3"
-              >
-                <div className="flex-1 min-w-0">
-                  <p className="text-[10px] font-black uppercase text-zinc-400 mb-1">
-                    {getLinkLabel(l.link_type, l.lead_magnet_id)}
-                    {isExtraLink(l) && (
-                      <span className="ml-2 text-[8px] text-red-500 border border-red-500/30 rounded px-1 py-0.5">ADDED</span>
-                    )}
-                  </p>
-                  <p className="font-mono text-[11px] text-blue-400 truncate">
-                    {window.location.origin}/{l.token}
-                  </p>
-                </div>
-                <div className="flex items-center gap-2 shrink-0">
-                  <button
-                    onClick={() => {
-                      navigator.clipboard.writeText(`${window.location.origin}/${l.token}`);
-                      setCopiedLinkToken(l.token);
-                      setTimeout(() => setCopiedLinkToken(null), 2000);
-                    }}
-                    className="h-8 w-8 flex items-center justify-center rounded-lg border border-zinc-700 hover:bg-zinc-800 transition-all"
-                  >
-                    {copiedLinkToken === l.token ? (
-                      <Check size={14} className="text-green-500" />
-                    ) : (
-                      <Copy size={14} className="text-zinc-400" />
-                    )}
-                  </button>
-                  {isExtraLink(l) && (
+          ) : (() => {
+            // Track how many of each type we've seen to compute dupIndex
+            const typeCounters: Record<string, number> = {};
+            return sortedLinks.map(l => {
+              const key = l.link_type === 'lead_magnet' ? `lead_magnet_${l.lead_magnet_id}` : l.link_type;
+              typeCounters[key] = (typeCounters[key] || 0) + 1;
+              const dupIndex = typeCounters[key];
+              const isExtra = isExtraLink(l);
+              return (
+                <div
+                  key={l.token}
+                  className="flex items-center justify-between gap-3 bg-zinc-950 border border-zinc-800 rounded-xl p-3"
+                >
+                  <div className="flex-1 min-w-0">
+                    <p className="text-[10px] font-black uppercase text-zinc-400 mb-1">
+                      {getLinkLabel(l.link_type, l.lead_magnet_id, dupIndex)}
+                      {isExtra && (
+                        <span className="ml-2 text-[8px] text-amber-500 border border-amber-500/30 rounded px-1 py-0.5">UPDATED</span>
+                      )}
+                    </p>
+                    <p className="font-mono text-[11px] text-blue-400 truncate">
+                      {window.location.origin}/{l.token}
+                    </p>
+                  </div>
+                  <div className="flex items-center gap-2 shrink-0">
                     <button
-                      onClick={() => handleDeleteExtraLink(l.token)}
-                      disabled={deletingLinkToken === l.token}
-                      className="h-8 w-8 flex items-center justify-center rounded-lg border border-zinc-800 hover:bg-zinc-900 hover:border-red-500/50 text-zinc-600 hover:text-red-500 transition-all disabled:opacity-40"
+                      onClick={() => {
+                        navigator.clipboard.writeText(`${window.location.origin}/${l.token}`);
+                        setCopiedLinkToken(l.token);
+                        setTimeout(() => setCopiedLinkToken(null), 2000);
+                      }}
+                      className="h-8 w-8 flex items-center justify-center rounded-lg border border-zinc-700 hover:bg-zinc-800 transition-all"
                     >
-                      {deletingLinkToken === l.token ? <Loader2 size={14} className="animate-spin" /> : <Trash2 size={14} />}
+                      {copiedLinkToken === l.token ? (
+                        <Check size={14} className="text-green-500" />
+                      ) : (
+                        <Copy size={14} className="text-zinc-400" />
+                      )}
                     </button>
-                  )}
+                    {isExtra && (
+                      <button
+                        onClick={() => handleDeleteExtraLink(l.token)}
+                        disabled={deletingLinkToken === l.token}
+                        className="h-8 w-8 flex items-center justify-center rounded-lg border border-zinc-800 hover:bg-zinc-900 hover:border-red-500/50 text-zinc-600 hover:text-red-500 transition-all disabled:opacity-40"
+                      >
+                        {deletingLinkToken === l.token ? <Loader2 size={14} className="animate-spin" /> : <Trash2 size={14} />}
+                      </button>
+                    )}
+                  </div>
                 </div>
-              </div>
-            ))
-          )}
+              );
+            });
+          })()}
         </div>
       </section>
 
