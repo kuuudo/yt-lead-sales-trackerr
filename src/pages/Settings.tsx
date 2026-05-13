@@ -2,8 +2,9 @@ import React, { useState, useEffect } from 'react';
 import { supabase } from '../lib/supabase';
 import { useAuth } from '../lib/auth';
 import { motion } from 'motion/react';
-import { Settings as SettingsIcon, Key, Copy, Check, Loader2, CheckCircle2, AlertCircle, Webhook } from 'lucide-react';
+import { Settings as SettingsIcon, Key, Copy, Check, Loader2, CheckCircle2, AlertCircle, Webhook, ArrowLeft } from 'lucide-react';
 import { Modal } from '../components/Modal';
+import { useNavigate } from 'react-router-dom';
 
 export default function Settings() {
   const { user } = useAuth();
@@ -19,6 +20,7 @@ export default function Settings() {
     variant: 'info' | 'danger' | 'success';
   }>({ isOpen: false, title: '', message: '', variant: 'info' });
 
+  const navigate = useNavigate();
   const webhookEndpoint = `https://vstrk.com/api/stripe-webhook`;
 
   useEffect(() => {
@@ -89,6 +91,13 @@ export default function Settings() {
   return (
     <div className="space-y-8 max-w-2xl">
       <header className="space-y-1">
+        <button
+          onClick={() => navigate(-1)}
+          className="flex items-center gap-2 text-zinc-500 hover:text-white transition-colors text-[10px] font-bold uppercase tracking-widest mb-4"
+        >
+          <ArrowLeft size={12} />
+          Back
+        </button>
         <div className="flex items-center gap-2 label-caps text-zinc-500">
           <SettingsIcon size={12} />
           Configuration
