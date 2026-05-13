@@ -5,7 +5,7 @@
 
 import React from 'react';
 import { BrowserRouter as Router, Routes, Route, Link, useLocation, Navigate } from 'react-router-dom';
-import { LayoutDashboard, Link as LinkIcon, Globe, BarChart3, Video, Briefcase, LogOut, Loader2, User as UserIcon, Code } from 'lucide-react';
+import { LayoutDashboard, Globe, BarChart3, Video, Briefcase, LogOut, Loader2, User as UserIcon, Code, Settings as SettingsIcon } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { useTracker, useLanguage } from './lib/hooks';
 import { AuthProvider, useAuth } from './lib/auth';
@@ -19,6 +19,7 @@ import VideoDetail from './pages/VideoDetail';
 import CampaignDetail from './pages/CampaignDetail';
 import InDepthAnalytics from './pages/InDepthAnalytics';
 import Track from './pages/Track';
+import Settings from './pages/Settings';
 
 function Navigation() {
   const { lang, toggleLanguage, t } = useLanguage();
@@ -70,6 +71,16 @@ function Navigation() {
         </button>
         {user && (
           <div className="flex items-center gap-4 pl-4 border-l border-zinc-900">
+            <Link
+              to="/settings"
+              className={`w-8 h-8 rounded-full bg-zinc-900 border flex items-center justify-center transition-colors ${
+                location.pathname === '/settings'
+                  ? 'border-violet-500 text-violet-400'
+                  : 'border-zinc-800 text-zinc-500 hover:text-zinc-300 hover:border-zinc-700'
+              }`}
+            >
+              <SettingsIcon size={14} />
+            </Link>
             <button className="w-8 h-8 rounded-full bg-zinc-900 border border-zinc-800 flex items-center justify-center text-zinc-500">
               <UserIcon size={14} />
             </button>
@@ -86,8 +97,6 @@ function Navigation() {
 function MainContent() {
   const { user, loading } = useAuth();
   useTracker();
-
-  
 
   if (loading) {
     return (
@@ -112,6 +121,7 @@ function MainContent() {
         <Route path="/analytics" element={<PageWrapper><Analytics /></PageWrapper>} />
         <Route path="/analytics/indepth" element={<InDepthAnalytics />} />
         <Route path="/installation" element={<PageWrapper><Installation /></PageWrapper>} />
+        <Route path="/settings" element={<PageWrapper><Settings /></PageWrapper>} />
         <Route path="/:token" element={<Track />} />
         <Route path="*" element={<Navigate to="/dashboard" replace />} />
       </Routes>

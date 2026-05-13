@@ -77,6 +77,7 @@ export type SessionData = {
   utm_medium: string | null;
   utm_campaign: string | null;
   utm_content: string | null;
+  token: string | null;
   created_at: string;
 };
 
@@ -90,4 +91,35 @@ export type LeadData = {
   session_id: string;
   email: string;
   utm_content: string | null;
+};
+
+export type StripeConfig = {
+  id: string;
+  user_id: string;
+  stripe_webhook_secret: string;
+  created_at: string;
+};
+
+export type StripePurchase = {
+  id: string;
+  stripe_session_id: string;
+  token: string;
+  video_id: string;
+  campaign_id: string;
+  user_id: string | null;
+  amount: number | null;
+  currency: string | null;
+  customer_email: string | null;
+  created_at: string;
+};
+
+export type PixelPurchase = {
+  id: string;
+  token: string | null;
+  session_id: string | null;
+  video_id: string | null;
+  campaign_id: string | null;
+  user_id: string | null;
+  amount: number | null;
+  created_at: string;
 };
