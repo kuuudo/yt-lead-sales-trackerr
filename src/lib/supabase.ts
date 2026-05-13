@@ -34,14 +34,17 @@ export type Campaign = {
   checkout_url: string;
   purchase_thankyou_url: string;
   offer_price: number;
+  uses_stripe: boolean;
   has_sales_call: boolean;
   sales_call_booking_url: string | null;
   sales_call_thankyou_url: string | null;
   estimated_close_rate: number | null;
   has_paid_consultation: boolean;
   consultation_booking_url: string | null;
+  paid_consultation_checkout_url: string | null;
   consultation_thankyou_url: string | null;
   consultation_fee: number | null;
+  uses_stripe_consultation: boolean;
   has_lead_magnet: boolean;
   created_at: string;
 };
