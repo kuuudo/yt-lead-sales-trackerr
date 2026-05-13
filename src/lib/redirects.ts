@@ -118,3 +118,14 @@ export const logRedirectEvent = async (link: RedirectLink) => {
     value: null,
   });
 };
+
+// For checkout links pointing to Stripe Payment Links,
+// append ?client_reference_id=TOKEN so the webhook can attribute the purchase.
+export const buildRedirectUrl = (link: RedirectLink): string => {
+  const isStripeLink = link.destination_url.includes('buy.stripe.com');
+  if (link.link_type === 'checkout' && isStripeLink) {
+    const separator = link.destination_url.includes('?') ? '&' : '?';
+    return `${link.destination_url}${separator}client_reference_id=${link.token}`;
+  }
+  return link.destination_url;
+};

@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { useParams } from 'react-router-dom';
-import { resolveRedirectToken, logRedirectEvent } from '../lib/redirects';
+import { resolveRedirectToken, logRedirectEvent, buildRedirectUrl } from '../lib/redirects';
 import { Loader2, AlertCircle } from 'lucide-react';
 
 export default function Track() {
@@ -22,7 +22,7 @@ export default function Track() {
       }
 
       // Redirect FIRST, log after — don't let logging block the redirect
-      window.location.replace(link.destination_url);
+      window.location.replace(buildRedirectUrl(link));
 
       // Log in background (non-blocking)
       logRedirectEvent(link).catch(console.error);
