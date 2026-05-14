@@ -91,21 +91,10 @@ export default function Campaigns() {
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!user) return;
-
-    const warnings = getWarnings();
-    if (warnings.length > 0) {
-      showAlert(
-        'Missing URLs',
-        warnings.join('\n\n'),
-        'info',
-        () => submitCampaign()
-      );
-      return;
-    }
-    await submitCampaign();
-  };
+  e.preventDefault();
+  if (!user) return;
+  await submitCampaign();
+};
 
   const submitCampaign = async () => {
     if (!user) return;
