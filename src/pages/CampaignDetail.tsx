@@ -436,7 +436,7 @@ export default function CampaignDetail() {
                 </div>
                 <div className="flex items-center justify-between p-4 bg-zinc-950 rounded-xl border border-zinc-900">
                   <span className="text-[10px] font-black uppercase text-zinc-500">Estimated Close Rate (%)</span>
-                  <input type="number" value={formData.estimated_close_rate} onChange={e => setFormData({ ...formData, estimated_close_rate: parseFloat(e.target.value) })} className="w-20 bg-zinc-900 border border-zinc-800 rounded-lg p-2 text-center text-xs text-white" />
+                  <input type="number" value={formData.estimated_close_rate ?? ""} onChange={e => setFormData({ ...formData, estimated_close_rate: parseFloat(e.target.value) })} className="w-20 bg-zinc-900 border border-zinc-800 rounded-lg p-2 text-center text-xs text-white" />
                 </div>
               </div>
             )}
@@ -480,7 +480,7 @@ export default function CampaignDetail() {
                 </div>
                 <div className="flex items-center justify-between p-4 bg-zinc-950 rounded-xl border border-zinc-900">
                   <span className="text-[10px] font-black uppercase text-zinc-500">Consultation Fee ($)</span>
-                  <input type="number" value={formData.consultation_fee} onChange={e => setFormData({ ...formData, consultation_fee: parseFloat(e.target.value) })} className="w-20 bg-zinc-900 border border-zinc-800 rounded-lg p-2 text-center text-xs text-white" />
+                  <input type="number" value={formData.consultation_fee ?? ""} onChange={e => setFormData({ ...formData, consultation_fee: parseFloat(e.target.value) })} className="w-20 bg-zinc-900 border border-zinc-800 rounded-lg p-2 text-center text-xs text-white" />
                 </div>
                 <div className="p-3 bg-zinc-950/60 border border-zinc-800 rounded-xl">
                   <p className="text-[10px] text-zinc-500 leading-relaxed">
