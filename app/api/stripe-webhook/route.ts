@@ -1,36 +1,23 @@
-import type { VercelRequest, VercelResponse } from '@vercel/node';
 import Stripe from 'stripe';
 import { createClient } from '@supabase/supabase-js';
+import { NextResponse } from 'next/server';
 
 const supabase = createClient(
   process.env.SUPABASE_URL!,
   process.env.SUPABASE_SERVICE_KEY!
 );
 
-export const config = {
-  api: { bodyParser: false },
-};
+// App Router: no `export const config` needed — raw body is available via request.arrayBuffer()
 
-const getRawBody = (req: VercelRequest): Promise<Buffer> =>
-  new Promise((resolve, reject) => {
-    const chunks: Buffer[] = [];
-    req.on('data', (chunk) => chunks.push(chunk));
-    req.on('end', () => resolve(Buffer.concat(chunks)));
-    req.on('error', reject);
-  });
-
-export default async function handler(req: VercelRequest, res: VercelResponse) {
-  if (req.method !== 'POST') {
-    return res.status(405).json({ error: 'Method not allowed' });
+export async function POST(request: Request) {
+  const sig = request.headers.get('stripe-signature');
+  if (!sig) {
+    return NextResponse.json({ error: 'Missing stripe-signature header' }, { status: 400 });
   }
 
-  const sig = req.headers['stripe-signature'];
-  if (!sig) return res.status(400).json({ error: 'Missing stripe-signature header' });
-
-  // We need the raw body before we know which user this belongs to.
-  // Strategy: parse the token from the raw body first (without verification),
-  // look up the user's webhook secret, then verify properly.
-  const rawBody = await getRawBody(req);
+  // Read raw body as ArrayBuffer → Buffer (required for Stripe signature verification)
+  const rawBodyBuffer = await request.arrayBuffer();
+  const rawBody = Buffer.from(rawBodyBuffer);
 
   // Peek at the payload to extract client_reference_id (the token)
   // so we can look up the right user's webhook secret.
@@ -64,13 +51,13 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       if (campaign?.user_id) {
         resolvedUserId = campaign.user_id;
 
-        const { data: config } = await supabase
+        const { data: stripeConfig } = await supabase
           .from('stripe_configs')
           .select('stripe_webhook_secret')
           .eq('user_id', campaign.user_id)
           .single();
 
-        webhookSecret = config?.stripe_webhook_secret ?? null;
+        webhookSecret = stripeConfig?.stripe_webhook_secret ?? null;
       }
     }
   }
@@ -89,19 +76,21 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     event = stripe.webhooks.constructEvent(rawBody, sig, webhookSecret);
   } catch (err: any) {
     console.error('Webhook signature verification failed:', err.message);
-    return res.status(400).json({ error: `Webhook error: ${err.message}` });
+    return NextResponse.json({ error: `Webhook error: ${err.message}` }, { status: 400 });
   }
 
+  console.log(`[stripe-webhook] Received event: ${event.type}`);
+
   if (event.type !== 'checkout.session.completed') {
-    return res.status(200).json({ received: true });
+    return NextResponse.json({ received: true });
   }
 
   const session = event.data.object as Stripe.Checkout.Session;
   const token = session.client_reference_id;
 
   if (!token) {
-    console.log('No client_reference_id on session — skipping');
-    return res.status(200).json({ received: true });
+    console.log('[stripe-webhook] No client_reference_id on session — skipping');
+    return NextResponse.json({ received: true });
   }
 
   // Look up the redirect link to get video_id and campaign_id
@@ -112,8 +101,8 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     .single();
 
   if (linkError || !link) {
-    console.error('Could not find redirect link for token:', token);
-    return res.status(200).json({ received: true });
+    console.error('[stripe-webhook] Could not find redirect link for token:', token);
+    return NextResponse.json({ received: true });
   }
 
   // Check for duplicate (Stripe can fire webhooks more than once)
@@ -124,11 +113,11 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     .single();
 
   if (existing) {
-    console.log('Duplicate webhook — already recorded:', session.id);
-    return res.status(200).json({ received: true });
+    console.log('[stripe-webhook] Duplicate webhook — already recorded:', session.id);
+    return NextResponse.json({ received: true });
   }
 
-  // Write confirmed purchase to stripe_purchases (now with user_id)
+  // Write confirmed purchase to stripe_purchases
   const { error: insertError } = await supabase.from('stripe_purchases').insert({
     stripe_session_id: session.id,
     token,
@@ -141,10 +130,10 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   });
 
   if (insertError) {
-    console.error('Failed to insert stripe_purchase:', insertError);
-    return res.status(500).json({ error: 'Database insert failed' });
+    console.error('[stripe-webhook] Failed to insert stripe_purchase:', insertError);
+    return NextResponse.json({ error: 'Database insert failed' }, { status: 500 });
   }
 
-  console.log(`✅ Purchase recorded — token: ${token}, user: ${resolvedUserId}, amount: ${session.amount_total}`);
-  return res.status(200).json({ received: true });
+  console.log(`[stripe-webhook] ✅ Purchase recorded — token: ${token}, user: ${resolvedUserId}, amount: ${session.amount_total}`);
+  return NextResponse.json({ received: true });
 }
