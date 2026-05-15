@@ -8,94 +8,29 @@ import {
   Loader2, AlertCircle, 
   CheckCircle2, Globe, Magnet, 
   Phone, DollarSign, MousePointer2,
-  CreditCard, AlertTriangle, ShoppingCart, Receipt, ChevronDown, ChevronUp, Copy, Check
+  CreditCard, AlertTriangle, ShoppingCart, ChevronDown, ChevronUp, Copy, Check
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
-
-// ---------------------------------------------------------------------------
-// Tracking level helpers
-// ---------------------------------------------------------------------------
-
-type TrackingLevel = 'click' | 'intent' | 'purchase' | 'full';
-
-function getTrackingLevel(f: Partial<Campaign>): TrackingLevel {
-  const hasCheckout = !!f.checkout_url;
-  const hasPurchase = !!f.purchase_thankyou_url || !!f.uses_stripe;
-  if (hasCheckout && hasPurchase) return 'full';
-  if (hasPurchase) return 'purchase';
-  if (hasCheckout) return 'intent';
-  return 'click';
-}
-
-const TRACKING_META: Record<TrackingLevel, { label: string; color: string; bg: string; border: string; icon: string; description: string }> = {
-  click: {
-    label: 'Click Tracking Only',
-    color: 'text-zinc-400',
-    bg: 'bg-zinc-800/60',
-    border: 'border-zinc-700',
-    icon: '🖱️',
-    description: 'Sessions and clicks are tracked. Add a Checkout URL or Thank You URL to unlock deeper funnel visibility.',
-  },
-  intent: {
-    label: 'Intent Tracking',
-    color: 'text-amber-400',
-    bg: 'bg-amber-500/10',
-    border: 'border-amber-500/30',
-    icon: '🟡',
-    description: 'Checkout visits are tracked. Install the checkout pixel to capture intent. Add a Thank You URL or Stripe to track confirmed purchases.',
-  },
-  purchase: {
-    label: 'Purchase Tracking',
-    color: 'text-green-400',
-    bg: 'bg-green-500/10',
-    border: 'border-green-500/30',
-    icon: '🟢',
-    description: 'Confirmed purchases are tracked. Optionally add a Checkout URL to also capture mid-funnel intent.',
-  },
-  full: {
-    label: 'Full Funnel Visibility',
-    color: 'text-blue-400',
-    bg: 'bg-blue-500/10',
-    border: 'border-blue-500/30',
-    icon: '🔵',
-    description: 'Click → Intent → Purchase — all three funnel stages are tracked.',
-  },
-};
 
 // ---------------------------------------------------------------------------
 // Pixel snippet generators
 // ---------------------------------------------------------------------------
 
-function getCheckoutPixelSnippet(campaignId: string | undefined, videoId?: string): string {
-  const idParam = videoId ? `video_id: '${videoId}'` : `campaign_id: '${campaignId ?? 'YOUR_CAMPAIGN_ID'}'`;
-  return `<!-- Checkout Intent Pixel — paste on your CHECKOUT page -->
-<!-- Tracks that a visitor reached checkout. Does NOT confirm payment. -->
+function buildPixelSnippet(campaignId: string | undefined, eventType: string, amount: number): string {
+  const idParam = `campaign_id: '${campaignId ?? 'YOUR_CAMPAIGN_ID'}'`;
+  const pageLabel = eventType === 'checkout_intent' ? 'CHECKOUT' : 'THANK YOU';
+  const intentNote = eventType === 'checkout_intent'
+    ? '\n<!-- Tracks checkout intent only. Does NOT confirm payment. -->'
+    : '\n<!-- Tracks confirmed completed purchases. -->';
+  return `<!-- Pixel — paste on your ${pageLabel} page -->${intentNote}
 <script>
   fetch('https://your-app.vercel.app/api/pixel', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
       ${idParam},
-      event_type: 'checkout_intent',
-      amount: 0
-    })
-  });
-</script>`;
-}
-
-function getPurchasePixelSnippet(campaignId: string | undefined, offerPrice: number | undefined, videoId?: string): string {
-  const idParam = videoId ? `video_id: '${videoId}'` : `campaign_id: '${campaignId ?? 'YOUR_CAMPAIGN_ID'}'`;
-  const amt = offerPrice ?? 0;
-  return `<!-- Purchase Pixel — paste on your THANK YOU page -->
-<!-- Tracks confirmed completed purchases and revenue. -->
-<script>
-  fetch('https://your-app.vercel.app/api/pixel', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      ${idParam},
-      event_type: 'purchase',
-      amount: ${amt}
+      event_type: '${eventType}',
+      amount: ${amount}
     })
   });
 </script>`;
@@ -209,6 +144,123 @@ const PixelPanel = ({
           </motion.div>
         )}
       </AnimatePresence>
+    </div>
+  );
+};
+
+// ---------------------------------------------------------------------------
+// FunnelPixels — contextual pixel installation block, used inside funnel sections
+// Props:
+//   campaignId       — used to generate snippet
+//   isStripeDirect   — when true, show Stripe webhook note only; hide all pixels
+//   hasThankYouUrl   — whether user has a thank-you URL configured
+//   hasCheckoutUrl   — whether user has a checkout URL configured (only relevant for intent pixel)
+//   amount           — the offer/fee price for the purchase pixel
+//   funnelLabel      — e.g. "purchase" | "consultation" (affects copy)
+// ---------------------------------------------------------------------------
+
+type FunnelLabel = 'purchase' | 'consultation';
+
+const FunnelPixels = ({
+  campaignId,
+  isStripeDirect,
+  hasThankYouUrl,
+  hasCheckoutUrl,
+  amount,
+  funnelLabel,
+}: {
+  campaignId: string | undefined;
+  isStripeDirect: boolean;
+  hasThankYouUrl: boolean;
+  hasCheckoutUrl: boolean;
+  amount: number;
+  funnelLabel: FunnelLabel;
+}) => {
+  const isCons = funnelLabel === 'consultation';
+  const intentSnippet = buildPixelSnippet(campaignId, 'checkout_intent', 0);
+  const purchaseSnippet = buildPixelSnippet(campaignId, 'purchase', amount);
+
+  if (isStripeDirect) {
+    return (
+      <div className="mt-4 p-3 bg-violet-500/10 border border-violet-500/20 rounded-xl">
+        <p className="text-[10px] text-violet-300 leading-relaxed">
+          ✅ <span className="font-bold">Stripe Direct checkout selected.</span> Confirmed{isCons ? ' consultation' : ''} revenue is tracked automatically via webhook. No pixel installation required.
+        </p>
+      </div>
+    );
+  }
+
+  const intentCopy = hasThankYouUrl
+    ? `Optional mid-funnel signal. Tracks that a visitor reached ${isCons ? 'the consultation checkout' : 'checkout'} — does not confirm payment. Since you already have a thank-you page pixel, this adds intent-stage visibility on top.`
+    : `Your only available conversion signal right now. Since you don't have a thank-you page, this pixel is the closest proxy for ${isCons ? 'consultation interest' : 'purchase intent'}. It does not confirm payment.`;
+
+  const purchaseCopy = hasCheckoutUrl
+    ? `Tracks confirmed completed ${isCons ? 'consultation payments' : 'purchases'}. Install this on your thank-you page alongside the optional checkout pixel above for full funnel visibility.`
+    : `Tracks confirmed completed ${isCons ? 'consultation payments' : 'purchases'}. Install this on your thank-you page. If you don't have a separate checkout page, this pixel alone is sufficient for ${isCons ? 'consultation' : 'purchase'} tracking.`;
+
+  return (
+    <div className="mt-6 space-y-3 pt-5 border-t border-zinc-800/60">
+      <p className="text-[9px] font-black uppercase tracking-widest text-zinc-600 mb-1">Pixel Installation</p>
+
+      {/* Checkout Intent Pixel */}
+      {hasCheckoutUrl && (
+        <PixelPanel
+          title="Checkout Intent Pixel"
+          icon={ShoppingCart}
+          iconColor="text-amber-400"
+          defaultOpen={!hasThankYouUrl}
+        >
+          <div className="flex items-start gap-2 p-3 bg-amber-500/5 border border-amber-500/20 rounded-lg">
+            <AlertTriangle size={12} className="text-amber-400 shrink-0 mt-0.5" />
+            <p className="text-[10px] text-amber-300/80 leading-relaxed">
+              <span className="font-bold">Checkout intent only — does not confirm payment.</span>{' '}
+              {intentCopy}
+            </p>
+          </div>
+          <CodeSnippet
+            code={intentSnippet}
+            label="Optional"
+            sublabel="Paste on your checkout page"
+            accent="amber"
+          />
+        </PixelPanel>
+      )}
+
+      {/* No checkout URL hint */}
+      {!hasCheckoutUrl && !hasThankYouUrl && (
+        <div className="p-3 bg-zinc-900/60 border border-zinc-800 rounded-xl">
+          <p className="text-[10px] text-zinc-500 leading-relaxed">
+            💡 Add a Checkout URL above to unlock an optional intent-tracking pixel. Even without it, the thank-you pixel below is sufficient for confirmed {isCons ? 'consultation' : 'purchase'} tracking.
+          </p>
+        </div>
+      )}
+
+      {/* Thank You / Purchase Pixel */}
+      <PixelPanel
+        title={isCons ? 'Consultation Thank You Pixel' : 'Purchase Thank You Pixel'}
+        icon={CheckCircle2}
+        iconColor="text-green-400"
+        defaultOpen={!hasThankYouUrl}
+      >
+        <div className="flex items-start gap-2 p-3 bg-green-500/5 border border-green-500/20 rounded-lg">
+          <CheckCircle2 size={12} className="text-green-400 shrink-0 mt-0.5" />
+          <p className="text-[10px] text-green-300/80 leading-relaxed">
+            <span className="font-bold">Confirms completed {isCons ? 'consultation payments' : 'purchases'}.</span>{' '}
+            {purchaseCopy}
+          </p>
+        </div>
+        <CodeSnippet
+          code={purchaseSnippet}
+          label="Recommended"
+          sublabel={`Paste on your ${isCons ? 'consultation' : 'purchase'} thank-you page`}
+          accent="green"
+        />
+        {!hasThankYouUrl && (
+          <p className="text-[10px] text-zinc-600 leading-relaxed pt-1">
+            💡 No thank-you page? Add a {isCons ? 'Consultation Thank You URL' : 'Purchase Thank You URL'} above to confirm where to install this pixel. Until then, you can paste it on whichever confirmation page your payment processor shows.
+          </p>
+        )}
+      </PixelPanel>
     </div>
   );
 };
@@ -390,14 +442,6 @@ export default function CampaignDetail() {
 
   const inputClass = "w-full bg-zinc-950 border border-zinc-800 rounded-xl p-3 text-[11px] font-mono text-zinc-400 outline-none focus:border-red-600 transition-all";
 
-  // Derived tracking state
-  const trackingLevel = getTrackingLevel(formData);
-  const trackingMeta = TRACKING_META[trackingLevel];
-
-  // Pixel snippets
-  const checkoutSnippet = getCheckoutPixelSnippet(id);
-  const purchaseSnippet = getPurchasePixelSnippet(id, formData.offer_price);
-
   if (loading) {
     return (
       <div className="flex items-center justify-center min-h-[60vh]">
@@ -450,48 +494,6 @@ export default function CampaignDetail() {
         </div>
       )}
 
-      {/* Tracking Status Banner */}
-      <div className={`flex items-start gap-4 p-5 rounded-2xl border ${trackingMeta.bg} ${trackingMeta.border}`}>
-        <div className="flex-1 space-y-2">
-          <div className="flex items-center gap-3">
-            <span className="text-base leading-none">{trackingMeta.icon}</span>
-            <span className={`text-[11px] font-black uppercase tracking-widest ${trackingMeta.color}`}>{trackingMeta.label}</span>
-          </div>
-          <p className="text-[11px] text-zinc-500 leading-relaxed">{trackingMeta.description}</p>
-
-          {/* Funnel stage pills */}
-          <div className="flex items-center gap-2 pt-1 flex-wrap">
-            {[
-              { key: 'click', label: 'Click Tracking', always: true },
-              { key: 'intent', label: 'Intent Tracking', always: false },
-              { key: 'purchase', label: 'Purchase Tracking', always: false },
-            ].map(stage => {
-              const levels: TrackingLevel[] = ['click', 'intent', 'purchase', 'full'];
-              const stageIndex = stage.key === 'click' ? 0 : stage.key === 'intent' ? 1 : 2;
-              const currentIndex = levels.indexOf(trackingLevel);
-              // click = always active; intent = active if level is intent or full; purchase = active if level is purchase or full
-              const active = stage.key === 'click'
-                ? true
-                : stage.key === 'intent'
-                  ? trackingLevel === 'intent' || trackingLevel === 'full'
-                  : trackingLevel === 'purchase' || trackingLevel === 'full';
-              return (
-                <span
-                  key={stage.key}
-                  className={`text-[9px] font-black uppercase tracking-widest px-2.5 py-1 rounded-full border transition-all ${
-                    active
-                      ? 'bg-zinc-700 border-zinc-600 text-zinc-200'
-                      : 'bg-transparent border-zinc-800 text-zinc-600'
-                  }`}
-                >
-                  {active ? '✓' : '○'} {stage.label}
-                </span>
-              );
-            })}
-          </div>
-        </div>
-      </div>
-
       {/* Post-save missing fields notice */}
       <AnimatePresence>
         {success && missingAfterSave.length > 0 && (
@@ -504,7 +506,7 @@ export default function CampaignDetail() {
             <AlertTriangle size={16} className="text-orange-500 shrink-0 mt-0.5" />
             <div className="space-y-2">
               <p className="text-[11px] font-bold text-orange-400 uppercase tracking-widest">Campaign saved — a few things worth adding</p>
-              <p className="text-[11px] text-zinc-500">Your current tracking level is <span className={`font-bold ${trackingMeta.color}`}>{trackingMeta.label}</span>. Fill these in to unlock deeper visibility:</p>
+              <p className="text-[11px] text-zinc-500">Fill these in to unlock deeper funnel visibility:</p>
               <ul className="space-y-1 mt-2">
                 {missingAfterSave.map((m, i) => (
                   <li key={i} className="text-[11px] text-orange-300 flex items-start gap-2">
@@ -588,81 +590,17 @@ export default function CampaignDetail() {
                   <input type="url" value={formData.purchase_thankyou_url || ''} onChange={e => setFormData({ ...formData, purchase_thankyou_url: e.target.value })} className={inputClass} />
                 </div>
               </div>
-            </div>
-          </div>
-        </section>
 
-        {/* Pixel Installation */}
-        <section className="bento-card p-8">
-          <div className="flex items-center gap-4 mb-2">
-            <Receipt className="text-violet-400" size={24} />
-            <h2 className="text-lg font-black text-white uppercase tracking-tight">Pixel Installation</h2>
-          </div>
-          <p className="text-[11px] text-zinc-500 mb-6 leading-relaxed">
-            Install these snippets on your funnel pages to unlock deeper tracking. Each pixel fires a single background request — no page-load impact.
-          </p>
-
-          <div className="space-y-3">
-            {/* Checkout Intent Pixel */}
-            <PixelPanel
-              title="Checkout Pixel"
-              icon={ShoppingCart}
-              iconColor="text-amber-400"
-              defaultOpen={!formData.purchase_thankyou_url && !formData.uses_stripe}
-            >
-              <div className="flex items-start gap-2 p-3 bg-amber-500/5 border border-amber-500/20 rounded-lg mb-3">
-                <AlertTriangle size={12} className="text-amber-400 shrink-0 mt-0.5" />
-                <p className="text-[10px] text-amber-300/80 leading-relaxed">
-                  <span className="font-bold">Intent tracking only.</span> This pixel records that a visitor reached your checkout page. It does <span className="font-bold">not</span> confirm that payment was completed.
-                </p>
-              </div>
-              {formData.checkout_url ? (
-                <CodeSnippet
-                  code={checkoutSnippet}
-                  label="Optional"
-                  sublabel="Paste on your checkout page"
-                  accent="amber"
-                />
-              ) : (
-                <div className="p-3 bg-zinc-900 border border-zinc-800 rounded-lg text-[10px] text-zinc-500">
-                  Add a Checkout URL above to generate this snippet.
-                </div>
-              )}
-            </PixelPanel>
-
-            {/* Purchase / Thank-you Pixel */}
-            <PixelPanel
-              title="Thank You Page Pixel"
-              icon={CheckCircle2}
-              iconColor="text-green-400"
-              defaultOpen={!formData.purchase_thankyou_url && !formData.uses_stripe}
-            >
-              <div className="flex items-start gap-2 p-3 bg-green-500/5 border border-green-500/20 rounded-lg mb-3">
-                <CheckCircle2 size={12} className="text-green-400 shrink-0 mt-0.5" />
-                <p className="text-[10px] text-green-300/80 leading-relaxed">
-                  <span className="font-bold">Confirms completed purchases.</span> Install this pixel on the page shown only after a successful payment. This is what drives revenue figures in your dashboard.
-                </p>
-              </div>
-
-              {formData.uses_stripe ? (
-                <div className="p-3 bg-violet-500/10 border border-violet-500/20 rounded-lg text-[10px] text-violet-300">
-                  ✅ <span className="font-bold">Stripe webhook active</span> — confirmed purchases are tracked automatically. You don't need this pixel unless you want redundant tracking.
-                </div>
-              ) : null}
-
-              <CodeSnippet
-                code={purchaseSnippet}
-                label="Recommended"
-                sublabel="Tracks confirmed completed purchases"
-                accent="green"
+              {/* Contextual pixel installation — only for non-Stripe-Direct funnels */}
+              <FunnelPixels
+                campaignId={id}
+                isStripeDirect={formData.checkout_type === 'stripe_direct'}
+                hasThankYouUrl={!!formData.purchase_thankyou_url}
+                hasCheckoutUrl={!!formData.checkout_url}
+                amount={formData.offer_price ?? 0}
+                funnelLabel="purchase"
               />
-
-              {!formData.purchase_thankyou_url && !formData.uses_stripe && (
-                <p className="text-[10px] text-zinc-600 leading-relaxed pt-1">
-                  💡 No thank you page? You can still install the <span className="text-amber-400 font-bold">Checkout Pixel</span> above for intent tracking, and upgrade to purchase tracking later when you add a thank you page or connect Stripe.
-                </p>
-              )}
-            </PixelPanel>
+            </div>
           </div>
         </section>
 
@@ -812,6 +750,16 @@ export default function CampaignDetail() {
                     💡 If payment is embedded in your booking page (e.g. Payhip, TidyCal), skip the Checkout URL. Revenue tracking via the Thank You page pixel still works — you'll just have one less funnel step to analyze.
                   </p>
                 </div>
+
+                {/* Contextual pixel installation — scoped to consultation funnel */}
+                <FunnelPixels
+                  campaignId={id}
+                  isStripeDirect={formData.consultation_checkout_type === 'stripe_direct'}
+                  hasThankYouUrl={!!formData.consultation_thankyou_url}
+                  hasCheckoutUrl={!!formData.paid_consultation_checkout_url}
+                  amount={formData.consultation_fee ?? 0}
+                  funnelLabel="consultation"
+                />
               </div>
             )}
           </section>
