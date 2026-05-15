@@ -8,38 +8,11 @@ import {
   Loader2, AlertCircle, 
   CheckCircle2, Globe, Magnet, 
   Phone, DollarSign, MousePointer2,
-  CreditCard, AlertTriangle, ShoppingCart, ChevronDown, ChevronUp, Copy, Check
+  CreditCard, AlertTriangle
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 
-// ---------------------------------------------------------------------------
-// Pixel snippet generators
-// ---------------------------------------------------------------------------
-
-function buildPixelSnippet(campaignId: string | undefined, eventType: string, amount: number): string {
-  const idParam = `campaign_id: '${campaignId ?? 'YOUR_CAMPAIGN_ID'}'`;
-  const pageLabel = eventType === 'checkout_intent' ? 'CHECKOUT' : 'THANK YOU';
-  const intentNote = eventType === 'checkout_intent'
-    ? '\n<!-- Tracks checkout intent only. Does NOT confirm payment. -->'
-    : '\n<!-- Tracks confirmed completed purchases. -->';
-  return `<!-- Pixel — paste on your ${pageLabel} page -->${intentNote}
-<script>
-  fetch('https://your-app.vercel.app/api/pixel', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      ${idParam},
-      event_type: '${eventType}',
-      amount: ${amount}
-    })
-  });
-</script>`;
-}
-
-// ---------------------------------------------------------------------------
-// Reusable components
-// ---------------------------------------------------------------------------
-
+// Reusable Stripe toggle component
 const StripeToggle = ({ value, onChange }: { value: boolean; onChange: (v: boolean) => void }) => (
   <div className="space-y-2">
     <div className="flex items-center justify-between p-3 bg-zinc-950/60 border border-zinc-800 rounded-xl">
@@ -63,230 +36,18 @@ const StripeToggle = ({ value, onChange }: { value: boolean; onChange: (v: boole
   </div>
 );
 
-// Copy-to-clipboard code block
-const CodeSnippet = ({ code, label, sublabel, accent }: { code: string; label: string; sublabel: string; accent: 'amber' | 'green' }) => {
-  const [copied, setCopied] = useState(false);
-
-  const copy = () => {
-    navigator.clipboard.writeText(code).then(() => {
-      setCopied(true);
-      setTimeout(() => setCopied(false), 2000);
-    });
-  };
-
-  const accentClasses = accent === 'amber'
-    ? { badge: 'bg-amber-500/15 text-amber-400 border-amber-500/30', btn: 'bg-amber-600 hover:bg-amber-700', border: 'border-amber-500/20' }
-    : { badge: 'bg-green-500/15 text-green-400 border-green-500/30', btn: 'bg-green-700 hover:bg-green-800', border: 'border-green-500/20' };
-
-  return (
-    <div className={`rounded-xl border ${accentClasses.border} bg-zinc-950 overflow-hidden`}>
-      <div className="flex items-center justify-between px-4 py-2.5 border-b border-zinc-800/80">
-        <div className="flex items-center gap-3">
-          <span className={`text-[9px] font-black uppercase tracking-widest px-2 py-0.5 rounded-full border ${accentClasses.badge}`}>{label}</span>
-          <span className="text-[10px] text-zinc-500">{sublabel}</span>
-        </div>
-        <button
-          type="button"
-          onClick={copy}
-          className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-white text-[10px] font-bold transition-all ${accentClasses.btn}`}
-        >
-          {copied ? <Check size={11} /> : <Copy size={11} />}
-          {copied ? 'Copied!' : 'Copy'}
-        </button>
-      </div>
-      <pre className="p-4 text-[10px] font-mono text-zinc-400 overflow-x-auto leading-relaxed whitespace-pre-wrap break-all">
-        {code}
-      </pre>
-    </div>
-  );
-};
-
-// Collapsible pixel panel
-const PixelPanel = ({
-  title,
-  icon: Icon,
-  iconColor,
-  defaultOpen,
-  children,
-}: {
-  title: string;
-  icon: React.ElementType;
-  iconColor: string;
-  defaultOpen?: boolean;
-  children: React.ReactNode;
-}) => {
-  const [open, setOpen] = useState(defaultOpen ?? false);
-  return (
-    <div className="border border-zinc-800 rounded-xl overflow-hidden">
-      <button
-        type="button"
-        onClick={() => setOpen(o => !o)}
-        className="w-full flex items-center justify-between px-4 py-3 bg-zinc-900/60 hover:bg-zinc-900 transition-colors"
-      >
-        <div className="flex items-center gap-2.5">
-          <Icon size={14} className={iconColor} />
-          <span className="text-[11px] font-bold text-zinc-300">{title}</span>
-        </div>
-        {open ? <ChevronUp size={14} className="text-zinc-500" /> : <ChevronDown size={14} className="text-zinc-500" />}
-      </button>
-      <AnimatePresence initial={false}>
-        {open && (
-          <motion.div
-            initial={{ height: 0, opacity: 0 }}
-            animate={{ height: 'auto', opacity: 1 }}
-            exit={{ height: 0, opacity: 0 }}
-            transition={{ duration: 0.2 }}
-            className="overflow-hidden"
-          >
-            <div className="p-4 space-y-3 border-t border-zinc-800/60">
-              {children}
-            </div>
-          </motion.div>
-        )}
-      </AnimatePresence>
-    </div>
-  );
-};
-
-// ---------------------------------------------------------------------------
-// FunnelPixels — contextual pixel installation block, used inside funnel sections
-// Props:
-//   campaignId       — used to generate snippet
-//   isStripeDirect   — when true, show Stripe webhook note only; hide all pixels
-//   hasThankYouUrl   — whether user has a thank-you URL configured
-//   hasCheckoutUrl   — whether user has a checkout URL configured (only relevant for intent pixel)
-//   amount           — the offer/fee price for the purchase pixel
-//   funnelLabel      — e.g. "purchase" | "consultation" (affects copy)
-// ---------------------------------------------------------------------------
-
-type FunnelLabel = 'purchase' | 'consultation';
-
-const FunnelPixels = ({
-  campaignId,
-  isStripeDirect,
-  hasThankYouUrl,
-  hasCheckoutUrl,
-  amount,
-  funnelLabel,
-}: {
-  campaignId: string | undefined;
-  isStripeDirect: boolean;
-  hasThankYouUrl: boolean;
-  hasCheckoutUrl: boolean;
-  amount: number;
-  funnelLabel: FunnelLabel;
-}) => {
-  const isCons = funnelLabel === 'consultation';
-  const intentSnippet = buildPixelSnippet(campaignId, 'checkout_intent', 0);
-  const purchaseSnippet = buildPixelSnippet(campaignId, 'purchase', amount);
-
-  if (isStripeDirect) {
-    return (
-      <div className="mt-4 p-3 bg-violet-500/10 border border-violet-500/20 rounded-xl">
-        <p className="text-[10px] text-violet-300 leading-relaxed">
-          ✅ <span className="font-bold">Stripe Direct checkout selected.</span> Confirmed{isCons ? ' consultation' : ''} revenue is tracked automatically via webhook. No pixel installation required.
-        </p>
-      </div>
-    );
-  }
-
-  const intentCopy = hasThankYouUrl
-    ? `Optional mid-funnel signal. Tracks that a visitor reached ${isCons ? 'the consultation checkout' : 'checkout'} — does not confirm payment. Since you already have a thank-you page pixel, this adds intent-stage visibility on top.`
-    : `Your only available conversion signal right now. Since you don't have a thank-you page, this pixel is the closest proxy for ${isCons ? 'consultation interest' : 'purchase intent'}. It does not confirm payment.`;
-
-  const purchaseCopy = hasCheckoutUrl
-    ? `Tracks confirmed completed ${isCons ? 'consultation payments' : 'purchases'}. Install this on your thank-you page alongside the optional checkout pixel above for full funnel visibility.`
-    : `Tracks confirmed completed ${isCons ? 'consultation payments' : 'purchases'}. Install this on your thank-you page. If you don't have a separate checkout page, this pixel alone is sufficient for ${isCons ? 'consultation' : 'purchase'} tracking.`;
-
-  return (
-    <div className="mt-6 space-y-3 pt-5 border-t border-zinc-800/60">
-      <p className="text-[9px] font-black uppercase tracking-widest text-zinc-600 mb-1">Pixel Installation</p>
-
-      {/* Checkout Intent Pixel */}
-      {hasCheckoutUrl && (
-        <PixelPanel
-          title="Checkout Intent Pixel"
-          icon={ShoppingCart}
-          iconColor="text-amber-400"
-          defaultOpen={!hasThankYouUrl}
-        >
-          <div className="flex items-start gap-2 p-3 bg-amber-500/5 border border-amber-500/20 rounded-lg">
-            <AlertTriangle size={12} className="text-amber-400 shrink-0 mt-0.5" />
-            <p className="text-[10px] text-amber-300/80 leading-relaxed">
-              <span className="font-bold">Checkout intent only — does not confirm payment.</span>{' '}
-              {intentCopy}
-            </p>
-          </div>
-          <CodeSnippet
-            code={intentSnippet}
-            label="Optional"
-            sublabel="Paste on your checkout page"
-            accent="amber"
-          />
-        </PixelPanel>
-      )}
-
-      {/* No checkout URL hint */}
-      {!hasCheckoutUrl && !hasThankYouUrl && (
-        <div className="p-3 bg-zinc-900/60 border border-zinc-800 rounded-xl">
-          <p className="text-[10px] text-zinc-500 leading-relaxed">
-            💡 Add a Checkout URL above to unlock an optional intent-tracking pixel. Even without it, the thank-you pixel below is sufficient for confirmed {isCons ? 'consultation' : 'purchase'} tracking.
-          </p>
-        </div>
-      )}
-
-      {/* Thank You / Purchase Pixel */}
-      <PixelPanel
-        title={isCons ? 'Consultation Thank You Pixel' : 'Purchase Thank You Pixel'}
-        icon={CheckCircle2}
-        iconColor="text-green-400"
-        defaultOpen={!hasThankYouUrl}
-      >
-        <div className="flex items-start gap-2 p-3 bg-green-500/5 border border-green-500/20 rounded-lg">
-          <CheckCircle2 size={12} className="text-green-400 shrink-0 mt-0.5" />
-          <p className="text-[10px] text-green-300/80 leading-relaxed">
-            <span className="font-bold">Confirms completed {isCons ? 'consultation payments' : 'purchases'}.</span>{' '}
-            {purchaseCopy}
-          </p>
-        </div>
-        <CodeSnippet
-          code={purchaseSnippet}
-          label="Recommended"
-          sublabel={`Paste on your ${isCons ? 'consultation' : 'purchase'} thank-you page`}
-          accent="green"
-        />
-        {!hasThankYouUrl && (
-          <p className="text-[10px] text-zinc-600 leading-relaxed pt-1">
-            💡 No thank-you page? Add a {isCons ? 'Consultation Thank You URL' : 'Purchase Thank You URL'} above to confirm where to install this pixel. Until then, you can paste it on whichever confirmation page your payment processor shows.
-          </p>
-        )}
-      </PixelPanel>
-    </div>
-  );
-};
-
-// ---------------------------------------------------------------------------
-// getMissingFields — purchase URL now only advisory, not a blocker
-// ---------------------------------------------------------------------------
-
+// Get list of missing URLs for a campaign
 const getMissingFields = (f: Partial<Campaign>): string[] => {
   const missing: string[] = [];
+  if (!f.purchase_thankyou_url) missing.push('Purchase Thank You URL — needed for pixel tracking of confirmed purchases');
   if (!f.checkout_url) missing.push('Checkout URL — needed to generate your checkout tracking link');
   if (f.newsletter_url && !f.newsletter_thankyou_url) missing.push('Newsletter Thank You URL — needed to track newsletter signups');
   if (f.has_sales_call && !f.sales_call_booking_url) missing.push('Sales Call Booking URL');
   if (f.has_sales_call && !f.sales_call_thankyou_url) missing.push('Sales Call Thank You URL — needed to track booked calls');
   if (f.has_paid_consultation && !f.consultation_booking_url) missing.push('Consultation Booking URL');
   if (f.has_paid_consultation && !f.consultation_thankyou_url) missing.push('Consultation Thank You URL — needed to track confirmed consultations');
-  // Advisory — not a hard blocker
-  if (!f.purchase_thankyou_url && !f.uses_stripe) {
-    missing.push('Purchase Thank You URL (or Stripe webhook) — recommended for confirmed purchase tracking');
-  }
   return missing;
 };
-
-// ---------------------------------------------------------------------------
-// Main component
-// ---------------------------------------------------------------------------
 
 export default function CampaignDetail() {
   const { id } = useParams();
@@ -411,6 +172,7 @@ export default function CampaignDetail() {
         console.error('Lead Magnet Sync Error:', err);
       }
 
+      // Show missing fields notice after save
       const missing = getMissingFields(formData);
       setMissingAfterSave(missing);
       setSuccess(true);
@@ -505,8 +267,8 @@ export default function CampaignDetail() {
           >
             <AlertTriangle size={16} className="text-orange-500 shrink-0 mt-0.5" />
             <div className="space-y-2">
-              <p className="text-[11px] font-bold text-orange-400 uppercase tracking-widest">Campaign saved — a few things worth adding</p>
-              <p className="text-[11px] text-zinc-500">Fill these in to unlock deeper funnel visibility:</p>
+              <p className="text-[11px] font-bold text-orange-400 uppercase tracking-widest">Campaign saved — but some URLs are missing</p>
+              <p className="text-[11px] text-zinc-500">Tracking still works, but you'll get more accurate data by filling these in:</p>
               <ul className="space-y-1 mt-2">
                 {missingAfterSave.map((m, i) => (
                   <li key={i} className="text-[11px] text-orange-300 flex items-start gap-2">
@@ -514,7 +276,7 @@ export default function CampaignDetail() {
                   </li>
                 ))}
               </ul>
-              <p className="text-[10px] text-zinc-600 mt-2">The more funnel stages you track, the better you understand what's driving revenue.</p>
+              <p className="text-[10px] text-zinc-600 mt-2">The more data points you track, the better you can understand what's driving your business.</p>
             </div>
           </motion.div>
         )}
@@ -559,47 +321,22 @@ export default function CampaignDetail() {
                   <label className="text-[9px] font-bold text-zinc-600 uppercase mb-1 block">Landing Page URL</label>
                   <input type="url" value={formData.landing_page_url || ''} onChange={e => setFormData({ ...formData, landing_page_url: e.target.value })} className={inputClass} />
                 </div>
-
-                {/* Checkout URL + optional intent pixel */}
                 <div>
                   <label className="text-[9px] font-bold text-zinc-600 uppercase mb-1 block">Checkout URL</label>
-                  <input
-                    type="url"
-                    value={formData.checkout_url || ''}
-                    onChange={e => setFormData({ ...formData, checkout_url: e.target.value })}
-                    className={inputClass}
-                  />
+                  <input type="url" value={formData.checkout_url || ''} onChange={e => setFormData({ ...formData, checkout_url: e.target.value })} className={inputClass} />
                 </div>
-
                 <StripeToggle
                   value={formData.uses_stripe ?? false}
                   onChange={v => setFormData({ ...formData, uses_stripe: v })}
                 />
-
-                {/* Purchase Thank You URL */}
                 <div>
-                  <label className="text-[9px] font-bold text-zinc-600 uppercase mb-1 flex items-center gap-2">
-                    <span>Purchase Thank You URL</span>
-                    {!formData.purchase_thankyou_url && !formData.uses_stripe && (
-                      <span className="text-amber-500 normal-case font-normal">⚠ recommended for purchase tracking</span>
-                    )}
-                    {(formData.purchase_thankyou_url || formData.uses_stripe) && (
-                      <span className="text-green-500 normal-case font-normal">✓ purchase tracking active</span>
-                    )}
+                  <label className="text-[9px] font-bold text-zinc-600 uppercase mb-1 block">
+                    Purchase Thank You URL
+                    {!formData.purchase_thankyou_url && <span className="ml-2 text-orange-500">⚠ needed for pixel tracking</span>}
                   </label>
                   <input type="url" value={formData.purchase_thankyou_url || ''} onChange={e => setFormData({ ...formData, purchase_thankyou_url: e.target.value })} className={inputClass} />
                 </div>
               </div>
-
-              {/* Contextual pixel installation — only for non-Stripe-Direct funnels */}
-              <FunnelPixels
-                campaignId={id}
-                isStripeDirect={formData.checkout_type === 'stripe_direct'}
-                hasThankYouUrl={!!formData.purchase_thankyou_url}
-                hasCheckoutUrl={!!formData.checkout_url}
-                amount={formData.offer_price ?? 0}
-                funnelLabel="purchase"
-              />
             </div>
           </div>
         </section>
@@ -750,16 +487,6 @@ export default function CampaignDetail() {
                     💡 If payment is embedded in your booking page (e.g. Payhip, TidyCal), skip the Checkout URL. Revenue tracking via the Thank You page pixel still works — you'll just have one less funnel step to analyze.
                   </p>
                 </div>
-
-                {/* Contextual pixel installation — scoped to consultation funnel */}
-                <FunnelPixels
-                  campaignId={id}
-                  isStripeDirect={formData.consultation_checkout_type === 'stripe_direct'}
-                  hasThankYouUrl={!!formData.consultation_thankyou_url}
-                  hasCheckoutUrl={!!formData.paid_consultation_checkout_url}
-                  amount={formData.consultation_fee ?? 0}
-                  funnelLabel="consultation"
-                />
               </div>
             )}
           </section>
