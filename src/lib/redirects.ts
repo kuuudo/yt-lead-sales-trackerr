@@ -107,7 +107,9 @@ export const logRedirectEvent = async (link: RedirectLink) => {
 
     if (sessionError || !session) return;
     sessionId = session.id;
-    localStorage.setItem(sessionKey, sessionId);
+    if (sessionId) {
+  localStorage.setItem(sessionKey, sessionId);
+}
   }
 
   await supabase.from('events').insert({
