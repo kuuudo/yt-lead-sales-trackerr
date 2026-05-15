@@ -1,25 +1,35 @@
+import type { VercelRequest, VercelResponse } from '@vercel/node';
 import Stripe from 'stripe';
 import { createClient } from '@supabase/supabase-js';
-import { NextResponse } from 'next/server';
 
 const supabase = createClient(
   process.env.SUPABASE_URL!,
   process.env.SUPABASE_SERVICE_KEY!
 );
 
-// App Router: no `export const config` needed — raw body is available via request.arrayBuffer()
+export const config = {
+  api: { bodyParser: false },
+};
 
-export async function POST(request: Request) {
-  const sig = request.headers.get('stripe-signature');
-  if (!sig) {
-    return NextResponse.json({ error: 'Missing stripe-signature header' }, { status: 400 });
+const getRawBody = (req: VercelRequest): Promise<Buffer> =>
+  new Promise((resolve, reject) => {
+    const chunks: Buffer[] = [];
+    req.on('data', (chunk: Buffer) => chunks.push(chunk));
+    req.on('end', () => resolve(Buffer.concat(chunks)));
+    req.on('error', reject);
+  });
+
+export default async function handler(req: VercelRequest, res: VercelResponse) {
+  if (req.method !== 'POST') {
+    return res.status(405).json({ error: 'Method not allowed' });
   }
 
-  // Read raw body as ArrayBuffer → Buffer (required for Stripe signature verification)
-  const rawBodyBuffer = await request.arrayBuffer();
-  const rawBody = Buffer.from(rawBodyBuffer);
+  const sig = req.headers['stripe-signature'];
+  if (!sig) return res.status(400).json({ error: 'Missing stripe-signature header' });
 
-  // Peek at the payload to extract client_reference_id (the token)
+  const rawBody = await getRawBody(req);
+
+  // Peek at payload to extract client_reference_id (token)
   // so we can look up the right user's webhook secret.
   let tokenFromPayload: string | null = null;
   try {
@@ -27,10 +37,10 @@ export async function POST(request: Request) {
     const session = peeked?.data?.object;
     tokenFromPayload = session?.client_reference_id ?? null;
   } catch {
-    // If we can't parse, fall through to the fallback secret
+    // fall through to platform secret
   }
 
-  // Look up the user's webhook secret via token → redirect_links → campaigns → user
+  // Look up user's webhook secret via token → redirect_links → campaigns → stripe_configs
   let webhookSecret: string | null = null;
   let resolvedUserId: string | null = null;
 
@@ -62,38 +72,38 @@ export async function POST(request: Request) {
     }
   }
 
-  // Fall back to the platform-level secret (for your own account / testing)
+  // Fall back to platform-level secret
   if (!webhookSecret) {
     webhookSecret = process.env.STRIPE_WEBHOOK_SECRET!;
   }
 
-  // Now verify the webhook signature with the correct secret
+  // Verify webhook signature
   let event: Stripe.Event;
   try {
     const stripe = new Stripe(process.env.STRIPE_SECRET_KEY!, {
-      apiVersion: '2026-04-22.dahlia',
+      apiVersion: '2025-04-30.basil',
     });
     event = stripe.webhooks.constructEvent(rawBody, sig, webhookSecret);
   } catch (err: any) {
-    console.error('Webhook signature verification failed:', err.message);
-    return NextResponse.json({ error: `Webhook error: ${err.message}` }, { status: 400 });
+    console.error('[stripe-webhook] Signature verification failed:', err.message);
+    return res.status(400).json({ error: `Webhook error: ${err.message}` });
   }
 
   console.log(`[stripe-webhook] Received event: ${event.type}`);
 
   if (event.type !== 'checkout.session.completed') {
-    return NextResponse.json({ received: true });
+    return res.status(200).json({ received: true });
   }
 
   const session = event.data.object as Stripe.Checkout.Session;
   const token = session.client_reference_id;
 
   if (!token) {
-    console.log('[stripe-webhook] No client_reference_id on session — skipping');
-    return NextResponse.json({ received: true });
+    console.log('[stripe-webhook] No client_reference_id — skipping');
+    return res.status(200).json({ received: true });
   }
 
-  // Look up the redirect link to get video_id and campaign_id
+  // Look up redirect link
   const { data: link, error: linkError } = await supabase
     .from('redirect_links')
     .select('video_id, campaign_id')
@@ -101,11 +111,11 @@ export async function POST(request: Request) {
     .single();
 
   if (linkError || !link) {
-    console.error('[stripe-webhook] Could not find redirect link for token:', token);
-    return NextResponse.json({ received: true });
+    console.error('[stripe-webhook] No redirect link for token:', token);
+    return res.status(200).json({ received: true });
   }
 
-  // Check for duplicate (Stripe can fire webhooks more than once)
+  // Deduplicate
   const { data: existing } = await supabase
     .from('stripe_purchases')
     .select('id')
@@ -113,11 +123,11 @@ export async function POST(request: Request) {
     .single();
 
   if (existing) {
-    console.log('[stripe-webhook] Duplicate webhook — already recorded:', session.id);
-    return NextResponse.json({ received: true });
+    console.log('[stripe-webhook] Duplicate — already recorded:', session.id);
+    return res.status(200).json({ received: true });
   }
 
-  // Write confirmed purchase to stripe_purchases
+  // Insert purchase
   const { error: insertError } = await supabase.from('stripe_purchases').insert({
     stripe_session_id: session.id,
     token,
@@ -130,10 +140,10 @@ export async function POST(request: Request) {
   });
 
   if (insertError) {
-    console.error('[stripe-webhook] Failed to insert stripe_purchase:', insertError);
-    return NextResponse.json({ error: 'Database insert failed' }, { status: 500 });
+    console.error('[stripe-webhook] Insert failed:', insertError);
+    return res.status(500).json({ error: 'Database insert failed' });
   }
 
-  console.log(`[stripe-webhook] ✅ Purchase recorded — token: ${token}, user: ${resolvedUserId}, amount: ${session.amount_total}`);
-  return NextResponse.json({ received: true });
+  console.log(`[stripe-webhook] ✅ Recorded — token: ${token}, user: ${resolvedUserId}, amount: ${session.amount_total}`);
+  return res.status(200).json({ received: true });
 }
