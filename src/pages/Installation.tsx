@@ -393,6 +393,11 @@ const CheckoutTypeSelector = ({
 // STRIPE SETUP BLOCK
 // ─────────────────────────────────────────────
 
+const generateToken = (): string => {
+  const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789';
+  return Array.from({ length: 4 }, () => chars[Math.floor(Math.random() * chars.length)]).join('');
+};
+
 const StripeSetupBlock = ({
   userId,
   stripeConfig,
@@ -415,23 +420,52 @@ const StripeSetupBlock = ({
   const webhookEndpoint = 'https://vstrk.com/api/stripe-webhook';
   const isConnected = !!(stripeConfig?.stripe_webhook_secret);
 
+  // On mount (and when checkoutUrl/campaignId changes):
+  // 1. Look up existing redirect link for this campaign + linkType
+  // 2. If none exists → create one with a new token
+  // 3. If exists but destination_url changed → update destination_url, keep same token
+  // 4. If exists and matches → just display it
   useEffect(() => {
-    if (!campaignId || !checkoutUrl) return;
+    if (!checkoutUrl || !campaignId) return;
     const dbLinkType = linkType === 'consultation' ? 'consultation' : 'checkout';
-    supabase
-      .from('redirect_links')
-      .select('token')
-      .eq('campaign_id', campaignId)
-      .eq('link_type', dbLinkType)
-      .order('created_at', { ascending: false })
-      .limit(1)
-      .single()
-      .then(({ data }) => {
-        if (data?.token) setTrackedUrl(`${window.location.origin}/${data.token}`);
-      });
-  }, [campaignId, checkoutUrl, linkType]);
 
-  const displayUrl = trackedUrl ?? checkoutUrl;
+    const syncTrackedLink = async () => {
+      const { data: existing } = await supabase
+        .from('redirect_links')
+        .select('token, destination_url')
+        .eq('campaign_id', campaignId)
+        .eq('link_type', dbLinkType)
+        .order('created_at', { ascending: false })
+        .limit(1)
+        .single();
+
+      if (!existing) {
+        // No link yet — create one
+        const token = generateToken();
+        const { error } = await supabase.from('redirect_links').insert({
+          token,
+          campaign_id: campaignId,
+          link_type: dbLinkType,
+          destination_url: checkoutUrl,
+          video_id: null,
+        });
+        if (!error) setTrackedUrl(`${window.location.origin}/${token}`);
+      } else if (existing.destination_url !== checkoutUrl) {
+        // URL changed — update destination, keep token
+        await supabase
+          .from('redirect_links')
+          .update({ destination_url: checkoutUrl })
+          .eq('campaign_id', campaignId)
+          .eq('link_type', dbLinkType);
+        setTrackedUrl(`${window.location.origin}/${existing.token}`);
+      } else {
+        // Already in sync — just display
+        setTrackedUrl(`${window.location.origin}/${existing.token}`);
+      }
+    };
+
+    syncTrackedLink();
+  }, [campaignId, checkoutUrl, linkType]);
 
   const handleSave = async () => {
     if (!webhookSecret.trim()) return;
@@ -460,7 +494,7 @@ const StripeSetupBlock = ({
         }
       </div>
 
-      {/* Step 1 - Checkout URL */}
+      {/* Step 1 - Tracked Checkout URL */}
       {checkoutUrl && (
         <div className="space-y-2 pt-2 border-t border-violet-500/10">
           <div className="flex items-center gap-2">
@@ -468,14 +502,18 @@ const StripeSetupBlock = ({
             <p className="text-[11px] font-bold text-white uppercase tracking-wide">Your Checkout URL</p>
           </div>
           <p className="text-[11px] text-zinc-500 pl-7 leading-relaxed">
-            {trackedUrl
-              ? <>This is your <span className="text-violet-400 font-bold">tracked</span> checkout link. Use this as your "Buy Now" button — it routes through V-Track so purchases are attributed to the correct video.</>
-              : <>This is the URL customers visit to purchase. Add a video in <span className="text-zinc-300 font-bold">Videos</span> to generate a tracked link.</>
-            }
+            This is your tracked checkout link. Use this as your "Buy Now" button — it routes through V-Track so purchases are attributed to the correct video.
           </p>
           <div className="flex gap-2 pl-7">
-            <div className="flex-1 bg-zinc-950 border border-zinc-800 rounded-xl px-3 py-2.5 font-mono text-[11px] text-zinc-400 break-all">{displayUrl}</div>
-            {displayUrl && <CopyButton text={displayUrl} />}
+            {trackedUrl
+              ? <>
+                  <div className="flex-1 bg-zinc-950 border border-zinc-800 rounded-xl px-3 py-2.5 font-mono text-[11px] text-zinc-400 break-all">{trackedUrl}</div>
+                  <CopyButton text={trackedUrl} />
+                </>
+              : <div className="flex-1 bg-zinc-950 border border-zinc-800 rounded-xl px-3 py-2.5 font-mono text-[11px] text-zinc-600 break-all flex items-center gap-2">
+                  <Loader2 size={11} className="animate-spin shrink-0" /> Generating tracked link…
+                </div>
+            }
           </div>
         </div>
       )}
