@@ -358,7 +358,40 @@ export default function Videos() {
             );
           }
         }
+// When editing, update destination_urls for existing redirect links
+if (editingVideoId && campaign) {
+  const urlUpdates: Array<[string, string]> = [
+    ['landing_page', campaign.landing_page_url],
+  ];
 
+  if (campaign.checkout_url)
+    urlUpdates.push(['checkout', campaign.checkout_url]);
+
+  if (campaign.newsletter_url)
+    urlUpdates.push(['newsletter', campaign.newsletter_url]);
+
+  if (campaign.purchase_thankyou_url)
+    urlUpdates.push(['purchase_thankyou', campaign.purchase_thankyou_url]);
+
+  if (campaign.newsletter_thankyou_url)
+    urlUpdates.push(['newsletter_thankyou', campaign.newsletter_thankyou_url]);
+
+  if (campaign.sales_call_booking_url)
+    urlUpdates.push(['sales_call', campaign.sales_call_booking_url]);
+
+  if (campaign.consultation_booking_url)
+    urlUpdates.push(['consultation', campaign.consultation_booking_url]);
+
+  await Promise.all(
+    urlUpdates.map(([type, url]) =>
+      supabase
+        .from('redirect_links')
+        .update({ destination_url: url })
+        .eq('video_id', editingVideoId)
+        .eq('link_type', type)
+    )
+  );
+}
         // Fetch all generated links to display
         const { data: allLinks } = await supabase
           .from('redirect_links')
