@@ -23,10 +23,13 @@ interface StripeConfig {
   stripe_webhook_secret: string | null;
 }
 
-interface CampaignWithState extends Campaign {
-  // These fields exist in the DB but may be missing from the generated Campaign type
+// Extend Campaign locally to include the two DB fields that may not be in the generated type
+type CampaignExtended = Campaign & {
   checkout_type?: string | null;
   consultation_checkout_type?: string | null;
+};
+
+interface CampaignWithState extends CampaignExtended {
   funnelStates: {
     purchase: FunnelState;
     newsletter: FunnelState;
@@ -45,13 +48,7 @@ interface CampaignWithState extends Campaign {
 // HELPERS
 // ─────────────────────────────────────────────
 
-const isStripeCheckout = (checkoutType: string | null | undefined): boolean => {
-  return checkoutType === 'stripe_direct' || checkoutType === null || checkoutType === undefined
-    ? false
-    : checkoutType === 'stripe_direct';
-};
-
-const getFunnelState = (campaign: Campaign, funnelType: 'purchase' | 'newsletter' | 'salesCall' | 'consultation'): FunnelState => {
+const getFunnelState = (campaign: CampaignExtended, funnelType: 'purchase' | 'newsletter' | 'salesCall' | 'consultation'): FunnelState => {
   switch (funnelType) {
     case 'purchase':
       if (!campaign.landing_page_url) return 'inactive';
@@ -74,7 +71,7 @@ const getFunnelState = (campaign: Campaign, funnelType: 'purchase' | 'newsletter
 };
 
 const getTrackingState = (
-  campaign: Campaign & { checkout_type?: string | null; consultation_checkout_type?: string | null },
+  campaign: CampaignExtended,
   funnelType: 'purchase' | 'newsletter' | 'salesCall' | 'consultation',
   stripeConfig: StripeConfig | null
 ): TrackingState => {
@@ -88,7 +85,6 @@ const getTrackingState = (
       if (campaign.checkout_type === 'stripe_direct' || campaign.uses_stripe) {
         return hasStripeWebhook ? 'active' : 'pending';
       }
-      // Non-stripe: pixel-based. Tracking works but pending if no thank-you URL
       return campaign.purchase_thankyou_url ? 'active' : 'pending';
     case 'newsletter':
       return campaign.newsletter_thankyou_url ? 'active' : 'pending';
@@ -108,7 +104,7 @@ const generatePixelSnippet = (campaignId: string, eventType: string, amount: num
   const amountStr = amount !== null ? amount.toString() : '0';
   return `<!-- V-Track Pixel: ${eventType} -->
 <script>
-  fetch('https://vstrk.com/api/pixel', {
+  fetch('https://www.vstrk.com/api/pixel', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
@@ -120,7 +116,7 @@ const generatePixelSnippet = (campaignId: string, eventType: string, amount: num
 </script>`;
 };
 
-const computeExpectedCallValue = (campaign: Campaign): number => {
+const computeExpectedCallValue = (campaign: CampaignExtended): number => {
   const price = campaign.offer_price ?? 0;
   const rate = campaign.estimated_close_rate ?? 0;
   return Math.round(price * (rate / 100) * 100) / 100;
@@ -417,14 +413,9 @@ const StripeSetupBlock = ({
   const [saving, setSaving] = useState(false);
   const [copied, setCopied] = useState(false);
   const [trackedUrl, setTrackedUrl] = useState<string | null>(null);
-  const webhookEndpoint = 'https://vstrk.com/api/stripe-webhook';
+  const webhookEndpoint = 'https://www.vstrk.com/api/stripe-webhook';
   const isConnected = !!(stripeConfig?.stripe_webhook_secret);
 
-  // On mount (and when checkoutUrl/campaignId changes):
-  // 1. Look up existing redirect link for this campaign + linkType
-  // 2. If none exists → create one with a new token
-  // 3. If exists but destination_url changed → update destination_url, keep same token
-  // 4. If exists and matches → just display it
   useEffect(() => {
     if (!checkoutUrl || !campaignId) return;
     const dbLinkType = linkType === 'consultation' ? 'consultation' : 'checkout';
@@ -440,7 +431,6 @@ const StripeSetupBlock = ({
         .single();
 
       if (!existing) {
-        // No link yet — create one
         const token = generateToken();
         const { error } = await supabase.from('redirect_links').insert({
           token,
@@ -451,7 +441,6 @@ const StripeSetupBlock = ({
         });
         if (!error) setTrackedUrl(`${window.location.origin}/${token}`);
       } else if (existing.destination_url !== checkoutUrl) {
-        // URL changed — update destination, keep token
         await supabase
           .from('redirect_links')
           .update({ destination_url: checkoutUrl })
@@ -459,7 +448,6 @@ const StripeSetupBlock = ({
           .eq('link_type', dbLinkType);
         setTrackedUrl(`${window.location.origin}/${existing.token}`);
       } else {
-        // Already in sync — just display
         setTrackedUrl(`${window.location.origin}/${existing.token}`);
       }
     };
@@ -618,7 +606,7 @@ const CampaignCard = ({
   onToggle,
   onRefresh,
 }: {
-  campaign: Campaign;
+  campaign: CampaignExtended;
   stripeConfig: StripeConfig | null;
   userId: string;
   isExpanded: boolean;
@@ -644,7 +632,7 @@ const CampaignCard = ({
   const allStates = Object.values(trackingStates);
   const activeCount = allStates.filter(s => s === 'active').length;
   const totalRelevant = [
-    true, // purchase always relevant
+    true,
     !!campaign.newsletter_url,
     !!campaign.has_sales_call,
     !!campaign.has_paid_consultation,
@@ -1091,7 +1079,7 @@ const WhyStripeCard = ({ userId }: { userId: string }) => {
 export default function Installation() {
   const { user } = useAuth();
   const navigate = useNavigate();
-  const [campaigns, setCampaigns] = useState<Campaign[]>([]);
+  const [campaigns, setCampaigns] = useState<CampaignExtended[]>([]);
   const [stripeConfig, setStripeConfig] = useState<StripeConfig | null>(null);
   const [loading, setLoading] = useState(true);
   const [expandedId, setExpandedId] = useState<string | null>(() => {
@@ -1113,7 +1101,7 @@ export default function Installation() {
         .eq('user_id', user.id)
         .single(),
     ]);
-    setCampaigns(camps ?? []);
+    setCampaigns((camps ?? []) as CampaignExtended[]);
     setStripeConfig(stripeConf ?? null);
     setLoading(false);
   }, [user]);
@@ -1122,7 +1110,6 @@ export default function Installation() {
     fetchData();
   }, [fetchData]);
 
-  // Return from campaign form
   useEffect(() => {
     const returnPath = localStorage.getItem('campaign_form_return');
     if (returnPath === '/installation') {
