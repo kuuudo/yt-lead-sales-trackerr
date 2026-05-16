@@ -103,7 +103,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     return res.status(200).json({ received: true });
   }
 
-  // Look up redirect link
+  // Look up redirect link (also gets campaign_id and video_id)
   const { data: link, error: linkError } = await supabase
     .from('redirect_links')
     .select('video_id, campaign_id')
@@ -113,6 +113,16 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   if (linkError || !link) {
     console.error('[stripe-webhook] No redirect link for token:', token);
     return res.status(200).json({ received: true });
+  }
+
+  // Re-resolve user_id from the verified token (pre-verification lookup may have been skipped)
+  if (!resolvedUserId) {
+    const { data: campaign } = await supabase
+      .from('campaigns')
+      .select('user_id')
+      .eq('id', link.campaign_id)
+      .single();
+    resolvedUserId = campaign?.user_id ?? null;
   }
 
   // Deduplicate
