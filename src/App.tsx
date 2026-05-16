@@ -94,6 +94,18 @@ function Navigation() {
   );
 }
 
+// Handles short links like vstrk.com/ScrL for anonymous visitors.
+// Only renders Track if the path looks like a 4-char token.
+// Otherwise falls through to the auth-protected app via navigate.
+function PublicTokenGate() {
+  const { token } = useParams<{ token: string }>();
+  // 4-char alphanumeric tokens only — avoids intercepting real app routes
+  if (!token || !/^[A-Za-z0-9]{4}$/.test(token)) {
+    return <Navigate to="/dashboard" replace />;
+  }
+  return <Track />;
+}
+
 function MainContent() {
   const { user, loading } = useAuth();
   useTracker();
@@ -122,7 +134,6 @@ function MainContent() {
         <Route path="/analytics/indepth" element={<InDepthAnalytics />} />
         <Route path="/installation" element={<PageWrapper><Installation /></PageWrapper>} />
         <Route path="/settings" element={<PageWrapper><Settings /></PageWrapper>} />
-        <Route path="/:token" element={<Track />} />
         <Route path="*" element={<Navigate to="/dashboard" replace />} />
       </Routes>
     </AnimatePresence>
@@ -146,7 +157,9 @@ export default function App() {
   return (
     <Router>
       <Routes>
+        {/* Public redirect routes — must be outside AuthProvider so anonymous visitors are not gated */}
         <Route path="/track/:token" element={<Track />} />
+        <Route path="/:token" element={<PublicTokenGate />} />
         <Route path="*" element={
           <AuthProvider>
             <div className="min-h-screen bg-zinc-950 text-zinc-100 selection:bg-red-500/30 selection:text-white font-sans antialiased">
