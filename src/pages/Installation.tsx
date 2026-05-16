@@ -397,18 +397,41 @@ const StripeSetupBlock = ({
   userId,
   stripeConfig,
   checkoutUrl,
+  campaignId,
+  linkType,
   onSecretSaved,
 }: {
   userId: string;
   stripeConfig: StripeConfig | null;
   checkoutUrl: string | null | undefined;
+  campaignId: string;
+  linkType: 'checkout' | 'consultation';
   onSecretSaved: () => void;
 }) => {
   const [webhookSecret, setWebhookSecret] = useState('');
   const [saving, setSaving] = useState(false);
   const [copied, setCopied] = useState(false);
+  const [trackedUrl, setTrackedUrl] = useState<string | null>(null);
   const webhookEndpoint = 'https://vstrk.com/api/stripe-webhook';
   const isConnected = !!(stripeConfig?.stripe_webhook_secret);
+
+  useEffect(() => {
+    if (!campaignId || !checkoutUrl) return;
+    const dbLinkType = linkType === 'consultation' ? 'consultation' : 'checkout';
+    supabase
+      .from('redirect_links')
+      .select('token')
+      .eq('campaign_id', campaignId)
+      .eq('link_type', dbLinkType)
+      .order('created_at', { ascending: false })
+      .limit(1)
+      .single()
+      .then(({ data }) => {
+        if (data?.token) setTrackedUrl(`${window.location.origin}/${data.token}`);
+      });
+  }, [campaignId, checkoutUrl, linkType]);
+
+  const displayUrl = trackedUrl ?? checkoutUrl;
 
   const handleSave = async () => {
     if (!webhookSecret.trim()) return;
@@ -445,11 +468,14 @@ const StripeSetupBlock = ({
             <p className="text-[11px] font-bold text-white uppercase tracking-wide">Your Checkout URL</p>
           </div>
           <p className="text-[11px] text-zinc-500 pl-7 leading-relaxed">
-            This is the URL customers visit to purchase. Make sure your "Buy Now" button on your landing page points here.
+            {trackedUrl
+              ? <>This is your <span className="text-violet-400 font-bold">tracked</span> checkout link. Use this as your "Buy Now" button — it routes through V-Track so purchases are attributed to the correct video.</>
+              : <>This is the URL customers visit to purchase. Add a video in <span className="text-zinc-300 font-bold">Videos</span> to generate a tracked link.</>
+            }
           </p>
           <div className="flex gap-2 pl-7">
-            <div className="flex-1 bg-zinc-950 border border-zinc-800 rounded-xl px-3 py-2.5 font-mono text-[11px] text-zinc-400 break-all">{checkoutUrl}</div>
-            <CopyButton text={checkoutUrl} />
+            <div className="flex-1 bg-zinc-950 border border-zinc-800 rounded-xl px-3 py-2.5 font-mono text-[11px] text-zinc-400 break-all">{displayUrl}</div>
+            {displayUrl && <CopyButton text={displayUrl} />}
           </div>
         </div>
       )}
@@ -725,6 +751,8 @@ const CampaignCard = ({
                         userId={userId}
                         stripeConfig={stripeConfig}
                         checkoutUrl={campaign.checkout_url}
+                        campaignId={campaign.id}
+                        linkType="checkout"
                         onSecretSaved={onRefresh}
                       />
                     ) : (
@@ -847,6 +875,8 @@ const CampaignCard = ({
                           userId={userId}
                           stripeConfig={stripeConfig}
                           checkoutUrl={campaign.paid_consultation_checkout_url}
+                          campaignId={campaign.id}
+                          linkType="consultation"
                           onSecretSaved={onRefresh}
                         />
                       ) : (
