@@ -11,7 +11,6 @@ export const config = {
 };
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
-  // Allow CORS — the pixel fires from the user's own website domain
   res.setHeader('Access-Control-Allow-Origin', '*');
   res.setHeader('Access-Control-Allow-Methods', 'POST, OPTIONS');
   res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
@@ -30,7 +29,6 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     return res.status(400).json({ error: 'Missing token or video_id' });
   }
 
-  // Resolve user_id from token → redirect_links → campaigns
   let resolvedVideoId = video_id;
   let resolvedCampaignId = campaign_id;
   let resolvedUserId: string | null = null;
@@ -57,7 +55,6 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
     if (campaign) {
       resolvedUserId = campaign.user_id;
-      // If no amount provided, use the campaign's offer price
       if (!amount && campaign.offer_price) {
         req.body.amount = campaign.offer_price;
       }
@@ -67,7 +64,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   const finalAmount = amount ?? req.body.amount ?? null;
   const finalEventType = event_type ?? 'purchase';
 
-  // Insert into pixel_purchases for confirmed revenue
+  // Insert into pixel_purchases with correct event_type
   const { error: purchaseError } = await supabase
     .from('pixel_purchases')
     .insert({
@@ -76,6 +73,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       campaign_id: resolvedCampaignId ?? null,
       user_id: resolvedUserId,
       amount: finalAmount,
+      event_type: finalEventType,
     });
 
   if (purchaseError) {
@@ -85,7 +83,6 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
   // Also log as an event for funnel tracking
   if (resolvedVideoId && resolvedCampaignId) {
-    // Try to find existing session for this video in recent window (1 hour)
     const oneHourAgo = new Date(Date.now() - 60 * 60 * 1000).toISOString();
     const { data: session } = await supabase
       .from('sessions')
