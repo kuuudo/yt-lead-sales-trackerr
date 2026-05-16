@@ -107,7 +107,14 @@ function MainContent() {
   }
 
   if (!user) {
-    return <PageWrapper><Auth /></PageWrapper>;
+    // Allow public token redirects even when not logged in
+    return (
+      <Routes>
+        <Route path="/track/:token" element={<Track />} />
+        <Route path="/:token" element={<Track />} />
+        <Route path="*" element={<PageWrapper><Auth /></PageWrapper>} />
+      </Routes>
+    );
   }
 
   return (
@@ -122,6 +129,8 @@ function MainContent() {
         <Route path="/analytics/indepth" element={<InDepthAnalytics />} />
         <Route path="/installation" element={<PageWrapper><Installation /></PageWrapper>} />
         <Route path="/settings" element={<PageWrapper><Settings /></PageWrapper>} />
+        <Route path="/track/:token" element={<Track />} />
+        <Route path="/:token" element={<Track />} />
         <Route path="*" element={<Navigate to="/dashboard" replace />} />
       </Routes>
     </AnimatePresence>
@@ -144,19 +153,12 @@ function PageWrapper({ children }: { children: React.ReactNode }) {
 export default function App() {
   return (
     <Router>
-      <Routes>
-        {/* Public redirect routes — must be outside AuthProvider so anonymous visitors are not gated */}
-        <Route path="/track/:token" element={<Track />} />
-        <Route path="/:token" element={<Track />} />
-        <Route path="*" element={
-          <AuthProvider>
-            <div className="min-h-screen bg-zinc-950 text-zinc-100 selection:bg-red-500/30 selection:text-white font-sans antialiased">
-              <Navigation />
-              <MainContent />
-            </div>
-          </AuthProvider>
-        } />
-      </Routes>
+      <AuthProvider>
+        <div className="min-h-screen bg-zinc-950 text-zinc-100 selection:bg-red-500/30 selection:text-white font-sans antialiased">
+          <Navigation />
+          <MainContent />
+        </div>
+      </AuthProvider>
     </Router>
   );
 }

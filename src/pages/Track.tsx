@@ -1,19 +1,15 @@
 import React, { useEffect, useState } from 'react';
-import { useParams, useNavigate } from 'react-router-dom';
+import { useParams } from 'react-router-dom';
 import { resolveRedirectToken, logRedirectEvent, buildRedirectUrl } from '../lib/redirects';
 import { Loader2, AlertCircle } from 'lucide-react';
 
-const TOKEN_PATTERN = /^[A-Za-z0-9]{4}$/;
-
 export default function Track() {
   const { token } = useParams<{ token: string }>();
-  const navigate = useNavigate();
   const [error, setError] = useState(false);
 
   useEffect(() => {
-    // Not a valid 4-char token — this is an app route, send to dashboard
-    if (!token || !TOKEN_PATTERN.test(token)) {
-      navigate('/dashboard', { replace: true });
+    if (!token) {
+      setError(true);
       return;
     }
 
@@ -25,8 +21,8 @@ export default function Track() {
         return;
       }
 
-      // Redirect FIRST, log after — don't let logging block the redirect
-      window.location.replace(buildRedirectUrl(link));
+      const url = buildRedirectUrl(link);
+      window.location.href = url;
 
       // Log in background (non-blocking)
       logRedirectEvent(link).catch(console.error);
