@@ -645,9 +645,11 @@ export default function VideoDetail() {
           {sortedLinks.length === 0 ? (
             <p className="text-[10px] text-zinc-600 font-bold uppercase tracking-widest text-center py-6">No tracking links found</p>
           ) : (() => {
+            // Only show these link types to the user
+            const VISIBLE_LINK_TYPES = ['landing_page', 'newsletter', 'consultation', 'sales_call', 'lead_magnet'];
             // Track how many of each type we've seen to compute dupIndex
             const typeCounters: Record<string, number> = {};
-            return sortedLinks.map(l => {
+            return sortedLinks.filter(l => VISIBLE_LINK_TYPES.includes(l.link_type)).map(l => {
               const key = l.link_type === 'lead_magnet' ? `lead_magnet_${l.lead_magnet_id}` : l.link_type;
               typeCounters[key] = (typeCounters[key] || 0) + 1;
               const dupIndex = typeCounters[key];
