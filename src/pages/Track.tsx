@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { useParams, Navigate } from 'react-router-dom';
+import { useParams, useNavigate } from 'react-router-dom';
 import { resolveRedirectToken, logRedirectEvent, buildRedirectUrl } from '../lib/redirects';
 import { Loader2, AlertCircle } from 'lucide-react';
 
@@ -7,14 +7,16 @@ const TOKEN_PATTERN = /^[A-Za-z0-9]{4}$/;
 
 export default function Track() {
   const { token } = useParams<{ token: string }>();
+  const navigate = useNavigate();
   const [error, setError] = useState(false);
 
-  // If it doesn't look like a 4-char token, it's an app route — let the app handle it
-  if (!token || !TOKEN_PATTERN.test(token)) {
-    return <Navigate to="/dashboard" replace />;
-  }
-
   useEffect(() => {
+    // Not a valid 4-char token — this is an app route, send to dashboard
+    if (!token || !TOKEN_PATTERN.test(token)) {
+      navigate('/dashboard', { replace: true });
+      return;
+    }
+
     const handleRedirect = async () => {
       const link = await resolveRedirectToken(token);
 
