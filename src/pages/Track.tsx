@@ -39,7 +39,9 @@ export default function Track() {
       const campaignId = (attrRow?.campaign_id ?? (link as any).campaign_id) as string | undefined;
 
       console.debug('[Track] resolved attribution', { token, videoId, campaignId });
-
+      console.log('TRACK PAGE RUNNING');
+      console.log('VIDEO ID:', videoId);
+      console.log('CAMPAIGN ID:', campaignId);
       // ── Attribution initialization ────────────────────────────────────────
       // Must complete BEFORE window.location.href so the destination page and
       // any pixel on it can read localStorage values immediately.
@@ -56,7 +58,8 @@ export default function Track() {
       //   the session row will carry video_id + campaign_id from the start.
       //   We await so session_id is in localStorage before we navigate away.
       await syncSession();
-
+      console.log('SESSION SYNC COMPLETE');
+      
       console.debug('[Track] attribution complete — redirecting', {
         video_id:    localStorage.getItem('yt_tracker_video_id'),
         campaign_id: localStorage.getItem('yt_tracker_campaign_id'),
