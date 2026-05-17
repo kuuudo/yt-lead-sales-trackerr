@@ -1,12 +1,16 @@
 import React, { useEffect, useState } from 'react';
 import { syncSession, trackEvent } from '../lib/tracker';
 import { translations, Language } from '../lib/i18n';
+import { getVideoId, getCampaignId } from '../lib/tracker';
 
 export const useTracker = () => {
   useEffect(() => {
     const init = async () => {
       await syncSession();
-      await trackEvent('page_view');
+      await trackEvent('page_view', null, {
+  video_id: getVideoId() ?? undefined,
+  campaign_id: getCampaignId() ?? undefined,
+});
     };
     init();
   }, []);
