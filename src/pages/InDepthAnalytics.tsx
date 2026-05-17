@@ -71,6 +71,8 @@ export default function InDepthAnalytics() {
   const [selectedLeadMagnets, setSelectedLeadMagnets] = useState<string[]>([]);
   
   // UI State
+  type RevenueView = 'stripe' | 'pixel' | 'total';
+  const [revenueView, setRevenueView] = useState<RevenueView>('stripe');
   const [isSidebarOpen, setIsSidebarOpen] = useState(true);
   const [sortConfig, setSortConfig] = useState<{ key: string, direction: 'asc' | 'desc' }>({ key: 'total_revenue', direction: 'desc' });
 
@@ -221,6 +223,12 @@ export default function InDepthAnalytics() {
     return items;
   }, [processedVideos, sortConfig]);
 
+  // Computed campaign revenue — never stored in DB, always derived from video metrics
+  const campaignRevenue = (campaignId: string) =>
+    processedVideos
+      .filter((v: any) => v.video?.campaign_id === campaignId)
+      .reduce((sum: number, v: any) => sum + (v.total_revenue || 0), 0);
+
   if (loading) return (
     <div className="flex items-center justify-center min-h-screen bg-black">
       <Loader2 className="animate-spin text-red-600" size={32} />
@@ -358,6 +366,19 @@ export default function InDepthAnalytics() {
             </div>
           </div>
           <div className="flex items-center gap-4">
+            <div className="flex items-center gap-1 p-1 bg-zinc-900 border border-zinc-800 rounded-xl w-fit">
+              {(['stripe', 'pixel', 'total'] as RevenueView[]).map(v => (
+                <button
+                  key={v}
+                  onClick={() => setRevenueView(v)}
+                  className={`px-3 py-1.5 rounded-lg text-[9px] font-black uppercase tracking-widest transition-all ${
+                    revenueView === v ? 'bg-zinc-700 text-white' : 'text-zinc-600 hover:text-zinc-400'
+                  }`}
+                >
+                  {v}
+                </button>
+              ))}
+            </div>
             <div className="px-4 py-2 bg-zinc-900/50 border border-zinc-900 rounded-xl">
               <span className="text-[10px] font-black uppercase tracking-widest text-zinc-600">{sortedVideos.length} Videos Loaded</span>
             </div>
@@ -411,7 +432,11 @@ export default function InDepthAnalytics() {
                       <td key={key} className="px-6 py-5 whitespace-nowrap text-sm font-bold text-zinc-400 tabular-nums">
                         {key === 'total_revenue' ? (
                           <div>
-                            <div>${(v[key] || 0).toLocaleString()}</div>
+                            <div>${((revenueView === 'stripe'
+                              ? (v.stripe_revenue ?? v.total_revenue)
+                              : revenueView === 'pixel'
+                              ? (v.pixel_revenue ?? v.total_revenue)
+                              : v.total_revenue) || 0).toLocaleString()}</div>
                             <div className="text-[8px] text-zinc-600 uppercase tracking-widest mt-0.5">
                               {v.revenue_mode_label ?? 'Stripe'}
                             </div>

@@ -98,6 +98,13 @@ export default function Analytics() {
   const [selectedVideoIds, setSelectedVideoIds] = useState<string[]>(searchParams.get('vids')?.split(',').filter(Boolean) || []);
   const [warning, setWarning] = useState<string | null>(null);
   
+  // Revenue view toggle
+  type RevenueView = 'stripe' | 'pixel' | 'total';
+  const [revenueView, setRevenueView] = useState<RevenueView>('stripe');
+
+  // Campaign filter
+  const [selectedCampaign, setSelectedCampaign] = useState<string>('all');
+
   // UI State
   const [chartType, setChartType] = useState<'line' | 'bar'>('line');
   const [granularity, setGranularity] = useState<'daily' | 'weekly'>('daily');
@@ -205,6 +212,7 @@ export default function Analytics() {
   // Derived filtered videos
   const filteredVideos = useMemo(() => {
     return videos.filter(v => {
+      if (selectedCampaign !== 'all' && v.campaign_id !== selectedCampaign) return false;
       if (selectedGoals.length > 0) {
         const hasMatch = v.video_goal.some(goal => selectedGoals.includes(goal));
         if (!hasMatch) return false;
@@ -216,7 +224,7 @@ export default function Analytics() {
       }
       return true;
     });
-  }, [videos, selectedGoals, selectedLeadMagnets]);
+  }, [videos, selectedCampaign, selectedGoals, selectedLeadMagnets]);
 
   const videoIds = useMemo(() => filteredVideos.map(v => v.id), [filteredVideos]);
 
@@ -358,6 +366,20 @@ export default function Analytics() {
     return items;
   }, [processedData.videos, sortConfig]);
 
+  // Computed campaign revenue — never stored in DB, always derived from video stats
+  const campaignRevenue = (campaignId: string) =>
+    processedData.videos
+      .filter((v: any) => v.video?.campaign_id === campaignId)
+      .reduce((sum: number, v: any) => sum + (v.total_revenue || 0), 0);
+
+  // displayRevenue based on revenueView toggle
+  const displayRevenue =
+    revenueView === 'stripe'
+      ? summaryStats.stripe_revenue ?? summaryStats.total_revenue
+      : revenueView === 'pixel'
+      ? summaryStats.pixel_revenue ?? summaryStats.total_revenue
+      : summaryStats.total_revenue;
+
   if (loading) return (
     <div className="flex items-center justify-center min-h-[60vh]">
       <Loader2 className="animate-spin text-red-600" size={32} />
@@ -405,6 +427,35 @@ export default function Analytics() {
             ))}
           </section>
 
+          {/* Revenue view toggle + Campaign filter */}
+          <section className="flex flex-wrap items-center gap-3">
+            <div className="flex items-center gap-1 p-1 bg-zinc-900 border border-zinc-800 rounded-xl w-fit">
+              {(['stripe', 'pixel', 'total'] as RevenueView[]).map(v => (
+                <button
+                  key={v}
+                  onClick={() => setRevenueView(v)}
+                  className={`px-3 py-1.5 rounded-lg text-[9px] font-black uppercase tracking-widest transition-all ${
+                    revenueView === v ? 'bg-zinc-700 text-white' : 'text-zinc-600 hover:text-zinc-400'
+                  }`}
+                >
+                  {v}
+                </button>
+              ))}
+            </div>
+            <select
+              value={selectedCampaign}
+              onChange={(e) => setSelectedCampaign(e.target.value)}
+              className="bg-zinc-900 border border-zinc-800 text-white text-xs p-2 rounded-lg"
+            >
+              <option value="all">All Campaigns</option>
+              {campaigns.map(c => (
+                <option key={c.id} value={c.id}>
+                  {(c as any).campaign_name || (c as any).name || c.id}
+                </option>
+              ))}
+            </select>
+          </section>
+
           {/* 2. Revenue Section */}
           <section className="bento-card p-10 bg-gradient-to-br from-zinc-900 to-zinc-950 border-zinc-800 relative overflow-hidden group">
             <div className="absolute top-0 right-0 w-64 h-64 bg-red-600/5 blur-[120px] rounded-full -mr-20 -mt-20 group-hover:bg-red-600/10 transition-colors" />
@@ -412,10 +463,10 @@ export default function Analytics() {
               <div>
                 <span className="label-caps !text-red-600 mb-2 font-black text-[11px]">Total Revenue</span>
                 <div className="text-6xl font-black text-white tracking-tighter drop-shadow-2xl">
-                  ${summaryStats.total_revenue.toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 0 })}
+                  ${displayRevenue.toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 0 })}
                 </div>
                 <p className="text-[10px] text-zinc-600 font-bold uppercase tracking-widest mt-2">
-                  {(summaryStats as any).revenue_mode_label ?? 'Verified (Stripe)'} · Direct Offer + Consultation
+                  {revenueView === 'stripe' ? 'Verified (Stripe)' : revenueView === 'pixel' ? 'Estimated (Pixel)' : ((summaryStats as any).revenue_mode_label ?? 'Total (Hybrid)')} · Direct Offer + Consultation
                 </p>
               </div>
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-8 pt-6 border-t border-zinc-800/50">
