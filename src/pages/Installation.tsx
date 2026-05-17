@@ -2,6 +2,7 @@ import React, { useState, useEffect, useCallback } from 'react';
 import { supabase } from '../lib/supabase';
 import { useAuth } from '../lib/auth';
 import { useNavigate, Link } from 'react-router-dom';
+import { generatePixelSnippet, WEBHOOK_ENDPOINT } from '../lib/tracker';
 import { motion, AnimatePresence } from 'motion/react';
 import {
   ChevronDown, ChevronUp, Copy, Check, AlertCircle, CheckCircle2,
@@ -100,21 +101,7 @@ const getTrackingState = (
   }
 };
 
-const generatePixelSnippet = (campaignId: string, eventType: string, amount: number | null): string => {
-  const amountStr = amount !== null ? amount.toString() : '0';
-  return `<!-- V-Track Pixel: ${eventType} -->
-<script>
-  fetch('https://www.vstrk.com/api/pixel', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      campaign_id: '${campaignId}',
-      event_type: '${eventType}',
-      amount: ${amountStr}
-    })
-  });
-</script>`;
-};
+
 
 const computeExpectedCallValue = (campaign: CampaignExtended): number => {
   const price = campaign.offer_price ?? 0;
@@ -413,7 +400,7 @@ const StripeSetupBlock = ({
   const [saving, setSaving] = useState(false);
   const [copied, setCopied] = useState(false);
   const [trackedUrl, setTrackedUrl] = useState<string | null>(null);
-  const webhookEndpoint = 'https://www.vstrk.com/api/stripe-webhook';
+  const webhookEndpoint = WEBHOOK_ENDPOINT;
   const isConnected = !!(stripeConfig?.stripe_webhook_secret);
 
   useEffect(() => {

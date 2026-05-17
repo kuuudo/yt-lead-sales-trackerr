@@ -2,6 +2,11 @@ import { supabase } from './supabase';
 
 const SESSION_KEY = 'yt_tracker_session_id';
 const UTM_KEY = 'yt_tracker_utm_params';
+export const VTRACK_BASE_URL = 'https://www.vstrk.com';
+
+export const PIXEL_ENDPOINT = `${VTRACK_BASE_URL}/api/pixel`;
+
+export const WEBHOOK_ENDPOINT = `${VTRACK_BASE_URL}/api/stripe-webhook`;
 
 export const getSessionId = (): string | null => {
   return localStorage.getItem(SESSION_KEY);
@@ -95,4 +100,25 @@ export const captureEmail = async (email: string) => {
     console.error('Failed to capture lead', err);
     return false;
   }
+};
+
+export const generatePixelSnippet = (
+  campaignId: string,
+  eventType: string,
+  amount: number | null
+): string => {
+  const amountStr = amount !== null ? String(amount) : '0';
+
+  return `<!-- V-Track Pixel: ${eventType} -->
+<script>
+  fetch('${PIXEL_ENDPOINT}', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      campaign_id: '${campaignId}',
+      event_type: '${eventType}',
+      amount: ${amountStr}
+    })
+  });
+<\/script>`;
 };
