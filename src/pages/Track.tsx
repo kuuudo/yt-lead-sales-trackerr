@@ -116,18 +116,36 @@ export default function Track() {
           console.log('[Track] ✓ all localStorage keys present — ready to redirect');
         }
 
-        // ── Step 7: redirect ─────────────────────────────────────────────────
-        let url: string;
-        try {
-          url = buildRedirectUrl(link);
-          console.log('[Track] ⑨ redirecting to:', url);
-        } catch (urlErr) {
-          console.error('[Track] ✗ buildRedirectUrl threw:', urlErr);
-          setError(true);
-          return;
-        }
+// ── Step 7: redirect with attribution params ─────────────────────────
+let url: URL;
 
-        window.location.href = url;
+try {
+  // Build original redirect URL
+  url = new URL(buildRedirectUrl(link));
+
+  // Append attribution params so the destination domain
+  // can persist them into ITS OWN localStorage.
+  if (finalSessionId) {
+    url.searchParams.set('vt_sid', finalSessionId);
+  }
+
+  if (finalVideoId) {
+    url.searchParams.set('vt_vid', finalVideoId);
+  }
+
+  if (finalCampaignId) {
+    url.searchParams.set('vt_cid', finalCampaignId);
+  }
+
+  console.log('[Track] ⑨ redirecting to:', url.toString());
+
+} catch (urlErr) {
+  console.error('[Track] ✗ buildRedirectUrl/new URL threw:', urlErr);
+  setError(true);
+  return;
+}
+
+window.location.href = url.toString();
 
         // Fire-and-forget click event after navigation starts.
         logRedirectEvent(link).catch((e) =>
