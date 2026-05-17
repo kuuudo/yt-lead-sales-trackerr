@@ -2,6 +2,12 @@ import React, { useState, useEffect, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { supabase, Campaign, Video, LeadMagnet } from '../lib/supabase';
 import { useAuth } from '../lib/auth';
+import {
+  applyRevenue,
+  finalizeMetrics,
+  type StripePurchaseRow,
+  type PixelPurchaseRow,
+} from '../lib/analyticsConfig';
 import { 
   BarChart3, Calendar, Filter, ChevronLeft, 
   MousePointer2, DollarSign, Users, Phone, Briefcase, 
@@ -55,6 +61,8 @@ export default function InDepthAnalytics() {
   const [videos, setVideos] = useState<Video[]>([]);
   const [leadMagnets, setLeadMagnets] = useState<LeadMagnet[]>([]);
   const [events, setEvents] = useState<any[]>([]);
+  const [stripePurchases, setStripePurchases] = useState<any[]>([]);
+  const [pixelPurchases,  setPixelPurchases]  = useState<any[]>([]);
 
   // Filters
   const [dateRange, setDateRange] = useState<DateRange>('30days');
@@ -82,12 +90,21 @@ export default function InDepthAnalytics() {
       setLeadMagnets(lmData || []);
 
       if (vData && vData.length > 0) {
-        const { data: eData } = await supabase
-          .from('events')
-          .select('*')
-          .in('video_id', vData.map(v => v.id));
-        
-        setEvents(eData || []);
+        const [eData, spData, ppData] = await Promise.all([
+          supabase.from('events')
+            .select('video_id, campaign_id, event_type, created_at')
+            .in('video_id', vData.map((v: any) => v.id)),
+          supabase.from('stripe_purchases')
+            .select('video_id, campaign_id, amount, type, session_id')
+            .in('video_id', vData.map((v: any) => v.id)),
+          supabase.from('pixel_purchases')
+            .select('video_id, campaign_id, amount, type, session_id')
+            .in('video_id', vData.map((v: any) => v.id)),
+        ]);
+
+        setEvents(eData.data || []);
+        setStripePurchases(spData.data || []);
+        setPixelPurchases(ppData.data || []);
       }
     } catch (err) {
       console.error('Error fetching in-depth analytics data:', err);
@@ -163,31 +180,29 @@ export default function InDepthAnalytics() {
       if (v[e.event_type] !== undefined) {
         v[e.event_type]++;
       }
+    });
 
-      const camp = v.campaign;
-      if (camp) {
-        let revenue = 0;
-        if (e.event_type === 'purchase_thankyou') revenue = camp.offer_price || 0;
-        if (e.event_type === 'consultation_thankyou') revenue = camp.consultation_fee || 0;
-        
-        if (revenue > 0) {
-          v.total_revenue += revenue;
-          if (e.event_type === 'purchase_thankyou') v.direct_offer_sales += revenue;
-          if (e.event_type === 'consultation_thankyou') v.consultation_revenue += revenue;
-        }
-      }
+    // After event counts loop, apply revenue per video:
+    filteredVideos.forEach(v => {
+      const m = videoMetrics[v.id];
+      const campaign = campaigns.find(c => c.id === v.campaign_id);
+      applyRevenue(
+        m,
+        stripePurchases.filter((p: any) => p.video_id === v.id) as StripePurchaseRow[],
+        pixelPurchases.filter((p: any) => p.video_id === v.id) as PixelPurchaseRow[],
+      );
+      finalizeMetrics(m, campaign);
     });
 
     return Object.values(videoMetrics).map((v: any) => {
       const camp = v.campaign;
       if (camp) {
-        v.estimated_call_revenue = v.call_booking_thankyou * ((camp.estimated_close_rate || 0) / 100) * (camp.offer_price || 0);
         const rpcVal = v.landing_page_view > 0 ? (v.total_revenue / v.landing_page_view) : 0;
         v.rpc = rpcVal.toFixed(2);
       }
       return v;
     });
-  }, [filteredVideos, dateFilteredEvents, campaigns, videoIds]);
+  }, [filteredVideos, dateFilteredEvents, stripePurchases, pixelPurchases, campaigns, videoIds]);
 
   const sortedVideos = useMemo(() => {
     const items = [...processedVideos];
@@ -394,8 +409,19 @@ export default function InDepthAnalytics() {
                     </td>
                     {(Object.keys(METRIC_LABELS) as MetricType[]).map(key => (
                       <td key={key} className="px-6 py-5 whitespace-nowrap text-sm font-bold text-zinc-400 tabular-nums">
-                        {key.includes('revenue') || key === 'rpc' ? '$' : ''}
-                        {key === 'rpc' ? v[key] : (v[key] || 0).toLocaleString()}
+                        {key === 'total_revenue' ? (
+                          <div>
+                            <div>${(v[key] || 0).toLocaleString()}</div>
+                            <div className="text-[8px] text-zinc-600 uppercase tracking-widest mt-0.5">
+                              {v.revenue_mode_label ?? 'Stripe'}
+                            </div>
+                          </div>
+                        ) : (
+                          <>
+                            {key.includes('revenue') || key === 'rpc' ? '$' : ''}
+                            {key === 'rpc' ? v[key] : (v[key] || 0).toLocaleString()}
+                          </>
+                        )}
                       </td>
                     ))}
                     <td className="px-6 py-5 whitespace-nowrap text-right">

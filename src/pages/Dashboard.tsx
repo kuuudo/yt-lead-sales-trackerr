@@ -1,6 +1,17 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { useLanguage } from '../lib/hooks';
 import { supabase, Video, Campaign } from '../lib/supabase';
+import {
+  getRevenueMode,
+  REVENUE_MODE_LABELS,
+  RevenueMode,
+  normalizeEventType,
+  applyRevenue,
+  finalizeMetrics,
+  emptyVideoMetrics,
+  type StripePurchaseRow,
+  type PixelPurchaseRow,
+} from '../lib/analyticsConfig';
 import { useAuth } from '../lib/auth';
 import { LayoutDashboard, TrendingUp, Target, Users, DollarSign, Activity, AlertCircle, CheckCircle2, ArrowRight, Video as VideoIcon } from 'lucide-react';
 import { motion } from 'motion/react';
@@ -14,13 +25,19 @@ type AnalyticsRow = {
   thumbnail_url: string;
   video_goal: string;
   status: string;
-  clicks: number;
-  newsletter_clicks: number;
-  newsletter_optins: number;
-  calls_booked: number;
-  consultations: number;
-  purchases: number;
-  revenue: number;
+  landing_page_clicks:     number;
+  newsletter_optins:       number;
+  call_bookings_confirmed: number;
+  // Revenue — broken out by source
+  stripe_revenue:          number;
+  pixel_revenue:           number;
+  total_revenue:           number;
+  direct_offer_revenue:    number;
+  consultation_revenue:    number;
+  estimated_call_revenue:  number;
+  // Mode
+  revenue_mode:            RevenueMode;
+  revenue_mode_label:      string;
 };
 
 export default function Dashboard() {
@@ -31,6 +48,9 @@ export default function Dashboard() {
   const [videos, setVideos] = useState<Video[]>([]);
   const [campaigns, setCampaigns] = useState<Campaign[]>([]);
   const [stats, setStats] = useState<AnalyticsRow[]>([]);
+
+  type RevenueView = 'stripe' | 'pixel' | 'total';
+  const [revenueView, setRevenueView] = useState<RevenueView>('stripe');
 
   const [modalConfig, setModalConfig] = useState<{
     isOpen: boolean;
@@ -68,60 +88,66 @@ export default function Dashboard() {
       setVideos(vRes.data);
       setCampaigns(cRes.data);
 
-      const videoIds = vRes.data.map(v => v.youtube_video_id);
+      const videoIds = vRes.data.map((v: any) => v.id);
 
-      // Targeted queries using utm_content
-      const [sRes, eRes, lRes] = await Promise.all([
-        supabase.from('sessions').select('*').in('utm_content', videoIds),
-        supabase.from('events').select('*'), 
-        supabase.from('leads').select('*').in('utm_content', videoIds)
+      const [eRes, spRes, ppRes] = await Promise.all([
+        // events = behavioral only, filtered by video_id (canonical pattern)
+        supabase.from('events')
+          .select('video_id, campaign_id, event_type')
+          .in('video_id', videoIds),
+        // stripe_purchases = verified revenue
+        supabase.from('stripe_purchases')
+          .select('video_id, campaign_id, amount, type, session_id')
+          .in('video_id', videoIds),
+        // pixel_purchases = conversion signals + optional unverified amounts
+        supabase.from('pixel_purchases')
+          .select('video_id, campaign_id, amount, type, session_id')
+          .in('video_id', videoIds),
       ]);
 
-      if (sRes.error) throw sRes.error;
-      if (eRes.error) throw eRes.error;
-      if (lRes.error) throw lRes.error;
+      const processed: AnalyticsRow[] = vRes.data.map((vid: any) => {
+        const campaign = cRes.data.find((c: any) => c.id === vid.campaign_id);
+        const mode = getRevenueMode(campaign ?? {});
+        const m = emptyVideoMetrics(mode);
 
-      const processed: AnalyticsRow[] = vRes.data.map(vid => {
-        const campaign = cRes.data.find(c => c.id === vid.campaign_id);
-        const vidId = vid.youtube_video_id;
-        
-        // Match sessions for this video
-        const vidSessions = sRes.data?.filter(s => s.utm_content === vidId) || [];
-        const sessionIds = vidSessions.map(s => s.id);
+        // Behavioral counts from events table only
+        const vidEvents = (eRes.data ?? []).filter((e: any) => e.video_id === vid.id);
+        for (const e of vidEvents) {
+          const canonical = normalizeEventType(e.event_type);
+          if (!canonical) continue;
+          if ((m as any)[canonical] !== undefined) (m as any)[canonical]++;
+        }
 
-        // Aggregate events
-        const vidEvents = eRes.data?.filter(e => sessionIds.includes(e.session_id)) || [];
-        const vidLeads = lRes.data?.filter(l => sessionIds.includes(l.session_id)) || [];
-
-        const clicks = vidSessions.length;
-        const purchases = vidEvents.filter(e => e.event_type === 'purchase').length;
-        const directRevenue = vidEvents.filter(e => e.event_type === 'purchase').reduce((acc, e) => acc + (e.value || 0), 0);
-        
-        // Logical Funnel Estimates
-        const calls = vidEvents.filter(e => e.event_type === 'call_booked').length || Math.floor(clicks * 0.05); 
-        const consults = vidEvents.filter(e => e.event_type === 'consultation_booked').length || Math.floor(clicks * 0.02); 
-        
-        const estCallRev = campaign ? (calls * (campaign.estimated_close_rate || 0) / 100 * campaign.offer_price) : 0;
-        const consultRev = campaign ? (consults * (campaign.consultation_fee || 0)) : 0;
+        // Revenue by mode — Stripe is always truth, Pixel is supplementary
+        applyRevenue(
+          m,
+          (spRes.data ?? []).filter((p: any) => p.video_id === vid.id) as StripePurchaseRow[],
+          (ppRes.data ?? []).filter((p: any) => p.video_id === vid.id) as PixelPurchaseRow[],
+        );
+        finalizeMetrics(m, campaign);
 
         return {
-          id: vid.id,
-          youtube_video_id: vidId,
-          video_title: vid.video_title,
-          thumbnail_url: vid.thumbnail_url,
-          video_goal: vid.video_goal,
-          status: vid.status,
-          clicks,
-          newsletter_clicks: vidEvents.filter(e => e.event_type === 'newsletter_click').length || Math.floor(clicks * 0.8),
-          newsletter_optins: vidLeads.length || vidEvents.filter(e => e.event_type === 'newsletter_optin').length,
-          calls_booked: calls,
-          consultations: consults,
-          purchases,
-          revenue: directRevenue + estCallRev + consultRev
+          id:                      vid.id,
+          youtube_video_id:        vid.youtube_video_id,
+          video_title:             vid.video_title,
+          thumbnail_url:           vid.thumbnail_url,
+          video_goal:              vid.video_goal,
+          status:                  vid.status,
+          landing_page_clicks:     m.landing_page_view,
+          newsletter_optins:       m.newsletter_thankyou,
+          call_bookings_confirmed: m.call_booking_thankyou,
+          stripe_revenue:          m.stripe_revenue,
+          pixel_revenue:           m.pixel_revenue,
+          total_revenue:           m.total_revenue,
+          direct_offer_revenue:    m.direct_offer_revenue,
+          consultation_revenue:    m.consultation_revenue,
+          estimated_call_revenue:  m.estimated_call_revenue,
+          revenue_mode:            mode,
+          revenue_mode_label:      m.revenue_mode_label,
         };
       });
 
-      setStats(processed.sort((a, b) => b.revenue - a.revenue));
+      setStats(processed.sort((a, b) => b.total_revenue - a.total_revenue));
     } catch (err: any) {
       console.error('Dashboard Fetch Error:', err);
       showAlert('Dashboard Error', `Failed to load dashboard data: ${err.message}`, 'danger');
@@ -188,14 +214,29 @@ export default function Dashboard() {
     }
   };
 
-  const totals = useMemo(() => {
-    return stats.reduce((acc, curr) => ({
-      revenue: acc.revenue + curr.revenue,
-      clicks: acc.clicks + curr.clicks,
-      optins: acc.optins + curr.newsletter_optins,
-      calls: acc.calls + curr.calls_booked
-    }), { revenue: 0, clicks: 0, optins: 0, calls: 0 });
-  }, [stats]);
+  const totals = useMemo(() => stats.reduce(
+    (acc, curr) => ({
+      stripe_revenue:    acc.stripe_revenue    + curr.stripe_revenue,
+      pixel_revenue:     acc.pixel_revenue     + curr.pixel_revenue,
+      total_revenue:     acc.total_revenue     + curr.total_revenue,
+      landing_clicks:    acc.landing_clicks    + curr.landing_page_clicks,
+      newsletter_optins: acc.newsletter_optins + curr.newsletter_optins,
+      call_bookings:     acc.call_bookings     + curr.call_bookings_confirmed,
+    }),
+    { stripe_revenue: 0, pixel_revenue: 0, total_revenue: 0,
+      landing_clicks: 0, newsletter_optins: 0, call_bookings: 0 }
+  ), [stats]);
+
+  // Revenue shown in UI depends on the visibility toggle (not logic control)
+  const displayRevenue = revenueView === 'stripe' ? totals.stripe_revenue
+    : revenueView === 'pixel' ? totals.pixel_revenue
+    : totals.total_revenue;
+  const displayRevenueLabel = revenueView === 'stripe' ? 'Verified (Stripe)'
+    : revenueView === 'pixel' ? 'Estimated (Pixel)'
+    : 'Total (Hybrid)';
+  const rpc = totals.landing_clicks > 0
+    ? (displayRevenue / totals.landing_clicks).toFixed(2)
+    : '0.00';
 
   const getStatusIcon = (status: string) => {
     switch (status) {
@@ -225,16 +266,63 @@ export default function Dashboard() {
 
       {/* Metric Overlays */}
       <section className="grid grid-cols-2 md:grid-cols-4 gap-4">
+        {/* Revenue view toggle — visibility only, not logic control */}
+        <div className="col-span-2 md:col-span-4 flex items-center gap-1 p-1 bg-zinc-900 border border-zinc-800 rounded-xl w-fit mb-0">
+          {(['stripe', 'pixel', 'total'] as RevenueView[]).map(v => (
+            <button
+              key={v}
+              onClick={() => setRevenueView(v)}
+              className={`px-3 py-1.5 rounded-lg text-[9px] font-black uppercase tracking-widest transition-all ${
+                revenueView === v
+                  ? 'bg-zinc-700 text-white'
+                  : 'text-zinc-600 hover:text-zinc-400'
+              }`}
+            >
+              {v === 'stripe' ? 'Stripe' : v === 'pixel' ? 'Pixel' : 'Total'}
+            </button>
+          ))}
+        </div>
         {[
-          { label: t.dashboard.metrics.revenue, value: `$${totals.revenue.toLocaleString()}`, icon: DollarSign, color: 'text-green-500' },
-          { label: t.dashboard.metrics.rpc, value: totals.clicks > 0 ? `$${(totals.revenue / totals.clicks).toFixed(2)}` : '$0', icon: TrendingUp, color: 'text-blue-500' },
-          { label: t.dashboard.metrics.optins, value: totals.optins, icon: Users, color: 'text-orange-500' },
-          { label: t.dashboard.metrics.calls, value: totals.calls, icon: Target, color: 'text-red-500' },
+          {
+            label: t.dashboard.metrics.revenue,
+            value: `$${displayRevenue.toLocaleString()}`,
+            sublabel: displayRevenueLabel,
+            icon: DollarSign,
+            color: 'text-green-500',
+          },
+          {
+            label: t.dashboard.metrics.rpc,
+            value: `$${rpc}`,
+            sublabel: undefined,
+            icon: TrendingUp,
+            color: 'text-blue-500',
+          },
+          {
+            label: t.dashboard.metrics.optins,
+            value: totals.newsletter_optins,
+            sublabel: undefined,
+            icon: Users,
+            color: 'text-orange-500',
+          },
+          {
+            label: t.dashboard.metrics.calls,
+            value: totals.call_bookings,
+            sublabel: undefined,
+            icon: Target,
+            color: 'text-red-500',
+          },
         ].map(card => (
           <div key={card.label} className="bento-card py-6 px-4 flex flex-col justify-between min-h-[100px]">
             <span className="label-caps !text-zinc-600 truncate">{card.label}</span>
             <div className="flex items-center justify-between mt-auto">
-              <span className="text-xl font-black text-white">{card.value}</span>
+              <div className="flex flex-col">
+                <span className="text-white text-xl font-black">{card.value}</span>
+                {'sublabel' in card && card.sublabel && (
+                  <span className="text-[8px] font-bold text-zinc-600 uppercase tracking-widest mt-0.5 block">
+                    {card.sublabel}
+                  </span>
+                )}
+              </div>
               <card.icon size={16} className={`${card.color} opacity-40`} />
             </div>
           </div>
@@ -297,12 +385,25 @@ export default function Dashboard() {
                            {row.video_goal}
                          </span>
                       </td>
-                      <td className="px-6 py-4 text-center text-xs font-bold text-zinc-400">{row.clicks.toLocaleString()}</td>
+                      <td className="px-6 py-4 text-center text-xs font-bold text-zinc-400">{row.landing_page_clicks.toLocaleString()}</td>
                       <td className="px-6 py-4 text-center text-xs font-bold text-orange-500">{row.newsletter_optins}</td>
-                      <td className="px-6 py-4 text-center text-xs font-bold text-blue-500">{row.calls_booked}</td>
+                      <td className="px-6 py-4 text-center text-xs font-bold text-blue-500">{row.call_bookings_confirmed}</td>
                       <td className="px-6 py-4 text-right">
-                        <div className="text-xs font-black text-white">${row.revenue.toLocaleString()}</div>
-                        <div className="text-[9px] font-bold text-green-500/50 uppercase tracking-tighter">${(row.revenue / Math.max(1, row.clicks)).toFixed(2)} RPC</div>
+                        <div className="text-xs font-black text-white">
+                          ${(revenueView === 'stripe' ? row.stripe_revenue
+                              : revenueView === 'pixel' ? row.pixel_revenue
+                              : row.total_revenue).toLocaleString()}
+                        </div>
+                        <div className="text-[9px] font-bold text-zinc-600 uppercase tracking-tighter">
+                          {row.revenue_mode_label}
+                        </div>
+                        <div className="text-[9px] font-bold text-green-500/50 uppercase tracking-tighter">
+                          ${row.landing_page_clicks > 0
+                            ? ((revenueView === 'stripe' ? row.stripe_revenue
+                                : revenueView === 'pixel' ? row.pixel_revenue
+                                : row.total_revenue) / row.landing_page_clicks).toFixed(2)
+                            : '0.00'} RPC
+                        </div>
                       </td>
                     </tr>
                   ))

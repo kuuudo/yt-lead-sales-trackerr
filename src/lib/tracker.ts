@@ -56,7 +56,11 @@ export const syncSession = async () => {
   }
 };
 
-export const trackEvent = async (eventType: string, value: number | null = null) => {
+export const trackEvent = async (
+  eventType: string,
+  value: number | null = null,
+  meta?: { video_id?: string; campaign_id?: string }
+) => {
   const sessionId = getSessionId();
   if (!sessionId) return;
 
@@ -66,7 +70,10 @@ export const trackEvent = async (eventType: string, value: number | null = null)
       .insert({
         session_id: sessionId,
         event_type: eventType,
-        value
+        value,
+        // Include attribution if provided — backend resolves from session if absent
+        ...(meta?.video_id    && { video_id:    meta.video_id }),
+        ...(meta?.campaign_id && { campaign_id: meta.campaign_id }),
       });
 
     if (error) console.error(`Error tracking event ${eventType}:`, error);

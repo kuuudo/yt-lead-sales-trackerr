@@ -2,6 +2,12 @@ import React, { useState, useEffect, useMemo } from 'react';
 import { useLanguage } from '../lib/hooks';
 import { supabase, Campaign, Video, LeadMagnet } from '../lib/supabase';
 import { useAuth } from '../lib/auth';
+import {
+  applyRevenue,
+  finalizeMetrics,
+  type StripePurchaseRow,
+  type PixelPurchaseRow,
+} from '../lib/analyticsConfig';
 import { 
   BarChart3, Calendar, Filter, ChevronDown, Check, 
   MousePointer2, DollarSign, Users, Phone, Briefcase, 
@@ -82,6 +88,8 @@ export default function Analytics() {
   const [videos, setVideos] = useState<Video[]>([]);
   const [leadMagnets, setLeadMagnets] = useState<LeadMagnet[]>([]);
   const [events, setEvents] = useState<any[]>([]);
+  const [stripePurchases, setStripePurchases] = useState<any[]>([]);
+  const [pixelPurchases, setPixelPurchases] = useState<any[]>([]);
 
   // Filters from Search Params
   const [dateRange, setDateRange] = useState<DateRange>((searchParams.get('dr') as DateRange) || '28days');
@@ -131,12 +139,23 @@ export default function Analytics() {
       setVideos(vData || []);
       setLeadMagnets(lmData || []);
 
-      const { data: eData } = await supabase
-        .from('events')
-        .select('*')
-        .in('video_id', vData?.map(v => v.id) || []);
-      
-      setEvents(eData || []);
+      const videoIds = vData?.map((v: any) => v.id) || [];
+
+      const [eData, spData, ppData] = await Promise.all([
+        supabase.from('events')
+          .select('video_id, campaign_id, event_type, created_at')
+          .in('video_id', videoIds),
+        supabase.from('stripe_purchases')
+          .select('video_id, campaign_id, amount, type, session_id, created_at')
+          .in('video_id', videoIds),
+        supabase.from('pixel_purchases')
+          .select('video_id, campaign_id, amount, type, session_id, created_at')
+          .in('video_id', videoIds),
+      ]);
+
+      setEvents(eData.data || []);
+      setStripePurchases(spData.data || []);
+      setPixelPurchases(ppData.data || []);
     } catch (err) {
       console.error('Error fetching analytics data:', err);
     } finally {
@@ -158,6 +177,30 @@ export default function Analytics() {
     }
     return events.filter(e => new Date(e.created_at) >= cutoff);
   }, [events, dateRange]);
+
+  const cutoffDate = useMemo(() => {
+    const cutoff = new Date();
+    switch(dateRange) {
+      case '7days': cutoff.setDate(cutoff.getDate() - 7); break;
+      case '28days': cutoff.setDate(cutoff.getDate() - 28); break;
+      case '30days': cutoff.setDate(cutoff.getDate() - 30); break;
+      case '3months': cutoff.setMonth(cutoff.getMonth() - 3); break;
+      case '6months': cutoff.setMonth(cutoff.getMonth() - 6); break;
+      case '12months': cutoff.setFullYear(cutoff.getFullYear() - 1); break;
+      default: cutoff.setDate(cutoff.getDate() - 30);
+    }
+    return cutoff;
+  }, [dateRange]);
+
+  const dateFilteredPurchases = useMemo(
+    () => stripePurchases.filter(p => new Date(p.created_at) >= cutoffDate),
+    [stripePurchases, cutoffDate]
+  );
+
+  const dateFilteredPixelPurchases = useMemo(
+    () => pixelPurchases.filter(p => new Date(p.created_at) >= cutoffDate),
+    [pixelPurchases, cutoffDate]
+  );
 
   // Derived filtered videos
   const filteredVideos = useMemo(() => {
@@ -244,31 +287,24 @@ export default function Analytics() {
       }
 
       // Update per-video revenue in timeline ONLY if selected
-      const camp = v?.campaign;
-      if (camp) {
-        let revenue = 0;
-        if (e.event_type === 'purchase_thankyou') revenue = camp.offer_price || 0;
-        if (e.event_type === 'consultation_thankyou') revenue = camp.consultation_fee || 0;
-        
-        if (revenue > 0) {
-          timelineMetrics[key].total_revenue += revenue;
-          if (timelineMetrics[key][e.video_id] !== undefined) {
-            timelineMetrics[key][e.video_id] += revenue;
-          }
-          v.total_revenue += revenue;
-          if (e.event_type === 'purchase_thankyou') v.direct_offer_sales += revenue;
-          if (e.event_type === 'consultation_thankyou') v.consultation_revenue += revenue;
-        }
-      }
+      // (revenue is now applied after the loop via applyRevenue)
+    });
+
+    // Revenue — apply via analyticsConfig helpers per video
+    filteredVideos.forEach(v => {
+      const m = videoMetrics[v.id];
+      const campaign = campaigns.find(c => c.id === v.campaign_id);
+      applyRevenue(
+        m,
+        dateFilteredPurchases.filter((p: any) => p.video_id === v.id),
+        dateFilteredPixelPurchases.filter((p: any) => p.video_id === v.id),
+      );
+      finalizeMetrics(m, campaign);
     });
 
     // Finalize per-video aggregated metrics
     Object.values(videoMetrics).forEach((v: any) => {
-      const camp = v.campaign;
-      if (camp) {
-        v.estimated_call_revenue = v.call_booking_thankyou * ((camp.estimated_close_rate || 0) / 100) * (camp.offer_price || 0);
-        v.rpc = v.landing_page_view > 0 ? (v.total_revenue / v.landing_page_view).toFixed(2) : '0.00';
-      }
+      v.rpc = v.landing_page_view > 0 ? (v.total_revenue / v.landing_page_view).toFixed(2) : '0.00';
     });
 
     const sortedTimeline = Object.values(timelineMetrics).sort((a: any, b: any) => a.label.localeCompare(b.label));
@@ -277,7 +313,7 @@ export default function Analytics() {
       videos: Object.values(videoMetrics),
       timeline: sortedTimeline
     };
-  }, [filteredVideos, dateFilteredEvents, campaigns, granularity, videoIds]);
+  }, [filteredVideos, dateFilteredEvents, dateFilteredPurchases, dateFilteredPixelPurchases, campaigns, granularity, videoIds]);
 
   const summaryStats = useMemo(() => {
     const stats: Record<MetricType, number> = {} as any;
@@ -378,7 +414,9 @@ export default function Analytics() {
                 <div className="text-6xl font-black text-white tracking-tighter drop-shadow-2xl">
                   ${summaryStats.total_revenue.toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 0 })}
                 </div>
-                <p className="text-[10px] text-zinc-600 font-bold uppercase tracking-widest mt-2">Aggregated Direct Offer Sales + Consultation Revenue</p>
+                <p className="text-[10px] text-zinc-600 font-bold uppercase tracking-widest mt-2">
+                  {(summaryStats as any).revenue_mode_label ?? 'Verified (Stripe)'} · Direct Offer + Consultation
+                </p>
               </div>
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-8 pt-6 border-t border-zinc-800/50">
                 <div className="space-y-1">
