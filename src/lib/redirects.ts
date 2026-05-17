@@ -1,4 +1,5 @@
 import { supabase } from './supabase';
+import { getSessionId } from './tracker';
 
 const generateToken = (): string => {
   const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789';
@@ -88,28 +89,12 @@ export const resolveRedirectToken = async (token: string): Promise<RedirectLink 
 };
 
 export const logRedirectEvent = async (link: RedirectLink) => {
-  const sessionKey = 'vtrack_session_' + link.video_id;
-  let sessionId = localStorage.getItem(sessionKey);
+  // ✅ REUSE EXISTING SESSION (NO MORE DUPLICATES)
+  const sessionId = getSessionId();
 
   if (!sessionId) {
-    const { data: session, error: sessionError } = await supabase
-      .from('sessions')
-      .insert({
-        video_id: link.video_id,
-        campaign_id: link.campaign_id,
-        utm_source: 'youtube',
-        utm_medium: 'video',
-        utm_campaign: link.campaign_id,
-        utm_content: link.video_id,
-      })
-      .select('id')
-      .single();
-
-    if (sessionError || !session) return;
-    sessionId = session.id;
-    if (sessionId) {
-  localStorage.setItem(sessionKey, sessionId);
-}
+    console.warn('No session found - skipping event log');
+    return;
   }
 
   await supabase.from('events').insert({
@@ -125,9 +110,11 @@ export const logRedirectEvent = async (link: RedirectLink) => {
 // append ?client_reference_id=TOKEN so the webhook can attribute the purchase.
 export const buildRedirectUrl = (link: RedirectLink): string => {
   const isStripeLink = link.destination_url.includes('buy.stripe.com');
+  
   if (link.link_type === 'checkout' && isStripeLink) {
     const separator = link.destination_url.includes('?') ? '&' : '?';
     return `${link.destination_url}${separator}client_reference_id=${link.token}`;
   }
+
   return link.destination_url;
 };

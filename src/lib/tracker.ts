@@ -9,8 +9,16 @@ export const VTRACK_BASE_URL  = 'https://www.vstrk.com';
 export const PIXEL_ENDPOINT   = `${VTRACK_BASE_URL}/api/pixel`;
 export const WEBHOOK_ENDPOINT = `${VTRACK_BASE_URL}/api/stripe-webhook`;
 
-export const getSessionId = (): string | null =>
-  localStorage.getItem(SESSION_KEY);
+export const getSessionId = (): string => {
+  let sessionId = localStorage.getItem(SESSION_KEY);
+
+  if (!sessionId) {
+    sessionId = crypto.randomUUID();
+    localStorage.setItem(SESSION_KEY, sessionId);
+  }
+
+  return sessionId;
+};
 
 export const getUtmParams = () => {
   const urlParams = new URLSearchParams(window.location.search);
