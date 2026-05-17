@@ -1,3 +1,4 @@
+import { normalizeEventType } from '../lib/analyticsConfig';
 import React, { useState, useEffect, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { supabase, Campaign, Video, LeadMagnet } from '../lib/supabase';
@@ -223,15 +224,18 @@ export default function InDepthAnalytics() {
       };
     });
 
-    dateFilteredEvents.forEach(e => {
-      if (!videoIds.includes(e.video_id)) return;
-      const v = videoMetrics[e.video_id];
-      if (!v) return;
+dateFilteredEvents.forEach(e => {
+  if (!videoIds.includes(e.video_id)) return;
 
-      if (v[e.event_type] !== undefined) {
-        v[e.event_type]++;
-      }
-    });
+  const v = videoMetrics[e.video_id];
+  if (!v) return;
+
+  const canonical = normalizeEventType(e.event_type);
+
+  if (canonical && v[canonical] !== undefined) {
+    v[canonical]++;
+  }
+});
 
     // After event counts loop, apply revenue per video:
     filteredVideos.forEach(v => {
