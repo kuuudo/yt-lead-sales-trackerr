@@ -92,17 +92,23 @@ export default function InDepthAnalytics() {
       setLeadMagnets(lmData || []);
 
       if (vData && vData.length > 0) {
+        const videoIds = vData.map((v: any) => v.id);
+        const campaignIds = vData.map((v: any) => v.campaign_id).filter(Boolean);
+
         const [eData, spData, ppData] = await Promise.all([
           supabase.from('events')
             .select('video_id, campaign_id, event_type, created_at')
-            .in('video_id', vData.map((v: any) => v.id)),
+            .in('video_id', videoIds),
           supabase.from('stripe_purchases')
             .select('video_id, campaign_id, amount, type, session_id')
-            .in('video_id', vData.map((v: any) => v.id)),
+            .in('video_id', videoIds),
+          // pixel rows may have null video_id; fetch by campaign_id as fallback
           supabase.from('pixel_purchases')
-            .select('video_id, campaign_id, amount, type, session_id')
-            .in('video_id', vData.map((v: any) => v.id)),
+            .select('video_id, campaign_id, amount, event_type, session_id')
+            .in('campaign_id', campaignIds),
         ]);
+
+        console.log('[InDepthAnalytics] pixel_purchases fetched:', ppData.data?.length ?? 0, ppData.data);
 
         setEvents(eData.data || []);
         setStripePurchases(spData.data || []);
@@ -169,8 +175,17 @@ export default function InDepthAnalytics() {
         direct_offer_sales: 0,
         estimated_call_revenue: 0,
         consultation_revenue: 0,
+        stripe_revenue: 0,
+        pixel_revenue: 0,
         total_revenue: 0,
-        rpc: 0
+        rpc: 0,
+        // revenue_mode required by applyRevenue — derive from campaign or default hybrid
+        revenue_mode: (camp as any)?.revenue_mode === 'stripe' ? 'stripe'
+          : (camp as any)?.revenue_mode === 'pixel' ? 'pixel'
+          : 'hybrid',
+        revenue_mode_label: (camp as any)?.revenue_mode === 'stripe' ? 'Verified (Stripe)'
+          : (camp as any)?.revenue_mode === 'pixel' ? 'Estimated (Pixel)'
+          : 'Total (Hybrid)',
       };
     });
 
@@ -188,12 +203,22 @@ export default function InDepthAnalytics() {
     filteredVideos.forEach(v => {
       const m = videoMetrics[v.id];
       const campaign = campaigns.find(c => c.id === v.campaign_id);
+
+      // pixel rows may have null video_id; match by campaign_id as fallback
+      const vidPixelPurchases = pixelPurchases.filter(
+        (p: any) => p.video_id === v.id || (!p.video_id && p.campaign_id === v.campaign_id)
+      );
+
+      console.log(`[InDepthAnalytics] video=${v.video_title} mode=${m.revenue_mode} pixelRows=${vidPixelPurchases.length}`);
+
       applyRevenue(
         m,
         stripePurchases.filter((p: any) => p.video_id === v.id) as StripePurchaseRow[],
-        pixelPurchases.filter((p: any) => p.video_id === v.id) as PixelPurchaseRow[],
+        vidPixelPurchases as PixelPurchaseRow[],
       );
       finalizeMetrics(m, campaign);
+
+      console.log(`[InDepthAnalytics] video=${v.video_title} => pixel_revenue=${m.pixel_revenue} stripe_revenue=${m.stripe_revenue} total_revenue=${m.total_revenue}`);
     });
 
     return Object.values(videoMetrics).map((v: any) => {

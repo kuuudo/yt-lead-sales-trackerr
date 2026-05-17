@@ -89,6 +89,7 @@ export default function Dashboard() {
       setCampaigns(cRes.data);
 
       const videoIds = vRes.data.map((v: any) => v.id);
+      const campaignIds = vRes.data.map((v: any) => v.campaign_id).filter(Boolean);
 
       const [eRes, spRes, ppRes] = await Promise.all([
         // events = behavioral only, filtered by video_id (canonical pattern)
@@ -99,11 +100,14 @@ export default function Dashboard() {
         supabase.from('stripe_purchases')
           .select('video_id, campaign_id, amount, type, session_id')
           .in('video_id', videoIds),
-        // pixel_purchases = conversion signals + optional unverified amounts
+        // pixel_purchases: fetch by campaign_id because video_id may be null in pixel rows
         supabase.from('pixel_purchases')
-          .select('video_id, campaign_id, amount, type, session_id')
-          .in('video_id', videoIds),
+          .select('video_id, campaign_id, amount, event_type, session_id')
+          .in('campaign_id', campaignIds),
       ]);
+
+      console.log('[Dashboard] pixel_purchases fetched:', ppRes.data?.length ?? 0, ppRes.data);
+      console.log('[Dashboard] stripe_purchases fetched:', spRes.data?.length ?? 0);
 
       const processed: AnalyticsRow[] = vRes.data.map((vid: any) => {
         const campaign = cRes.data.find((c: any) => c.id === vid.campaign_id);
@@ -119,12 +123,21 @@ export default function Dashboard() {
         }
 
         // Revenue by mode — Stripe is always truth, Pixel is supplementary
+        // pixel rows may have null video_id; match by campaign_id as fallback
+        const vidPixelPurchases = (ppRes.data ?? []).filter(
+          (p: any) => p.video_id === vid.id || (!p.video_id && p.campaign_id === vid.campaign_id)
+        );
+
+        console.log(`[Dashboard] video=${vid.video_title} mode=${mode} pixelRows=${vidPixelPurchases.length}`);
+
         applyRevenue(
           m,
           (spRes.data ?? []).filter((p: any) => p.video_id === vid.id) as StripePurchaseRow[],
-          (ppRes.data ?? []).filter((p: any) => p.video_id === vid.id) as PixelPurchaseRow[],
+          vidPixelPurchases as PixelPurchaseRow[],
         );
         finalizeMetrics(m, campaign);
+
+        console.log(`[Dashboard] video=${vid.video_title} => pixel_revenue=${m.pixel_revenue} stripe_revenue=${m.stripe_revenue} total_revenue=${m.total_revenue} mode=${mode}`);
 
         return {
           id:                      vid.id,

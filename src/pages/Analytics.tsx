@@ -147,6 +147,7 @@ export default function Analytics() {
       setLeadMagnets(lmData || []);
 
       const videoIds = vData?.map((v: any) => v.id) || [];
+      const campaignIds = vData?.map((v: any) => v.campaign_id).filter(Boolean) || [];
 
       const [eData, spData, ppData] = await Promise.all([
         supabase.from('events')
@@ -155,10 +156,13 @@ export default function Analytics() {
         supabase.from('stripe_purchases')
           .select('video_id, campaign_id, amount, type, session_id, created_at')
           .in('video_id', videoIds),
+        // pixel rows may have null video_id; fetch by campaign_id as fallback
         supabase.from('pixel_purchases')
-          .select('video_id, campaign_id, amount, type, session_id, created_at')
-          .in('video_id', videoIds),
+          .select('video_id, campaign_id, amount, event_type, session_id, created_at')
+          .in('campaign_id', campaignIds),
       ]);
+
+      console.log('[Analytics] pixel_purchases fetched:', ppData.data?.length ?? 0, ppData.data);
 
       setEvents(eData.data || []);
       setStripePurchases(spData.data || []);
@@ -251,8 +255,17 @@ export default function Analytics() {
         direct_offer_sales: 0,
         estimated_call_revenue: 0,
         consultation_revenue: 0,
+        stripe_revenue: 0,
+        pixel_revenue: 0,
         total_revenue: 0,
-        rpc: 0
+        rpc: 0,
+        // revenue_mode required by applyRevenue — derive from campaign or default hybrid
+        revenue_mode: (camp as any)?.revenue_mode === 'stripe' ? 'stripe'
+          : (camp as any)?.revenue_mode === 'pixel' ? 'pixel'
+          : 'hybrid',
+        revenue_mode_label: (camp as any)?.revenue_mode === 'stripe' ? 'Verified (Stripe)'
+          : (camp as any)?.revenue_mode === 'pixel' ? 'Estimated (Pixel)'
+          : 'Total (Hybrid)',
       };
     });
 
@@ -302,12 +315,22 @@ export default function Analytics() {
     filteredVideos.forEach(v => {
       const m = videoMetrics[v.id];
       const campaign = campaigns.find(c => c.id === v.campaign_id);
+
+      // pixel rows may have null video_id; match by campaign_id as fallback
+      const vidPixelPurchases = dateFilteredPixelPurchases.filter(
+        (p: any) => p.video_id === v.id || (!p.video_id && p.campaign_id === v.campaign_id)
+      );
+
+      console.log(`[Analytics] video=${v.video_title} mode=${m.revenue_mode} pixelRows=${vidPixelPurchases.length}`);
+
       applyRevenue(
         m,
         dateFilteredPurchases.filter((p: any) => p.video_id === v.id),
-        dateFilteredPixelPurchases.filter((p: any) => p.video_id === v.id),
+        vidPixelPurchases,
       );
       finalizeMetrics(m, campaign);
+
+      console.log(`[Analytics] video=${v.video_title} => pixel_revenue=${m.pixel_revenue} stripe_revenue=${m.stripe_revenue} total_revenue=${m.total_revenue}`);
     });
 
     // Finalize per-video aggregated metrics
@@ -324,8 +347,11 @@ export default function Analytics() {
   }, [filteredVideos, dateFilteredEvents, dateFilteredPurchases, dateFilteredPixelPurchases, campaigns, granularity, videoIds]);
 
   const summaryStats = useMemo(() => {
-    const stats: Record<MetricType, number> = {} as any;
-    Object.keys(METRIC_LABELS).forEach(m => stats[m as MetricType] = 0);
+    const stats: Record<MetricType, number> & { stripe_revenue: number; pixel_revenue: number } = {
+      ...(Object.fromEntries(Object.keys(METRIC_LABELS).map(k => [k, 0])) as any),
+      stripe_revenue: 0,
+      pixel_revenue: 0,
+    };
 
     const targetVideos = selectedVideoIds.length > 0 
       ? processedData.videos.filter(v => selectedVideoIds.includes(v.video.id))
@@ -337,9 +363,14 @@ export default function Analytics() {
         if (key === 'rpc') return;
         stats[key] += Number(v[key]) || 0;
       });
+      stats.stripe_revenue += Number(v.stripe_revenue) || 0;
+      stats.pixel_revenue  += Number(v.pixel_revenue)  || 0;
     });
     
     stats.rpc = stats.landing_page_view > 0 ? Number((stats.total_revenue / stats.landing_page_view).toFixed(2)) : 0;
+
+    console.log('[Analytics] summaryStats => stripe_revenue:', stats.stripe_revenue, 'pixel_revenue:', stats.pixel_revenue, 'total_revenue:', stats.total_revenue);
+
     return stats;
   }, [processedData, selectedVideoIds]);
 

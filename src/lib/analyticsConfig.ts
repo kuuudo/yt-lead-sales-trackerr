@@ -67,9 +67,11 @@ export const REVENUE_METRIC_KEYS = new Set([
 export type RevenueMode = 'stripe' | 'pixel' | 'hybrid';
 
 export function getRevenueMode(campaign: { revenue_mode?: string | null }): RevenueMode {
+  if (campaign.revenue_mode === 'stripe') return 'stripe';
   if (campaign.revenue_mode === 'pixel') return 'pixel';
-  if (campaign.revenue_mode === 'hybrid') return 'hybrid';
-  return 'stripe'; // default — Stripe is always the safe fallback
+  // Default to 'hybrid' — campaigns table has no revenue_mode column yet,
+  // so we must aggregate both Stripe and Pixel revenue by default.
+  return 'hybrid';
 }
 
 export const REVENUE_MODE_LABELS: Record<RevenueMode, string> = {
@@ -245,6 +247,16 @@ export function applyRevenue(
   if (mode === 'stripe')  metrics.total_revenue = metrics.stripe_revenue;
   if (mode === 'pixel')   metrics.total_revenue = metrics.pixel_revenue;
   if (mode === 'hybrid')  metrics.total_revenue = metrics.stripe_revenue + metrics.pixel_revenue;
+
+  // ── Debug logging ─────────────────────────────────────────────────────────
+  console.log('[applyRevenue]', {
+    mode,
+    stripeRows: stripePurchases.length,
+    pixelRows: pixelPurchases.length,
+    stripe_revenue: metrics.stripe_revenue,
+    pixel_revenue: metrics.pixel_revenue,
+    total_revenue: metrics.total_revenue,
+  });
 }
 
 // ── 6. Finalize derived metrics ───────────────────────────────────────────────
@@ -265,4 +277,14 @@ export function finalizeMetrics(
       (metrics.call_booking_thankyou * rate * price).toFixed(2)
     );
   }
+
+  // ── Debug logging ─────────────────────────────────────────────────────────
+  console.log('[finalizeMetrics]', {
+    revenue_mode: metrics.revenue_mode,
+    revenue_mode_label: metrics.revenue_mode_label,
+    stripe_revenue: metrics.stripe_revenue,
+    pixel_revenue: metrics.pixel_revenue,
+    total_revenue: metrics.total_revenue,
+    rpc: metrics.rpc,
+  });
 }
