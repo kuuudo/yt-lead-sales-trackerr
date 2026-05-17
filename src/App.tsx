@@ -96,10 +96,6 @@ function Navigation() {
 
 function MainContent() {
   const { user, loading } = useAuth();
-  // NOTE: useTracker() runs for ALL routes including /track/:token.
-  // Track.tsx is rendered OUTSIDE this component (see App below) precisely
-  // to prevent useTracker from creating an unattributed session before
-  // Track.tsx can call setAttribution + syncSession with real video/campaign ids.
   useTracker();
 
   if (loading) {
@@ -111,8 +107,11 @@ function MainContent() {
   }
 
   if (!user) {
+    // Allow public token redirects even when not logged in
     return (
       <Routes>
+        <Route path="/track/:token" element={<Track />} />
+        <Route path="/:token" element={<Track />} />
         <Route path="*" element={<PageWrapper><Auth /></PageWrapper>} />
       </Routes>
     );
@@ -130,6 +129,8 @@ function MainContent() {
         <Route path="/analytics/indepth" element={<InDepthAnalytics />} />
         <Route path="/installation" element={<PageWrapper><Installation /></PageWrapper>} />
         <Route path="/settings" element={<PageWrapper><Settings /></PageWrapper>} />
+        <Route path="/track/:token" element={<Track />} />
+        <Route path="/:token" element={<Track />} />
         <Route path="*" element={<Navigate to="/dashboard" replace />} />
       </Routes>
     </AnimatePresence>
@@ -152,43 +153,12 @@ function PageWrapper({ children }: { children: React.ReactNode }) {
 export default function App() {
   return (
     <Router>
-      {/*
-        Track routes are declared HERE, at the top level of the Router,
-        OUTSIDE AuthProvider and OUTSIDE MainContent.
-
-        This is intentional and critical for two reasons:
-
-        1. Auth gate bypass: MainContent blocks rendering with a loading
-           spinner while AuthProvider checks the session (~200-800ms).
-           During that window, no routes render at all — Track.tsx never
-           mounts, its useEffect never runs, attribution never initializes.
-           By placing Track routes here, they render immediately on first
-           paint with zero auth delay.
-
-        2. useTracker() bypass: MainContent calls useTracker() which calls
-           syncSession() unconditionally. If that runs before Track.tsx
-           calls setAttribution(), it creates an unattributed session row
-           (video_id=null, campaign_id=null) and writes its id to
-           localStorage. Then when Track.tsx calls syncSession(), it
-           short-circuits on line 53 ("session exists, return") — the
-           attribution data is never saved. Placing Track outside
-           MainContent means useTracker() never runs for tracking URLs.
-      */}
-      <Routes>
-        <Route path="/track/:token" element={<Track />} />
-        <Route path="/:token" element={<Track />} />
-        <Route
-          path="*"
-          element={
-            <AuthProvider>
-              <div className="min-h-screen bg-zinc-950 text-zinc-100 selection:bg-red-500/30 selection:text-white font-sans antialiased">
-                <Navigation />
-                <MainContent />
-              </div>
-            </AuthProvider>
-          }
-        />
-      </Routes>
+      <AuthProvider>
+        <div className="min-h-screen bg-zinc-950 text-zinc-100 selection:bg-red-500/30 selection:text-white font-sans antialiased">
+          <Navigation />
+          <MainContent />
+        </div>
+      </AuthProvider>
     </Router>
   );
 }
