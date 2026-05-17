@@ -123,11 +123,32 @@ export default function VideoDetail() {
         setAllLeadMagnetNames(nameMap);
       }
 
-      const { data: eData } = await supabase
-        .from('events')
-        .select('*')
-        .eq('video_id', id);
-      setEvents(eData || []);
+      // Fetch events: direct attribution + session-resolved fallback
+      const [eDirectRes, eViaSessionRes, spRes, ppRes] = await Promise.all([
+        supabase.from('events').select('*').eq('video_id', id),
+        supabase
+          .from('events')
+          .select('*, sessions!inner(video_id, campaign_id)')
+          .is('video_id', null)
+          .eq('sessions.video_id', id),
+        supabase.from('stripe_purchases').select('*').eq('video_id', id),
+        supabase.from('pixel_purchases').select('*').eq('video_id', id),
+      ]);
+
+      const sessionEvents = (eViaSessionRes.data || []).map((e: any) => ({
+        ...e,
+        video_id:    e.sessions?.video_id    ?? id,
+        campaign_id: e.sessions?.campaign_id ?? vData.campaign_id,
+      }));
+      const allEvents = [...(eDirectRes.data || []), ...sessionEvents];
+
+      console.debug('[VideoDetail] events direct:', eDirectRes.data?.length ?? 0, '| via session:', sessionEvents.length);
+      console.debug('[VideoDetail] stripe_purchases:', spRes.data?.length ?? 0, '| pixel_purchases:', ppRes.data?.length ?? 0);
+      console.debug('[VideoDetail] session_id in storage:', localStorage.getItem('yt_tracker_session_id'));
+      console.debug('[VideoDetail] video_id in storage:', localStorage.getItem('yt_tracker_video_id'));
+      console.debug('[VideoDetail] campaign_id in storage:', localStorage.getItem('yt_tracker_campaign_id'));
+
+      setEvents(allEvents);
 
     } catch (err: any) {
       console.error('Error fetching video detail:', err);

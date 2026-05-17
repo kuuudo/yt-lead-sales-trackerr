@@ -32,12 +32,38 @@ export const getUtmParams = () => {
   return stored ? JSON.parse(stored) : utms;
 };
 
+// Keys for persisting attribution across pages (set by redirect handler)
+const VIDEO_ID_KEY    = 'yt_tracker_video_id';
+const CAMPAIGN_ID_KEY = 'yt_tracker_campaign_id';
+
+/** Store attribution from the redirect link resolution (called by Track page). */
+export const setAttribution = (videoId: string, campaignId: string) => {
+  localStorage.setItem(VIDEO_ID_KEY,    videoId);
+  localStorage.setItem(CAMPAIGN_ID_KEY, campaignId);
+  console.debug('[tracker] setAttribution', { videoId, campaignId });
+};
+
+/** Returns the currently stored video_id (may be null if not yet set). */
+export const getVideoId = (): string | null => localStorage.getItem(VIDEO_ID_KEY);
+
+/** Returns the currently stored campaign_id (may be null if not yet set). */
+export const getCampaignId = (): string | null => localStorage.getItem(CAMPAIGN_ID_KEY);
+
 export const syncSession = async () => {
   const sessionId = getSessionId();
   if (sessionId) return; // session exists, no need to sync (UTMs are already captured)
 
-  const utms = getUtmParams();
-  const sessionData = { ...utms };
+  const utms   = getUtmParams();
+  const videoId    = getVideoId();
+  const campaignId = getCampaignId();
+
+  const sessionData: Record<string, string | null> = {
+    ...utms,
+    ...(videoId    ? { video_id:    videoId }    : {}),
+    ...(campaignId ? { campaign_id: campaignId } : {}),
+  };
+
+  console.debug('[tracker] syncSession insert', sessionData);
 
   try {
     const { data, error } = await supabase
@@ -48,11 +74,12 @@ export const syncSession = async () => {
     
     if (data?.id) {
       localStorage.setItem(SESSION_KEY, data.id);
+      console.debug('[tracker] session created', data.id);
     }
     
-    if (error) console.error('Error syncing session:', error);
+    if (error) console.error('[tracker] Error syncing session:', error);
   } catch (err) {
-    console.error('Failed to sync session to Supabase', err);
+    console.error('[tracker] Failed to sync session to Supabase', err);
   }
 };
 
@@ -64,21 +91,25 @@ export const trackEvent = async (
   const sessionId = getSessionId();
   if (!sessionId) return;
 
-  try {
-    const { error } = await supabase
-      .from('events')
-      .insert({
-        session_id: sessionId,
-        event_type: eventType,
-        value,
-        // Include attribution if provided — backend resolves from session if absent
-        ...(meta?.video_id    && { video_id:    meta.video_id }),
-        ...(meta?.campaign_id && { campaign_id: meta.campaign_id }),
-      });
+  // Always resolve attribution — prefer explicit meta, fall back to localStorage
+  const videoId    = meta?.video_id    ?? getVideoId()    ?? undefined;
+  const campaignId = meta?.campaign_id ?? getCampaignId() ?? undefined;
 
-    if (error) console.error(`Error tracking event ${eventType}:`, error);
+  const payload: Record<string, unknown> = {
+    session_id: sessionId,
+    event_type: eventType,
+    value,
+    ...(videoId    ? { video_id:    videoId }    : {}),
+    ...(campaignId ? { campaign_id: campaignId } : {}),
+  };
+
+  console.debug('[tracker] trackEvent', payload);
+
+  try {
+    const { error } = await supabase.from('events').insert(payload);
+    if (error) console.error(`[tracker] Error tracking event ${eventType}:`, error);
   } catch (err) {
-    console.error(`Failed to track event ${eventType}`, err);
+    console.error(`[tracker] Failed to track event ${eventType}`, err);
   }
 };
 
@@ -86,46 +117,60 @@ export const captureEmail = async (email: string) => {
   const sessionId = getSessionId();
   if (!sessionId) return false;
   const utms = getUtmParams();
+  const videoId    = getVideoId()    ?? undefined;
+  const campaignId = getCampaignId() ?? undefined;
+
+  const payload: Record<string, unknown> = {
+    session_id: sessionId,
+    email,
+    utm_content: utms.utm_content,
+    ...(videoId    ? { video_id:    videoId }    : {}),
+    ...(campaignId ? { campaign_id: campaignId } : {}),
+  };
+
+  console.debug('[tracker] captureEmail', payload);
 
   try {
-    const { error } = await supabase
-      .from('leads')
-      .insert({
-        session_id: sessionId,
-        email,
-        utm_content: utms.utm_content
-      });
-
+    const { error } = await supabase.from('leads').insert(payload);
     if (error) {
-      console.error('Error capturing lead:', error);
+      console.error('[tracker] Error capturing lead:', error);
       return false;
     }
-    
     await trackEvent('lead');
     return true;
   } catch (err) {
-    console.error('Failed to capture lead', err);
+    console.error('[tracker] Failed to capture lead', err);
     return false;
   }
 };
 
 export const generatePixelSnippet = (
   campaignId: string,
+  videoId: string,
   eventType: string,
   amount: number | null
 ): string => {
   const amountStr = amount !== null ? String(amount) : '0';
 
+  // The snippet reads session_id/video_id from localStorage at fire-time so
+  // attribution is always fresh even if the snippet is embedded on an external page.
   return `<!-- V-Track Pixel: ${eventType} -->
 <script>
-  fetch('${PIXEL_ENDPOINT}', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      campaign_id: '${campaignId}',
-      event_type: '${eventType}',
-      amount: ${amountStr}
-    })
-  });
+  (function() {
+    var sessionId  = localStorage.getItem('yt_tracker_session_id');
+    var payload = {
+      campaign_id:  '${campaignId}',
+      video_id:     '${videoId}',
+      event_type:   '${eventType}',
+      amount:       ${amountStr},
+      session_id:   sessionId || null
+    };
+    console.debug('[V-Track pixel] firing', payload);
+    fetch('${PIXEL_ENDPOINT}', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload)
+    });
+  })();
 <\/script>`;
 };

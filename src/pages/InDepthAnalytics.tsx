@@ -95,24 +95,58 @@ export default function InDepthAnalytics() {
         const videoIds = vData.map((v: any) => v.id);
         const campaignIds = vData.map((v: any) => v.campaign_id).filter(Boolean);
 
-        const [eData, spData, ppData] = await Promise.all([
+        const [eDirectData, eViaSessionData, spData, ppData] = await Promise.all([
           supabase.from('events')
             .select('video_id, campaign_id, event_type, created_at')
             .in('video_id', videoIds),
+          supabase.from('events')
+            .select('event_type, created_at, sessions!inner(video_id, campaign_id)')
+            .is('video_id', null)
+            .in('sessions.video_id', videoIds),
           supabase.from('stripe_purchases')
             .select('video_id, campaign_id, amount, type, session_id')
             .in('video_id', videoIds),
-          // pixel rows may have null video_id; fetch by campaign_id as fallback
           supabase.from('pixel_purchases')
             .select('video_id, campaign_id, amount, event_type, session_id')
             .in('campaign_id', campaignIds),
         ]);
 
-        console.log('[InDepthAnalytics] pixel_purchases fetched:', ppData.data?.length ?? 0, ppData.data);
+        // Normalize session-resolved events
+        const sessionResolvedEvents = (eViaSessionData.data || []).map((e: any) => ({
+          video_id:    e.sessions?.video_id    ?? null,
+          campaign_id: e.sessions?.campaign_id ?? null,
+          event_type:  e.event_type,
+          created_at:  e.created_at,
+        })).filter((e: any) => e.video_id !== null);
 
-        setEvents(eData.data || []);
-        setStripePurchases(spData.data || []);
-        setPixelPurchases(ppData.data || []);
+        const allEvents = [...(eDirectData.data || []), ...sessionResolvedEvents];
+
+        // Enrich pixel_purchases with null video_id via sessions
+        const pixelRaw = ppData.data || [];
+        const nullPixelSessionIds = pixelRaw.filter((p: any) => !p.video_id && p.session_id).map((p: any) => p.session_id);
+        let pixelSessLookup: Record<string, { video_id: string; campaign_id: string }> = {};
+        if (nullPixelSessionIds.length > 0) {
+          const { data: sData } = await supabase.from('sessions').select('id, video_id, campaign_id').in('id', nullPixelSessionIds);
+          (sData || []).forEach((s: any) => { if (s.video_id) pixelSessLookup[s.id] = { video_id: s.video_id, campaign_id: s.campaign_id }; });
+        }
+        const enrichedPixel = pixelRaw.map((p: any) => (!p.video_id && p.session_id && pixelSessLookup[p.session_id]) ? { ...p, ...pixelSessLookup[p.session_id] } : p);
+
+        // Enrich stripe_purchases with null video_id via sessions
+        const stripeRaw = spData.data || [];
+        const nullStripeSessionIds = stripeRaw.filter((p: any) => !p.video_id && p.session_id).map((p: any) => p.session_id);
+        let stripeSessLookup: Record<string, { video_id: string; campaign_id: string }> = {};
+        if (nullStripeSessionIds.length > 0) {
+          const { data: sData } = await supabase.from('sessions').select('id, video_id, campaign_id').in('id', nullStripeSessionIds);
+          (sData || []).forEach((s: any) => { if (s.video_id) stripeSessLookup[s.id] = { video_id: s.video_id, campaign_id: s.campaign_id }; });
+        }
+        const enrichedStripe = stripeRaw.map((p: any) => (!p.video_id && p.session_id && stripeSessLookup[p.session_id]) ? { ...p, ...stripeSessLookup[p.session_id] } : p);
+
+        console.log('[InDepthAnalytics] events direct:', eDirectData.data?.length ?? 0, '| via session:', sessionResolvedEvents.length, '| total:', allEvents.length);
+        console.log('[InDepthAnalytics] pixel_purchases enriched:', enrichedPixel.length, '| stripe_purchases enriched:', enrichedStripe.length);
+
+        setEvents(allEvents);
+        setStripePurchases(enrichedStripe);
+        setPixelPurchases(enrichedPixel);
       }
     } catch (err) {
       console.error('Error fetching in-depth analytics data:', err);
@@ -204,21 +238,16 @@ export default function InDepthAnalytics() {
       const m = videoMetrics[v.id];
       const campaign = campaigns.find(c => c.id === v.campaign_id);
 
-      // pixel rows may have null video_id; match by campaign_id as fallback
-      const vidPixelPurchases = pixelPurchases.filter(
-        (p: any) => p.video_id === v.id || (!p.video_id && p.campaign_id === v.campaign_id)
-      );
+      // All rows now enriched with video_id from sessions
+      const vidPixelPurchases = pixelPurchases.filter((p: any) => p.video_id === v.id);
+      const vidStripePurchases = stripePurchases.filter((p: any) => p.video_id === v.id);
 
-      console.log(`[InDepthAnalytics] video=${v.video_title} mode=${m.revenue_mode} pixelRows=${vidPixelPurchases.length}`);
+      console.log(`[InDepthAnalytics] video="${v.video_title}" mode=${m.revenue_mode} stripeRows=${vidStripePurchases.length} pixelRows=${vidPixelPurchases.length}`);
 
-      applyRevenue(
-        m,
-        stripePurchases.filter((p: any) => p.video_id === v.id) as StripePurchaseRow[],
-        vidPixelPurchases as PixelPurchaseRow[],
-      );
+      applyRevenue(m, vidStripePurchases as StripePurchaseRow[], vidPixelPurchases as PixelPurchaseRow[]);
       finalizeMetrics(m, campaign);
 
-      console.log(`[InDepthAnalytics] video=${v.video_title} => pixel_revenue=${m.pixel_revenue} stripe_revenue=${m.stripe_revenue} total_revenue=${m.total_revenue}`);
+      console.log(`[InDepthAnalytics] video="${v.video_title}" => stripe=${m.stripe_revenue} pixel=${m.pixel_revenue} total=${m.total_revenue} rpc=${m.rpc}`);
     });
 
     return Object.values(videoMetrics).map((v: any) => {
