@@ -1305,7 +1305,8 @@ const CampaignCard = ({
                             <span className="text-[9px] font-black uppercase tracking-widest px-2 py-0.5 rounded-full bg-zinc-800 border border-zinc-700 text-zinc-300">
                               {consultationPaymentMethod === 'stripe_checkout' ? 'Stripe Checkout Page' :
                                consultationPaymentMethod === 'stripe_embedded' ? 'Stripe Embedded Checkout' :
-                               consultationPaymentMethod === 'alternative_payment' ? 'Embedded Alternative Payment' :
+                               consultationPaymentMethod === 'embedded_alternative_payment' ? 'Embedded Alternative Payment' :
+                               consultationPaymentMethod === 'alternative_payment' ? 'Alternative Payment Method' :
                                'Payment Instructions Page'}
                             </span>
                           </div>
@@ -1334,10 +1335,11 @@ const CampaignCard = ({
                             />
                           )}
 
-                          {/* alternative_payment (embedded): confirmation pixel only.
-                              No webhook (non-Stripe), no checkout intent pixel (can't edit embed pages),
+                          {/* embedded_alternative_payment: confirmation pixel only.
+                              Embedded delivery (PayPal embed, Line Pay, custom widget).
+                              No webhook (non-Stripe), no checkout intent pixel (embed pages not editable),
                               no redirect (embedded delivery). */}
-                          {consultationPaymentMethod === 'alternative_payment' && (
+                          {consultationPaymentMethod === 'embedded_alternative_payment' && (
                             <PixelBlock
                               campaignId={campaign.id}
                               eventType="consultation"
@@ -1345,6 +1347,18 @@ const CampaignCard = ({
                               thankyouUrl={campaign.consultation_thankyou_url}
                               pendingMessage="No consultation confirmation page URL detected yet. Add one in your campaign settings."
                               activeInstruction="✅ Confirmation page detected. Paste this pixel on your consultation thank-you page to track completed payments."
+                            />
+                          )}
+
+                          {/* alternative_payment: redirect to external payment page + limitation notice.
+                              No webhook, no confirmation tracking. */}
+                          {consultationPaymentMethod === 'alternative_payment' && (
+                            <RedirectTrackingBlock
+                              campaignId={campaign.id}
+                              destinationUrl={campaign.paid_consultation_checkout_url}
+                              linkType="consultation"
+                              eventLabel="Payment"
+                              limitationMessage="Without direct integration, we track visitor intent. For the best attribution accuracy, we recommend using your own website and embedding external tools inside your pages so V-Track can track the full customer journey."
                             />
                           )}
 

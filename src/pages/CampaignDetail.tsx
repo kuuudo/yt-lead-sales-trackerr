@@ -499,8 +499,9 @@ export default function CampaignDetail() {
                     <div>
                       <label className="text-[9px] font-bold text-zinc-600 uppercase mb-1 block">Payment Method</label>
                       <select value={(formData as any).consultation_payment_method ?? 'stripe_checkout'} onChange={e => setFormData({ ...formData, ...(formData as any), consultation_payment_method: e.target.value })} className={inputClass}>
-                        <option value="stripe_checkout">Stripe Checkout</option>
+                        <option value="stripe_checkout">Stripe Checkout Page</option>
                         <option value="stripe_embedded">Stripe Embedded Checkout</option>
+                        <option value="embedded_alternative_payment">Embedded Alternative Payment</option>
                         <option value="alternative_payment">Alternative Payment Method</option>
                         <option value="payment_instructions_page">Payment Instructions Page</option>
                       </select>
