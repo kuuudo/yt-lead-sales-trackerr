@@ -23,7 +23,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     return res.status(405).json({ error: 'Method not allowed' });
   }
 
-  const { token, video_id, campaign_id, event_type, amount } = req.body;
+  const { token, video_id, campaign_id, event_type, amount, session_id } = req.body;
 
   if (!token && !video_id && !campaign_id) {
     return res.status(400).json({ error: 'Missing token or video_id' });
@@ -74,6 +74,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       user_id: resolvedUserId,
       amount: finalAmount,
       event_type: finalEventType,
+      session_id: session_id ?? null,
     });
 
   if (purchaseError) {
