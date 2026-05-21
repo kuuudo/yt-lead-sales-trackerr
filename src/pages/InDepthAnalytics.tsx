@@ -152,22 +152,18 @@ export default function InDepthAnalytics() {
           (sData || []).forEach((s: any) => { if (s.video_id) stripeSessLookup[s.id] = { video_id: s.video_id, campaign_id: s.campaign_id }; });
         }
         const enrichedStripe = stripeRaw.map((p: any) => {
-          // Resolve video_id/campaign_id from session if missing
+          // 1. Resolve video_id/campaign_id from session if missing
           const resolved = (!p.video_id && p.session_id && stripeSessLookup[p.session_id])
             ? { ...p, ...stripeSessLookup[p.session_id] }
             : p;
-          // Derive 'type' from campaign: stripe_purchases has no type column in DB,
-          // so we reconstruct it from has_paid_consultation + consultation_fee
+          // 2. Derive 'type' from campaign — stripe_purchases has no type column in DB
           const campaign = (cData || []).find((c: any) => c.id === resolved.campaign_id);
           const isConsultation =
             campaign?.has_paid_consultation &&
             campaign?.consultation_fee != null &&
             Number(resolved.amount) === Number(campaign.consultation_fee);
-          // Normalize cents → dollars if amount looks like cents (> 500 implies > $5.00 in cents)
-          const normalizedAmount = resolved.amount > 500 ? resolved.amount / 100 : resolved.amount;
           return {
             ...resolved,
-            amount: normalizedAmount,
             type: isConsultation ? 'consultation' : 'direct',
           };
         });

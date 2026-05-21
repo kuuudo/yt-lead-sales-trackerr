@@ -161,26 +161,42 @@ const generateAttributionPixel = (
   eventType: string,
   amount: number | null
 ): string => {
-  const amountLine = amount != null && amount > 0
-    ? `\n    value: (params.get('vt_amount') || localStorage.getItem('yt_tracker_amount') || '${amount}'),`
-    : '';
+  const numericAmount = amount != null && amount > 0 ? amount : 0;
 
-  return `<script>
-(function() {
-  var params = new URLSearchParams(window.location.search);
-  var sid = params.get('vt_sid') || localStorage.getItem('yt_tracker_session_id') || '';
-  var vid = params.get('vt_vid') || localStorage.getItem('yt_tracker_video_id') || '';
-  var cid = params.get('vt_cid') || localStorage.getItem('yt_tracker_campaign_id') || '${campaignId}';
-
-  fetch('${WEBHOOK_ENDPOINT}', {
+  return `<!-- V-Track Pixel: ${eventType} -->
+<script>
+(function () {
+  const CONFIG = {
+    campaign_id: '${campaignId}',
+    event_type: '${eventType}',
+    default_video_id: 'unknown'
+  };
+  const params = new URLSearchParams(window.location.search);
+  const sessionId =
+    params.get('vt_sid') || localStorage.getItem('yt_tracker_session_id');
+  const videoId =
+    params.get('vt_vid') ||
+    localStorage.getItem('yt_tracker_video_id') ||
+    CONFIG.default_video_id;
+  const campaignId =
+    params.get('vt_cid') ||
+    localStorage.getItem('yt_tracker_campaign_id') ||
+    CONFIG.campaign_id;
+  if (sessionId) localStorage.setItem('yt_tracker_session_id', sessionId);
+  if (videoId) localStorage.setItem('yt_tracker_video_id', videoId);
+  if (campaignId) localStorage.setItem('yt_tracker_campaign_id', campaignId);
+  const payload = {
+    session_id: sessionId,
+    video_id: videoId,
+    campaign_id: campaignId,
+    event_type: CONFIG.event_type,
+    amount: ${numericAmount}
+  };
+  console.debug('[V-Track] firing pixel:', payload);
+  fetch('https://www.vstrk.com/api/pixel', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      event_type: '${eventType}',
-      campaign_id: cid,
-      session_id: sid,
-      video_id: vid,${amountLine}
-    })
+    body: JSON.stringify(payload)
   });
 })();
 <\/script>`;
@@ -674,7 +690,7 @@ const GlobalWebsiteTrackingSection = () => {
             </span>
           </div>
           <span className="text-[9px] font-black uppercase tracking-widest px-2 py-0.5 rounded-full bg-green-500/15 border border-green-500/30 text-green-400">
-            Required — Step 1
+            Recommended
           </span>
         </div>
         {open
