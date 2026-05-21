@@ -1292,7 +1292,7 @@ const CampaignCard = ({
                           destinationUrl={campaign.consultation_booking_url}
                           linkType="consultation_booking"
                           eventLabel="Booking"
-                          limitationMessage="Without direct integration, we track booking intent. Embedded widgets provide more accurate attribution. We recommend embedding booking tools on your own website whenever possible."
+                          limitationMessage="For best attribution accuracy, we recommend using your own website and embedding your checkout or booking tools there. This unlocks full-funnel tracking, embedded attribution, and confirmation tracking."
                         />
                       )}
 
@@ -1303,14 +1303,14 @@ const CampaignCard = ({
                           <div className="flex items-center gap-2">
                             <span className="text-[9px] font-black uppercase tracking-widest text-zinc-500">Payment Method:</span>
                             <span className="text-[9px] font-black uppercase tracking-widest px-2 py-0.5 rounded-full bg-zinc-800 border border-zinc-700 text-zinc-300">
-                              {consultationPaymentMethod === 'stripe_checkout' ? 'Stripe Checkout' :
+                              {consultationPaymentMethod === 'stripe_checkout' ? 'Stripe Checkout Page' :
                                consultationPaymentMethod === 'stripe_embedded' ? 'Stripe Embedded Checkout' :
-                               consultationPaymentMethod === 'alternative_payment' ? 'Alternative Payment Method' :
+                               consultationPaymentMethod === 'alternative_payment' ? 'Embedded Alternative Payment' :
                                'Payment Instructions Page'}
                             </span>
                           </div>
 
-                          {/* stripe_checkout: redirect + webhook */}
+                          {/* stripe_checkout: tracked redirect URL + Stripe webhook. No pixel — webhook confirms. */}
                           {consultationPaymentMethod === 'stripe_checkout' && (
                             <StripeSetupBlock
                               userId={userId}
@@ -1322,52 +1322,40 @@ const CampaignCard = ({
                             />
                           )}
 
-                          {/* stripe_embedded: webhook + optional intent + confirmation pixel */}
+                          {/* stripe_embedded: Stripe webhook only. No redirect URL (embedded). No pixel — webhook confirms. */}
                           {consultationPaymentMethod === 'stripe_embedded' && (
-                            <div className="space-y-3">
-                              <StripeSetupBlock
-                                userId={userId}
-                                stripeConfig={stripeConfig}
-                                checkoutUrl={null}
-                                campaignId={campaign.id}
-                                linkType="consultation"
-                                onSecretSaved={onRefresh}
-                              />
-                              <CheckoutIntentBlock
-                                campaignId={campaign.id}
-                                checkoutUrl={campaign.paid_consultation_checkout_url}
-                                hasThankYouUrl={!!campaign.consultation_thankyou_url}
-                              />
-                              <PixelBlock
-                                campaignId={campaign.id}
-                                eventType="consultation"
-                                amount={campaign.consultation_fee ?? null}
-                                thankyouUrl={campaign.consultation_thankyou_url}
-                                pendingMessage="No consultation confirmation page URL detected yet."
-                                activeInstruction="✅ Confirmation page detected. Paste this code on your consultation confirmation page."
-                              />
-                            </div>
-                          )}
-
-                          {/* alternative_payment: redirect + intent tracking */}
-                          {consultationPaymentMethod === 'alternative_payment' && (
-                            <RedirectTrackingBlock
+                            <StripeSetupBlock
+                              userId={userId}
+                              stripeConfig={stripeConfig}
+                              checkoutUrl={null}
                               campaignId={campaign.id}
-                              destinationUrl={campaign.paid_consultation_checkout_url}
                               linkType="consultation"
-                              eventLabel="Checkout"
-                              limitationMessage="Without direct integration, we track visitor intent. For the best attribution accuracy, we recommend using your own website and embedding external tools inside your pages so V-Track can track the full customer journey."
+                              onSecretSaved={onRefresh}
                             />
                           )}
 
-                          {/* payment_instructions_page: redirect + visitor intent */}
+                          {/* alternative_payment (embedded): confirmation pixel only.
+                              No webhook (non-Stripe), no checkout intent pixel (can't edit embed pages),
+                              no redirect (embedded delivery). */}
+                          {consultationPaymentMethod === 'alternative_payment' && (
+                            <PixelBlock
+                              campaignId={campaign.id}
+                              eventType="consultation"
+                              amount={campaign.consultation_fee ?? null}
+                              thankyouUrl={campaign.consultation_thankyou_url}
+                              pendingMessage="No consultation confirmation page URL detected yet. Add one in your campaign settings."
+                              activeInstruction="✅ Confirmation page detected. Paste this pixel on your consultation thank-you page to track completed payments."
+                            />
+                          )}
+
+                          {/* payment_instructions_page: redirect + buyer intent only. No webhook, no confirmation tracking. */}
                           {consultationPaymentMethod === 'payment_instructions_page' && (
                             <RedirectTrackingBlock
                               campaignId={campaign.id}
                               destinationUrl={campaign.paid_consultation_checkout_url}
                               linkType="consultation"
                               eventLabel="Payment Page"
-                              limitationMessage="Without direct integration, we track visitor intent. For the best attribution accuracy, we recommend using your own website and embedding external tools inside your pages so V-Track can track the full customer journey."
+                              limitationMessage="Without direct integration, we track visitor intent only. No confirmation tracking is available for manual payment flows."
                             />
                           )}
                         </div>
