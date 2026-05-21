@@ -905,6 +905,183 @@ const GlobalWebsiteTrackingSection = () => {
 };
 
 // ─────────────────────────────────────────────
+// CONSULTATION ARCHITECTURE C — REDIRECT RESOLVER
+//
+// Implements the redirect priority hierarchy for Architecture C
+// (alternative_payment, payment_instructions_page, external_platform).
+// Returns the redirect destination, linkType (intent event name),
+// and whether a confirmation pixel should also be shown.
+//
+// Priority:
+//   1. checkout_url  → generates checkout redirect   (highest)
+//   2. thankyou_url  → generates thankyou redirect   (second)
+//   3. no urls       → no redirect generated         (lowest)
+//
+// IMPORTANT: all linkType values here are INTENT events only.
+// They must never be interpreted as confirmed purchases or revenue.
+// ─────────────────────────────────────────────
+
+type ConsultationArchCStrategy = {
+  // The URL to use as the redirect destination. null = no redirect.
+  redirectUrl: string | null;
+  // The link_type value stored in redirect_links. Determines which intent event fires.
+  linkType: string;
+  // Human-readable label for the redirect block header.
+  eventLabel: string;
+  // Installation instruction shown inside the redirect block.
+  limitationMessage: string;
+  // Whether to also render a confirmation PixelBlock after the redirect.
+  // Only true when consultation_thankyou_url exists AND the payment method
+  // can logically have a server-side or pixel confirmation.
+  showConfirmationPixel: boolean;
+};
+
+const resolveConsultationArchCRedirect = (
+  campaign: CampaignExtended,
+  consultationDelivery: string,
+  consultationPaymentMethod: string
+): ConsultationArchCStrategy => {
+  const bookingUrl = campaign.consultation_booking_url ?? null;
+  const checkoutUrl = campaign.paid_consultation_checkout_url ?? null;
+  const thankyouUrl = campaign.consultation_thankyou_url ?? null;
+
+  // ── external_platform ──────────────────────────────────────────────────
+  // Redirect intent only. No pixel (user cannot place code on external platform).
+  // Redirect priority: booking URL → thankyou URL → no redirect.
+  // (booking_only = no redirect per spec; thankyou_only = thankyou redirect)
+  if (consultationDelivery === 'external_platform') {
+    if (bookingUrl) {
+      return {
+        redirectUrl: bookingUrl,
+        linkType: 'external_platform_redirected',
+        eventLabel: 'Booking',
+        limitationMessage:
+          'This tracks when a visitor clicks through to your booking platform — intent only, not a confirmed booking. ' +
+          'To enable confirmation tracking, paste the tracked link into your platform\'s "redirect after booking" or ' +
+          '"success URL" setting and add a thank-you page URL in your campaign settings.',
+        showConfirmationPixel: false,
+      };
+    }
+    if (thankyouUrl) {
+      // thankyou_only: generate thankyou redirect, tell user to use it as platform success redirect
+      return {
+        redirectUrl: thankyouUrl,
+        linkType: 'external_platform_redirected',
+        eventLabel: 'Booking',
+        limitationMessage:
+          'No booking URL configured. Using your thank-you page as the redirect target — ' +
+          'paste this tracked link into your platform\'s "redirect after booking" or "success URL" setting.',
+        showConfirmationPixel: false,
+      };
+    }
+    // booking_only with no booking URL and no thankyou URL → no redirect
+    return {
+      redirectUrl: null,
+      linkType: 'external_platform_redirected',
+      eventLabel: 'Booking',
+      limitationMessage:
+        'No booking URL or thank-you page URL configured. Add a booking URL to generate a tracked redirect link.',
+      showConfirmationPixel: false,
+    };
+  }
+
+  // ── own_website + alternative_payment ──────────────────────────────────
+  // Intent: checkout_opened. Optional confirmation pixel if thankyou URL exists.
+  // Priority: checkout → thankyou → no redirect.
+  if (consultationPaymentMethod === 'alternative_payment') {
+    if (checkoutUrl) {
+      return {
+        redirectUrl: checkoutUrl,
+        linkType: 'checkout_opened',
+        eventLabel: 'Payment',
+        limitationMessage:
+          'Replace your payment button URL with the tracked link above — this records intent when a visitor clicks through to pay. ' +
+          'It does not confirm payment was completed. ' +
+          (thankyouUrl
+            ? 'A confirmation pixel is provided below — paste it on your thank-you page to track completed payments.'
+            : 'If your payment platform supports a "success redirect", add your thank-you page URL in campaign settings to unlock confirmation tracking.'),
+        showConfirmationPixel: !!thankyouUrl,
+      };
+    }
+    if (thankyouUrl) {
+      return {
+        redirectUrl: thankyouUrl,
+        linkType: 'checkout_opened',
+        eventLabel: 'Payment',
+        limitationMessage:
+          'No checkout URL configured — using your thank-you page as the redirect target. ' +
+          'If your payment platform supports a "success redirect", paste this tracked link there. ' +
+          'A confirmation pixel is also provided below.',
+        showConfirmationPixel: true,
+      };
+    }
+    return {
+      redirectUrl: null,
+      linkType: 'checkout_opened',
+      eventLabel: 'Payment',
+      limitationMessage:
+        'No checkout URL or thank-you page URL configured. ' +
+        'Add a checkout URL to generate a tracked redirect, or add a thank-you page URL to enable confirmation tracking.',
+      showConfirmationPixel: false,
+    };
+  }
+
+  // ── own_website + payment_instructions_page ────────────────────────────
+  // Intent: payment_instruction_viewed. Optional confirmation pixel if thankyou URL exists.
+  // Priority: checkout (instruction page URL) → thankyou → no redirect.
+  if (consultationPaymentMethod === 'payment_instructions_page') {
+    if (checkoutUrl) {
+      return {
+        redirectUrl: checkoutUrl,
+        linkType: 'payment_instruction_viewed',
+        eventLabel: 'Payment Page',
+        limitationMessage:
+          'Replace the link to your payment instruction page with the tracked link above — ' +
+          'this records when a visitor reaches your payment instructions, not that payment was completed. ' +
+          (thankyouUrl
+            ? 'A confirmation pixel is provided below — paste it on your thank-you page if your platform supports a success redirect.'
+            : 'Confirmation tracking is not available for manual payment flows unless your platform supports a success redirect URL. ' +
+              'Add a thank-you page URL in your campaign settings if so.'),
+        showConfirmationPixel: !!thankyouUrl,
+      };
+    }
+    if (thankyouUrl) {
+      return {
+        redirectUrl: thankyouUrl,
+        linkType: 'payment_instruction_viewed',
+        eventLabel: 'Payment Page',
+        limitationMessage:
+          'No instruction page URL configured — using your thank-you page as the redirect target. ' +
+          'A confirmation pixel is also provided below.',
+        showConfirmationPixel: true,
+      };
+    }
+    return {
+      redirectUrl: null,
+      linkType: 'payment_instruction_viewed',
+      eventLabel: 'Payment Page',
+      limitationMessage:
+        'No payment instruction page URL or thank-you page URL configured. ' +
+        'Add a checkout / instruction page URL to generate a tracked redirect.',
+      showConfirmationPixel: false,
+    };
+  }
+
+  // ── Fallback: should not be reached for Architecture C ─────────────────
+  // Preserves existing behavior for any unrecognised payment method value
+  // already stored in the database, rather than breaking silently.
+  return {
+    redirectUrl: checkoutUrl,
+    linkType: 'consultation',
+    eventLabel: 'Payment',
+    limitationMessage:
+      'Without direct integration, we track visitor intent only. ' +
+      'For the best attribution accuracy, embed external tools on your own website.',
+    showConfirmationPixel: false,
+  };
+};
+
+// ─────────────────────────────────────────────
 // CAMPAIGN CARD
 // ─────────────────────────────────────────────
 
@@ -1314,16 +1491,29 @@ const CampaignCard = ({
                         </span>
                       </div>
 
-                      {/* external_platform: redirect + booking_click event only */}
-                      {consultationDelivery === 'external_platform' && (
-                        <RedirectTrackingBlock
-                          campaignId={campaign.id}
-                          destinationUrl={campaign.consultation_booking_url}
-                          linkType="consultation_booking"
-                          eventLabel="Booking"
-                          limitationMessage="For best attribution accuracy, we recommend using your own website and embedding your checkout or booking tools there. This unlocks full-funnel tracking, embedded attribution, and confirmation tracking."
-                        />
-                      )}
+                      {/* ── Architecture C: external_platform ──────────────────────────────
+                          Intent tracking via redirect. No pixel — code cannot be placed
+                          on an external booking platform.
+                          Redirect priority: booking URL → thankyou URL → no redirect.
+                          linkType = 'external_platform_redirected' (intent only, not a conversion). */}
+                      {consultationDelivery === 'external_platform' && (() => {
+                        const archC = resolveConsultationArchCRedirect(campaign, consultationDelivery, consultationPaymentMethod);
+                        return archC.redirectUrl ? (
+                          <RedirectTrackingBlock
+                            campaignId={campaign.id}
+                            destinationUrl={archC.redirectUrl}
+                            linkType={archC.linkType}
+                            eventLabel={archC.eventLabel}
+                            limitationMessage={archC.limitationMessage}
+                          />
+                        ) : (
+                          /* No redirect possible — explain clearly rather than rendering a broken block */
+                          <div className="flex gap-3 p-3.5 bg-zinc-800/40 border border-zinc-700/50 rounded-xl">
+                            <Info size={12} className="text-zinc-500 shrink-0 mt-0.5" />
+                            <p className="text-[11px] text-zinc-500 leading-relaxed">{archC.limitationMessage}</p>
+                          </div>
+                        );
+                      })()}
 
                       {/* own_website: branch by consultation_payment_method */}
                       {consultationDelivery === 'own_website' && (
@@ -1340,7 +1530,8 @@ const CampaignCard = ({
                             </span>
                           </div>
 
-                          {/* stripe_checkout: tracked redirect URL + Stripe webhook. No pixel — webhook confirms. */}
+                          {/* stripe_checkout: tracked redirect URL + Stripe webhook. No pixel — webhook confirms.
+                              UNTOUCHED — Architecture A. */}
                           {consultationPaymentMethod === 'stripe_checkout' && (
                             <StripeSetupBlock
                               userId={userId}
@@ -1352,7 +1543,8 @@ const CampaignCard = ({
                             />
                           )}
 
-                          {/* stripe_embedded: Stripe webhook only. No redirect URL (embedded). No pixel — webhook confirms. */}
+                          {/* stripe_embedded: Stripe webhook only. No redirect URL (embedded). No pixel — webhook confirms.
+                              UNTOUCHED — Architecture A. */}
                           {consultationPaymentMethod === 'stripe_embedded' && (
                             <StripeSetupBlock
                               userId={userId}
@@ -1367,7 +1559,8 @@ const CampaignCard = ({
                           {/* embedded_alternative_payment: confirmation pixel only.
                               Embedded delivery (PayPal embed, Line Pay, custom widget).
                               No webhook (non-Stripe), no checkout intent pixel (embed pages not editable),
-                              no redirect (embedded delivery). */}
+                              no redirect (embedded delivery).
+                              UNTOUCHED — Architecture B. */}
                           {consultationPaymentMethod === 'embedded_alternative_payment' && (
                             <PixelBlock
                               campaignId={campaign.id}
@@ -1379,28 +1572,81 @@ const CampaignCard = ({
                             />
                           )}
 
-                          {/* alternative_payment: redirect to external payment page + limitation notice.
-                              No webhook, no confirmation tracking. */}
-                          {consultationPaymentMethod === 'alternative_payment' && (
-                            <RedirectTrackingBlock
-                              campaignId={campaign.id}
-                              destinationUrl={campaign.paid_consultation_checkout_url}
-                              linkType="consultation"
-                              eventLabel="Payment"
-                              limitationMessage="Without direct integration, we track visitor intent. For the best attribution accuracy, we recommend using your own website and embedding external tools inside your pages so V-Track can track the full customer journey."
-                            />
-                          )}
+                          {/* ── Architecture C: alternative_payment ────────────────────────────
+                              Intent tracking via redirect (checkout_opened — NOT a confirmed event).
+                              Redirect priority: checkout URL → thankyou URL → no redirect.
+                              Optional confirmation pixel rendered below if thankyou URL exists. */}
+                          {consultationPaymentMethod === 'alternative_payment' && (() => {
+                            const archC = resolveConsultationArchCRedirect(campaign, consultationDelivery, consultationPaymentMethod);
+                            return (
+                              <div className="space-y-3">
+                                {archC.redirectUrl ? (
+                                  <RedirectTrackingBlock
+                                    campaignId={campaign.id}
+                                    destinationUrl={archC.redirectUrl}
+                                    linkType={archC.linkType}
+                                    eventLabel={archC.eventLabel}
+                                    limitationMessage={archC.limitationMessage}
+                                  />
+                                ) : (
+                                  <div className="flex gap-3 p-3.5 bg-zinc-800/40 border border-zinc-700/50 rounded-xl">
+                                    <Info size={12} className="text-zinc-500 shrink-0 mt-0.5" />
+                                    <p className="text-[11px] text-zinc-500 leading-relaxed">{archC.limitationMessage}</p>
+                                  </div>
+                                )}
+                                {/* Optional confirmation pixel — only shown when thankyou URL exists.
+                                    eventType = 'consultation_confirmed' is a confirmed event, intentionally
+                                    separate from the redirect intent event above. */}
+                                {archC.showConfirmationPixel && (
+                                  <PixelBlock
+                                    campaignId={campaign.id}
+                                    eventType="consultation_confirmed"
+                                    amount={campaign.consultation_fee ?? null}
+                                    thankyouUrl={campaign.consultation_thankyou_url}
+                                    pendingMessage="Thank-you page URL detected but pixel not yet placed."
+                                    activeInstruction="✅ Paste this pixel on your payment thank-you page to track confirmed consultations."
+                                  />
+                                )}
+                              </div>
+                            );
+                          })()}
 
-                          {/* payment_instructions_page: redirect + buyer intent only. No webhook, no confirmation tracking. */}
-                          {consultationPaymentMethod === 'payment_instructions_page' && (
-                            <RedirectTrackingBlock
-                              campaignId={campaign.id}
-                              destinationUrl={campaign.paid_consultation_checkout_url}
-                              linkType="consultation"
-                              eventLabel="Payment Page"
-                              limitationMessage="Without direct integration, we track visitor intent only. No confirmation tracking is available for manual payment flows."
-                            />
-                          )}
+                          {/* ── Architecture C: payment_instructions_page ──────────────────────
+                              Intent tracking via redirect (payment_instruction_viewed — NOT a confirmed event).
+                              Redirect priority: checkout URL (instruction page) → thankyou URL → no redirect.
+                              Optional confirmation pixel rendered below if thankyou URL exists. */}
+                          {consultationPaymentMethod === 'payment_instructions_page' && (() => {
+                            const archC = resolveConsultationArchCRedirect(campaign, consultationDelivery, consultationPaymentMethod);
+                            return (
+                              <div className="space-y-3">
+                                {archC.redirectUrl ? (
+                                  <RedirectTrackingBlock
+                                    campaignId={campaign.id}
+                                    destinationUrl={archC.redirectUrl}
+                                    linkType={archC.linkType}
+                                    eventLabel={archC.eventLabel}
+                                    limitationMessage={archC.limitationMessage}
+                                  />
+                                ) : (
+                                  <div className="flex gap-3 p-3.5 bg-zinc-800/40 border border-zinc-700/50 rounded-xl">
+                                    <Info size={12} className="text-zinc-500 shrink-0 mt-0.5" />
+                                    <p className="text-[11px] text-zinc-500 leading-relaxed">{archC.limitationMessage}</p>
+                                  </div>
+                                )}
+                                {/* Optional confirmation pixel — only shown when thankyou URL exists. */}
+                                {archC.showConfirmationPixel && (
+                                  <PixelBlock
+                                    campaignId={campaign.id}
+                                    eventType="consultation_confirmed"
+                                    amount={campaign.consultation_fee ?? null}
+                                    thankyouUrl={campaign.consultation_thankyou_url}
+                                    pendingMessage="Thank-you page URL detected but pixel not yet placed."
+                                    activeInstruction="✅ Paste this pixel on your payment thank-you page to track confirmed consultations."
+                                  />
+                                )}
+                              </div>
+                            );
+                          })()}
                         </div>
                       )}
                     </div>

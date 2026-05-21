@@ -45,7 +45,16 @@ const getMissingFields = (f: Partial<Campaign>): string[] => {
   if (f.has_sales_call && !f.sales_call_booking_url) missing.push('Sales Call Booking URL');
   if (f.has_sales_call && !f.sales_call_thankyou_url) missing.push('Sales Call Thank You URL — needed to track booked calls');
   if (f.has_paid_consultation && !f.consultation_booking_url) missing.push('Consultation Booking URL');
-  if (f.has_paid_consultation && !f.consultation_thankyou_url) missing.push('Consultation Thank You URL — needed to track confirmed consultations');
+  // Thank-you URL is only strictly required for embedded_alternative_payment (Architecture B).
+  // For Architecture C flows (alternative_payment, payment_instructions_page, external_platform)
+  // it is optional — a pixel is generated if present, but the flow works via redirect intent without it.
+  const consultPaymentMethod = (f as any).consultation_payment_method ?? 'stripe_checkout';
+  const consultDelivery = (f as any).consultation_delivery ?? 'external_platform';
+  const thankyouRequired =
+    consultDelivery === 'own_website' && consultPaymentMethod === 'embedded_alternative_payment';
+  if (f.has_paid_consultation && thankyouRequired && !f.consultation_thankyou_url) {
+    missing.push('Consultation Thank You URL — needed to track confirmed consultations');
+  }
   return missing;
 };
 
@@ -518,10 +527,39 @@ export default function CampaignDetail() {
                   </>
                 )}
                 <div>
-                  <label className="text-[9px] font-bold text-zinc-600 uppercase mb-1 block">
-                    Consultation Thank You URL
-                    {formData.has_paid_consultation && !formData.consultation_thankyou_url && <span className="ml-2 text-orange-500">⚠</span>}
-                  </label>
+                  {(() => {
+                    const cDelivery = (formData as any).consultation_delivery ?? 'external_platform';
+                    const cMethod = (formData as any).consultation_payment_method ?? 'stripe_checkout';
+                    // embedded_alternative_payment: required, show warning if missing
+                    if (cDelivery === 'own_website' && cMethod === 'embedded_alternative_payment') {
+                      return (
+                        <label className="text-[9px] font-bold text-zinc-600 uppercase mb-1 block">
+                          Consultation Thank You URL
+                          {!formData.consultation_thankyou_url && <span className="ml-2 text-orange-500">⚠ required for pixel tracking</span>}
+                        </label>
+                      );
+                    }
+                    // external_platform: optional, platform may support success redirect
+                    if (cDelivery === 'external_platform') {
+                      return (
+                        <label className="text-[9px] font-bold text-zinc-600 uppercase mb-1 block">
+                          Consultation Thank You URL
+                          <span className="ml-2 text-zinc-600 normal-case font-normal">
+                            Optional — paste here if your booking platform supports a success redirect URL
+                          </span>
+                        </label>
+                      );
+                    }
+                    // alternative_payment / payment_instructions_page: optional confirmation tracking
+                    return (
+                      <label className="text-[9px] font-bold text-zinc-600 uppercase mb-1 block">
+                        Consultation Thank You URL
+                        <span className="ml-2 text-zinc-600 normal-case font-normal">
+                          Optional — add if your payment platform supports a success redirect, enables confirmation tracking
+                        </span>
+                      </label>
+                    );
+                  })()}
                   <input type="url" value={formData.consultation_thankyou_url || ''} onChange={e => setFormData({ ...formData, consultation_thankyou_url: e.target.value })} className={inputClass} />
                 </div>
                 <div className="flex items-center justify-between p-4 bg-zinc-950 rounded-xl border border-zinc-900">
