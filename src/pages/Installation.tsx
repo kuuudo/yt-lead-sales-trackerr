@@ -1081,111 +1081,105 @@ const CampaignCard = ({
 
                 {funnelStates.purchase === 'active' && (
                   <div className="space-y-4">
-
-                    {/* Delivery method label */}
+                    {/* Method label */}
                     <div className="flex items-center gap-2">
-                      <span className="text-[9px] font-black uppercase tracking-widest text-zinc-500">Delivery:</span>
+                      <span className="text-[9px] font-black uppercase tracking-widest text-zinc-500">Payment Method:</span>
                       <span className="text-[9px] font-black uppercase tracking-widest px-2 py-0.5 rounded-full bg-zinc-800 border border-zinc-700 text-zinc-300">
-                        {purchaseMethod === 'external_platform' ? 'External Platform' : 'Own Website'}
+                        {purchaseMethod === 'stripe_checkout' ? 'Stripe Checkout' :
+                         purchaseMethod === 'stripe_embedded' ? 'Stripe Embedded Checkout' :
+                         purchaseMethod === 'embedded_alternative_payment' ? 'Embedded Alternative Payment' :
+                         purchaseMethod === 'alternative_payment' ? 'Alternative Payment Method' :
+                         purchaseMethod === 'external_platform' ? 'External Platform' :
+                         'Payment Instructions Page'}
                       </span>
                     </div>
 
-                    {/* ── EXTERNAL PLATFORM: redirect attribution + buyer intent only ── */}
-                    {purchaseMethod === 'external_platform' && (
+                    {/* stripe_checkout: redirect link + webhook */}
+                    {purchaseMethod === 'stripe_checkout' && (
+                      <StripeSetupBlock
+                        userId={userId}
+                        stripeConfig={stripeConfig}
+                        checkoutUrl={campaign.checkout_url}
+                        campaignId={campaign.id}
+                        linkType="checkout"
+                        onSecretSaved={onRefresh}
+                      />
+                    )}
+
+                    {/* stripe_embedded: webhook + optional intent pixel + confirmation pixel */}
+                    {purchaseMethod === 'stripe_embedded' && (
                       <div className="space-y-3">
-                        <RedirectTrackingBlock
+                        <StripeSetupBlock
+                          userId={userId}
+                          stripeConfig={stripeConfig}
+                          checkoutUrl={null}
                           campaignId={campaign.id}
-                          destinationUrl={campaign.checkout_url}
                           linkType="checkout"
-                          eventLabel="Checkout"
-                          limitationMessage="For best attribution accuracy, we recommend using your own website and embedding your checkout or booking tools there. This unlocks full-funnel tracking, embedded attribution, and confirmation tracking."
+                          onSecretSaved={onRefresh}
+                        />
+                        <CheckoutIntentBlock
+                          campaignId={campaign.id}
+                          checkoutUrl={campaign.checkout_url}
+                          hasThankYouUrl={!!campaign.purchase_thankyou_url}
+                        />
+                        <PixelBlock
+                          campaignId={campaign.id}
+                          eventType="purchase"
+                          amount={campaign.offer_price ?? null}
+                          thankyouUrl={campaign.purchase_thankyou_url}
+                          pendingMessage="No thank-you page URL detected yet."
+                          activeInstruction={`✅ Paste this on your purchase confirmation page to track confirmed orders.`}
                         />
                       </div>
                     )}
 
-                    {/* ── OWN WEBSITE: branch by payment method ── */}
-                    {purchaseMethod !== 'external_platform' && (
-                      <div className="space-y-3">
-                        {/* Payment method label */}
-                        <div className="flex items-center gap-2">
-                          <span className="text-[9px] font-black uppercase tracking-widest text-zinc-500">Payment Method:</span>
-                          <span className="text-[9px] font-black uppercase tracking-widest px-2 py-0.5 rounded-full bg-zinc-800 border border-zinc-700 text-zinc-300">
-                            {purchaseMethod === 'stripe_checkout' ? 'Stripe Checkout' :
-                             purchaseMethod === 'stripe_embedded' ? 'Stripe Embedded Checkout' :
-                             purchaseMethod === 'embedded_alternative_payment' ? 'Embedded Alternative Payment' :
-                             purchaseMethod === 'alternative_payment' ? 'Alternative Payment Method' :
-                             'Payment Instructions Page'}
-                          </span>
-                        </div>
+                    {/* alternative_payment: redirect link + intent tracking + limitation notice */}
+                    {purchaseMethod === 'alternative_payment' && (
+                      <RedirectTrackingBlock
+                        campaignId={campaign.id}
+                        destinationUrl={campaign.checkout_url}
+                        linkType="checkout"
+                        eventLabel="Checkout"
+                        limitationMessage="Without direct integration, we track visitor intent. For the best attribution accuracy, we recommend using your own website and embedding external tools inside your pages so V-Track can track the full customer journey."
+                      />
+                    )}
 
-                        {/* stripe_checkout: tracked redirect URL + Stripe webhook. No pixel — webhook confirms. */}
-                        {purchaseMethod === 'stripe_checkout' && (
-                          <StripeSetupBlock
-                            userId={userId}
-                            stripeConfig={stripeConfig}
-                            checkoutUrl={campaign.checkout_url}
-                            campaignId={campaign.id}
-                            linkType="checkout"
-                            onSecretSaved={onRefresh}
-                          />
-                        )}
+                    {/* payment_instructions_page: redirect link + visitor intent only */}
+                    {purchaseMethod === 'payment_instructions_page' && (
+                      <RedirectTrackingBlock
+                        campaignId={campaign.id}
+                        destinationUrl={campaign.checkout_url}
+                        linkType="checkout"
+                        eventLabel="Payment Page"
+                        limitationMessage="Without direct integration, we track visitor intent. For the best attribution accuracy, we recommend using your own website and embedding external tools inside your pages so V-Track can track the full customer journey."
+                      />
+                    )}
 
-                        {/* stripe_embedded: Stripe webhook + optional checkout intent pixel. No confirmation pixel — webhook confirms. */}
-                        {purchaseMethod === 'stripe_embedded' && (
-                          <div className="space-y-3">
-                            <StripeSetupBlock
-                              userId={userId}
-                              stripeConfig={stripeConfig}
-                              checkoutUrl={null}
-                              campaignId={campaign.id}
-                              linkType="checkout"
-                              onSecretSaved={onRefresh}
-                            />
-                            <CheckoutIntentBlock
-                              campaignId={campaign.id}
-                              checkoutUrl={campaign.checkout_url}
-                              hasThankYouUrl={!!campaign.purchase_thankyou_url}
-                            />
-                          </div>
-                        )}
+                    {/* embedded_alternative_payment: confirmation pixel only.
+                        Embedded delivery (PayPal embed, custom widget, etc).
+                        No webhook (non-Stripe), no checkout intent pixel (embed pages not editable),
+                        no redirect (embedded delivery). Uses direct purchase event type. */}
+                    {purchaseMethod === 'embedded_alternative_payment' && (
+                      <PixelBlock
+                        campaignId={campaign.id}
+                        eventType="purchase"
+                        amount={campaign.offer_price ?? null}
+                        thankyouUrl={campaign.purchase_thankyou_url}
+                        pendingMessage="No thank-you page URL detected yet. Add one in your campaign settings."
+                        activeInstruction="✅ Confirmation page detected. Paste this pixel on your purchase thank-you page to track completed orders."
+                      />
+                    )}
 
-                        {/* embedded_alternative_payment: confirmation pixel only (PayPal embed, Line Pay, custom widget).
-                            No webhook (non-Stripe), no redirect (embedded delivery).
-                            Uses direct purchase event_type — NOT consultation. */}
-                        {purchaseMethod === 'embedded_alternative_payment' && (
-                          <PixelBlock
-                            campaignId={campaign.id}
-                            eventType="purchase"
-                            amount={campaign.offer_price ?? null}
-                            thankyouUrl={campaign.purchase_thankyou_url}
-                            pendingMessage="No thank-you page URL detected yet. Add one in your campaign settings."
-                            activeInstruction="✅ Confirmation page detected. Paste this pixel on your purchase thank-you page to track completed payments."
-                          />
-                        )}
-
-                        {/* alternative_payment: redirect to external payment page + limitation notice.
-                            No webhook, no confirmation tracking. */}
-                        {purchaseMethod === 'alternative_payment' && (
-                          <RedirectTrackingBlock
-                            campaignId={campaign.id}
-                            destinationUrl={campaign.checkout_url}
-                            linkType="checkout"
-                            eventLabel="Checkout"
-                            limitationMessage="Without direct integration, we track visitor intent. For the best attribution accuracy, we recommend using your own website and embedding external tools inside your pages so V-Track can track the full customer journey."
-                          />
-                        )}
-
-                        {/* payment_instructions_page: redirect + buyer intent only. No webhook, no confirmation tracking. */}
-                        {purchaseMethod === 'payment_instructions_page' && (
-                          <RedirectTrackingBlock
-                            campaignId={campaign.id}
-                            destinationUrl={campaign.checkout_url}
-                            linkType="checkout"
-                            eventLabel="Payment Page"
-                            limitationMessage="Without direct integration, we track visitor intent. For the best attribution accuracy, we recommend using your own website and embedding external tools inside your pages so V-Track can track the full customer journey."
-                          />
-                        )}
-                      </div>
+                    {/* external_platform: redirect tracking link + limitation notice.
+                        Buyer intent only — no webhook, no confirmation tracking. */}
+                    {purchaseMethod === 'external_platform' && (
+                      <RedirectTrackingBlock
+                        campaignId={campaign.id}
+                        destinationUrl={campaign.checkout_url}
+                        linkType="checkout"
+                        eventLabel="Checkout"
+                        limitationMessage="This funnel routes through an external platform. Without direct integration, we track visitor intent only. For full-funnel confirmation tracking, we recommend hosting your checkout on your own website and embedding the payment tool there."
+                      />
                     )}
                   </div>
                 )}

@@ -244,8 +244,10 @@ export default function Campaigns() {
                       <select value={formData.purchase_method} onChange={e => setFormData({ ...formData, purchase_method: e.target.value })} className={inputClass}>
                         <option value="stripe_checkout">Stripe Checkout</option>
                         <option value="stripe_embedded">Stripe Embedded Checkout</option>
+                        <option value="embedded_alternative_payment">Embedded Alternative Payment</option>
                         <option value="alternative_payment">Alternative Payment Method</option>
                         <option value="payment_instructions_page">Payment Instructions Page</option>
+                        <option value="external_platform">External Platform</option>
                       </select>
                     </div>
                     <div className="space-y-1">
