@@ -28,6 +28,12 @@ interface StripeConfig {
 type CampaignExtended = Campaign & {
   checkout_type?: string | null;
   consultation_checkout_type?: string | null;
+  // New conditional funnel configuration fields
+  purchase_method?: string | null;
+  sales_call_delivery?: string | null;
+  average_upsell_value?: number | null;
+  consultation_delivery?: string | null;
+  consultation_payment_method?: string | null;
 };
 
 interface CampaignWithState extends CampaignExtended {
@@ -358,7 +364,100 @@ const CheckoutIntentBlock = ({
 };
 
 // ─────────────────────────────────────────────
-// CHECKOUT TYPE SELECTOR
+// REDIRECT TRACKING BLOCK
+// Used for external platform flows (external booking, alternative payment, etc.)
+// Reuses the existing redirect_links architecture — only the link_type changes.
+// ─────────────────────────────────────────────
+
+const RedirectTrackingBlock = ({
+  campaignId,
+  destinationUrl,
+  linkType,
+  eventLabel,
+  limitationMessage,
+}: {
+  campaignId: string;
+  destinationUrl: string | null | undefined;
+  linkType: string;
+  eventLabel: string;
+  limitationMessage: string;
+}) => {
+  const [trackedUrl, setTrackedUrl] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!destinationUrl || !campaignId) return;
+
+    const syncLink = async () => {
+      const { data: existing } = await supabase
+        .from('redirect_links')
+        .select('token, destination_url')
+        .eq('campaign_id', campaignId)
+        .eq('link_type', linkType)
+        .order('created_at', { ascending: false })
+        .limit(1)
+        .single();
+
+      if (!existing) {
+        const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789';
+        const token = Array.from({ length: 4 }, () => chars[Math.floor(Math.random() * chars.length)]).join('');
+        const { error } = await supabase.from('redirect_links').insert({
+          token,
+          campaign_id: campaignId,
+          link_type: linkType,
+          destination_url: destinationUrl,
+          video_id: null,
+        });
+        if (!error) setTrackedUrl(`${window.location.origin}/${token}`);
+      } else if (existing.destination_url !== destinationUrl) {
+        await supabase
+          .from('redirect_links')
+          .update({ destination_url: destinationUrl })
+          .eq('campaign_id', campaignId)
+          .eq('link_type', linkType);
+        setTrackedUrl(`${window.location.origin}/${existing.token}`);
+      } else {
+        setTrackedUrl(`${window.location.origin}/${existing.token}`);
+      }
+    };
+
+    syncLink();
+  }, [campaignId, destinationUrl, linkType]);
+
+  return (
+    <div className="space-y-3 mt-4">
+      {/* Tracked link */}
+      <div className="space-y-2">
+        <p className="text-[10px] font-black uppercase tracking-widest text-zinc-400 flex items-center gap-1.5">
+          <ArrowRight size={11} /> Your Tracked {eventLabel} Link
+        </p>
+        {!destinationUrl ? (
+          <div className="flex gap-2 p-3 bg-zinc-900 border border-zinc-800 rounded-xl">
+            <AlertCircle size={12} className="text-zinc-600 shrink-0 mt-0.5" />
+            <p className="text-[11px] text-zinc-500">No destination URL configured yet. Add one in your campaign settings.</p>
+          </div>
+        ) : trackedUrl ? (
+          <div className="flex gap-2">
+            <div className="flex-1 bg-zinc-950 border border-zinc-800 rounded-xl px-3 py-2.5 font-mono text-[11px] text-zinc-400 break-all">{trackedUrl}</div>
+            <CopyButton text={trackedUrl} />
+          </div>
+        ) : (
+          <div className="bg-zinc-950 border border-zinc-800 rounded-xl px-3 py-2.5 font-mono text-[11px] text-zinc-600 flex items-center gap-2">
+            <Loader2 size={11} className="animate-spin shrink-0" /> Generating tracked link…
+          </div>
+        )}
+      </div>
+
+      {/* Attribution limitation notice */}
+      <div className="flex gap-3 p-3.5 bg-zinc-800/40 border border-zinc-700/50 rounded-xl">
+        <Info size={12} className="text-zinc-500 shrink-0 mt-0.5" />
+        <p className="text-[11px] text-zinc-500 leading-relaxed">{limitationMessage}</p>
+      </div>
+    </div>
+  );
+};
+
+// ─────────────────────────────────────────────
+// CHECKOUT TYPE SELECTOR (legacy — kept for backward compat display only)
 // ─────────────────────────────────────────────
 
 const CHECKOUT_OPTIONS = [
@@ -824,9 +923,6 @@ const CampaignCard = ({
   onToggle: () => void;
   onRefresh: () => void;
 }) => {
-  const [checkoutTypeSaving, setCheckoutTypeSaving] = useState(false);
-  const [consultCheckoutTypeSaving, setConsultCheckoutTypeSaving] = useState(false);
-
   const funnelStates = {
     purchase: getFunnelState(campaign, 'purchase'),
     newsletter: getFunnelState(campaign, 'newsletter'),
@@ -853,23 +949,28 @@ const CampaignCard = ({
     activeCount === totalRelevant ? 'active' :
     activeCount > 0 ? 'partial' : 'inactive';
 
-  const handleCheckoutTypeChange = async (val: string) => {
-    setCheckoutTypeSaving(true);
-    await supabase.from('campaigns').update({ checkout_type: val }).eq('id', campaign.id);
-    setCheckoutTypeSaving(false);
-    onRefresh();
-  };
-
-  const handleConsultCheckoutTypeChange = async (val: string) => {
-    setConsultCheckoutTypeSaving(true);
-    await supabase.from('campaigns').update({ consultation_checkout_type: val }).eq('id', campaign.id);
-    setConsultCheckoutTypeSaving(false);
-    onRefresh();
-  };
-
   const expectedCallValue = computeExpectedCallValue(campaign);
-  const isStripeMain = campaign.checkout_type === 'stripe_direct' || (campaign.uses_stripe && !campaign.checkout_type);
-  const isStripeConsult = campaign.consultation_checkout_type === 'stripe_direct' || (campaign.uses_stripe_consultation && !campaign.consultation_checkout_type);
+
+  // ── Backward-compat method resolution ──
+  // New campaigns have explicit purchase_method / delivery fields.
+  // Old campaigns fall back based on uses_stripe boolean.
+  const purchaseMethod: string =
+    campaign.purchase_method ??
+    (campaign.uses_stripe ? 'stripe_checkout' : 'alternative_payment');
+
+  const salesCallDelivery: string =
+    campaign.sales_call_delivery ?? 'external_platform';
+
+  const consultationDelivery: string =
+    campaign.consultation_delivery ?? 'external_platform';
+
+  const consultationPaymentMethod: string =
+    campaign.consultation_payment_method ??
+    (campaign.uses_stripe_consultation ? 'stripe_checkout' : 'alternative_payment');
+
+  // Legacy flags kept for getTrackingState compatibility
+  const isStripeMain = purchaseMethod === 'stripe_checkout' || purchaseMethod === 'stripe_embedded';
+  const isStripeConsult = consultationPaymentMethod === 'stripe_checkout' || consultationPaymentMethod === 'stripe_embedded';
 
   return (
     <motion.div
@@ -973,20 +1074,26 @@ const CampaignCard = ({
                   <div className="flex gap-3 p-3 bg-orange-500/5 border border-orange-500/15 rounded-xl">
                     <AlertCircle size={13} className="text-orange-400 shrink-0 mt-0.5" />
                     <p className="text-[11px] text-zinc-400 leading-relaxed">
-                      Landing page detected, but no checkout URL found yet. Visitors can reach your page, but cannot complete purchases. Add a checkout URL to your campaign.
+                      Landing page detected, but no checkout URL found yet. Add a checkout URL to your campaign.
                     </p>
                   </div>
                 )}
 
                 {funnelStates.purchase === 'active' && (
                   <div className="space-y-4">
-                    <CheckoutTypeSelector
-                      value={campaign.checkout_type}
-                      onChange={handleCheckoutTypeChange}
-                      saving={checkoutTypeSaving}
-                    />
+                    {/* Method label */}
+                    <div className="flex items-center gap-2">
+                      <span className="text-[9px] font-black uppercase tracking-widest text-zinc-500">Payment Method:</span>
+                      <span className="text-[9px] font-black uppercase tracking-widest px-2 py-0.5 rounded-full bg-zinc-800 border border-zinc-700 text-zinc-300">
+                        {purchaseMethod === 'stripe_checkout' ? 'Stripe Checkout' :
+                         purchaseMethod === 'stripe_embedded' ? 'Stripe Embedded Checkout' :
+                         purchaseMethod === 'alternative_payment' ? 'Alternative Payment Method' :
+                         'Payment Instructions Page'}
+                      </span>
+                    </div>
 
-                    {isStripeMain ? (
+                    {/* stripe_checkout: redirect link + webhook */}
+                    {purchaseMethod === 'stripe_checkout' && (
                       <StripeSetupBlock
                         userId={userId}
                         stripeConfig={stripeConfig}
@@ -995,8 +1102,19 @@ const CampaignCard = ({
                         linkType="checkout"
                         onSecretSaved={onRefresh}
                       />
-                    ) : (
+                    )}
+
+                    {/* stripe_embedded: webhook + optional intent pixel + confirmation pixel */}
+                    {purchaseMethod === 'stripe_embedded' && (
                       <div className="space-y-3">
+                        <StripeSetupBlock
+                          userId={userId}
+                          stripeConfig={stripeConfig}
+                          checkoutUrl={null}
+                          campaignId={campaign.id}
+                          linkType="checkout"
+                          onSecretSaved={onRefresh}
+                        />
                         <CheckoutIntentBlock
                           campaignId={campaign.id}
                           checkoutUrl={campaign.checkout_url}
@@ -1008,9 +1126,31 @@ const CampaignCard = ({
                           amount={campaign.offer_price ?? null}
                           thankyouUrl={campaign.purchase_thankyou_url}
                           pendingMessage="No thank-you page URL detected yet."
-                          activeInstruction={`✅ Thank-you page detected. Paste this code on ${campaign.purchase_thankyou_url} to complete purchase tracking.`}
+                          activeInstruction={`✅ Paste this on your purchase confirmation page to track confirmed orders.`}
                         />
                       </div>
+                    )}
+
+                    {/* alternative_payment: redirect link + intent tracking + limitation notice */}
+                    {purchaseMethod === 'alternative_payment' && (
+                      <RedirectTrackingBlock
+                        campaignId={campaign.id}
+                        destinationUrl={campaign.checkout_url}
+                        linkType="checkout"
+                        eventLabel="Checkout"
+                        limitationMessage="Without direct integration, we track visitor intent. For the best attribution accuracy, we recommend using your own website and embedding external tools inside your pages so V-Track can track the full customer journey."
+                      />
+                    )}
+
+                    {/* payment_instructions_page: redirect link + visitor intent only */}
+                    {purchaseMethod === 'payment_instructions_page' && (
+                      <RedirectTrackingBlock
+                        campaignId={campaign.id}
+                        destinationUrl={campaign.checkout_url}
+                        linkType="checkout"
+                        eventLabel="Payment Page"
+                        limitationMessage="Without direct integration, we track visitor intent. For the best attribution accuracy, we recommend using your own website and embedding external tools inside your pages so V-Track can track the full customer journey."
+                      />
                     )}
                   </div>
                 )}
@@ -1063,23 +1203,56 @@ const CampaignCard = ({
                     </div>
                   ) : (
                     <div className="space-y-3">
+                      {/* Delivery method label */}
+                      <div className="flex items-center gap-2">
+                        <span className="text-[9px] font-black uppercase tracking-widest text-zinc-500">Delivery:</span>
+                        <span className="text-[9px] font-black uppercase tracking-widest px-2 py-0.5 rounded-full bg-zinc-800 border border-zinc-700 text-zinc-300">
+                          {salesCallDelivery === 'embedded_own_website' ? 'Embedded on Own Website' : 'External Platform'}
+                        </span>
+                      </div>
+
                       {expectedCallValue > 0 && (
                         <div className="flex items-center gap-3 p-3 bg-zinc-800/60 rounded-xl border border-zinc-700">
                           <Star size={13} className="text-yellow-400 shrink-0" />
                           <p className="text-[11px] text-zinc-400 leading-relaxed">
                             Expected revenue per booked call: <span className="text-white font-black">${expectedCallValue}</span>
                             <span className="text-zinc-600 ml-1">(${campaign.offer_price} × {campaign.estimated_close_rate}% close rate)</span>
+                            {(campaign.average_upsell_value ?? 0) > 0 && (
+                              <span className="text-zinc-500 ml-1">+ ${campaign.average_upsell_value} avg upsell</span>
+                            )}
                           </p>
                         </div>
                       )}
-                      <PixelBlock
-                        campaignId={campaign.id}
-                        eventType="sales_call"
-                        amount={expectedCallValue || null}
-                        thankyouUrl={campaign.sales_call_thankyou_url}
-                        pendingMessage="No booking confirmation page URL detected yet."
-                        activeInstruction="✅ Confirmation page detected. Paste this code on your booking confirmation page."
-                      />
+
+                      {/* embedded_own_website: confirmation pixel + optional booking intent */}
+                      {salesCallDelivery === 'embedded_own_website' && (
+                        <div className="space-y-3">
+                          <CheckoutIntentBlock
+                            campaignId={campaign.id}
+                            checkoutUrl={campaign.sales_call_booking_url}
+                            hasThankYouUrl={!!campaign.sales_call_thankyou_url}
+                          />
+                          <PixelBlock
+                            campaignId={campaign.id}
+                            eventType="sales_call"
+                            amount={expectedCallValue || null}
+                            thankyouUrl={campaign.sales_call_thankyou_url}
+                            pendingMessage="No booking confirmation page URL detected yet."
+                            activeInstruction="✅ Confirmation page detected. Paste this code on your booking confirmation page."
+                          />
+                        </div>
+                      )}
+
+                      {/* external_platform: redirect tracking link only */}
+                      {salesCallDelivery === 'external_platform' && (
+                        <RedirectTrackingBlock
+                          campaignId={campaign.id}
+                          destinationUrl={campaign.sales_call_booking_url}
+                          linkType="booking"
+                          eventLabel="Booking"
+                          limitationMessage="Without direct integration, we track booking intent. Embedded widgets provide more accurate attribution. We recommend embedding booking tools on your own website whenever possible."
+                        />
+                      )}
                     </div>
                   )}
                 </div>
@@ -1104,36 +1277,99 @@ const CampaignCard = ({
                     </div>
                   ) : (
                     <div className="space-y-4">
-                      <CheckoutTypeSelector
-                        value={campaign.consultation_checkout_type}
-                        onChange={handleConsultCheckoutTypeChange}
-                        saving={consultCheckoutTypeSaving}
-                      />
+                      {/* Delivery method label */}
+                      <div className="flex items-center gap-2">
+                        <span className="text-[9px] font-black uppercase tracking-widest text-zinc-500">Delivery:</span>
+                        <span className="text-[9px] font-black uppercase tracking-widest px-2 py-0.5 rounded-full bg-zinc-800 border border-zinc-700 text-zinc-300">
+                          {consultationDelivery === 'own_website' ? 'Own Website' : 'External Platform'}
+                        </span>
+                      </div>
 
-                      {isStripeConsult ? (
-                        <StripeSetupBlock
-                          userId={userId}
-                          stripeConfig={stripeConfig}
-                          checkoutUrl={campaign.paid_consultation_checkout_url}
+                      {/* external_platform: redirect + booking_click event only */}
+                      {consultationDelivery === 'external_platform' && (
+                        <RedirectTrackingBlock
                           campaignId={campaign.id}
-                          linkType="consultation"
-                          onSecretSaved={onRefresh}
+                          destinationUrl={campaign.consultation_booking_url}
+                          linkType="consultation_booking"
+                          eventLabel="Booking"
+                          limitationMessage="Without direct integration, we track booking intent. Embedded widgets provide more accurate attribution. We recommend embedding booking tools on your own website whenever possible."
                         />
-                      ) : (
+                      )}
+
+                      {/* own_website: branch by consultation_payment_method */}
+                      {consultationDelivery === 'own_website' && (
                         <div className="space-y-3">
-                          <CheckoutIntentBlock
-                            campaignId={campaign.id}
-                            checkoutUrl={campaign.paid_consultation_checkout_url}
-                            hasThankYouUrl={!!campaign.consultation_thankyou_url}
-                          />
-                          <PixelBlock
-                            campaignId={campaign.id}
-                            eventType="consultation"
-                            amount={campaign.consultation_fee ?? null}
-                            thankyouUrl={campaign.consultation_thankyou_url}
-                            pendingMessage="No consultation confirmation page URL detected yet."
-                            activeInstruction="✅ Confirmation page detected. Paste this code on your consultation confirmation page."
-                          />
+                          {/* Payment method label */}
+                          <div className="flex items-center gap-2">
+                            <span className="text-[9px] font-black uppercase tracking-widest text-zinc-500">Payment Method:</span>
+                            <span className="text-[9px] font-black uppercase tracking-widest px-2 py-0.5 rounded-full bg-zinc-800 border border-zinc-700 text-zinc-300">
+                              {consultationPaymentMethod === 'stripe_checkout' ? 'Stripe Checkout' :
+                               consultationPaymentMethod === 'stripe_embedded' ? 'Stripe Embedded Checkout' :
+                               consultationPaymentMethod === 'alternative_payment' ? 'Alternative Payment Method' :
+                               'Payment Instructions Page'}
+                            </span>
+                          </div>
+
+                          {/* stripe_checkout: redirect + webhook */}
+                          {consultationPaymentMethod === 'stripe_checkout' && (
+                            <StripeSetupBlock
+                              userId={userId}
+                              stripeConfig={stripeConfig}
+                              checkoutUrl={campaign.paid_consultation_checkout_url}
+                              campaignId={campaign.id}
+                              linkType="consultation"
+                              onSecretSaved={onRefresh}
+                            />
+                          )}
+
+                          {/* stripe_embedded: webhook + optional intent + confirmation pixel */}
+                          {consultationPaymentMethod === 'stripe_embedded' && (
+                            <div className="space-y-3">
+                              <StripeSetupBlock
+                                userId={userId}
+                                stripeConfig={stripeConfig}
+                                checkoutUrl={null}
+                                campaignId={campaign.id}
+                                linkType="consultation"
+                                onSecretSaved={onRefresh}
+                              />
+                              <CheckoutIntentBlock
+                                campaignId={campaign.id}
+                                checkoutUrl={campaign.paid_consultation_checkout_url}
+                                hasThankYouUrl={!!campaign.consultation_thankyou_url}
+                              />
+                              <PixelBlock
+                                campaignId={campaign.id}
+                                eventType="consultation"
+                                amount={campaign.consultation_fee ?? null}
+                                thankyouUrl={campaign.consultation_thankyou_url}
+                                pendingMessage="No consultation confirmation page URL detected yet."
+                                activeInstruction="✅ Confirmation page detected. Paste this code on your consultation confirmation page."
+                              />
+                            </div>
+                          )}
+
+                          {/* alternative_payment: redirect + intent tracking */}
+                          {consultationPaymentMethod === 'alternative_payment' && (
+                            <RedirectTrackingBlock
+                              campaignId={campaign.id}
+                              destinationUrl={campaign.paid_consultation_checkout_url}
+                              linkType="consultation"
+                              eventLabel="Checkout"
+                              limitationMessage="Without direct integration, we track visitor intent. For the best attribution accuracy, we recommend using your own website and embedding external tools inside your pages so V-Track can track the full customer journey."
+                            />
+                          )}
+
+                          {/* payment_instructions_page: redirect + visitor intent */}
+                          {consultationPaymentMethod === 'payment_instructions_page' && (
+                            <RedirectTrackingBlock
+                              campaignId={campaign.id}
+                              destinationUrl={campaign.paid_consultation_checkout_url}
+                              linkType="consultation"
+                              eventLabel="Payment Page"
+                              limitationMessage="Without direct integration, we track visitor intent. For the best attribution accuracy, we recommend using your own website and embedding external tools inside your pages so V-Track can track the full customer journey."
+                            />
+                          )}
                         </div>
                       )}
                     </div>

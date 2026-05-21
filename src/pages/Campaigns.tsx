@@ -50,6 +50,12 @@ export default function Campaigns() {
     consultation_fee: 0,
     uses_stripe_consultation: false,
     has_lead_magnet: false,
+    // Conditional funnel configuration — determines tracking method per funnel
+    purchase_method: 'stripe_checkout' as string,
+    sales_call_delivery: 'external_platform' as string,
+    average_upsell_value: 0,
+    consultation_delivery: 'external_platform' as string,
+    consultation_payment_method: 'stripe_checkout' as string,
   };
 
   const [formData, setFormData] = useState(emptyForm);
@@ -234,6 +240,15 @@ export default function Campaigns() {
                   </h3>
                   <div className="space-y-2">
                     <div className="space-y-1">
+                      <label className={labelClass}>Payment Method</label>
+                      <select value={formData.purchase_method} onChange={e => setFormData({ ...formData, purchase_method: e.target.value })} className={inputClass}>
+                        <option value="stripe_checkout">Stripe Checkout</option>
+                        <option value="stripe_embedded">Stripe Embedded Checkout</option>
+                        <option value="alternative_payment">Alternative Payment Method</option>
+                        <option value="payment_instructions_page">Payment Instructions Page</option>
+                      </select>
+                    </div>
+                    <div className="space-y-1">
                       <label className={labelClass}>Landing Page URL</label>
                       <input type="url" value={formData.landing_page_url} onChange={e => setFormData({ ...formData, landing_page_url: e.target.value })} placeholder="https://yoursite.com" className={inputClass} />
                     </div>
@@ -241,11 +256,6 @@ export default function Campaigns() {
                       <label className={labelClass}>Checkout URL</label>
                       <input required type="url" value={formData.checkout_url} onChange={e => setFormData({ ...formData, checkout_url: e.target.value })} placeholder="https://buy.stripe.com/..." className={inputClass} />
                     </div>
-                    <StripeToggle
-                      value={formData.uses_stripe}
-                      onChange={v => setFormData({ ...formData, uses_stripe: v })}
-                      label="Using Stripe for this checkout?"
-                    />
                     <div className="space-y-1">
                       <label className={labelClass}>
                         Purchase Thank You URL
@@ -300,6 +310,13 @@ export default function Campaigns() {
                   </div>
                   {formData.has_sales_call && (
                     <div className="space-y-2">
+                      <div className="space-y-1">
+                        <label className={labelClass}>Booking Delivery</label>
+                        <select value={formData.sales_call_delivery} onChange={e => setFormData({ ...formData, sales_call_delivery: e.target.value })} className={inputClass}>
+                          <option value="embedded_own_website">Embedded on Own Website</option>
+                          <option value="external_platform">External Platform</option>
+                        </select>
+                      </div>
                       <input type="url" value={formData.sales_call_booking_url} onChange={e => setFormData({ ...formData, sales_call_booking_url: e.target.value })} placeholder="Booking URL" className={inputClass} />
                       <div className="space-y-1">
                         <label className={labelClass}>
@@ -313,6 +330,11 @@ export default function Campaigns() {
                         <input type="number" value={formData.estimated_close_rate} onChange={e => setFormData({ ...formData, estimated_close_rate: parseFloat(e.target.value) })} className="bg-zinc-950 border border-zinc-800 rounded-lg p-2 w-16 text-xs text-white outline-none" />
                         <span className="text-zinc-600 text-xs">%</span>
                       </div>
+                      <div className="flex items-center gap-2">
+                        <span className={labelClass}>Avg Upsell Value</span>
+                        <input type="number" value={formData.average_upsell_value} onChange={e => setFormData({ ...formData, average_upsell_value: parseFloat(e.target.value) })} className="bg-zinc-950 border border-zinc-800 rounded-lg p-2 w-20 text-xs text-white outline-none" />
+                        <span className="text-zinc-600 text-xs">$</span>
+                      </div>
                     </div>
                   )}
                 </div>
@@ -325,16 +347,31 @@ export default function Campaigns() {
                   </div>
                   {formData.has_paid_consultation && (
                     <div className="space-y-2">
-                      <input type="url" value={formData.consultation_booking_url} onChange={e => setFormData({ ...formData, consultation_booking_url: e.target.value })} placeholder="Booking Page URL (TidyCal, Calendly...)" className={inputClass} />
                       <div className="space-y-1">
-                        <label className={labelClass}>Checkout / Payment URL</label>
-                        <input type="url" value={formData.paid_consultation_checkout_url} onChange={e => setFormData({ ...formData, paid_consultation_checkout_url: e.target.value })} placeholder="Payment link URL" className={inputClass} />
+                        <label className={labelClass}>Delivery Method</label>
+                        <select value={formData.consultation_delivery} onChange={e => setFormData({ ...formData, consultation_delivery: e.target.value })} className={inputClass}>
+                          <option value="own_website">Own Website</option>
+                          <option value="external_platform">External Platform</option>
+                        </select>
                       </div>
-                      <StripeToggle
-                        value={formData.uses_stripe_consultation}
-                        onChange={v => setFormData({ ...formData, uses_stripe_consultation: v })}
-                        label="Using Stripe for consultation?"
-                      />
+                      <input type="url" value={formData.consultation_booking_url} onChange={e => setFormData({ ...formData, consultation_booking_url: e.target.value })} placeholder="Booking Page URL (TidyCal, Calendly...)" className={inputClass} />
+                      {formData.consultation_delivery === 'own_website' && (
+                        <>
+                          <div className="space-y-1">
+                            <label className={labelClass}>Payment Method</label>
+                            <select value={formData.consultation_payment_method} onChange={e => setFormData({ ...formData, consultation_payment_method: e.target.value })} className={inputClass}>
+                              <option value="stripe_checkout">Stripe Checkout</option>
+                              <option value="stripe_embedded">Stripe Embedded Checkout</option>
+                              <option value="alternative_payment">Alternative Payment Method</option>
+                              <option value="payment_instructions_page">Payment Instructions Page</option>
+                            </select>
+                          </div>
+                          <div className="space-y-1">
+                            <label className={labelClass}>Checkout / Payment URL</label>
+                            <input type="url" value={formData.paid_consultation_checkout_url} onChange={e => setFormData({ ...formData, paid_consultation_checkout_url: e.target.value })} placeholder="Payment link URL" className={inputClass} />
+                          </div>
+                        </>
+                      )}
                       <div className="space-y-1">
                         <label className={labelClass}>
                           Thank You URL
