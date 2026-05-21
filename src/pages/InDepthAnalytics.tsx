@@ -96,21 +96,32 @@ export default function InDepthAnalytics() {
         const videoIds = vData.map((v: any) => v.id);
         const campaignIds = vData.map((v: any) => v.campaign_id).filter(Boolean);
 
-        const [eDirectData, eViaSessionData, spData, ppData] = await Promise.all([
-          supabase.from('events')
-            .select('video_id, campaign_id, event_type, created_at')
-            .in('video_id', videoIds),
-          supabase.from('events')
-            .select('event_type, created_at, sessions!inner(video_id, campaign_id)')
-            .is('video_id', null)
-            .in('sessions.video_id', videoIds),
-          supabase.from('stripe_purchases')
-            .select('video_id, campaign_id, amount')
-            .in('video_id', videoIds),
-          supabase.from('pixel_purchases')
-            .select('video_id, campaign_id, amount, event_type, session_id')
-            .in('campaign_id', campaignIds),
-        ]);
+       const [eDirectData, eViaSessionData, spData, ppData] = await Promise.all([
+  supabase
+    .from('events')
+    .select('video_id, campaign_id, event_type, created_at')
+    .in('video_id', videoIds),
+
+  supabase
+    .from('events')
+    .select('event_type, created_at, sessions!inner(video_id, campaign_id)')
+    .is('video_id', null)
+    .in('sessions.video_id', videoIds),
+
+  videoIds.length
+    ? supabase
+        .from('stripe_purchases')
+        .select('video_id, campaign_id, amount, session_id')
+        .in('video_id', videoIds)
+    : Promise.resolve({ data: [] as any }),
+
+  campaignIds.length
+    ? supabase
+        .from('pixel_purchases')
+        .select('video_id, campaign_id, amount, event_type, session_id')
+        .in('campaign_id', campaignIds)
+    : Promise.resolve({ data: [] as any }),
+]);
 
         // Normalize session-resolved events
         const sessionResolvedEvents = (eViaSessionData.data || []).map((e: any) => ({
@@ -205,7 +216,11 @@ export default function InDepthAnalytics() {
     });
   }, [videos, selectedCampaignId, selectedGoals, selectedLeadMagnets]);
 
-  const videoIds = useMemo(() => filteredVideos.map(v => v.id), [filteredVideos]);
+  const videoIds = useMemo(() =>
+  filteredVideos
+    .map(v => v.id)
+    .filter(Boolean),
+[filteredVideos]);
 
   const processedVideos = useMemo(() => {
     const videoMetrics: Record<string, any> = {};
