@@ -674,7 +674,7 @@ const GlobalWebsiteTrackingSection = () => {
             </span>
           </div>
           <span className="text-[9px] font-black uppercase tracking-widest px-2 py-0.5 rounded-full bg-green-500/15 border border-green-500/30 text-green-400">
-            Recommended
+            Required — Step 1
           </span>
         </div>
         {open
