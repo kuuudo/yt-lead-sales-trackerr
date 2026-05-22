@@ -196,7 +196,7 @@ const generateAttributionPixel = (
     video_id: videoId,
     campaign_id: campaignId,
     event_type: CONFIG.event_type,
-    amount: ${numericAmount}
+    ...(CONFIG.event_type !== 'sales_call' && { amount: ${numericAmount} })
   };
   console.debug('[V-Track] firing pixel:', payload);
   fetch('https://www.vstrk.com/api/pixel', {
