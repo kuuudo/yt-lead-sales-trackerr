@@ -115,14 +115,17 @@ export default async function handler(
   const upsellValue =
     campaign.average_upsell_value ?? 0;
 
-  finalAmount =
+  finalAmount = Number(
+  (
     (closeRate * baseOffer)
     +
     (
       closeRate *
       upsellProbability *
       upsellValue
-    );
+    )
+  ).toFixed(2)
+);
 }
 
   // Insert into pixel_purchases
