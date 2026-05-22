@@ -94,6 +94,8 @@ export default function CampaignDetail() {
     purchase_method: 'stripe_checkout',
     sales_call_delivery: 'external_platform',
     average_upsell_value: 0,
+    base_offer_value: 0,
+    upsell_probability: 0,
     consultation_delivery: 'external_platform',
     consultation_payment_method: 'stripe_checkout',
   });
@@ -168,6 +170,8 @@ export default function CampaignDetail() {
           purchase_method: (formData as any).purchase_method ?? 'stripe_checkout',
           sales_call_delivery: (formData as any).sales_call_delivery ?? 'external_platform',
           average_upsell_value: (formData as any).average_upsell_value ?? 0,
+          base_offer_value: (formData as any).base_offer_value ?? 0,
+          upsell_probability: (formData as any).upsell_probability ?? 0,
           consultation_delivery: (formData as any).consultation_delivery ?? 'external_platform',
           consultation_payment_method: (formData as any).consultation_payment_method ?? 'stripe_checkout',
         })
@@ -475,6 +479,14 @@ export default function CampaignDetail() {
                 <div className="flex items-center justify-between p-4 bg-zinc-950 rounded-xl border border-zinc-900">
                   <span className="text-[10px] font-black uppercase text-zinc-500">Average Upsell Value ($)</span>
                   <input type="number" value={(formData as any).average_upsell_value ?? ""} onChange={e => setFormData({ ...formData, ...(formData as any), average_upsell_value: parseFloat(e.target.value) })} className="w-20 bg-zinc-900 border border-zinc-800 rounded-lg p-2 text-center text-xs text-white" />
+                </div>
+                <div className="flex items-center justify-between p-4 bg-zinc-950 rounded-xl border border-zinc-900">
+                  <span className="text-[10px] font-black uppercase text-zinc-500">Base Offer Value ($)</span>
+                  <input type="number" value={(formData as any).base_offer_value ?? ""} placeholder="130" onChange={e => setFormData({ ...formData, ...(formData as any), base_offer_value: parseFloat(e.target.value) })} className="w-20 bg-zinc-900 border border-zinc-800 rounded-lg p-2 text-center text-xs text-white" />
+                </div>
+                <div className="flex items-center justify-between p-4 bg-zinc-950 rounded-xl border border-zinc-900">
+                  <span className="text-[10px] font-black uppercase text-zinc-500">Upsell Probability (%)</span>
+                  <input type="number" value={(formData as any).upsell_probability ?? ""} placeholder="10" onChange={e => setFormData({ ...formData, ...(formData as any), upsell_probability: parseFloat(e.target.value) })} className="w-20 bg-zinc-900 border border-zinc-800 rounded-lg p-2 text-center text-xs text-white" />
                 </div>
               </div>
             )}

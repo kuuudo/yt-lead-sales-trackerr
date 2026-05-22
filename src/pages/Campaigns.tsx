@@ -54,6 +54,8 @@ export default function Campaigns() {
     purchase_method: 'stripe_checkout' as string,
     sales_call_delivery: 'external_platform' as string,
     average_upsell_value: 0,
+    base_offer_value: 0,
+    upsell_probability: 0,
     consultation_delivery: 'external_platform' as string,
     consultation_payment_method: 'stripe_checkout' as string,
   };
@@ -336,6 +338,16 @@ export default function Campaigns() {
                         <span className={labelClass}>Avg Upsell Value</span>
                         <input type="number" value={formData.average_upsell_value} onChange={e => setFormData({ ...formData, average_upsell_value: parseFloat(e.target.value) })} className="bg-zinc-950 border border-zinc-800 rounded-lg p-2 w-20 text-xs text-white outline-none" />
                         <span className="text-zinc-600 text-xs">$</span>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <span className={labelClass}>Base Offer Value</span>
+                        <input type="number" value={formData.base_offer_value} onChange={e => setFormData({ ...formData, base_offer_value: parseFloat(e.target.value) })} placeholder="130" className="bg-zinc-950 border border-zinc-800 rounded-lg p-2 w-20 text-xs text-white outline-none" />
+                        <span className="text-zinc-600 text-xs">$</span>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <span className={labelClass}>Upsell Probability</span>
+                        <input type="number" value={formData.upsell_probability} onChange={e => setFormData({ ...formData, upsell_probability: parseFloat(e.target.value) })} placeholder="10" className="bg-zinc-950 border border-zinc-800 rounded-lg p-2 w-16 text-xs text-white outline-none" />
+                        <span className="text-zinc-600 text-xs">%</span>
                       </div>
                     </div>
                   )}
