@@ -70,10 +70,10 @@ export default async function handler(
       .select(`
         user_id,
         offer_price,
-        close_rate,
+        estimated_close_rate,
         base_offer_value,
         upsell_probability,
-        upsell_value
+        average_upsell_value
       `)
       .eq('id', resolvedCampaignId)
       .single();
@@ -99,29 +99,31 @@ export default async function handler(
 
   // EV calculation for sales calls
   if (
-    finalEventType === 'sales_call' &&
-    campaign
-  ) {
-    const closeRate =
-      (campaign.close_rate ?? 0) / 100;
+  finalEventType === 'sales_call' &&
+  campaign
+) {
 
-    const upsellProbability =
-      (campaign.upsell_probability ?? 0) / 100;
+  const closeRate =
+    (campaign.estimated_close_rate ?? 0) / 100;
 
-    const baseOffer =
-      campaign.base_offer_value ?? 0;
+  const upsellProbability =
+    (campaign.upsell_probability ?? 0) / 100;
 
-    const upsellValue =
-      campaign.upsell_value ?? 0;
+  const baseOffer =
+    campaign.base_offer_value ?? 0;
 
-    finalAmount =
-      (closeRate * baseOffer) +
-      (
-        closeRate *
-        upsellProbability *
-        upsellValue
-      );
-  }
+  const upsellValue =
+    campaign.average_upsell_value ?? 0;
+
+  finalAmount =
+    (closeRate * baseOffer)
+    +
+    (
+      closeRate *
+      upsellProbability *
+      upsellValue
+    );
+}
 
   // Insert into pixel_purchases
   const { error: purchaseError } =
