@@ -51,14 +51,20 @@ const TABLE_COLUMNS: MetricType[] = [
   'rpc',
 ];
 
-// Column display labels — keep original wording where it differed from config.
+// Column display labels — spec-aligned overrides on top of config defaults.
 const COLUMN_LABELS: Record<MetricType, string> = {
   ...METRIC_LABELS,
+  // Explicit $ suffix for all revenue-facing columns shown in the table
   direct_offer_revenue:    'Direct Offer Sales ($)',
-  estimated_call_revenue:  'Estimated Call Revenue ($)',
+  estimated_call_revenue:  'Est. Call Revenue (EV $)',
   consultation_revenue:    'Consultation Revenue ($)',
   total_revenue:           'Total Revenue ($)',
   rpc:                     'Revenue Per Click ($)',
+  // Spec-aligned count labels
+  purchase_thankyou:       'Direct Purchases',
+  consultation_thankyou:   'Consultation Purchases',
+  call_booking_thankyou:   'Calls Confirmed',
+  newsletter_thankyou:     'Newsletter Opt-ins',
 };
 
 export default function InDepthAnalytics() {
@@ -247,6 +253,12 @@ export default function InDepthAnalytics() {
     });
   }, [filteredVideos, dateFilteredEvents, stripePurchases, pixelPurchases, campaigns, includeEV]);
 
+  // ── Columns — hide EV column when EV is excluded ─────────────────────────────
+  const visibleColumns = useMemo<MetricType[]>(
+    () => TABLE_COLUMNS.filter(k => k !== 'estimated_call_revenue' || includeEV),
+    [includeEV],
+  );
+
   // ── Sort ──────────────────────────────────────────────────────────────────────
   const sortedVideos = useMemo(() => {
     const items = [...processedVideos];
@@ -273,13 +285,35 @@ export default function InDepthAnalytics() {
   const isRevenueCol = (key: MetricType) =>
     key.includes('revenue') || key === 'rpc';
 
+  /**
+   * Derive RPC for the currently-selected revenue view.
+   * Spec: Total Revenue ($) / COUNT(landing_page_view).
+   * When the user switches revenue view, RPC should reflect that view's revenue.
+   */
+  const deriveRpc = (row: (typeof sortedVideos)[number]): number => {
+    if (!row.landing_page_view) return 0;
+    const rev = selectDisplayRevenue(row, revenueView);
+    return Number((rev / row.landing_page_view).toFixed(2));
+  };
+
   const formatCellValue = (key: MetricType, row: (typeof sortedVideos)[number]): string => {
+    // total_revenue cell: driven by revenueView toggle
     if (key === 'total_revenue') {
       const display = selectDisplayRevenue(row, revenueView);
-      return `$${(display || 0).toLocaleString()}`;
+      return `$${(display || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
     }
-    if (key === 'rpc') return `$${row.rpc ?? 0}`;
-    if (isRevenueCol(key)) return `$${((row as any)[key] || 0).toLocaleString()}`;
+    // rpc: must follow the same revenue view as total_revenue
+    if (key === 'rpc') {
+      return `$${deriveRpc(row).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+    }
+    // estimated_call_revenue: EV — never part of real revenue, shown separately
+    if (key === 'estimated_call_revenue') {
+      return `$${((row as any)[key] || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+    }
+    if (isRevenueCol(key)) {
+      return `$${((row as any)[key] || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+    }
+    // Count metrics
     return ((row as any)[key] || 0).toLocaleString();
   };
 
@@ -496,7 +530,7 @@ export default function InDepthAnalytics() {
             </div>
             <div className="px-4 py-2 bg-zinc-900/50 border border-zinc-900 rounded-xl">
               <span className="text-[10px] font-black uppercase tracking-widest text-zinc-600">
-                {sortedVideos.length} Videos Loaded
+                {sortedVideos.length} Videos
               </span>
             </div>
           </div>
@@ -511,11 +545,15 @@ export default function InDepthAnalytics() {
                   <th className="px-6 py-5 text-left text-[10px] font-black uppercase tracking-widest text-zinc-600 border-b border-zinc-900 bg-zinc-950 min-w-[300px] sticky left-0 z-30">
                     Video
                   </th>
-                  {TABLE_COLUMNS.map(key => (
+                  {visibleColumns.map(key => (
                     <th
                       key={key}
                       onClick={() => handleSort(key)}
-                      className="px-6 py-5 text-left text-[10px] font-black uppercase tracking-widest text-zinc-600 border-b border-zinc-900 cursor-pointer hover:text-white transition-colors group bg-zinc-950 min-w-[180px]"
+                      className={`px-6 py-5 text-left text-[10px] font-black uppercase tracking-widest border-b border-zinc-900 cursor-pointer hover:text-white transition-colors group bg-zinc-950 min-w-[180px] ${
+                        key === 'estimated_call_revenue'
+                          ? 'text-zinc-600'   // EV always visually dimmed
+                          : 'text-zinc-600'
+                      }`}
                     >
                       <div className="flex items-center gap-2">
                         {COLUMN_LABELS[key]}
@@ -557,17 +595,28 @@ export default function InDepthAnalytics() {
                     </td>
 
                     {/* Metric cells */}
-                    {TABLE_COLUMNS.map(key => (
+                    {visibleColumns.map(key => (
                       <td
                         key={key}
-                        className="px-6 py-5 whitespace-nowrap text-sm font-bold text-zinc-400 tabular-nums"
+                        className={`px-6 py-5 whitespace-nowrap text-sm font-bold tabular-nums ${
+                          key === 'estimated_call_revenue'
+                            ? 'text-zinc-600'     // EV is a projection, visually muted
+                            : 'text-zinc-400'
+                        }`}
                       >
                         {key === 'total_revenue' ? (
                           <div>
                             <div>{formatCellValue(key, row)}</div>
                             <div className="text-[8px] text-zinc-600 uppercase tracking-widest mt-0.5">
-                              {row.revenue_mode_label}
+                              {revenueView === 'stripe' ? 'Verified (Stripe)'
+                                : revenueView === 'pixel' ? 'Estimated (Pixel)'
+                                : row.revenue_mode_label}
                             </div>
+                          </div>
+                        ) : key === 'estimated_call_revenue' ? (
+                          <div>
+                            <div>{formatCellValue(key, row)}</div>
+                            <div className="text-[8px] text-zinc-700 uppercase tracking-widest mt-0.5">EV only</div>
                           </div>
                         ) : (
                           formatCellValue(key, row)
