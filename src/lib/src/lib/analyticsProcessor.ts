@@ -10,7 +10,10 @@ type EventType =
 
 type StripeType = 'offer' | 'consultation' | 'test';
 
-type PixelEventType = 'purchase' | 'consultation' | 'sales_call';
+type PixelEventType =
+  | 'purchase'
+  | 'consultation'
+  | 'sales_call';
 
 interface Event {
   id: string;
@@ -58,12 +61,20 @@ function normalizeEvents(events: Event[]) {
 }
 
 /* ---------------------------
+   REVENUE VALIDATION
+----------------------------*/
+
+function isValidRevenue(amount: number | null) {
+  return amount != null && amount > 0;
+}
+
+/* ---------------------------
    STRIPE REVENUE (REAL MONEY)
 ----------------------------*/
 
 function calculateStripeRevenue(stripe: StripePurchase[]) {
   return stripe
-    .filter(r => r.amount != null && r.amount > 0)
+    .filter(r => isValidRevenue(r.amount))
     .reduce((sum, r) => sum + r.amount, 0);
 }
 
@@ -77,10 +88,9 @@ function calculatePixelRevenue(pixel: PixelPurchase[]) {
       p =>
         (p.event_type === 'purchase' ||
           p.event_type === 'consultation') &&
-        p.amount != null &&
-        p.amount > 0
+        isValidRevenue(p.amount)
     )
-    .reduce((sum, p) => sum + (p.amount as number), 0);
+    .reduce((sum, p) => sum + (p.amount || 0), 0);
 }
 
 /* ---------------------------
@@ -89,8 +99,12 @@ function calculatePixelRevenue(pixel: PixelPurchase[]) {
 
 function calculateEVRevenue(pixel: PixelPurchase[]) {
   return pixel
-    .filter(p => p.event_type === 'sales_call' && p.amount != null)
-    .reduce((sum, p) => sum + (p.amount as number), 0);
+    .filter(
+      p =>
+        p.event_type === 'sales_call' &&
+        isValidRevenue(p.amount)
+    )
+    .reduce((sum, p) => sum + (p.amount || 0), 0);
 }
 
 /* ---------------------------
@@ -99,12 +113,29 @@ function calculateEVRevenue(pixel: PixelPurchase[]) {
 
 function calculateFunnel(events: Event[]) {
   return {
-    landing_page: events.filter(e => e.event_type === 'landing_page').length,
-    sales_call: events.filter(e => e.event_type === 'sales_call').length,
-    consultation: events.filter(e => e.event_type === 'consultation').length,
-    purchase: events.filter(e => e.event_type === 'purchase').length,
-    newsletter: events.filter(e => e.event_type === 'newsletter').length,
-    lead_magnet: events.filter(e => e.event_type === 'lead_magnet').length,
+    landing_page: events.filter(
+      e => e.event_type === 'landing_page'
+    ).length,
+
+    sales_call: events.filter(
+      e => e.event_type === 'sales_call'
+    ).length,
+
+    consultation: events.filter(
+      e => e.event_type === 'consultation'
+    ).length,
+
+    purchase: events.filter(
+      e => e.event_type === 'purchase'
+    ).length,
+
+    newsletter: events.filter(
+      e => e.event_type === 'newsletter'
+    ).length,
+
+    lead_magnet: events.filter(
+      e => e.event_type === 'lead_magnet'
+    ).length,
   };
 }
 
@@ -112,8 +143,12 @@ function calculateFunnel(events: Event[]) {
    RPC
 ----------------------------*/
 
-function calculateRPC(totalRevenue: number, landingPage: number) {
+function calculateRPC(
+  totalRevenue: number,
+  landingPage: number
+) {
   if (!landingPage) return 0;
+
   return totalRevenue / landingPage;
 }
 
@@ -129,52 +164,78 @@ export function analyticsProcessor(
 
   // Revenue layers
   const stripeRevenue = calculateStripeRevenue(input.stripe);
+
   const pixelRevenue = calculatePixelRevenue(input.pixel);
+
   const evRevenue = calculateEVRevenue(input.pixel);
 
-  // FINAL REVENUE MODEL (NO OVERRIDE LOGIC)
-  const realRevenue = stripeRevenue + pixelRevenue;
+  // REAL MONEY ONLY
+  const realRevenue =
+    stripeRevenue + pixelRevenue;
 
+  // OPTIONAL EV LAYER
   const totalRevenue =
-    realRevenue + (toggle.includeEV ? evRevenue : 0);
+    realRevenue +
+    (toggle.includeEV ? evRevenue : 0);
 
   const funnel = calculateFunnel(events);
 
-  const rpc = calculateRPC(totalRevenue, funnel.landing_page);
+  const rpc = calculateRPC(
+    totalRevenue,
+    funnel.landing_page
+  );
 
   /* ---------------------------
      ATTRIBUTION
   ----------------------------*/
 
   const byCampaign = new Map<string, number>();
+
   const byVideo = new Map<string, number>();
 
-  const add = (map: Map<string, number>, key: string | null, value: number) => {
+  const add = (
+    map: Map<string, number>,
+    key: string | null,
+    value: number
+  ) => {
     if (!key) return;
-    map.set(key, (map.get(key) || 0) + value);
+
+    map.set(
+      key,
+      (map.get(key) || 0) + value
+    );
   };
 
   // Stripe attribution
   input.stripe.forEach(r => {
-    if (r.amount > 0) {
+    if (isValidRevenue(r.amount)) {
       add(byCampaign, r.campaign_id, r.amount);
+
       add(byVideo, r.video_id, r.amount);
     }
   });
 
-  // Pixel attribution (REAL ONLY)
+  // Pixel attribution
   input.pixel.forEach(p => {
+    // REAL REVENUE
     if (
-      (p.event_type === 'purchase' || p.event_type === 'consultation') &&
-      p.amount != null &&
-      p.amount > 0
+      (p.event_type === 'purchase' ||
+        p.event_type === 'consultation') &&
+      isValidRevenue(p.amount)
     ) {
-      add(byCampaign, p.campaign_id, p.amount);
-      add(byVideo, p.video_id, p.amount);
+      add(byCampaign, p.campaign_id, p.amount || 0);
+
+      add(byVideo, p.video_id, p.amount || 0);
     }
 
-    if (p.event_type === 'sales_call' && toggle.includeEV) {
+    // EV LAYER
+    if (
+      p.event_type === 'sales_call' &&
+      toggle.includeEV &&
+      isValidRevenue(p.amount)
+    ) {
       add(byCampaign, p.campaign_id, p.amount || 0);
+
       add(byVideo, p.video_id, p.amount || 0);
     }
   });
