@@ -58,37 +58,43 @@ function normalizeEvents(events: Event[]) {
 }
 
 /* ---------------------------
-   STRIPE REVENUE
+   STRIPE REVENUE (REAL MONEY)
 ----------------------------*/
 
 function calculateStripeRevenue(stripe: StripePurchase[]) {
-  return stripe.reduce((sum, r) => {
-    return sum + (r.amount || 0);
-  }, 0);
+  return stripe
+    .filter(r => r.amount != null && r.amount > 0)
+    .reduce((sum, r) => sum + r.amount, 0);
 }
 
 /* ---------------------------
-   PIXEL REVENUE (REAL ONLY)
+   PIXEL REVENUE (REAL PAYMENT RAIL)
 ----------------------------*/
 
 function calculatePixelRevenue(pixel: PixelPurchase[]) {
   return pixel
-    .filter(p => p.event_type === 'purchase' || p.event_type === 'consultation')
-    .reduce((sum, p) => sum + (p.amount || 0), 0);
+    .filter(
+      p =>
+        (p.event_type === 'purchase' ||
+          p.event_type === 'consultation') &&
+        p.amount != null &&
+        p.amount > 0
+    )
+    .reduce((sum, p) => sum + (p.amount as number), 0);
 }
 
 /* ---------------------------
-   EV REVENUE
+   EV REVENUE (PROJECTED VALUE)
 ----------------------------*/
 
 function calculateEVRevenue(pixel: PixelPurchase[]) {
   return pixel
-    .filter(p => p.event_type === 'sales_call')
-    .reduce((sum, p) => sum + (p.amount || 0), 0);
+    .filter(p => p.event_type === 'sales_call' && p.amount != null)
+    .reduce((sum, p) => sum + (p.amount as number), 0);
 }
 
 /* ---------------------------
-   FUNNEL METRICS
+   FUNNEL METRICS (BEHAVIOR ONLY)
 ----------------------------*/
 
 function calculateFunnel(events: Event[]) {
@@ -96,6 +102,7 @@ function calculateFunnel(events: Event[]) {
     landing_page: events.filter(e => e.event_type === 'landing_page').length,
     sales_call: events.filter(e => e.event_type === 'sales_call').length,
     consultation: events.filter(e => e.event_type === 'consultation').length,
+    purchase: events.filter(e => e.event_type === 'purchase').length,
     newsletter: events.filter(e => e.event_type === 'newsletter').length,
     lead_magnet: events.filter(e => e.event_type === 'lead_magnet').length,
   };
@@ -120,21 +127,23 @@ export function analyticsProcessor(
 ) {
   const events = normalizeEvents(input.events);
 
+  // Revenue layers
   const stripeRevenue = calculateStripeRevenue(input.stripe);
   const pixelRevenue = calculatePixelRevenue(input.pixel);
   const evRevenue = calculateEVRevenue(input.pixel);
 
+  // FINAL REVENUE MODEL (NO OVERRIDE LOGIC)
+  const realRevenue = stripeRevenue + pixelRevenue;
+
   const totalRevenue =
-    stripeRevenue +
-    pixelRevenue +
-    (toggle.includeEV ? evRevenue : 0);
+    realRevenue + (toggle.includeEV ? evRevenue : 0);
 
   const funnel = calculateFunnel(events);
 
   const rpc = calculateRPC(totalRevenue, funnel.landing_page);
 
   /* ---------------------------
-     ATTRIBUTION OUTPUT
+     ATTRIBUTION
   ----------------------------*/
 
   const byCampaign = new Map<string, number>();
@@ -147,15 +156,21 @@ export function analyticsProcessor(
 
   // Stripe attribution
   input.stripe.forEach(r => {
-    add(byCampaign, r.campaign_id, r.amount);
-    add(byVideo, r.video_id, r.amount);
+    if (r.amount > 0) {
+      add(byCampaign, r.campaign_id, r.amount);
+      add(byVideo, r.video_id, r.amount);
+    }
   });
 
-  // Pixel attribution
+  // Pixel attribution (REAL ONLY)
   input.pixel.forEach(p => {
-    if (p.event_type === 'purchase' || p.event_type === 'consultation') {
-      add(byCampaign, p.campaign_id, p.amount || 0);
-      add(byVideo, p.video_id, p.amount || 0);
+    if (
+      (p.event_type === 'purchase' || p.event_type === 'consultation') &&
+      p.amount != null &&
+      p.amount > 0
+    ) {
+      add(byCampaign, p.campaign_id, p.amount);
+      add(byVideo, p.video_id, p.amount);
     }
 
     if (p.event_type === 'sales_call' && toggle.includeEV) {
@@ -169,6 +184,7 @@ export function analyticsProcessor(
       stripe: stripeRevenue,
       pixel: pixelRevenue,
       ev: evRevenue,
+      real: realRevenue,
       total: totalRevenue,
     },
 
