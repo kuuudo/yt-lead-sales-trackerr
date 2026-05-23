@@ -1,3 +1,4 @@
+
 // analyticsProcessor.ts
 
 type EventType =
@@ -61,7 +62,7 @@ function normalizeEvents(events: Event[]) {
 }
 
 /* ---------------------------
-   REVENUE VALIDATION
+   VALIDATION
 ----------------------------*/
 
 function isValidRevenue(amount: number | null) {
@@ -72,43 +73,60 @@ function isValidRevenue(amount: number | null) {
    STRIPE REVENUE (REAL MONEY)
 ----------------------------*/
 
-function calculateStripeRevenue(stripe: StripePurchase[]) {
+function calculateStripeRevenue(
+  stripe: StripePurchase[]
+) {
   return stripe
     .filter(r => isValidRevenue(r.amount))
     .reduce((sum, r) => sum + r.amount, 0);
 }
 
 /* ---------------------------
-   PIXEL REVENUE (REAL PAYMENT RAIL)
+   PIXEL REVENUE
+   (REAL PAYMENT RAIL)
 ----------------------------*/
 
-function calculatePixelRevenue(pixel: PixelPurchase[]) {
+function calculatePixelRevenue(
+  pixel: PixelPurchase[]
+) {
   return pixel
     .filter(
       p =>
-        (p.event_type === 'purchase' ||
-          p.event_type === 'consultation') &&
+        (
+          p.event_type === 'purchase' ||
+          p.event_type === 'consultation'
+        ) &&
         isValidRevenue(p.amount)
     )
-    .reduce((sum, p) => sum + (p.amount || 0), 0);
+    .reduce(
+      (sum, p) => sum + (p.amount || 0),
+      0
+    );
 }
 
 /* ---------------------------
-   EV REVENUE (PROJECTED VALUE)
+   EV REVENUE
+   (PROJECTED VALUE)
 ----------------------------*/
 
-function calculateEVRevenue(pixel: PixelPurchase[]) {
+function calculateEVRevenue(
+  pixel: PixelPurchase[]
+) {
   return pixel
     .filter(
       p =>
         p.event_type === 'sales_call' &&
         isValidRevenue(p.amount)
     )
-    .reduce((sum, p) => sum + (p.amount || 0), 0);
+    .reduce(
+      (sum, p) => sum + (p.amount || 0),
+      0
+    );
 }
 
 /* ---------------------------
-   FUNNEL METRICS (BEHAVIOR ONLY)
+   FUNNEL METRICS
+   (BEHAVIOR ONLY)
 ----------------------------*/
 
 function calculateFunnel(events: Event[]) {
@@ -158,27 +176,50 @@ function calculateRPC(
 
 export function analyticsProcessor(
   input: AnalyticsInput,
-  toggle: RevenueToggle = { includeEV: true }
+  toggle: RevenueToggle = {
+    includeEV: true,
+  }
 ) {
   const events = normalizeEvents(input.events);
 
-  // Revenue layers
-  const stripeRevenue = calculateStripeRevenue(input.stripe);
+  /* ---------------------------
+     REVENUE LAYERS
+  ----------------------------*/
 
-  const pixelRevenue = calculatePixelRevenue(input.pixel);
+  const stripeRevenue =
+    calculateStripeRevenue(input.stripe);
 
-  const evRevenue = calculateEVRevenue(input.pixel);
+  const pixelRevenue =
+    calculatePixelRevenue(input.pixel);
 
-  // REAL MONEY ONLY
+  const evRevenue =
+    calculateEVRevenue(input.pixel);
+
+  /* ---------------------------
+     REAL MONEY
+     Stripe + Pixel
+  ----------------------------*/
+
   const realRevenue =
     stripeRevenue + pixelRevenue;
 
-  // OPTIONAL EV LAYER
+  /* ---------------------------
+     FINAL TOTAL
+  ----------------------------*/
+
   const totalRevenue =
     realRevenue +
     (toggle.includeEV ? evRevenue : 0);
 
+  /* ---------------------------
+     FUNNEL
+  ----------------------------*/
+
   const funnel = calculateFunnel(events);
+
+  /* ---------------------------
+     RPC
+  ----------------------------*/
 
   const rpc = calculateRPC(
     totalRevenue,
@@ -189,9 +230,11 @@ export function analyticsProcessor(
      ATTRIBUTION
   ----------------------------*/
 
-  const byCampaign = new Map<string, number>();
+  const byCampaign =
+    new Map<string, number>();
 
-  const byVideo = new Map<string, number>();
+  const byVideo =
+    new Map<string, number>();
 
   const add = (
     map: Map<string, number>,
@@ -206,39 +249,75 @@ export function analyticsProcessor(
     );
   };
 
-  // Stripe attribution
-  input.stripe.forEach(r => {
-    if (isValidRevenue(r.amount)) {
-      add(byCampaign, r.campaign_id, r.amount);
+  /* ---------------------------
+     STRIPE ATTRIBUTION
+  ----------------------------*/
 
-      add(byVideo, r.video_id, r.amount);
-    }
+  input.stripe.forEach(r => {
+    if (!isValidRevenue(r.amount)) return;
+
+    add(
+      byCampaign,
+      r.campaign_id,
+      r.amount
+    );
+
+    add(
+      byVideo,
+      r.video_id,
+      r.amount
+    );
   });
 
-  // Pixel attribution
+  /* ---------------------------
+     PIXEL ATTRIBUTION
+  ----------------------------*/
+
   input.pixel.forEach(p => {
-    // REAL REVENUE
+    // REAL MONEY
     if (
-      (p.event_type === 'purchase' ||
-        p.event_type === 'consultation') &&
+      (
+        p.event_type === 'purchase' ||
+        p.event_type === 'consultation'
+      ) &&
       isValidRevenue(p.amount)
     ) {
-      add(byCampaign, p.campaign_id, p.amount || 0);
+      add(
+        byCampaign,
+        p.campaign_id,
+        p.amount || 0
+      );
 
-      add(byVideo, p.video_id, p.amount || 0);
+      add(
+        byVideo,
+        p.video_id,
+        p.amount || 0
+      );
     }
 
-    // EV LAYER
+    // EV
     if (
       p.event_type === 'sales_call' &&
       toggle.includeEV &&
       isValidRevenue(p.amount)
     ) {
-      add(byCampaign, p.campaign_id, p.amount || 0);
+      add(
+        byCampaign,
+        p.campaign_id,
+        p.amount || 0
+      );
 
-      add(byVideo, p.video_id, p.amount || 0);
+      add(
+        byVideo,
+        p.video_id,
+        p.amount || 0
+      );
     }
   });
+
+  /* ---------------------------
+     FINAL OUTPUT
+  ----------------------------*/
 
   return {
     revenue: {
@@ -254,8 +333,12 @@ export function analyticsProcessor(
     rpc,
 
     attribution: {
-      byCampaign: Object.fromEntries(byCampaign),
-      byVideo: Object.fromEntries(byVideo),
+      byCampaign:
+        Object.fromEntries(byCampaign),
+
+      byVideo:
+        Object.fromEntries(byVideo),
     },
   };
 }
+
