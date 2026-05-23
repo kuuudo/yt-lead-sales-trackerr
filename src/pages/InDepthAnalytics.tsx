@@ -18,7 +18,6 @@ import {
   enrichStripePurchases,
   enrichPixelPurchases,
   filterEventsByDate,
-  selectDisplayRevenue,
   type DateRange,
   type RevenueView,
   type RawEvent,
@@ -37,7 +36,6 @@ const TABLE_COLUMNS: MetricType[] = [
   'landing_page_view',
   'purchase_thankyou',
   'lead_magnet_click',
-  'lead_magnet_thankyou',
   'newsletter_click',
   'newsletter_thankyou',
   'call_booking_click',
@@ -51,20 +49,14 @@ const TABLE_COLUMNS: MetricType[] = [
   'rpc',
 ];
 
-// Column display labels — spec-aligned overrides on top of config defaults.
+// Column display labels — keep original wording where it differed from config.
 const COLUMN_LABELS: Record<MetricType, string> = {
   ...METRIC_LABELS,
-  // Explicit $ suffix for all revenue-facing columns shown in the table
   direct_offer_revenue:    'Direct Offer Sales ($)',
-  estimated_call_revenue:  'Est. Call Revenue (EV $)',
+  estimated_call_revenue:  'Estimated Call Revenue ($)',
   consultation_revenue:    'Consultation Revenue ($)',
   total_revenue:           'Total Revenue ($)',
   rpc:                     'Revenue Per Click ($)',
-  // Spec-aligned count labels
-  purchase_thankyou:       'Direct Purchases',
-  consultation_thankyou:   'Consultation Purchases',
-  call_booking_thankyou:   'Calls Confirmed',
-  newsletter_thankyou:     'Newsletter Opt-ins',
 };
 
 export default function InDepthAnalytics() {
@@ -87,8 +79,7 @@ export default function InDepthAnalytics() {
   const [selectedLeadMagnets, setSelectedLeadMagnets] = useState<string[]>([]);
 
   // ── UI state ────────────────────────────────────────────────────────────────
-  // DEFAULT ACTIVE SOURCE: always 'total' on mount / page refresh (spec: DEFAULT VIEW RULE)
-  const [revenueView, setRevenueView]   = useState<RevenueView>('total');
+  const [activeSource, setActiveSource] = useState<RevenueView>('total');
   const [includeEV, setIncludeEV]       = useState<boolean>(true);
   const [isSidebarOpen, setIsSidebarOpen] = useState(true);
   const [sortConfig, setSortConfig] = useState<{ key: string; direction: 'asc' | 'desc' }>({
@@ -230,33 +221,26 @@ export default function InDepthAnalytics() {
     });
   }, [videos, selectedCampaignId, selectedGoals, selectedLeadMagnets]);
 
-  // ── activeSource-gated purchase arrays (spec: DATA SOURCE BEHAVIOR RULES) ─────
-  // PIXEL  → only pixel_purchases; stripe array emptied
-  // STRIPE → only stripe_purchase_type; pixel array emptied
-  // TOTAL  → both arrays (processor dedupes by session_id — no double-count)
-  const sourceScopedStripe = useMemo(
-    () => (revenueView === 'pixel' ? [] : stripePurchases),
-    [revenueView, stripePurchases],
-  );
-  const sourceScopedPixel = useMemo(
-    () => (revenueView === 'stripe' ? [] : pixelPurchases),
-    [revenueView, pixelPurchases],
-  );
-
   // ── Metric computation — delegated entirely to analyticsProcessor ─────────────
-  // Purchase arrays are already scoped by activeSource above, so every metric
-  // (counts, revenue, EV, RPC) automatically respects the global toggle.
   const processedVideos = useMemo(() => {
     return filteredVideos.map(v => {
       const campaign = campaigns.find(c => c.id === v.campaign_id) as CampaignMeta | undefined;
+
+      // Derive source-filtered purchases based on activeSource
+      const sourceStripe = activeSource === 'pixel'
+        ? []
+        : stripePurchases;
+      const sourcePixel = activeSource === 'stripe'
+        ? []
+        : pixelPurchases;
 
       const metrics = processVideoMetrics({
         videoId:         v.id,
         campaignId:      v.campaign_id ?? null,
         campaign,
         events:          dateFilteredEvents,
-        stripePurchases: sourceScopedStripe,
-        pixelPurchases:  sourceScopedPixel,
+        stripePurchases: sourceStripe,
+        pixelPurchases:  sourcePixel,
         includeEV,
       });
 
@@ -267,13 +251,7 @@ export default function InDepthAnalytics() {
         ...metrics,
       };
     });
-  }, [filteredVideos, dateFilteredEvents, sourceScopedStripe, sourceScopedPixel, campaigns, includeEV]);
-
-  // ── Columns — hide EV column when EV is excluded ─────────────────────────────
-  const visibleColumns = useMemo<MetricType[]>(
-    () => TABLE_COLUMNS.filter(k => k !== 'estimated_call_revenue' || includeEV),
-    [includeEV],
-  );
+  }, [filteredVideos, dateFilteredEvents, stripePurchases, pixelPurchases, campaigns, includeEV, activeSource]);
 
   // ── Sort ──────────────────────────────────────────────────────────────────────
   const sortedVideos = useMemo(() => {
@@ -301,33 +279,12 @@ export default function InDepthAnalytics() {
   const isRevenueCol = (key: MetricType) =>
     key.includes('revenue') || key === 'rpc';
 
-  /**
-   * RPC uses total_revenue which is already scoped to activeSource at computation time.
-   * Spec: Total Revenue ($) / COUNT(landing_page_view events).
-   */
-  const deriveRpc = (row: (typeof sortedVideos)[number]): number => {
-    if (!row.landing_page_view) return 0;
-    return Number((row.total_revenue / row.landing_page_view).toFixed(2));
-  };
-
   const formatCellValue = (key: MetricType, row: (typeof sortedVideos)[number]): string => {
-    // total_revenue: already scoped to activeSource at computation time — use directly
     if (key === 'total_revenue') {
-      const display = (row as any).total_revenue ?? 0;
-      return `$${(display).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+      return `$${(row.total_revenue || 0).toLocaleString()}`;
     }
-    // rpc: must follow the same revenue view as total_revenue
-    if (key === 'rpc') {
-      return `$${deriveRpc(row).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
-    }
-    // estimated_call_revenue: EV — never part of real revenue, shown separately
-    if (key === 'estimated_call_revenue') {
-      return `$${((row as any)[key] || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
-    }
-    if (isRevenueCol(key)) {
-      return `$${((row as any)[key] || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
-    }
-    // Count metrics
+    if (key === 'rpc') return `$${row.rpc ?? 0}`;
+    if (isRevenueCol(key)) return `$${((row as any)[key] || 0).toLocaleString()}`;
     return ((row as any)[key] || 0).toLocaleString();
   };
 
@@ -528,15 +485,14 @@ export default function InDepthAnalytics() {
           </div>
 
           <div className="flex items-center gap-4">
-            {/* Revenue view toggle */}
+            {/* Data source toggle — controls ALL metrics globally */}
             <div className="flex items-center gap-1 p-1 bg-zinc-900 border border-zinc-800 rounded-xl w-fit">
-              {/* VIEW ORDER RULE: always TOTAL → PIXEL → STRIPE (spec requirement) */}
               {(['total', 'pixel', 'stripe'] as RevenueView[]).map(v => (
                 <button
                   key={v}
-                  onClick={() => setRevenueView(v)}
+                  onClick={() => setActiveSource(v)}
                   className={`px-3 py-1.5 rounded-lg text-[9px] font-black uppercase tracking-widest transition-all ${
-                    revenueView === v ? 'bg-zinc-700 text-white' : 'text-zinc-600 hover:text-zinc-400'
+                    activeSource === v ? 'bg-zinc-700 text-white' : 'text-zinc-600 hover:text-zinc-400'
                   }`}
                 >
                   {v}
@@ -545,7 +501,7 @@ export default function InDepthAnalytics() {
             </div>
             <div className="px-4 py-2 bg-zinc-900/50 border border-zinc-900 rounded-xl">
               <span className="text-[10px] font-black uppercase tracking-widest text-zinc-600">
-                {sortedVideos.length} Videos
+                {sortedVideos.length} Videos Loaded
               </span>
             </div>
           </div>
@@ -560,15 +516,11 @@ export default function InDepthAnalytics() {
                   <th className="px-6 py-5 text-left text-[10px] font-black uppercase tracking-widest text-zinc-600 border-b border-zinc-900 bg-zinc-950 min-w-[300px] sticky left-0 z-30">
                     Video
                   </th>
-                  {visibleColumns.map(key => (
+                  {TABLE_COLUMNS.map(key => (
                     <th
                       key={key}
                       onClick={() => handleSort(key)}
-                      className={`px-6 py-5 text-left text-[10px] font-black uppercase tracking-widest border-b border-zinc-900 cursor-pointer hover:text-white transition-colors group bg-zinc-950 min-w-[180px] ${
-                        key === 'estimated_call_revenue'
-                          ? 'text-zinc-600'   // EV always visually dimmed
-                          : 'text-zinc-600'
-                      }`}
+                      className="px-6 py-5 text-left text-[10px] font-black uppercase tracking-widest text-zinc-600 border-b border-zinc-900 cursor-pointer hover:text-white transition-colors group bg-zinc-950 min-w-[180px]"
                     >
                       <div className="flex items-center gap-2">
                         {COLUMN_LABELS[key]}
@@ -610,29 +562,17 @@ export default function InDepthAnalytics() {
                     </td>
 
                     {/* Metric cells */}
-                    {visibleColumns.map(key => (
+                    {TABLE_COLUMNS.map(key => (
                       <td
                         key={key}
-                        className={`px-6 py-5 whitespace-nowrap text-sm font-bold tabular-nums ${
-                          key === 'estimated_call_revenue'
-                            ? 'text-zinc-600'     // EV is a projection, visually muted
-                            : 'text-zinc-400'
-                        }`}
+                        className="px-6 py-5 whitespace-nowrap text-sm font-bold text-zinc-400 tabular-nums"
                       >
                         {key === 'total_revenue' ? (
                           <div>
-                            {/* total_revenue is already scoped to activeSource at computation time */}
                             <div>{formatCellValue(key, row)}</div>
                             <div className="text-[8px] text-zinc-600 uppercase tracking-widest mt-0.5">
-                              {revenueView === 'stripe' ? 'Verified (Stripe)'
-                                : revenueView === 'pixel' ? 'Estimated (Pixel)'
-                                : 'Total (Pixel + Stripe)'}
+                              {row.revenue_mode_label}
                             </div>
-                          </div>
-                        ) : key === 'estimated_call_revenue' ? (
-                          <div>
-                            <div>{formatCellValue(key, row)}</div>
-                            <div className="text-[8px] text-zinc-700 uppercase tracking-widest mt-0.5">EV only</div>
                           </div>
                         ) : (
                           formatCellValue(key, row)
