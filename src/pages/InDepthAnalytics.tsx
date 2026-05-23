@@ -87,7 +87,8 @@ export default function InDepthAnalytics() {
   const [selectedLeadMagnets, setSelectedLeadMagnets] = useState<string[]>([]);
 
   // ── UI state ────────────────────────────────────────────────────────────────
-  const [revenueView, setRevenueView]   = useState<RevenueView>('stripe');
+  // DEFAULT ACTIVE SOURCE: always 'total' on mount / page refresh (spec: DEFAULT VIEW RULE)
+  const [revenueView, setRevenueView]   = useState<RevenueView>('total');
   const [includeEV, setIncludeEV]       = useState<boolean>(true);
   const [isSidebarOpen, setIsSidebarOpen] = useState(true);
   const [sortConfig, setSortConfig] = useState<{ key: string; direction: 'asc' | 'desc' }>({
@@ -229,7 +230,22 @@ export default function InDepthAnalytics() {
     });
   }, [videos, selectedCampaignId, selectedGoals, selectedLeadMagnets]);
 
+  // ── activeSource-gated purchase arrays (spec: DATA SOURCE BEHAVIOR RULES) ─────
+  // PIXEL  → only pixel_purchases; stripe array emptied
+  // STRIPE → only stripe_purchase_type; pixel array emptied
+  // TOTAL  → both arrays (processor dedupes by session_id — no double-count)
+  const sourceScopedStripe = useMemo(
+    () => (revenueView === 'pixel' ? [] : stripePurchases),
+    [revenueView, stripePurchases],
+  );
+  const sourceScopedPixel = useMemo(
+    () => (revenueView === 'stripe' ? [] : pixelPurchases),
+    [revenueView, pixelPurchases],
+  );
+
   // ── Metric computation — delegated entirely to analyticsProcessor ─────────────
+  // Purchase arrays are already scoped by activeSource above, so every metric
+  // (counts, revenue, EV, RPC) automatically respects the global toggle.
   const processedVideos = useMemo(() => {
     return filteredVideos.map(v => {
       const campaign = campaigns.find(c => c.id === v.campaign_id) as CampaignMeta | undefined;
@@ -239,8 +255,8 @@ export default function InDepthAnalytics() {
         campaignId:      v.campaign_id ?? null,
         campaign,
         events:          dateFilteredEvents,
-        stripePurchases,
-        pixelPurchases,
+        stripePurchases: sourceScopedStripe,
+        pixelPurchases:  sourceScopedPixel,
         includeEV,
       });
 
@@ -251,7 +267,7 @@ export default function InDepthAnalytics() {
         ...metrics,
       };
     });
-  }, [filteredVideos, dateFilteredEvents, stripePurchases, pixelPurchases, campaigns, includeEV]);
+  }, [filteredVideos, dateFilteredEvents, sourceScopedStripe, sourceScopedPixel, campaigns, includeEV]);
 
   // ── Columns — hide EV column when EV is excluded ─────────────────────────────
   const visibleColumns = useMemo<MetricType[]>(
@@ -286,21 +302,19 @@ export default function InDepthAnalytics() {
     key.includes('revenue') || key === 'rpc';
 
   /**
-   * Derive RPC for the currently-selected revenue view.
-   * Spec: Total Revenue ($) / COUNT(landing_page_view).
-   * When the user switches revenue view, RPC should reflect that view's revenue.
+   * RPC uses total_revenue which is already scoped to activeSource at computation time.
+   * Spec: Total Revenue ($) / COUNT(landing_page_view events).
    */
   const deriveRpc = (row: (typeof sortedVideos)[number]): number => {
     if (!row.landing_page_view) return 0;
-    const rev = selectDisplayRevenue(row, revenueView);
-    return Number((rev / row.landing_page_view).toFixed(2));
+    return Number((row.total_revenue / row.landing_page_view).toFixed(2));
   };
 
   const formatCellValue = (key: MetricType, row: (typeof sortedVideos)[number]): string => {
-    // total_revenue cell: driven by revenueView toggle
+    // total_revenue: already scoped to activeSource at computation time — use directly
     if (key === 'total_revenue') {
-      const display = selectDisplayRevenue(row, revenueView);
-      return `$${(display || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+      const display = (row as any).total_revenue ?? 0;
+      return `$${(display).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
     }
     // rpc: must follow the same revenue view as total_revenue
     if (key === 'rpc') {
@@ -516,7 +530,8 @@ export default function InDepthAnalytics() {
           <div className="flex items-center gap-4">
             {/* Revenue view toggle */}
             <div className="flex items-center gap-1 p-1 bg-zinc-900 border border-zinc-800 rounded-xl w-fit">
-              {(['stripe', 'pixel', 'total'] as RevenueView[]).map(v => (
+              {/* VIEW ORDER RULE: always TOTAL → PIXEL → STRIPE (spec requirement) */}
+              {(['total', 'pixel', 'stripe'] as RevenueView[]).map(v => (
                 <button
                   key={v}
                   onClick={() => setRevenueView(v)}
@@ -606,11 +621,12 @@ export default function InDepthAnalytics() {
                       >
                         {key === 'total_revenue' ? (
                           <div>
+                            {/* total_revenue is already scoped to activeSource at computation time */}
                             <div>{formatCellValue(key, row)}</div>
                             <div className="text-[8px] text-zinc-600 uppercase tracking-widest mt-0.5">
                               {revenueView === 'stripe' ? 'Verified (Stripe)'
                                 : revenueView === 'pixel' ? 'Estimated (Pixel)'
-                                : row.revenue_mode_label}
+                                : 'Total (Pixel + Stripe)'}
                             </div>
                           </div>
                         ) : key === 'estimated_call_revenue' ? (
