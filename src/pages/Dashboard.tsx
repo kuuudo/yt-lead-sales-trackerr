@@ -3,15 +3,14 @@ import { useLanguage } from '../lib/hooks';
 import { supabase, Video, Campaign } from '../lib/supabase';
 import {
   getRevenueMode,
-  REVENUE_MODE_LABELS,
-  RevenueMode,
-  normalizeEventType,
-  applyRevenue,
-  finalizeMetrics,
-  emptyVideoMetrics,
-  type StripePurchaseRow,
+  type RevenueMode,
   type PixelPurchaseRow,
 } from '../lib/analyticsConfig';
+import {
+  processVideoMetrics,
+  type RawEvent,
+  type CampaignMeta,
+} from '../lib/analyticsProcessor';
 import { useAuth } from '../lib/auth';
 import { LayoutDashboard, TrendingUp, Target, Users, DollarSign, Activity, AlertCircle, CheckCircle2, ArrowRight, Video as VideoIcon } from 'lucide-react';
 import { motion } from 'motion/react';
@@ -109,33 +108,28 @@ export default function Dashboard() {
       console.log('[Dashboard] pixel_purchases fetched:', ppRes.data?.length ?? 0, ppRes.data);
       console.log('[Dashboard] stripe_purchases fetched:', spRes.data?.length ?? 0);
 
+      const allEvents: RawEvent[] = (eRes.data ?? []);
+
       const processed: AnalyticsRow[] = vRes.data.map((vid: any) => {
-        const campaign = cRes.data.find((c: any) => c.id === vid.campaign_id);
+        const campaign = cRes.data.find((c: any) => c.id === vid.campaign_id) as CampaignMeta | undefined;
         const mode = getRevenueMode(campaign ?? {});
-        const m = emptyVideoMetrics(mode);
 
-        // Behavioral counts from events table only
-        const vidEvents = (eRes.data ?? []).filter((e: any) => e.video_id === vid.id);
-        for (const e of vidEvents) {
-          const canonical = normalizeEventType(e.event_type);
-          if (!canonical) continue;
-          if ((m as any)[canonical] !== undefined) (m as any)[canonical]++;
-        }
-
-        // Revenue by mode — Stripe is always truth, Pixel is supplementary
         // pixel rows may have null video_id; match by campaign_id as fallback
         const vidPixelPurchases = (ppRes.data ?? []).filter(
           (p: any) => p.video_id === vid.id || (!p.video_id && p.campaign_id === vid.campaign_id)
-        );
+        ) as PixelPurchaseRow[];
 
         console.log(`[Dashboard] video=${vid.video_title} mode=${mode} pixelRows=${vidPixelPurchases.length}`);
 
-        applyRevenue(
-          m,
-          (spRes.data ?? []).filter((p: any) => p.video_id === vid.id) as StripePurchaseRow[],
-          vidPixelPurchases as PixelPurchaseRow[],
-        );
-        finalizeMetrics(m, campaign);
+        const m = processVideoMetrics({
+          videoId:         vid.id,
+          campaignId:      vid.campaign_id ?? null,
+          campaign,
+          events:          allEvents,
+          stripePurchases: (spRes.data ?? []).filter((p: any) => p.video_id === vid.id),
+          pixelPurchases:  vidPixelPurchases,
+          includeEV:       true,
+        });
 
         console.log(`[Dashboard] video=${vid.video_title} => pixel_revenue=${m.pixel_revenue} stripe_revenue=${m.stripe_revenue} total_revenue=${m.total_revenue} mode=${mode}`);
 
