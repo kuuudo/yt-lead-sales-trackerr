@@ -1,18 +1,19 @@
 // ─────────────────────────────────────────────────────────────────────────────
 // ANALYTICS PROCESSOR
 // Single source of truth for ALL metric calculations.
-// Rules:
-//   • events table  = behavioral signals only (clicks + opt-ins)
-//   • stripe_purchases = real revenue rail (verified)
-//   • pixel_purchases  = real revenue rail (unverified, deduped vs Stripe)
-//   • Total real revenue = Stripe + Pixel (deduped)
-//   • estimated_call_revenue / EV = projection only, never added to totals
-//   • EV is opt-in via includeEV flag
-//   • Attribution keyed by BOTH campaign_id and video_id
+//
+// Layer rules:
+//   events table          = click / intent stream ONLY
+//   pixel_purchases       = conversions + EV + partial revenue
+//   stripe_purchase_type  = verified revenue
+//
+// Click metrics use CLICK_EVENT_MAP — raw event_type string match, no mapping.
+// Revenue metrics use payment_type (stripe) / event_type (pixel) directly.
+// EV is projection only — never added to total_revenue.
 // ─────────────────────────────────────────────────────────────────────────────
 
 import {
-  normalizeEventType,
+  CLICK_EVENT_MAP,
   getRevenueMode,
   emptyVideoMetrics,
   REVENUE_MODE_LABELS,
@@ -44,33 +45,31 @@ export interface ProcessVideoInput {
   videoId:         string;
   campaignId:      string | null;
   campaign?:       CampaignMeta;
-  events:          RawEvent[];          // already date-filtered
+  events:          RawEvent[];
   stripePurchases: StripePurchaseRow[];
   pixelPurchases:  PixelPurchaseRow[];
-  includeEV?:      boolean;             // include estimated_call_revenue (default: true)
+  includeEV?:      boolean;
 }
 
 export interface VideoMetricsResult extends VideoMetrics {
-  /** True total = stripe + pixel (deduped). Never inflated by EV. */
   total_revenue:          number;
-  /** Projection only. Zero when includeEV=false. */
   estimated_call_revenue: number;
 }
 
-// ── Date cutoff helper ────────────────────────────────────────────────────────
+// ── Date helpers ──────────────────────────────────────────────────────────────
 
 export type DateRange = '7days' | '30days' | '2months' | '6months' | '1year' | 'all';
 
 export function getDateCutoff(range: DateRange): Date {
   const now = new Date();
   switch (range) {
-    case '7days':   { const d = new Date(now); d.setDate(d.getDate() - 7);          return d; }
-    case '30days':  { const d = new Date(now); d.setDate(d.getDate() - 30);         return d; }
-    case '2months': { const d = new Date(now); d.setMonth(d.getMonth() - 2);        return d; }
-    case '6months': { const d = new Date(now); d.setMonth(d.getMonth() - 6);        return d; }
-    case '1year':   { const d = new Date(now); d.setFullYear(d.getFullYear() - 1);  return d; }
+    case '7days':   { const d = new Date(now); d.setDate(d.getDate() - 7);         return d; }
+    case '30days':  { const d = new Date(now); d.setDate(d.getDate() - 30);        return d; }
+    case '2months': { const d = new Date(now); d.setMonth(d.getMonth() - 2);       return d; }
+    case '6months': { const d = new Date(now); d.setMonth(d.getMonth() - 6);       return d; }
+    case '1year':   { const d = new Date(now); d.setFullYear(d.getFullYear() - 1); return d; }
     case 'all':     return new Date(0);
-    default:        { const d = new Date(now); d.setDate(d.getDate() - 30);         return d; }
+    default:        { const d = new Date(now); d.setDate(d.getDate() - 30);        return d; }
   }
 }
 
@@ -79,45 +78,43 @@ export function filterEventsByDate(events: RawEvent[], range: DateRange): RawEve
   return events.filter(e => new Date(e.created_at) >= cutoff);
 }
 
-// ── Stripe purchase type derivation ──────────────────────────────────────────
-// stripe_purchases has no type column — derive from campaign metadata.
-
-export function deriveStripePurchaseType(
-  amount: number,
-  campaign?: CampaignMeta,
-): 'direct' | 'consultation' {
-  if (
-    campaign?.has_paid_consultation &&
-    campaign?.consultation_fee != null &&
-    Number(amount) === Number(campaign.consultation_fee)
-  ) {
-    return 'consultation';
-  }
-  return 'direct';
-}
+// ── Stripe enrich ─────────────────────────────────────────────────────────────
+// Resolves missing video_id/campaign_id via session lookup.
+// payment_type is stored directly in stripe_purchase_type — no derivation needed.
 
 export function enrichStripePurchases(
-  raw: Array<Omit<StripePurchaseRow, 'type'> & { type?: string | null }>,
+  raw: Array<{
+    video_id:     string | null;
+    campaign_id:  string | null;
+    amount:       number | null;
+    payment_type: string | null;
+    session_id?:  string | null;
+  }>,
   sessionLookup: Record<string, { video_id: string; campaign_id: string }>,
-  campaigns: CampaignMeta[],
 ): StripePurchaseRow[] {
-  return raw.map(p => {
-    // Resolve missing video_id/campaign_id via session
-    const resolved: typeof p =
-      !p.video_id && p.session_id && sessionLookup[p.session_id]
-        ? { ...p, ...sessionLookup[p.session_id] }
-        : p;
+  return raw
+    .map(p => {
+      const resolved =
+        !p.video_id && p.session_id && sessionLookup[p.session_id]
+          ? { ...p, ...sessionLookup[p.session_id] }
+          : p;
 
-    const campaign = campaigns.find(c => c.id === resolved.campaign_id);
-    return {
-      ...resolved,
-      video_id:    resolved.video_id    ?? '',
-      campaign_id: resolved.campaign_id ?? '',
-      amount:      resolved.amount      ?? 0,
-      type:        deriveStripePurchaseType(resolved.amount ?? 0, campaign),
-    } satisfies StripePurchaseRow;
-  });
+      // Only keep rows with a known payment_type
+      const pt = resolved.payment_type;
+      if (pt !== 'offer' && pt !== 'consultation') return null;
+
+      return {
+        video_id:     resolved.video_id    ?? '',
+        campaign_id:  resolved.campaign_id ?? '',
+        amount:       resolved.amount      ?? 0,
+        payment_type: pt as 'offer' | 'consultation',
+        session_id:   resolved.session_id  ?? null,
+      } satisfies StripePurchaseRow;
+    })
+    .filter((p): p is StripePurchaseRow => p !== null);
 }
+
+// ── Pixel enrich ──────────────────────────────────────────────────────────────
 
 export function enrichPixelPurchases(
   raw: PixelPurchaseRow[],
@@ -141,50 +138,77 @@ export function processVideoMetrics({
   pixelPurchases,
   includeEV = true,
 }: ProcessVideoInput): VideoMetricsResult {
-  const mode = getRevenueMode(campaign ?? {});
+  const mode    = getRevenueMode(campaign ?? {});
   const metrics = emptyVideoMetrics(mode) as VideoMetricsResult;
 
-  // ── 1. Behavioral event counts (events table only) ────────────────────────
-  for (const e of events) {
-    if (e.video_id !== videoId) continue;
+  // ── 1. Click metrics — raw event_type match via CLICK_EVENT_MAP ──────────
+  //
+  // No normalization. Each metric key maps to one or more exact event_type
+  // strings. If the event_type is in the set, increment that counter.
+  // Any event_type not in any set is simply ignored for clicks.
 
-    const canonical = normalizeEventType(e.event_type);
-    if (!canonical) continue;
+  const videoEvents = events.filter(e => e.video_id === videoId);
 
-    // Guard: revenue metrics must never be incremented from events
-    if (canonical === 'purchase_thankyou') {
-      metrics.purchase_thankyou++;
-    } else if (canonical in metrics) {
-      (metrics as any)[canonical]++;
+  for (const [metricKey, rawTypes] of Object.entries(CLICK_EVENT_MAP)) {
+    const typeSet = new Set(rawTypes);
+    (metrics as any)[metricKey] = videoEvents.filter(
+      e => typeSet.has(e.event_type),
+    ).length;
+  }
+
+  // ── 2. Pixel conversions (video-scoped) ───────────────────────────────────
+  //
+  // pixel_purchases.event_type values:
+  //   'purchase'     → purchase_thankyou (Direct Purchase count)
+  //   'sales_call'   → call_booking_thankyou (Confirmed + EV source)
+  //   'consultation' → consultation_thankyou (Consultation conversion)
+
+  const vidPixelAll = pixelPurchases.filter(p => p.video_id === videoId);
+
+  for (const p of vidPixelAll) {
+    switch (p.event_type) {
+      case 'purchase':     metrics.purchase_thankyou++;     break;
+      case 'sales_call':   metrics.call_booking_thankyou++; break;
+      case 'consultation': metrics.consultation_thankyou++; break;
     }
   }
 
-  // ── 2. Stripe revenue (video-scoped) ──────────────────────────────────────
+  // ── 3. Stripe revenue (video-scoped) ──────────────────────────────────────
+  //
+  // stripe_purchase_type.payment_type values:
+  //   'offer'        → direct_offer_revenue
+  //   'consultation' → consultation_revenue
+
   const vidStripe = stripePurchases.filter(
     p => p.video_id === videoId && (p.amount ?? 0) > 0,
   );
+
   for (const p of vidStripe) {
     const amt = p.amount ?? 0;
     metrics.stripe_revenue += amt;
-    if (p.type === 'direct')       metrics.direct_offer_revenue += amt;
-    if (p.type === 'consultation') metrics.consultation_revenue += amt;
+    if (p.payment_type === 'offer')        metrics.direct_offer_revenue += amt;
+    if (p.payment_type === 'consultation') metrics.consultation_revenue += amt;
   }
 
-  // ── 3. Pixel revenue (video-scoped, deduped against Stripe) ───────────────
+  // ── 4. Pixel revenue (video-scoped, deduped against Stripe) ───────────────
+  //
+  // Only purchase + consultation event_types carry real revenue.
+  // sales_call rows carry EV amounts — handled separately in step 6.
+  // Deduped: skip any session already claimed by Stripe.
+
   if (mode === 'pixel' || mode === 'hybrid') {
     const stripeSessionIds = new Set(
       vidStripe.map(p => p.session_id).filter(Boolean) as string[],
     );
     const seenPixelSessions = new Set<string>();
 
-    const vidPixel = pixelPurchases.filter(
-      p => p.video_id === videoId && (p.amount ?? 0) > 0,
+    const vidPixelRevenue = vidPixelAll.filter(
+      p => (p.amount ?? 0) > 0 &&
+           (p.event_type === 'purchase' || p.event_type === 'consultation'),
     );
 
-    for (const p of vidPixel) {
-      // Skip if Stripe already claimed this session
+    for (const p of vidPixelRevenue) {
       if (p.session_id && stripeSessionIds.has(p.session_id)) continue;
-      // Skip duplicate pixel fires for same session
       if (p.session_id) {
         if (seenPixelSessions.has(p.session_id)) continue;
         seenPixelSessions.add(p.session_id);
@@ -193,46 +217,53 @@ export function processVideoMetrics({
     }
   }
 
-  // ── 4. Total real revenue by mode ─────────────────────────────────────────
-  if (mode === 'stripe')  metrics.total_revenue = metrics.stripe_revenue;
-  if (mode === 'pixel')   metrics.total_revenue = metrics.pixel_revenue;
-  if (mode === 'hybrid')  metrics.total_revenue = metrics.stripe_revenue + metrics.pixel_revenue;
+  // ── 5. Total real revenue (EV excluded always) ────────────────────────────
 
-  // ── 5. RPC (revenue per landing page click) ───────────────────────────────
+  if (mode === 'stripe') metrics.total_revenue = metrics.stripe_revenue;
+  if (mode === 'pixel')  metrics.total_revenue = metrics.pixel_revenue;
+  if (mode === 'hybrid') metrics.total_revenue = metrics.stripe_revenue + metrics.pixel_revenue;
+
+  // ── 6. RPC ────────────────────────────────────────────────────────────────
+
   metrics.rpc = metrics.landing_page_view > 0
     ? Number((metrics.total_revenue / metrics.landing_page_view).toFixed(2))
     : 0;
 
-  // ── 6. Estimated call revenue — projection only, never added to totals ────
-  if (includeEV && campaign) {
-    const rate  = (campaign.estimated_close_rate ?? 0) / 100;
-    const price = campaign.offer_price ?? 0;
-    metrics.estimated_call_revenue = Number(
-      (metrics.call_booking_thankyou * rate * price).toFixed(2),
-    );
+  // ── 7. Estimated Call Revenue — projection only, never in total_revenue ───
+  //
+  // Source: pixel_purchases where event_type = 'sales_call' AND amount > 0.
+  // Uses sum of those amounts directly (not a modeled rate × price).
+  // Only included when includeEV = true.
+
+  if (includeEV) {
+    metrics.estimated_call_revenue = vidPixelAll
+      .filter(p => p.event_type === 'sales_call' && (p.amount ?? 0) > 0)
+      .reduce((sum, p) => sum + (p.amount ?? 0), 0);
   } else {
     metrics.estimated_call_revenue = 0;
   }
 
-  // ── Debug ─────────────────────────────────────────────────────────────────
   console.log('[processVideoMetrics]', {
-    videoId,
-    campaignId,
-    mode,
-    stripe_revenue:          metrics.stripe_revenue,
-    pixel_revenue:           metrics.pixel_revenue,
-    total_revenue:           metrics.total_revenue,
-    rpc:                     metrics.rpc,
-    estimated_call_revenue:  metrics.estimated_call_revenue,
+    videoId, campaignId, mode,
+    landing_page_view:     metrics.landing_page_view,
+    lead_magnet_click:     metrics.lead_magnet_click,
+    newsletter_click:      metrics.newsletter_click,
+    call_booking_click:    metrics.call_booking_click,
+    consultation_click:    metrics.consultation_click,
+    purchase_thankyou:     metrics.purchase_thankyou,
+    call_booking_thankyou: metrics.call_booking_thankyou,
+    consultation_thankyou: metrics.consultation_thankyou,
+    stripe_revenue:        metrics.stripe_revenue,
+    pixel_revenue:         metrics.pixel_revenue,
+    total_revenue:         metrics.total_revenue,
+    estimated_call_revenue: metrics.estimated_call_revenue,
+    rpc:                   metrics.rpc,
   });
 
   return metrics;
 }
 
 // ── Campaign-level aggregator ─────────────────────────────────────────────────
-// Sums processed video metrics for a given campaign.
-// total_revenue is always stripe + pixel (deduped per video already).
-// EV is summed only when the individual video computed it (i.e. includeEV=true).
 
 export function aggregateCampaignMetrics(
   videoResults: VideoMetricsResult[],
@@ -248,7 +279,6 @@ export function aggregateCampaignMetrics(
     totals.newsletter_click       += v.newsletter_click;
     totals.call_booking_click     += v.call_booking_click;
     totals.consultation_click     += v.consultation_click;
-    totals.lead_magnet_thankyou   += v.lead_magnet_thankyou;
     totals.newsletter_thankyou    += v.newsletter_thankyou;
     totals.call_booking_thankyou  += v.call_booking_thankyou;
     totals.consultation_thankyou  += v.consultation_thankyou;
@@ -272,7 +302,6 @@ export function aggregateCampaignMetrics(
 }
 
 // ── Revenue view selector ─────────────────────────────────────────────────────
-// Used by UI to pick which revenue column to display without re-computing.
 
 export type RevenueView = 'stripe' | 'pixel' | 'total';
 

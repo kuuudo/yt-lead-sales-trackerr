@@ -49,8 +49,8 @@ const TABLE_COLUMNS: MetricType[] = [
   'rpc',
 ];
 
-// Column display labels — keep original wording where it differed from config.
-const COLUMN_LABELS: Record<MetricType, string> = {
+// Column display labels — overrides for revenue columns to show ($) suffix.
+const COLUMN_LABELS: Partial<Record<MetricType, string>> & Record<string, string> = {
   ...METRIC_LABELS,
   direct_offer_revenue:    'Direct Offer Sales ($)',
   estimated_call_revenue:  'Estimated Call Revenue ($)',
@@ -122,8 +122,8 @@ export default function InDepthAnalytics() {
           .in('sessions.video_id', videoIds),
 
         supabase
-          .from('stripe_purchases')
-          .select('video_id, campaign_id, amount, session_id')
+          .from('stripe_purchase_type')
+          .select('video_id, campaign_id, amount, session_id, payment_type')
           .in('video_id', videoIds),
 
         campaignIds.length
@@ -177,7 +177,7 @@ export default function InDepthAnalytics() {
       ]);
 
       // Enrich via processor helpers (no type derivation duplication)
-      const enrichedStripe = enrichStripePurchases(stripeRaw, stripeSessLookup, cData || []);
+      const enrichedStripe = enrichStripePurchases(stripeRaw, stripeSessLookup);
       const enrichedPixel  = enrichPixelPurchases(pixelRaw, pixelSessLookup);
 
       console.log('[InDepthAnalytics] events direct:', eDirectData.data?.length ?? 0,
@@ -221,18 +221,21 @@ export default function InDepthAnalytics() {
     });
   }, [videos, selectedCampaignId, selectedGoals, selectedLeadMagnets]);
 
-  // ── Metric computation — delegated entirely to analyticsProcessor ─────────────
+  // ── Metric computation — fully delegated to analyticsProcessor ──────────────
+  //
+  // Click metrics: processVideoMetrics uses CLICK_EVENT_MAP to match raw
+  // event_type strings directly — no normalization, no transformation.
+  //
+  // activeSource toggle filters purchase data globally before passing in:
+  //   'total'  → stripe + pixel  (default on load/refresh)
+  //   'pixel'  → pixel only      (stripePurchases = [])
+  //   'stripe' → stripe only     (pixelPurchases  = [])
   const processedVideos = useMemo(() => {
     return filteredVideos.map(v => {
       const campaign = campaigns.find(c => c.id === v.campaign_id) as CampaignMeta | undefined;
 
-      // Derive source-filtered purchases based on activeSource
-      const sourceStripe = activeSource === 'pixel'
-        ? []
-        : stripePurchases;
-      const sourcePixel = activeSource === 'stripe'
-        ? []
-        : pixelPurchases;
+      const sourceStripe = activeSource === 'pixel'  ? [] : stripePurchases;
+      const sourcePixel  = activeSource === 'stripe' ? [] : pixelPurchases;
 
       const metrics = processVideoMetrics({
         videoId:         v.id,
