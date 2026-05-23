@@ -248,33 +248,19 @@ export default function InDepthAnalytics() {
   }, [filteredVideos, dateFilteredEvents, stripePurchases, pixelPurchases, campaigns, includeEV]);
 
   // ── Sort ──────────────────────────────────────────────────────────────────────
-  // total_revenue and rpc sort on the VIEW-adjusted values so the toggle affects
-  // both display and rank consistently.
   const sortedVideos = useMemo(() => {
     const items = [...processedVideos];
     items.sort((a, b) => {
-      let aVal: number;
-      let bVal: number;
-      if (sortConfig.key === 'total_revenue') {
-        aVal = selectDisplayRevenue(a, revenueView);
-        bVal = selectDisplayRevenue(b, revenueView);
-      } else if (sortConfig.key === 'rpc') {
-        const aRev = selectDisplayRevenue(a, revenueView);
-        const bRev = selectDisplayRevenue(b, revenueView);
-        aVal = a.landing_page_view > 0 ? aRev / a.landing_page_view : 0;
-        bVal = b.landing_page_view > 0 ? bRev / b.landing_page_view : 0;
-      } else {
-        const raw = (a as any)[sortConfig.key];
-        const rbw = (b as any)[sortConfig.key];
-        aVal = typeof raw === 'string' ? parseFloat(raw) : (raw ?? 0);
-        bVal = typeof rbw === 'string' ? parseFloat(rbw) : (rbw ?? 0);
-      }
-      if (aVal < bVal) return sortConfig.direction === 'asc' ? -1 : 1;
-      if (aVal > bVal) return sortConfig.direction === 'asc' ? 1 : -1;
+      const aVal = (a as any)[sortConfig.key];
+      const bVal = (b as any)[sortConfig.key];
+      const aNum = typeof aVal === 'string' ? parseFloat(aVal) : (aVal ?? 0);
+      const bNum = typeof bVal === 'string' ? parseFloat(bVal) : (bVal ?? 0);
+      if (aNum < bNum) return sortConfig.direction === 'asc' ? -1 : 1;
+      if (aNum > bNum) return sortConfig.direction === 'asc' ? 1 : -1;
       return 0;
     });
     return items;
-  }, [processedVideos, sortConfig, revenueView]);
+  }, [processedVideos, sortConfig]);
 
   // ── Helpers ───────────────────────────────────────────────────────────────────
   const handleSort = (key: string) => {
@@ -287,31 +273,12 @@ export default function InDepthAnalytics() {
   const isRevenueCol = (key: MetricType) =>
     key.includes('revenue') || key === 'rpc';
 
-  // Display revenue for this row under the active toggle
-  const rowDisplayRevenue = (row: (typeof sortedVideos)[number]) =>
-    selectDisplayRevenue(row, revenueView);
-
-  // RPC always derived from the same revenue source currently displayed —
-  // never from the baked row.rpc which is fixed to total_revenue at compute time.
-  const rowDisplayRpc = (row: (typeof sortedVideos)[number]): string => {
-    const rev = rowDisplayRevenue(row);
-    return row.landing_page_view > 0
-      ? (rev / row.landing_page_view).toFixed(2)
-      : '0.00';
-  };
-
-  // Sublabel reflects the active UI toggle, not the campaign's stored revenue_mode.
-  const revenueViewLabel: Record<RevenueView, string> = {
-    stripe: 'Verified (Stripe)',
-    pixel:  'Estimated (Pixel)',
-    total:  'Total (Hybrid)',
-  };
-
   const formatCellValue = (key: MetricType, row: (typeof sortedVideos)[number]): string => {
     if (key === 'total_revenue') {
-      return `$${(rowDisplayRevenue(row) || 0).toLocaleString()}`;
+      const display = selectDisplayRevenue(row, revenueView);
+      return `$${(display || 0).toLocaleString()}`;
     }
-    if (key === 'rpc') return `$${rowDisplayRpc(row)}`;
+    if (key === 'rpc') return `$${row.rpc ?? 0}`;
     if (isRevenueCol(key)) return `$${((row as any)[key] || 0).toLocaleString()}`;
     return ((row as any)[key] || 0).toLocaleString();
   };
@@ -599,14 +566,7 @@ export default function InDepthAnalytics() {
                           <div>
                             <div>{formatCellValue(key, row)}</div>
                             <div className="text-[8px] text-zinc-600 uppercase tracking-widest mt-0.5">
-                              {revenueViewLabel[revenueView]}
-                            </div>
-                          </div>
-                        ) : key === 'estimated_call_revenue' ? (
-                          <div>
-                            <div>{formatCellValue(key, row)}</div>
-                            <div className="text-[8px] text-zinc-600 uppercase tracking-widest mt-0.5">
-                              Projection Only
+                              {row.revenue_mode_label}
                             </div>
                           </div>
                         ) : (
