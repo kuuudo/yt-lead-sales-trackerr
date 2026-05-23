@@ -3,11 +3,13 @@ import { useLanguage } from '../lib/hooks';
 import { supabase, Campaign, Video, LeadMagnet } from '../lib/supabase';
 import { useAuth } from '../lib/auth';
 import {
-  applyRevenue,
-  finalizeMetrics,
-  type StripePurchaseRow,
   type PixelPurchaseRow,
 } from '../lib/analyticsConfig';
+import {
+  processVideoMetrics,
+  type RawEvent,
+  type CampaignMeta,
+} from '../lib/analyticsProcessor';
 import { 
   BarChart3, Calendar, Filter, ChevronDown, Check, 
   MousePointer2, DollarSign, Users, Phone, Briefcase, 
@@ -304,55 +306,17 @@ export default function Analytics() {
 
   const videoIds = useMemo(() => filteredVideos.map(v => v.id), [filteredVideos]);
 
-  // Deep metrics calculation
+  // Deep metrics calculation — all revenue/RPC logic delegated to analyticsProcessor
   const processedData = useMemo(() => {
-    const videoMetrics: Record<string, any> = {};
-
-    filteredVideos.forEach(v => {
-      const camp = campaigns.find(c => c.id === v.campaign_id);
-      videoMetrics[v.id] = {
-        video: v,
-        campaign: camp,
-        title: v.video_title,
-        landing_page_view: 0,
-        purchase_thankyou: 0,
-        lead_magnet_click: 0,
-        lead_magnet_thankyou: 0,
-        newsletter_click: 0,
-        newsletter_thankyou: 0,
-        call_booking_click: 0,
-        call_booking_thankyou: 0,
-        consultation_click: 0,
-        consultation_thankyou: 0,
-        direct_offer_sales: 0,
-        estimated_call_revenue: 0,
-        consultation_revenue: 0,
-        stripe_revenue: 0,
-        pixel_revenue: 0,
-        total_revenue: 0,
-        rpc: 0,
-        // revenue_mode required by applyRevenue — derive from campaign or default hybrid
-        revenue_mode: (camp as any)?.revenue_mode === 'stripe' ? 'stripe'
-          : (camp as any)?.revenue_mode === 'pixel' ? 'pixel'
-          : 'hybrid',
-        revenue_mode_label: (camp as any)?.revenue_mode === 'stripe' ? 'Verified (Stripe)'
-          : (camp as any)?.revenue_mode === 'pixel' ? 'Estimated (Pixel)'
-          : 'Total (Hybrid)',
-      };
-    });
-
     const timelineMetrics: Record<string, any> = {};
 
+    // ── Timeline build (behavioral events only) ───────────────────────────────
     dateFilteredEvents.forEach(e => {
       if (!videoIds.includes(e.video_id)) return;
-      const v = videoMetrics[e.video_id];
-      if (v && v[e.event_type] !== undefined) {
-        v[e.event_type]++;
-      }
 
       const date = new Date(e.created_at);
       let key = date.toISOString().split('T')[0];
-      
+
       if (granularity === 'weekly') {
         const day = date.getDay();
         const weekDate = new Date(date);
@@ -362,60 +326,65 @@ export default function Analytics() {
 
       if (!timelineMetrics[key]) {
         timelineMetrics[key] = { label: key, dateObj: date };
-        // Initialize lines for selected videos
         if (selectedVideoIds.length > 0) {
           selectedVideoIds.forEach(vidId => { timelineMetrics[key][vidId] = 0; });
         } else {
-          // If none selected, we can still show top 5 for "preview" or just zero?
-          // User said: "If no videos selected, show flat zero lines for all videos (up to 5)"
-          // Let's use the top 5 videos as placeholders if none selected, but set them to 0.
           filteredVideos.slice(0, 5).forEach(vid => { timelineMetrics[key][vid.id] = 0; });
         }
         Object.keys(METRIC_LABELS).forEach(m => { timelineMetrics[key][m] = 0; });
       }
 
-      // Update aggregate timeline
       if (timelineMetrics[key][e.event_type] !== undefined) {
         timelineMetrics[key][e.event_type]++;
       }
-
-      // Update per-video revenue in timeline ONLY if selected
-      // (revenue is now applied after the loop via applyRevenue)
     });
 
-    // Revenue — apply via analyticsConfig helpers per video
-    filteredVideos.forEach(v => {
-      const m = videoMetrics[v.id];
-      const campaign = campaigns.find(c => c.id === v.campaign_id);
+    // ── Per-video metrics — single source of truth via processVideoMetrics ────
+    const videoResults = filteredVideos.map(v => {
+      const campaign = campaigns.find(c => c.id === v.campaign_id) as CampaignMeta | undefined;
 
-      // All pixel rows are now enriched with video_id/campaign_id from sessions
       const vidPixelPurchases = dateFilteredPixelPurchases.filter(
         (p: any) => p.video_id === v.id
-      );
+      ) as PixelPurchaseRow[];
       const vidStripePurchases = dateFilteredPurchases.filter(
         (p: any) => p.video_id === v.id
       );
 
-      console.log(`[Analytics] video="${v.video_title}" mode=${m.revenue_mode} stripeRows=${vidStripePurchases.length} pixelRows=${vidPixelPurchases.length}`);
+      console.log(`[Analytics] video="${v.video_title}" mode=${campaign?.revenue_mode ?? 'hybrid'} stripeRows=${vidStripePurchases.length} pixelRows=${vidPixelPurchases.length}`);
 
-      applyRevenue(m, vidStripePurchases, vidPixelPurchases);
-      finalizeMetrics(m, campaign);
+      const m = processVideoMetrics({
+        videoId:         v.id,
+        campaignId:      v.campaign_id ?? null,
+        campaign,
+        events:          dateFilteredEvents as RawEvent[],
+        stripePurchases: vidStripePurchases,
+        pixelPurchases:  vidPixelPurchases,
+        includeEV:       true,
+      });
 
       console.log(`[Analytics] video="${v.video_title}" => stripe=${m.stripe_revenue} pixel=${m.pixel_revenue} total=${m.total_revenue} rpc=${m.rpc}`);
+
+      return {
+        video:    v,
+        campaign: campaign ?? null,
+        title:    v.video_title,
+        ...m,
+        // direct_offer_sales alias preserved for local MetricType compat
+        direct_offer_sales: m.direct_offer_revenue,
+        rpc: m.landing_page_view > 0
+          ? (m.total_revenue / m.landing_page_view).toFixed(2)
+          : '0.00',
+      };
     });
 
-    // Finalize per-video aggregated metrics
-    Object.values(videoMetrics).forEach((v: any) => {
-      v.rpc = v.landing_page_view > 0 ? (v.total_revenue / v.landing_page_view).toFixed(2) : '0.00';
-    });
-
-    const sortedTimeline = Object.values(timelineMetrics).sort((a: any, b: any) => a.label.localeCompare(b.label));
+    const sortedTimeline = Object.values(timelineMetrics)
+      .sort((a: any, b: any) => a.label.localeCompare(b.label));
 
     return {
-      videos: Object.values(videoMetrics),
-      timeline: sortedTimeline
+      videos: videoResults,
+      timeline: sortedTimeline,
     };
-  }, [filteredVideos, dateFilteredEvents, dateFilteredPurchases, dateFilteredPixelPurchases, campaigns, granularity, videoIds]);
+  }, [filteredVideos, dateFilteredEvents, dateFilteredPurchases, dateFilteredPixelPurchases, campaigns, granularity, videoIds, selectedVideoIds]);
 
   const summaryStats = useMemo(() => {
     const stats: Record<MetricType, number> & { stripe_revenue: number; pixel_revenue: number } = {
