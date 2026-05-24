@@ -179,12 +179,21 @@ export default function Analytics() {
           return q.in('video_id', videoIds);
         })(),
 
-        campaignIds.length
-          ? supabase
-              .from('pixel_purchases')
-              .select('video_id, campaign_id, amount, event_type, session_id, created_at')
-              .in('campaign_id', campaignIds)
-          : Promise.resolve({ data: [] as any[] }),
+        // pixel_purchases — fetch by video_id OR campaign_id to catch all rows.
+        // Some pixel rows have null video_id but valid campaign_id, and vice versa.
+        // Using OR here mirrors the stripe_purchase_type fetch pattern.
+        (() => {
+          const q = supabase
+            .from('pixel_purchases')
+            .select('video_id, campaign_id, amount, event_type, session_id, created_at');
+          if (campaignIds.length && videoIds.length) {
+            return q.or(
+              `video_id.in.(${videoIds.join(',')}),campaign_id.in.(${campaignIds.join(',')})`,
+            );
+          }
+          if (campaignIds.length) return q.in('campaign_id', campaignIds);
+          return q.in('video_id', videoIds);
+        })(),
       ]);
 
       // Flatten session-resolved events
@@ -351,18 +360,12 @@ export default function Analytics() {
     const videoResults = filteredVideos.map(v => {
       const campaign = campaigns.find(c => c.id === v.campaign_id) as CampaignMeta | undefined;
 
-      const vidPixelPurchases = pixelPurchases.filter(
-        (p: any) => p.video_id === v.id
-      ) as PixelPurchaseRow[];
-      const vidStripePurchases = (stripePurchases as any[]).filter(
-        (p: any) => p.video_id === v.id
-      );
-
-      console.log(`[Analytics] video="${v.video_title}" mode=${campaign?.revenue_mode ?? 'hybrid'} source=${activeSource} stripeRows=${vidStripePurchases.length} pixelRows=${vidPixelPurchases.length}`);
-
-      // Source isolation — mirrors InDepthAnalytics: pass empty arrays per mode
-      const sourceStripe = activeSource === 'pixel'  ? [] : vidStripePurchases;
-      const sourcePixel  = activeSource === 'stripe' ? [] : vidPixelPurchases;
+      // CRITICAL: Pass the FULL purchase arrays to processVideoMetrics.
+      // The processor filters by videoId internally (e.g. stripePurchases.filter(p => p.video_id === videoId)).
+      // Pre-filtering here would silently drop rows whose video_id was unresolvable during enrichment.
+      // This matches InDepthAnalytics which also passes full arrays.
+      const sourceStripe = activeSource === 'pixel'  ? [] : (stripePurchases as any[]);
+      const sourcePixel  = activeSource === 'stripe' ? [] : pixelPurchases;
 
       const m = processVideoMetrics({
         videoId:         v.id,
@@ -386,12 +389,107 @@ export default function Analytics() {
       };
     });
 
+    // ── Orphan purchase aggregation ───────────────────────────────────────────
     const sortedTimeline = Object.values(timelineMetrics)
       .sort((a: any, b: any) => a.label.localeCompare(b.label));
+
+    // processVideoMetrics filters internally by video_id, so any purchase row
+    // whose video_id is null or doesn't match any known video is never counted
+    // in the per-video loop above. We collect those here and expose them as a
+    // synthetic "orphan" entry so summaryStats can accumulate them.
+    //
+    // A row is "orphan" if its video_id is not in the current filteredVideos set.
+    const knownVideoIds = new Set(filteredVideos.map(v => v.id));
+
+    // Orphan pixel rows — video_id null or not in known set
+    const orphanPixel = pixelPurchases.filter(
+      (p: any) => !p.video_id || !knownVideoIds.has(p.video_id)
+    ) as PixelPurchaseRow[];
+
+    // Orphan stripe rows
+    const orphanStripe = (stripePurchases as StripePurchaseRow[]).filter(
+      (p) => !p.video_id || !knownVideoIds.has(p.video_id)
+    );
+
+    // Compute orphan revenue totals (respect activeSource)
+    let orphanPixelRevenue     = 0;
+    let orphanStripeRevenue    = 0;
+    let orphanDirectOffer      = 0;
+    let orphanConsultation     = 0;
+    let orphanEV               = 0;
+    let orphanPurchaseThankyou = 0;
+    let orphanConsultThankyou  = 0;
+    let orphanCallThankyou     = 0;
+
+    if (activeSource !== 'stripe') {
+      const seenSessions = new Set<string>();
+      for (const p of orphanPixel) {
+        // Conversion counts
+        switch (p.event_type) {
+          case 'purchase':     orphanPurchaseThankyou++; break;
+          case 'sales_call':   orphanCallThankyou++;     break;
+          case 'consultation': orphanConsultThankyou++;  break;
+        }
+        // Revenue — dedup by session_id
+        if ((p.amount ?? 0) > 0 &&
+            (p.event_type === 'purchase' || p.event_type === 'consultation')) {
+          if (p.session_id) {
+            if (seenSessions.has(p.session_id)) continue;
+            seenSessions.add(p.session_id);
+          }
+          const amt = p.amount ?? 0;
+          orphanPixelRevenue += amt;
+          if (p.event_type === 'purchase')     orphanDirectOffer   += amt;
+          if (p.event_type === 'consultation') orphanConsultation  += amt;
+        }
+        // EV
+        if (p.event_type === 'sales_call' && (p.amount ?? 0) > 0) {
+          orphanEV += p.amount ?? 0;
+        }
+      }
+    }
+
+    if (activeSource !== 'pixel') {
+      for (const p of orphanStripe) {
+        if (p.amount <= 0) continue;
+        orphanStripeRevenue += p.amount;
+        if (p.revenue_type === 'offer') {
+          orphanDirectOffer   += p.amount;
+          orphanPurchaseThankyou++;
+        }
+        if (p.revenue_type === 'consultation') {
+          orphanConsultation += p.amount;
+          orphanConsultThankyou++;
+        }
+      }
+    }
+
+    const orphanTotalRevenue =
+      orphanDirectOffer + orphanConsultation + orphanEV;
+
+    console.log('[Analytics] orphan rows =>', {
+      pixelOrphans:  orphanPixel.length,
+      stripeOrphans: orphanStripe.length,
+      pixelRevenue:  orphanPixelRevenue,
+      stripeRevenue: orphanStripeRevenue,
+      totalRevenue:  orphanTotalRevenue,
+    });
 
     return {
       videos: videoResults,
       timeline: sortedTimeline,
+      // Expose orphan totals so summaryStats can add them
+      orphan: {
+        pixel_revenue:          orphanPixelRevenue,
+        stripe_revenue:         orphanStripeRevenue,
+        direct_offer_revenue:   orphanDirectOffer,
+        consultation_revenue:   orphanConsultation,
+        estimated_call_revenue: orphanEV,
+        total_revenue:          orphanTotalRevenue,
+        purchase_thankyou:      orphanPurchaseThankyou,
+        consultation_thankyou:  orphanConsultThankyou,
+        call_booking_thankyou:  orphanCallThankyou,
+      },
     };
   }, [filteredVideos, dateFilteredEvents, stripePurchases, pixelPurchases, campaigns, granularity, videoIds, selectedVideoIds, activeSource]);
 
@@ -438,6 +536,17 @@ export default function Analytics() {
       stats.estimated_call_revenue += Number(v.estimated_call_revenue) || 0;
       stats.total_revenue          += Number(v.total_revenue)          || 0;
     });
+
+    // Add orphan totals — purchases whose video_id didn't match any known video
+    stats.pixel_revenue          += processedData.orphan.pixel_revenue;
+    stats.stripe_revenue         += processedData.orphan.stripe_revenue;
+    stats.direct_offer_revenue   += processedData.orphan.direct_offer_revenue;
+    stats.consultation_revenue   += processedData.orphan.consultation_revenue;
+    stats.estimated_call_revenue += processedData.orphan.estimated_call_revenue;
+    stats.total_revenue          += processedData.orphan.total_revenue;
+    stats.purchase_thankyou      += processedData.orphan.purchase_thankyou;
+    stats.consultation_thankyou  += processedData.orphan.consultation_thankyou;
+    stats.call_booking_thankyou  += processedData.orphan.call_booking_thankyou;
 
     // RPC: total_revenue / sum of all 5 click columns (mirrors analyticsProcessor formula)
     const totalClicks =
