@@ -436,23 +436,17 @@ export default function Analytics() {
     let orphanNewsletterThankyou = 0;
 
     if (activeSource !== 'stripe') {
-      const seenOrphanRevenueKeys = new Set<string>();
       for (const p of orphanPixel) {
-        // Conversion counts (no dedup)
+        // Conversion counts (no dedup — each pixel_purchases row is a distinct event)
         switch (p.event_type) {
           case 'purchase':     orphanPurchaseThankyou++;   break;
           case 'sales_call':   orphanCallThankyou++;       break;
           case 'consultation': orphanConsultThankyou++;    break;
           case 'newsletter':   orphanNewsletterThankyou++; break;
         }
-        // Revenue — composite dedup
+        // Revenue — no intra-pixel dedup; each row is an authoritative purchase record
         if ((p.amount ?? 0) > 0 &&
             (p.event_type === 'purchase' || p.event_type === 'consultation')) {
-          if (p.session_id) {
-            const dedupKey = `${p.session_id}:${p.event_type}:${p.amount}`;
-            if (seenOrphanRevenueKeys.has(dedupKey)) continue;
-            seenOrphanRevenueKeys.add(dedupKey);
-          }
           const amt = p.amount ?? 0;
           orphanPixelRevenue += amt;
           if (p.event_type === 'purchase')     orphanDirectOffer  += amt;

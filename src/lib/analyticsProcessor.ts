@@ -300,43 +300,26 @@ export function processVideoMetrics({
   if (activeSource === 'pixel') {
     const vidPixel = pixelPurchases.filter(p => p.video_id === videoId);
 
-    // Revenue dedup: prevent the same physical transaction from being counted
-    // twice if the pixel fires more than once for it.
-    //
-    // A session_id alone is NOT a safe dedup key here. Sessions are long-lived
-    // tracking identifiers — a single user session can contain multiple distinct
-    // purchases (e.g. five separate consultation bookings on different days that
-    // all share the same persistent session cookie). Using bare session_id would
-    // collapse all of those into one revenue entry.
-    //
-    // True duplicate pixel fires for one transaction are distinguishable because
-    // they share the same session_id AND the same event_type AND the same amount.
-    // The composite key `${session_id}:${event_type}:${amount}` targets only
-    // that case while leaving distinct purchases (same session, different amounts
-    // or different event types) unaffected.
-    //
-    // Rows with no session_id are never deduped — they have no shared identifier
-    // that would mark them as duplicates.
-    const seenRevenueKeys = new Set<string>();
-
+    // pixel_purchases rows are authoritative purchase records written by the
+    // pixel at insertion time — one row per conversion event. No row-level
+    // transaction identifier is available in the fetched columns (session_id is
+    // a long-lived browsing cookie, not a payment transaction ID), so there is
+    // no safe dedup key at this aggregation layer. Dedup against accidental
+    // double-fires belongs at write time (DB unique constraint or webhook
+    // idempotency key). Every row reaching this point is counted as-is.
     for (const p of vidPixel) {
-      // Conversion counts (no dedup — intentional per spec)
+      // Conversion counts
       switch (p.event_type) {
         case 'purchase':     metrics.purchase_thankyou++;     break;
         case 'sales_call':   metrics.call_booking_thankyou++; break;
         case 'consultation': metrics.consultation_thankyou++; break;
-        // newsletter opt-ins are sourced from pixel_purchases, not the events table
+        // newsletter opt-ins sourced from pixel_purchases, not the events table
         case 'newsletter':   metrics.newsletter_thankyou++;   break;
       }
 
-      // Revenue — dedupe true duplicate pixel fires via composite key
+      // Revenue — no intra-pixel dedup; each row is a distinct purchase record
       if ((p.amount ?? 0) > 0 &&
           (p.event_type === 'purchase' || p.event_type === 'consultation')) {
-        if (p.session_id) {
-          const dedupKey = `${p.session_id}:${p.event_type}:${p.amount}`;
-          if (seenRevenueKeys.has(dedupKey)) continue;
-          seenRevenueKeys.add(dedupKey);
-        }
         const amt = p.amount ?? 0;
         metrics.pixel_revenue += amt;
         if (p.event_type === 'purchase')     metrics.direct_offer_revenue += amt;
@@ -427,19 +410,19 @@ export function processVideoMetrics({
     }
   }
 
-  // Pixel revenue — deduped against Stripe sessions, then against duplicate pixel fires.
+  // Pixel revenue — cross-source dedup against Stripe only.
   //
-  // Two-layer dedup:
-  //   1. Skip any pixel row whose session_id already appears in Stripe — that
-  //      transaction is already captured in stripe_revenue (no double-count).
-  //   2. Among remaining pixel rows, use the composite key
-  //      `${session_id}:${event_type}:${amount}` to suppress true duplicate pixel
-  //      fires for the same transaction.  A bare session_id is intentionally NOT
-  //      used as the key because sessions are long-lived — multiple distinct
-  //      purchases (different amounts or different event types) can legitimately
-  //      occur within one session and must all be counted.
-  const stripeSessionIds    = new Set(vidStripe.map(p => p.session_id).filter(Boolean) as string[]);
-  const seenPixelRevenueKeys = new Set<string>();
+  // The only dedup that belongs at this aggregation layer is cross-source:
+  // skip any pixel row whose session_id already appears in a Stripe row, so a
+  // payment captured by both sources isn't double-counted in total_revenue.
+  //
+  // Intra-pixel dedup (suppressing rows within pixel_purchases itself) is NOT
+  // performed here. pixel_purchases rows are authoritative purchase records;
+  // no row-level transaction identifier is available in the fetched columns to
+  // safely distinguish a genuine duplicate fire from a real second purchase.
+  // That responsibility belongs at write time (DB unique constraint / webhook
+  // idempotency key on the insertion path).
+  const stripeSessionIds = new Set(vidStripe.map(p => p.session_id).filter(Boolean) as string[]);
 
   const vidPixelRevenue = vidPixelAll.filter(
     p => (p.amount ?? 0) > 0 &&
@@ -447,14 +430,8 @@ export function processVideoMetrics({
   );
 
   for (const p of vidPixelRevenue) {
-    // Layer 1: skip if Stripe already captured this session
+    // Skip if this session was already captured by Stripe (cross-source dedup only)
     if (p.session_id && stripeSessionIds.has(p.session_id)) continue;
-    // Layer 2: skip true duplicate pixel fires (same session + same type + same amount)
-    if (p.session_id) {
-      const dedupKey = `${p.session_id}:${p.event_type}:${p.amount}`;
-      if (seenPixelRevenueKeys.has(dedupKey)) continue;
-      seenPixelRevenueKeys.add(dedupKey);
-    }
     const amt = p.amount ?? 0;
     metrics.pixel_revenue += amt;
     if (p.event_type === 'purchase')     metrics.direct_offer_revenue += amt;
