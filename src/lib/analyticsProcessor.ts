@@ -7,7 +7,9 @@
 //   activeSource = 'stripe'
 //     • ONLY  stripe_purchases rows
 //     • ZERO  pixel_purchases rows passed in
-//     • ZERO  events rows used for revenue (clicks still from events)
+//     • ZERO  events rows used — clicks/opt-ins ALL zeroed in stripe mode
+//     • purchase_thankyou  = count of stripe rows with revenue_type = 'offer'
+//     • consultation_thankyou = count of stripe rows with revenue_type = 'consultation'
 //     • Classification: campaign_id → StripeClassificationMap → offer|consultation
 //
 //   activeSource = 'pixel'
@@ -211,14 +213,31 @@ export function processVideoMetrics({
   // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
   if (activeSource === 'stripe') {
+    // ── STRIPE MODE: zero ALL click/opt-in metrics ──────────────────────────
+    // Only stripe_purchases data is valid here. Events table is NOT used for
+    // any metric in stripe mode — clicks, opt-ins, and EV are all zeroed.
+    metrics.landing_page_view     = 0;
+    metrics.lead_magnet_click     = 0;
+    metrics.newsletter_click      = 0;
+    metrics.call_booking_click    = 0;
+    metrics.consultation_click    = 0;
+    metrics.newsletter_thankyou   = 0;
+    metrics.call_booking_thankyou = 0;
+
     const vidStripe = stripePurchases.filter(
       p => p.video_id === videoId && p.amount > 0,
     );
 
     for (const p of vidStripe) {
       metrics.stripe_revenue += p.amount;
-      if (p.revenue_type === 'offer')        metrics.direct_offer_revenue += p.amount;
-      if (p.revenue_type === 'consultation') metrics.consultation_revenue += p.amount;
+      if (p.revenue_type === 'offer') {
+        metrics.direct_offer_revenue += p.amount;
+        metrics.purchase_thankyou++;            // count from stripe rows
+      }
+      if (p.revenue_type === 'consultation') {
+        metrics.consultation_revenue += p.amount;
+        metrics.consultation_thankyou++;        // count from stripe rows
+      }
     }
 
     // Total = offer + consultation exactly — no pixel, no EV
@@ -311,7 +330,9 @@ export function processVideoMetrics({
   //
   // activeSource === 'total':
   //   • stripe_purchases → stripe_revenue, classified by revenue_type
+  //                      → purchase_thankyou++ (offer), consultation_thankyou++ (consultation)
   //   • pixel_purchases  → pixel_revenue, deduped against Stripe session_ids
+  //                      → purchase_thankyou / consultation_thankyou also counted from pixel
   //   • Both contribute to direct_offer_revenue / consultation_revenue
   //   • total_revenue = stripe_revenue + pixel_revenue (no overlap)
   //   • EV from pixel sales_call rows, never in total
@@ -327,14 +348,22 @@ export function processVideoMetrics({
     }
   }
 
-  // Stripe revenue
+  // Stripe revenue + stripe conversion counts
+  // purchase_thankyou / consultation_thankyou from stripe are additive with pixel counts.
+  // Stripe rows represent verified purchases that pixel may not have captured.
   const vidStripe = stripePurchases.filter(
     p => p.video_id === videoId && p.amount > 0,
   );
   for (const p of vidStripe) {
     metrics.stripe_revenue += p.amount;
-    if (p.revenue_type === 'offer')        metrics.direct_offer_revenue += p.amount;
-    if (p.revenue_type === 'consultation') metrics.consultation_revenue += p.amount;
+    if (p.revenue_type === 'offer') {
+      metrics.direct_offer_revenue += p.amount;
+      metrics.purchase_thankyou++;       // stripe-verified offer purchase
+    }
+    if (p.revenue_type === 'consultation') {
+      metrics.consultation_revenue += p.amount;
+      metrics.consultation_thankyou++;   // stripe-verified consultation purchase
+    }
   }
 
   // Pixel revenue — deduped against Stripe sessions
