@@ -206,8 +206,9 @@ export default function InDepthAnalytics() {
       // payment_type is already on each row — no classification map needed.
       // 'offer' → direct_offer_revenue, 'consultation' → consultation_revenue.
       // Any unknown payment_type defaults to 'offer'.
-      const enrichedStripe: import('../lib/analyticsConfig').StripePurchaseRow[] = stripeRaw
-        .map((r: any) => {
+      type _SPRow = import('../lib/analyticsConfig').StripePurchaseRow;
+      const enrichedStripe: _SPRow[] = (stripeRaw
+        .map((r: any): _SPRow | null => {
           const resolvedVideoId    = r.video_id    ?? (stripeSessLookup[r.session_id ?? '']?.video_id    ?? '');
           const resolvedCampaignId = r.campaign_id ?? (stripeSessLookup[r.session_id ?? '']?.campaign_id ?? '');
           const amt = r.amount; // already parseFloat'd above
@@ -222,7 +223,7 @@ export default function InDepthAnalytics() {
             session_id:   r.session_id ?? null,
           };
         })
-        .filter((p: any): p is import('../lib/analyticsConfig').StripePurchaseRow => p !== null);
+        .filter((p): p is _SPRow => p !== null));
 
       // Enrich pixel via processor helper; also coerce pixel amounts to number
       const pixelRawCoerced = (pixelRaw as any[]).map((r: any) => ({
@@ -612,7 +613,7 @@ export default function InDepthAnalytics() {
                             {row.title || 'Untitled Video'}
                           </div>
                           <div className="text-[9px] text-zinc-600 font-bold uppercase tracking-widest mt-1">
-                            {row.campaign?.campaign_name || 'Individual Video'}
+                            {(row.campaign as any)?.campaign_name || 'Individual Video'}
                           </div>
                         </div>
                       </div>
