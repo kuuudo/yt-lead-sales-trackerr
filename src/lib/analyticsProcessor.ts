@@ -22,7 +22,15 @@
 //     • No double-counting
 //
 // Click metrics (events table) are ALWAYS from events — independent of activeSource.
-// EV = projection only, pixel_purchases sales_call rows, NEVER in total_revenue.
+// EV (estimated_call_revenue) IS included in total_revenue in all modes.
+//
+// REVENUE FORMULA (all modes):
+//   total_revenue = direct_offer_revenue + consultation_revenue + estimated_call_revenue
+//
+// RPC FORMULA (all modes):
+//   total_clicks = landing_page_view + lead_magnet_click + newsletter_click
+//                  + call_booking_click + consultation_click
+//   rpc = total_revenue / total_clicks
 // ─────────────────────────────────────────────────────────────────────────────
 
 import {
@@ -240,10 +248,28 @@ export function processVideoMetrics({
       }
     }
 
-    // Total = offer + consultation exactly — no pixel, no EV
-    metrics.total_revenue          = metrics.direct_offer_revenue + metrics.consultation_revenue;
+    // Stripe mode: no pixel, no EV
     metrics.pixel_revenue          = 0;
     metrics.estimated_call_revenue = 0;
+
+    // total_revenue = direct_offer_revenue + consultation_revenue + estimated_call_revenue
+    // (EV is 0 in stripe mode, kept for formula consistency)
+    metrics.total_revenue =
+      metrics.direct_offer_revenue +
+      metrics.consultation_revenue +
+      metrics.estimated_call_revenue;
+
+    // RPC = total_revenue / total_clicks (blended funnel)
+    // total_clicks = all five click-metric columns summed
+    const stripeClicks =
+      metrics.landing_page_view +
+      metrics.lead_magnet_click +
+      metrics.newsletter_click +
+      metrics.call_booking_click +
+      metrics.consultation_click;
+    metrics.rpc = stripeClicks > 0
+      ? Number((metrics.total_revenue / stripeClicks).toFixed(2))
+      : 0;
 
     console.log(`[processVideoMetrics] STRIPE MODE ${videoId}`, {
       stripe_rows_video:    vidStripe.length,
@@ -251,11 +277,9 @@ export function processVideoMetrics({
       direct_offer_revenue: metrics.direct_offer_revenue,
       consultation_revenue: metrics.consultation_revenue,
       total_revenue:        metrics.total_revenue,
+      total_clicks:         stripeClicks,
+      rpc:                  metrics.rpc,
     });
-
-    metrics.rpc = metrics.landing_page_view > 0
-      ? Number((metrics.total_revenue / metrics.landing_page_view).toFixed(2))
-      : 0;
 
     return metrics;
   }
@@ -300,7 +324,6 @@ export function processVideoMetrics({
     }
 
     metrics.stripe_revenue = 0;
-    metrics.total_revenue  = metrics.pixel_revenue;
 
     // EV — pixel sales_call rows, amount > 0, projection only
     if (includeEV) {
@@ -309,18 +332,33 @@ export function processVideoMetrics({
         .reduce((sum, p) => sum + (p.amount ?? 0), 0);
     }
 
+    // total_revenue = direct_offer_revenue + consultation_revenue + estimated_call_revenue
+    metrics.total_revenue =
+      metrics.direct_offer_revenue +
+      metrics.consultation_revenue +
+      metrics.estimated_call_revenue;
+
+    // RPC = total_revenue / total_clicks (blended funnel)
+    const pixelClicks =
+      metrics.landing_page_view +
+      metrics.lead_magnet_click +
+      metrics.newsletter_click +
+      metrics.call_booking_click +
+      metrics.consultation_click;
+    metrics.rpc = pixelClicks > 0
+      ? Number((metrics.total_revenue / pixelClicks).toFixed(2))
+      : 0;
+
     console.log(`[processVideoMetrics] PIXEL MODE ${videoId}`, {
       pixel_rows_video:     vidPixel.length,
       pixel_revenue:        metrics.pixel_revenue,
       direct_offer_revenue: metrics.direct_offer_revenue,
       consultation_revenue: metrics.consultation_revenue,
-      total_revenue:        metrics.total_revenue,
       ev:                   metrics.estimated_call_revenue,
+      total_revenue:        metrics.total_revenue,
+      total_clicks:         pixelClicks,
+      rpc:                  metrics.rpc,
     });
-
-    metrics.rpc = metrics.landing_page_view > 0
-      ? Number((metrics.total_revenue / metrics.landing_page_view).toFixed(2))
-      : 0;
 
     return metrics;
   }
@@ -387,14 +425,30 @@ export function processVideoMetrics({
     if (p.event_type === 'consultation') metrics.consultation_revenue += amt;
   }
 
-  metrics.total_revenue = metrics.stripe_revenue + metrics.pixel_revenue;
-
-  // EV — pixel only, never in total
+  // EV — pixel only, never double-counted in total
   if (includeEV) {
     metrics.estimated_call_revenue = vidPixelAll
       .filter(p => p.event_type === 'sales_call' && (p.amount ?? 0) > 0)
       .reduce((sum, p) => sum + (p.amount ?? 0), 0);
   }
+
+  // total_revenue = direct_offer_revenue + consultation_revenue + estimated_call_revenue
+  // This is always the sum of the three visible revenue columns, regardless of mode.
+  metrics.total_revenue =
+    metrics.direct_offer_revenue +
+    metrics.consultation_revenue +
+    metrics.estimated_call_revenue;
+
+  // RPC = total_revenue / total_clicks (blended funnel across all five click columns)
+  const totalClicks =
+    metrics.landing_page_view +
+    metrics.lead_magnet_click +
+    metrics.newsletter_click +
+    metrics.call_booking_click +
+    metrics.consultation_click;
+  metrics.rpc = totalClicks > 0
+    ? Number((metrics.total_revenue / totalClicks).toFixed(2))
+    : 0;
 
   console.log(`[processVideoMetrics] TOTAL MODE ${videoId}`, {
     stripe_rows_video:    vidStripe.length,
@@ -403,13 +457,11 @@ export function processVideoMetrics({
     pixel_revenue:        metrics.pixel_revenue,
     direct_offer_revenue: metrics.direct_offer_revenue,
     consultation_revenue: metrics.consultation_revenue,
-    total_revenue:        metrics.total_revenue,
     ev:                   metrics.estimated_call_revenue,
+    total_revenue:        metrics.total_revenue,
+    total_clicks:         totalClicks,
+    rpc:                  metrics.rpc,
   });
-
-  metrics.rpc = metrics.landing_page_view > 0
-    ? Number((metrics.total_revenue / metrics.landing_page_view).toFixed(2))
-    : 0;
 
   return metrics;
 }
@@ -442,8 +494,15 @@ export function aggregateCampaignMetrics(
     totals.estimated_call_revenue += v.estimated_call_revenue;
   }
 
-  totals.rpc = totals.landing_page_view > 0
-    ? Number((totals.total_revenue / totals.landing_page_view).toFixed(2))
+  // RPC at campaign level — same blended formula
+  const aggTotalClicks =
+    totals.landing_page_view +
+    totals.lead_magnet_click +
+    totals.newsletter_click +
+    totals.call_booking_click +
+    totals.consultation_click;
+  totals.rpc = aggTotalClicks > 0
+    ? Number((totals.total_revenue / aggTotalClicks).toFixed(2))
     : 0;
 
   totals.revenue_mode       = 'hybrid';
