@@ -4,9 +4,11 @@ import { supabase, Campaign, Video, LeadMagnet } from '../lib/supabase';
 import { useAuth } from '../lib/auth';
 import {
   type PixelPurchaseRow,
+  type StripePurchaseRow,
 } from '../lib/analyticsConfig';
 import {
   processVideoMetrics,
+  enrichPixelPurchases,
   type RawEvent,
   type CampaignMeta,
 } from '../lib/analyticsProcessor';
@@ -30,14 +32,13 @@ type MetricType =
   | 'landing_page_view' 
   | 'purchase_thankyou' 
   | 'lead_magnet_click' 
-  | 'lead_magnet_thankyou' 
   | 'newsletter_click' 
   | 'newsletter_thankyou' 
   | 'call_booking_click' 
   | 'call_booking_thankyou' 
   | 'consultation_click' 
   | 'consultation_thankyou'
-  | 'direct_offer_sales'
+  | 'direct_offer_revenue'
   | 'estimated_call_revenue'
   | 'consultation_revenue'
   | 'total_revenue'
@@ -47,14 +48,13 @@ const METRIC_LABELS: Record<MetricType, string> = {
   landing_page_view: 'Landing Page Clicks',
   purchase_thankyou: 'Direct Purchases',
   lead_magnet_click: 'Lead Magnet Clicks',
-  lead_magnet_thankyou: 'Lead Magnet Opt-ins',
   newsletter_click: 'Newsletter Clicks',
   newsletter_thankyou: 'Newsletter Opt-ins',
   call_booking_click: 'Call Booking Clicks',
   call_booking_thankyou: 'Call Bookings Confirmed',
   consultation_click: 'Consultation Page Clicks',
   consultation_thankyou: 'Consultation Purchases',
-  direct_offer_sales: 'Direct Offer Sales',
+  direct_offer_revenue: 'Direct Offer Sales',
   estimated_call_revenue: 'Estimated Call Revenue',
   consultation_revenue: 'Consultation Revenue',
   total_revenue: 'Total Revenue',
@@ -62,21 +62,20 @@ const METRIC_LABELS: Record<MetricType, string> = {
 };
 
 const METRIC_COLORS: Record<string, string> = {
-  landing_page_view: '#3b82f6', // blue-500
-  purchase_thankyou: '#22c55e', // green-500
-  lead_magnet_click: '#6366f1', // indigo-500
-  lead_magnet_thankyou: '#f59e0b', // amber-500
-  newsletter_click: '#ec4899', // pink-500
-  newsletter_thankyou: '#f97316', // orange-500
-  call_booking_click: '#8b5cf6', // violet-500
-  call_booking_thankyou: '#a855f7', // purple-500
-  consultation_click: '#ef4444', // red-500
-  consultation_thankyou: '#dc2626', // red-600
-  direct_offer_sales: '#16a34a', // green-600
-  estimated_call_revenue: '#2563eb', // blue-600
-  consultation_revenue: '#9333ea', // purple-600
-  total_revenue: '#dc2626', // red-600
-  rpc: '#0ea5e9' // sky-500
+  landing_page_view: '#3b82f6',
+  purchase_thankyou: '#22c55e',
+  lead_magnet_click: '#6366f1',
+  newsletter_click: '#ec4899',
+  newsletter_thankyou: '#f97316',
+  call_booking_click: '#8b5cf6',
+  call_booking_thankyou: '#a855f7',
+  consultation_click: '#ef4444',
+  consultation_thankyou: '#dc2626',
+  direct_offer_revenue: '#16a34a',
+  estimated_call_revenue: '#2563eb',
+  consultation_revenue: '#9333ea',
+  total_revenue: '#dc2626',
+  rpc: '#0ea5e9'
 };
 
 export default function Analytics() {
@@ -149,31 +148,46 @@ export default function Analytics() {
       setVideos(vData || []);
       setLeadMagnets(lmData || []);
 
-      const videoIds = vData?.map((v: any) => v.id) || [];
-      const campaignIds = vData?.map((v: any) => v.campaign_id).filter(Boolean) || [];
+      if (!vData || vData.length === 0) return;
 
-      // ── Fetch events: join sessions to recover video_id/campaign_id when null ──
-      // Primary: events with direct video_id (fast path)
-      // Fallback: events where video_id is null but session has attribution
+      const videoIds    = vData.map((v: any) => v.id);
+      const campaignIds = vData.map((v: any) => v.campaign_id).filter(Boolean);
+
+      // ── Fetch in parallel — mirrors InDepthAnalytics exactly ────────────────
+      // NOTE: stripe_purchase_type is the authoritative stripe table (has payment_type).
+      //       stripe_purchases does NOT have payment_type and must NOT be used.
       const [eDirectData, eViaSessionData, spData, ppData] = await Promise.all([
         supabase.from('events')
           .select('video_id, campaign_id, event_type, created_at')
           .in('video_id', videoIds),
-        // Events missing video_id — resolve via sessions join
+
         supabase.from('events')
           .select('event_type, created_at, sessions!inner(video_id, campaign_id)')
           .is('video_id', null)
           .in('sessions.video_id', videoIds),
-        supabase.from('stripe_purchases')
-          .select('video_id, campaign_id, amount, type, session_id, created_at')
-          .in('video_id', videoIds),
-        // pixel rows may have null video_id; fetch by campaign_id as fallback
-        supabase.from('pixel_purchases')
-          .select('video_id, campaign_id, amount, event_type, session_id, created_at')
-          .in('campaign_id', campaignIds),
+
+        // stripe_purchase_type — HAS payment_type column
+        (() => {
+          const q = supabase
+            .from('stripe_purchase_type')
+            .select('video_id, campaign_id, amount, stripe_session_id, payment_type');
+          if (campaignIds.length) {
+            return q.or(
+              `video_id.in.(${videoIds.join(',')}),campaign_id.in.(${campaignIds.join(',')})`,
+            );
+          }
+          return q.in('video_id', videoIds);
+        })(),
+
+        campaignIds.length
+          ? supabase
+              .from('pixel_purchases')
+              .select('video_id, campaign_id, amount, event_type, session_id, created_at')
+              .in('campaign_id', campaignIds)
+          : Promise.resolve({ data: [] as any[] }),
       ]);
 
-      // Normalize session-resolved events into the same shape
+      // Flatten session-resolved events
       const sessionResolvedEvents = (eViaSessionData.data || []).map((e: any) => ({
         video_id:    e.sessions?.video_id    ?? null,
         campaign_id: e.sessions?.campaign_id ?? null,
@@ -183,61 +197,74 @@ export default function Analytics() {
 
       const allEvents = [...(eDirectData.data || []), ...sessionResolvedEvents];
 
-      // Enrich pixel_purchases that have session_id but null video_id
-      const pixelRaw = ppData.data || [];
-      const nullVideoPixelSessionIds = pixelRaw
-        .filter((p: any) => !p.video_id && p.session_id)
-        .map((p: any) => p.session_id);
-
-      let sessionLookup: Record<string, { video_id: string; campaign_id: string }> = {};
-      if (nullVideoPixelSessionIds.length > 0) {
-        const { data: sessData } = await supabase
-          .from('sessions')
-          .select('id, video_id, campaign_id')
-          .in('id', nullVideoPixelSessionIds);
-        (sessData || []).forEach((s: any) => {
-          if (s.video_id) sessionLookup[s.id] = { video_id: s.video_id, campaign_id: s.campaign_id };
-        });
-      }
-
-      const enrichedPixel = pixelRaw.map((p: any) => {
-        if (!p.video_id && p.session_id && sessionLookup[p.session_id]) {
-          return { ...p, ...sessionLookup[p.session_id] };
-        }
-        return p;
-      });
-
-      // Stripe purchases: same session-based enrichment for null video_id rows
-      const stripeRaw = spData.data || [];
-      const nullVideoStripeSessionIds = stripeRaw
-        .filter((p: any) => !p.video_id && p.session_id)
-        .map((p: any) => p.session_id);
-
-      let stripeSessLookup: Record<string, { video_id: string; campaign_id: string }> = {};
-      if (nullVideoStripeSessionIds.length > 0) {
+      // ── Session lookup helper (mirrors InDepthAnalytics) ─────────────────────
+      const buildSessionLookup = async (
+        rows: any[],
+      ): Promise<Record<string, { video_id: string; campaign_id: string }>> => {
+        const missingIds = rows
+          .filter((p: any) => !p.video_id && p.session_id)
+          .map((p: any) => p.session_id);
+        if (!missingIds.length) return {};
         const { data: sData } = await supabase
           .from('sessions')
           .select('id, video_id, campaign_id')
-          .in('id', nullVideoStripeSessionIds);
+          .in('id', missingIds);
+        const lookup: Record<string, { video_id: string; campaign_id: string }> = {};
         (sData || []).forEach((s: any) => {
-          if (s.video_id) stripeSessLookup[s.id] = { video_id: s.video_id, campaign_id: s.campaign_id };
+          if (s.video_id) lookup[s.id] = { video_id: s.video_id, campaign_id: s.campaign_id };
         });
-      }
+        return lookup;
+      };
 
-      const enrichedStripe = stripeRaw.map((p: any) => {
-        if (!p.video_id && p.session_id && stripeSessLookup[p.session_id]) {
-          return { ...p, ...stripeSessLookup[p.session_id] };
-        }
-        return p;
-      });
+      // Map stripe_purchase_type rows — payment_type is on the row directly.
+      // Exclude test rows. Coerce amount to number.
+      const stripeRaw = (spData.data || [])
+        .filter((r: any) => r.payment_type !== 'test')
+        .map((r: any) => ({
+          video_id:      r.video_id,
+          campaign_id:   r.campaign_id,
+          amount:        parseFloat(String(r.amount ?? '0')),
+          session_id:    r.stripe_session_id ?? null,
+          _payment_type: r.payment_type as string | null,
+        }));
+
+      const pixelRaw = (ppData.data || []).map((r: any) => ({
+        ...r,
+        amount: parseFloat(String(r.amount ?? '0')),
+      }));
+
+      const [stripeSessLookup, pixelSessLookup] = await Promise.all([
+        buildSessionLookup(stripeRaw),
+        buildSessionLookup(pixelRaw),
+      ]);
+
+      // Build enrichedStripe: resolve null video_ids via session, derive revenue_type
+      // from payment_type (mirrors InDepthAnalytics enrichedStripe construction).
+      const enrichedStripe: StripePurchaseRow[] = (stripeRaw
+        .map((r: any): StripePurchaseRow | null => {
+          const resolvedVideoId    = r.video_id    ?? (stripeSessLookup[r.session_id ?? '']?.video_id    ?? '');
+          const resolvedCampaignId = r.campaign_id ?? (stripeSessLookup[r.session_id ?? '']?.campaign_id ?? '');
+          if (r.amount <= 0) return null;
+          const revenue_type: 'offer' | 'consultation' =
+            r._payment_type === 'consultation' ? 'consultation' : 'offer';
+          return {
+            video_id:     resolvedVideoId,
+            campaign_id:  resolvedCampaignId,
+            amount:       r.amount,
+            revenue_type,
+            session_id:   r.session_id ?? null,
+          };
+        })
+        .filter((p): p is StripePurchaseRow => p !== null));
+
+      // Enrich pixel: resolve null video_ids via session
+      const enrichedPixel = enrichPixelPurchases(pixelRaw, pixelSessLookup);
 
       console.log('[Analytics] events direct:', eDirectData.data?.length ?? 0,
         '| via session:', sessionResolvedEvents.length,
         '| total:', allEvents.length);
-      console.log('[Analytics] stripe_purchases fetched:', enrichedStripe.length,
-        '| enriched (was null video_id):', enrichedStripe.filter((p: any) => !stripeRaw.find((r: any) => r === p && !r.video_id)).length);
-      console.log('[Analytics] pixel_purchases fetched:', enrichedPixel.length,
-        '| enriched (was null video_id):', Object.keys(sessionLookup).length);
+      console.log('[Analytics] stripe_purchase_type enriched:', enrichedStripe.length,
+        '| pixel enriched:', enrichedPixel.length);
 
       setEvents(allEvents);
       setStripePurchases(enrichedStripe);
@@ -264,29 +291,9 @@ export default function Analytics() {
     return events.filter(e => new Date(e.created_at) >= cutoff);
   }, [events, dateRange]);
 
-  const cutoffDate = useMemo(() => {
-    const cutoff = new Date();
-    switch(dateRange) {
-      case '7days': cutoff.setDate(cutoff.getDate() - 7); break;
-      case '28days': cutoff.setDate(cutoff.getDate() - 28); break;
-      case '30days': cutoff.setDate(cutoff.getDate() - 30); break;
-      case '3months': cutoff.setMonth(cutoff.getMonth() - 3); break;
-      case '6months': cutoff.setMonth(cutoff.getMonth() - 6); break;
-      case '12months': cutoff.setFullYear(cutoff.getFullYear() - 1); break;
-      default: cutoff.setDate(cutoff.getDate() - 30);
-    }
-    return cutoff;
-  }, [dateRange]);
-
-  const dateFilteredPurchases = useMemo(
-    () => stripePurchases.filter(p => new Date(p.created_at) >= cutoffDate),
-    [stripePurchases, cutoffDate]
-  );
-
-  const dateFilteredPixelPurchases = useMemo(
-    () => pixelPurchases.filter(p => new Date(p.created_at) >= cutoffDate),
-    [pixelPurchases, cutoffDate]
-  );
+  // NOTE: stripe and pixel purchases are ALL-TIME — this is an all-time aggregation dashboard.
+  // Only events (clicks) are date-filtered. Purchases are passed in full to processVideoMetrics.
+  // (stripe_purchase_type has no created_at column; pixel_purchases created_at is secondary)
 
   // Derived filtered videos
   const filteredVideos = useMemo(() => {
@@ -344,10 +351,10 @@ export default function Analytics() {
     const videoResults = filteredVideos.map(v => {
       const campaign = campaigns.find(c => c.id === v.campaign_id) as CampaignMeta | undefined;
 
-      const vidPixelPurchases = dateFilteredPixelPurchases.filter(
+      const vidPixelPurchases = pixelPurchases.filter(
         (p: any) => p.video_id === v.id
       ) as PixelPurchaseRow[];
-      const vidStripePurchases = dateFilteredPurchases.filter(
+      const vidStripePurchases = (stripePurchases as any[]).filter(
         (p: any) => p.video_id === v.id
       );
 
@@ -375,9 +382,7 @@ export default function Analytics() {
         campaign: campaign ?? null,
         title:    v.video_title,
         ...m,
-        // direct_offer_sales alias preserved for local MetricType compat
-        direct_offer_sales: m.direct_offer_revenue,
-        // rpc is already computed correctly by processVideoMetrics using all 5 click columns
+        // rpc already computed correctly by processVideoMetrics using all 5 click columns
       };
     });
 
@@ -388,13 +393,28 @@ export default function Analytics() {
       videos: videoResults,
       timeline: sortedTimeline,
     };
-  }, [filteredVideos, dateFilteredEvents, dateFilteredPurchases, dateFilteredPixelPurchases, campaigns, granularity, videoIds, selectedVideoIds, activeSource]);
+  }, [filteredVideos, dateFilteredEvents, stripePurchases, pixelPurchases, campaigns, granularity, videoIds, selectedVideoIds, activeSource]);
 
   const summaryStats = useMemo(() => {
-    const stats: Record<MetricType, number> & { stripe_revenue: number; pixel_revenue: number } = {
-      ...(Object.fromEntries(Object.keys(METRIC_LABELS).map(k => [k, 0])) as any),
-      stripe_revenue: 0,
-      pixel_revenue: 0,
+    // Accumulate all VideoMetrics fields explicitly — never rely on METRIC_LABELS key iteration
+    // for revenue fields, as key mismatches silently drop values.
+    const stats = {
+      landing_page_view:      0,
+      lead_magnet_click:      0,
+      newsletter_click:       0,
+      call_booking_click:     0,
+      consultation_click:     0,
+      newsletter_thankyou:    0,
+      call_booking_thankyou:  0,
+      consultation_thankyou:  0,
+      purchase_thankyou:      0,
+      stripe_revenue:         0,
+      pixel_revenue:          0,
+      direct_offer_revenue:   0,
+      consultation_revenue:   0,
+      estimated_call_revenue: 0,
+      total_revenue:          0,
+      rpc:                    0,
     };
 
     const targetVideos = selectedVideoIds.length > 0 
@@ -402,25 +422,41 @@ export default function Analytics() {
       : processedData.videos;
 
     targetVideos.forEach(v => {
-      Object.keys(METRIC_LABELS).forEach(m => {
-        const key = m as MetricType;
-        if (key === 'rpc') return;
-        stats[key] += Number(v[key]) || 0;
-      });
-      stats.stripe_revenue += Number(v.stripe_revenue) || 0;
-      stats.pixel_revenue  += Number(v.pixel_revenue)  || 0;
+      stats.landing_page_view      += Number(v.landing_page_view)      || 0;
+      stats.lead_magnet_click      += Number(v.lead_magnet_click)      || 0;
+      stats.newsletter_click       += Number(v.newsletter_click)       || 0;
+      stats.call_booking_click     += Number(v.call_booking_click)     || 0;
+      stats.consultation_click     += Number(v.consultation_click)     || 0;
+      stats.newsletter_thankyou    += Number(v.newsletter_thankyou)    || 0;
+      stats.call_booking_thankyou  += Number(v.call_booking_thankyou)  || 0;
+      stats.consultation_thankyou  += Number(v.consultation_thankyou)  || 0;
+      stats.purchase_thankyou      += Number(v.purchase_thankyou)      || 0;
+      stats.stripe_revenue         += Number(v.stripe_revenue)         || 0;
+      stats.pixel_revenue          += Number(v.pixel_revenue)          || 0;
+      stats.direct_offer_revenue   += Number(v.direct_offer_revenue)   || 0;
+      stats.consultation_revenue   += Number(v.consultation_revenue)   || 0;
+      stats.estimated_call_revenue += Number(v.estimated_call_revenue) || 0;
+      stats.total_revenue          += Number(v.total_revenue)          || 0;
     });
-    
+
     // RPC: total_revenue / sum of all 5 click columns (mirrors analyticsProcessor formula)
     const totalClicks =
       stats.landing_page_view +
-      (stats as any).lead_magnet_click +
-      (stats as any).newsletter_click +
-      (stats as any).call_booking_click +
-      (stats as any).consultation_click;
+      stats.lead_magnet_click +
+      stats.newsletter_click +
+      stats.call_booking_click +
+      stats.consultation_click;
     stats.rpc = totalClicks > 0 ? Number((stats.total_revenue / totalClicks).toFixed(2)) : 0;
 
-    console.log('[Analytics] summaryStats => stripe_revenue:', stats.stripe_revenue, 'pixel_revenue:', stats.pixel_revenue, 'total_revenue:', stats.total_revenue);
+    console.log('[Analytics] summaryStats =>', {
+      stripe_revenue:       stats.stripe_revenue,
+      pixel_revenue:        stats.pixel_revenue,
+      direct_offer_revenue: stats.direct_offer_revenue,
+      consultation_revenue: stats.consultation_revenue,
+      estimated_call_revenue: stats.estimated_call_revenue,
+      total_revenue:        stats.total_revenue,
+      video_count:          targetVideos.length,
+    });
 
     return stats;
   }, [processedData, selectedVideoIds]);
@@ -439,8 +475,8 @@ export default function Analytics() {
   const sortedVideos = useMemo(() => {
     const items = [...processedData.videos];
     items.sort((a, b) => {
-      const aVal = a[sortConfig.key];
-      const bVal = b[sortConfig.key];
+      const aVal = (a as any)[sortConfig.key];
+      const bVal = (b as any)[sortConfig.key];
       if (aVal < bVal) return sortConfig.direction === 'asc' ? -1 : 1;
       if (aVal > bVal) return sortConfig.direction === 'asc' ? 1 : -1;
       return 0;
@@ -664,7 +700,6 @@ export default function Analytics() {
                           { label: 'Landing Page Clicks', value: summaryStats.landing_page_view },
                           { label: 'Direct Purchases', value: summaryStats.purchase_thankyou },
                           { label: 'Lead Magnet Clicks', value: summaryStats.lead_magnet_click },
-                          { label: 'Lead Magnet Opt-ins', value: summaryStats.lead_magnet_thankyou },
                           { label: 'Newsletter Clicks', value: summaryStats.newsletter_click },
                           { label: 'Newsletter Opt-ins', value: summaryStats.newsletter_thankyou },
                           { label: 'Call Booking Clicks', value: summaryStats.call_booking_click },
@@ -900,7 +935,6 @@ export default function Analytics() {
                         { key: 'landing_page_view', label: 'Landing Page Clicks' },
                         { key: 'purchase_thankyou', label: 'Direct Purchases' },
                         { key: 'lead_magnet_click', label: 'Lead Magnet Clicks' },
-                        { key: 'lead_magnet_thankyou', label: 'Lead Magnet Opt-ins' },
                         { key: 'newsletter_click', label: 'Newsletter Clicks' },
                         { key: 'newsletter_thankyou', label: 'Newsletter Opt-ins' },
                         { key: 'call_booking_click', label: 'Call Booking Clicks' },
@@ -967,14 +1001,13 @@ export default function Analytics() {
                                  >
                                    {v.title}
                                  </Link>
-                                 <p className="text-[8px] font-bold text-zinc-600 uppercase mt-0.5">{v.campaign?.campaign_name}</p>
+                                 <p className="text-[8px] font-bold text-zinc-600 uppercase mt-0.5">{(v.campaign as any)?.campaign_name}</p>
                               </div>
                             </div>
                           </td>
                           <td className="p-4 text-[10px] font-bold text-zinc-400 tabular-nums">{v.landing_page_view}</td>
                           <td className="p-4 text-[10px] font-bold text-zinc-400 tabular-nums">{v.purchase_thankyou}</td>
                           <td className="p-4 text-[10px] font-bold text-zinc-400 tabular-nums">{v.lead_magnet_click}</td>
-                          <td className="p-4 text-[10px] font-bold text-zinc-400 tabular-nums">{v.lead_magnet_thankyou}</td>
                           <td className="p-4 text-[10px] font-bold text-zinc-400 tabular-nums">{v.newsletter_click}</td>
                           <td className="p-4 text-[10px] font-bold text-zinc-400 tabular-nums">{v.newsletter_thankyou}</td>
                           <td className="p-4 text-[10px] font-bold text-zinc-400 tabular-nums">{v.call_booking_click}</td>
