@@ -100,9 +100,10 @@ export default function Analytics() {
   const [selectedVideoIds, setSelectedVideoIds] = useState<string[]>(searchParams.get('vids')?.split(',').filter(Boolean) || []);
   const [warning, setWarning] = useState<string | null>(null);
   
-  // Revenue view toggle
-  type RevenueView = 'stripe' | 'pixel' | 'total';
-  const [revenueView, setRevenueView] = useState<RevenueView>('stripe');
+  // Source toggle — global state that drives ALL KPI cards
+  // CRITICAL: default must be 'total' on initial render, refresh, and page revisit
+  type ActiveSource = 'total' | 'pixel' | 'stripe';
+  const [activeSource, setActiveSource] = useState<ActiveSource>('total');
 
   // Campaign filter
   const [selectedCampaign, setSelectedCampaign] = useState<string>('all');
@@ -350,15 +351,20 @@ export default function Analytics() {
         (p: any) => p.video_id === v.id
       );
 
-      console.log(`[Analytics] video="${v.video_title}" mode=${campaign?.revenue_mode ?? 'hybrid'} stripeRows=${vidStripePurchases.length} pixelRows=${vidPixelPurchases.length}`);
+      console.log(`[Analytics] video="${v.video_title}" mode=${campaign?.revenue_mode ?? 'hybrid'} source=${activeSource} stripeRows=${vidStripePurchases.length} pixelRows=${vidPixelPurchases.length}`);
+
+      // Source isolation — mirrors InDepthAnalytics: pass empty arrays per mode
+      const sourceStripe = activeSource === 'pixel'  ? [] : vidStripePurchases;
+      const sourcePixel  = activeSource === 'stripe' ? [] : vidPixelPurchases;
 
       const m = processVideoMetrics({
         videoId:         v.id,
         campaignId:      v.campaign_id ?? null,
         campaign,
+        activeSource,
         events:          dateFilteredEvents as RawEvent[],
-        stripePurchases: vidStripePurchases,
-        pixelPurchases:  vidPixelPurchases,
+        stripePurchases: sourceStripe,
+        pixelPurchases:  sourcePixel,
         includeEV:       true,
       });
 
@@ -371,9 +377,7 @@ export default function Analytics() {
         ...m,
         // direct_offer_sales alias preserved for local MetricType compat
         direct_offer_sales: m.direct_offer_revenue,
-        rpc: m.landing_page_view > 0
-          ? (m.total_revenue / m.landing_page_view).toFixed(2)
-          : '0.00',
+        // rpc is already computed correctly by processVideoMetrics using all 5 click columns
       };
     });
 
@@ -384,7 +388,7 @@ export default function Analytics() {
       videos: videoResults,
       timeline: sortedTimeline,
     };
-  }, [filteredVideos, dateFilteredEvents, dateFilteredPurchases, dateFilteredPixelPurchases, campaigns, granularity, videoIds, selectedVideoIds]);
+  }, [filteredVideos, dateFilteredEvents, dateFilteredPurchases, dateFilteredPixelPurchases, campaigns, granularity, videoIds, selectedVideoIds, activeSource]);
 
   const summaryStats = useMemo(() => {
     const stats: Record<MetricType, number> & { stripe_revenue: number; pixel_revenue: number } = {
@@ -407,7 +411,14 @@ export default function Analytics() {
       stats.pixel_revenue  += Number(v.pixel_revenue)  || 0;
     });
     
-    stats.rpc = stats.landing_page_view > 0 ? Number((stats.total_revenue / stats.landing_page_view).toFixed(2)) : 0;
+    // RPC: total_revenue / sum of all 5 click columns (mirrors analyticsProcessor formula)
+    const totalClicks =
+      stats.landing_page_view +
+      (stats as any).lead_magnet_click +
+      (stats as any).newsletter_click +
+      (stats as any).call_booking_click +
+      (stats as any).consultation_click;
+    stats.rpc = totalClicks > 0 ? Number((stats.total_revenue / totalClicks).toFixed(2)) : 0;
 
     console.log('[Analytics] summaryStats => stripe_revenue:', stats.stripe_revenue, 'pixel_revenue:', stats.pixel_revenue, 'total_revenue:', stats.total_revenue);
 
@@ -443,11 +454,14 @@ export default function Analytics() {
       .filter((v: any) => v.video?.campaign_id === campaignId)
       .reduce((sum: number, v: any) => sum + (v.total_revenue || 0), 0);
 
-  // displayRevenue based on revenueView toggle
+  // displayRevenue: revenue shown in the Total Revenue card, responds to activeSource
+  // TOTAL = total_revenue (direct_offer + consultation + EV)
+  // PIXEL = pixel_revenue (pixel-only component)
+  // STRIPE = stripe_revenue (stripe-only component)
   const displayRevenue =
-    revenueView === 'stripe'
+    activeSource === 'stripe'
       ? summaryStats.stripe_revenue ?? summaryStats.total_revenue
-      : revenueView === 'pixel'
+      : activeSource === 'pixel'
       ? summaryStats.pixel_revenue ?? summaryStats.total_revenue
       : summaryStats.total_revenue;
 
@@ -498,15 +512,15 @@ export default function Analytics() {
             ))}
           </section>
 
-          {/* Revenue view toggle + Campaign filter */}
+          {/* Source toggle + Campaign filter */}
           <section className="flex flex-wrap items-center gap-3">
             <div className="flex items-center gap-1 p-1 bg-zinc-900 border border-zinc-800 rounded-xl w-fit">
-              {(['stripe', 'pixel', 'total'] as RevenueView[]).map(v => (
+              {(['total', 'pixel', 'stripe'] as ActiveSource[]).map(v => (
                 <button
                   key={v}
-                  onClick={() => setRevenueView(v)}
+                  onClick={() => setActiveSource(v)}
                   className={`px-3 py-1.5 rounded-lg text-[9px] font-black uppercase tracking-widest transition-all ${
-                    revenueView === v ? 'bg-zinc-700 text-white' : 'text-zinc-600 hover:text-zinc-400'
+                    activeSource === v ? 'bg-zinc-700 text-white' : 'text-zinc-600 hover:text-zinc-400'
                   }`}
                 >
                   {v}
@@ -537,7 +551,7 @@ export default function Analytics() {
                   ${displayRevenue.toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 0 })}
                 </div>
                 <p className="text-[10px] text-zinc-600 font-bold uppercase tracking-widest mt-2">
-                  {revenueView === 'stripe' ? 'Verified (Stripe)' : revenueView === 'pixel' ? 'Estimated (Pixel)' : ((summaryStats as any).revenue_mode_label ?? 'Total (Hybrid)')} · Direct Offer + Consultation
+                  {activeSource === 'stripe' ? 'Verified (Stripe)' : activeSource === 'pixel' ? 'Estimated (Pixel)' : 'Total (Hybrid)'} · Direct Offer + Consultation
                 </p>
               </div>
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-8 pt-6 border-t border-zinc-800/50">
