@@ -2,14 +2,25 @@
 // ANALYTICS PROCESSOR
 // Single source of truth for ALL metric calculations.
 //
-// Layer rules:
-//   events table          = click / intent stream ONLY
-//   pixel_purchases       = conversions + EV + partial revenue
-//   stripe_purchase_type  = verified revenue
+// DATA LAYER RULES — strictly enforced per activeSource:
 //
-// Click metrics use CLICK_EVENT_MAP — raw event_type string match, no mapping.
-// Revenue metrics use payment_type (stripe) / event_type (pixel) directly.
-// EV is projection only — never added to total_revenue.
+//   activeSource = 'stripe'
+//     • ONLY  stripe_purchases rows
+//     • ZERO  pixel_purchases rows passed in
+//     • ZERO  events rows used for revenue (clicks still from events)
+//     • Classification: campaign_id → StripeClassificationMap → offer|consultation
+//
+//   activeSource = 'pixel'
+//     • ONLY  pixel_purchases rows
+//     • ZERO  stripe_purchases rows passed in
+//     • event_type column on pixel_purchases used directly
+//
+//   activeSource = 'total'
+//     • stripe_purchases + pixel_purchases (deduped by session_id)
+//     • No double-counting
+//
+// Click metrics (events table) are ALWAYS from events — independent of activeSource.
+// EV = projection only, pixel_purchases sales_call rows, NEVER in total_revenue.
 // ─────────────────────────────────────────────────────────────────────────────
 
 import {
@@ -21,6 +32,8 @@ import {
   type RevenueMode,
   type StripePurchaseRow,
   type PixelPurchaseRow,
+  type StripeClassificationMap,
+  type StripeRevenueType,
 } from './analyticsConfig';
 
 // ── Types ─────────────────────────────────────────────────────────────────────
@@ -39,16 +52,18 @@ export interface CampaignMeta {
   offer_price?:           number | null;
   has_paid_consultation?: boolean | null;
   consultation_fee?:      number | null;
+  stripe_revenue_type?:   StripeRevenueType | null; // 'offer' | 'consultation'
 }
 
 export interface ProcessVideoInput {
-  videoId:         string;
-  campaignId:      string | null;
-  campaign?:       CampaignMeta;
-  events:          RawEvent[];
-  stripePurchases: StripePurchaseRow[];
-  pixelPurchases:  PixelPurchaseRow[];
-  includeEV?:      boolean;
+  videoId:           string;
+  campaignId:        string | null;
+  campaign?:         CampaignMeta;
+  activeSource:      'stripe' | 'pixel' | 'total'; // REQUIRED — controls data isolation
+  events:            RawEvent[];
+  stripePurchases:   StripePurchaseRow[];           // pre-filtered by caller per activeSource
+  pixelPurchases:    PixelPurchaseRow[];            // pre-filtered by caller per activeSource
+  includeEV?:        boolean;
 }
 
 export interface VideoMetricsResult extends VideoMetrics {
@@ -79,39 +94,54 @@ export function filterEventsByDate(events: RawEvent[], range: DateRange): RawEve
 }
 
 // ── Stripe enrich ─────────────────────────────────────────────────────────────
-// Resolves missing video_id/campaign_id via session lookup.
-// payment_type is stored directly in stripe_purchase_type — no derivation needed.
+//
+// stripe_purchases has NO payment_type column.
+// Schema: id, stripe_session_id, token, video_id, campaign_id,
+//         amount, currency, created_at, user_id
+//
+// revenue_type is derived from StripeClassificationMap:
+//   1. Look up campaign_id → map[campaign_id]
+//   2. Fallback: look up video_id  → map[video_id]
+//   3. Fallback: 'offer' (most common, conservative default)
+//
+// Rows with amount <= 0 are dropped.
 
 export function enrichStripePurchases(
   raw: Array<{
-    video_id:     string | null;
-    campaign_id:  string | null;
-    amount:       number | null;
-    payment_type: string | null;
-    session_id?:  string | null;
+    video_id:    string | null;
+    campaign_id: string | null;
+    amount:      number | null;
+    session_id?: string | null;
   }>,
-  sessionLookup: Record<string, { video_id: string; campaign_id: string }>,
+  sessionLookup:       Record<string, { video_id: string; campaign_id: string }>,
+  classificationMap:   StripeClassificationMap,
 ): StripePurchaseRow[] {
   return raw
     .map(p => {
+      // Resolve missing video_id / campaign_id via session
       const resolved =
         !p.video_id && p.session_id && sessionLookup[p.session_id]
           ? { ...p, ...sessionLookup[p.session_id] }
           : p;
 
-      // Normalise payment_type — accept known variants, skip rows with no amount
-      const rawPt = (resolved.payment_type ?? '').toLowerCase().trim();
-      const pt: 'offer' | 'consultation' =
-        rawPt === 'consultation' ? 'consultation' : 'offer';
-      // Drop zero-amount rows
+      // Drop zero / negative amount rows
       if ((resolved.amount ?? 0) <= 0) return null;
 
+      const campaignId = resolved.campaign_id ?? '';
+      const videoId    = resolved.video_id    ?? '';
+
+      // Classify: campaign_id first, video_id fallback, then 'offer'
+      const revenue_type: StripeRevenueType =
+        classificationMap[campaignId] ??
+        classificationMap[videoId]    ??
+        'offer';
+
       return {
-        video_id:     resolved.video_id    ?? '',
-        campaign_id:  resolved.campaign_id ?? '',
-        amount:       resolved.amount      ?? 0,
-        payment_type: pt,
-        session_id:   resolved.session_id  ?? null,
+        video_id:     videoId,
+        campaign_id:  campaignId,
+        amount:       resolved.amount ?? 0,
+        revenue_type,
+        session_id:   resolved.session_id ?? null,
       } satisfies StripePurchaseRow;
     })
     .filter((p): p is StripePurchaseRow => p !== null);
@@ -136,6 +166,7 @@ export function processVideoMetrics({
   videoId,
   campaignId,
   campaign,
+  activeSource,
   events,
   stripePurchases,
   pixelPurchases,
@@ -144,30 +175,150 @@ export function processVideoMetrics({
   const mode    = getRevenueMode(campaign ?? {});
   const metrics = emptyVideoMetrics(mode) as VideoMetricsResult;
 
-  // ── 1. Click metrics — raw event_type match via CLICK_EVENT_MAP ──────────
+  // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  // STEP 1 — CLICK METRICS (events table, always — independent of activeSource)
   //
-  // No normalization. Each metric key maps to one or more exact event_type
-  // strings. If the event_type is in the set, increment that counter.
-  // Any event_type not in any set is simply ignored for clicks.
+  // Uses CLICK_EVENT_MAP: raw event_type strings matched directly.
+  // No normalization. No transformation.
+  // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
   const videoEvents = events.filter(e => e.video_id === videoId);
 
   for (const [metricKey, rawTypes] of Object.entries(CLICK_EVENT_MAP)) {
     const typeSet = new Set(rawTypes);
-    (metrics as any)[metricKey] = videoEvents.filter(
-      e => typeSet.has(e.event_type),
-    ).length;
+    (metrics as any)[metricKey] = videoEvents.filter(e => typeSet.has(e.event_type)).length;
   }
 
-  // ── 2. Pixel conversions (video-scoped) ───────────────────────────────────
+  console.log(`[processVideoMetrics] ${videoId} | activeSource=${activeSource}`, {
+    events_total:  events.length,
+    events_video:  videoEvents.length,
+    stripe_rows:   stripePurchases.filter(p => p.video_id === videoId).length,
+    pixel_rows:    pixelPurchases.filter(p => p.video_id === videoId).length,
+  });
+
+  // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  // STEP 2 — STRIPE MODE (hard isolation)
   //
-  // pixel_purchases.event_type values:
-  //   'purchase'     → purchase_thankyou (Direct Purchase count)
-  //   'sales_call'   → call_booking_thankyou (Confirmed + EV source)
-  //   'consultation' → consultation_thankyou (Consultation conversion)
+  // When activeSource === 'stripe':
+  //   • ONLY stripe_purchases rows
+  //   • pixel_purchases = IGNORED (caller passes [] but guard here too)
+  //   • No event_type logic — uses revenue_type from StripeClassificationMap
+  //   • Direct Offer Sales  = SUM(amount WHERE revenue_type = 'offer')
+  //   • Consultation Revenue = SUM(amount WHERE revenue_type = 'consultation')
+  //   • Total Revenue = offer + consultation ONLY
+  //   • EV = 0 (no pixel data)
+  //   • pixel_revenue = 0
+  // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
+  if (activeSource === 'stripe') {
+    const vidStripe = stripePurchases.filter(
+      p => p.video_id === videoId && p.amount > 0,
+    );
+
+    for (const p of vidStripe) {
+      metrics.stripe_revenue += p.amount;
+      if (p.revenue_type === 'offer')        metrics.direct_offer_revenue += p.amount;
+      if (p.revenue_type === 'consultation') metrics.consultation_revenue += p.amount;
+    }
+
+    // Total = offer + consultation exactly — no pixel, no EV
+    metrics.total_revenue          = metrics.direct_offer_revenue + metrics.consultation_revenue;
+    metrics.pixel_revenue          = 0;
+    metrics.estimated_call_revenue = 0;
+
+    console.log(`[processVideoMetrics] STRIPE MODE ${videoId}`, {
+      stripe_rows_video:    vidStripe.length,
+      stripe_revenue:       metrics.stripe_revenue,
+      direct_offer_revenue: metrics.direct_offer_revenue,
+      consultation_revenue: metrics.consultation_revenue,
+      total_revenue:        metrics.total_revenue,
+    });
+
+    metrics.rpc = metrics.landing_page_view > 0
+      ? Number((metrics.total_revenue / metrics.landing_page_view).toFixed(2))
+      : 0;
+
+    return metrics;
+  }
+
+  // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  // STEP 3 — PIXEL MODE (hard isolation)
+  //
+  // When activeSource === 'pixel':
+  //   • ONLY pixel_purchases rows
+  //   • stripe_purchases = IGNORED (caller passes [] but guard here too)
+  //   • event_type column on pixel_purchases used directly:
+  //       'purchase'     → purchase_thankyou count + direct_offer_revenue
+  //       'sales_call'   → call_booking_thankyou count + EV source
+  //       'consultation' → consultation_thankyou count + consultation_revenue
+  //   • stripe_revenue = 0
+  // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  if (activeSource === 'pixel') {
+    const vidPixel = pixelPurchases.filter(p => p.video_id === videoId);
+    const seenSessions = new Set<string>();
+
+    for (const p of vidPixel) {
+      // Conversion counts (no dedup — intentional per spec)
+      switch (p.event_type) {
+        case 'purchase':     metrics.purchase_thankyou++;     break;
+        case 'sales_call':   metrics.call_booking_thankyou++; break;
+        case 'consultation': metrics.consultation_thankyou++; break;
+      }
+
+      // Revenue — dedupe by session_id for pixel_revenue
+      if ((p.amount ?? 0) > 0 &&
+          (p.event_type === 'purchase' || p.event_type === 'consultation')) {
+        if (p.session_id) {
+          if (seenSessions.has(p.session_id)) continue;
+          seenSessions.add(p.session_id);
+        }
+        const amt = p.amount ?? 0;
+        metrics.pixel_revenue += amt;
+        if (p.event_type === 'purchase')     metrics.direct_offer_revenue += amt;
+        if (p.event_type === 'consultation') metrics.consultation_revenue += amt;
+      }
+    }
+
+    metrics.stripe_revenue = 0;
+    metrics.total_revenue  = metrics.pixel_revenue;
+
+    // EV — pixel sales_call rows, amount > 0, projection only
+    if (includeEV) {
+      metrics.estimated_call_revenue = vidPixel
+        .filter(p => p.event_type === 'sales_call' && (p.amount ?? 0) > 0)
+        .reduce((sum, p) => sum + (p.amount ?? 0), 0);
+    }
+
+    console.log(`[processVideoMetrics] PIXEL MODE ${videoId}`, {
+      pixel_rows_video:     vidPixel.length,
+      pixel_revenue:        metrics.pixel_revenue,
+      direct_offer_revenue: metrics.direct_offer_revenue,
+      consultation_revenue: metrics.consultation_revenue,
+      total_revenue:        metrics.total_revenue,
+      ev:                   metrics.estimated_call_revenue,
+    });
+
+    metrics.rpc = metrics.landing_page_view > 0
+      ? Number((metrics.total_revenue / metrics.landing_page_view).toFixed(2))
+      : 0;
+
+    return metrics;
+  }
+
+  // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  // STEP 4 — TOTAL MODE (stripe + pixel, deduped, no double-counting)
+  //
+  // activeSource === 'total':
+  //   • stripe_purchases → stripe_revenue, classified by revenue_type
+  //   • pixel_purchases  → pixel_revenue, deduped against Stripe session_ids
+  //   • Both contribute to direct_offer_revenue / consultation_revenue
+  //   • total_revenue = stripe_revenue + pixel_revenue (no overlap)
+  //   • EV from pixel sales_call rows, never in total
+  // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  // Pixel conversion counts (no dedup — intentional)
   const vidPixelAll = pixelPurchases.filter(p => p.video_id === videoId);
-
   for (const p of vidPixelAll) {
     switch (p.event_type) {
       case 'purchase':     metrics.purchase_thankyou++;     break;
@@ -176,97 +327,60 @@ export function processVideoMetrics({
     }
   }
 
-  // ── 3. Stripe revenue (video-scoped) ──────────────────────────────────────
-  //
-  // stripe_purchase_type.payment_type values:
-  //   'offer'        → direct_offer_revenue
-  //   'consultation' → consultation_revenue
-
+  // Stripe revenue
   const vidStripe = stripePurchases.filter(
-    p => p.video_id === videoId && (p.amount ?? 0) > 0,
+    p => p.video_id === videoId && p.amount > 0,
+  );
+  for (const p of vidStripe) {
+    metrics.stripe_revenue += p.amount;
+    if (p.revenue_type === 'offer')        metrics.direct_offer_revenue += p.amount;
+    if (p.revenue_type === 'consultation') metrics.consultation_revenue += p.amount;
+  }
+
+  // Pixel revenue — deduped against Stripe sessions
+  const stripeSessionIds  = new Set(vidStripe.map(p => p.session_id).filter(Boolean) as string[]);
+  const seenPixelSessions = new Set<string>();
+
+  const vidPixelRevenue = vidPixelAll.filter(
+    p => (p.amount ?? 0) > 0 &&
+         (p.event_type === 'purchase' || p.event_type === 'consultation'),
   );
 
-  for (const p of vidStripe) {
-    const amt = p.amount ?? 0;
-    metrics.stripe_revenue += amt;
-    if (p.payment_type === 'offer')        metrics.direct_offer_revenue += amt;
-    if (p.payment_type === 'consultation') metrics.consultation_revenue += amt;
-  }
-
-  // ── 4. Pixel revenue (video-scoped, deduped against Stripe) ───────────────
-  //
-  // Only purchase + consultation event_types carry real revenue.
-  // sales_call rows carry EV amounts — handled separately in step 6.
-  // Deduped: skip any session already claimed by Stripe.
-
-  if (mode === 'pixel' || mode === 'hybrid') {
-    const stripeSessionIds = new Set(
-      vidStripe.map(p => p.session_id).filter(Boolean) as string[],
-    );
-    const seenPixelSessions = new Set<string>();
-
-    const vidPixelRevenue = vidPixelAll.filter(
-      p => (p.amount ?? 0) > 0 &&
-           (p.event_type === 'purchase' || p.event_type === 'consultation'),
-    );
-
-    for (const p of vidPixelRevenue) {
-      if (p.session_id && stripeSessionIds.has(p.session_id)) continue;
-      if (p.session_id) {
-        if (seenPixelSessions.has(p.session_id)) continue;
-        seenPixelSessions.add(p.session_id);
-      }
-      const amt = p.amount ?? 0;
-      metrics.pixel_revenue += amt;
-      // Also attribute to the correct revenue breakdown so these columns
-      // are non-zero in pixel and total modes
-      if (p.event_type === 'purchase')     metrics.direct_offer_revenue += amt;
-      if (p.event_type === 'consultation') metrics.consultation_revenue += amt;
+  for (const p of vidPixelRevenue) {
+    if (p.session_id && stripeSessionIds.has(p.session_id)) continue;
+    if (p.session_id) {
+      if (seenPixelSessions.has(p.session_id)) continue;
+      seenPixelSessions.add(p.session_id);
     }
+    const amt = p.amount ?? 0;
+    metrics.pixel_revenue += amt;
+    if (p.event_type === 'purchase')     metrics.direct_offer_revenue += amt;
+    if (p.event_type === 'consultation') metrics.consultation_revenue += amt;
   }
 
-  // ── 5. Total real revenue (EV excluded always) ────────────────────────────
+  metrics.total_revenue = metrics.stripe_revenue + metrics.pixel_revenue;
 
-  if (mode === 'stripe') metrics.total_revenue = metrics.stripe_revenue;
-  if (mode === 'pixel')  metrics.total_revenue = metrics.pixel_revenue;
-  if (mode === 'hybrid') metrics.total_revenue = metrics.stripe_revenue + metrics.pixel_revenue;
-
-  // ── 6. RPC ────────────────────────────────────────────────────────────────
-
-  metrics.rpc = metrics.landing_page_view > 0
-    ? Number((metrics.total_revenue / metrics.landing_page_view).toFixed(2))
-    : 0;
-
-  // ── 7. Estimated Call Revenue — projection only, never in total_revenue ───
-  //
-  // Source: pixel_purchases where event_type = 'sales_call' AND amount > 0.
-  // Uses sum of those amounts directly (not a modeled rate × price).
-  // Only included when includeEV = true.
-
+  // EV — pixel only, never in total
   if (includeEV) {
     metrics.estimated_call_revenue = vidPixelAll
       .filter(p => p.event_type === 'sales_call' && (p.amount ?? 0) > 0)
       .reduce((sum, p) => sum + (p.amount ?? 0), 0);
-  } else {
-    metrics.estimated_call_revenue = 0;
   }
 
-  console.log('[processVideoMetrics]', {
-    videoId, campaignId, mode,
-    landing_page_view:     metrics.landing_page_view,
-    lead_magnet_click:     metrics.lead_magnet_click,
-    newsletter_click:      metrics.newsletter_click,
-    call_booking_click:    metrics.call_booking_click,
-    consultation_click:    metrics.consultation_click,
-    purchase_thankyou:     metrics.purchase_thankyou,
-    call_booking_thankyou: metrics.call_booking_thankyou,
-    consultation_thankyou: metrics.consultation_thankyou,
-    stripe_revenue:        metrics.stripe_revenue,
-    pixel_revenue:         metrics.pixel_revenue,
-    total_revenue:         metrics.total_revenue,
-    estimated_call_revenue: metrics.estimated_call_revenue,
-    rpc:                   metrics.rpc,
+  console.log(`[processVideoMetrics] TOTAL MODE ${videoId}`, {
+    stripe_rows_video:    vidStripe.length,
+    pixel_rows_video:     vidPixelAll.length,
+    stripe_revenue:       metrics.stripe_revenue,
+    pixel_revenue:        metrics.pixel_revenue,
+    direct_offer_revenue: metrics.direct_offer_revenue,
+    consultation_revenue: metrics.consultation_revenue,
+    total_revenue:        metrics.total_revenue,
+    ev:                   metrics.estimated_call_revenue,
   });
+
+  metrics.rpc = metrics.landing_page_view > 0
+    ? Number((metrics.total_revenue / metrics.landing_page_view).toFixed(2))
+    : 0;
 
   return metrics;
 }
@@ -309,7 +423,7 @@ export function aggregateCampaignMetrics(
   return totals;
 }
 
-// ── Revenue view selector ─────────────────────────────────────────────────────
+// ── Revenue view selector (kept for any external usage) ───────────────────────
 
 export type RevenueView = 'stripe' | 'pixel' | 'total';
 

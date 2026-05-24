@@ -12,6 +12,7 @@ import {
   METRIC_LABELS,
   type MetricType,
   type PixelPurchaseRow,
+  type StripeClassificationMap,
 } from '../lib/analyticsConfig';
 import {
   processVideoMetrics,
@@ -121,10 +122,20 @@ export default function InDepthAnalytics() {
           .is('video_id', null)
           .in('sessions.video_id', videoIds),
 
-        supabase
-          .from('stripe_purchase_type')
-          .select('video_id, campaign_id, amount, session_id, payment_type')
-          .in('video_id', videoIds),
+        // Fetch stripe_purchases by video_id OR campaign_id.
+        // Some rows carry only campaign_id (video_id = null), so we must filter
+        // on both to avoid missing those rows.
+        (() => {
+          const q = supabase
+            .from('stripe_purchases')
+            .select('video_id, campaign_id, amount, stripe_session_id');
+          if (campaignIds.length) {
+            return q.or(
+              `video_id.in.(${videoIds.join(',')}),campaign_id.in.(${campaignIds.join(',')})`,
+            );
+          }
+          return q.in('video_id', videoIds);
+        })(),
 
         campaignIds.length
           ? supabase
@@ -168,7 +179,13 @@ export default function InDepthAnalytics() {
         return lookup;
       };
 
-      const stripeRaw = spData.data || [];
+      // Remap stripe_session_id → session_id for enrichStripePurchases compatibility
+      const stripeRaw = (spData.data || []).map((r: any) => ({
+        video_id:    r.video_id,
+        campaign_id: r.campaign_id,
+        amount:      r.amount,
+        session_id:  r.stripe_session_id ?? null,
+      }));
       const pixelRaw  = ppData.data || [];
 
       const [stripeSessLookup, pixelSessLookup] = await Promise.all([
@@ -176,8 +193,26 @@ export default function InDepthAnalytics() {
         buildSessionLookup(pixelRaw),
       ]);
 
-      // Enrich via processor helpers (no type derivation duplication)
-      const enrichedStripe = enrichStripePurchases(stripeRaw, stripeSessLookup);
+      // ── Build StripeClassificationMap from campaign metadata ─────────────
+      // Keys: campaign_id (preferred) and video_id (fallback).
+      // Campaigns with has_paid_consultation = true → 'consultation'.
+      // All others → 'offer'.
+      // Add manual overrides here if needed: classificationMap['specific-id'] = 'consultation'
+      const classificationMap: StripeClassificationMap = {};
+      for (const c of cData || []) {
+        classificationMap[c.id] = c.has_paid_consultation ? 'consultation' : 'offer';
+      }
+      for (const v of vData || []) {
+        // video_id fallback — inherits from campaign if available, else 'offer'
+        if (!classificationMap[v.id]) {
+          const parentCampaign = (cData || []).find((c: any) => c.id === v.campaign_id);
+          classificationMap[v.id] = parentCampaign?.has_paid_consultation ? 'consultation' : 'offer';
+        }
+      }
+      console.log('[InDepthAnalytics] classificationMap:', classificationMap);
+
+      // Enrich via processor helpers
+      const enrichedStripe = enrichStripePurchases(stripeRaw, stripeSessLookup, classificationMap);
       const enrichedPixel  = enrichPixelPurchases(pixelRaw, pixelSessLookup);
 
       console.log('[InDepthAnalytics] events direct:', eDirectData.data?.length ?? 0,
@@ -241,6 +276,7 @@ export default function InDepthAnalytics() {
         videoId:         v.id,
         campaignId:      v.campaign_id ?? null,
         campaign,
+        activeSource,
         events:          dateFilteredEvents,
         stripePurchases: sourceStripe,
         pixelPurchases:  sourcePixel,

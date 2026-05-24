@@ -14,11 +14,10 @@
 //   'newsletter'           → Newsletter Clicks  (also: 'newsletter_click')
 //   'newsletter_click'     → Newsletter Clicks
 //   'sales_call'           → Call Booking Clicks
-//   'consultation'         → Consultation Page Clicks  (also: 'consultation_booking')
+//   'consultation'         → Consultation Page Clicks (also: 'consultation_booking')
 //   'consultation_booking' → Consultation Page Clicks
 //
-// All other event_type values (page_view, checkout, purchase, etc.) exist in
-// the table but are NOT click metrics — they are ignored by click counters.
+// All other event_type values exist in the table but are NOT click metrics.
 
 export type RawClickEventType =
   | 'landing_page'
@@ -29,28 +28,37 @@ export type RawClickEventType =
   | 'consultation'
   | 'consultation_booking';
 
-// Maps each click metric key to the raw event_type values that count for it.
-// Multi-value arrays handle variant spellings in the database.
+// Maps each click/opt-in metric key → exact raw event_type strings from the DB.
+// Multi-value arrays handle variant spellings that exist in production.
 export const CLICK_EVENT_MAP: Record<string, string[]> = {
   landing_page_view:   ['landing_page'],
   lead_magnet_click:   ['lead_magnet'],
   newsletter_click:    ['newsletter', 'newsletter_click'],
   call_booking_click:  ['sales_call'],
   consultation_click:  ['consultation', 'consultation_booking'],
-  // Newsletter Opt-ins — read from events table (newsletter_thankyou / newsletter_optin)
+  // Newsletter Opt-ins — from events table (newsletter_thankyou / newsletter_optin)
   newsletter_thankyou: ['newsletter_thankyou', 'newsletter_optin'],
 };
 
 // ── 2. pixel_purchases event_type values ─────────────────────────────────────
 //
-//   'purchase'     → Direct Purchase conversion
-//   'sales_call'   → Call Booking Confirmed + EV source
-//   'consultation' → Consultation Purchase conversion
+//   'purchase'     → Direct Purchase conversion + direct_offer_revenue
+//   'sales_call'   → Call Booking Confirmed count + EV source
+//   'consultation' → Consultation conversion + consultation_revenue
 
-// ── 3. stripe_purchase_type payment_type values ───────────────────────────────
+// ── 3. stripe_purchases schema (REAL TABLE — NO payment_type COLUMN) ─────────
 //
-//   'offer'        → Direct Offer revenue
-//   'consultation' → Consultation revenue
+// Columns: id, stripe_session_id, token, video_id, campaign_id,
+//          amount, currency, created_at, user_id
+//
+// Classification into offer / consultation is done via StripeClassificationMap,
+// keyed by campaign_id (preferred) or video_id (fallback).
+
+export type StripeRevenueType = 'offer' | 'consultation';
+
+// Central classification map — populated from campaign metadata in the UI.
+// Key = campaign_id or video_id. Value = revenue type for that campaign/video.
+export type StripeClassificationMap = Record<string, StripeRevenueType>;
 
 // ── 4. Revenue mode ───────────────────────────────────────────────────────────
 
@@ -129,18 +137,18 @@ export const METRIC_COLORS: Record<MetricType, string> = {
 // ── 6. VideoMetrics shape ─────────────────────────────────────────────────────
 
 export interface VideoMetrics {
-  // click metrics — from events table, raw event_type match
+  // click metrics — events table, raw event_type match via CLICK_EVENT_MAP
   landing_page_view:      number;
   lead_magnet_click:      number;
   newsletter_click:       number;
   call_booking_click:     number;
   consultation_click:     number;
-  // conversion metrics — from pixel_purchases
+  // opt-in / conversion metrics
   newsletter_thankyou:    number;
   call_booking_thankyou:  number;
   consultation_thankyou:  number;
   purchase_thankyou:      number;
-  // revenue — Stripe verified (stripe_purchase_type)
+  // revenue — Stripe verified (stripe_purchases, classified by campaign/video map)
   stripe_revenue:         number;
   direct_offer_revenue:   number;
   consultation_revenue:   number;
@@ -149,7 +157,7 @@ export interface VideoMetrics {
   // computed
   total_revenue:          number;
   rpc:                    number;
-  // projection only — never added to totals
+  // projection only — NEVER added to total_revenue
   estimated_call_revenue: number;
   // mode metadata
   revenue_mode:           RevenueMode;
@@ -171,11 +179,13 @@ export function emptyVideoMetrics(mode: RevenueMode = 'hybrid'): VideoMetrics {
 
 // ── 7. Purchase row types ─────────────────────────────────────────────────────
 
+// stripe_purchases row — NO payment_type column in this table.
+// revenue_type is derived after fetch via StripeClassificationMap.
 export interface StripePurchaseRow {
   video_id:     string;
   campaign_id:  string;
   amount:       number;
-  payment_type: 'offer' | 'consultation';
+  revenue_type: StripeRevenueType; // derived via classification map, NOT from DB
   session_id?:  string | null;
 }
 
