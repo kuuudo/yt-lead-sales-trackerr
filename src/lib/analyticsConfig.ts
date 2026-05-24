@@ -32,11 +32,13 @@ export type RawClickEventType =
 // Maps each click metric key to the raw event_type values that count for it.
 // Multi-value arrays handle variant spellings in the database.
 export const CLICK_EVENT_MAP: Record<string, string[]> = {
-  landing_page_view:  ['landing_page'],
-  lead_magnet_click:  ['lead_magnet'],
-  newsletter_click:   ['newsletter', 'newsletter_click'],
-  call_booking_click: ['sales_call'],
-  consultation_click: ['consultation', 'consultation_booking'],
+  landing_page_view:   ['landing_page'],
+  lead_magnet_click:   ['lead_magnet'],
+  newsletter_click:    ['newsletter', 'newsletter_click'],
+  call_booking_click:  ['sales_call'],
+  consultation_click:  ['consultation', 'consultation_booking'],
+  // Newsletter Opt-ins — read from events table (newsletter_thankyou / newsletter_optin)
+  newsletter_thankyou: ['newsletter_thankyou', 'newsletter_optin'],
 };
 
 // ── 2. pixel_purchases event_type values ─────────────────────────────────────

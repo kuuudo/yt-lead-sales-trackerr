@@ -99,15 +99,18 @@ export function enrichStripePurchases(
           ? { ...p, ...sessionLookup[p.session_id] }
           : p;
 
-      // Only keep rows with a known payment_type
-      const pt = resolved.payment_type;
-      if (pt !== 'offer' && pt !== 'consultation') return null;
+      // Normalise payment_type — accept known variants, skip rows with no amount
+      const rawPt = (resolved.payment_type ?? '').toLowerCase().trim();
+      const pt: 'offer' | 'consultation' =
+        rawPt === 'consultation' ? 'consultation' : 'offer';
+      // Drop zero-amount rows
+      if ((resolved.amount ?? 0) <= 0) return null;
 
       return {
         video_id:     resolved.video_id    ?? '',
         campaign_id:  resolved.campaign_id ?? '',
         amount:       resolved.amount      ?? 0,
-        payment_type: pt as 'offer' | 'consultation',
+        payment_type: pt,
         session_id:   resolved.session_id  ?? null,
       } satisfies StripePurchaseRow;
     })
@@ -213,7 +216,12 @@ export function processVideoMetrics({
         if (seenPixelSessions.has(p.session_id)) continue;
         seenPixelSessions.add(p.session_id);
       }
-      metrics.pixel_revenue += p.amount ?? 0;
+      const amt = p.amount ?? 0;
+      metrics.pixel_revenue += amt;
+      // Also attribute to the correct revenue breakdown so these columns
+      // are non-zero in pixel and total modes
+      if (p.event_type === 'purchase')     metrics.direct_offer_revenue += amt;
+      if (p.event_type === 'consultation') metrics.consultation_revenue += amt;
     }
   }
 
