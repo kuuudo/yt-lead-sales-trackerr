@@ -110,6 +110,8 @@ export default function InDepthAnalytics() {
       const campaignIds = vData.map((v: any) => v.campaign_id).filter(Boolean);
 
       // Fetch events + purchases in parallel
+      // NOTE: stripe_purchase_type is the authoritative table — it has payment_type column.
+      //       stripe_purchases does NOT have payment_type and is NOT used here.
       const [eDirectData, eViaSessionData, spData, ppData] = await Promise.all([
         supabase
           .from('events')
@@ -122,13 +124,12 @@ export default function InDepthAnalytics() {
           .is('video_id', null)
           .in('sessions.video_id', videoIds),
 
-        // Fetch stripe_purchases by video_id OR campaign_id.
-        // Some rows carry only campaign_id (video_id = null), so we must filter
-        // on both to avoid missing those rows.
+        // Fetch from stripe_purchase_type — this table HAS payment_type column.
+        // Filter by video_id OR campaign_id to catch all rows.
         (() => {
           const q = supabase
-            .from('stripe_purchases')
-            .select('video_id, campaign_id, amount, stripe_session_id');
+            .from('stripe_purchase_type')
+            .select('video_id, campaign_id, amount, stripe_session_id, payment_type');
           if (campaignIds.length) {
             return q.or(
               `video_id.in.(${videoIds.join(',')}),campaign_id.in.(${campaignIds.join(',')})`,
@@ -179,13 +180,21 @@ export default function InDepthAnalytics() {
         return lookup;
       };
 
-      // Remap stripe_session_id → session_id for enrichStripePurchases compatibility
-      const stripeRaw = (spData.data || []).map((r: any) => ({
-        video_id:    r.video_id,
-        campaign_id: r.campaign_id,
-        amount:      r.amount,
-        session_id:  r.stripe_session_id ?? null,
-      }));
+      // Map stripe_purchase_type rows directly.
+      // payment_type column exists on this table — no classification map needed.
+      // Coerce amount to number (Supabase may return numeric columns as strings).
+      // Exclude payment_type='test' rows.
+      const stripeRaw = (spData.data || [])
+        .filter((r: any) => r.payment_type !== 'test')
+        .map((r: any) => ({
+          video_id:     r.video_id,
+          campaign_id:  r.campaign_id,
+          amount:       parseFloat(String(r.amount ?? '0')),
+          session_id:   r.stripe_session_id ?? null,
+          // Pass payment_type directly — will be picked up in enrichStripePurchases
+          // via a pre-set revenue_type that bypasses the classification map
+          _payment_type: r.payment_type as string | null,
+        }));
       const pixelRaw  = ppData.data || [];
 
       const [stripeSessLookup, pixelSessLookup] = await Promise.all([
@@ -193,27 +202,34 @@ export default function InDepthAnalytics() {
         buildSessionLookup(pixelRaw),
       ]);
 
-      // ── Build StripeClassificationMap from campaign metadata ─────────────
-      // Keys: campaign_id (preferred) and video_id (fallback).
-      // Campaigns with has_paid_consultation = true → 'consultation'.
-      // All others → 'offer'.
-      // Add manual overrides here if needed: classificationMap['specific-id'] = 'consultation'
-      const classificationMap: StripeClassificationMap = {};
-      for (const c of cData || []) {
-        classificationMap[c.id] = c.has_paid_consultation ? 'consultation' : 'offer';
-      }
-      for (const v of vData || []) {
-        // video_id fallback — inherits from campaign if available, else 'offer'
-        if (!classificationMap[v.id]) {
-          const parentCampaign = (cData || []).find((c: any) => c.id === v.campaign_id);
-          classificationMap[v.id] = parentCampaign?.has_paid_consultation ? 'consultation' : 'offer';
-        }
-      }
-      console.log('[InDepthAnalytics] classificationMap:', classificationMap);
+      // Build enrichedStripe directly from stripe_purchase_type rows.
+      // payment_type is already on each row — no classification map needed.
+      // 'offer' → direct_offer_revenue, 'consultation' → consultation_revenue.
+      // Any unknown payment_type defaults to 'offer'.
+      const enrichedStripe: import('../lib/analyticsConfig').StripePurchaseRow[] = stripeRaw
+        .map((r: any) => {
+          const resolvedVideoId    = r.video_id    ?? (stripeSessLookup[r.session_id ?? '']?.video_id    ?? '');
+          const resolvedCampaignId = r.campaign_id ?? (stripeSessLookup[r.session_id ?? '']?.campaign_id ?? '');
+          const amt = r.amount; // already parseFloat'd above
+          if (amt <= 0) return null;
+          const revenue_type: 'offer' | 'consultation' =
+            r._payment_type === 'consultation' ? 'consultation' : 'offer';
+          return {
+            video_id:     resolvedVideoId,
+            campaign_id:  resolvedCampaignId,
+            amount:       amt,
+            revenue_type,
+            session_id:   r.session_id ?? null,
+          };
+        })
+        .filter((p: any): p is import('../lib/analyticsConfig').StripePurchaseRow => p !== null);
 
-      // Enrich via processor helpers
-      const enrichedStripe = enrichStripePurchases(stripeRaw, stripeSessLookup, classificationMap);
-      const enrichedPixel  = enrichPixelPurchases(pixelRaw, pixelSessLookup);
+      // Enrich pixel via processor helper; also coerce pixel amounts to number
+      const pixelRawCoerced = (pixelRaw as any[]).map((r: any) => ({
+        ...r,
+        amount: parseFloat(String(r.amount ?? '0')),
+      }));
+      const enrichedPixel = enrichPixelPurchases(pixelRawCoerced, pixelSessLookup);
 
       console.log('[InDepthAnalytics] events direct:', eDirectData.data?.length ?? 0,
         '| via session:', sessionResolvedEvents.length,
@@ -302,7 +318,9 @@ export default function InDepthAnalytics() {
       const bNum = typeof bVal === 'string' ? parseFloat(bVal) : (bVal ?? 0);
       if (aNum < bNum) return sortConfig.direction === 'asc' ? -1 : 1;
       if (aNum > bNum) return sortConfig.direction === 'asc' ? 1 : -1;
-      return 0;
+      // Stable tiebreaker by video.id — prevents row reordering when toggling
+      // activeSource (which changes metric values but not video identity)
+      return a.video.id < b.video.id ? -1 : a.video.id > b.video.id ? 1 : 0;
     });
     return items;
   }, [processedVideos, sortConfig]);
