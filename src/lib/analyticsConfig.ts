@@ -30,14 +30,16 @@ export type RawClickEventType =
 
 // Maps each click/opt-in metric key → exact raw event_type strings from the DB.
 // Multi-value arrays handle variant spellings that exist in production.
+//
+// newsletter_thankyou is intentionally NOT in this map.
+// It is sourced from pixel_purchases (event_type = 'newsletter'), not from the
+// events table. Counting happens inside processVideoMetrics, not in Step 1.
 export const CLICK_EVENT_MAP: Record<string, string[]> = {
-  landing_page_view:   ['landing_page'],
-  lead_magnet_click:   ['lead_magnet'],
-  newsletter_click:    ['newsletter', 'newsletter_click'],
-  call_booking_click:  ['sales_call'],
-  consultation_click:  ['consultation', 'consultation_booking'],
-  // Newsletter Opt-ins — from events table (newsletter_thankyou / newsletter_optin)
-  newsletter_thankyou: ['newsletter_thankyou', 'newsletter_optin'],
+  landing_page_view:  ['landing_page'],
+  lead_magnet_click:  ['lead_magnet'],
+  newsletter_click:   ['newsletter', 'newsletter_click'],
+  call_booking_click: ['sales_call'],
+  consultation_click: ['consultation', 'consultation_booking'],
 };
 
 // ── 2. pixel_purchases event_type values ─────────────────────────────────────

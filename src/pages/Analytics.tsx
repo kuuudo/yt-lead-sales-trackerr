@@ -399,48 +399,64 @@ export default function Analytics() {
     // synthetic "orphan" entry so summaryStats can accumulate them.
     //
     // A row is "orphan" if its video_id is not in the current filteredVideos set.
+    //
+    // IMPORTANT: orphan rows must also respect the active campaign filter.
+    // Without this gate, a Stripe row belonging to Campaign A bleeds into the
+    // totals when the user has filtered to Campaign B, because its video_id is
+    // null / unresolved and therefore never matched by filteredVideos.
     const knownVideoIds = new Set(filteredVideos.map(v => v.id));
 
-    // Orphan pixel rows — video_id null or not in known set
+    // Orphan pixel rows — video_id null or not in known set, scoped to active campaign
     const orphanPixel = pixelPurchases.filter(
-      (p: any) => !p.video_id || !knownVideoIds.has(p.video_id)
+      (p: any) =>
+        (!p.video_id || !knownVideoIds.has(p.video_id)) &&
+        (selectedCampaign === 'all' || p.campaign_id === selectedCampaign),
     ) as PixelPurchaseRow[];
 
-    // Orphan stripe rows
+    // Orphan stripe rows — same campaign gate
     const orphanStripe = (stripePurchases as StripePurchaseRow[]).filter(
-      (p) => !p.video_id || !knownVideoIds.has(p.video_id)
+      (p) =>
+        (!p.video_id || !knownVideoIds.has(p.video_id)) &&
+        (selectedCampaign === 'all' || p.campaign_id === selectedCampaign),
     );
 
-    // Compute orphan revenue totals (respect activeSource)
-    let orphanPixelRevenue     = 0;
-    let orphanStripeRevenue    = 0;
-    let orphanDirectOffer      = 0;
-    let orphanConsultation     = 0;
-    let orphanEV               = 0;
-    let orphanPurchaseThankyou = 0;
-    let orphanConsultThankyou  = 0;
-    let orphanCallThankyou     = 0;
+    // Compute orphan revenue totals (respect activeSource).
+    // Revenue dedup uses the same composite key as processVideoMetrics:
+    //   `${session_id}:${event_type}:${amount}`
+    // A bare session_id is NOT safe here for the same reason as in the processor —
+    // sessions are long-lived and can span multiple distinct purchases.
+    let orphanPixelRevenue      = 0;
+    let orphanStripeRevenue     = 0;
+    let orphanDirectOffer       = 0;
+    let orphanConsultation      = 0;
+    let orphanEV                = 0;
+    let orphanPurchaseThankyou  = 0;
+    let orphanConsultThankyou   = 0;
+    let orphanCallThankyou      = 0;
+    let orphanNewsletterThankyou = 0;
 
     if (activeSource !== 'stripe') {
-      const seenSessions = new Set<string>();
+      const seenOrphanRevenueKeys = new Set<string>();
       for (const p of orphanPixel) {
-        // Conversion counts
+        // Conversion counts (no dedup)
         switch (p.event_type) {
-          case 'purchase':     orphanPurchaseThankyou++; break;
-          case 'sales_call':   orphanCallThankyou++;     break;
-          case 'consultation': orphanConsultThankyou++;  break;
+          case 'purchase':     orphanPurchaseThankyou++;   break;
+          case 'sales_call':   orphanCallThankyou++;       break;
+          case 'consultation': orphanConsultThankyou++;    break;
+          case 'newsletter':   orphanNewsletterThankyou++; break;
         }
-        // Revenue — dedup by session_id
+        // Revenue — composite dedup
         if ((p.amount ?? 0) > 0 &&
             (p.event_type === 'purchase' || p.event_type === 'consultation')) {
           if (p.session_id) {
-            if (seenSessions.has(p.session_id)) continue;
-            seenSessions.add(p.session_id);
+            const dedupKey = `${p.session_id}:${p.event_type}:${p.amount}`;
+            if (seenOrphanRevenueKeys.has(dedupKey)) continue;
+            seenOrphanRevenueKeys.add(dedupKey);
           }
           const amt = p.amount ?? 0;
           orphanPixelRevenue += amt;
-          if (p.event_type === 'purchase')     orphanDirectOffer   += amt;
-          if (p.event_type === 'consultation') orphanConsultation  += amt;
+          if (p.event_type === 'purchase')     orphanDirectOffer  += amt;
+          if (p.event_type === 'consultation') orphanConsultation += amt;
         }
         // EV
         if (p.event_type === 'sales_call' && (p.amount ?? 0) > 0) {
@@ -480,15 +496,16 @@ export default function Analytics() {
       timeline: sortedTimeline,
       // Expose orphan totals so summaryStats can add them
       orphan: {
-        pixel_revenue:          orphanPixelRevenue,
-        stripe_revenue:         orphanStripeRevenue,
-        direct_offer_revenue:   orphanDirectOffer,
-        consultation_revenue:   orphanConsultation,
-        estimated_call_revenue: orphanEV,
-        total_revenue:          orphanTotalRevenue,
-        purchase_thankyou:      orphanPurchaseThankyou,
-        consultation_thankyou:  orphanConsultThankyou,
-        call_booking_thankyou:  orphanCallThankyou,
+        pixel_revenue:           orphanPixelRevenue,
+        stripe_revenue:          orphanStripeRevenue,
+        direct_offer_revenue:    orphanDirectOffer,
+        consultation_revenue:    orphanConsultation,
+        estimated_call_revenue:  orphanEV,
+        total_revenue:           orphanTotalRevenue,
+        purchase_thankyou:       orphanPurchaseThankyou,
+        consultation_thankyou:   orphanConsultThankyou,
+        call_booking_thankyou:   orphanCallThankyou,
+        newsletter_thankyou:     orphanNewsletterThankyou,
       },
     };
   }, [filteredVideos, dateFilteredEvents, stripePurchases, pixelPurchases, campaigns, granularity, videoIds, selectedVideoIds, activeSource]);
@@ -547,6 +564,7 @@ export default function Analytics() {
     stats.purchase_thankyou      += processedData.orphan.purchase_thankyou;
     stats.consultation_thankyou  += processedData.orphan.consultation_thankyou;
     stats.call_booking_thankyou  += processedData.orphan.call_booking_thankyou;
+    stats.newsletter_thankyou    += processedData.orphan.newsletter_thankyou;
 
     // RPC: total_revenue / sum of all 5 click columns (mirrors analyticsProcessor formula)
     const totalClicks =
