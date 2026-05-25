@@ -421,10 +421,9 @@ export default function Analytics() {
     );
 
     // Compute orphan revenue totals (respect activeSource).
-    // Revenue dedup uses the same composite key as processVideoMetrics:
-    //   `${session_id}:${event_type}:${amount}`
-    // A bare session_id is NOT safe here for the same reason as in the processor —
-    // sessions are long-lived and can span multiple distinct purchases.
+    // No intra-pixel dedup: each pixel_purchases row is an authoritative
+    // purchase record. session_id is browser identity, not transaction identity —
+    // one session can contain multiple real purchases and must not collapse revenue.
     let orphanPixelRevenue      = 0;
     let orphanStripeRevenue     = 0;
     let orphanDirectOffer       = 0;
