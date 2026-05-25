@@ -173,7 +173,6 @@ const generateAttributionPixel = (
 <script>
 (function () {
   const CONFIG = {
-    campaign_id: '${campaignId}',
     event_type: '${eventType}',
     default_video_id: 'unknown'
   };
@@ -187,7 +186,7 @@ const generateAttributionPixel = (
   const campaignId =
     params.get('vt_cid') ||
     localStorage.getItem('yt_tracker_campaign_id') ||
-    CONFIG.campaign_id;
+    null;
   if (sessionId) localStorage.setItem('yt_tracker_session_id', sessionId);
   if (videoId) localStorage.setItem('yt_tracker_video_id', videoId);
   if (campaignId) localStorage.setItem('yt_tracker_campaign_id', campaignId);
