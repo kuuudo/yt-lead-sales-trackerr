@@ -1,5 +1,5 @@
 // ─────────────────────────────────────────────────────────────────────────────
-// AnalyticsTest.tsx — FIXED WORKING VERSION
+// AnalyticsTest.tsx — ENGINE MIRROR PAGE (SAFE COPY OF /analytics)
 // route: /analytics-test
 // ─────────────────────────────────────────────────────────────────────────────
 
@@ -8,6 +8,16 @@ import { useAuth } from '../lib/auth';
 import { useLanguage } from '../lib/hooks';
 import { supabase } from '../lib/supabase';
 import { getAnalyticsEngine } from '../lib/analyticsEngine';
+
+import {
+  ResponsiveContainer,
+  LineChart,
+  Line,
+  XAxis,
+  YAxis,
+  Tooltip,
+  CartesianGrid,
+} from 'recharts';
 
 export default function AnalyticsTest() {
   const { user } = useAuth();
@@ -23,7 +33,7 @@ export default function AnalyticsTest() {
   const [pixelPurchases, setPixelPurchases] = useState<any[]>([]);
 
   // ─────────────────────────────
-  // FETCH REAL DATA
+  // LOAD DATA
   // ─────────────────────────────
   useEffect(() => {
     async function load() {
@@ -42,7 +52,7 @@ export default function AnalyticsTest() {
         setStripePurchases(stripe || []);
         setPixelPurchases(pixel || []);
       } catch (err) {
-        console.error('AnalyticsTest fetch error:', err);
+        console.error(err);
       } finally {
         setLoading(false);
       }
@@ -52,9 +62,11 @@ export default function AnalyticsTest() {
   }, [user]);
 
   // ─────────────────────────────
-  // ENGINE (REAL DATA)
+  // ENGINE
   // ─────────────────────────────
   const engineResult = useMemo(() => {
+    if (!videos.length && !campaigns.length) return null;
+
     return getAnalyticsEngine({
       videos,
       campaigns,
@@ -72,7 +84,7 @@ export default function AnalyticsTest() {
   }, [videos, campaigns, events, stripePurchases, pixelPurchases]);
 
   // ─────────────────────────────
-  // LOADING STATE
+  // LOADING
   // ─────────────────────────────
   if (loading) {
     return (
@@ -83,6 +95,37 @@ export default function AnalyticsTest() {
   }
 
   // ─────────────────────────────
+  // ENGINE SAFE DATA
+  // ─────────────────────────────
+  const topVideos = engineResult?.sortedVideos || [];
+
+  const chartData = topVideos.slice(0, 10).map((v: any) => ({
+    name: v.title?.slice(0, 12) || 'video',
+    revenue: v.total_revenue || 0,
+    clicks: v.landing_page_view || 0,
+  }));
+
+  const totals = useMemo(() => {
+    if (!topVideos.length) {
+      return {
+        revenue: 0,
+        clicks: 0,
+        conversions: 0,
+      };
+    }
+
+    return topVideos.reduce(
+      (acc: any, v: any) => {
+        acc.revenue += v.total_revenue || 0;
+        acc.clicks += v.landing_page_view || 0;
+        acc.conversions += v.purchase_thankyou || 0;
+        return acc;
+      },
+      { revenue: 0, clicks: 0, conversions: 0 }
+    );
+  }, [topVideos]);
+
+  // ─────────────────────────────
   // UI
   // ─────────────────────────────
   return (
@@ -90,7 +133,7 @@ export default function AnalyticsTest() {
 
       {/* HEADER */}
       <div className="flex items-center gap-3 mb-6">
-        <h1 className="text-xl font-black">Analytics Test</h1>
+        <h1 className="text-xl font-black">Analytics Test (ENGINE MIRROR)</h1>
 
         <button
           onClick={() => setShowDebugPanel(v => !v)}
@@ -100,7 +143,7 @@ export default function AnalyticsTest() {
         </button>
       </div>
 
-      {/* DEBUG PANEL */}
+      {/* DEBUG */}
       {showDebugPanel && (
         <div className="mb-6 p-4 border border-yellow-500/30 bg-yellow-500/5 text-xs rounded">
           <div>Debug Panel Active</div>
@@ -110,37 +153,46 @@ export default function AnalyticsTest() {
           <div>Stripe rows: {stripePurchases.length}</div>
           <div>Pixel rows: {pixelPurchases.length}</div>
           <div className="mt-2 font-bold text-green-400">
-            Engine Videos: {engineResult?.sortedVideos?.length || 0}
+            Engine Videos: {topVideos.length}
           </div>
         </div>
       )}
 
-      {/* MAIN STATS */}
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+      {/* SUMMARY */}
+      <div className="grid grid-cols-3 gap-4 mb-8">
         <div className="p-4 border border-zinc-800 rounded">
-          <div className="text-xs text-zinc-400">Videos</div>
-          <div className="text-lg font-bold">{videos.length}</div>
+          <div className="text-xs text-zinc-400">Revenue</div>
+          <div className="text-xl font-bold">${totals.revenue.toFixed(2)}</div>
         </div>
 
         <div className="p-4 border border-zinc-800 rounded">
-          <div className="text-xs text-zinc-400">Campaigns</div>
-          <div className="text-lg font-bold">{campaigns.length}</div>
+          <div className="text-xs text-zinc-400">Clicks</div>
+          <div className="text-xl font-bold">{totals.clicks}</div>
         </div>
 
         <div className="p-4 border border-zinc-800 rounded">
-          <div className="text-xs text-zinc-400">Stripe Purchases</div>
-          <div className="text-lg font-bold">{stripePurchases.length}</div>
-        </div>
-
-        <div className="p-4 border border-zinc-800 rounded">
-          <div className="text-xs text-zinc-400">Pixel Purchases</div>
-          <div className="text-lg font-bold">{pixelPurchases.length}</div>
+          <div className="text-xs text-zinc-400">Conversions</div>
+          <div className="text-xl font-bold">{totals.conversions}</div>
         </div>
       </div>
 
-      {/* ENGINE OUTPUT PREVIEW */}
+      {/* CHART */}
+      <div className="h-72 border border-zinc-800 rounded p-4">
+        <ResponsiveContainer width="100%" height="100%">
+          <LineChart data={chartData}>
+            <CartesianGrid strokeDasharray="3 3" />
+            <XAxis dataKey="name" />
+            <YAxis />
+            <Tooltip />
+            <Line type="monotone" dataKey="revenue" stroke="#22c55e" />
+            <Line type="monotone" dataKey="clicks" stroke="#60a5fa" />
+          </LineChart>
+        </ResponsiveContainer>
+      </div>
+
+      {/* ENGINE STATUS */}
       <div className="mt-8 text-sm text-zinc-400">
-        Engine loaded {engineResult?.sortedVideos?.length || 0} processed videos
+        Engine loaded {topVideos.length} processed videos
       </div>
 
     </div>
