@@ -420,7 +420,7 @@ export default function DashboardTest() {
   return (
     <div className="space-y-8">
 
-      {/* ── Header ──────────────────────────────────────────────────────────── */}
+      {/* ── Header — matches legacy Dashboard layout exactly ─────────────────── */}
       <header className="flex justify-between items-end">
         <div>
           <h1 className="text-3xl font-bold text-white flex items-center gap-3">
@@ -434,6 +434,7 @@ export default function DashboardTest() {
             Operational Revenue View
           </p>
         </div>
+        {/* 🟡 LEGACY FALLBACK: navigation — verbatim from Dashboard.tsx */}
         <Link
           to="/analytics"
           className="bg-zinc-900 border border-zinc-800 text-white px-5 py-2.5 rounded-xl text-[10px] font-black uppercase tracking-widest flex items-center gap-2 hover:bg-zinc-800 transition-all"
@@ -443,52 +444,7 @@ export default function DashboardTest() {
       </header>
 
 
-      {/* ── Filters Bar ─────────────────────────────────────────────────────── */}
-      {/*
-       * Source toggle + campaign filter live here.
-       * 🟢 ENGINE-DRIVEN: both values feed directly into AnalyticsEngineInput.
-       */}
-      <section className="flex flex-wrap items-center gap-3">
-
-        {/* Source toggle: TOTAL → PIXEL → STRIPE */}
-        <div className="flex items-center gap-1 p-1 bg-zinc-900 border border-zinc-800 rounded-xl">
-          {SOURCE_ORDER.map(({ value, label }) => (
-            <button
-              key={value}
-              onClick={() => setActiveSource(value)}
-              className={`px-3 py-1.5 rounded-lg text-[9px] font-black uppercase tracking-widest transition-all ${
-                activeSource === value
-                  ? 'bg-zinc-700 text-white'
-                  : 'text-zinc-600 hover:text-zinc-400'
-              }`}
-            >
-              {label}
-            </button>
-          ))}
-        </div>
-
-        {/* Campaign filter */}
-        <div className="relative">
-          <select
-            value={selectedCampaignId}
-            onChange={e => setSelectedCampaignId(e.target.value)}
-            className="appearance-none bg-zinc-900 border border-zinc-800 text-zinc-400 text-[9px] font-black uppercase tracking-widest px-3 py-2 pr-7 rounded-xl cursor-pointer hover:border-zinc-700 transition-all focus:outline-none focus:border-zinc-600"
-          >
-            <option value="all">All Campaigns</option>
-            {campaigns.map(c => (
-              <option key={c.id} value={c.id}>{c.campaign_name || c.id}</option>
-            ))}
-          </select>
-          <ChevronDown size={10} className="absolute right-2 top-1/2 -translate-y-1/2 text-zinc-600 pointer-events-none" />
-        </div>
-
-        <span className="text-[9px] font-black uppercase tracking-widest text-zinc-600">
-          Showing: <span className="text-zinc-400">{displayRevenueLabel}</span>
-        </span>
-      </section>
-
-
-      {/* ── KPI Cards (max 5) ────────────────────────────────────────────────── */}
+      {/* ── KPI Cards (5) ────────────────────────────────────────────────────── */}
       {/*
        * METRIC DELTA vs Dashboard.tsx:
        *   ❌ REMOVED: "Revenue Per Click" card
@@ -496,7 +452,50 @@ export default function DashboardTest() {
        *   ✅ ADDED:   "Paid Consultation Booked" → campaignTotals.consultation_thankyou
        * All values: 🟢 ENGINE-DRIVEN via engineResult.campaignTotals
        */}
-      <section className="grid grid-cols-2 md:grid-cols-5 gap-4">
+      <section className="grid grid-cols-2 md:grid-cols-4 gap-4">
+
+        {/* Source toggle lives inside the cards row, flush left — matches Image 1 */}
+        <div className="col-span-2 md:col-span-4 flex items-center gap-3 mb-0">
+          {/* Source toggle: TOTAL → PIXEL → STRIPE */}
+          {/* 🟢 ENGINE-DRIVEN: activeSource → AnalyticsEngineInput.activeSource */}
+          <div className="flex items-center gap-1 p-1 bg-zinc-900 border border-zinc-800 rounded-xl">
+            {SOURCE_ORDER.map(({ value, label }) => (
+              <button
+                key={value}
+                onClick={() => setActiveSource(value)}
+                className={`px-3 py-1.5 rounded-lg text-[9px] font-black uppercase tracking-widest transition-all ${
+                  activeSource === value
+                    ? 'bg-zinc-700 text-white'
+                    : 'text-zinc-600 hover:text-zinc-400'
+                }`}
+              >
+                {label}
+              </button>
+            ))}
+          </div>
+
+          {/* Campaign filter */}
+          {/* 🟢 ENGINE-DRIVEN: selectedCampaignId → AnalyticsEngineInput.selectedCampaignId */}
+          <div className="relative">
+            <select
+              value={selectedCampaignId}
+              onChange={e => setSelectedCampaignId(e.target.value)}
+              className="appearance-none bg-zinc-900 border border-zinc-800 text-zinc-400 text-[9px] font-black uppercase tracking-widest px-3 py-2 pr-7 rounded-xl cursor-pointer hover:border-zinc-700 transition-all focus:outline-none focus:border-zinc-600"
+            >
+              <option value="all">All Campaigns</option>
+              {campaigns.map(c => (
+                <option key={c.id} value={c.id}>{c.campaign_name || c.id}</option>
+              ))}
+            </select>
+            <ChevronDown size={10} className="absolute right-2 top-1/2 -translate-y-1/2 text-zinc-600 pointer-events-none" />
+          </div>
+
+          <span className="text-[9px] font-black uppercase tracking-widest text-zinc-600">
+            Showing: <span className="text-zinc-400">{displayRevenueLabel}</span>
+          </span>
+        </div>
+
+        {/* 5 KPI cards */}
         {[
           {
             label:    t.dashboard.metrics.revenue,
@@ -512,8 +511,7 @@ export default function DashboardTest() {
             sublabel: undefined,
             icon:     ShoppingCart,
             color:    'text-emerald-400',
-            // 🟢 ENGINE-DRIVEN: campaignTotals.purchase_thankyou
-            // ✅ NEW — replaces "Revenue Per Click"
+            // 🟢 ENGINE-DRIVEN: campaignTotals.purchase_thankyou — ✅ NEW replaces RPC
           },
           {
             label:    'Paid Consult Booked',
@@ -521,8 +519,7 @@ export default function DashboardTest() {
             sublabel: undefined,
             icon:     Briefcase,
             color:    'text-purple-400',
-            // 🟢 ENGINE-DRIVEN: campaignTotals.consultation_thankyou
-            // ✅ NEW
+            // 🟢 ENGINE-DRIVEN: campaignTotals.consultation_thankyou — ✅ NEW
           },
           {
             label:    t.dashboard.metrics.optins,
@@ -559,69 +556,70 @@ export default function DashboardTest() {
       </section>
 
 
-      {/* ── Main Grid: Top Videos + Right Column ─────────────────────────────── */}
+      {/* ── Main Grid ────────────────────────────────────────────────────────── */}
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-8">
 
-        {/* ── Top 5 Videos Table ───────────────────────────────────────────── */}
-        {/* 🟢 ENGINE-DRIVEN: sortedVideos[0..4] from getAnalyticsEngine() */}
+        {/* ── Top 10 Videos Table ──────────────────────────────────────────── */}
+        {/* 🟢 ENGINE-DRIVEN: sortedVideos[0..9] from getAnalyticsEngine() */}
         <section className="lg:col-span-9 bento-card p-0 overflow-hidden">
           <div className="p-4 border-b border-zinc-900 bg-zinc-900/10 flex justify-between items-center">
             <h2 className="label-caps !text-white">{t.dashboard.topPerformers}</h2>
-            <span className="text-[10px] font-bold uppercase text-zinc-600">
-              Top 5 · <span className="text-red-500">{displayRevenueLabel}</span>
-            </span>
+            <div className="flex gap-2">
+              <span className="text-[10px] font-bold uppercase text-zinc-600">Top 10 ·</span>
+              <span className="text-[10px] font-bold uppercase text-red-500 underline decoration-red-900 underline-offset-4">{displayRevenueLabel}</span>
+            </div>
           </div>
 
           <div className="overflow-x-auto">
             <table className="w-full text-left">
               <thead className="bg-zinc-950/50 border-b border-zinc-900">
                 <tr className="text-[9px] font-black uppercase tracking-widest text-zinc-500">
-                  <th className="px-6 py-3">Video</th>
-                  <th className="px-6 py-3 text-center">Clicks</th>
-                  <th className="px-6 py-3 text-center">Opt-ins</th>
-                  <th className="px-6 py-3 text-center">Direct</th>
-                  <th className="px-6 py-3 text-center">Consult</th>
-                  <th className="px-6 py-3 text-right">Revenue</th>
+                  <th className="px-6 py-4">Video</th>
+                  <th className="px-6 py-4 text-center">Clicks</th>
+                  <th className="px-6 py-4 text-center">Opt-ins</th>
+                  <th className="px-6 py-4 text-center">Direct</th>
+                  <th className="px-6 py-4 text-center">Consult</th>
+                  <th className="px-6 py-4 text-right">Revenue</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-zinc-900/50">
                 {loading ? (
                   Array.from({ length: 5 }).map((_, i) => (
                     <tr key={i} className="animate-pulse">
-                      <td colSpan={6} className="px-6 py-6">
+                      <td colSpan={6} className="px-6 py-8">
                         <div className="h-4 bg-zinc-900 rounded w-full" />
                       </td>
                     </tr>
                   ))
                 ) : sortedVideos.length === 0 ? (
                   <tr>
-                    <td colSpan={6} className="px-6 py-16 text-center">
+                    <td colSpan={6} className="px-6 py-20 text-center">
                       <p className="text-[10px] font-bold uppercase text-zinc-600">
-                        No campaign data yet
+                        Secure campaign data to see rankings
                       </p>
                     </td>
                   </tr>
                 ) : (
-                  // 🟢 ENGINE-DRIVEN: slice to top 5
-                  sortedVideos.slice(0, 5).map(row => (
+                  // 🟢 ENGINE-DRIVEN: top 10
+                  sortedVideos.slice(0, 10).map(row => (
                     <tr
                       key={row.video.id}
                       className="hover:bg-white/[0.01] transition-colors group cursor-pointer"
                       onClick={() => navigate(`/videos/${row.video.id}`)}
                     >
                       <td className="px-6 py-4">
-                        <div className="flex items-center gap-3">
+                        <div className="flex items-center gap-4">
                           <img
                             src={row.video.thumbnail_url}
-                            className="w-14 aspect-video rounded object-cover border border-zinc-900 grayscale group-hover:grayscale-0 transition-all shrink-0"
+                            className="w-16 aspect-video rounded-lg object-cover border border-zinc-900 grayscale group-hover:grayscale-0 transition-all"
                           />
-                          <div className="min-w-0">
-                            <p className="text-[11px] font-bold text-zinc-300 truncate leading-tight max-w-[160px]">
+                          <div className="min-w-0 max-w-[180px]">
+                            <p className="text-[11px] font-bold text-zinc-300 truncate leading-tight mb-1">
                               {row.video.video_title}
                             </p>
-                            <div className="flex items-center gap-1.5 mt-0.5">
+                            <div className="flex items-center gap-1.5">
                               {getStatusIcon((row.video as any).status ?? 'active')}
-                              <span className="text-[9px] font-black uppercase text-zinc-700 tracking-tighter">
+                              <span className="text-[9px] font-black uppercase text-zinc-600 tracking-tighter">
                                 {((row.video as any).status ?? 'active').replace('_', ' ')}
                               </span>
                             </div>
@@ -647,8 +645,8 @@ export default function DashboardTest() {
                         <div className="text-xs font-black text-white">
                           ${rowRevenue(row).toLocaleString()}
                         </div>
-                        <div className="text-[9px] font-bold text-zinc-700 uppercase tracking-tighter">
-                          ${row.rpc} rpc
+                        <div className="text-[9px] font-bold text-green-500/50 uppercase tracking-tighter">
+                          ${row.rpc} RPC
                         </div>
                       </td>
                     </tr>
@@ -660,46 +658,46 @@ export default function DashboardTest() {
         </section>
 
 
-        {/* ── Right Column ─────────────────────────────────────────────────── */}
-        <section className="lg:col-span-3 space-y-4">
+        {/* ── Right Sidebar ────────────────────────────────────────────────── */}
+        <section className="lg:col-span-3 space-y-6">
 
-          {/* Conversion Summary — compact */}
+          {/* Conversion Summary */}
           {/* 🟢 ENGINE-DRIVEN: all values from campaignTotals */}
           <div className="bento-card">
-            <p className="label-caps mb-3">Conversions</p>
-            <div className="space-y-2.5">
+            <p className="label-caps mb-4">Conversions</p>
+            <div className="space-y-4">
               {[
-                { label: 'Direct Purchases',  value: totals.purchase_thankyou,     color: 'text-emerald-400' },
-                { label: 'Paid Consultations', value: totals.consultation_thankyou, color: 'text-purple-400'  },
-                { label: 'Call Bookings',      value: totals.call_booking_thankyou, color: 'text-blue-400'    },
-                { label: 'Newsletter Opt-ins', value: totals.newsletter_thankyou,   color: 'text-orange-400'  },
+                { label: 'Direct Purchases',   value: totals.purchase_thankyou,     color: 'text-emerald-400' },
+                { label: 'Paid Consultations',  value: totals.consultation_thankyou, color: 'text-purple-400'  },
+                { label: 'Call Bookings',       value: totals.call_booking_thankyou, color: 'text-blue-400'    },
+                { label: 'Newsletter Opt-ins',  value: totals.newsletter_thankyou,   color: 'text-orange-400'  },
               ].map(item => (
-                <div key={item.label} className="flex justify-between items-center">
-                  <span className="text-[10px] font-bold uppercase text-zinc-600">{item.label}</span>
-                  <span className={`text-xs font-black ${item.color}`}>{item.value}</span>
+                <div key={item.label} className="flex justify-between items-center text-[10px] font-bold uppercase">
+                  <span className="text-zinc-500">{item.label}</span>
+                  <span className={`${item.color} font-black`}>{item.value}</span>
                 </div>
               ))}
             </div>
           </div>
 
-          {/* System Status — minimal */}
-          {/* 🟡 LEGACY FALLBACK: health stats are UI-only, not engine */}
-          <div className="bento-card">
-            <p className="label-caps mb-3">{t.dashboard.health}</p>
-            <div className="space-y-2.5">
+          {/* Tracking Health */}
+          {/* 🟡 LEGACY FALLBACK: health stats — not engine */}
+          <div className="bento-card border-red-600/20 bg-red-600/5">
+            <h3 className="label-caps !text-red-500 mb-4">{t.dashboard.health}</h3>
+            <div className="space-y-4">
               {[
-                { label: 'Active Videos', value: videos.length,              color: 'text-green-500'  },
-                { label: 'Events',         value: engineResult.debug.rowCounts.rawEvents,  color: 'text-zinc-400'  },
-                { label: 'Stripe Rows',    value: engineResult.debug.rowCounts.stripePurchases, color: 'text-zinc-400' },
-                { label: 'Pixel Rows',     value: engineResult.debug.rowCounts.pixelPurchases,  color: 'text-zinc-400' },
+                { label: 'Active Videos', value: videos.length,                                    color: 'text-green-500' },
+                { label: 'Events',        value: engineResult.debug.rowCounts.rawEvents,           color: 'text-zinc-400'  },
+                { label: 'Stripe Rows',   value: engineResult.debug.rowCounts.stripePurchases,     color: 'text-zinc-400'  },
+                { label: 'Pixel Rows',    value: engineResult.debug.rowCounts.pixelPurchases,      color: 'text-zinc-400'  },
               ].map(h => (
-                <div key={h.label} className="flex justify-between items-center">
-                  <span className="text-[10px] font-bold uppercase text-zinc-600">{h.label}</span>
-                  <span className={`text-xs font-black ${h.color}`}>{h.value}</span>
+                <div key={h.label} className="flex justify-between items-center text-[10px] font-bold uppercase">
+                  <span className="text-zinc-500">{h.label}</span>
+                  <span className={`${h.color} font-black`}>{h.value}</span>
                 </div>
               ))}
             </div>
-            <div className="mt-4 pt-3 border-t border-zinc-900">
+            <div className="mt-6 pt-4 border-t border-red-600/10">
               <button
                 onClick={simulateTraffic}
                 disabled={loading}
@@ -712,12 +710,12 @@ export default function DashboardTest() {
 
           {/* Quick Actions */}
           {/* 🟡 LEGACY FALLBACK: pure navigation */}
-          <div className="bento-card">
-            <p className="label-caps mb-3">Quick Actions</p>
-            <div className="space-y-1.5">
-              <Link to="/videos"    className="w-full block py-2.5 px-3 bg-zinc-900 border border-zinc-800 rounded-lg text-[10px] font-black uppercase text-zinc-400 hover:text-white hover:border-zinc-700 transition-all">Track New Video</Link>
-              <Link to="/campaigns" className="w-full block py-2.5 px-3 bg-zinc-900 border border-zinc-800 rounded-lg text-[10px] font-black uppercase text-zinc-400 hover:text-white hover:border-zinc-700 transition-all">View All Funnels</Link>
-              <Link to="/dashboard" className="w-full block py-2.5 px-3 bg-zinc-900 border border-zinc-800 rounded-lg text-[10px] font-black uppercase text-zinc-500 hover:text-zinc-300 hover:border-zinc-700 transition-all">← Legacy Dashboard</Link>
+          <div className="bento-card border-blue-500/10">
+            <p className="label-caps mb-4">Quick Actions</p>
+            <div className="space-y-2">
+              <Link to="/videos"    className="w-full block py-3 px-4 bg-zinc-900 border border-zinc-800 rounded-xl text-[10px] font-black uppercase text-zinc-400 hover:text-white hover:border-zinc-700 transition-all">Track New Video</Link>
+              <Link to="/campaigns" className="w-full block py-3 px-4 bg-zinc-900 border border-zinc-800 rounded-xl text-[10px] font-black uppercase text-zinc-400 hover:text-white hover:border-zinc-700 transition-all">View All Funnels</Link>
+              <Link to="/dashboard" className="w-full block py-3 px-4 bg-zinc-900 border border-zinc-800 rounded-xl text-[10px] font-black uppercase text-zinc-500 hover:text-zinc-300 hover:border-zinc-700 transition-all">← Legacy Dashboard</Link>
             </div>
           </div>
 
