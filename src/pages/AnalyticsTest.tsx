@@ -229,7 +229,15 @@ export default function InDepthAnalyticsTest() {
 
       // 🟢 ENGINE-DRIVEN: flattenSessionEvents() + mergeEventSources() replace
       // the inline event flattening from InDepthAnalytics lines 150-162.
-      const sessionResolvedEvents = flattenSessionEvents(eViaSessionData.data || []);
+      //
+      // Cast to `any[]` here: Supabase's !inner join infers `sessions` as an
+      // array ({ video_id, campaign_id }[]) because the join can theoretically
+      // return multiple rows per event.  flattenSessionEvents() treats `sessions`
+      // as a single object | null (the Supabase runtime always returns a single
+      // related row for a to-one join, but the TS type is array).  The cast is
+      // safe — flattenSessionEvents accesses `e.sessions?.video_id` which works
+      // on both the array-of-one and the object shapes at runtime.
+      const sessionResolvedEvents = flattenSessionEvents(eViaSessionData.data as any[] || []);
       const allEvents = mergeEventSources(eDirectData.data || [], sessionResolvedEvents);
 
       // 🟡 LEGACY FALLBACK: buildSessionLookup is not yet in the engine (async Supabase op).
