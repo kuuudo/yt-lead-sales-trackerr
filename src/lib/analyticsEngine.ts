@@ -308,7 +308,7 @@ export function enrichStripePurchases(
   classificationMap:   StripeClassificationMap,
 ): StripePurchaseRow[] {
   return raw
-    .map(p => {
+    .map((p): StripePurchaseRow | null => {
       // Resolve missing video_id / campaign_id via session
       const resolved =
         !p.video_id && p.session_id && sessionLookup[p.session_id]
@@ -333,7 +333,7 @@ export function enrichStripePurchases(
         amount:       resolved.amount ?? 0,
         revenue_type,
         session_id:   resolved.session_id ?? null,
-      } satisfies StripePurchaseRow;
+      };
     })
     .filter((p): p is StripePurchaseRow => p !== null);
 }
@@ -1061,7 +1061,6 @@ export function getAnalyticsEngine(input: AnalyticsEngineInput): AnalyticsEngine
   console.log('[analyticsEngine:getAnalyticsEngine] result', {
     activeSource,
     dateRange,
-    filteredVideos:        filteredVideos.length,
     processedVideos:       processedVideos.length,
     ...debug.rowCounts,
     pixelBreakdown:        debug.revenueBreakdown.pixel,
@@ -1114,7 +1113,7 @@ export function buildStripeFromPurchaseTypeTable(
 ): StripePurchaseRow[] {
   return raw
     .filter(r => r.payment_type !== 'test')
-    .map(r => {
+    .map((r): StripePurchaseRow | null => {
       const sessionId = r.stripe_session_id ?? null;
       const resolvedVideoId    = r.video_id    ?? (sessionLookup[sessionId ?? '']?.video_id    ?? '');
       const resolvedCampaignId = r.campaign_id ?? (sessionLookup[sessionId ?? '']?.campaign_id ?? '');
@@ -1128,7 +1127,7 @@ export function buildStripeFromPurchaseTypeTable(
         amount:      amt,
         revenue_type,
         session_id:  sessionId,
-      } satisfies StripePurchaseRow;
+      };
     })
     .filter((p): p is StripePurchaseRow => p !== null);
 }
