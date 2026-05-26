@@ -207,28 +207,37 @@ export default function VideoDetail() {
 
   // ── Fetch ────────────────────────────────────────────────────────────────────
 
+  // Primary trigger: fires when id is available (covers normal load + navigation)
+  useEffect(() => {
+    if (id && user) fetchData();
+  }, [id]);
+
+  // Secondary trigger: fires when auth resolves after mount (delayed auth)
   useEffect(() => {
     if (user && id) fetchData();
-  }, [user, id]);
+  }, [user]);
 
   const fetchData = async () => {
+    console.log('[VideoDetail] fetchData START — id:', id, 'user:', (user as any)?.id ?? 'null');
     setLoading(true);
     try {
       // ── Video + campaign ────────────────────────────────────────────────────
       const { data: vData, error: vErr } = await supabase
         .from('videos').select('*').eq('id', id).single();
+      console.log('[VideoDetail] video query — error:', vErr?.message ?? 'none', 'found:', !!vData);
       if (vErr) throw vErr;
       setVideo(vData);
 
       setEditForm({
         campaign_id:              vData.campaign_id,
-        video_goal:               vData.video_goal,
+        video_goal:               vData.video_goal ?? [],
         has_lead_magnet:          !!(vData.selected_lead_magnet_ids?.length),
         selected_lead_magnet_ids: vData.selected_lead_magnet_ids || [],
       });
 
       const { data: cData } = await supabase
         .from('campaigns').select('*').eq('id', vData.campaign_id).single();
+      console.log('[VideoDetail] campaign query — found:', !!cData);
       setCampaign(cData);
 
       if (vData.selected_lead_magnet_ids?.length) {
@@ -259,6 +268,7 @@ export default function VideoDetail() {
       const campaignId  = vData.campaign_id;
       const videoIdVal  = vData.id as string;
 
+      console.log('[VideoDetail] starting parallel queries — videoId:', videoIdVal, 'campaignId:', campaignId);
       const [eDirectRes, eViaSessionRes, spRes, ppRes] = await Promise.all([
         // Direct events where video_id is set
         supabase
@@ -287,6 +297,12 @@ export default function VideoDetail() {
           .select('video_id, campaign_id, amount, event_type, session_id')
           .or(`video_id.eq.${videoIdVal},campaign_id.eq.${campaignId}`),
       ]);
+
+      console.log('[VideoDetail] parallel queries done — events direct:', eDirectRes.data?.length ?? 0,
+        '| session events:', eViaSessionRes.data?.length ?? 0,
+        '| stripe rows:', spRes.data?.length ?? 0,
+        '| pixel rows:', ppRes.data?.length ?? 0,
+        '| errors:', eDirectRes.error?.message ?? eViaSessionRes.error?.message ?? spRes.error?.message ?? ppRes.error?.message ?? 'none');
 
       // ── Normalize events ─────────────────────────────────────────────────────
       const directEvents: RawEvent[] = (eDirectRes.data || []).map((e: any) => ({
@@ -377,8 +393,9 @@ export default function VideoDetail() {
       setEnrichedPixel(builtPixel);
 
     } catch (err: any) {
-      console.error('[VideoDetail] fetchData error:', err);
+      console.error('[VideoDetail] fetchData CATCH — error:', err?.message ?? err);
     } finally {
+      console.log('[VideoDetail] fetchData FINALLY — setLoading(false)');
       setLoading(false);
     }
   };
@@ -390,32 +407,45 @@ export default function VideoDetail() {
   // Purchases are all-time (same convention as Analytics.tsx).
 
   const metrics = useMemo((): (VideoMetricsResult & { lastConversion: string }) | null => {
-    if (!video || !campaign) return null;
+    if (!video || !campaign) {
+      console.log('[VideoDetail] metrics useMemo — skipped (video:', !!video, 'campaign:', !!campaign, ')');
+      return null;
+    }
 
     const dateFilteredEvents = filterEventsByDate(allEvents, timeRange);
+    console.log('[VideoDetail] metrics useMemo — computing. events:', dateFilteredEvents.length,
+      'stripe:', enrichedStripe.length, 'pixel:', enrichedPixel.length);
 
     // Source isolation for total mode (mirrors getAnalyticsEngine step 3)
     const sourceStripe = enrichedStripe; // both sources active in total mode
     const sourcePixel  = enrichedPixel;
 
-    const result = processVideoMetrics({
-      videoId:         video.id,
-      campaignId:      video.campaign_id ?? null,
-      campaign:        {
-        id:                     campaign.id,
-        revenue_mode:           (campaign as any).revenue_mode          ?? null,
-        estimated_close_rate:   (campaign as any).estimated_close_rate  ?? null,
-        offer_price:            (campaign as any).offer_price           ?? null,
-        has_paid_consultation:  (campaign as any).has_paid_consultation ?? null,
-        consultation_fee:       (campaign as any).consultation_fee      ?? null,
-        stripe_revenue_type:    (campaign as any).stripe_revenue_type   ?? null,
-      },
-      activeSource:    'total',
-      events:          dateFilteredEvents,
-      stripePurchases: sourceStripe,
-      pixelPurchases:  sourcePixel,
-      includeEV:       true,
-    });
+    let result: VideoMetricsResult;
+    try {
+      result = processVideoMetrics({
+        videoId:         video.id,
+        campaignId:      video.campaign_id ?? null,
+        campaign:        {
+          id:                     campaign.id,
+          revenue_mode:           (campaign as any).revenue_mode          ?? null,
+          estimated_close_rate:   (campaign as any).estimated_close_rate  ?? null,
+          offer_price:            (campaign as any).offer_price           ?? null,
+          has_paid_consultation:  (campaign as any).has_paid_consultation ?? null,
+          consultation_fee:       (campaign as any).consultation_fee      ?? null,
+          stripe_revenue_type:    (campaign as any).stripe_revenue_type   ?? null,
+        },
+        activeSource:    'total',
+        events:          dateFilteredEvents,
+        stripePurchases: sourceStripe,
+        pixelPurchases:  sourcePixel,
+        includeEV:       true,
+      });
+    } catch (e: any) {
+      console.error('[VideoDetail] processVideoMetrics THREW:', e?.message ?? e);
+      return null;
+    }
+
+    console.log('[VideoDetail] metrics useMemo — result OK, total_revenue:', result.total_revenue);
 
     // Last conversion — most recent event timestamp for this video
     const videoEvents = allEvents.filter(e => e.video_id === video.id);
@@ -884,7 +914,7 @@ export default function VideoDetail() {
                   <Tooltip
                     contentStyle={{ backgroundColor: '#09090b', borderColor: '#27272a', borderRadius: '12px', border: '1px solid #18181b' }}
                     itemStyle={{ color: '#fff', fontSize: '11px', fontWeight: 'bold' }}
-                    formatter={(value) => [value ?? '', 'Conversions']}
+                    formatter={(value: number | string | (string | number)[]) => [value, 'Conversions']}
                   />
                   <Area type="monotone" dataKey="revenue" stroke="#dc2626" strokeWidth={3} fillOpacity={1} fill="url(#colorRev)" />
                 </AreaChart>
