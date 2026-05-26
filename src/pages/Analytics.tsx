@@ -204,7 +204,16 @@ export default function Analytics() {
         created_at:  e.created_at,
       })).filter((e: any) => e.video_id !== null);
 
-      const allEvents = [...(eDirectData.data || []), ...sessionResolvedEvents];
+      // Normalize direct events to plain RawEvent shape (strips any Supabase join
+      // artefacts like a `sessions` array that would conflict with RawEvent's type).
+      const directEvents: RawEvent[] = (eDirectData.data || []).map((e: any) => ({
+        video_id:    e.video_id    ?? null,
+        campaign_id: e.campaign_id ?? null,
+        event_type:  e.event_type  as string,
+        created_at:  e.created_at  as string,
+      }));
+
+      const allEvents: RawEvent[] = [...directEvents, ...sessionResolvedEvents];
 
       // ── Session lookup helper (mirrors InDepthAnalytics) ─────────────────────
       const buildSessionLookup = async (
@@ -372,7 +381,7 @@ export default function Analytics() {
         campaignId:      v.campaign_id ?? null,
         campaign,
         activeSource,
-        events:          dateFilteredEvents as RawEvent[],
+        events:          dateFilteredEvents,
         stripePurchases: sourceStripe,
         pixelPurchases:  sourcePixel,
         includeEV:       true,
