@@ -20,6 +20,7 @@ import CampaignDetail from './pages/CampaignDetail';
 import InDepthAnalytics from './pages/InDepthAnalytics';
 import Track from './pages/Track';
 import Settings from './pages/Settings';
+import AnalyticsTest from './pages/AnalyticsTest';
 
 function Navigation() {
   const { lang, toggleLanguage, t } = useLanguage();
@@ -132,6 +133,7 @@ function MainContent() {
         <Route path="/track/:token" element={<Track />} />
         <Route path="/:token" element={<Track />} />
         <Route path="*" element={<Navigate to="/dashboard" replace />} />
+        <Route path="/analytics/indepthtest" element={<AnalyticsTest />} />
       </Routes>
     </AnimatePresence>
   );
