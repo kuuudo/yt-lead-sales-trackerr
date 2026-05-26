@@ -60,11 +60,10 @@ import { useLanguage } from '../lib/hooks';
 import { supabase, Video, Campaign } from '../lib/supabase';
 import { useAuth } from '../lib/auth';
 import {
-  LayoutDashboard, TrendingUp, Target, Users, DollarSign,
+  TrendingUp, Target, Users, DollarSign,
   Activity, AlertCircle, CheckCircle2, ArrowRight, Video as VideoIcon,
   ShoppingCart, Briefcase, ChevronDown,
 } from 'lucide-react';
-import { motion } from 'motion/react';
 import { useNavigate, Link } from 'react-router-dom';
 import { Modal } from '../components/Modal';
 
@@ -268,6 +267,13 @@ export default function DashboardTest() {
         '| total:', allEvents.length);
       console.log('[DashboardTest] stripe enriched:', enrichedStripe.length,
         '| pixel enriched:', enrichedPixel.length);
+      // 🔴 MISMATCH WARNING: DashboardTest uses stripe_purchase_type (with payment_type
+      //    for correct revenue_type classification) while legacy Dashboard.tsx uses
+      //    stripe_purchases (no payment_type, falls back to 'offer' for all rows).
+      //    Revenue totals may diverge when consultation vs offer classification differs.
+      console.warn('[DashboardTest] ⚠️ STRIPE TABLE MISMATCH: using stripe_purchase_type' +
+        ' (engine pattern) — legacy Dashboard uses stripe_purchases.' +
+        ' Revenue figures may differ if payment_type classification diverges.');
 
       setRawEvents(allEvents);
       setStripePurchases(enrichedStripe);
@@ -469,7 +475,7 @@ export default function DashboardTest() {
             <option value="all">All Campaigns</option>
             {campaigns.map(c => (
               <option key={c.id} value={c.id}>
-                {(c as any).name || c.id}
+                {c.campaign_name || c.id}
               </option>
             ))}
           </select>
