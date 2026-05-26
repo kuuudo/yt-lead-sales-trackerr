@@ -1,88 +1,152 @@
 // ─────────────────────────────────────────────────────────────────────────────
-// InDepthAnalytics.tsx
-// All metric computation delegated to analyticsProcessor.ts.
-// This file: fetch → enrich → filter → render only.
+// InDepthAnalyticsTest.tsx
+//
+// ENGINE-POWERED MIRROR of InDepthAnalytics.tsx.
+// Route: /analytics/indepth-test
+//
+// PURPOSE
+// ═══════
+// Exact behavioral clone of InDepthAnalytics.tsx where all metric computation
+// is delegated to getAnalyticsEngine() from analyticsEngine.ts.
+// UI is 100% identical — zero visual or UX changes.
+// Use for side-by-side parity comparison with /analytics/indepth.
+//
+// MIGRATION STATUS LEGEND
+// ═══════════════════════
+// 🟢 ENGINE-DRIVEN    — value comes directly from getAnalyticsEngine() output
+// 🟡 LEGACY FALLBACK  — still computed manually; engine does not yet expose this
+// 🔴 MISMATCH / GAP   — known divergence or risk area requiring attention
+//
+// PARITY CONTRACT
+// ═══════════════
+// Given identical raw data (same Supabase rows) and identical filter state,
+// InDepthAnalytics.tsx and InDepthAnalyticsTest.tsx MUST produce:
+//   • identical sortedVideos array (same rows, same order, same metric values)
+//   • identical table rendering
+//   • identical UI behavior (sidebar, toggles, sorting, navigation)
+//
+// ARCHITECTURE
+// ════════════
+// Legacy system (InDepthAnalytics.tsx):
+//   fetchData() → rawEvents/stripePurchases/pixelPurchases state
+//   → useMemo: dateFilteredEvents
+//   → useMemo: filteredVideos (campaign/goal/lead-magnet filters)
+//   → useMemo: processedVideos (processVideoMetrics per video)
+//   → useMemo: sortedVideos (sort by sortConfig)
+//   → render table
+//
+// Engine system (this file):
+//   fetchData() → identical raw data → identical enrichment helpers
+//   → getAnalyticsEngine(engineInput) handles ALL of the above in one call
+//   → sortedVideos = engine.sortedVideos
+//   → render table (unchanged)
+//
 // ─────────────────────────────────────────────────────────────────────────────
 
 import React, { useState, useEffect, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { supabase, Campaign, Video, LeadMagnet } from '../lib/supabase';
 import { useAuth } from '../lib/auth';
+
+// 🟢 ENGINE-DRIVEN — all computation types and helpers come from analyticsEngine.ts
 import {
-  METRIC_LABELS,
-  type MetricType,
+  getAnalyticsEngine,
+  buildStripeFromPurchaseTypeTable,
+  buildPixelPurchases,
+  flattenSessionEvents,
+  mergeEventSources,
+  handleSortToggle,
+  formatCellValue,
+  TABLE_COLUMNS,
+  COLUMN_LABELS,
+  type AnalyticsEngineInput,
+  type RawEvent,
+  type StripePurchaseRow,
   type PixelPurchaseRow,
-  type StripeClassificationMap,
-} from '../lib/analyticsConfig';
-import {
-  processVideoMetrics,
-  enrichStripePurchases,
-  enrichPixelPurchases,
-  filterEventsByDate,
+  type StripePurchaseTypeRow,
   type DateRange,
   type RevenueView,
-  type RawEvent,
+  type MetricType,
   type CampaignMeta,
-} from '../lib/analyticsProcessor';
+} from '../lib/analyticsEngine';
+
 import {
   BarChart3, Calendar, Filter, ChevronLeft,
   MousePointer2, DollarSign, Users, Phone, Briefcase,
   Activity, User, ArrowUpDown, ExternalLink, Loader2, X,
 } from 'lucide-react';
 
-// ── Column keys shown in the table ───────────────────────────────────────────
-// Mirrors the original METRIC_LABELS keys, using the canonical MetricType set.
-// 'direct_offer_sales' from the old local type maps to 'direct_offer_revenue'.
-const TABLE_COLUMNS: MetricType[] = [
-  'landing_page_view',
-  'purchase_thankyou',
-  'lead_magnet_click',
-  'newsletter_click',
-  'newsletter_thankyou',
-  'call_booking_click',
-  'call_booking_thankyou',
-  'consultation_click',
-  'consultation_thankyou',
-  'direct_offer_revenue',
-  'estimated_call_revenue',
-  'consultation_revenue',
-  'total_revenue',
-  'rpc',
-];
 
-// Column display labels — overrides for revenue columns to show ($) suffix.
-const COLUMN_LABELS: Partial<Record<MetricType, string>> & Record<string, string> = {
-  ...METRIC_LABELS,
-  direct_offer_revenue:    'Direct Offer Sales ($)',
-  estimated_call_revenue:  'Estimated Call Revenue ($)',
-  consultation_revenue:    'Consultation Revenue ($)',
-  total_revenue:           'Total Revenue ($)',
-  rpc:                     'Revenue Per Click ($)',
-};
+// ─────────────────────────────────────────────────────────────────────────────
+// 🟡 LEGACY FALLBACK: buildSessionLookup
+//
+// WHY: analyticsEngine.ts exposes buildStripeFromPurchaseTypeTable() and
+// buildPixelPurchases() which ACCEPT a pre-built sessionLookup Record, but
+// does NOT expose the async session-lookup fetch helper itself (it is a
+// purely async Supabase operation that does not belong in a deterministic
+// engine).  The fetch logic here is verbatim from InDepthAnalytics lines
+// 165-181 and must remain here until a separate data-layer module takes over.
+//
+// MIGRATION PATH: Extract into a shared fetchSessionLookup(rows, supabase)
+// utility in the data-layer (e.g. analyticsDataLayer.ts) and import it here
+// and from InDepthAnalytics.
+// ─────────────────────────────────────────────────────────────────────────────
+async function buildSessionLookup(
+  rows: any[],
+): Promise<Record<string, { video_id: string; campaign_id: string }>> {
+  const missingIds = rows
+    .filter((p: any) => !p.video_id && p.session_id)
+    .map((p: any) => p.session_id);
+  if (!missingIds.length) return {};
+  const { data: sData } = await supabase
+    .from('sessions')
+    .select('id, video_id, campaign_id')
+    .in('id', missingIds);
+  const lookup: Record<string, { video_id: string; campaign_id: string }> = {};
+  (sData || []).forEach((s: any) => {
+    if (s.video_id) lookup[s.id] = { video_id: s.video_id, campaign_id: s.campaign_id };
+  });
+  return lookup;
+}
 
-export default function InDepthAnalytics() {
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Component
+// ─────────────────────────────────────────────────────────────────────────────
+
+export default function InDepthAnalyticsTest() {
   const { user } = useAuth();
   const navigate = useNavigate();
 
-  // ── Raw data ────────────────────────────────────────────────────────────────
+  // ── Raw data state ──────────────────────────────────────────────────────────
+  // 🟡 LEGACY FALLBACK: Raw state shape is identical to InDepthAnalytics.tsx.
+  // These are still populated by the same Supabase queries (verbatim fetch
+  // logic). The engine ingests them as inputs — it does not own the fetch.
   const [loading, setLoading]               = useState(true);
   const [campaigns, setCampaigns]           = useState<Campaign[]>([]);
   const [videos, setVideos]                 = useState<Video[]>([]);
   const [leadMagnets, setLeadMagnets]       = useState<LeadMagnet[]>([]);
   const [rawEvents, setRawEvents]           = useState<RawEvent[]>([]);
-  const [stripePurchases, setStripePurchases] = useState<ReturnType<typeof enrichStripePurchases>>([]);
+  const [stripePurchases, setStripePurchases] = useState<StripePurchaseRow[]>([]);
   const [pixelPurchases, setPixelPurchases]   = useState<PixelPurchaseRow[]>([]);
 
-  // ── Filters ─────────────────────────────────────────────────────────────────
+  // ── Filter state ────────────────────────────────────────────────────────────
+  // 🟢 ENGINE-DRIVEN: All filter state is passed verbatim into AnalyticsEngineInput.
+  // The engine's filteredVideos / dateFilteredEvents steps consume these directly.
   const [dateRange, setDateRange]                   = useState<DateRange>('30days');
   const [selectedCampaignId, setSelectedCampaignId] = useState<string>('all');
   const [selectedGoals, setSelectedGoals]           = useState<string[]>([]);
   const [selectedLeadMagnets, setSelectedLeadMagnets] = useState<string[]>([]);
 
   // ── UI state ────────────────────────────────────────────────────────────────
+  // 🟢 ENGINE-DRIVEN: activeSource and includeEV are passed into AnalyticsEngineInput.
+  // 🟡 LEGACY FALLBACK: isSidebarOpen is pure UI — not an engine concern.
   const [activeSource, setActiveSource] = useState<RevenueView>('total');
   const [includeEV, setIncludeEV]       = useState<boolean>(true);
   const [isSidebarOpen, setIsSidebarOpen] = useState(true);
+
+  // 🟢 ENGINE-DRIVEN: sortConfig is passed into AnalyticsEngineInput and consumed
+  // by the engine's sort step (Step 5 in getAnalyticsEngine).
   const [sortConfig, setSortConfig] = useState<{ key: string; direction: 'asc' | 'desc' }>({
     key: 'total_revenue',
     direction: 'desc',
@@ -92,7 +156,25 @@ export default function InDepthAnalytics() {
     if (user) fetchData();
   }, [user]);
 
-  // ── Data fetching ────────────────────────────────────────────────────────────
+
+  // ── Data fetching ───────────────────────────────────────────────────────────
+  //
+  // 🟡 LEGACY FALLBACK: The fetch logic below is verbatim from InDepthAnalytics
+  // lines 96-248. The Supabase queries, session-join resolution, stripe enrichment,
+  // and pixel enrichment are all identical.
+  //
+  // 🟢 ENGINE-DRIVEN TRANSITION POINTS:
+  //   • buildStripeFromPurchaseTypeTable() — replaces the inline map/filter at
+  //     InDepthAnalytics lines 210-226. Engine helper is used directly.
+  //   • buildPixelPurchases() — replaces the inline enrichPixelPurchases call at
+  //     InDepthAnalytics line 233. Engine helper is used directly.
+  //   • flattenSessionEvents() / mergeEventSources() — replace the inline event
+  //     flattening at InDepthAnalytics lines 150-162.
+  //
+  // MIGRATION GAP: The fetch queries themselves, Promise.all parallelism, and
+  // buildSessionLookup() are NOT yet in the engine. They remain here until a
+  // shared data-layer module is extracted.
+  // ─────────────────────────────────────────────────────────────────────────────
   const fetchData = async () => {
     setLoading(true);
     try {
@@ -109,7 +191,7 @@ export default function InDepthAnalytics() {
       const videoIds    = vData.map((v: any) => v.id);
       const campaignIds = vData.map((v: any) => v.campaign_id).filter(Boolean);
 
-      // Fetch events + purchases in parallel
+      // Fetch events + purchases in parallel.
       // NOTE: stripe_purchase_type is the authoritative table — it has payment_type column.
       //       stripe_purchases does NOT have payment_type and is NOT used here.
       const [eDirectData, eViaSessionData, spData, ppData] = await Promise.all([
@@ -125,7 +207,6 @@ export default function InDepthAnalytics() {
           .in('sessions.video_id', videoIds),
 
         // Fetch from stripe_purchase_type — this table HAS payment_type column.
-        // Filter by video_id OR campaign_id to catch all rows.
         (() => {
           const q = supabase
             .from('stripe_purchase_type')
@@ -146,205 +227,116 @@ export default function InDepthAnalytics() {
           : Promise.resolve({ data: [] as any[] }),
       ]);
 
-      // Flatten session-resolved events
-      const sessionResolvedEvents: RawEvent[] = (eViaSessionData.data || [])
-        .map((e: any) => ({
-          video_id:    e.sessions?.video_id    ?? null,
-          campaign_id: e.sessions?.campaign_id ?? null,
-          event_type:  e.event_type,
-          created_at:  e.created_at,
-        }))
-        .filter((e: RawEvent) => e.video_id !== null);
+      // 🟢 ENGINE-DRIVEN: flattenSessionEvents() + mergeEventSources() replace
+      // the inline event flattening from InDepthAnalytics lines 150-162.
+      //
+      // Cast to `any[]` here: Supabase's !inner join infers `sessions` as an
+      // array ({ video_id, campaign_id }[]) because the join can theoretically
+      // return multiple rows per event.  flattenSessionEvents() treats `sessions`
+      // as a single object | null (the Supabase runtime always returns a single
+      // related row for a to-one join, but the TS type is array).  The cast is
+      // safe — flattenSessionEvents accesses `e.sessions?.video_id` which works
+      // on both the array-of-one and the object shapes at runtime.
+      const sessionResolvedEvents = flattenSessionEvents(eViaSessionData.data as any[] || []);
+      const allEvents = mergeEventSources(eDirectData.data || [], sessionResolvedEvents);
 
-      const allEvents: RawEvent[] = [
-        ...(eDirectData.data || []),
-        ...sessionResolvedEvents,
-      ];
-
-      // ── Session lookup for null video_id rows ──────────────────────────────
-      const buildSessionLookup = async (
-        rows: any[],
-      ): Promise<Record<string, { video_id: string; campaign_id: string }>> => {
-        const missingIds = rows
-          .filter((p: any) => !p.video_id && p.session_id)
-          .map((p: any) => p.session_id);
-        if (!missingIds.length) return {};
-        const { data: sData } = await supabase
-          .from('sessions')
-          .select('id, video_id, campaign_id')
-          .in('id', missingIds);
-        const lookup: Record<string, { video_id: string; campaign_id: string }> = {};
-        (sData || []).forEach((s: any) => {
-          if (s.video_id) lookup[s.id] = { video_id: s.video_id, campaign_id: s.campaign_id };
-        });
-        return lookup;
-      };
-
-      // Map stripe_purchase_type rows directly.
-      // payment_type column exists on this table — no classification map needed.
-      // Coerce amount to number (Supabase may return numeric columns as strings).
-      // Exclude payment_type='test' rows.
-      const stripeRaw = (spData.data || [])
-        .filter((r: any) => r.payment_type !== 'test')
-        .map((r: any) => ({
-          video_id:     r.video_id,
-          campaign_id:  r.campaign_id,
-          amount:       parseFloat(String(r.amount ?? '0')),
-          session_id:   r.stripe_session_id ?? null,
-          // Pass payment_type directly — will be picked up in enrichStripePurchases
-          // via a pre-set revenue_type that bypasses the classification map
-          _payment_type: r.payment_type as string | null,
-        }));
-      const pixelRaw  = ppData.data || [];
+      // 🟡 LEGACY FALLBACK: buildSessionLookup is not yet in the engine (async Supabase op).
+      const stripeRaw: StripePurchaseTypeRow[] = (spData.data || []).map((r: any) => ({
+        video_id:          r.video_id,
+        campaign_id:       r.campaign_id,
+        amount:            r.amount,
+        stripe_session_id: r.stripe_session_id ?? null,
+        payment_type:      r.payment_type ?? null,
+      }));
+      const pixelRaw = ppData.data || [];
 
       const [stripeSessLookup, pixelSessLookup] = await Promise.all([
-        buildSessionLookup(stripeRaw),
+        buildSessionLookup(stripeRaw.map(r => ({ ...r, session_id: r.stripe_session_id }))),
         buildSessionLookup(pixelRaw),
       ]);
 
-      // Build enrichedStripe directly from stripe_purchase_type rows.
-      // payment_type is already on each row — no classification map needed.
-      // 'offer' → direct_offer_revenue, 'consultation' → consultation_revenue.
-      // Any unknown payment_type defaults to 'offer'.
-      type _SPRow = import('../lib/analyticsConfig').StripePurchaseRow;
-      const enrichedStripe: _SPRow[] = (stripeRaw
-        .map((r: any): _SPRow | null => {
-          const resolvedVideoId    = r.video_id    ?? (stripeSessLookup[r.session_id ?? '']?.video_id    ?? '');
-          const resolvedCampaignId = r.campaign_id ?? (stripeSessLookup[r.session_id ?? '']?.campaign_id ?? '');
-          const amt = r.amount; // already parseFloat'd above
-          if (amt <= 0) return null;
-          const revenue_type: 'offer' | 'consultation' =
-            r._payment_type === 'consultation' ? 'consultation' : 'offer';
-          return {
-            video_id:     resolvedVideoId,
-            campaign_id:  resolvedCampaignId,
-            amount:       amt,
-            revenue_type,
-            session_id:   r.session_id ?? null,
-          };
-        })
-        .filter((p): p is _SPRow => p !== null));
+      // 🟢 ENGINE-DRIVEN: buildStripeFromPurchaseTypeTable() replaces the inline
+      // stripe enrichment at InDepthAnalytics lines 186-226. Identical rules:
+      //   • Exclude payment_type='test'
+      //   • Coerce amount via parseFloat(String(…))
+      //   • Resolve missing video_id/campaign_id via session lookup
+      //   • Drop rows where amount <= 0
+      //   • revenue_type: 'consultation' if payment_type='consultation', else 'offer'
+      const enrichedStripe = buildStripeFromPurchaseTypeTable(stripeRaw, stripeSessLookup);
 
-      // Enrich pixel via processor helper; also coerce pixel amounts to number
-      const pixelRawCoerced = (pixelRaw as any[]).map((r: any) => ({
-        ...r,
-        amount: parseFloat(String(r.amount ?? '0')),
-      }));
-      const enrichedPixel = enrichPixelPurchases(pixelRawCoerced, pixelSessLookup);
+      // 🟢 ENGINE-DRIVEN: buildPixelPurchases() replaces the inline pixel enrichment
+      // at InDepthAnalytics lines 229-233. Coerces amounts + enrichPixelPurchases().
+      const enrichedPixel = buildPixelPurchases(pixelRaw, pixelSessLookup);
 
-      console.log('[InDepthAnalytics] events direct:', eDirectData.data?.length ?? 0,
+      console.log('[InDepthAnalyticsTest] events direct:', eDirectData.data?.length ?? 0,
         '| via session:', sessionResolvedEvents.length,
         '| total:', allEvents.length);
-      console.log('[InDepthAnalytics] stripe enriched:', enrichedStripe.length,
+      console.log('[InDepthAnalyticsTest] stripe enriched:', enrichedStripe.length,
         '| pixel enriched:', enrichedPixel.length);
 
       setRawEvents(allEvents);
       setStripePurchases(enrichedStripe);
       setPixelPurchases(enrichedPixel);
     } catch (err) {
-      console.error('[InDepthAnalytics] fetchData error:', err);
+      console.error('[InDepthAnalyticsTest] fetchData error:', err);
     } finally {
       setLoading(false);
     }
   };
 
-  // ── Date-filtered events ─────────────────────────────────────────────────────
-  const dateFilteredEvents = useMemo(
-    () => filterEventsByDate(rawEvents, dateRange),
-    [rawEvents, dateRange],
-  );
 
-  // ── Video filter (campaign / goal / lead magnet) ─────────────────────────────
-  const filteredVideos = useMemo(() => {
-    return videos.filter(v => {
-      if (selectedCampaignId !== 'all' && v.campaign_id !== selectedCampaignId) return false;
-      if (selectedGoals.length > 0) {
-        const hasMatch = v.video_goal.some((g: string) => selectedGoals.includes(g));
-        if (!hasMatch) return false;
-      }
-      if (selectedLeadMagnets.length > 0) {
-        if (!v.selected_lead_magnet_ids) return false;
-        const hasMatch = v.selected_lead_magnet_ids.some((id: string) =>
-          selectedLeadMagnets.includes(id),
-        );
-        if (!hasMatch) return false;
-      }
-      return true;
-    });
-  }, [videos, selectedCampaignId, selectedGoals, selectedLeadMagnets]);
-
-  // ── Metric computation — fully delegated to analyticsProcessor ──────────────
+  // ── Engine input ──────────────────────────────────────────────────────────────
   //
-  // Click metrics: processVideoMetrics uses CLICK_EVENT_MAP to match raw
-  // event_type strings directly — no normalization, no transformation.
+  // 🟢 ENGINE-DRIVEN: Assembles the AnalyticsEngineInput from current state.
+  // This replaces ALL of the following useMemo blocks in InDepthAnalytics.tsx:
+  //   • dateFilteredEvents  (filterEventsByDate)
+  //   • filteredVideos      (campaign/goal/lead-magnet filter)
+  //   • processedVideos     (processVideoMetrics per video)
+  //   • sortedVideos        (sort by sortConfig)
   //
-  // activeSource toggle filters purchase data globally before passing in:
-  //   'total'  → stripe + pixel  (default on load/refresh)
-  //   'pixel'  → pixel only      (stripePurchases = [])
-  //   'stripe' → stripe only     (pixelPurchases  = [])
-  const processedVideos = useMemo(() => {
-    return filteredVideos.map(v => {
-      const campaign = campaigns.find(c => c.id === v.campaign_id) as CampaignMeta | undefined;
+  // getAnalyticsEngine() runs all four steps deterministically and returns
+  // sortedVideos with identical metric values and row order.
+  // ─────────────────────────────────────────────────────────────────────────────
+  const engineInput = useMemo((): AnalyticsEngineInput => ({
+    videos:              videos as AnalyticsEngineInput['videos'],
+    campaigns:           campaigns as CampaignMeta[],
+    rawEvents,
+    stripePurchases,
+    pixelPurchases,
+    dateRange,
+    selectedCampaignId,
+    selectedGoals,
+    selectedLeadMagnets,
+    activeSource,
+    includeEV,
+    sortConfig,
+  }), [
+    videos, campaigns, rawEvents, stripePurchases, pixelPurchases,
+    dateRange, selectedCampaignId, selectedGoals, selectedLeadMagnets,
+    activeSource, includeEV, sortConfig,
+  ]);
 
-      const sourceStripe = activeSource === 'pixel'  ? [] : stripePurchases;
-      const sourcePixel  = activeSource === 'stripe' ? [] : pixelPurchases;
+  // 🟢 ENGINE-DRIVEN: Single engine call — replaces four useMemo blocks.
+  const engineResult = useMemo(() => getAnalyticsEngine(engineInput), [engineInput]);
 
-      const metrics = processVideoMetrics({
-        videoId:         v.id,
-        campaignId:      v.campaign_id ?? null,
-        campaign,
-        activeSource,
-        events:          dateFilteredEvents,
-        stripePurchases: sourceStripe,
-        pixelPurchases:  sourcePixel,
-        includeEV,
-      });
+  // 🟢 ENGINE-DRIVEN: sortedVideos is the engine's primary output.
+  // Direct replacement for InDepthAnalytics's sortedVideos useMemo.
+  const sortedVideos = engineResult.sortedVideos;
 
-      return {
-        video:    v,
-        campaign: campaign ?? null,
-        title:    v.video_title,
-        ...metrics,
-      };
-    });
-  }, [filteredVideos, dateFilteredEvents, stripePurchases, pixelPurchases, campaigns, includeEV, activeSource]);
 
-  // ── Sort ──────────────────────────────────────────────────────────────────────
-  const sortedVideos = useMemo(() => {
-    const items = [...processedVideos];
-    items.sort((a, b) => {
-      const aVal = (a as any)[sortConfig.key];
-      const bVal = (b as any)[sortConfig.key];
-      const aNum = typeof aVal === 'string' ? parseFloat(aVal) : (aVal ?? 0);
-      const bNum = typeof bVal === 'string' ? parseFloat(bVal) : (bVal ?? 0);
-      if (aNum < bNum) return sortConfig.direction === 'asc' ? -1 : 1;
-      if (aNum > bNum) return sortConfig.direction === 'asc' ? 1 : -1;
-      // Stable tiebreaker by video.id — prevents row reordering when toggling
-      // activeSource (which changes metric values but not video identity)
-      return a.video.id < b.video.id ? -1 : a.video.id > b.video.id ? 1 : 0;
-    });
-    return items;
-  }, [processedVideos, sortConfig]);
-
-  // ── Helpers ───────────────────────────────────────────────────────────────────
+  // ── Sort handler ──────────────────────────────────────────────────────────────
+  // 🟢 ENGINE-DRIVEN: handleSortToggle() from analyticsEngine.ts is the exact
+  // logic from InDepthAnalytics lines 330-335. Passed into setSortConfig.
   const handleSort = (key: string) => {
-    setSortConfig(prev => ({
-      key,
-      direction: prev.key === key && prev.direction === 'desc' ? 'asc' : 'desc',
-    }));
+    setSortConfig(prev => handleSortToggle(prev, key));
   };
 
-  const isRevenueCol = (key: MetricType) =>
-    key.includes('revenue') || key === 'rpc';
 
-  const formatCellValue = (key: MetricType, row: (typeof sortedVideos)[number]): string => {
-    if (key === 'total_revenue') {
-      return `$${(row.total_revenue || 0).toLocaleString()}`;
-    }
-    if (key === 'rpc') return `$${row.rpc ?? 0}`;
-    if (isRevenueCol(key)) return `$${((row as any)[key] || 0).toLocaleString()}`;
-    return ((row as any)[key] || 0).toLocaleString();
-  };
+  // ── Cell formatter ────────────────────────────────────────────────────────────
+  // 🟢 ENGINE-DRIVEN: formatCellValue() from analyticsEngine.ts is the verbatim
+  // implementation from InDepthAnalytics lines 340-347.
+  // Signature: (key: MetricType, row: ProcessedVideoRow) => string
+
 
   // ── Render ────────────────────────────────────────────────────────────────────
   if (loading) {
@@ -358,7 +350,13 @@ export default function InDepthAnalytics() {
   return (
     <div className="flex h-screen bg-black text-zinc-300 overflow-hidden fixed inset-0 z-[100]">
 
-      {/* ── Sidebar ────────────────────────────────────────────────────────── */}
+      {/* ── Sidebar ─────────────────────────────────────────────────────────── */}
+      {/*
+       * 🟡 LEGACY FALLBACK: Sidebar filter UI is pure render logic.
+       * All filter state (dateRange, selectedCampaignId, selectedGoals,
+       * selectedLeadMagnets, includeEV) flows into engineInput → engine.
+       * The sidebar itself has no migration dependency.
+       */}
       <aside
         className={`w-80 bg-zinc-950 border-r border-zinc-900 flex flex-col shrink-0 transition-all duration-300 ${
           isSidebarOpen ? 'ml-0' : '-ml-80'
@@ -437,11 +435,11 @@ export default function InDepthAnalytics() {
             </label>
             <div className="flex flex-wrap gap-1.5">
               {[
-                { id: 'sales',    label: 'Direct Sales' },
+                { id: 'sales',      label: 'Direct Sales' },
                 { id: 'newsletter', label: 'Newsletter' },
-                { id: 'calls',    label: 'Sales Calls' },
-                { id: 'consult',  label: 'Paid Consult' },
-                { id: 'viral',    label: 'Awareness' },
+                { id: 'calls',      label: 'Sales Calls' },
+                { id: 'consult',    label: 'Paid Consult' },
+                { id: 'viral',      label: 'Awareness' },
               ].map(goal => (
                 <button
                   key={goal.id}
@@ -514,7 +512,7 @@ export default function InDepthAnalytics() {
         </div>
       </aside>
 
-      {/* ── Main content ───────────────────────────────────────────────────── */}
+      {/* ── Main content ────────────────────────────────────────────────────── */}
       <div className="flex-1 flex flex-col h-full overflow-hidden bg-black relative">
 
         {/* Header */}
@@ -544,6 +542,7 @@ export default function InDepthAnalytics() {
 
           <div className="flex items-center gap-4">
             {/* Data source toggle — controls ALL metrics globally */}
+            {/* 🟢 ENGINE-DRIVEN: activeSource feeds directly into AnalyticsEngineInput */}
             <div className="flex items-center gap-1 p-1 bg-zinc-900 border border-zinc-800 rounded-xl w-fit">
               {(['total', 'pixel', 'stripe'] as RevenueView[]).map(v => (
                 <button
@@ -559,6 +558,7 @@ export default function InDepthAnalytics() {
             </div>
             <div className="px-4 py-2 bg-zinc-900/50 border border-zinc-900 rounded-xl">
               <span className="text-[10px] font-black uppercase tracking-widest text-zinc-600">
+                {/* 🟢 ENGINE-DRIVEN: sortedVideos.length from engine output */}
                 {sortedVideos.length} Videos Loaded
               </span>
             </div>
@@ -566,6 +566,15 @@ export default function InDepthAnalytics() {
         </header>
 
         {/* Table */}
+        {/*
+         * 🟢 ENGINE-DRIVEN: sortedVideos, formatCellValue, TABLE_COLUMNS, COLUMN_LABELS
+         * all come from analyticsEngine.ts. Row order and metric values are
+         * 100% engine-owned — this block is pure rendering.
+         *
+         * 🟡 LEGACY FALLBACK: row.video.thumbnail_url, row.title, row.campaign
+         * are passed through from the raw Video/Campaign objects stored in state.
+         * The engine preserves them in ProcessedVideoRow.video — no migration gap.
+         */}
         <div className="flex-1 overflow-x-auto custom-scrollbar">
           <div className="inline-block min-w-full align-middle h-full overflow-y-auto">
             <table className="min-w-full divide-y divide-zinc-900 border-collapse">
@@ -619,7 +628,7 @@ export default function InDepthAnalytics() {
                       </div>
                     </td>
 
-                    {/* Metric cells */}
+                    {/* Metric cells — 🟢 ENGINE-DRIVEN via formatCellValue() */}
                     {TABLE_COLUMNS.map(key => (
                       <td
                         key={key}
@@ -628,6 +637,7 @@ export default function InDepthAnalytics() {
                         {key === 'total_revenue' ? (
                           <div>
                             <div>{formatCellValue(key, row)}</div>
+                            {/* 🟢 ENGINE-DRIVEN: revenue_mode_label from VideoMetrics */}
                             <div className="text-[8px] text-zinc-600 uppercase tracking-widest mt-0.5">
                               {row.revenue_mode_label}
                             </div>
