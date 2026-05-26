@@ -133,7 +133,7 @@ function MainContent() {
         <Route path="/track/:token" element={<Track />} />
         <Route path="/:token" element={<Track />} />
         <Route path="*" element={<Navigate to="/dashboard" replace />} />
-        <Route path="/analytics/indepthtest" element={<AnalyticsTest />} />
+        <Route path="/analytics-test" element={<AnalyticsTest />} />
       </Routes>
     </AnimatePresence>
   );
