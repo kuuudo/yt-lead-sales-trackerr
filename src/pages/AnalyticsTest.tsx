@@ -27,7 +27,6 @@
 // ─────────────────────────────────────────────────────────────────────────────
 
 import React, { useState, useEffect, useMemo } from 'react';
-import { useLanguage } from '../lib/hooks';
 import { supabase, Video, Campaign } from '../lib/supabase';
 import { useAuth } from '../lib/auth';
 
@@ -86,7 +85,6 @@ async function buildSessionLookup(
 // ─────────────────────────────────────────────────────────────────────────────
 
 export default function DashboardTest() {
-  const { t } = useLanguage();
   const { user } = useAuth();
   const navigate = useNavigate();
 
@@ -333,7 +331,7 @@ export default function DashboardTest() {
     }
   };
 
-  // t
+
   // ── Status icon helper ──────────────────────────────────────────────────────
   const getStatusIcon = (status: string) => {
     switch (status) {
@@ -348,17 +346,17 @@ export default function DashboardTest() {
   // Render
   // ─────────────────────────────────────────────────────────────────────────────
   return (
-    <div className="space-y-8">
+    <div className="max-w-[1200px] mx-auto px-6 space-y-8">
 
       {/* Header */}
       <header className="flex justify-between items-end">
         <div>
           <h1 className="text-3xl font-bold text-white flex items-center gap-3">
             <div className="w-2.5 h-2.5 bg-red-600 rounded-sm shadow-[0_0_15px_rgba(220,38,38,0.5)]" />
-            {t.dashboard.title}
+            Revenue Intelligence
           </h1>
           <p className="text-zinc-500 text-[10px] uppercase font-bold tracking-[0.2em] mt-1">
-            Operational Revenue View · Engine
+            Operational Revenue View
           </p>
         </div>
         <Link
@@ -396,7 +394,7 @@ export default function DashboardTest() {
         {/* Metric Card: Revenue */}
         {[
           {
-            label:    t.dashboard.metrics.revenue,
+            label:    'Total Revenue',
             value:    `$${displayRevenue.toLocaleString()}`,
             sublabel: displayRevenueLabel,
             icon:     DollarSign,
@@ -411,14 +409,14 @@ export default function DashboardTest() {
             color:    'text-blue-500',
           },
           {
-            label:    t.dashboard.metrics.optins,
+            label:    'Newsletter Opt-ins',
             value:    totalOptins,
             sublabel: undefined,
             icon:     Users,
             color:    'text-orange-500',
           },
           {
-            label:    t.dashboard.metrics.calls,
+            label:    'Sales Calls',
             value:    totalCallBooks,
             sublabel: undefined,
             icon:     Target,
@@ -452,7 +450,7 @@ export default function DashboardTest() {
         {/* 🟢 ENGINE-DRIVEN: sortedVideos from engine, revenue from selectDisplayRevenue */}
         <section className="lg:col-span-9 bento-card p-0 overflow-hidden">
           <div className="p-4 border-b border-zinc-900 bg-zinc-900/10 flex justify-between items-center">
-            <h2 className="label-caps !text-white">{t.dashboard.topPerformers}</h2>
+            <h2 className="label-caps !text-white">Top Performing Content</h2>
             <div className="flex gap-2">
               <span className="text-[10px] font-bold uppercase text-zinc-600">Metric:</span>
               <span className="text-[10px] font-bold uppercase text-red-500 underline decoration-red-900 underline-offset-4 cursor-pointer">Revenue</span>
@@ -560,7 +558,7 @@ export default function DashboardTest() {
         {/* Tracking Health Sidebar */}
         <section className="lg:col-span-3 space-y-6">
           <div className="bento-card border-red-600/20 bg-red-600/5">
-            <h3 className="label-caps !text-red-500 mb-4">{t.dashboard.health}</h3>
+            <h3 className="label-caps !text-red-500 mb-4">Tracking Health</h3>
             <div className="space-y-4">
               {[
                 { label: 'Active Links', value: videos.length,  icon: VideoIcon,    color: 'text-green-500' },
