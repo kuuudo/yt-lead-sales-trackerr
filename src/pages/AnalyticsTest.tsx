@@ -21,7 +21,7 @@
 //   6. Tracking Links
 //   7. Edit Modal
 
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import { useParams, Link, useNavigate } from 'react-router-dom';
 import { useLanguage } from '../lib/hooks';
 import { supabase, Video, Campaign, LeadMagnet } from '../lib/supabase';
@@ -207,18 +207,18 @@ export default function VideoDetail() {
 
   // ── Fetch ────────────────────────────────────────────────────────────────────
 
-  // Primary trigger: fires when id is available (covers normal load + navigation)
+  // Single effect: re-runs when id OR user changes. Guard ensures both are
+  // present before fetching. This prevents the duplicate-fetch race condition
+  // that occurred with two separate effects (one on [id], one on [user]).
   useEffect(() => {
-    if (id && user) fetchData();
-  }, [id]);
+    if (!id || !user) return;
+    fetchData();
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [id, user]);
 
-  // Secondary trigger: fires when auth resolves after mount (delayed auth)
-  useEffect(() => {
-    if (user && id) fetchData();
-  }, [user]);
-
-  const fetchData = async () => {
+  const fetchData = useCallback(async () => {
     console.log('[VideoDetail] fetchData START — id:', id, 'user:', (user as any)?.id ?? 'null');
+    console.log('[VideoDetail] loading → true');
     setLoading(true);
     try {
       // ── Video + campaign ────────────────────────────────────────────────────
@@ -383,6 +383,9 @@ export default function VideoDetail() {
 
       const builtPixel: PixelPurchaseRow[] = enrichPixelPurchases(pixelRaw, pixelSessLookup);
 
+      console.log('[VideoDetail] enrichPixelPurchases OK — pixel enriched:', builtPixel.length);
+      console.log('[VideoDetail] about to setState — events:', mergedEvents.length, 'stripe:', builtStripe.length, 'pixel:', builtPixel.length);
+
       console.log('[VideoDetail] events direct:', eDirectRes.data?.length ?? 0,
         '| via session:', sessionEvents.length, '| total:', mergedEvents.length);
       console.log('[VideoDetail] stripe_purchase_type enriched:', builtStripe.length,
@@ -393,12 +396,13 @@ export default function VideoDetail() {
       setEnrichedPixel(builtPixel);
 
     } catch (err: any) {
-      console.error('[VideoDetail] fetchData CATCH — error:', err?.message ?? err);
+      console.error('[VideoDetail] fetchData CATCH — error:', err?.message ?? err, err?.stack ?? '');
     } finally {
-      console.log('[VideoDetail] fetchData FINALLY — setLoading(false)');
+      console.log('[VideoDetail] fetchData FINALLY — loading → false');
       setLoading(false);
     }
-  };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [id, user]);
 
   // ── Metrics — via processVideoMetrics (analyticsEngine) ─────────────────────
   //
@@ -914,7 +918,15 @@ export default function VideoDetail() {
                   <Tooltip
                     contentStyle={{ backgroundColor: '#09090b', borderColor: '#27272a', borderRadius: '12px', border: '1px solid #18181b' }}
                     itemStyle={{ color: '#fff', fontSize: '11px', fontWeight: 'bold' }}
-                    formatter={(value: number | string | (string | number)[]) => [value, 'Conversions']}
+                    formatter={(value) => {
+                      if (typeof value === 'number') {
+                        return [value.toFixed(0), 'Conversions'];
+                      }
+                      if (Array.isArray(value)) {
+                        return [value.join(', '), 'Conversions'];
+                      }
+                      return [String(value ?? ''), 'Conversions'];
+                    }}
                   />
                   <Area type="monotone" dataKey="revenue" stroke="#dc2626" strokeWidth={3} fillOpacity={1} fill="url(#colorRev)" />
                 </AreaChart>
