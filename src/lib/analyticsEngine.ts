@@ -1061,6 +1061,7 @@ export function getAnalyticsEngine(input: AnalyticsEngineInput): AnalyticsEngine
   console.log('[analyticsEngine:getAnalyticsEngine] result', {
     activeSource,
     dateRange,
+    filteredVideos:        filteredVideos.length,
     processedVideos:       processedVideos.length,
     ...debug.rowCounts,
     pixelBreakdown:        debug.revenueBreakdown.pixel,
@@ -1113,7 +1114,7 @@ export function buildStripeFromPurchaseTypeTable(
 ): StripePurchaseRow[] {
   return raw
     .filter(r => r.payment_type !== 'test')
-    .map((r): StripePurchaseRow | null => {
+    .map(r => {
       const sessionId = r.stripe_session_id ?? null;
       const resolvedVideoId    = r.video_id    ?? (sessionLookup[sessionId ?? '']?.video_id    ?? '');
       const resolvedCampaignId = r.campaign_id ?? (sessionLookup[sessionId ?? '']?.campaign_id ?? '');
@@ -1127,7 +1128,7 @@ export function buildStripeFromPurchaseTypeTable(
         amount:      amt,
         revenue_type,
         session_id:  sessionId,
-      };
+      } satisfies StripePurchaseRow;
     })
     .filter((p): p is StripePurchaseRow => p !== null);
 }

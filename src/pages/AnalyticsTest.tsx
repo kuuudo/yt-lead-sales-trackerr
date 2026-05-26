@@ -39,12 +39,14 @@ import { createRedirectLink, RedirectLinkType } from '../lib/redirects';
 // ── analyticsEngine imports ────────────────────────────────────────────────────
 import {
   processVideoMetrics,
+  computeConversionMetrics,
   enrichPixelPurchases,
   filterEventsByDate,
   type RawEvent,
   type StripePurchaseRow,
   type PixelPurchaseRow,
   type VideoMetricsResult,
+  type VideoConversionMetrics,
   type DateRange,
 } from '../lib/analyticsEngine';
 
@@ -428,28 +430,11 @@ export default function VideoDetail() {
     return { ...result, lastConversion };
   }, [video, campaign, allEvents, enrichedStripe, enrichedPixel, timeRange]);
 
-  // ── Conversion metrics — derived inline from metrics (VideoMetricsResult) ────
-  // computeConversionMetrics / VideoConversionMetrics were planned but never
-  // added to analyticsEngine.ts. All inputs are already present on metrics.
+  // ── Conversion metrics — via computeConversionMetrics (analyticsEngine) ─────
 
-  const conversionMetrics = useMemo(() => {
+  const conversionMetrics = useMemo((): VideoConversionMetrics | null => {
     if (!metrics) return null;
-    const rate = (conversions: number, clicks: number): number =>
-      clicks > 0 ? Number(((conversions / clicks) * 100).toFixed(1)) : 0;
-    return {
-      newsletter_clicks:      metrics.newsletter_click,
-      newsletter_optins:      metrics.newsletter_thankyou,
-      newsletter_rate:        rate(metrics.newsletter_thankyou,   metrics.newsletter_click),
-      call_landing_clicks:    metrics.call_booking_click,
-      calls_booked:           metrics.call_booking_thankyou,
-      call_rate:              rate(metrics.call_booking_thankyou, metrics.call_booking_click),
-      consult_landing_clicks: metrics.consultation_click,
-      consult_purchases:      metrics.consultation_thankyou,
-      consult_rate:           rate(metrics.consultation_thankyou, metrics.consultation_click),
-      purchase_landing_clicks: metrics.landing_page_view,
-      direct_purchases:       metrics.purchase_thankyou,
-      purchase_rate:          rate(metrics.purchase_thankyou,     metrics.landing_page_view),
-    };
+    return computeConversionMetrics(metrics);
   }, [metrics]);
 
   // ── Timeline — built from raw event data scoped to this video ───────────────
@@ -884,7 +869,7 @@ export default function VideoDetail() {
                   <Tooltip
                     contentStyle={{ backgroundColor: '#09090b', borderColor: '#27272a', borderRadius: '12px', border: '1px solid #18181b' }}
                     itemStyle={{ color: '#fff', fontSize: '11px', fontWeight: 'bold' }}
-                    formatter={(value: number | string | (string | number)[]) => [value, 'Conversions']}
+                    formatter={(value: number) => [value, 'Conversions']}
                   />
                   <Area type="monotone" dataKey="revenue" stroke="#dc2626" strokeWidth={3} fillOpacity={1} fill="url(#colorRev)" />
                 </AreaChart>
