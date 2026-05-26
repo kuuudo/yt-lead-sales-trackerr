@@ -346,11 +346,10 @@ export default function DashboardTest() {
   // Render
   // ─────────────────────────────────────────────────────────────────────────────
   return (
-    <div className="w-full max-w-[1200px] mx-auto px-6 py-8 space-y-8">
+    <div className="max-w-[1200px] mx-auto px-6 py-8 space-y-8">
 
       {/* Header */}
-      <header className="flex justify-between items-end gap-6">
-        <div className="min-w-0"></div>
+      <header className="flex justify-between items-end">
         <div>
           <h1 className="text-3xl font-bold text-white flex items-center gap-3">
             <div className="w-2.5 h-2.5 bg-red-600 rounded-sm shadow-[0_0_15px_rgba(220,38,38,0.5)]" />
