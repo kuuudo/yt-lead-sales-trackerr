@@ -1,5 +1,11 @@
-import Stripe from 'stripe'
-import { createClient } from '@supabase/supabase-js'
+import Stripe from 'https://esm.sh/stripe@14.21.0'
+import { createClient } from 'https://esm.sh/@supabase/supabase-js@2'
+
+const corsHeaders = {
+  'Access-Control-Allow-Origin': 'https://www.vstrk.com',
+  'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
+  'Access-Control-Allow-Methods': 'POST, OPTIONS',
+}
 
 const stripe = new Stripe(Deno.env.get('STRIPE_SECRET_KEY')!, {
   apiVersion: '2024-06-20',
@@ -7,16 +13,10 @@ const stripe = new Stripe(Deno.env.get('STRIPE_SECRET_KEY')!, {
 
 Deno.serve(async (req) => {
   if (req.method === 'OPTIONS') {
-    return new Response('ok', {
-      headers: {
-        'Access-Control-Allow-Origin': '*',
-        'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
-      }
-    })
+    return new Response('ok', { headers: corsHeaders })
   }
 
   try {
-    // Get user from auth header
     const supabase = createClient(
       Deno.env.get('SUPABASE_URL')!,
       Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!
@@ -27,10 +27,12 @@ Deno.serve(async (req) => {
     const { data: { user } } = await supabase.auth.getUser(token)
 
     if (!user) {
-      return new Response(JSON.stringify({ error: 'Unauthorized' }), { status: 401 })
+      return new Response(JSON.stringify({ error: 'Unauthorized' }), { 
+        status: 401, 
+        headers: corsHeaders 
+      })
     }
 
-    // Get their organization
     const { data: membership } = await supabase
       .from('organization_members')
       .select('organization_id')
@@ -39,12 +41,14 @@ Deno.serve(async (req) => {
       .single()
 
     if (!membership) {
-      return new Response(JSON.stringify({ error: 'No organization found' }), { status: 400 })
+      return new Response(JSON.stringify({ error: 'No organization found' }), { 
+        status: 400, 
+        headers: corsHeaders 
+      })
     }
 
     const { origin } = await req.json()
 
-    // Create Stripe checkout session
     const session = await stripe.checkout.sessions.create({
       payment_method_types: ['card'],
       mode: 'subscription',
@@ -64,13 +68,16 @@ Deno.serve(async (req) => {
     })
 
     return new Response(JSON.stringify({ url: session.url }), {
-      headers: {
-        'Content-Type': 'application/json',
-        'Access-Control-Allow-Origin': '*',
+      headers: { 
+        'Content-Type': 'application/json', 
+        ...corsHeaders 
       }
     })
 
   } catch (err) {
-    return new Response(JSON.stringify({ error: err.message }), { status: 500 })
+    return new Response(JSON.stringify({ error: err.message }), { 
+      status: 500, 
+      headers: corsHeaders 
+    })
   }
 })
