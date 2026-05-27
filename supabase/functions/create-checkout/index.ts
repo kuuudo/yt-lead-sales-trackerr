@@ -1,46 +1,76 @@
-// Follow this setup guide to integrate the Deno language server with your editor:
-// https://deno.land/manual/getting_started/setup_your_environment
-// This enables autocomplete, go to definition, etc.
+import Stripe from 'stripe'
+import { createClient } from '@supabase/supabase-js'
 
-// Setup type definitions for built-in Supabase Runtime APIs
-import "@supabase/functions-js/edge-runtime.d.ts";
-import { withSupabase } from "@supabase/server";
+const stripe = new Stripe(Deno.env.get('STRIPE_SECRET_KEY')!, {
+  apiVersion: '2024-06-20',
+})
 
-console.log("Hello from Functions!");
+Deno.serve(async (req) => {
+  if (req.method === 'OPTIONS') {
+    return new Response('ok', {
+      headers: {
+        'Access-Control-Allow-Origin': '*',
+        'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
+      }
+    })
+  }
 
-// This endpoint uses 'publishable' | 'secret' access, apiKey is required.
-// Use publishable for Client-facing, key-validated endpoints
-// Use secret for Server-to-server, internal calls
-export default {
-  fetch: withSupabase({ auth: ["publishable", "secret"] }, async (req, ctx) => {
-    // Called by another service with a secret key
-    // ctx.supabaseAdmin bypasses RLS — use for privileged operations
-    /*
-    if (ctx.authMode === "secret") {
-      const { user_id } = await req.json();
-      const { data } = await ctx.supabaseAdmin.auth.admin.getUserById(user_id);
+  try {
+    // Get user from auth header
+    const supabase = createClient(
+      Deno.env.get('SUPABASE_URL')!,
+      Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!
+    )
 
-      return Response.json({
-        email: data?.user?.email,
-      });
+    const authHeader = req.headers.get('Authorization')!
+    const token = authHeader.replace('Bearer ', '')
+    const { data: { user } } = await supabase.auth.getUser(token)
+
+    if (!user) {
+      return new Response(JSON.stringify({ error: 'Unauthorized' }), { status: 401 })
     }
-    */
 
-    const { name } = await req.json();
+    // Get their organization
+    const { data: membership } = await supabase
+      .from('organization_members')
+      .select('organization_id')
+      .eq('user_id', user.id)
+      .eq('role', 'owner')
+      .single()
 
-    return Response.json({
-      message: `Hello ${name}!`,
-    });
-  }),
-};
+    if (!membership) {
+      return new Response(JSON.stringify({ error: 'No organization found' }), { status: 400 })
+    }
 
-/* To invoke locally:
+    const { origin } = await req.json()
 
-  1. Run `supabase start` (see: https://supabase.com/docs/reference/cli/supabase-start)
-  2. Make an HTTP request:
+    // Create Stripe checkout session
+    const session = await stripe.checkout.sessions.create({
+      payment_method_types: ['card'],
+      mode: 'subscription',
+      line_items: [{
+        price: Deno.env.get('STRIPE_PRICE_ID')!,
+        quantity: 1,
+      }],
+      subscription_data: {
+        trial_period_days: 7,
+      },
+      success_url: `${origin}/dashboard?upgraded=true`,
+      cancel_url: `${origin}/pricing`,
+      metadata: {
+        organization_id: membership.organization_id,
+        user_id: user.id,
+      },
+    })
 
-  curl -i --location --request POST 'http://127.0.0.1:54321/functions/v1/create-checkout' \
-    --header 'apiKey: sb_publishable_ACJWlzQHlZjBrEguHvfOxg_3BJgxAaH' \
-    --data '{"name":"Functions"}'
+    return new Response(JSON.stringify({ url: session.url }), {
+      headers: {
+        'Content-Type': 'application/json',
+        'Access-Control-Allow-Origin': '*',
+      }
+    })
 
-*/
+  } catch (err) {
+    return new Response(JSON.stringify({ error: err.message }), { status: 500 })
+  }
+})

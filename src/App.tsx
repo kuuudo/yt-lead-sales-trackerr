@@ -21,6 +21,7 @@ import InDepthAnalytics from './pages/InDepthAnalytics';
 import Track from './pages/Track';
 import Settings from './pages/Settings';
 import AnalyticsTest from './pages/AnalyticsTest';
+import Pricing from './pages/Pricing';
 
 function Navigation() {
   const { lang, toggleLanguage, t } = useLanguage();
@@ -134,6 +135,7 @@ function MainContent() {
         <Route path="/:token" element={<Track />} />
         <Route path="*" element={<Navigate to="/dashboard" replace />} />
         <Route path="/analytics-test" element={<AnalyticsTest />} />
+        <Route path="/pricing" element={<PageWrapper><Pricing /></PageWrapper>} />
       </Routes>
     </AnimatePresence>
   );
