@@ -4,6 +4,7 @@ import { useLanguage } from '../lib/hooks';
 import { motion } from 'motion/react';
 import { KeyRound, Mail, Loader2 } from 'lucide-react';
 import { Modal } from '../components/Modal';
+import { createUserWorkspace } from '../lib/createUserWorkspace';
 
 export default function Auth() {
   const { t } = useLanguage();
@@ -40,9 +41,12 @@ export default function Auth() {
         const { error } = await supabase.auth.signInWithPassword({ email, password });
         if (error) throw error;
       } else {
-        const { error } = await supabase.auth.signUp({ email, password });
+        const { data, error } = await supabase.auth.signUp({ email, password });
         if (error) throw error;
-        showAlert('Verify Email', 'Please check your inbox for a confirmation link to complete registration.', 'success');
+        if (data.user) {
+          await createUserWorkspace(data.user.id, email);
+        }
+        // No showAlert - email confirmation is disabled, user goes straight to dashboard
       }
     } catch (err: any) {
       setError(err.message);
