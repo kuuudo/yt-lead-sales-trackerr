@@ -193,7 +193,7 @@ export default function Settings() {
         <div className="flex gap-3 p-4 bg-zinc-950/60 border border-zinc-800 rounded-xl">
           <AlertCircle size={14} className="text-zinc-600 shrink-0 mt-0.5" />
           <p className="text-[11px] text-zinc-500 leading-relaxed">
-            Your webhook secret is encrypted and never exposed to the browser after saving. Each user has their own secret — V-Track routes incoming Stripe events to the correct account automatically.
+            Your webhook secret is encrypted and never exposed to the browser after saving. Each user has their own secret — VS-Track routes incoming Stripe events to the correct account automatically.
           </p>
         </div>
       </motion.section>

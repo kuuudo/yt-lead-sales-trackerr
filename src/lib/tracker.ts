@@ -226,7 +226,7 @@ export const generatePixelSnippet = (
 ): string => {
   const amountStr = amount !== null ? String(amount) : '0';
 
-  return `<!-- V-Track Pixel: ${eventType} -->
+  return `<!-- VS-Track Pixel: ${eventType} -->
 <script>
   (function() {
     var sessionId = localStorage.getItem('yt_tracker_session_id');
@@ -239,7 +239,7 @@ export const generatePixelSnippet = (
       session_id: sessionId || null
     };
 
-    console.debug('[V-Track pixel] firing', payload);
+    console.debug('[VS-Track pixel] firing', payload);
 
     fetch('${PIXEL_ENDPOINT}', {
       method: 'POST',

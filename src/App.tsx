@@ -40,7 +40,7 @@ function Navigation() {
       <div className="flex items-center gap-10">
         <Link to="/dashboard" className="text-sm font-black uppercase tracking-[0.2em] text-white flex items-center gap-2">
           <div className="w-2 h-2 bg-red-600 rounded-sm shadow-[0_0_10px_rgba(220,38,38,0.5)]" />
-          V-Track
+          VS-Track
         </Link>
         {user && (
           <div className="hidden md:flex items-center gap-6">

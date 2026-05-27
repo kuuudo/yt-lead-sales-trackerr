@@ -169,7 +169,7 @@ const generateAttributionPixel = (
 ): string => {
   const numericAmount = amount != null && amount > 0 ? amount : 0;
 
-  return `<!-- V-Track Pixel: ${eventType} -->
+  return `<!-- VS-Track Pixel: ${eventType} -->
 <script>
 (function () {
   const CONFIG = {
@@ -197,7 +197,7 @@ const generateAttributionPixel = (
     event_type: CONFIG.event_type,
     ...(CONFIG.event_type !== 'sales_call' && { amount: ${numericAmount} })
   };
-  console.debug('[V-Track] firing pixel:', payload);
+  console.debug('[VS-Track] firing pixel:', payload);
   fetch('https://www.vstrk.com/api/pixel', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -627,7 +627,7 @@ const StripeSetupBlock = ({
             <p className="text-[11px] font-bold text-white uppercase tracking-wide">Your Checkout URL</p>
           </div>
           <p className="text-[11px] text-zinc-500 pl-7 leading-relaxed">
-            This is your tracked checkout link. Use this as your "Buy Now" button — it routes through V-Track so purchases are attributed to the correct video.
+            This is your tracked checkout link. Use this as your "Buy Now" button — it routes through VS-Track so purchases are attributed to the correct video.
           </p>
           <div className="flex gap-2 pl-7">
             {trackedUrl
@@ -1216,7 +1216,7 @@ const CampaignCard = ({
                 <Info size={14} className="text-zinc-500 shrink-0 mt-0.5" />
                 <div className="space-y-1">
                   <p className="text-[11px] text-zinc-400 leading-relaxed">
-                    Your tracking links work by routing visitors through V-Track before sending them to your destination. Each redirect is auto-generated per video. Configure your funnel tracking below, then{' '}
+                    Your tracking links work by routing visitors through VS-Track before sending them to your destination. Each redirect is auto-generated per video. Configure your funnel tracking below, then{' '}
                     <Link to="/videos" className="text-red-400 hover:text-red-300 font-bold underline underline-offset-2">go to Videos</Link>{' '}
                     to attach this campaign to your content.
                   </p>
@@ -1316,7 +1316,7 @@ const CampaignCard = ({
                         destinationUrl={campaign.checkout_url}
                         linkType="checkout"
                         eventLabel="Checkout"
-                        limitationMessage="Without direct integration, we track visitor intent. For the best attribution accuracy, we recommend using your own website and embedding external tools inside your pages so V-Track can track the full customer journey."
+                        limitationMessage="Without direct integration, we track visitor intent. For the best attribution accuracy, we recommend using your own website and embedding external tools inside your pages so VS-Track can track the full customer journey."
                       />
                     )}
 
@@ -1327,7 +1327,7 @@ const CampaignCard = ({
                         destinationUrl={campaign.checkout_url}
                         linkType="checkout"
                         eventLabel="Payment Page"
-                        limitationMessage="Without direct integration, we track visitor intent. For the best attribution accuracy, we recommend using your own website and embedding external tools inside your pages so V-Track can track the full customer journey."
+                        limitationMessage="Without direct integration, we track visitor intent. For the best attribution accuracy, we recommend using your own website and embedding external tools inside your pages so VS-Track can track the full customer journey."
                       />
                     )}
 
@@ -1660,7 +1660,7 @@ const CampaignCard = ({
                   <div>
                     <p className="text-[10px] font-black uppercase tracking-widest text-blue-400 mb-1">Lead Magnet Tracking</p>
                     <p className="text-[11px] text-zinc-400 leading-relaxed">
-                      Lead magnet tracking is handled <span className="text-zinc-300 font-bold">automatically</span> via your video tracking links. When a viewer clicks your lead magnet link in the video description, V-Track records the click event instantly — no pixel or thank-you page needed.
+                      Lead magnet tracking is handled <span className="text-zinc-300 font-bold">automatically</span> via your video tracking links. When a viewer clicks your lead magnet link in the video description, VS-Track records the click event instantly — no pixel or thank-you page needed.
                     </p>
                   </div>
                 </div>
