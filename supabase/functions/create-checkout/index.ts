@@ -2,7 +2,7 @@ import Stripe from 'https://esm.sh/stripe@14.21.0'
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2'
 
 const corsHeaders = {
-  'Access-Control-Allow-Origin': 'https://www.vstrk.com',
+  'Access-Control-Allow-Origin': '*',
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
   'Access-Control-Allow-Methods': 'POST, OPTIONS',
 }
@@ -22,7 +22,14 @@ Deno.serve(async (req) => {
       Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!
     )
 
-    const authHeader = req.headers.get('Authorization')!
+    const authHeader = req.headers.get('Authorization')
+
+    if (!authHeader) {
+      return new Response(JSON.stringify({ error: 'Missing auth header' }), {
+        status: 401,
+        headers: corsHeaders,
+     })
+    }
     const token = authHeader.replace('Bearer ', '')
     const { data: { user } } = await supabase.auth.getUser(token)
 
@@ -47,7 +54,8 @@ Deno.serve(async (req) => {
       })
     }
 
-    const { origin } = await req.json()
+    const body = await req.json()
+    const origin = body.origin
 
     const session = await stripe.checkout.sessions.create({
       payment_method_types: ['card'],
