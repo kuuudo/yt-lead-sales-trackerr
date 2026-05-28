@@ -1,13 +1,23 @@
 import Stripe from 'https://esm.sh/stripe@14.21.0'
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2'
 
-const corsHeaders = {
-  'Access-Control-Allow-Origin': '*',
-  'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
-  'Access-Control-Allow-Methods': 'POST, OPTIONS',
+console.log("WEBHOOK STARTED")
+
+const stripeKey = Deno.env.get('STRIPE_SECRET_KEY')
+const supabaseUrl = Deno.env.get('SUPABASE_URL')
+const supabaseKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')
+
+console.log("ENV CHECK", {
+  stripeKey: !!stripeKey,
+  supabaseUrl: !!supabaseUrl,
+  supabaseKey: !!supabaseKey
+})
+
+if (!stripeKey || !supabaseUrl || !supabaseKey) {
+  throw new Error("Missing environment variables")
 }
 
-const stripe = new Stripe(Deno.env.get('STRIPE_SECRET_KEY')!, {
+const stripe = new Stripe(stripeKey, {
   apiVersion: '2024-06-20',
 })
 
