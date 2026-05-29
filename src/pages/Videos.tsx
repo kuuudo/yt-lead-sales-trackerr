@@ -7,6 +7,7 @@ import { Youtube, Plus, Link2, Copy, Check, ExternalLink, Calendar, Target, Aler
 import { motion, AnimatePresence } from 'motion/react';
 import { Modal } from '../components/Modal';
 import { createRedirectLink } from '../lib/redirects';
+import { useOrganization } from '../lib/useOrganization'
 
 type VideoStatus = Video['status'];
 
@@ -105,6 +106,7 @@ function MultiSelectDropdown({ label, options, selected, onChange, placeholder }
 export default function Videos() {
   const { t } = useLanguage();
   const { user } = useAuth();
+  const { organizationId } = useOrganization();
   const [videos, setVideos] = useState<Video[]>([]);
   const [campaigns, setCampaigns] = useState<Campaign[]>([]);
   const [allLeadMagnets, setAllLeadMagnets] = useState<LeadMagnet[]>([]);
@@ -197,10 +199,10 @@ export default function Videos() {
   };
 
   useEffect(() => {
-    if (user) {
+    if (user && organizationId) {
       fetchData();
     }
-  }, [user]);
+  }, [user, organizationId]);
 
   const fetchData = async () => {
     setLoading(true);
@@ -210,7 +212,7 @@ export default function Videos() {
       const { data: vData, error: vError } = await supabase
         .from('videos')
         .select('*')
-        .eq('user_id', user?.id)
+        .eq('organization_id', organizationId)
         .order('created_at', { ascending: false });
 
       console.log('Supabase Videos Response:', { data: vData, error: vError });
@@ -218,7 +220,7 @@ export default function Videos() {
       const { data: cData, error: cError } = await supabase
         .from('campaigns')
         .select('*')
-        .eq('user_id', user?.id);
+        .eq('organization_id', organizationId);
 
       if (vError) throw vError;
       if (cError) throw cError;
@@ -305,7 +307,11 @@ export default function Videos() {
   if (!generated || !user) return;
   setSaving(true);
   try {
-    const payload = { ...generated.video, user_id: user.id };
+    const payload = {
+    ...generated.video,
+    user_id: user.id,
+    organization_id: organizationId
+};
     let error, data;
 
     if (editingVideoId) {

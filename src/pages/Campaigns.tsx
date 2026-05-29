@@ -6,10 +6,12 @@ import { useAuth } from '../lib/auth';
 import { Plus, Globe, ChevronRight, DollarSign, Phone, Mail as MailIcon, Briefcase, Save, Loader2, Link2, Magnet, Trash2, AlertTriangle, CreditCard, X } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { Modal } from '../components/Modal';
+import { useOrganization } from '../lib/useOrganization'
 
 export default function Campaigns() {
   const { t } = useLanguage();
   const { user } = useAuth();
+  const { organizationId } = useOrganization()
   const navigate = useNavigate();
   const location = useLocation();
   const [campaigns, setCampaigns] = useState<Campaign[]>([]);
@@ -68,15 +70,16 @@ export default function Campaigns() {
   });
 
   useEffect(() => {
-    if (user) fetchCampaigns();
-  }, [user]);
+    if (user && organizationId) fetchCampaigns()
+  }, [user, organizationId])
 
   const fetchCampaigns = async () => {
+    if (!organizationId) return 
     try {
       const { data, error } = await supabase
         .from('campaigns')
         .select('*')
-        .eq('user_id', user?.id)
+        .eq('organization_id', organizationId) 
         .order('created_at', { ascending: false });
       if (error) throw error;
       if (data) setCampaigns(data);
@@ -110,7 +113,7 @@ export default function Campaigns() {
     try {
       const { data, error } = await supabase
         .from('campaigns')
-        .insert([{ ...formData, user_id: user.id }])
+        .insert([{ ...formData, user_id: user.id, organization_id: organizationId }]) 
         .select();
       if (error) throw new Error(`${error.message} — ${error.details}`);
       if (data) {
