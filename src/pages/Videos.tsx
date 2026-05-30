@@ -136,9 +136,12 @@ export default function Videos() {
       instagram: '◉',
       linkedin: 'in',
       x: '𝕏',
-      threads: '@'
+      threads: '@',
+      facebook: 'f',
+      reddit: '●',
+      twitch: '⬡',
     };
-    return icons[platform] || '▶';
+    return icons[platform] || '?';
   }
 
   const [filters, setFilters] = useState({
@@ -330,9 +333,8 @@ export default function Videos() {
         ...generated.video,
         user_id: user.id,
         organization_id: organizationId,
-        platform: 'youtube',
-        platform_url: '',
-        platform_post_id: '',
+        // platform, platform_url, platform_post_id come from generated.video (via getPlatformInfo)
+        // DO NOT override them here — that was causing all non-YouTube entries to save as 'youtube'
       };
       let error, data;
 
@@ -887,7 +889,7 @@ export default function Videos() {
                     className="w-full md:w-40 aspect-video rounded-xl object-cover border border-zinc-900"
                   />
                   <span className="absolute -top-1 -right-1 text-[8px] font-black bg-zinc-800 border border-zinc-700 rounded px-1">
-                    {((v as any).platform || 'youtube').toUpperCase()}
+                    {(v.platform ?? 'unknown').toUpperCase()}
                   </span>
                 </div>
                 <div className="absolute inset-0 flex items-center justify-center bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity rounded-xl">
@@ -951,10 +953,10 @@ export default function Videos() {
                 <button 
                   onClick={() => {
                     setFormData({
-                      url: `https://youtube.com/watch?v=${v.youtube_video_id}`,
+                      url: v.platform_url || `https://youtube.com/watch?v=${v.youtube_video_id}`,
                       campaign_id: v.campaign_id,
                       objectives: v.video_goal,
-                      platform: 'youtube' as Platform,
+                      platform: (v.platform as Platform) || 'youtube',
                       hasLeadMagnet: !!(v.selected_lead_magnet_ids && v.selected_lead_magnet_ids.length > 0),
                       selectedLeadMagnets: v.selected_lead_magnet_ids || []
                     });
