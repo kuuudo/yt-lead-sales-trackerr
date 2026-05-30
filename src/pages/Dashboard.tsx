@@ -26,6 +26,7 @@
 //
 // ─────────────────────────────────────────────────────────────────────────────
 
+import { useOrganization } from '../lib/useOrganization'
 import React, { useState, useEffect, useMemo } from 'react';
 import { supabase, Video, Campaign } from '../lib/supabase';
 import { useAuth } from '../lib/auth';
@@ -86,6 +87,7 @@ async function buildSessionLookup(
 
 export default function DashboardTest() {
   const { user } = useAuth();
+  const { organizationId } = useOrganization();
   const navigate = useNavigate();
 
   // ── Raw data state ──────────────────────────────────────────────────────────
@@ -119,8 +121,8 @@ export default function DashboardTest() {
   };
 
   useEffect(() => {
-    if (user) fetchData();
-  }, [user]);
+    if (user && organizationId) fetchData();
+  }, [user, organizationId]);
 
 
   // ── Data fetching ───────────────────────────────────────────────────────────
@@ -133,8 +135,8 @@ export default function DashboardTest() {
     setLoading(true);
     try {
       const [vRes, cRes] = await Promise.all([
-        supabase.from('videos').select('*').eq('user_id', user?.id),
-        supabase.from('campaigns').select('*').eq('user_id', user?.id),
+        supabase.from('videos').select('*').eq('organization_id', organizationId),
+        supabase.from('campaigns').select('*').eq('organization_id', organizationId),
       ]);
 
       if (vRes.error) throw vRes.error;

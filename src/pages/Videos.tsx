@@ -3,7 +3,14 @@ import { Link } from 'react-router-dom';
 import { useLanguage } from '../lib/hooks';
 import { supabase, Video, Campaign, LeadMagnet } from '../lib/supabase';
 import { useAuth } from '../lib/auth';
-import { Youtube, Plus, Link2, Copy, Check, ExternalLink, Calendar, Target, AlertCircle, Loader2, BarChart3, ChevronDown, X, Edit2, Trash2 } from 'lucide-react';
+import { Youtube, Plus, Link2, Copy, Check, ExternalLink, Calendar, Target, AlertCircle, Loader2, BarChart3, ChevronDown, X, Edit2, Trash2,
+  Music2, Camera, Linkedin, Twitter, AtSign } from 'lucide-react';
+import {
+  type Platform,
+  PLATFORM_CONFIG,
+  detectPlatform,
+  getPlatformInfo
+} from '../lib/platformParser';
 import { motion, AnimatePresence } from 'motion/react';
 import { Modal } from '../components/Modal';
 import { createRedirectLink } from '../lib/redirects';
@@ -114,19 +121,26 @@ export default function Videos() {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [copied, setCopied] = useState<string | null>(null);
-   // ADD THESE NEW STATES HERE
   const [savedLinks, setSavedLinks] = useState<
     { token: string; link_type: string; label: string; lead_magnet_id?: string }[]
   >([]);
-
   const [showLinksModal, setShowLinksModal] = useState(false);
-
   const [copiedLink, setCopiedLink] = useState<string | null>(null);
-
   const [editingVideoId, setEditingVideoId] = useState<string | null>(null);
   const [deletingVideoId, setDeletingVideoId] = useState<string | null>(null);
 
-  // Filter State
+  function getPlatformIcon(platform: string) {
+    const icons: Record<string, string> = {
+      youtube: '▶',
+      tiktok: '♪',
+      instagram: '◉',
+      linkedin: 'in',
+      x: '𝕏',
+      threads: '@'
+    };
+    return icons[platform] || '▶';
+  }
+
   const [filters, setFilters] = useState({
     search: '',
     goals: [] as string[],
@@ -137,6 +151,7 @@ export default function Videos() {
 
   const [formData, setFormData] = useState({
     url: '',
+    platform: 'youtube' as Platform,
     campaign_id: '',
     objectives: ['sales'] as Video['video_goal'],
     hasLeadMagnet: false,
@@ -186,7 +201,6 @@ export default function Videos() {
       
       if (error) throw error;
       setAvailableLeadMagnets(data || []);
-      // Reset selected magnets if they don't belong to the new campaign
       setFormData(prev => ({ 
         ...prev, 
         selectedLeadMagnets: prev.selectedLeadMagnets.filter(id => data?.some(m => m.id === id))
@@ -231,7 +245,6 @@ export default function Videos() {
         if (cData.length > 0) {
           setFormData(prev => ({ ...prev, campaign_id: prev.campaign_id || cData[0].id }));
           
-          // Fetch all lead magnets for all user campaigns
           const campaignIds = cData.map(c => c.id);
           const { data: lmData, error: lmError } = await supabase
             .from('lead_magnets')
@@ -256,7 +269,6 @@ export default function Videos() {
     if (!vidId) return null;
     
     try {
-      // Use YouTube oEmbed API to get real title and high-res thumbnail
       const response = await fetch(`https://www.youtube.com/oembed?url=https://www.youtube.com/watch?v=${vidId}&format=json`);
       if (response.ok) {
         const data = await response.json();
@@ -270,7 +282,6 @@ export default function Videos() {
       console.error('Error fetching YouTube oEmbed:', err);
     }
 
-    // Fallback if oEmbed fails
     return {
       youtube_video_id: vidId,
       thumbnail_url: `https://img.youtube.com/vi/${vidId}/maxresdefault.jpg`,
@@ -279,13 +290,21 @@ export default function Videos() {
   };
 
   const handleGenerate = async () => {
-    if (!formData.url) return showAlert('Information Needed', 'Please enter a YouTube URL to continue.', 'info');
-    
+    if (!formData.url) return showAlert('Information Needed', 'Please enter a content URL.', 'info');
+
+    const detected = detectPlatform(formData.url);
+    const platform = detected || formData.platform;
+
     setFetchingInfo(true);
-    const info = await getYTInfo(formData.url);
+    const info = await getPlatformInfo(formData.url, platform);
     setFetchingInfo(false);
 
-    if (!info) return showAlert('Invalid URL', 'The YouTube URL provided is not valid. Please check and try again.', 'danger');
+    if (!info)
+      return showAlert(
+        'Invalid URL',
+        `Could not parse this ${PLATFORM_CONFIG[platform].label} URL. Please check and try again.`,
+        'danger'
+      );
 
     const campaign = campaigns.find(c => c.id === formData.campaign_id);
     if (!campaign) return showAlert('Campaign Selection', 'Please select a campaign first.', 'info');
@@ -304,162 +323,154 @@ export default function Videos() {
   };
 
   const handleSave = async () => {
-  if (!generated || !user) return;
-  setSaving(true);
-  try {
-    const payload = {
-    ...generated.video,
-    user_id: user.id,
-    organization_id: organizationId
-};
-    let error, data;
+    if (!generated || !user) return;
+    setSaving(true);
+    try {
+      const payload = {
+        ...generated.video,
+        user_id: user.id,
+        organization_id: organizationId,
+        platform: 'youtube',
+        platform_url: '',
+        platform_post_id: '',
+      };
+      let error, data;
 
-    if (editingVideoId) {
-      const { data: updateData, error: updateError } = await supabase
-        .from('videos').update(payload).eq('id', editingVideoId).select();
-      error = updateError; data = updateData;
-    } else {
-      const { data: insertData, error: insertError } = await supabase
-        .from('videos').insert([payload]).select();
-      error = insertError; data = insertData;
-    }
+      if (editingVideoId) {
+        const { data: updateData, error: updateError } = await supabase
+          .from('videos').update(payload).eq('id', editingVideoId).select();
+        error = updateError; data = updateData;
+      } else {
+        const { data: insertData, error: insertError } = await supabase
+          .from('videos').insert([payload]).select();
+        error = insertError; data = insertData;
+      }
 
-    if (error) throw new Error(error.message);
+      if (error) throw new Error(error.message);
 
-    if (data) {
-      const savedVideo = data[0];
-      const campaign = generated.campaign;
-      const appBaseUrl = window.location.origin;
+      if (data) {
+        const savedVideo = data[0];
+        const campaign = generated.campaign;
+        const appBaseUrl = window.location.origin;
 
-      if (campaign) {
-        const redirectJobs: Array<[string, string, string]> = [
-          ['landing_page', campaign.landing_page_url, '🏠 Landing Page'],
-        ];
-        if (campaign.newsletter_url) redirectJobs.push(['newsletter', campaign.newsletter_url, '📧 Newsletter']);
-        if (campaign.sales_call_booking_url) redirectJobs.push(['sales_call', campaign.sales_call_booking_url, '📞 Sales Call']);
-        if (campaign.consultation_booking_url) redirectJobs.push(['consultation', campaign.consultation_booking_url, '💼 Consultation']);
-        if (campaign.checkout_url) redirectJobs.push(['checkout', campaign.checkout_url, '🛒 Checkout']);
-        if (campaign.purchase_thankyou_url) redirectJobs.push(['purchase_thankyou', campaign.purchase_thankyou_url, '✅ Purchase Thank You']);
-        if (campaign.newsletter_thankyou_url) redirectJobs.push(['newsletter_thankyou', campaign.newsletter_thankyou_url, '✅ Newsletter Thank You']);
+        if (campaign) {
+          const redirectJobs: Array<[string, string, string]> = [
+            ['landing_page', campaign.landing_page_url, '🏠 Landing Page'],
+          ];
+          if (campaign.newsletter_url) redirectJobs.push(['newsletter', campaign.newsletter_url, '📧 Newsletter']);
+          if (campaign.sales_call_booking_url) redirectJobs.push(['sales_call', campaign.sales_call_booking_url, '📞 Sales Call']);
+          if (campaign.consultation_booking_url) redirectJobs.push(['consultation', campaign.consultation_booking_url, '💼 Consultation']);
+          if (campaign.checkout_url) redirectJobs.push(['checkout', campaign.checkout_url, '🛒 Checkout']);
+          if (campaign.purchase_thankyou_url) redirectJobs.push(['purchase_thankyou', campaign.purchase_thankyou_url, '✅ Purchase Thank You']);
+          if (campaign.newsletter_thankyou_url) redirectJobs.push(['newsletter_thankyou', campaign.newsletter_thankyou_url, '✅ Newsletter Thank You']);
 
-        // Create redirect links for all funnel steps
-        await Promise.all(
-          redirectJobs.map(([type, url]) =>
-            createRedirectLink(savedVideo.id, savedVideo.campaign_id, type as any, url, appBaseUrl)
-          )
-        );
+          await Promise.all(
+            redirectJobs.map(([type, url]) =>
+              createRedirectLink(savedVideo.id, savedVideo.campaign_id, type as any, url, appBaseUrl)
+            )
+          );
 
-        // Create redirect links for selected lead magnets
-        if (generated.video.selected_lead_magnet_ids && generated.video.selected_lead_magnet_ids.length > 0) {
-          const { data: lmData } = await supabase
-            .from('lead_magnets')
-            .select('*')
-            .in('id', generated.video.selected_lead_magnet_ids);
+          if (generated.video.selected_lead_magnet_ids && generated.video.selected_lead_magnet_ids.length > 0) {
+            const { data: lmData } = await supabase
+              .from('lead_magnets')
+              .select('*')
+              .in('id', generated.video.selected_lead_magnet_ids);
 
-          if (lmData) {
+            if (lmData) {
+              await Promise.all(
+                lmData.map((lm: any) =>
+                  createRedirectLink(savedVideo.id, savedVideo.campaign_id, 'lead_magnet' as any, lm.lead_magnet_url, appBaseUrl, lm.id)
+                )
+              );
+            }
+          }
+
+          if (editingVideoId && campaign) {
+            const urlUpdates: Array<[string, string]> = [
+              ['landing_page', campaign.landing_page_url],
+            ];
+            if (campaign.checkout_url) urlUpdates.push(['checkout', campaign.checkout_url]);
+            if (campaign.newsletter_url) urlUpdates.push(['newsletter', campaign.newsletter_url]);
+            if (campaign.purchase_thankyou_url) urlUpdates.push(['purchase_thankyou', campaign.purchase_thankyou_url]);
+            if (campaign.newsletter_thankyou_url) urlUpdates.push(['newsletter_thankyou', campaign.newsletter_thankyou_url]);
+            if (campaign.sales_call_booking_url) urlUpdates.push(['sales_call', campaign.sales_call_booking_url]);
+            if (campaign.consultation_booking_url) urlUpdates.push(['consultation', campaign.consultation_booking_url]);
+
             await Promise.all(
-              lmData.map((lm: any) =>
-                createRedirectLink(savedVideo.id, savedVideo.campaign_id, 'lead_magnet' as any, lm.lead_magnet_url, appBaseUrl, lm.id)
+              urlUpdates.map(([type, url]) =>
+                supabase
+                  .from('redirect_links')
+                  .update({ destination_url: url })
+                  .eq('video_id', editingVideoId)
+                  .eq('link_type', type)
               )
             );
           }
-        }
-// When editing, update destination_urls for existing redirect links
-if (editingVideoId && campaign) {
-  const urlUpdates: Array<[string, string]> = [
-    ['landing_page', campaign.landing_page_url],
-  ];
 
-  if (campaign.checkout_url)
-    urlUpdates.push(['checkout', campaign.checkout_url]);
+          const { data: allLinks } = await supabase
+            .from('redirect_links')
+            .select('token, link_type, destination_url, lead_magnet_id')
+            .eq('video_id', savedVideo.id);
 
-  if (campaign.newsletter_url)
-    urlUpdates.push(['newsletter', campaign.newsletter_url]);
+          let lmNames: Record<string, string> = {};
+          if (generated.video.selected_lead_magnet_ids && generated.video.selected_lead_magnet_ids.length > 0) {
+            const { data: lmData } = await supabase
+              .from('lead_magnets')
+              .select('id, lead_magnet_name')
+              .in('id', generated.video.selected_lead_magnet_ids);
+            if (lmData) lmData.forEach((lm: any) => { lmNames[lm.id] = lm.lead_magnet_name; });
+          }
 
-  if (campaign.purchase_thankyou_url)
-    urlUpdates.push(['purchase_thankyou', campaign.purchase_thankyou_url]);
-
-  if (campaign.newsletter_thankyou_url)
-    urlUpdates.push(['newsletter_thankyou', campaign.newsletter_thankyou_url]);
-
-  if (campaign.sales_call_booking_url)
-    urlUpdates.push(['sales_call', campaign.sales_call_booking_url]);
-
-  if (campaign.consultation_booking_url)
-    urlUpdates.push(['consultation', campaign.consultation_booking_url]);
-
-  await Promise.all(
-    urlUpdates.map(([type, url]) =>
-      supabase
-        .from('redirect_links')
-        .update({ destination_url: url })
-        .eq('video_id', editingVideoId)
-        .eq('link_type', type)
-    )
-  );
-}
-        // Fetch all generated links to display
-        const { data: allLinks } = await supabase
-          .from('redirect_links')
-          .select('token, link_type, destination_url, lead_magnet_id')
-          .eq('video_id', savedVideo.id);
-
-        // Fetch lead magnet names for display
-        let lmNames: Record<string, string> = {};
-        if (generated.video.selected_lead_magnet_ids && generated.video.selected_lead_magnet_ids.length > 0) {
-          const { data: lmData } = await supabase
-            .from('lead_magnets')
-            .select('id, lead_magnet_name')
-            .in('id', generated.video.selected_lead_magnet_ids);
-          if (lmData) lmData.forEach((lm: any) => { lmNames[lm.id] = lm.lead_magnet_name; });
+          if (allLinks) {
+            setSavedLinks(allLinks.map((l: any) => ({
+              ...l,
+              label: getLinkLabel(l.link_type, lmNames, l.lead_magnet_id)
+            })));
+            setShowLinksModal(true);
+          }
         }
 
-        if (allLinks) {
-          setSavedLinks(allLinks.map((l: any) => ({
-            ...l,
-            label: getLinkLabel(l.link_type, lmNames, l.lead_magnet_id)
-          })));
-          setShowLinksModal(true);
+        if (editingVideoId) {
+          setVideos(videos.map(v => v.id === editingVideoId ? savedVideo : v));
+        } else {
+          setVideos([savedVideo, ...videos]);
         }
+        setShowAdd(false);
+        setEditingVideoId(null);
+        setFormData({
+          url: '',
+          platform: 'youtube' as Platform,
+          campaign_id: campaigns[0]?.id || '',
+          objectives: ['sales'],
+          hasLeadMagnet: false,
+          selectedLeadMagnets: []
+        });
       }
-
-      if (editingVideoId) {
-        setVideos(videos.map(v => v.id === editingVideoId ? savedVideo : v));
-      } else {
-        setVideos([savedVideo, ...videos]);
-      }
-      setShowAdd(false);
-      setEditingVideoId(null);
-      setFormData({
-        url: '', campaign_id: campaigns[0]?.id || '',
-        objectives: ['sales'], hasLeadMagnet: false, selectedLeadMagnets: []
-      });
+    } catch (err: any) {
+      showAlert('Save Error', err.message || 'An unexpected error occurred.', 'danger');
+    } finally {
+      setSaving(false);
     }
-  } catch (err: any) {
-    showAlert('Save Error', err.message || 'An unexpected error occurred.', 'danger');
-  } finally {
-    setSaving(false);
-  }
-};
-
-const getLinkLabel = (linkType: string, lmNames: Record<string, string> = {}, leadMagnetId?: string) => {
-  if (linkType === 'lead_magnet' && leadMagnetId && lmNames[leadMagnetId]) {
-    return `📦 ${lmNames[leadMagnetId]}`;
-  }
-  const labels: Record<string, string> = {
-    landing_page: '🏠 Landing Page',
-    newsletter: '📧 Newsletter',
-    newsletter_thankyou: '✅ Newsletter Thank You',
-    checkout: '🛒 Checkout',
-    purchase_thankyou: '✅ Purchase Thank You',
-    sales_call: '📞 Sales Call',
-    sales_call_thankyou: '✅ Sales Call Thank You',
-    consultation: '💼 Consultation',
-    consultation_thankyou: '✅ Consultation Thank You',
-    lead_magnet: '📦 Lead Magnet',
   };
-  return labels[linkType] || linkType;
-};
+
+  const getLinkLabel = (linkType: string, lmNames: Record<string, string> = {}, leadMagnetId?: string) => {
+    if (linkType === 'lead_magnet' && leadMagnetId && lmNames[leadMagnetId]) {
+      return `📦 ${lmNames[leadMagnetId]}`;
+    }
+    const labels: Record<string, string> = {
+      landing_page: '🏠 Landing Page',
+      newsletter: '📧 Newsletter',
+      newsletter_thankyou: '✅ Newsletter Thank You',
+      checkout: '🛒 Checkout',
+      purchase_thankyou: '✅ Purchase Thank You',
+      sales_call: '📞 Sales Call',
+      sales_call_thankyou: '✅ Sales Call Thank You',
+      consultation: '💼 Consultation',
+      consultation_thankyou: '✅ Consultation Thank You',
+      lead_magnet: '📦 Lead Magnet',
+    };
+    return labels[linkType] || linkType;
+  };
 
   const getStatusColor = (status: VideoStatus) => {
     switch (status) {
@@ -478,18 +489,15 @@ const getLinkLabel = (linkType: string, lmNames: Record<string, string> = {}, le
   const filteredVideos = React.useMemo(() => {
     let result = [...videos];
 
-    // Search filter
     if (filters.search) {
       const search = filters.search.toLowerCase();
       result = result.filter(v => v.video_title.toLowerCase().includes(search));
     }
 
-    // Goal filter
     if (filters.goals.length > 0) {
       result = result.filter(v => v.video_goal.some(g => filters.goals.includes(g)));
     }
 
-    // Lead Magnet filter
     if (filters.leadMagnets.length > 0) {
       result = result.filter(v => {
         if (!v.selected_lead_magnet_ids) return false;
@@ -497,7 +505,6 @@ const getLinkLabel = (linkType: string, lmNames: Record<string, string> = {}, le
       });
     }
 
-    // Date filter
     if (filters.dateRange !== 'all') {
       const now = new Date();
       const ranges: Record<string, number> = {
@@ -514,7 +521,6 @@ const getLinkLabel = (linkType: string, lmNames: Record<string, string> = {}, le
       }
     }
 
-    // Sort
     result.sort((a, b) => {
       if (filters.sortBy === 'newest') return new Date(b.created_at).getTime() - new Date(a.created_at).getTime();
       if (filters.sortBy === 'oldest') return new Date(a.created_at).getTime() - new Date(b.created_at).getTime();
@@ -541,9 +547,10 @@ const getLinkLabel = (linkType: string, lmNames: Record<string, string> = {}, le
             if (showAdd) {
               setEditingVideoId(null);
               setGenerated(null);
-              setFormData({ 
-                url: '', 
-                campaign_id: campaigns[0]?.id || '', 
+              setFormData({
+                url: '',
+                platform: 'youtube' as Platform,
+                campaign_id: campaigns[0]?.id || '',
                 objectives: ['sales'],
                 hasLeadMagnet: false,
                 selectedLeadMagnets: []
@@ -566,7 +573,9 @@ const getLinkLabel = (linkType: string, lmNames: Record<string, string> = {}, le
             className="bento-card border-zinc-800"
           >
             <div className="flex justify-between items-center mb-6">
-               <h2 className="text-xl font-black text-white uppercase tracking-tight">{editingVideoId ? 'Edit Tracked Video' : 'Track New Video'}</h2>
+              <h2 className="text-xl font-black text-white uppercase tracking-tight">
+                {editingVideoId ? 'Edit Tracked Video' : 'Track New Content'}
+              </h2>
             </div>
 
             {campaigns.length === 0 ? (
@@ -578,124 +587,163 @@ const getLinkLabel = (linkType: string, lmNames: Record<string, string> = {}, le
               <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
                 <div className="space-y-6">
                   <div className="space-y-1">
-                    <label className="label-caps">YouTube URL</label>
-                    <input 
-                      value={formData.url}
-                      onChange={e => setFormData({ ...formData, url: e.target.value })}
-                      placeholder="https://youtube.com/watch?v=..."
-                      className="w-full bg-zinc-950 border border-zinc-900 rounded-xl p-4 text-sm outline-none focus:border-red-600 transition-all font-mono text-zinc-400"
-                    />
-                  </div>
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                    <div className="space-y-1">
-                      <label className="label-caps">Campaign</label>
-                      <select 
-                        value={formData.campaign_id}
-                        onChange={e => setFormData({ ...formData, campaign_id: e.target.value })}
-                        className="w-full bg-zinc-950 border border-zinc-900 rounded-xl p-3 text-[11px] font-bold uppercase outline-none focus:border-red-600 appearance-none"
-                      >
-                        <option value="">Select a campaign</option>
-                        {campaigns.map(c => <option key={c.id} value={c.id}>{c.campaign_name}</option>)}
-                      </select>
-                    </div>
-                    <div className="space-y-1">
-                      <label className="label-caps">Goals / Objectives</label>
-                      <div className="flex flex-wrap gap-2 pt-1">
-                        {(['sales', 'newsletter', 'calls', 'consult', 'viral'] as const).map(obj => (
+                    {/* Platform Selector */}
+                    <div className="space-y-2">
+                      <label className="label-caps">Platform</label>
+                      <div className="grid grid-cols-3 gap-2">
+                        {(Object.keys(PLATFORM_CONFIG) as Platform[]).map(p => (
                           <button
-                            key={obj}
+                            key={p}
                             type="button"
-                            onClick={() => {
-                              const newObj = formData.objectives.includes(obj as any)
-                                ? formData.objectives.filter(o => o !== (obj as any))
-                                : [...formData.objectives, obj as any];
-                              if (newObj.length > 0) setFormData({ ...formData, objectives: newObj });
-                            }}
-                            className={`px-3 py-1.5 rounded-lg text-[9px] font-black uppercase tracking-widest border transition-all ${
-                              formData.objectives.includes(obj as any)
-                                ? 'bg-red-600 border-red-600 text-white shadow-[0_0_10px_rgba(220,38,38,0.3)]'
-                                : 'bg-zinc-900 border-zinc-800 text-zinc-500 hover:border-zinc-700'
+                            onClick={() =>
+                              setFormData(prev => ({ ...prev, platform: p, url: '' }))
+                            }
+                            className={`h-10 rounded-xl border text-[10px] font-black uppercase tracking-widest transition-all ${
+                              formData.platform === p
+                                ? 'border-red-600 bg-red-600/10 text-red-400'
+                                : 'border-zinc-800 bg-zinc-950 text-zinc-500 hover:border-zinc-600'
                             }`}
                           >
-                            {getObjectiveLabel(obj as any)}
+                            {PLATFORM_CONFIG[p].label}
                           </button>
                         ))}
                       </div>
                     </div>
-                  </div>
 
-                  <div className="space-y-4 pt-2 border-t border-zinc-900">
-                    <label className="flex items-center gap-3 cursor-pointer group">
-                      <div className="relative flex items-center justify-center">
-                        <input 
-                          type="checkbox" 
-                          checked={formData.hasLeadMagnet}
-                          onChange={e => setFormData({ ...formData, hasLeadMagnet: e.target.checked })}
-                          className="peer appearance-none w-5 h-5 border border-zinc-800 rounded bg-zinc-950 checked:bg-red-600 checked:border-red-600 transition-all cursor-pointer"
-                        />
-                        <Check size={12} className="absolute text-white opacity-0 peer-checked:opacity-100 transition-opacity pointer-events-none" />
+                    {/* URL Input */}
+                    <div className="space-y-1">
+                      <label className="label-caps">
+                        {PLATFORM_CONFIG[formData.platform].label} URL
+                      </label>
+                      <input
+                        type="url"
+                        value={formData.url}
+                        onChange={e => {
+                          const url = e.target.value;
+                          const detected = detectPlatform(url);
+                          setFormData(prev => ({
+                            ...prev,
+                            url,
+                            platform: detected || prev.platform
+                          }));
+                        }}
+                        placeholder={PLATFORM_CONFIG[formData.platform].placeholder}
+                        className="w-full bg-zinc-950 border border-zinc-800 rounded-xl p-4 text-sm outline-none focus:border-red-600 transition-all font-mono text-zinc-400"
+                      />
+                    </div>
+
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                      <div className="space-y-1">
+                        <label className="label-caps">Campaign</label>
+                        <select 
+                          value={formData.campaign_id}
+                          onChange={e => setFormData({ ...formData, campaign_id: e.target.value })}
+                          className="w-full bg-zinc-950 border border-zinc-900 rounded-xl p-3 text-[11px] font-bold uppercase outline-none focus:border-red-600 appearance-none"
+                        >
+                          <option value="">Select a campaign</option>
+                          {campaigns.map(c => <option key={c.id} value={c.id}>{c.campaign_name}</option>)}
+                        </select>
                       </div>
-                      <span className="text-[10px] font-bold uppercase tracking-widest text-zinc-400 group-hover:text-zinc-200 transition-colors">
-                        {t.videos.hasLeadMagnet}
-                      </span>
-                    </label>
+                      <div className="space-y-1">
+                        <label className="label-caps">Goals / Objectives</label>
+                        <div className="flex flex-wrap gap-2 pt-1">
+                          {(['sales', 'newsletter', 'calls', 'consult', 'viral'] as const).map(obj => (
+                            <button
+                              key={obj}
+                              type="button"
+                              onClick={() => {
+                                const newObj = formData.objectives.includes(obj as any)
+                                  ? formData.objectives.filter(o => o !== (obj as any))
+                                  : [...formData.objectives, obj as any];
+                                if (newObj.length > 0) setFormData({ ...formData, objectives: newObj });
+                              }}
+                              className={`px-3 py-1.5 rounded-lg text-[9px] font-black uppercase tracking-widest border transition-all ${
+                                formData.objectives.includes(obj as any)
+                                  ? 'bg-red-600 border-red-600 text-white shadow-[0_0_10px_rgba(220,38,38,0.3)]'
+                                  : 'bg-zinc-900 border-zinc-800 text-zinc-500 hover:border-zinc-700'
+                              }`}
+                            >
+                              {getObjectiveLabel(obj as any)}
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+                    </div>
 
-                    {formData.hasLeadMagnet && (
-                      <motion.div 
-                        initial={{ opacity: 0, y: -10 }}
-                        animate={{ opacity: 1, y: 0 }}
-                        className="space-y-2 p-4 bg-zinc-950/50 border border-zinc-900 rounded-2xl"
-                      >
-                        <label className="label-caps !text-zinc-600">{t.videos.selectLeadMagnets}</label>
-                        {!formData.campaign_id ? (
-                          <p className="text-[10px] text-zinc-600 italic">{t.videos.selectCampaignFirst}</p>
-                        ) : loadingMagnets ? (
-                          <div className="flex items-center gap-2 text-[10px] text-zinc-600">
-                            <Loader2 size={12} className="animate-spin" /> Loading...
-                          </div>
-                        ) : availableLeadMagnets.length === 0 ? (
-                          <p className="text-[10px] text-zinc-600 italic">{t.videos.noLeadMagnetsFound}</p>
-                        ) : (
-                          <div className="grid grid-cols-1 gap-2 max-h-40 overflow-y-auto pr-2 custom-scrollbar">
-                            {availableLeadMagnets.map(m => (
-                              <button
-                                key={m.id}
-                                type="button"
-                                onClick={() => {
-                                  const newSelected = formData.selectedLeadMagnets.includes(m.id)
-                                    ? formData.selectedLeadMagnets.filter(id => id !== m.id)
-                                    : [...formData.selectedLeadMagnets, m.id];
-                                  setFormData({ ...formData, selectedLeadMagnets: newSelected });
-                                }}
-                                className={`flex items-center justify-between p-3 rounded-xl border text-left transition-all ${
-                                  formData.selectedLeadMagnets.includes(m.id)
-                                    ? 'bg-zinc-900 border-red-600/50 text-white'
-                                    : 'bg-zinc-900/30 border-zinc-900 text-zinc-500 hover:border-zinc-800'
-                                }`}
-                              >
-                                <span className="text-[10px] font-bold uppercase tracking-wide truncate max-w-[200px]">{m.lead_magnet_name}</span>
-                                {formData.selectedLeadMagnets.includes(m.id) && <Check size={14} className="text-red-500" />}
-                              </button>
-                            ))}
-                          </div>
-                        )}
-                      </motion.div>
-                    )}
+                    <div className="space-y-4 pt-2 border-t border-zinc-900">
+                      <label className="flex items-center gap-3 cursor-pointer group">
+                        <div className="relative flex items-center justify-center">
+                          <input 
+                            type="checkbox" 
+                            checked={formData.hasLeadMagnet}
+                            onChange={e => setFormData({ ...formData, hasLeadMagnet: e.target.checked })}
+                            className="peer appearance-none w-5 h-5 border border-zinc-800 rounded bg-zinc-950 checked:bg-red-600 checked:border-red-600 transition-all cursor-pointer"
+                          />
+                          <Check size={12} className="absolute text-white opacity-0 peer-checked:opacity-100 transition-opacity pointer-events-none" />
+                        </div>
+                        <span className="text-[10px] font-bold uppercase tracking-widest text-zinc-400 group-hover:text-zinc-200 transition-colors">
+                          {t.videos.hasLeadMagnet}
+                        </span>
+                      </label>
+
+                      {formData.hasLeadMagnet && (
+                        <motion.div 
+                          initial={{ opacity: 0, y: -10 }}
+                          animate={{ opacity: 1, y: 0 }}
+                          className="space-y-2 p-4 bg-zinc-950/50 border border-zinc-900 rounded-2xl"
+                        >
+                          <label className="label-caps !text-zinc-600">{t.videos.selectLeadMagnets}</label>
+                          {!formData.campaign_id ? (
+                            <p className="text-[10px] text-zinc-600 italic">{t.videos.selectCampaignFirst}</p>
+                          ) : loadingMagnets ? (
+                            <div className="flex items-center gap-2 text-[10px] text-zinc-600">
+                              <Loader2 size={12} className="animate-spin" /> Loading...
+                            </div>
+                          ) : availableLeadMagnets.length === 0 ? (
+                            <p className="text-[10px] text-zinc-600 italic">{t.videos.noLeadMagnetsFound}</p>
+                          ) : (
+                            <div className="grid grid-cols-1 gap-2 max-h-40 overflow-y-auto pr-2 custom-scrollbar">
+                              {availableLeadMagnets.map(m => (
+                                <button
+                                  key={m.id}
+                                  type="button"
+                                  onClick={() => {
+                                    const newSelected = formData.selectedLeadMagnets.includes(m.id)
+                                      ? formData.selectedLeadMagnets.filter(id => id !== m.id)
+                                      : [...formData.selectedLeadMagnets, m.id];
+                                    setFormData({ ...formData, selectedLeadMagnets: newSelected });
+                                  }}
+                                  className={`flex items-center justify-between p-3 rounded-xl border text-left transition-all ${
+                                    formData.selectedLeadMagnets.includes(m.id)
+                                      ? 'bg-zinc-900 border-red-600/50 text-white'
+                                      : 'bg-zinc-900/30 border-zinc-900 text-zinc-500 hover:border-zinc-800'
+                                  }`}
+                                >
+                                  <span className="text-[10px] font-bold uppercase tracking-wide truncate max-w-[200px]">{m.lead_magnet_name}</span>
+                                  {formData.selectedLeadMagnets.includes(m.id) && <Check size={14} className="text-red-500" />}
+                                </button>
+                              ))}
+                            </div>
+                          )}
+                        </motion.div>
+                      )}
+                    </div>
+
+                    <button 
+                      onClick={handleGenerate}
+                      disabled={fetchingInfo}
+                      className="w-full bg-zinc-100 text-zinc-950 h-14 rounded-xl text-xs font-black uppercase tracking-widest hover:bg-white disabled:opacity-50 disabled:cursor-not-allowed transition-all shadow-xl flex items-center justify-center gap-2"
+                    >
+                      {fetchingInfo ? (
+                        <>
+                          <Loader2 className="animate-spin" size={18} />
+                          Fetching Video Info...
+                        </>
+                      ) : (
+                        'Generate Tracking Link'
+                      )}
+                    </button>
                   </div>
-                  <button 
-                    onClick={handleGenerate}
-                    disabled={fetchingInfo}
-                    className="w-full bg-zinc-100 text-zinc-950 h-14 rounded-xl text-xs font-black uppercase tracking-widest hover:bg-white disabled:opacity-50 disabled:cursor-not-allowed transition-all shadow-xl flex items-center justify-center gap-2"
-                  >
-                    {fetchingInfo ? (
-                      <>
-                        <Loader2 className="animate-spin" size={18} />
-                        Fetching Video Info...
-                      </>
-                    ) : (
-                      'Generate Tracking Link'
-                    )}
-                  </button>
                 </div>
 
                 <div className="flex flex-col">
@@ -747,7 +795,7 @@ const getLinkLabel = (linkType: string, lmNames: Record<string, string> = {}, le
           </motion.section>
         )}
       </AnimatePresence>
-      
+
       {/* Filter Bar */}
       <section className="bento-card bg-zinc-900/40 p-4 border-zinc-900/50 flex flex-col md:flex-row gap-4">
         <div className="flex-1 relative">
@@ -762,7 +810,6 @@ const getLinkLabel = (linkType: string, lmNames: Record<string, string> = {}, le
         </div>
 
         <div className="flex flex-wrap gap-2">
-          {/* Goal Select */}
           <MultiSelectDropdown 
             label={t.filters.goal}
             options={(['sales', 'newsletter', 'calls', 'consult', 'viral'] as const).map(obj => ({
@@ -773,7 +820,6 @@ const getLinkLabel = (linkType: string, lmNames: Record<string, string> = {}, le
             onChange={values => setFilters({ ...filters, goals: values })}
           />
 
-          {/* Lead Magnet Select */}
           <MultiSelectDropdown 
             label={t.filters.leadMagnet}
             options={allLeadMagnets.map(lm => ({
@@ -784,7 +830,6 @@ const getLinkLabel = (linkType: string, lmNames: Record<string, string> = {}, le
             onChange={values => setFilters({ ...filters, leadMagnets: values })}
           />
 
-          {/* Date Range Select */}
           <select 
             value={filters.dateRange}
             onChange={e => setFilters({ ...filters, dateRange: e.target.value })}
@@ -798,7 +843,6 @@ const getLinkLabel = (linkType: string, lmNames: Record<string, string> = {}, le
             <option value="last12m">{t.filters.ranges.last12m}</option>
           </select>
 
-          {/* Sort Select */}
           <select 
             value={filters.sortBy}
             onChange={e => setFilters({ ...filters, sortBy: e.target.value })}
@@ -825,7 +869,7 @@ const getLinkLabel = (linkType: string, lmNames: Record<string, string> = {}, le
           Array.from({ length: 4 }).map((_, i) => <div key={i} className="bento-card h-24 animate-pulse" />)
         ) : filteredVideos.length === 0 ? (
           <div className="py-20 text-center border-2 border-dashed border-zinc-900 rounded-3xl">
-             <p className="text-zinc-600 text-[10px] font-bold uppercase tracking-widest">{t.filters.noResults}</p>
+            <p className="text-zinc-600 text-[10px] font-bold uppercase tracking-widest">{t.filters.noResults}</p>
           </div>
         ) : (
           filteredVideos.map((v, i) => (
@@ -836,8 +880,16 @@ const getLinkLabel = (linkType: string, lmNames: Record<string, string> = {}, le
               transition={{ delay: i * 0.05 }}
               className="bento-card flex flex-col md:flex-row gap-6 items-start md:items-center p-4 hover:border-zinc-800 transition-all"
             >
-               <Link to={`/videos/${v.id}`} className="relative group shrink-0">
-                <img src={v.thumbnail_url} className="w-full md:w-40 aspect-video rounded-xl object-cover border border-zinc-900" />
+              <Link to={`/videos/${v.id}`} className="relative group shrink-0">
+                <div className="relative shrink-0">
+                  <img
+                    src={v.thumbnail_url}
+                    className="w-full md:w-40 aspect-video rounded-xl object-cover border border-zinc-900"
+                  />
+                  <span className="absolute -top-1 -right-1 text-[8px] font-black bg-zinc-800 border border-zinc-700 rounded px-1">
+                    {((v as any).platform || 'youtube').toUpperCase()}
+                  </span>
+                </div>
                 <div className="absolute inset-0 flex items-center justify-center bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity rounded-xl">
                   <BarChart3 size={20} className="text-white" />
                 </div>
@@ -845,12 +897,12 @@ const getLinkLabel = (linkType: string, lmNames: Record<string, string> = {}, le
 
               <div className="flex-1 min-w-0">
                 <div className="flex items-center gap-3 mb-1">
-                   <Link to={`/videos/${v.id}`} className="text-sm font-bold text-white hover:text-red-500 transition-colors truncate">{v.video_title}</Link>
-                   <span className={`px-2 py-0.5 rounded-md text-[9px] font-black uppercase tracking-widest ${getStatusColor(v.status)}`}>
-                     {v.status.replace('_', ' ')}
-                   </span>
+                  <Link to={`/videos/${v.id}`} className="text-sm font-bold text-white hover:text-red-500 transition-colors truncate">{v.video_title}</Link>
+                  <span className={`px-2 py-0.5 rounded-md text-[9px] font-black uppercase tracking-widest ${getStatusColor(v.status)}`}>
+                    {v.status.replace('_', ' ')}
+                  </span>
                 </div>
-                  <div className="flex flex-wrap gap-4 items-center text-[10px] font-bold uppercase text-zinc-500">
+                <div className="flex flex-wrap gap-4 items-center text-[10px] font-bold uppercase text-zinc-500">
                   <div className="flex flex-wrap items-center gap-1.5 min-w-[120px]">
                     <Target size={12} className="text-red-500" /> Goals: 
                     <div className="flex gap-1">
@@ -902,6 +954,7 @@ const getLinkLabel = (linkType: string, lmNames: Record<string, string> = {}, le
                       url: `https://youtube.com/watch?v=${v.youtube_video_id}`,
                       campaign_id: v.campaign_id,
                       objectives: v.video_goal,
+                      platform: 'youtube' as Platform,
                       hasLeadMagnet: !!(v.selected_lead_magnet_ids && v.selected_lead_magnet_ids.length > 0),
                       selectedLeadMagnets: v.selected_lead_magnet_ids || []
                     });
@@ -958,7 +1011,7 @@ const getLinkLabel = (linkType: string, lmNames: Record<string, string> = {}, le
             </motion.div>
           ))
         )}
-            </div>
+      </div>
 
       {/* Links Modal */}
       {showLinksModal && (
