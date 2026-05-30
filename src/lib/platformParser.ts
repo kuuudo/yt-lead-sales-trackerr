@@ -1,4 +1,24 @@
-export type Platform = 'youtube' | 'tiktok' | 'instagram' | 'linkedin' | 'x' | 'threads'
+// =============================================================================
+// platformParser.ts
+// Unified platform detection, ID extraction, and metadata fetching.
+//
+// RULES:
+//  - YouTube flow is sacred — never alter oEmbed logic or youtube_video_id
+//  - detectPlatform NEVER defaults to youtube; unknown URLs return null
+//  - extractPostId strips query params before matching
+//  - getPlatformInfo uses safe placeholders for all non-YouTube platforms
+// =============================================================================
+
+export type Platform =
+  | 'youtube'
+  | 'tiktok'
+  | 'instagram'
+  | 'linkedin'
+  | 'x'
+  | 'threads'
+  | 'facebook'
+  | 'reddit'
+  | 'twitch'
 
 export interface PlatformInfo {
   platform: Platform
@@ -6,58 +26,122 @@ export interface PlatformInfo {
   platform_post_id: string
   video_title: string
   thumbnail_url: string
-  youtube_video_id?: string  // kept for backwards compat
+  youtube_video_id?: string // kept for backwards compat — only set for youtube
 }
 
-export const PLATFORM_CONFIG: Record<Platform, {
-  label: string
-  color: string
-  placeholder: string
-  icon: string
-}> = {
+export const PLATFORM_CONFIG: Record<
+  Platform,
+  { label: string; color: string; placeholder: string; icon: string }
+> = {
   youtube:   { label: 'YouTube',   color: '#FF0000', placeholder: 'https://youtube.com/watch?v=...', icon: '▶' },
   tiktok:    { label: 'TikTok',    color: '#00f2ea', placeholder: 'https://tiktok.com/@user/video/...', icon: '♪' },
   instagram: { label: 'Instagram', color: '#E1306C', placeholder: 'https://instagram.com/p/...', icon: '◉' },
   linkedin:  { label: 'LinkedIn',  color: '#0077B5', placeholder: 'https://linkedin.com/posts/...', icon: 'in' },
   x:         { label: 'X',         color: '#ffffff', placeholder: 'https://x.com/user/status/...', icon: '𝕏' },
   threads:   { label: 'Threads',   color: '#ffffff', placeholder: 'https://threads.net/@user/post/...', icon: '@' },
+  facebook:  { label: 'Facebook',  color: '#1877F2', placeholder: 'https://facebook.com/posts/...', icon: 'f' },
+  reddit:    { label: 'Reddit',    color: '#FF4500', placeholder: 'https://reddit.com/r/sub/comments/...', icon: '●' },
+  twitch:    { label: 'Twitch',    color: '#9146FF', placeholder: 'https://twitch.tv/videos/... or /clip/...', icon: '⬡' },
 }
 
-// Detect platform from URL automatically
+// ---------------------------------------------------------------------------
+// detectPlatform
+// Returns the platform for a given URL, or null if unrecognised.
+// NEVER falls back to 'youtube' for unknown URLs.
+// ---------------------------------------------------------------------------
 export function detectPlatform(url: string): Platform | null {
-  if (/youtube\.com|youtu\.be/.test(url)) return 'youtube'
-  if (/tiktok\.com/.test(url)) return 'tiktok'
-  if (/instagram\.com/.test(url)) return 'instagram'
-  if (/linkedin\.com/.test(url)) return 'linkedin'
-  if (/x\.com|twitter\.com/.test(url)) return 'x'
-  if (/threads\.net/.test(url)) return 'threads'
-  return null
+  if (/youtube\.com|youtu\.be/.test(url))   return 'youtube'
+  if (/tiktok\.com/.test(url))              return 'tiktok'
+  if (/instagram\.com/.test(url))           return 'instagram'
+  if (/linkedin\.com/.test(url))            return 'linkedin'
+  if (/(?:^|[./])x\.com|twitter\.com/.test(url)) return 'x'
+  if (/threads\.net/.test(url))             return 'threads'
+  if (/facebook\.com|fb\.com/.test(url))   return 'facebook'
+  if (/reddit\.com/.test(url))             return 'reddit'
+  if (/twitch\.tv/.test(url))              return 'twitch'
+  return null // unknown — caller must handle this; never silently default
 }
 
-// Extract post ID from URL per platform
+// ---------------------------------------------------------------------------
+// stripQuery
+// Removes query string and fragment from a URL path before regex matching,
+// preventing ?utm_source=... from being captured as part of an ID.
+// ---------------------------------------------------------------------------
+function stripQuery(url: string): string {
+  return url.split('?')[0].split('#')[0]
+}
+
+// ---------------------------------------------------------------------------
+// extractPostId
+// Extracts the platform-native post/video/clip ID from the URL.
+// Returns null when the URL doesn't match the expected pattern.
+// ---------------------------------------------------------------------------
 export function extractPostId(url: string, platform: Platform): string | null {
   try {
+    const clean = stripQuery(url)
+
     switch (platform) {
-      case 'youtube': {
-        return url.match(/(?:\/|v=|youtu\.be\/)([0-9A-Za-z_-]{11})/)?.[1] || null
-      }
-      case 'tiktok': {
-        return url.match(/\/video\/(\d+)/)?.[1] || null
-      }
-      case 'instagram': {
-        return url.match(/\/p\/([A-Za-z0-9_-]+)/)?.[1] || null
-      }
-      case 'linkedin': {
-        return url.match(/activity[:-](\d+)/)?.[1] 
-          || url.match(/posts\/([^/?]+)/)?.[1] 
-          || null
-      }
-      case 'x': {
-        return url.match(/\/status\/(\d+)/)?.[1] || null
-      }
-      case 'threads': {
-        return url.match(/\/post\/([A-Za-z0-9_-]+)/)?.[1] || null
-      }
+      // YouTube — 11-char video ID; supports watch?v=, youtu.be/, /embed/
+      case 'youtube':
+        return (
+          url.match(/[?&]v=([0-9A-Za-z_-]{11})/)?.[1] ||
+          clean.match(/youtu\.be\/([0-9A-Za-z_-]{11})/)?.[1] ||
+          clean.match(/\/embed\/([0-9A-Za-z_-]{11})/)?.[1] ||
+          clean.match(/\/shorts\/([0-9A-Za-z_-]{11})/)?.[1] ||
+          null
+        )
+
+      // TikTok — /video/{numeric id} or short-link /t/{alphanumeric}
+      case 'tiktok':
+        return (
+          clean.match(/\/video\/(\d+)/)?.[1] ||
+          clean.match(/\/t\/([A-Za-z0-9]+)/)?.[1] ||
+          null
+        )
+
+      // Instagram — /p/, /reel/, /tv/ all share the same ID format
+      case 'instagram':
+        return clean.match(/\/(?:p|reel|tv)\/([A-Za-z0-9_-]+)/)?.[1] || null
+
+      // LinkedIn — /posts/{slug} or legacy activity:{id}
+      case 'linkedin':
+        return (
+          url.match(/activity[:-](\d+)/)?.[1] ||
+          clean.match(/\/posts\/([^/]+)/)?.[1] ||
+          null
+        )
+
+      // X (Twitter) — /status/{numeric id}
+      case 'x':
+        return clean.match(/\/status\/(\d+)/)?.[1] || null
+
+      // Threads — /@user/post/{id} primary; fallback last path segment
+      case 'threads':
+        return (
+          clean.match(/\/post\/([A-Za-z0-9_-]+)/)?.[1] ||
+          clean.match(/@[^/]+\/([A-Za-z0-9_-]+)$/)?.[1] ||
+          null
+        )
+
+      // Facebook — /posts/{id} or /videos/{id}
+      case 'facebook':
+        return (
+          clean.match(/\/posts\/([A-Za-z0-9_-]+)/)?.[1] ||
+          clean.match(/\/videos\/([A-Za-z0-9_-]+)/)?.[1] ||
+          null
+        )
+
+      // Reddit — /comments/{alphanumeric id}
+      case 'reddit':
+        return clean.match(/\/comments\/([A-Za-z0-9]+)/)?.[1] || null
+
+      // Twitch — /videos/{id} (VODs) or /clip/{slug} (clips) or /:channel/clip/{slug}
+      case 'twitch':
+        return (
+          clean.match(/\/videos\/(\d+)/)?.[1] ||
+          clean.match(/\/clip\/([A-Za-z0-9_-]+)/)?.[1] ||
+          null
+        )
     }
   } catch {
     return null
@@ -65,43 +149,62 @@ export function extractPostId(url: string, platform: Platform): string | null {
   return null
 }
 
-// Fetch metadata — YouTube uses oEmbed, others use placeholder
-export async function getPlatformInfo(url: string, platform: Platform): Promise<PlatformInfo | null> {
+// ---------------------------------------------------------------------------
+// getPlatformInfo
+// Returns a PlatformInfo object for a given URL + platform.
+// YouTube is the only platform that makes a network call (oEmbed).
+// All other platforms return safe placeholder data — no API integrations yet.
+// ---------------------------------------------------------------------------
+export async function getPlatformInfo(
+  url: string,
+  platform: Platform
+): Promise<PlatformInfo | null> {
   const postId = extractPostId(url, platform)
   if (!postId) return null
 
   const cleanUrl = url.trim()
 
   switch (platform) {
+    // -------------------------------------------------------------------------
+    // YouTube — oEmbed for real title + thumbnail; youtube_video_id preserved
+    // -------------------------------------------------------------------------
     case 'youtube': {
+      const canonicalUrl = `https://www.youtube.com/watch?v=${postId}`
       try {
         const res = await fetch(
-          `https://www.youtube.com/oembed?url=https://www.youtube.com/watch?v=${postId}&format=json`
+          `https://www.youtube.com/oembed?url=${encodeURIComponent(canonicalUrl)}&format=json`
         )
         if (res.ok) {
           const data = await res.json()
           return {
             platform: 'youtube',
-            platform_url: `https://www.youtube.com/watch?v=${postId}`,
+            platform_url: canonicalUrl,
             platform_post_id: postId,
-            youtube_video_id: postId,
+            youtube_video_id: postId, // backwards compat
             video_title: data.title || `YouTube Video ${postId}`,
-            thumbnail_url: data.thumbnail_url || `https://img.youtube.com/vi/${postId}/maxresdefault.jpg`,
+            thumbnail_url:
+              data.thumbnail_url ||
+              `https://img.youtube.com/vi/${postId}/maxresdefault.jpg`,
           }
         }
-      } catch {}
-      // Fallback
+      } catch {
+        // oEmbed failed — use fallback below
+      }
+      // Fallback when oEmbed is unavailable
       return {
         platform: 'youtube',
-        platform_url: `https://www.youtube.com/watch?v=${postId}`,
+        platform_url: canonicalUrl,
         platform_post_id: postId,
-        youtube_video_id: postId,
+        youtube_video_id: postId, // backwards compat
         video_title: `YouTube Video ${postId}`,
         thumbnail_url: `https://img.youtube.com/vi/${postId}/maxresdefault.jpg`,
       }
     }
 
-    case 'tiktok': {
+    // -------------------------------------------------------------------------
+    // All other platforms — safe placeholders, no network calls
+    // -------------------------------------------------------------------------
+    case 'tiktok':
       return {
         platform: 'tiktok',
         platform_url: cleanUrl,
@@ -109,9 +212,8 @@ export async function getPlatformInfo(url: string, platform: Platform): Promise<
         video_title: `TikTok Video ${postId}`,
         thumbnail_url: '',
       }
-    }
 
-    case 'instagram': {
+    case 'instagram':
       return {
         platform: 'instagram',
         platform_url: cleanUrl,
@@ -119,9 +221,8 @@ export async function getPlatformInfo(url: string, platform: Platform): Promise<
         video_title: `Instagram Post ${postId}`,
         thumbnail_url: '',
       }
-    }
 
-    case 'linkedin': {
+    case 'linkedin':
       return {
         platform: 'linkedin',
         platform_url: cleanUrl,
@@ -129,9 +230,8 @@ export async function getPlatformInfo(url: string, platform: Platform): Promise<
         video_title: `LinkedIn Post ${postId}`,
         thumbnail_url: '',
       }
-    }
 
-    case 'x': {
+    case 'x':
       return {
         platform: 'x',
         platform_url: cleanUrl,
@@ -139,9 +239,8 @@ export async function getPlatformInfo(url: string, platform: Platform): Promise<
         video_title: `X Post ${postId}`,
         thumbnail_url: '',
       }
-    }
 
-    case 'threads': {
+    case 'threads':
       return {
         platform: 'threads',
         platform_url: cleanUrl,
@@ -149,6 +248,32 @@ export async function getPlatformInfo(url: string, platform: Platform): Promise<
         video_title: `Threads Post ${postId}`,
         thumbnail_url: '',
       }
-    }
+
+    case 'facebook':
+      return {
+        platform: 'facebook',
+        platform_url: cleanUrl,
+        platform_post_id: postId,
+        video_title: `Facebook Post ${postId}`,
+        thumbnail_url: '',
+      }
+
+    case 'reddit':
+      return {
+        platform: 'reddit',
+        platform_url: cleanUrl,
+        platform_post_id: postId,
+        video_title: `Reddit Post ${postId}`,
+        thumbnail_url: '',
+      }
+
+    case 'twitch':
+      return {
+        platform: 'twitch',
+        platform_url: cleanUrl,
+        platform_post_id: postId,
+        video_title: `Twitch Video ${postId}`,
+        thumbnail_url: '',
+      }
   }
 }
