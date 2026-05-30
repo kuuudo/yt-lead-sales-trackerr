@@ -25,6 +25,7 @@ import {
 } from 'recharts';
 import { motion, AnimatePresence } from 'motion/react';
 import { Link, useNavigate, useSearchParams } from 'react-router-dom';
+import { useOrganization } from '../lib/useOrganization'
 
 type DateRange = '7days' | '28days' | '30days' | '3months' | '6months' | '12months';
 
@@ -81,6 +82,7 @@ const METRIC_COLORS: Record<string, string> = {
 export default function Analytics() {
   const { t } = useLanguage();
   const { user } = useAuth();
+  const { organizationId } = useOrganization();
   const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
   
@@ -134,14 +136,21 @@ export default function Analytics() {
   }, [warning]);
 
   useEffect(() => {
-    if (user) fetchData();
-  }, [user]);
+    if (user && organizationId) fetchData();
+  }, [user, organizationId]);
 
   const fetchData = async () => {
     setLoading(true);
     try {
-      const { data: cData } = await supabase.from('campaigns').select('*').eq('user_id', user?.id);
-      const { data: vData } = await supabase.from('videos').select('*').eq('user_id', user?.id);
+      const { data: cData } = await supabase
+        .from('campaigns')
+        .select('*')
+        .eq('organization_id', organizationId);
+
+      const { data: vData } = await supabase
+        .from('videos')
+        .select('*')
+        .eq('organization_id', organizationId);
       const { data: lmData } = await supabase.from('lead_magnets').select('*');
       
       setCampaigns(cData || []);
