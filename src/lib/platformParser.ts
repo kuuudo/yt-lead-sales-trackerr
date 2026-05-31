@@ -55,7 +55,7 @@ export function detectPlatform(url: string): Platform | null {
   if (/instagram\.com/.test(url))           return 'instagram'
   if (/linkedin\.com/.test(url))            return 'linkedin'
   if (/(?:^|[./])x\.com|twitter\.com/.test(url)) return 'x'
-  if (/threads\.net/.test(url))             return 'threads'
+  if (/threads\.net|threads\.com/.test(url)) return 'threads'
   if (/facebook\.com|fb\.com/.test(url))   return 'facebook'
   if (/reddit\.com/.test(url))             return 'reddit'
   if (/twitch\.tv/.test(url))              return 'twitch'
