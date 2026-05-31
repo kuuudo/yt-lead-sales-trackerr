@@ -146,6 +146,7 @@ export default function Videos() {
 
   const [filters, setFilters] = useState({
     search: '',
+    platform: 'all' as 'all' | Platform,
     goals: [] as string[],
     leadMagnets: [] as string[],
     dateRange: 'all',
@@ -491,6 +492,10 @@ export default function Videos() {
   const filteredVideos = React.useMemo(() => {
     let result = [...videos];
 
+    if (filters.platform !== 'all') {
+      result = result.filter(v => v.platform === filters.platform);
+    }
+
     if (filters.search) {
       const search = filters.search.toLowerCase();
       result = result.filter(v => v.video_title.toLowerCase().includes(search));
@@ -798,6 +803,42 @@ export default function Videos() {
         )}
       </AnimatePresence>
 
+      {/* Platform Tabs */}
+      {(() => {
+        const presentPlatforms = Array.from(new Set(videos.map(v => v.platform).filter(Boolean))) as Platform[];
+        const tabs: Array<'all' | Platform> = ['all', ...presentPlatforms];
+        if (tabs.length <= 1) return null; // no tabs if only one platform
+        return (
+          <div className="flex flex-wrap gap-2">
+            {tabs.map(p => {
+              const isAll = p === 'all';
+              const count = isAll ? videos.length : videos.filter(v => v.platform === p).length;
+              const label = isAll ? 'All' : PLATFORM_CONFIG[p]?.label ?? p;
+              const color = isAll ? null : PLATFORM_CONFIG[p]?.color;
+              const active = filters.platform === p;
+              return (
+                <button
+                  key={p}
+                  onClick={() => setFilters(f => ({ ...f, platform: p }))}
+                  className={`h-9 px-3.5 rounded-xl border text-[10px] font-black uppercase tracking-widest transition-all flex items-center gap-1.5 ${
+                    active
+                      ? 'border-transparent text-white'
+                      : 'border-zinc-800 bg-zinc-950 text-zinc-500 hover:border-zinc-600 hover:text-zinc-300'
+                  }`}
+                  style={active ? { backgroundColor: isAll ? '#dc2626' : color ?? '#dc2626', borderColor: 'transparent' } : {}}
+                >
+                  {!isAll && <span className="opacity-70">{PLATFORM_CONFIG[p]?.icon}</span>}
+                  {label}
+                  <span className={`text-[9px] px-1.5 py-0.5 rounded-md font-black ${active ? 'bg-black/20 text-white' : 'bg-zinc-900 text-zinc-600'}`}>
+                    {count}
+                  </span>
+                </button>
+              );
+            })}
+          </div>
+        );
+      })()}
+
       {/* Filter Bar */}
       <section className="bento-card bg-zinc-900/40 p-4 border-zinc-900/50 flex flex-col md:flex-row gap-4">
         <div className="flex-1 relative">
@@ -855,9 +896,9 @@ export default function Videos() {
             <option value="recentPublished">{t.filters.sorting.recentPublished}</option>
           </select>
 
-          {(filters.search || filters.goals.length > 0 || filters.leadMagnets.length > 0 || filters.dateRange !== 'all') && (
+          {(filters.search || filters.platform !== 'all' || filters.goals.length > 0 || filters.leadMagnets.length > 0 || filters.dateRange !== 'all') && (
             <button 
-              onClick={() => setFilters({ search: '', goals: [], leadMagnets: [], dateRange: 'all', sortBy: 'newest' })}
+              onClick={() => setFilters({ search: '', platform: 'all', goals: [], leadMagnets: [], dateRange: 'all', sortBy: 'newest' })}
               className="h-11 w-11 flex items-center justify-center bg-zinc-950 border border-zinc-800 rounded-xl text-zinc-600 hover:text-red-500 transition-all"
             >
               <X size={16} />
