@@ -123,11 +123,20 @@ export function extractPostId(url: string, platform: Platform): string | null {
           null
         )
 
-      // Facebook — /posts/{id} or /videos/{id}
+      // Facebook — multiple URL formats:
+      //   /posts/{id}     — user/page posts
+      //   /videos/{id}    — video watch pages
+      //   /reel/{id}      — reels
+      //   /share/v/{id}   — share redirect (video)
+      //   /share/r/{id}   — share redirect (reel)
+      //   ?fbid={id}      — photos (ID is a query param; use raw url, not clean)
       case 'facebook':
         return (
           clean.match(/\/posts\/([A-Za-z0-9_-]+)/)?.[1] ||
           clean.match(/\/videos\/([A-Za-z0-9_-]+)/)?.[1] ||
+          clean.match(/\/reel\/(\d+)/)?.[1] ||
+          clean.match(/\/share\/[vr]\/([A-Za-z0-9_-]+)/)?.[1] ||
+          url.match(/[?&]fbid=(\d+)/)?.[1] ||
           null
         )
 
