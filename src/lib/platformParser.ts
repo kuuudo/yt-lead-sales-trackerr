@@ -124,18 +124,23 @@ export function extractPostId(url: string, platform: Platform): string | null {
         )
 
       // Facebook — multiple URL formats:
-      //   /posts/{id}     — user/page posts
-      //   /videos/{id}    — video watch pages
-      //   /reel/{id}      — reels
-      //   /share/v/{id}   — share redirect (video)
-      //   /share/r/{id}   — share redirect (reel)
-      //   ?fbid={id}      — photos (ID is a query param; use raw url, not clean)
+      //   /posts/{id}              — user/page posts (includes pfbid format)
+      //   /videos/{id}             — video watch pages
+      //   /reel/{id}               — reels
+      //   /share/{p|r|v}/{token}   — share redirect links (post/reel/video)
+      //   /watch/?v={id}           — watch page video
+      //   /watch/live/?v={id}      — live video (same ?v= param)
+      //   story.php?story_fbid=    — story or post permalink
+      //   permalink.php?story_fbid= — post permalink
+      //   ?fbid={id}               — photos (query param, use raw url)
       case 'facebook':
         return (
           clean.match(/\/posts\/([A-Za-z0-9_-]+)/)?.[1] ||
           clean.match(/\/videos\/([A-Za-z0-9_-]+)/)?.[1] ||
           clean.match(/\/reel\/(\d+)/)?.[1] ||
-          clean.match(/\/share\/[vr]\/([A-Za-z0-9_-]+)/)?.[1] ||
+          clean.match(/\/share\/[pvr]\/([A-Za-z0-9_-]+)/)?.[1] ||
+          url.match(/[?&]v=(\d+)/)?.[1] ||
+          url.match(/[?&]story_fbid=(\d+)/)?.[1] ||
           url.match(/[?&]fbid=(\d+)/)?.[1] ||
           null
         )
