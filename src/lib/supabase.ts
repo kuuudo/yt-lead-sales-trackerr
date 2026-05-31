@@ -27,6 +27,7 @@ export const checkSupabaseConnection = async () => {
 export type Campaign = {
   id: string;
   user_id: string;
+  organization_id: string | null;
   campaign_name: string;
   landing_page_url: string;
   newsletter_url: string;
@@ -61,10 +62,14 @@ export type LeadMagnet = {
 export type Video = {
   id: string;
   user_id: string;
-  campaign_id: string;
-  youtube_video_id: string;
+  organization_id: string | null;
+  campaign_id: string | null;
+  platform: string;
+  platform_url: string | null;
+  platform_post_id: string | null;
+  youtube_video_id: string | null;
   video_title: string;
-  thumbnail_url: string;
+  thumbnail_url: string | null;
   video_goal: ('newsletter' | 'calls' | 'consult' | 'sales' | 'viral')[];
   selected_lead_magnet_ids: string[] | null;
   status: 'active' | 'no_data' | 'installed' | 'missing' | 'error';
