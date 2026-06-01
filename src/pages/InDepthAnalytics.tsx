@@ -226,7 +226,40 @@ export default function InDepthAnalyticsTest() {
               .in('campaign_id', campaignIds)
           : Promise.resolve({ data: [] as any[] }),
       ]);
+// ── TEMPORARY DIAGNOSTIC LOGGING — remove after investigation ────────────
+console.group('[DIAG] pixel_purchases fetch');
 
+console.log('[DIAG] videoIds (' + videoIds.length + '):', videoIds);
+console.log('[DIAG] campaignIds (' + campaignIds.length + '):', campaignIds);
+console.log('[DIAG] ppData.data.length:', ppData.data?.length ?? 'NULL (ppData.data is null)');
+console.log('[DIAG] ppData.data first 5 rows:', (ppData.data || []).slice(0, 5));
+
+// Cross-check: which pixel_purchase rows in ppData match campaignIds?
+const ppMatchingCampaign = (ppData.data || []).filter(
+  (r: any) => campaignIds.includes(r.campaign_id)
+);
+const ppMatchingVideo = (ppData.data || []).filter(
+  (r: any) => videoIds.includes(r.video_id)
+);
+console.log('[DIAG] ppData rows matching campaignIds:', ppMatchingCampaign.length);
+console.log('[DIAG] ppData rows matching videoIds:', ppMatchingVideo.length);
+
+// Also verify what the query actually used
+console.log('[DIAG] query branch taken:', campaignIds.length ? '.in(campaign_id)' : 'Promise.resolve([]) — campaignIds was EMPTY');
+
+// Show campaign_ids actually present on ppData rows (vs what we queried)
+const ppCampaignIdsReturned = [...new Set((ppData.data || []).map((r: any) => r.campaign_id))];
+const ppVideoIdsReturned    = [...new Set((ppData.data || []).map((r: any) => r.video_id))];
+console.log('[DIAG] distinct campaign_ids on returned rows:', ppCampaignIdsReturned);
+console.log('[DIAG] distinct video_ids on returned rows:', ppVideoIdsReturned);
+
+// Supabase error if any
+if ((ppData as any).error) {
+  console.error('[DIAG] ppData Supabase error:', (ppData as any).error);
+}
+
+console.groupEnd();
+// ── END TEMPORARY DIAGNOSTIC LOGGING ─────────────────────────────────────
       // 🟢 ENGINE-DRIVEN: flattenSessionEvents() + mergeEventSources() replace
       // the inline event flattening from InDepthAnalytics lines 150-162.
       //
