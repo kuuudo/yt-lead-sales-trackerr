@@ -69,6 +69,7 @@ export default async function handler(
       .from('campaigns')
       .select(`
         user_id,
+        organization_id,
         offer_price,
         estimated_close_rate,
         base_offer_value,
@@ -138,6 +139,8 @@ export default async function handler(
         campaign_id:
           resolvedCampaignId ?? null,
         user_id: resolvedUserId,
+        organization_id:
+          campaign?.organization_id ?? null,
         amount: finalAmount,
         event_type: finalEventType,
         session_id: session_id ?? null,
@@ -183,6 +186,8 @@ export default async function handler(
           video_id: resolvedVideoId,
           campaign_id:
             resolvedCampaignId,
+          organization_id:
+            campaign?.organization_id ?? null,
           event_type: finalEventType,
           value: finalAmount,
         });
