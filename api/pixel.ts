@@ -36,7 +36,12 @@ export default async function handler(
     amount,
     session_id,
   } = req.body;
-
+console.log('PIXEL BODY', {
+  session_id,
+  video_id,
+  campaign_id,
+  token,
+});
   if (!token && !video_id && !campaign_id) {
     return res.status(400).json({
       error: 'Missing token or video_id',
@@ -62,7 +67,10 @@ export default async function handler(
       resolvedCampaignId = link.campaign_id;
     }
   }
-
+console.log('AFTER TOKEN RESOLUTION', {
+  resolvedVideoId,
+  resolvedCampaignId,
+});
   // Load campaign config
   if (resolvedCampaignId) {
     const { data } = await supabase
@@ -89,6 +97,11 @@ export default async function handler(
         req.body.amount = campaign.offer_price;
       }
     }
+    console.log('CAMPAIGN FOUND', {
+  campaignId: resolvedCampaignId,
+  organizationId: campaign?.organization_id,
+  userId: campaign?.user_id,
+});
   }
 
   const finalEventType = event_type ?? 'unknown';
@@ -128,7 +141,11 @@ export default async function handler(
   ).toFixed(2)
 );
 }
-
+console.log('INSERTING PURCHASE', {
+  campaign_id: resolvedCampaignId,
+  video_id: resolvedVideoId,
+  organization_id: campaign?.organization_id,
+});
   // Insert into pixel_purchases
   const { error: purchaseError } =
     await supabase
