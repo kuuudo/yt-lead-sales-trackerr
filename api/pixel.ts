@@ -146,22 +146,32 @@ console.log('INSERTING PURCHASE', {
   video_id: resolvedVideoId,
   organization_id: campaign?.organization_id,
 });
-  // Insert into pixel_purchases
-  const { error: purchaseError } =
-    await supabase
-      .from('pixel_purchases')
-      .insert({
-        token: token ?? null,
-        video_id: resolvedVideoId ?? null,
-        campaign_id:
-          resolvedCampaignId ?? null,
-        user_id: resolvedUserId,
-        organization_id:
-          campaign?.organization_id ?? null,
-        amount: finalAmount,
-        event_type: finalEventType,
-        session_id: session_id ?? null,
-      });
+
+console.log('INSERT VALUES', {
+  token: token ?? null,
+  video_id: resolvedVideoId ?? null,
+  campaign_id: resolvedCampaignId ?? null,
+  user_id: resolvedUserId,
+  organization_id: campaign?.organization_id ?? null,
+  amount: finalAmount,
+  event_type: finalEventType,
+  session_id: session_id ?? null,
+});
+
+// Insert into pixel_purchases
+const { error: purchaseError } =
+  await supabase
+    .from('pixel_purchases')
+    .insert({
+      token: token ?? null,
+      video_id: resolvedVideoId ?? null,
+      campaign_id: resolvedCampaignId ?? null,
+      user_id: resolvedUserId,
+      organization_id: campaign?.organization_id ?? null,
+      amount: finalAmount,
+      event_type: finalEventType,
+      session_id: session_id ?? null,
+    });
 
   if (purchaseError) {
     console.error(
