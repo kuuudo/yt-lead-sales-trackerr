@@ -4,7 +4,6 @@ import { useLanguage } from '../lib/hooks';
 import { motion } from 'motion/react';
 import { KeyRound, Mail, Loader2 } from 'lucide-react';
 import { Modal } from '../components/Modal';
-import { createUserWorkspace } from '../lib/createUserWorkspace';
 
 export default function Auth() {
   const { t } = useLanguage();
