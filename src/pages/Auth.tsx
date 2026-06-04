@@ -44,8 +44,23 @@ export default function Auth() {
         const { data, error } = await supabase.auth.signUp({ email, password });
         if (error) throw error;
         if (data.user) {
-          await createUserWorkspace(data.user.id, email);
-        }
+
+  const {
+    data: { session }
+  } = await supabase.auth.getSession()
+
+  console.log('SESSION USER', session?.user?.id)
+
+  const {
+    data: { user }
+  } = await supabase.auth.getUser()
+
+  console.log('AUTH USER', user?.id)
+
+  console.log('SIGNUP USER', data.user.id)
+
+  await createUserWorkspace(data.user.id, email);
+}
         // No showAlert - email confirmation is disabled, user goes straight to dashboard
       }
     } catch (err: any) {
