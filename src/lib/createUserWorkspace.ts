@@ -44,11 +44,11 @@ const workspaceName =
   email.split('@')[0] + "'s Workspace"
 
 const { data: org, error: orgError } = await supabase
-    .from('organizations')
-    .insert({
-      owner_id: userId,
-      name: workspaceName
-    })
+  .from('organizations')
+  .insert({
+    owner_id: userId,
+    name: workspaceName
+  })
     .select()
     .single()
 
