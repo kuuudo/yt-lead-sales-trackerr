@@ -115,25 +115,7 @@ export default function Auth() {
             {loading ? <Loader2 className="animate-spin" size={16} /> : (isLogin ? t.auth.signin : t.auth.signup)}
           </button>
         </form>
-<button
-  onClick={async () => {
-    const {
-      data: { user }
-    } = await supabase.auth.getUser()
 
-    const result = await supabase
-      .from('organizations')
-      .insert({
-        owner_id: user?.id,
-        name: 'Manual Test'
-      })
-      .select()
-
-    console.log(result)
-  }}
->
-  TEST ORG INSERT
-</button>
         <footer className="mt-6 text-center">
           <button 
             onClick={() => setIsLogin(!isLogin)}
