@@ -43,9 +43,7 @@ export default function Auth() {
       } else {
         const { data, error } = await supabase.auth.signUp({ email, password });
         if (error) throw error;
-        if (data.user) {
-          await createUserWorkspace(data.user.id, email);
-        }
+        
       }
     } catch (err: any) {
       setError(err.message);

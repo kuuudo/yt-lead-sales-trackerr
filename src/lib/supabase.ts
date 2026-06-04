@@ -1,12 +1,12 @@
 import { createClient } from '@supabase/supabase-js';
-
+import { createUserWorkspace } from './createUserWorkspace';
 const supabaseUrl = (import.meta as any).env.VITE_SUPABASE_URL;
 const supabaseAnonKey = (import.meta as any).env.VITE_SUPABASE_ANON_KEY;
 
 if (!supabaseUrl || !supabaseAnonKey) {
   console.warn('Supabase credentials missing. Analytics will not be saved.');
 }
-
+let workspaceCreatedForUser: string | null = null;
 export const supabase = createClient(
   supabaseUrl || 'https://placeholder.supabase.co',
   supabaseAnonKey || 'placeholder'
@@ -131,3 +131,24 @@ export type PixelPurchase = {
   amount: number | null;
   created_at: string;
 };
+// 🪨 AUTO WORKSPACE CREATION (CAVEMAN SAFE FIX)
+supabase.auth.onAuthStateChange(async (event, session) => {
+  if (event !== 'SIGNED_IN') return;
+  if (!session?.user) return;
+
+  const userId = session.user.id;
+
+  // 🚫 prevent duplicate workspace creation
+  if (workspaceCreatedForUser === userId) return;
+
+  workspaceCreatedForUser = userId;
+
+  try {
+    await createUserWorkspace(
+      session.user.id,
+      session.user.email ?? ''
+    );
+  } catch (err) {
+    console.error('Workspace creation failed:', err);
+  }
+});
