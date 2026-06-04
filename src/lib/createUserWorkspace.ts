@@ -29,12 +29,20 @@ export async function createUserWorkspace(
   }
 
   console.log('PROFILE OK')
-
 // STEP 2 - ORGANIZATION
 console.log('STEP 2: Creating organization')
 
-// STEP 2 - ORGANIZATION
-console.log('STEP 2: Creating organization')
+const session = await supabase.auth.getSession()
+
+console.log(
+  'SESSION ROLE CHECK:',
+  session.data.session?.user?.role
+)
+
+console.log(
+  'SESSION USER CHECK:',
+  session.data.session?.user?.id
+)
 
 const { data: sessionData } =
   await supabase.auth.getSession()
