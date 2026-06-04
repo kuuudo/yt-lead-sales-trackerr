@@ -33,6 +33,26 @@ export async function createUserWorkspace(
 // STEP 2 - ORGANIZATION
 console.log('STEP 2: Creating organization')
 
+// STEP 2 - ORGANIZATION
+console.log('STEP 2: Creating organization')
+
+const { data: sessionData } =
+  await supabase.auth.getSession()
+
+console.log('SESSION:', sessionData.session)
+
+const { data: userData } =
+  await supabase.auth.getUser()
+
+console.log('USER:', userData.user)
+
+console.log(
+  'AUTH USER:',
+  (await supabase.auth.getUser()).data.user?.id
+)
+
+console.log('INSERT OWNER:', userId)
+
 console.log(
   'AUTH USER:',
   (await supabase.auth.getUser()).data.user?.id
