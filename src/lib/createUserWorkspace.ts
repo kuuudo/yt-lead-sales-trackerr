@@ -30,13 +30,20 @@ export async function createUserWorkspace(
 
   console.log('PROFILE OK')
 
-  // STEP 2 - ORGANIZATION
-  console.log('STEP 2: Creating organization')
+// STEP 2 - ORGANIZATION
+console.log('STEP 2: Creating organization')
 
-  const workspaceName =
-    email.split('@')[0] + "'s Workspace"
+const {
+  data: { user }
+} = await supabase.auth.getUser()
 
-  const { data: org, error: orgError } = await supabase
+console.log('AUTH USER:', user?.id)
+console.log('INSERT OWNER:', userId)
+
+const workspaceName =
+  email.split('@')[0] + "'s Workspace"
+
+const { data: org, error: orgError } = await supabase
     .from('organizations')
     .insert({
       owner_id: userId,
