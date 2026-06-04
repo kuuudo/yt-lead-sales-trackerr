@@ -33,24 +33,28 @@ export async function createUserWorkspace(
 // STEP 2 - ORGANIZATION
 console.log('STEP 2: Creating organization')
 
-const {
-  data: { user }
-} = await supabase.auth.getUser()
+console.log(
+  'AUTH USER:',
+  (await supabase.auth.getUser()).data.user?.id
+)
 
-console.log('AUTH USER:', user?.id)
 console.log('INSERT OWNER:', userId)
 
 const workspaceName =
   email.split('@')[0] + "'s Workspace"
 
+const insertPayload = {
+  owner_id: userId,
+  name: workspaceName
+}
+
+console.log('ORG PAYLOAD:', insertPayload)
+
 const { data: org, error: orgError } = await supabase
   .from('organizations')
-  .insert({
-    owner_id: userId,
-    name: workspaceName
-  })
-    .select()
-    .single()
+  .insert(insertPayload)
+  .select()
+  .single()
 
   console.log('ORG RESULT:', org)
   console.log('ORG ERROR:', orgError)
