@@ -4,6 +4,7 @@ import { useLanguage } from '../lib/hooks';
 import { motion } from 'motion/react';
 import { KeyRound, Mail, Loader2 } from 'lucide-react';
 import { Modal } from '../components/Modal';
+import { createUserWorkspace } from '../lib/createUserWorkspace';
 
 export default function Auth() {
   const { t } = useLanguage();
@@ -43,7 +44,14 @@ export default function Auth() {
         const { data, error } = await supabase.auth.signUp({ email, password });
         if (error) throw error;
         
-      }
+        if (data.user) {
+      await createUserWorkspace(
+        data.user.id,
+        email
+      );
+    }
+  }
+      
     } catch (err: any) {
       setError(err.message);
     } finally {
