@@ -1,33 +1,65 @@
 // src/lib/createUserWorkspace.ts
 import { supabase } from './supabase'
 
-export async function createUserWorkspace(userId: string, email: string) {
-  // 1. Create profile
+export async function createUserWorkspace(
+  userId: string,
+  email: string
+) {
+  console.log('========================')
+  console.log('WORKSPACE START')
+  console.log('userId:', userId)
+  console.log('email:', email)
+  console.log('========================')
+
+  // STEP 1 - PROFILE
+  console.log('STEP 1: Creating profile')
+
   const { error: profileError } = await supabase
     .from('profiles')
-    .insert({ id: userId, email })
+    .insert({
+      id: userId,
+      email
+    })
+
+  console.log('PROFILE RESULT:', profileError)
 
   if (profileError && profileError.code !== '23505') {
-    // 23505 = already exists, safe to ignore
-    console.error('Profile error:', profileError)
+    console.error('PROFILE FAILED')
     return
   }
 
-  // 2. Create organization
-  const workspaceName = email.split('@')[0] + "'s Workspace"
+  console.log('PROFILE OK')
+
+  // STEP 2 - ORGANIZATION
+  console.log('STEP 2: Creating organization')
+
+  const workspaceName =
+    email.split('@')[0] + "'s Workspace"
+
   const { data: org, error: orgError } = await supabase
     .from('organizations')
-    .insert({ owner_id: userId, name: workspaceName })
+    .insert({
+      owner_id: userId,
+      name: workspaceName
+    })
     .select()
     .single()
 
+  console.log('ORG RESULT:', org)
+  console.log('ORG ERROR:', orgError)
+
   if (orgError) {
-    console.error('Org error:', orgError)
+    console.error('ORG FAILED')
     return
   }
 
-  // 3. Create membership
-  await supabase
+  console.log('ORG OK')
+  console.log('ORG ID:', org.id)
+
+  // STEP 3 - MEMBERSHIP
+  console.log('STEP 3: Creating membership')
+
+  const membershipResult = await supabase
     .from('organization_members')
     .insert({
       organization_id: org.id,
@@ -35,11 +67,35 @@ export async function createUserWorkspace(userId: string, email: string) {
       role: 'owner'
     })
 
-  // 4. Create subscription row (trialing)
-  await supabase
+  console.log('MEMBERSHIP RESULT:', membershipResult)
+
+  if (membershipResult.error) {
+    console.error('MEMBERSHIP FAILED')
+    return
+  }
+
+  console.log('MEMBERSHIP OK')
+
+  // STEP 4 - SUBSCRIPTION
+  console.log('STEP 4: Creating subscription')
+
+  const subscriptionResult = await supabase
     .from('subscriptions')
     .insert({
       organization_id: org.id,
       status: 'trialing'
     })
+
+  console.log('SUBSCRIPTION RESULT:', subscriptionResult)
+
+  if (subscriptionResult.error) {
+    console.error('SUBSCRIPTION FAILED')
+    return
+  }
+
+  console.log('SUBSCRIPTION OK')
+
+  console.log('========================')
+  console.log('WORKSPACE COMPLETE')
+  console.log('========================')
 }
