@@ -91,6 +91,9 @@ console.log('AFTER TOKEN RESOLUTION', {
 
     if (campaign) {
       resolvedUserId = campaign.user_id;
+        console.log("USER:", resolvedUserId);
+        console.log("ORG ID:", campaign.organization_id);
+        console.log("FULL CAMPAIGN:", campaign);
 
       // fallback purchase value
       if (!amount && campaign.offer_price) {
@@ -147,6 +150,10 @@ console.log('INSERTING PURCHASE', {
   organization_id: campaign?.organization_id,
 });
 
+console.log("FINAL CHECK BEFORE INSERT:", {
+  user: resolvedUserId,
+  org: campaign?.organization_id
+});
 console.log('INSERT VALUES', {
   token: token ?? null,
   video_id: resolvedVideoId ?? null,
