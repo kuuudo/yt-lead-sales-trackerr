@@ -813,7 +813,7 @@ const GlobalWebsiteTrackingSection = () => {
                 <Info size={13} className="text-green-400 shrink-0 mt-0.5" />
                 <div className="space-y-2">
                   <p className="text-[11px] text-zinc-300 leading-relaxed font-bold">
-                    Install this once on your website to preserve visitor attribution across pages, funnels, embeds, and booking platforms.
+                    Install this once on your website to preserve visitor attribution across your funnel steps (Landing, Newsletter, Call, Consultation).
                   </p>
                   <ul className="space-y-1">
                     {[
