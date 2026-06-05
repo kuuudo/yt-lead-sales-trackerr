@@ -70,6 +70,14 @@ console.log('PIXEL BODY', {
       resolvedCampaignId = link.campaign_id;
     }
   }
+  console.log("PIXEL STATE:", {
+  session_id,
+  video_id,
+  campaign_id,
+  resolvedCampaignId,
+  resolvedVideoId,
+  resolvedUserId
+});
 console.log('AFTER TOKEN RESOLUTION', {
   resolvedVideoId,
   resolvedCampaignId,
