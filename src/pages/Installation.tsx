@@ -788,7 +788,7 @@ const GlobalWebsiteTrackingSection = () => {
             </span>
           </div>
           <span className="text-[9px] font-black uppercase tracking-widest px-2 py-0.5 rounded-full bg-green-500/15 border border-green-500/30 text-green-400">
-            Recommended
+            Required
           </span>
         </div>
         {open
@@ -820,7 +820,7 @@ const GlobalWebsiteTrackingSection = () => {
                       'Stores visitor attribution locally in the browser across page loads',
                       'Improves embedded Calendly and TidyCal tracking accuracy',
                       'Enables cross-page attribution in multi-step funnels',
-                      'Required for all users tracking visitors through their own website',
+                      'Must be installed on all funnel pages to preserve attribution across steps',
                     ].map(item => (
                       <li key={item} className="flex items-start gap-2 text-[11px] text-zinc-400 leading-relaxed">
                         <CheckCircle2 size={11} className="text-green-500 shrink-0 mt-0.5" />
@@ -850,7 +850,7 @@ const GlobalWebsiteTrackingSection = () => {
                 <div className="space-y-2">
                   {[
                     { step: '1', title: 'Open your website builder or code editor', desc: 'Access your website settings or source code.' },
-                    { step: '2', title: 'Paste inside the <head> section on every page', desc: 'This ensures attribution is captured from the moment a visitor arrives, on any page of your site.' },
+                    { step: '2', title: 'Paste inside the <head> section on all funnel pages', desc: 'Install this script on every page where visitors can enter or move through your funnel (Landing, Newsletter, Call, Consultation). This ensures attribution is never lost between steps.' },
                     { step: '3', title: 'Publish or save your changes', desc: 'The script is now active. It runs silently on every page load.' },
                   ].map(item => (
                     <div key={item.step} className="flex gap-3 p-3 bg-zinc-900 border border-zinc-800 rounded-xl">
