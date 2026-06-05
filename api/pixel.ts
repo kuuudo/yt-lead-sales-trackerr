@@ -49,6 +49,9 @@ console.log('PIXEL BODY', {
   }
 
   let resolvedVideoId = video_id;
+  if (resolvedVideoId === 'unknown') {
+  resolvedVideoId = null;
+  }
   let resolvedCampaignId = campaign_id;
   let resolvedUserId: string | null = null;
 
