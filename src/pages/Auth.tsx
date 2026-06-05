@@ -43,13 +43,19 @@ export default function Auth() {
       } else {
         const { data, error } = await supabase.auth.signUp({ email, password });
         if (error) throw error;
-        
+
         if (data.user) {
-      await createUserWorkspace(
-        data.user.id,
-        email
-      );
-    }
+          // Wait for session to be active before creating workspace
+          // data.user exists before the JWT is set on the client
+          // data.session confirms the JWT is ready for RLS
+          const session = data.session ?? (await supabase.auth.getSession()).data.session;
+  
+          if (session) {
+            await createUserWorkspace(data.user.id, email);
+          } else {
+            console.error('No session after signup — workspace not created');
+          }
+        }
   }
       
     } catch (err: any) {

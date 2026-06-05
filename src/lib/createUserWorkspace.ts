@@ -1,104 +1,32 @@
-// src/lib/createUserWorkspace.ts
 import { supabase } from './supabase'
 
-export async function createUserWorkspace(
-  userId: string,
-  email: string
-) {
-  console.log('========================')
-  console.log('WORKSPACE START')
-  console.log('userId:', userId)
-  console.log('email:', email)
-  console.log('========================')
-
+export async function createUserWorkspace(userId: string, email: string) {
   // STEP 1 - PROFILE
-  console.log('STEP 1: Creating profile')
-
   const { error: profileError } = await supabase
     .from('profiles')
-    .insert({
-      id: userId,
-      email
-    })
-
-  console.log('PROFILE RESULT:', profileError)
+    .insert({ id: userId, email })
 
   if (profileError && profileError.code !== '23505') {
-    console.error('PROFILE FAILED')
-    return
+    console.error('Profile creation failed:', profileError)
+    return { success: false, step: 'profile', error: profileError }
   }
 
-  console.log('PROFILE OK')
-// STEP 2 - ORGANIZATION
-console.log('STEP 2: Creating organization')
+  // STEP 2 - ORGANIZATION
+  const workspaceName = email.split('@')[0] + "'s Workspace"
 
-const session = await supabase.auth.getSession()
-
-console.log(
-  'SESSION ROLE CHECK:',
-  session.data.session?.user?.role
-)
-
-console.log(
-  'SESSION USER CHECK:',
-  session.data.session?.user?.id
-)
-
-const { data: sessionData } =
-  await supabase.auth.getSession()
-
-console.log('SESSION:', sessionData.session)
-
-const { data: userData } =
-  await supabase.auth.getUser()
-
-console.log('USER:', userData.user)
-
-console.log(
-  'AUTH USER:',
-  (await supabase.auth.getUser()).data.user?.id
-)
-
-console.log('INSERT OWNER:', userId)
-
-console.log(
-  'AUTH USER:',
-  (await supabase.auth.getUser()).data.user?.id
-)
-
-console.log('INSERT OWNER:', userId)
-
-const workspaceName =
-  email.split('@')[0] + "'s Workspace"
-
-const insertPayload = {
-  owner_id: userId,
-  name: workspaceName
-}
-
-console.log('ORG PAYLOAD:', insertPayload)
-
-const { data: org, error: orgError } = await supabase
-  .from('organizations')
-  .insert(insertPayload)
-  .select()
-  .single()
-
-  console.log('ORG RESULT:', org)
-  console.log('ORG ERROR:', orgError)
+  const { data: org, error: orgError } = await supabase
+    .from('organizations')
+    .insert({ owner_id: userId, name: workspaceName })
+    .select()
+    .single()
 
   if (orgError) {
-    console.error('ORG FAILED')
-    return
+    console.error('Organization creation failed:', orgError)
+    return { success: false, step: 'organization', error: orgError }
   }
 
-  console.log('ORG OK')
-  console.log('ORG ID:', org.id)
-
   // STEP 3 - MEMBERSHIP
-  console.log('STEP 3: Creating membership')
-
-  const membershipResult = await supabase
+  const { error: membershipError } = await supabase
     .from('organization_members')
     .insert({
       organization_id: org.id,
@@ -106,35 +34,23 @@ const { data: org, error: orgError } = await supabase
       role: 'owner'
     })
 
-  console.log('MEMBERSHIP RESULT:', membershipResult)
-
-  if (membershipResult.error) {
-    console.error('MEMBERSHIP FAILED')
-    return
+  if (membershipError) {
+    console.error('Membership creation failed:', membershipError)
+    return { success: false, step: 'membership', error: membershipError }
   }
 
-  console.log('MEMBERSHIP OK')
-
   // STEP 4 - SUBSCRIPTION
-  console.log('STEP 4: Creating subscription')
-
-  const subscriptionResult = await supabase
+  const { error: subscriptionError } = await supabase
     .from('subscriptions')
     .insert({
       organization_id: org.id,
       status: 'trialing'
     })
 
-  console.log('SUBSCRIPTION RESULT:', subscriptionResult)
-
-  if (subscriptionResult.error) {
-    console.error('SUBSCRIPTION FAILED')
-    return
+  if (subscriptionError) {
+    console.error('Subscription creation failed:', subscriptionError)
+    return { success: false, step: 'subscription', error: subscriptionError }
   }
 
-  console.log('SUBSCRIPTION OK')
-
-  console.log('========================')
-  console.log('WORKSPACE COMPLETE')
-  console.log('========================')
+  return { success: true, organizationId: org.id }
 }

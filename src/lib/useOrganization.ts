@@ -15,7 +15,7 @@ export function useOrganization() {
       .select('organization_id')
       .eq('user_id', user.id)
       .eq('role', 'owner')
-      .single()
+      .maybeSingle()
       .then((result) => {
         console.log('ORG QUERY RESULT', result)
 
