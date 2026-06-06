@@ -1274,7 +1274,7 @@ export default function Videos() {
                       : isTikTok
                       ? <><span style={{ color: 'rgba(255, 69, 0, 0.7)' }}>TikTok</span><span className="text-zinc-600 mx-1">•</span><span>{tikTokDisplayId ?? 'Video'}</span></>
                       : <>
-                          <span style={{ color: 'rgba(255, 69, 0, 0.7)' }}>YouTube</span><span className="text-[10px] font-black uppercase tracking-widest mr-2">•</span><span>{v.video_title}</span>
+                          <span style={{ color: 'rgba(255, 69, 0, 0.7)' }}>YouTube</span><span className="text-zinc-600 mx-1">•</span><span>{v.video_title}</span>
                           
                         </>
                     }
