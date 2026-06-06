@@ -1124,7 +1124,7 @@ export default function Videos() {
                           <div className="text-xs font-black text-zinc-300 leading-none"style={{ color: 'rgba(255, 69, 0, 0.7)' }}>
   {v.youtube_video_id?.slice(0, 8) ?? '—'}
   <span className="text-[10px] uppercase tracking-widest text-zinc-500 ml-2">
-    YouTube
+    {platformLabel}
   </span>
 </div>
                         </>
