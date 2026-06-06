@@ -1120,8 +1120,8 @@ export default function Videos() {
                         </div>
                       ) : (
                         <>
-                          <div className="text-[10px] font-black uppercase tracking-widest text-zinc-600 leading-none mb-0.5">{platformLabel}</div>
-                          <div className="text-xs font-bold text-zinc-300 truncate">{accountLabel}</div>
+                          <div className="text-xs font-black text-zinc-300 leading-none mb-0.5">{v.youtube_video_id?.slice(0, 8) ?? '—'}</div>
+                          <div className="text-[10px] font-black uppercase tracking-widest text-zinc-500 leading-none">YouTube</div>
                         </>
                       )}
                     </div>
@@ -1137,7 +1137,8 @@ export default function Videos() {
                           ? <><span style={{ color: 'rgba(255, 69, 0, 0.7)' }}>Threads</span><span className="text-zinc-600 mx-1">•</span><span className="text-zinc-200">{threadsPostId ?? 'Post'}</span></>
                           : isTikTok
                           ? <><span style={{ color: 'rgba(255, 69, 0, 0.7)' }}>TikTok</span><span className="text-zinc-600 mx-1">•</span><span className="text-zinc-200">{tikTokDisplayId ?? 'Video'}</span></>
-                          : <span className="text-zinc-200">{v.video_title}</span>
+                          : <><span style={{ color: 'rgba(255, 69, 0, 0.7)' }}>YouTube</span><span className="text-zinc-600 mx-1">•</span><span className="text-zinc-200">{v.video_title}</span></>
+
                         }
                       </span>
                     </Link>
