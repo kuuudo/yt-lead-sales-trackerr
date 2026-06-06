@@ -99,9 +99,9 @@ export function extractPostId(url: string, platform: Platform): string | null {
           null
         )
 
-      // Instagram — /p/, /reel/, /tv/ all share the same ID format
+      // Instagram — /p/, /reel/, /reels/, /tv/ all share the same ID format
       case 'instagram':
-        return clean.match(/\/(?:p|reel|tv)\/([A-Za-z0-9_-]+)/)?.[1] || null
+        return clean.match(/\/(?:p|reel|reels|tv)\/([A-Za-z0-9_-]+)/)?.[1] || null
 
       // LinkedIn — /posts/{slug} or legacy activity:{id}
       case 'linkedin':
