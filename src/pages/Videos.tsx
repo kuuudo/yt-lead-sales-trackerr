@@ -1007,9 +1007,7 @@ export default function Videos() {
                 <Link to={`/videos/${v.id}`} className="shrink-0 flex flex-col justify-center gap-1 w-full md:w-40">
                   <div className="flex items-center gap-1.5">
                     <span className="text-[11px] font-black" style={{ color: 'rgba(29, 155, 240, 0.85)' }}>
-                      {xUsername
-                        ? `${xUsername}/status/${xDisplayId}`
-                        : 'X'}
+                      {xUsername ? `@${xUsername}` : 'X'}
                     </span>
                     <span className="text-[8px] font-black uppercase tracking-widest px-1.5 py-0.5 rounded border border-zinc-800 text-zinc-500">
                       X
@@ -1039,7 +1037,7 @@ export default function Videos() {
                     {isReddit && subreddit
                       ? <><span style={{ color: 'rgba(255, 69, 0, 0.7)' }}>{`r/${subreddit}`}</span><span className="text-zinc-600 mx-1">•</span>{redditTitle ?? v.video_title}</>
                       : isX
-                      ? <><span style={{ color: 'rgba(29, 155, 240, 0.7)' }}>{xUsername ? `${xUsername}/status/${xDisplayId}` : 'X'}</span><span className="text-zinc-600 mx-1">•</span>{xTitle}</>
+                      ? <><span style={{ color: 'rgba(255, 69, 0, 0.7)' }}>{xUsername ? `${xUsername}/status/${xDisplayId}` : 'X'}</span><span className="text-zinc-600 mx-1">•</span>{xTitle}</>
                       : v.video_title
                     }
                   </Link>
