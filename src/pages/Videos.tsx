@@ -160,6 +160,20 @@ export default function Videos() {
       .replace(/^./, c => c.toUpperCase());
   }
 
+  function parseXUsername(platformUrl: string | null | undefined): string | null {
+    if (!platformUrl) return null;
+    // Extract username from https://x.com/{username}/status/{postId}
+    const match = platformUrl.match(/x\.com\/([^/]+)\/status\//);
+    return match ? match[1] : null;
+  }
+
+  function resolveXTitle(videoTitle: string | null | undefined): string {
+    if (!videoTitle) return 'X Post';
+    // Reject placeholder patterns like "X Post 204148..." or bare post IDs
+    const isPlaceholder = /^x\s+post\s*\d*/i.test(videoTitle.trim()) || /^\d+$/.test(videoTitle.trim());
+    return isPlaceholder ? 'X Post' : videoTitle;
+  }
+
   const [filters, setFilters] = useState({
     search: '',
     platform: 'all' as 'all' | Platform,
@@ -925,9 +939,13 @@ export default function Videos() {
 
       <div
         className="grid grid-cols-1 gap-4 rounded-2xl transition-all"
-        style={filters.platform === 'reddit' ? {
-          background: 'radial-gradient(ellipse at top, rgba(255, 69, 0, 0.06) 0%, transparent 70%)',
-        } : undefined}
+        style={
+          filters.platform === 'reddit'
+            ? { background: 'radial-gradient(ellipse at top, rgba(255, 69, 0, 0.06) 0%, transparent 70%)' }
+            : filters.platform === 'x'
+            ? { background: 'radial-gradient(ellipse at top, rgba(29, 155, 240, 0.08) 0%, transparent 70%)' }
+            : undefined
+        }
       >
         {loading ? (
           Array.from({ length: 4 }).map((_, i) => <div key={i} className="bento-card h-24 animate-pulse" />)
@@ -938,8 +956,18 @@ export default function Videos() {
         ) : (
           filteredVideos.map((v, i) => {
             const isReddit = v.platform === 'reddit';
+            const isX = v.platform === 'x';
             const subreddit = isReddit ? parseSubreddit(v.platform_url) : null;
             const redditTitle = isReddit ? resolveRedditTitle(v.platform_url) : null;
+            const xUsername = isX ? parseXUsername(v.platform_url) : null;
+            const xTitle = isX ? resolveXTitle(v.video_title) : null;
+
+            const cardBorderStyle = isReddit
+              ? { borderColor: 'rgba(255, 69, 0, 0.15)' }
+              : isX
+              ? { borderColor: 'rgba(29, 155, 240, 0.15)' }
+              : undefined;
+
             return (
             <motion.div 
               key={v.id} 
@@ -947,7 +975,7 @@ export default function Videos() {
               animate={{ opacity: 1, x: 0 }} 
               transition={{ delay: i * 0.05 }}
               className="bento-card flex flex-col md:flex-row gap-6 items-start md:items-center p-4 hover:border-zinc-800 transition-all"
-              style={isReddit ? { borderColor: 'rgba(255, 69, 0, 0.15)' } : undefined}
+              style={cardBorderStyle}
             >
               {isReddit ? (
                 <Link to={`/videos/${v.id}`} className="shrink-0 flex flex-col justify-center gap-1 w-full md:w-40">
@@ -957,6 +985,17 @@ export default function Videos() {
                     </span>
                     <span className="text-[8px] font-black uppercase tracking-widest px-1.5 py-0.5 rounded border border-zinc-800 text-zinc-500">
                       Reddit
+                    </span>
+                  </div>
+                </Link>
+              ) : isX ? (
+                <Link to={`/videos/${v.id}`} className="shrink-0 flex flex-col justify-center gap-1 w-full md:w-40">
+                  <div className="flex items-center gap-1.5">
+                    <span className="text-[11px] font-black" style={{ color: 'rgba(29, 155, 240, 0.85)' }}>
+                      {xUsername ? `@${xUsername}` : 'X'}
+                    </span>
+                    <span className="text-[8px] font-black uppercase tracking-widest px-1.5 py-0.5 rounded border border-zinc-800 text-zinc-500">
+                      X
                     </span>
                   </div>
                 </Link>
@@ -982,6 +1021,8 @@ export default function Videos() {
                   <Link to={`/videos/${v.id}`} className="text-sm font-bold text-white hover:text-red-500 transition-colors truncate">
                     {isReddit && subreddit
                       ? <><span style={{ color: 'rgba(255, 69, 0, 0.7)' }}>{`r/${subreddit}`}</span><span className="text-zinc-600 mx-1">•</span>{redditTitle ?? v.video_title}</>
+                      : isX
+                      ? <><span style={{ color: 'rgba(29, 155, 240, 0.7)' }}>{xUsername ? `@${xUsername}` : 'X'}</span><span className="text-zinc-600 mx-1">•</span>{xTitle}</>
                       : v.video_title
                     }
                   </Link>
