@@ -167,10 +167,23 @@ export default function Videos() {
     return match ? match[1] : null;
   }
 
+  function parseXPostId(platformUrl: string | null | undefined): string | null {
+    if (!platformUrl) return null;
+    // Extract numeric postId from https://x.com/{username}/status/{postId}
+    const match = platformUrl.match(/\/status\/(\d+)/);
+    return match ? match[1] : null;
+  }
+
+  function formatXDisplayId(postId: string | null | undefined): string {
+    if (!postId) return '';
+    // Show first 4–6 digits then ellipsis — never the full ID
+    return postId.slice(0, 6) + '...';
+  }
+
   function resolveXTitle(videoTitle: string | null | undefined): string {
     if (!videoTitle) return 'X Post';
-    // Reject placeholder patterns like "X Post 204148..." or bare post IDs
-    const isPlaceholder = /^x\s+post\s*\d*/i.test(videoTitle.trim()) || /^\d+$/.test(videoTitle.trim());
+    // Reject placeholder patterns: "X Post", "X Post 204148...", bare numeric IDs
+    const isPlaceholder = /^x\s+post(\s+\d+)?$/i.test(videoTitle.trim()) || /^\d+$/.test(videoTitle.trim());
     return isPlaceholder ? 'X Post' : videoTitle;
   }
 
@@ -960,6 +973,8 @@ export default function Videos() {
             const subreddit = isReddit ? parseSubreddit(v.platform_url) : null;
             const redditTitle = isReddit ? resolveRedditTitle(v.platform_url) : null;
             const xUsername = isX ? parseXUsername(v.platform_url) : null;
+            const xPostId = isX ? parseXPostId(v.platform_url) : null;
+            const xDisplayId = isX ? formatXDisplayId(xPostId) : null;
             const xTitle = isX ? resolveXTitle(v.video_title) : null;
 
             const cardBorderStyle = isReddit
@@ -992,7 +1007,9 @@ export default function Videos() {
                 <Link to={`/videos/${v.id}`} className="shrink-0 flex flex-col justify-center gap-1 w-full md:w-40">
                   <div className="flex items-center gap-1.5">
                     <span className="text-[11px] font-black" style={{ color: 'rgba(29, 155, 240, 0.85)' }}>
-                      {xUsername ? `@${xUsername}` : 'X'}
+                      {xUsername
+                        ? `${xUsername}/status/${xDisplayId}`
+                        : 'X'}
                     </span>
                     <span className="text-[8px] font-black uppercase tracking-widest px-1.5 py-0.5 rounded border border-zinc-800 text-zinc-500">
                       X
@@ -1022,7 +1039,7 @@ export default function Videos() {
                     {isReddit && subreddit
                       ? <><span style={{ color: 'rgba(255, 69, 0, 0.7)' }}>{`r/${subreddit}`}</span><span className="text-zinc-600 mx-1">•</span>{redditTitle ?? v.video_title}</>
                       : isX
-                      ? <><span style={{ color: 'rgba(29, 155, 240, 0.7)' }}>{xUsername ? `@${xUsername}` : 'X'}</span><span className="text-zinc-600 mx-1">•</span>{xTitle}</>
+                      ? <><span style={{ color: 'rgba(29, 155, 240, 0.7)' }}>{xUsername ? `${xUsername}/status/${xDisplayId}` : 'X'}</span><span className="text-zinc-600 mx-1">•</span>{xTitle}</>
                       : v.video_title
                     }
                   </Link>
