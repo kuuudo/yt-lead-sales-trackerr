@@ -142,7 +142,7 @@ export default function Videos() {
     reddit: '/platform-thumbnails/reddit.jpg',
     x: '/platform-thumbnails/x.jpg',
     tiktok: '/platform-thumbnails/tiktok.jpg',
-    instagram: '/platform-thumbnails/instagram.jpg',
+    instagram: '/platform-thumbnails/Instagram.jpg',
   };
 
   function resolveThumbnail(v: Video): string {
