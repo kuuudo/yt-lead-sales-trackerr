@@ -180,6 +180,24 @@ export default function Videos() {
     return postId.slice(0, 6) + '...';
   }
 
+  function parseThreadsUsername(platformUrl: string | null | undefined): string | null {
+    if (!platformUrl) return null;
+    const match = platformUrl.match(/threads\.(?:com|net)\/@([^/]+)/);
+    return match ? match[1] : null;
+  }
+
+  function parseThreadsPostId(platformUrl: string | null | undefined): string | null {
+    if (!platformUrl) return null;
+    const match = platformUrl.match(/\/post\/([^/?#]+)/);
+    return match ? match[1] : null;
+  }
+
+  function resolveThreadsTitle(videoTitle: string | null | undefined): string {
+    if (!videoTitle) return 'Threads Post';
+    const isPlaceholder = /^threads\s+post(\s+\S+)?$/i.test(videoTitle.trim());
+    return isPlaceholder ? 'Threads Post' : videoTitle;
+  }
+
   function resolveXTitle(videoTitle: string | null | undefined): string {
     if (!videoTitle) return 'X Post';
     // Reject placeholder patterns: "X Post", "X Post 204148...", bare numeric IDs
@@ -956,7 +974,9 @@ export default function Videos() {
           filters.platform === 'reddit'
             ? { background: 'radial-gradient(ellipse at top, rgba(255, 69, 0, 0.06) 0%, transparent 70%)' }
             : filters.platform === 'x'
-            ? { background: 'radial-gradient(ellipse at top, rgba(29, 155, 240, 0.08) 0%, transparent 70%)' }
+            ? { background: 'radial-gradient(ellipse at top, rgba(255, 69, 0, 0.06) 0%, transparent 70%)' }
+            : filters.platform === 'threads'
+            ? { background: 'radial-gradient(ellipse at top, rgba(255, 69, 0, 0.06) 0%, transparent 70%)' }
             : undefined
         }
       >
@@ -970,17 +990,23 @@ export default function Videos() {
           filteredVideos.map((v, i) => {
             const isReddit = v.platform === 'reddit';
             const isX = v.platform === 'x';
+            const isThreads = v.platform === 'threads';
             const subreddit = isReddit ? parseSubreddit(v.platform_url) : null;
             const redditTitle = isReddit ? resolveRedditTitle(v.platform_url) : null;
             const xUsername = isX ? parseXUsername(v.platform_url) : null;
             const xPostId = isX ? parseXPostId(v.platform_url) : null;
             const xDisplayId = isX ? formatXDisplayId(xPostId) : null;
             const xTitle = isX ? resolveXTitle(v.video_title) : null;
+            const threadsUsername = isThreads ? parseThreadsUsername(v.platform_url) : null;
+            const threadsPostId = isThreads ? parseThreadsPostId(v.platform_url) : null;
+            const threadsTitle = isThreads ? resolveThreadsTitle(v.video_title) : null;
 
             const cardBorderStyle = isReddit
               ? { borderColor: 'rgba(255, 69, 0, 0.15)' }
               : isX
-              ? { borderColor: 'rgba(29, 155, 240, 0.15)' }
+              ? { borderColor: 'rgba(255, 69, 0, 0.15)' }
+              : isThreads
+              ? { borderColor: 'rgba(255, 69, 0, 0.15)' }
               : undefined;
 
             return (
@@ -1014,8 +1040,18 @@ export default function Videos() {
                     </span>
                   </div>
                 </Link>
+              ) : isThreads ? (
+                <Link to={`/videos/${v.id}`} className="shrink-0 flex flex-col justify-center gap-1 w-full md:w-40">
+                  <div className="flex items-center gap-1.5">
+                    <span className="text-[11px] font-black" style={{ color: 'rgba(255, 69, 0, 0.85)' }}>
+                      {threadsUsername ? `@${threadsUsername}` : 'Threads'}
+                    </span>
+                    <span className="text-[8px] font-black uppercase tracking-widest px-1.5 py-0.5 rounded border border-zinc-800 text-zinc-500">
+                      Thread
+                    </span>
+                  </div>
+                </Link>
               ) : (
-                <Link to={`/videos/${v.id}`} className="relative group shrink-0">
                   <div className="relative shrink-0">
                     <img
                       src={v.thumbnail_url}
@@ -1038,6 +1074,8 @@ export default function Videos() {
                       ? <><span style={{ color: 'rgba(255, 69, 0, 0.7)' }}>{`r/${subreddit}`}</span><span className="text-zinc-600 mx-1">•</span>{redditTitle ?? v.video_title}</>
                       : isX
                       ? <><span style={{ color: 'rgba(255, 69, 0, 0.7)' }}>X Post</span><span className="text-zinc-600 mx-1">•</span><span>{xUsername ? `${xUsername}/status/${xDisplayId}` : 'X'}</span></>
+                      : isThreads
+                      ? <><span style={{ color: 'rgba(255, 69, 0, 0.7)' }}>{threadsUsername ? `@${threadsUsername}` : 'Threads'}</span><span className="text-zinc-600 mx-1">•</span><span>{threadsPostId ?? threadsTitle}</span></>
                       : v.video_title
                     }
                   </Link>
