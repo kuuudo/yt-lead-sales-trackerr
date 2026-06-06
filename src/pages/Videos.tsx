@@ -1028,14 +1028,12 @@ export default function Videos() {
           ) : (
             <>
               {/* Header row */}
-              <div className="grid items-center bg-zinc-950 px-4 py-2 text-[9px] font-black uppercase tracking-widest text-zinc-600 border-b border-zinc-900"
-                style={{ gridTemplateColumns: '2rem 9rem 1fr 7rem 7rem 5rem 9rem' }}>
-                <span></span>
-                <span>Platform / Account</span>
+              <div className="grid items-center bg-zinc-950 px-6 py-3 text-[10px] font-black uppercase tracking-widest text-zinc-600 border-b border-zinc-900"
+                style={{ gridTemplateColumns: '12rem 1fr 8rem 14rem 8rem' }}>
+                <span>Platform</span>
                 <span>Title</span>
                 <span>Goal</span>
                 <span>Campaign</span>
-                <span>Status</span>
                 <span>Added</span>
               </div>
               {filteredVideos.map((v, i) => {
@@ -1045,7 +1043,10 @@ export default function Videos() {
                 const subreddit = isReddit ? parseSubreddit(v.platform_url) : null;
                 const redditTitle = isReddit ? resolveRedditTitle(v.platform_url) : null;
                 const xUsername = isX ? parseXUsername(v.platform_url) : null;
+                const xPostId = isX ? parseXPostId(v.platform_url) : null;
+                const xDisplayId = isX ? formatXDisplayId(xPostId) : null;
                 const threadsUsername = isThreads ? parseThreadsUsername(v.platform_url) : null;
+                const threadsPostId = isThreads ? parseThreadsPostId(v.platform_url) : null;
                 const xTitle = isX ? resolveXTitle(v.video_title) : null;
                 const threadsTitle = isThreads ? resolveThreadsTitle(v.video_title) : null;
                 const campaign = campaigns.find(c => c.id === v.campaign_id);
@@ -1075,55 +1076,67 @@ export default function Videos() {
                     initial={{ opacity: 0 }}
                     animate={{ opacity: 1 }}
                     transition={{ delay: i * 0.03 }}
-                    className={`grid items-center px-4 py-2.5 border-b border-zinc-900 hover:bg-zinc-900/50 transition-colors group ${i % 2 === 0 ? 'bg-zinc-950/40' : 'bg-transparent'}`}
-                    style={{ gridTemplateColumns: '2rem 9rem 1fr 7rem 7rem 5rem 9rem' }}
+                    className={`grid items-center px-6 py-4 border-b border-zinc-900 hover:bg-zinc-900/50 transition-colors group ${i % 2 === 0 ? 'bg-zinc-950/40' : 'bg-transparent'}`}
+                    style={{ gridTemplateColumns: '12rem 1fr 8rem 14rem 8rem' }}
                   >
-                    {/* Thumbnail */}
-                    <Link to={`/videos/${v.id}`} className="shrink-0">
-                      <img
-                        src={thumb}
-                        alt=""
-                        className="w-7 h-7 rounded object-cover border border-zinc-800"
-                      />
-                    </Link>
-
-                    {/* Platform / Account */}
-                    <div className="min-w-0 pr-2">
-                      <div className="text-[9px] font-black uppercase tracking-widest text-zinc-600 leading-none mb-0.5">{platformLabel}</div>
-                      <div className="text-[11px] font-bold text-zinc-300 truncate">{accountLabel}</div>
+                    {/* Platform */}
+                    <div className="min-w-0 pr-4">
+                      {isReddit || isX || isThreads ? (
+                        <div className="flex items-center gap-1.5">
+                          <span className="text-xs font-black truncate" style={{ color: 'rgba(255, 69, 0, 0.85)' }}>
+                            {isReddit
+                              ? (subreddit ? `r/${subreddit}` : 'Reddit')
+                              : isX
+                              ? (xUsername ? `@${xUsername}` : 'X')
+                              : (threadsUsername ? `@${threadsUsername}` : 'Threads')}
+                          </span>
+                          <span className="shrink-0 text-[8px] font-black uppercase tracking-widest px-1.5 py-0.5 rounded border border-zinc-800 text-zinc-500">
+                            {isReddit ? 'Reddit' : isX ? 'X' : 'Threads'}
+                          </span>
+                        </div>
+                      ) : (
+                        <>
+                          <div className="text-[10px] font-black uppercase tracking-widest text-zinc-600 leading-none mb-0.5">{platformLabel}</div>
+                          <div className="text-xs font-bold text-zinc-300 truncate">{accountLabel}</div>
+                        </>
+                      )}
                     </div>
 
                     {/* Title */}
-                    <Link to={`/videos/${v.id}`} className="min-w-0 pr-3">
-                      <span className="text-[11px] font-bold text-zinc-200 hover:text-red-400 transition-colors truncate block">{titleLabel}</span>
+                    <Link to={`/videos/${v.id}`} className="min-w-0 pr-4">
+                      <span className="text-sm font-bold hover:text-red-400 transition-colors truncate block">
+                        {isReddit && subreddit
+                          ? <><span style={{ color: 'rgba(255, 69, 0, 0.7)' }}>{`r/${subreddit}`}</span><span className="text-zinc-600 mx-1">•</span><span className="text-zinc-200">{redditTitle ?? v.video_title}</span></>
+                          : isX
+                          ? <><span style={{ color: 'rgba(255, 69, 0, 0.7)' }}>X Post</span><span className="text-zinc-600 mx-1">•</span><span className="text-zinc-200">{xUsername ? `${xUsername}/status/${xDisplayId}` : 'X'}</span></>
+                          : isThreads
+                          ? <><span style={{ color: 'rgba(255, 69, 0, 0.7)' }}>Threads</span><span className="text-zinc-600 mx-1">•</span><span className="text-zinc-200">{threadsPostId ?? 'Post'}</span></>
+                          : <span className="text-zinc-200">{v.video_title}</span>
+                        }
+                      </span>
                     </Link>
 
                     {/* Goals */}
                     <div className="flex flex-wrap gap-1 pr-2">
                       {v.video_goal.slice(0, 2).map(goal => (
-                        <span key={goal} className="text-zinc-400 bg-zinc-900 px-1.5 py-0.5 rounded border border-zinc-800 text-[8px] font-bold uppercase whitespace-nowrap">
+                        <span key={goal} className="text-zinc-400 bg-zinc-900 px-1.5 py-0.5 rounded border border-zinc-800 text-[9px] font-bold uppercase whitespace-nowrap">
                           {getObjectiveLabel(goal)}
                         </span>
                       ))}
                       {v.video_goal.length > 2 && (
-                        <span className="text-zinc-600 text-[8px] font-bold">+{v.video_goal.length - 2}</span>
+                        <span className="text-zinc-600 text-[9px] font-bold">+{v.video_goal.length - 2}</span>
                       )}
                     </div>
 
                     {/* Campaign */}
-                    <div className="min-w-0 pr-2">
-                      <span className="text-[10px] font-bold text-zinc-500 truncate block">
+                    <div className="min-w-0 pr-4">
+                      <span className="text-xs font-bold text-zinc-500 truncate block">
                         {campaign?.campaign_name ?? '—'}
                       </span>
                     </div>
 
-                    {/* Status */}
-                    <span className={`px-2 py-0.5 rounded text-[9px] font-black uppercase tracking-widest w-fit ${getStatusColor(v.status)}`}>
-                      {v.status.replace('_', ' ')}
-                    </span>
-
                     {/* Date */}
-                    <span className="text-[10px] font-bold text-zinc-600 whitespace-nowrap">
+                    <span className="text-xs font-bold text-zinc-600 whitespace-nowrap">
                       {new Date(v.created_at).toLocaleDateString()}
                     </span>
                   </motion.div>
@@ -1186,37 +1199,19 @@ export default function Videos() {
               className="bento-card flex flex-col md:flex-row gap-6 items-start md:items-center p-4 hover:border-zinc-800 transition-all"
               style={cardBorderStyle}
             >
-              {isReddit ? (
-                <Link to={`/videos/${v.id}`} className="shrink-0 flex flex-col justify-center gap-1 w-full md:w-40">
-                  <div className="flex items-center gap-1.5">
-                    <span className="text-[11px] font-black" style={{ color: 'rgba(255, 69, 0, 0.85)' }}>
-                      {subreddit ? `r/${subreddit}` : 'reddit'}
-                    </span>
-                    <span className="text-[8px] font-black uppercase tracking-widest px-1.5 py-0.5 rounded border border-zinc-800 text-zinc-500">
-                      Reddit
-                    </span>
-                  </div>
-                </Link>
-              ) : isX ? (
-                <Link to={`/videos/${v.id}`} className="shrink-0 flex flex-col justify-center gap-1 w-full md:w-40">
-                  <div className="flex items-center gap-1.5">
-                    <span className="text-[11px] font-black" style={{ color: 'rgba(255, 69, 0, 0.85)' }}>
-                      {xUsername ? `@${xUsername}` : 'X'}
-                    </span>
-                    <span className="text-[8px] font-black uppercase tracking-widest px-1.5 py-0.5 rounded border border-zinc-800 text-zinc-500">
-                      X
+              {isReddit || isX || isThreads ? (
+                <Link to={`/videos/${v.id}`} className="relative group shrink-0">
+                  <div className="relative shrink-0">
+                    <img
+                      src={resolveThumbnail(v)}
+                      className="w-full md:w-40 aspect-video rounded-xl object-cover border border-zinc-900"
+                    />
+                    <span className="absolute -top-1 -right-1 text-[8px] font-black bg-zinc-800 border border-zinc-700 rounded px-1">
+                      {(v.platform ?? 'unknown').toUpperCase()}
                     </span>
                   </div>
-                </Link>
-              ) : isThreads ? (
-                <Link to={`/videos/${v.id}`} className="shrink-0 flex flex-col justify-center gap-1 w-full md:w-40">
-                  <div className="flex items-center gap-1.5">
-                    <span className="text-[11px] font-black" style={{ color: 'rgba(255, 69, 0, 0.85)' }}>
-                      {threadsUsername ? `@${threadsUsername}` : 'Threads'}
-                    </span>
-                    <span className="text-[8px] font-black uppercase tracking-widest px-1.5 py-0.5 rounded border border-zinc-800 text-zinc-500">
-                      Threads
-                    </span>
+                  <div className="absolute inset-0 flex items-center justify-center bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity rounded-xl">
+                    <BarChart3 size={20} className="text-white" />
                   </div>
                 </Link>
               ) : (
