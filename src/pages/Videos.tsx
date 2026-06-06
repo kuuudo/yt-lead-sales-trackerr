@@ -1121,7 +1121,12 @@ export default function Videos() {
                       ) : (
                         <>
                           <div className="text-[10px] font-black uppercase tracking-widest text-zinc-600 leading-none mb-0.5">{platformLabel}</div>
-                          <div className="text-xs font-bold text-zinc-300 truncate">{accountLabel}</div>
+                          <div className="text-xs font-black text-zinc-300 leading-none">
+  {v.youtube_video_id?.slice(0, 8) ?? '—'}
+  <span className="text-[10px] uppercase tracking-widest text-zinc-500 ml-2">
+    YouTube
+  </span>
+</div>
                         </>
                       )}
                     </div>
