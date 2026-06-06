@@ -1052,6 +1052,7 @@ export default function Videos() {
                   </div>
                 </Link>
               ) : (
+                <Link to={`/videos/${v.id}`} className="relative group shrink-0">
                   <div className="relative shrink-0">
                     <img
                       src={v.thumbnail_url}
