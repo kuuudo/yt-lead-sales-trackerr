@@ -1268,7 +1268,10 @@ export default function Videos() {
                       ? <><span style={{ color: 'rgba(255, 69, 0, 0.7)' }}>Threads</span><span className="text-zinc-600 mx-1">•</span><span>{threadsPostId ?? 'Post'}</span></>
                       : isTikTok
                       ? <><span style={{ color: 'rgba(255, 69, 0, 0.7)' }}>TikTok</span><span className="text-zinc-600 mx-1">•</span><span>{tikTokDisplayId ?? 'Video'}</span></>
-                      : v.video_title
+                      : <>
+                          <span style={{ color: 'rgba(255, 69, 0, 0.7)' }} className="text-[10px] font-black uppercase tracking-widest block mb-0.5">YouTube</span>
+                          <span>{v.video_title}</span>
+                        </>
                     }
                   </Link>
                   <span className={`px-2 py-0.5 rounded-md text-[9px] font-black uppercase tracking-widest ${getStatusColor(v.status)}`}>
