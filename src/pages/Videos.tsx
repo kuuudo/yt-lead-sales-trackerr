@@ -141,6 +141,7 @@ export default function Videos() {
     threads: '/platform-thumbnails/threads.jpg',
     reddit: '/platform-thumbnails/reddit.jpg',
     x: '/platform-thumbnails/x.jpg',
+    tiktok: '/platform-thumbnails/tiktok.jpg',
   };
 
   function resolveThumbnail(v: Video): string {
@@ -210,6 +211,23 @@ export default function Videos() {
     if (!platformUrl) return null;
     const match = platformUrl.match(/\/post\/([^/?#]+)/);
     return match ? match[1] : null;
+  }
+
+  function parseTikTokUsername(platformUrl: string | null | undefined): string | null {
+    if (!platformUrl) return null;
+    const match = platformUrl.match(/tiktok\.com\/@([^/]+)/);
+    return match ? match[1] : null;
+  }
+
+  function parseTikTokVideoId(platformUrl: string | null | undefined): string | null {
+    if (!platformUrl) return null;
+    const match = platformUrl.match(/\/video\/(\d+)/);
+    return match ? match[1] : null;
+  }
+
+  function formatTikTokDisplayId(videoId: string | null | undefined): string {
+    if (!videoId) return '';
+    return videoId.slice(0, 6) + '...';
   }
 
   function resolveThreadsTitle(videoTitle: string | null | undefined): string {
@@ -1040,6 +1058,7 @@ export default function Videos() {
                 const isReddit = v.platform === 'reddit';
                 const isX = v.platform === 'x';
                 const isThreads = v.platform === 'threads';
+                const isTikTok = v.platform === 'tiktok';
                 const subreddit = isReddit ? parseSubreddit(v.platform_url) : null;
                 const redditTitle = isReddit ? resolveRedditTitle(v.platform_url) : null;
                 const xUsername = isX ? parseXUsername(v.platform_url) : null;
@@ -1049,6 +1068,9 @@ export default function Videos() {
                 const threadsPostId = isThreads ? parseThreadsPostId(v.platform_url) : null;
                 const xTitle = isX ? resolveXTitle(v.video_title) : null;
                 const threadsTitle = isThreads ? resolveThreadsTitle(v.video_title) : null;
+                const tikTokUsername = isTikTok ? parseTikTokUsername(v.platform_url) : null;
+                const tikTokVideoId = isTikTok ? parseTikTokVideoId(v.platform_url) : null;
+                const tikTokDisplayId = isTikTok ? formatTikTokDisplayId(tikTokVideoId) : null;
                 const campaign = campaigns.find(c => c.id === v.campaign_id);
 
                 const accountLabel = isReddit
@@ -1081,17 +1103,19 @@ export default function Videos() {
                   >
                     {/* Platform */}
                     <div className="min-w-0 pr-4">
-                      {isReddit || isX || isThreads ? (
+                      {isReddit || isX || isThreads || isTikTok ? (
                         <div className="flex items-center gap-1.5">
                           <span className="text-xs font-black truncate" style={{ color: 'rgba(255, 69, 0, 0.85)' }}>
                             {isReddit
                               ? (subreddit ? `r/${subreddit}` : 'Reddit')
                               : isX
                               ? (xUsername ? `@${xUsername}` : 'X')
-                              : (threadsUsername ? `@${threadsUsername}` : 'Threads')}
+                              : isThreads
+                              ? (threadsUsername ? `@${threadsUsername}` : 'Threads')
+                              : (tikTokUsername ? `@${tikTokUsername}` : 'TikTok')}
                           </span>
                           <span className="shrink-0 text-[8px] font-black uppercase tracking-widest px-1.5 py-0.5 rounded border border-zinc-800 text-zinc-500">
-                            {isReddit ? 'Reddit' : isX ? 'X' : 'Threads'}
+                            {isReddit ? 'Reddit' : isX ? 'X' : isThreads ? 'Threads' : 'TikTok'}
                           </span>
                         </div>
                       ) : (
@@ -1111,6 +1135,8 @@ export default function Videos() {
                           ? <><span style={{ color: 'rgba(255, 69, 0, 0.7)' }}>X Post</span><span className="text-zinc-600 mx-1">•</span><span className="text-zinc-200">{xUsername ? `${xUsername}/status/${xDisplayId}` : 'X'}</span></>
                           : isThreads
                           ? <><span style={{ color: 'rgba(255, 69, 0, 0.7)' }}>Threads</span><span className="text-zinc-600 mx-1">•</span><span className="text-zinc-200">{threadsPostId ?? 'Post'}</span></>
+                          : isTikTok
+                          ? <><span style={{ color: 'rgba(255, 69, 0, 0.7)' }}>TikTok</span><span className="text-zinc-600 mx-1">•</span><span className="text-zinc-200">{tikTokDisplayId ?? 'Video'}</span></>
                           : <span className="text-zinc-200">{v.video_title}</span>
                         }
                       </span>
@@ -1172,6 +1198,7 @@ export default function Videos() {
             const isReddit = v.platform === 'reddit';
             const isX = v.platform === 'x';
             const isThreads = v.platform === 'threads';
+            const isTikTok = v.platform === 'tiktok';
             const subreddit = isReddit ? parseSubreddit(v.platform_url) : null;
             const redditTitle = isReddit ? resolveRedditTitle(v.platform_url) : null;
             const xUsername = isX ? parseXUsername(v.platform_url) : null;
@@ -1181,12 +1208,11 @@ export default function Videos() {
             const threadsUsername = isThreads ? parseThreadsUsername(v.platform_url) : null;
             const threadsPostId = isThreads ? parseThreadsPostId(v.platform_url) : null;
             const threadsTitle = isThreads ? resolveThreadsTitle(v.video_title) : null;
+            const tikTokUsername = isTikTok ? parseTikTokUsername(v.platform_url) : null;
+            const tikTokVideoId = isTikTok ? parseTikTokVideoId(v.platform_url) : null;
+            const tikTokDisplayId = isTikTok ? formatTikTokDisplayId(tikTokVideoId) : null;
 
-            const cardBorderStyle = isReddit
-              ? { borderColor: 'rgba(255, 69, 0, 0.15)' }
-              : isX
-              ? { borderColor: 'rgba(255, 69, 0, 0.15)' }
-              : isThreads
+            const cardBorderStyle = isReddit || isX || isThreads || isTikTok
               ? { borderColor: 'rgba(255, 69, 0, 0.15)' }
               : undefined;
 
@@ -1199,7 +1225,7 @@ export default function Videos() {
               className="bento-card flex flex-col md:flex-row gap-6 items-start md:items-center p-4 hover:border-zinc-800 transition-all"
               style={cardBorderStyle}
             >
-              {isReddit || isX || isThreads ? (
+              {isReddit || isX || isThreads || isTikTok ? (
                 <Link to={`/videos/${v.id}`} className="relative group shrink-0">
                   <div className="relative shrink-0">
                     <img
@@ -1240,6 +1266,8 @@ export default function Videos() {
                       ? <><span style={{ color: 'rgba(255, 69, 0, 0.7)' }}>X Post</span><span className="text-zinc-600 mx-1">•</span><span>{xUsername ? `${xUsername}/status/${xDisplayId}` : 'X'}</span></>
                       : isThreads
                       ? <><span style={{ color: 'rgba(255, 69, 0, 0.7)' }}>Threads</span><span className="text-zinc-600 mx-1">•</span><span>{threadsPostId ?? 'Post'}</span></>
+                      : isTikTok
+                      ? <><span style={{ color: 'rgba(255, 69, 0, 0.7)' }}>TikTok</span><span className="text-zinc-600 mx-1">•</span><span>{tikTokDisplayId ?? 'Video'}</span></>
                       : v.video_title
                     }
                   </Link>
