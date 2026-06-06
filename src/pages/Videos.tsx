@@ -1037,8 +1037,8 @@ export default function Videos() {
                     {isReddit && subreddit
                       ? <><span style={{ color: 'rgba(255, 69, 0, 0.7)' }}>{`r/${subreddit}`}</span><span className="text-zinc-600 mx-1">•</span>{redditTitle ?? v.video_title}</>
                       : isX
-                      ? <><span style={{ color: 'rgba(255, 69, 0, 0.7)' }}X Post</></span><span className="text-zinc-600 mx-1">•</span><span>{xUsername? `${xUsername}/status/${xDisplayId}`: 'X'}
-                      
+                      ? <><span style={{ color: 'rgba(255, 69, 0, 0.7)' }}>X Post</span><span className="text-zinc-600 mx-1">•</span><span>{xUsername ? `${xUsername}/status/${xDisplayId}` : 'X'}</span></>
+                      : v.video_title
                     }
                   </Link>
                   <span className={`px-2 py-0.5 rounded-md text-[9px] font-black uppercase tracking-widest ${getStatusColor(v.status)}`}>
