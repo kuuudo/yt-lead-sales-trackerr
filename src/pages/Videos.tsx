@@ -150,6 +150,16 @@ export default function Videos() {
     return match ? match[1] : null;
   }
 
+  function resolveRedditTitle(platformUrl: string | null | undefined): string | null {
+    if (!platformUrl) return null;
+    // Extract slug from /comments/{id}/{slug}/
+    const match = platformUrl.match(/\/comments\/[^/]+\/([^/]+)/);
+    if (!match) return null;
+    return match[1]
+      .replace(/_/g, ' ')
+      .replace(/^./, c => c.toUpperCase());
+  }
+
   const [filters, setFilters] = useState({
     search: '',
     platform: 'all' as 'all' | Platform,
@@ -929,6 +939,7 @@ export default function Videos() {
           filteredVideos.map((v, i) => {
             const isReddit = v.platform === 'reddit';
             const subreddit = isReddit ? parseSubreddit(v.platform_url) : null;
+            const redditTitle = isReddit ? resolveRedditTitle(v.platform_url) : null;
             return (
             <motion.div 
               key={v.id} 
@@ -970,7 +981,7 @@ export default function Videos() {
                 <div className="flex items-center gap-3 mb-1">
                   <Link to={`/videos/${v.id}`} className="text-sm font-bold text-white hover:text-red-500 transition-colors truncate">
                     {isReddit && subreddit
-                      ? <><span style={{ color: 'rgba(255, 69, 0, 0.7)' }}>{`r/${subreddit}`}</span><span className="text-zinc-600 mx-1">•</span>{v.video_title}</>
+                      ? <><span style={{ color: 'rgba(255, 69, 0, 0.7)' }}>{`r/${subreddit}`}</span><span className="text-zinc-600 mx-1">•</span>{redditTitle ?? v.video_title}</>
                       : v.video_title
                     }
                   </Link>
