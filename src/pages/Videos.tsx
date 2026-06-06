@@ -144,6 +144,12 @@ export default function Videos() {
     return icons[platform] || '?';
   }
 
+  function parseSubreddit(platformUrl: string | null | undefined): string | null {
+    if (!platformUrl) return null;
+    const match = platformUrl.match(/\/r\/([^/]+)/);
+    return match ? match[1] : null;
+  }
+
   const [filters, setFilters] = useState({
     search: '',
     platform: 'all' as 'all' | Platform,
@@ -907,7 +913,12 @@ export default function Videos() {
         </div>
       </section>
 
-      <div className="grid grid-cols-1 gap-4">
+      <div
+        className="grid grid-cols-1 gap-4 rounded-2xl transition-all"
+        style={filters.platform === 'reddit' ? {
+          background: 'radial-gradient(ellipse at top, rgba(255, 69, 0, 0.06) 0%, transparent 70%)',
+        } : undefined}
+      >
         {loading ? (
           Array.from({ length: 4 }).map((_, i) => <div key={i} className="bento-card h-24 animate-pulse" />)
         ) : filteredVideos.length === 0 ? (
@@ -915,32 +926,54 @@ export default function Videos() {
             <p className="text-zinc-600 text-[10px] font-bold uppercase tracking-widest">{t.filters.noResults}</p>
           </div>
         ) : (
-          filteredVideos.map((v, i) => (
+          filteredVideos.map((v, i) => {
+            const isReddit = v.platform === 'reddit';
+            const subreddit = isReddit ? parseSubreddit(v.platform_url) : null;
+            return (
             <motion.div 
               key={v.id} 
               initial={{ opacity: 0, x: -10 }} 
               animate={{ opacity: 1, x: 0 }} 
               transition={{ delay: i * 0.05 }}
               className="bento-card flex flex-col md:flex-row gap-6 items-start md:items-center p-4 hover:border-zinc-800 transition-all"
+              style={isReddit ? { borderColor: 'rgba(255, 69, 0, 0.15)' } : undefined}
             >
-              <Link to={`/videos/${v.id}`} className="relative group shrink-0">
-                <div className="relative shrink-0">
-                  <img
-                    src={v.thumbnail_url}
-                    className="w-full md:w-40 aspect-video rounded-xl object-cover border border-zinc-900"
-                  />
-                  <span className="absolute -top-1 -right-1 text-[8px] font-black bg-zinc-800 border border-zinc-700 rounded px-1">
-                    {(v.platform ?? 'unknown').toUpperCase()}
-                  </span>
-                </div>
-                <div className="absolute inset-0 flex items-center justify-center bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity rounded-xl">
-                  <BarChart3 size={20} className="text-white" />
-                </div>
-              </Link>
+              {isReddit ? (
+                <Link to={`/videos/${v.id}`} className="shrink-0 flex flex-col justify-center gap-1 w-full md:w-40">
+                  <div className="flex items-center gap-1.5">
+                    <span className="text-[11px] font-black" style={{ color: 'rgba(255, 69, 0, 0.85)' }}>
+                      {subreddit ? `r/${subreddit}` : 'reddit'}
+                    </span>
+                    <span className="text-[8px] font-black uppercase tracking-widest px-1.5 py-0.5 rounded border border-zinc-800 text-zinc-500">
+                      Reddit
+                    </span>
+                  </div>
+                </Link>
+              ) : (
+                <Link to={`/videos/${v.id}`} className="relative group shrink-0">
+                  <div className="relative shrink-0">
+                    <img
+                      src={v.thumbnail_url}
+                      className="w-full md:w-40 aspect-video rounded-xl object-cover border border-zinc-900"
+                    />
+                    <span className="absolute -top-1 -right-1 text-[8px] font-black bg-zinc-800 border border-zinc-700 rounded px-1">
+                      {(v.platform ?? 'unknown').toUpperCase()}
+                    </span>
+                  </div>
+                  <div className="absolute inset-0 flex items-center justify-center bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity rounded-xl">
+                    <BarChart3 size={20} className="text-white" />
+                  </div>
+                </Link>
+              )}
 
               <div className="flex-1 min-w-0">
                 <div className="flex items-center gap-3 mb-1">
-                  <Link to={`/videos/${v.id}`} className="text-sm font-bold text-white hover:text-red-500 transition-colors truncate">{v.video_title}</Link>
+                  <Link to={`/videos/${v.id}`} className="text-sm font-bold text-white hover:text-red-500 transition-colors truncate">
+                    {isReddit && subreddit
+                      ? <><span style={{ color: 'rgba(255, 69, 0, 0.7)' }}>{`r/${subreddit}`}</span><span className="text-zinc-600 mx-1">•</span>{v.video_title}</>
+                      : v.video_title
+                    }
+                  </Link>
                   <span className={`px-2 py-0.5 rounded-md text-[9px] font-black uppercase tracking-widest ${getStatusColor(v.status)}`}>
                     {v.status.replace('_', ' ')}
                   </span>
@@ -1052,7 +1085,7 @@ export default function Videos() {
                 </button>
               </div>
             </motion.div>
-          ))
+          );})
         )}
       </div>
 
