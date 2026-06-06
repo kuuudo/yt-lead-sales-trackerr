@@ -4,7 +4,7 @@ import { useLanguage } from '../lib/hooks';
 import { supabase, Video, Campaign, LeadMagnet } from '../lib/supabase';
 import { useAuth } from '../lib/auth';
 import { Youtube, Plus, Link2, Copy, Check, ExternalLink, Calendar, Target, AlertCircle, Loader2, BarChart3, ChevronDown, X, Edit2, Trash2,
-  Music2, Camera, Linkedin, Twitter, AtSign } from 'lucide-react';
+  Music2, Camera, Linkedin, Twitter, AtSign, LayoutGrid, List } from 'lucide-react';
 import {
   type Platform,
   PLATFORM_CONFIG,
@@ -128,6 +128,26 @@ export default function Videos() {
   const [copiedLink, setCopiedLink] = useState<string | null>(null);
   const [editingVideoId, setEditingVideoId] = useState<string | null>(null);
   const [deletingVideoId, setDeletingVideoId] = useState<string | null>(null);
+
+  const [viewMode, setViewMode] = useState<'card' | 'list'>(() => {
+    return (localStorage.getItem('videos_view_mode') as 'card' | 'list') ?? 'card';
+  });
+
+  useEffect(() => {
+    localStorage.setItem('videos_view_mode', viewMode);
+  }, [viewMode]);
+
+  const PLATFORM_THUMBNAILS: Partial<Record<string, string>> = {
+    threads: '/platform-thumbnails/threads.jpg',
+    reddit: '/platform-thumbnails/reddit.jpg',
+    x: '/platform-thumbnails/x.jpg',
+  };
+
+  function resolveThumbnail(v: Video): string {
+    if (v.thumbnail_url && v.thumbnail_url.trim() !== '') return v.thumbnail_url;
+    if (v.platform && PLATFORM_THUMBNAILS[v.platform]) return PLATFORM_THUMBNAILS[v.platform]!;
+    return `https://placehold.co/160x90/18181b/52525b?text=${encodeURIComponent((v.platform ?? 'post').toUpperCase())}`;
+  }
 
   function getPlatformIcon(platform: string) {
     const icons: Record<string, string> = {
@@ -965,9 +985,157 @@ export default function Videos() {
               <X size={16} />
             </button>
           )}
+
+          {/* View Mode Toggle */}
+          <div className="flex h-11 bg-zinc-950 border border-zinc-800 rounded-xl overflow-hidden">
+            <button
+              onClick={() => setViewMode('card')}
+              title="Card View"
+              className={`w-11 flex items-center justify-center transition-all ${
+                viewMode === 'card'
+                  ? 'bg-zinc-800 text-white'
+                  : 'text-zinc-600 hover:text-zinc-300'
+              }`}
+            >
+              <LayoutGrid size={15} />
+            </button>
+            <button
+              onClick={() => setViewMode('list')}
+              title="List View"
+              className={`w-11 flex items-center justify-center transition-all ${
+                viewMode === 'list'
+                  ? 'bg-zinc-800 text-white'
+                  : 'text-zinc-600 hover:text-zinc-300'
+              }`}
+            >
+              <List size={15} />
+            </button>
+          </div>
         </div>
       </section>
 
+      {/* ── LIST VIEW ── */}
+      {viewMode === 'list' && (
+        <div className="rounded-2xl overflow-hidden border border-zinc-900">
+          {loading ? (
+            Array.from({ length: 4 }).map((_, i) => (
+              <div key={i} className="h-12 animate-pulse bg-zinc-900/60 border-b border-zinc-900" />
+            ))
+          ) : filteredVideos.length === 0 ? (
+            <div className="py-20 text-center">
+              <p className="text-zinc-600 text-[10px] font-bold uppercase tracking-widest">{t.filters.noResults}</p>
+            </div>
+          ) : (
+            <>
+              {/* Header row */}
+              <div className="grid items-center bg-zinc-950 px-4 py-2 text-[9px] font-black uppercase tracking-widest text-zinc-600 border-b border-zinc-900"
+                style={{ gridTemplateColumns: '2rem 9rem 1fr 7rem 7rem 5rem 9rem' }}>
+                <span></span>
+                <span>Platform / Account</span>
+                <span>Title</span>
+                <span>Goal</span>
+                <span>Campaign</span>
+                <span>Status</span>
+                <span>Added</span>
+              </div>
+              {filteredVideos.map((v, i) => {
+                const isReddit = v.platform === 'reddit';
+                const isX = v.platform === 'x';
+                const isThreads = v.platform === 'threads';
+                const subreddit = isReddit ? parseSubreddit(v.platform_url) : null;
+                const redditTitle = isReddit ? resolveRedditTitle(v.platform_url) : null;
+                const xUsername = isX ? parseXUsername(v.platform_url) : null;
+                const threadsUsername = isThreads ? parseThreadsUsername(v.platform_url) : null;
+                const xTitle = isX ? resolveXTitle(v.video_title) : null;
+                const threadsTitle = isThreads ? resolveThreadsTitle(v.video_title) : null;
+                const campaign = campaigns.find(c => c.id === v.campaign_id);
+
+                const accountLabel = isReddit
+                  ? (subreddit ? `r/${subreddit}` : 'Reddit')
+                  : isX
+                  ? (xUsername ? `@${xUsername}` : 'X')
+                  : isThreads
+                  ? (threadsUsername ? `@${threadsUsername}` : 'Threads')
+                  : v.video_title; // YouTube: channel name not stored, show title in account col
+
+                const titleLabel = isReddit
+                  ? (redditTitle ?? v.video_title)
+                  : isX
+                  ? (xTitle ?? 'X Post')
+                  : isThreads
+                  ? (threadsTitle ?? 'Threads Post')
+                  : v.video_title;
+
+                const platformLabel = (v.platform ?? 'unknown').toUpperCase();
+                const thumb = resolveThumbnail(v);
+
+                return (
+                  <motion.div
+                    key={v.id}
+                    initial={{ opacity: 0 }}
+                    animate={{ opacity: 1 }}
+                    transition={{ delay: i * 0.03 }}
+                    className={`grid items-center px-4 py-2.5 border-b border-zinc-900 hover:bg-zinc-900/50 transition-colors group ${i % 2 === 0 ? 'bg-zinc-950/40' : 'bg-transparent'}`}
+                    style={{ gridTemplateColumns: '2rem 9rem 1fr 7rem 7rem 5rem 9rem' }}
+                  >
+                    {/* Thumbnail */}
+                    <Link to={`/videos/${v.id}`} className="shrink-0">
+                      <img
+                        src={thumb}
+                        alt=""
+                        className="w-7 h-7 rounded object-cover border border-zinc-800"
+                      />
+                    </Link>
+
+                    {/* Platform / Account */}
+                    <div className="min-w-0 pr-2">
+                      <div className="text-[9px] font-black uppercase tracking-widest text-zinc-600 leading-none mb-0.5">{platformLabel}</div>
+                      <div className="text-[11px] font-bold text-zinc-300 truncate">{accountLabel}</div>
+                    </div>
+
+                    {/* Title */}
+                    <Link to={`/videos/${v.id}`} className="min-w-0 pr-3">
+                      <span className="text-[11px] font-bold text-zinc-200 hover:text-red-400 transition-colors truncate block">{titleLabel}</span>
+                    </Link>
+
+                    {/* Goals */}
+                    <div className="flex flex-wrap gap-1 pr-2">
+                      {v.video_goal.slice(0, 2).map(goal => (
+                        <span key={goal} className="text-zinc-400 bg-zinc-900 px-1.5 py-0.5 rounded border border-zinc-800 text-[8px] font-bold uppercase whitespace-nowrap">
+                          {getObjectiveLabel(goal)}
+                        </span>
+                      ))}
+                      {v.video_goal.length > 2 && (
+                        <span className="text-zinc-600 text-[8px] font-bold">+{v.video_goal.length - 2}</span>
+                      )}
+                    </div>
+
+                    {/* Campaign */}
+                    <div className="min-w-0 pr-2">
+                      <span className="text-[10px] font-bold text-zinc-500 truncate block">
+                        {campaign?.campaign_name ?? '—'}
+                      </span>
+                    </div>
+
+                    {/* Status */}
+                    <span className={`px-2 py-0.5 rounded text-[9px] font-black uppercase tracking-widest w-fit ${getStatusColor(v.status)}`}>
+                      {v.status.replace('_', ' ')}
+                    </span>
+
+                    {/* Date */}
+                    <span className="text-[10px] font-bold text-zinc-600 whitespace-nowrap">
+                      {new Date(v.created_at).toLocaleDateString()}
+                    </span>
+                  </motion.div>
+                );
+              })}
+            </>
+          )}
+        </div>
+      )}
+
+      {/* ── CARD VIEW (existing, unchanged) ── */}
+      {viewMode === 'card' && (
       <div
         className="grid grid-cols-1 gap-4 rounded-2xl transition-all"
         style={
@@ -1194,6 +1362,7 @@ export default function Videos() {
           );})
         )}
       </div>
+      )} {/* end card view */}
 
       {/* Links Modal */}
       {showLinksModal && (
