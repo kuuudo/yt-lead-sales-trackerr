@@ -1047,7 +1047,7 @@ export default function Videos() {
                       {threadsUsername ? `@${threadsUsername}` : 'Threads'}
                     </span>
                     <span className="text-[8px] font-black uppercase tracking-widest px-1.5 py-0.5 rounded border border-zinc-800 text-zinc-500">
-                      Thread
+                      Threads
                     </span>
                   </div>
                 </Link>
@@ -1076,7 +1076,7 @@ export default function Videos() {
                       : isX
                       ? <><span style={{ color: 'rgba(255, 69, 0, 0.7)' }}>X Post</span><span className="text-zinc-600 mx-1">•</span><span>{xUsername ? `${xUsername}/status/${xDisplayId}` : 'X'}</span></>
                       : isThreads
-                      ? <><span style={{ color: 'rgba(255, 69, 0, 0.7)' }}>{threadsUsername ? `@${threadsUsername}` : 'Threads'}</span><span className="text-zinc-600 mx-1">•</span><span>{threadsPostId ?? threadsTitle}</span></>
+                      ? <><span style={{ color: 'rgba(255, 69, 0, 0.7)' }}>Threads</span><span className="text-zinc-600 mx-1">•</span><span>{threadsPostId ?? 'Post'}</span></>
                       : v.video_title
                     }
                   </Link>
