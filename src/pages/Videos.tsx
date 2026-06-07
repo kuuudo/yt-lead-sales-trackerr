@@ -1083,7 +1083,6 @@ export default function Videos() {
                 const tikTokDisplayId = isTikTok ? formatTikTokDisplayId(tikTokVideoId) : null;
                 const instagramType = isInstagram ? resolveInstagramType(v.platform_url) : null;
                 const instagramDisplayId = isInstagram ? (v.platform_post_id?.slice(0, 8) ?? null) : null;
-                const fbDisplayId = isFacebook ? (v.platform_post_id?.slice(0, 8) ?? null) : null;
                 const campaign = campaigns.find(c => c.id === v.campaign_id);
 
                 const accountLabel = isReddit
@@ -1128,7 +1127,7 @@ export default function Videos() {
                               : isInstagram
                               ? (instagramDisplayId ?? 'Instagram')
                               : isFacebook
-                              ? (fbDisplayId ?? 'Facebook')
+                              ? 'Facebook'
                               : (tikTokUsername ? `@${tikTokUsername}` : 'TikTok')}
                           </span>
                           <span className="shrink-0 text-[8px] font-black uppercase tracking-widest px-1.5 py-0.5 rounded border border-zinc-800 text-zinc-500">
@@ -1162,7 +1161,7 @@ export default function Videos() {
                           : isInstagram
                           ? <><span style={{ color: 'rgba(255, 69, 0, 0.7)' }}>Instagram {instagramType}</span><span className="text-zinc-600 mx-1">•</span><span className="text-zinc-200">{instagramDisplayId ?? '—'}</span></>
                           : isFacebook
-                          ? <><span style={{ color: 'rgba(255, 69, 0, 0.7)' }}>Facebook</span><span className="text-zinc-600 mx-1">•</span><span className="text-zinc-200">{fbDisplayId ?? '—'}</span></>
+                          ? <span className="text-zinc-200">{v.video_title}</span>
                           : <><span style={{ color: 'rgba(255, 69, 0, 0.7)' }}>Youtube</span><span className="text-zinc-600 mx-1">•</span><span className="text-zinc-200">{v.video_title}</span></>
                         }
                       </span>
@@ -1241,7 +1240,6 @@ export default function Videos() {
             const tikTokDisplayId = isTikTok ? formatTikTokDisplayId(tikTokVideoId) : null;
             const instagramType = isInstagram ? resolveInstagramType(v.platform_url) : null;
             const instagramDisplayId = isInstagram ? (v.platform_post_id?.slice(0, 8) ?? null) : null;
-            const fbDisplayId = isFacebook ? (v.platform_post_id?.slice(0, 8) ?? null) : null;
 
             const cardBorderStyle = isReddit || isX || isThreads || isTikTok || isInstagram || isFacebook
               ? { borderColor: 'rgba(255, 69, 0, 0.15)' }
@@ -1302,7 +1300,7 @@ export default function Videos() {
                       : isInstagram
                       ? <><span style={{ color: 'rgba(255, 69, 0, 0.7)' }}>Instagram {instagramType}</span><span className="text-zinc-600 mx-1">•</span><span>{instagramDisplayId ?? '—'}</span></>
                       : isFacebook
-                      ? <><span style={{ color: 'rgba(255, 69, 0, 0.7)' }}>{v.video_title}</span></>
+                      ? <span>{v.video_title}</span>
                       : <>
                           <span style={{ color: 'rgba(255, 69, 0, 0.7)' }}>YouTube</span><span className="text-zinc-600 mx-1">•</span><span>{v.video_title}</span>
                           
