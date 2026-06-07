@@ -145,6 +145,7 @@ export default function Videos() {
     linkedin: '/platform-thumbnails/linkedin.jpg',
     instagram: '/platform-thumbnails/Instagram.jpg',
     facebook: '/platform-thumbnails/fb.jpg',
+    twitch: '/platform-thumbnails/twitch.jpg',
   };
 
   function resolveThumbnail(v: Video): string {
@@ -250,6 +251,24 @@ export default function Videos() {
   function formatLinkedInDisplayId(postId: string | null | undefined): string {
     if (!postId) return '';
     return postId.slice(0, 6) + '...';
+  }
+
+  function parseTwitchVideoId(platformUrl: string | null | undefined): string | null {
+    if (!platformUrl) return null;
+    const match = platformUrl.match(/\/videos\/(\d+)/);
+    return match ? match[1] : null;
+  }
+
+  function parseTwitchChannel(platformUrl: string | null | undefined): string | null {
+    if (!platformUrl) return null;
+    if (/\/videos\//.test(platformUrl)) return null;
+    const match = platformUrl.match(/twitch\.tv\/([^/?#]+)/);
+    return match ? match[1] : null;
+  }
+
+  function formatTwitchDisplayId(videoId: string | null | undefined): string {
+    if (!videoId) return '';
+    return videoId.slice(0, 6) + '...';
   }
 
   function resolveInstagramType(platformUrl: string | null | undefined): 'Post' | 'Reel' {
@@ -1118,6 +1137,10 @@ export default function Videos() {
                 const instagramType = isInstagram ? resolveInstagramType(v.platform_url) : null;
                 const instagramDisplayId = isInstagram ? (v.platform_post_id?.slice(0, 8) ?? null) : null;
                 const facebookType = isFacebook ? resolveFacebookType(v.platform_url) : null;
+                const isTwitch = v.platform === 'twitch';
+                const twitchVideoId = isTwitch ? parseTwitchVideoId(v.platform_url) : null;
+                const twitchChannel = isTwitch ? parseTwitchChannel(v.platform_url) : null;
+                const twitchDisplayId = isTwitch ? formatTwitchDisplayId(twitchVideoId) : null;
                 const campaign = campaigns.find(c => c.id === v.campaign_id);
 
                 const accountLabel = isReddit
@@ -1150,7 +1173,7 @@ export default function Videos() {
                   >
                     {/* Platform */}
                     <div className="min-w-0 pr-4">
-                      {isReddit || isX || isThreads || isTikTok || isLinkedIn || isInstagram || isFacebook ? (
+                      {isReddit || isX || isThreads || isTikTok || isLinkedIn || isInstagram || isFacebook || isTwitch ? (
                         <div className="flex items-center gap-1.5">
                           <span className="text-xs font-black truncate" style={{ color: 'rgba(255, 69, 0, 0.85)' }}>
                             {isReddit
@@ -1165,10 +1188,12 @@ export default function Videos() {
                               ? (instagramDisplayId ?? 'Instagram')
                               : isFacebook
                               ? (v.platform_post_id?.slice(0, 6) ?? 'Facebook')
+                              : isTwitch
+                              ? (twitchVideoId ? twitchDisplayId! : (twitchChannel ? `@${twitchChannel}` : 'Twitch'))
                               : (tikTokUsername ? `@${tikTokUsername}` : 'TikTok')}
                           </span>
                           <span className="shrink-0 text-[8px] font-black uppercase tracking-widest px-1.5 py-0.5 rounded border border-zinc-800 text-zinc-500">
-                            {isReddit ? 'Reddit' : isX ? 'X' : isThreads ? 'Threads' : isLinkedIn ? 'LinkedIn' : isInstagram ? 'Instagram' : isFacebook ? 'Facebook' : 'TikTok'}
+                            {isReddit ? 'Reddit' : isX ? 'X' : isThreads ? 'Threads' : isLinkedIn ? 'LinkedIn' : isInstagram ? 'Instagram' : isFacebook ? 'Facebook' : isTwitch ? 'Twitch' : 'TikTok'}
                           </span>
                         </div>
                       ) : (
@@ -1201,6 +1226,8 @@ export default function Videos() {
                           ? <><span style={{ color: 'rgba(255, 69, 0, 0.7)' }}>Instagram {instagramType}</span><span className="text-zinc-600 mx-1">•</span><span className="text-zinc-200">{instagramDisplayId ?? '—'}</span></>
                           : isFacebook
                           ? <><span style={{ color: 'rgba(255, 69, 0, 0.7)' }}>Facebook {facebookType}</span><span className="text-zinc-600 mx-1">•</span><span className="text-zinc-200">{v.platform_post_id?.slice(0, 6) ?? '—'}</span></>
+                          : isTwitch
+                          ? <><span style={{ color: 'rgba(255, 69, 0, 0.7)' }}>Twitch</span><span className="text-zinc-600 mx-1">•</span><span className="text-zinc-200">{twitchVideoId ? twitchDisplayId! : (twitchChannel ?? '—')}</span></>
                           : <><span style={{ color: 'rgba(255, 69, 0, 0.7)' }}>Youtube</span><span className="text-zinc-600 mx-1">•</span><span className="text-zinc-200">{v.video_title}</span></>
                         }
                       </span>
@@ -1284,8 +1311,12 @@ export default function Videos() {
             const instagramType = isInstagram ? resolveInstagramType(v.platform_url) : null;
             const instagramDisplayId = isInstagram ? (v.platform_post_id?.slice(0, 8) ?? null) : null;
             const facebookType = isFacebook ? resolveFacebookType(v.platform_url) : null;
+            const isTwitch = v.platform === 'twitch';
+            const twitchVideoId = isTwitch ? parseTwitchVideoId(v.platform_url) : null;
+            const twitchChannel = isTwitch ? parseTwitchChannel(v.platform_url) : null;
+            const twitchDisplayId = isTwitch ? formatTwitchDisplayId(twitchVideoId) : null;
 
-            const cardBorderStyle = isReddit || isX || isThreads || isTikTok || isLinkedIn || isInstagram || isFacebook
+            const cardBorderStyle = isReddit || isX || isThreads || isTikTok || isLinkedIn || isInstagram || isFacebook || isTwitch
               ? { borderColor: 'rgba(255, 69, 0, 0.15)' }
               : undefined;
 
@@ -1298,7 +1329,7 @@ export default function Videos() {
               className="bento-card flex flex-col md:flex-row gap-6 items-start md:items-center p-4 hover:border-zinc-800 transition-all"
               style={cardBorderStyle}
             >
-              {isReddit || isX || isThreads || isTikTok || isLinkedIn || isInstagram || isFacebook ? (
+              {isReddit || isX || isThreads || isTikTok || isLinkedIn || isInstagram || isFacebook || isTwitch ? (
                 <Link to={`/videos/${v.id}`} className="relative group shrink-0">
                   <div className="relative shrink-0">
                     <img
@@ -1347,6 +1378,8 @@ export default function Videos() {
                       ? <><span style={{ color: 'rgba(255, 69, 0, 0.7)' }}>Instagram {instagramType}</span><span className="text-zinc-600 mx-1">•</span><span>{instagramDisplayId ?? '—'}</span></>
                       : isFacebook
                       ? <><span style={{ color: 'rgba(255, 69, 0, 0.7)' }}>Facebook {facebookType}</span><span className="text-zinc-600 mx-1">•</span><span>{v.platform_post_id?.slice(0, 8) ?? '—'}</span></>
+                      : isTwitch
+                      ? <><span style={{ color: 'rgba(255, 69, 0, 0.7)' }}>Twitch</span><span className="text-zinc-600 mx-1">•</span><span>{twitchVideoId ? twitchDisplayId! : (twitchChannel ?? '—')}</span></>
                       : <>
                           <span style={{ color: 'rgba(255, 69, 0, 0.7)' }}>YouTube</span><span className="text-zinc-600 mx-1">•</span><span>{v.video_title}</span>
                           
