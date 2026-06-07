@@ -1138,7 +1138,7 @@ export default function Videos() {
                               : isInstagram
                               ? (instagramDisplayId ?? 'Instagram')
                               : isFacebook
-                              ? 'Facebook'
+                              ? (v.platform_post_id?.slice(0, 6) ?? 'Facebook')
                               : (tikTokUsername ? `@${tikTokUsername}` : 'TikTok')}
                           </span>
                           <span className="shrink-0 text-[8px] font-black uppercase tracking-widest px-1.5 py-0.5 rounded border border-zinc-800 text-zinc-500">
@@ -1172,7 +1172,7 @@ export default function Videos() {
                           : isInstagram
                           ? <><span style={{ color: 'rgba(255, 69, 0, 0.7)' }}>Instagram {instagramType}</span><span className="text-zinc-600 mx-1">•</span><span className="text-zinc-200">{instagramDisplayId ?? '—'}</span></>
                           : isFacebook
-                          ? <><span style={{ color: 'rgba(255, 69, 0, 0.7)' }}>Facebook {facebookType}</span><span className="text-zinc-600 mx-1">•</span><span className="text-zinc-200">{v.platform_post_id}</span></>
+                          ? <><span style={{ color: 'rgba(255, 69, 0, 0.7)' }}>Facebook {facebookType}</span><span className="text-zinc-600 mx-1">•</span><span className="text-zinc-200">{v.platform_post_id?.slice(0, 6) ?? '—'}</span></>
                           : <><span style={{ color: 'rgba(255, 69, 0, 0.7)' }}>Youtube</span><span className="text-zinc-600 mx-1">•</span><span className="text-zinc-200">{v.video_title}</span></>
                         }
                       </span>
