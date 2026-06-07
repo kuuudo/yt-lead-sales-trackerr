@@ -238,6 +238,16 @@ export default function Videos() {
     return 'Post';
   }
 
+  function resolveFacebookType(platformUrl: string | null | undefined): 'Reel' | 'Live' | 'Video' | 'Post' | '' {
+    if (!platformUrl) return '';
+    const cleanUrl = platformUrl.split('?')[0].toLowerCase();
+    if (/\/reel(?:s)?\//.test(cleanUrl) || /\/share\/r\//.test(cleanUrl)) return 'Reel';
+    if (/\/watch\/live\//.test(cleanUrl)) return 'Live';
+    if (/\/watch\b/.test(cleanUrl) || /\/videos\//.test(cleanUrl) || /\/share\/v\//.test(cleanUrl)) return 'Video';
+    if (/\/posts\//.test(cleanUrl) || /\/share\/p\//.test(cleanUrl) || /permalink\.php/.test(cleanUrl) || /story\.php/.test(cleanUrl)) return 'Post';
+    return '';
+  }
+
   function resolveThreadsTitle(videoTitle: string | null | undefined): string {
     if (!videoTitle) return 'Threads Post';
     const isPlaceholder = /^threads\s+post(\s+\S+)?$/i.test(videoTitle.trim());
@@ -1083,6 +1093,7 @@ export default function Videos() {
                 const tikTokDisplayId = isTikTok ? formatTikTokDisplayId(tikTokVideoId) : null;
                 const instagramType = isInstagram ? resolveInstagramType(v.platform_url) : null;
                 const instagramDisplayId = isInstagram ? (v.platform_post_id?.slice(0, 8) ?? null) : null;
+                const facebookType = isFacebook ? resolveFacebookType(v.platform_url) : null;
                 const campaign = campaigns.find(c => c.id === v.campaign_id);
 
                 const accountLabel = isReddit
@@ -1161,7 +1172,7 @@ export default function Videos() {
                           : isInstagram
                           ? <><span style={{ color: 'rgba(255, 69, 0, 0.7)' }}>Instagram {instagramType}</span><span className="text-zinc-600 mx-1">•</span><span className="text-zinc-200">{instagramDisplayId ?? '—'}</span></>
                           : isFacebook
-                          ? <><span style={{ color: 'rgba(255, 69, 0, 0.7)' }}>Facebook</span><span className="text-zinc-600 mx-1">•</span><span className="text-zinc-200">{v.platform_post_id}</span></>
+                          ? <><span style={{ color: 'rgba(255, 69, 0, 0.7)' }}>Facebook {facebookType}</span><span className="text-zinc-600 mx-1">•</span><span className="text-zinc-200">{v.platform_post_id}</span></>
                           : <><span style={{ color: 'rgba(255, 69, 0, 0.7)' }}>Youtube</span><span className="text-zinc-600 mx-1">•</span><span className="text-zinc-200">{v.video_title}</span></>
                         }
                       </span>
@@ -1240,6 +1251,7 @@ export default function Videos() {
             const tikTokDisplayId = isTikTok ? formatTikTokDisplayId(tikTokVideoId) : null;
             const instagramType = isInstagram ? resolveInstagramType(v.platform_url) : null;
             const instagramDisplayId = isInstagram ? (v.platform_post_id?.slice(0, 8) ?? null) : null;
+            const facebookType = isFacebook ? resolveFacebookType(v.platform_url) : null;
 
             const cardBorderStyle = isReddit || isX || isThreads || isTikTok || isInstagram || isFacebook
               ? { borderColor: 'rgba(255, 69, 0, 0.15)' }
@@ -1300,7 +1312,7 @@ export default function Videos() {
                       : isInstagram
                       ? <><span style={{ color: 'rgba(255, 69, 0, 0.7)' }}>Instagram {instagramType}</span><span className="text-zinc-600 mx-1">•</span><span>{instagramDisplayId ?? '—'}</span></>
                       : isFacebook
-                      ? <span>{v.video_title}</span>
+                      ? <><span style={{ color: 'rgba(255, 69, 0, 0.7)' }}>Facebook {facebookType}</span><span className="text-zinc-600 mx-1">•</span><span>{v.platform_post_id?.slice(0, 8) ?? '—'}</span></>
                       : <>
                           <span style={{ color: 'rgba(255, 69, 0, 0.7)' }}>YouTube</span><span className="text-zinc-600 mx-1">•</span><span>{v.video_title}</span>
                           
