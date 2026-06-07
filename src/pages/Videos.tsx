@@ -1142,7 +1142,7 @@ export default function Videos() {
                               : (tikTokUsername ? `@${tikTokUsername}` : 'TikTok')}
                           </span>
                           <span className="shrink-0 text-[8px] font-black uppercase tracking-widest px-1.5 py-0.5 rounded border border-zinc-800 text-zinc-500">
-                            {isReddit ? 'Reddit' : isX ? 'X' : isThreads ? 'Threads' : isInstagram ? 'Instagram' : isFacebook ? 'Facebook' : 'TikTok'}
+                            {isReddit ? 'Reddit' : isX ? 'X' : isThreads ? 'Threads' : isInstagram ? 'Instagram' : 'TikTok'}
                           </span>
                         </div>
                       ) : (
