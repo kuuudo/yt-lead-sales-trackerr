@@ -53,6 +53,7 @@ import {
   Activity, AlertCircle, CheckCircle2, ArrowRight, Video as VideoIcon,
   ShoppingCart,
 } from 'lucide-react';
+import { PLATFORM_CONFIG } from '../lib/platformParser';
 import { motion } from 'motion/react';
 import { useNavigate, Link } from 'react-router-dom';
 import { Modal } from '../components/Modal';
@@ -82,8 +83,71 @@ async function buildSessionLookup(
 
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Component
+// Platform thumbnail fallbacks — mirrors Videos.tsx PLATFORM_THUMBNAILS.
+// Used when thumbnail_url is null or empty for a given video row.
+// YouTube is intentionally absent: YouTube always provides a thumbnail URL.
 // ─────────────────────────────────────────────────────────────────────────────
+const PLATFORM_THUMBNAILS: Record<string, string> = {
+  threads:   '/thumbnails/threads-default.png',
+  reddit:    '/thumbnails/reddit-default.png',
+  x:         '/thumbnails/x-default.png',
+  tiktok:    '/thumbnails/tiktok-default.png',
+  linkedin:  '/thumbnails/linkedin-default.png',
+  instagram: '/thumbnails/instagram-default.png',
+  facebook:  '/thumbnails/facebook-default.png',
+  twitch:    '/thumbnails/twitch-default.png',
+};
+
+function resolveThumbnail(video: { thumbnail_url?: string | null; platform?: string | null }): string {
+  if (video.thumbnail_url) return video.thumbnail_url;
+  const platform = video.platform ?? '';
+  if (PLATFORM_THUMBNAILS[platform]) return PLATFORM_THUMBNAILS[platform];
+  return `https://placehold.co/160x90/18181b/52525b?text=${encodeURIComponent(platform || 'video')}`;
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Platform-specific title resolution — mirrors Videos.tsx resolver functions.
+// Corrects raw video_title values for platforms that store placeholders or
+// where the meaningful display title must be derived from platform_url.
+// ─────────────────────────────────────────────────────────────────────────────
+function resolveXTitle(videoTitle: string | undefined): string {
+  const t = (videoTitle ?? '').trim();
+  if (!t || /^x\s+post(\s+\d+)?$/i.test(t) || /^\d+$/.test(t)) return 'X Post';
+  return t;
+}
+
+function resolveThreadsTitle(videoTitle: string | undefined): string {
+  const t = (videoTitle ?? '').trim();
+  if (!t || /^threads\s+post(\s+\S+)?$/i.test(t)) return 'Threads Post';
+  return t;
+}
+
+function resolveRedditTitle(platformUrl: string | null | undefined, fallback: string | undefined): string {
+  if (platformUrl) {
+    const match = platformUrl.match(/\/comments\/[^/]+\/([^/]+)/);
+    if (match && match[1]) {
+      const slug = match[1].replace(/_/g, ' ');
+      return slug.charAt(0).toUpperCase() + slug.slice(1);
+    }
+  }
+  return fallback ?? 'Reddit Post';
+}
+
+function resolveDisplayTitle(
+  platform: string | null | undefined,
+  videoTitle: string | undefined,
+  platformUrl: string | null | undefined,
+): string {
+  switch (platform) {
+    case 'x':       return resolveXTitle(videoTitle);
+    case 'threads': return resolveThreadsTitle(videoTitle);
+    case 'reddit':  return resolveRedditTitle(platformUrl, videoTitle);
+    default:        return videoTitle ?? '';
+  }
+}
+
+
+
 
 export default function DashboardTest() {
   const { user } = useAuth();
@@ -287,10 +351,10 @@ export default function DashboardTest() {
       const { data: sData, error: sErr } = await supabase.from('sessions').insert({
         video_id:     randomVideo.id,
         campaign_id:  randomVideo.campaign_id,
-        utm_source:   'youtube',
+        utm_source:   randomVideo.platform ?? 'unknown',
         utm_medium:   'video',
         utm_campaign: 'simulation',
-        utm_content:  randomVideo.youtube_video_id,
+        utm_content:  randomVideo.platform_url ?? randomVideo.youtube_video_id ?? null,
       }).select('id').single();
 
       if (sErr) {
@@ -308,7 +372,7 @@ export default function DashboardTest() {
           await supabase.from('leads').insert({
             session_id:  realSessionId,
             email:       `sim_${realSessionId.substring(0, 8)}@example.com`,
-            utm_content: randomVideo.youtube_video_id,
+            utm_content: randomVideo.platform_url ?? randomVideo.youtube_video_id ?? null,
           });
           await supabase.from('events').insert({ session_id: realSessionId, event_type: 'newsletter_optin' });
         }
@@ -473,7 +537,7 @@ export default function DashboardTest() {
               </thead>
               <tbody className="divide-y divide-zinc-900/50">
                 {loading ? (
-                  Array.from({ length: 4 }).map((_, i) => (
+                  Array.from({ length: 7 }).map((_, i) => (
                     <tr key={i} className="animate-pulse">
                       <td colSpan={6} className="px-6 py-8">
                         <div className="h-4 bg-zinc-900 rounded w-full" />
@@ -489,9 +553,9 @@ export default function DashboardTest() {
                     </td>
                   </tr>
                 ) : (
-                  sortedVideos.map((row) => {
+                  sortedVideos.slice(0, 7).map((row) => {
                     // 🟢 ENGINE-DRIVEN: revenue per row from engine metrics
-                    const rowRevenue = selectDisplayRevenue(row as any, revenueView);
+                    const rowRevenue = selectDisplayRevenue(row, revenueView);
                     const videoGoals = Array.isArray(row.video.video_goal)
                       ? row.video.video_goal.join(', ')
                       : (row.video.video_goal ?? '');
@@ -504,18 +568,26 @@ export default function DashboardTest() {
                       >
                         <td className="px-6 py-4">
                           <div className="flex items-center gap-4">
-                            <img
-                              src={row.video.thumbnail_url}
-                              className="w-16 aspect-video rounded-lg object-cover border border-zinc-900 grayscale group-hover:grayscale-0 transition-all"
-                            />
+                            {/* Thumbnail with platform badge overlay */}
+                            <div className="relative flex-shrink-0">
+                              <img
+                                src={resolveThumbnail(row.video)}
+                                className="w-16 aspect-video rounded-lg object-cover border border-zinc-900 grayscale group-hover:grayscale-0 transition-all"
+                              />
+                              {row.video.platform && (
+                                <span className="absolute -top-1 -right-1 text-[7px] font-black uppercase tracking-wide px-1 py-0.5 rounded bg-zinc-800 border border-zinc-700 text-zinc-400 leading-none">
+                                  {PLATFORM_CONFIG[row.video.platform]?.label ?? row.video.platform.toUpperCase()}
+                                </span>
+                              )}
+                            </div>
                             <div className="min-w-0 max-w-[180px]">
                               <p className="text-[11px] font-bold text-zinc-300 truncate leading-tight mb-1">
-                                {row.title}
+                                {resolveDisplayTitle(row.video.platform, row.title, row.video.platform_url)}
                               </p>
                               <div className="flex items-center gap-1.5">
-                                {getStatusIcon((row.video as any).status ?? '')}
+                                {getStatusIcon(row.video.status ?? '')}
                                 <span className="text-[9px] font-black uppercase text-zinc-600 tracking-tighter">
-                                  {((row.video as any).status ?? '').replace('_', ' ')}
+                                  {(row.video.status ?? '').replace('_', ' ')}
                                 </span>
                               </div>
                             </div>

@@ -796,7 +796,7 @@ export const COLUMN_LABELS: Partial<Record<MetricType, string>> & Record<string,
 
 // A processed video row — what InDepthAnalytics stores in processedVideos.
 export interface ProcessedVideoRow extends VideoMetricsResult {
-  video:    { id: string; thumbnail_url?: string; video_title?: string; campaign_id?: string | null; video_goal?: string[]; selected_lead_magnet_ids?: string[] | null };
+  video:    { id: string; thumbnail_url?: string; video_title?: string; campaign_id?: string | null; video_goal?: string[]; selected_lead_magnet_ids?: string[] | null; platform?: string | null; platform_url?: string | null; status?: string | null };
   campaign: CampaignMeta | null;
   title:    string | undefined;
 }
