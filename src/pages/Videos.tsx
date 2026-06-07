@@ -143,6 +143,7 @@ export default function Videos() {
     x: '/platform-thumbnails/x.jpg',
     tiktok: '/platform-thumbnails/tiktok.jpg',
     instagram: '/platform-thumbnails/Instagram.jpg',
+    facebook: '/platform-thumbnails/fb.jpg',
   };
 
   function resolveThumbnail(v: Video): string {
@@ -1067,6 +1068,7 @@ export default function Videos() {
                 const isThreads = v.platform === 'threads';
                 const isTikTok = v.platform === 'tiktok';
                 const isInstagram = v.platform === 'instagram';
+                const isFacebook = v.platform === 'facebook';
                 const subreddit = isReddit ? parseSubreddit(v.platform_url) : null;
                 const redditTitle = isReddit ? resolveRedditTitle(v.platform_url) : null;
                 const xUsername = isX ? parseXUsername(v.platform_url) : null;
@@ -1081,6 +1083,7 @@ export default function Videos() {
                 const tikTokDisplayId = isTikTok ? formatTikTokDisplayId(tikTokVideoId) : null;
                 const instagramType = isInstagram ? resolveInstagramType(v.platform_url) : null;
                 const instagramDisplayId = isInstagram ? (v.platform_post_id?.slice(0, 8) ?? null) : null;
+                const fbDisplayId = isFacebook ? (v.platform_post_id?.slice(0, 8) ?? null) : null;
                 const campaign = campaigns.find(c => c.id === v.campaign_id);
 
                 const accountLabel = isReddit
@@ -1113,7 +1116,7 @@ export default function Videos() {
                   >
                     {/* Platform */}
                     <div className="min-w-0 pr-4">
-                      {isReddit || isX || isThreads || isTikTok || isInstagram ? (
+                      {isReddit || isX || isThreads || isTikTok || isInstagram || isFacebook ? (
                         <div className="flex items-center gap-1.5">
                           <span className="text-xs font-black truncate" style={{ color: 'rgba(255, 69, 0, 0.85)' }}>
                             {isReddit
@@ -1124,10 +1127,12 @@ export default function Videos() {
                               ? (threadsUsername ? `@${threadsUsername}` : 'Threads')
                               : isInstagram
                               ? (instagramDisplayId ?? 'Instagram')
+                              : isFacebook
+                              ? (fbDisplayId ?? 'Facebook')
                               : (tikTokUsername ? `@${tikTokUsername}` : 'TikTok')}
                           </span>
                           <span className="shrink-0 text-[8px] font-black uppercase tracking-widest px-1.5 py-0.5 rounded border border-zinc-800 text-zinc-500">
-                            {isReddit ? 'Reddit' : isX ? 'X' : isThreads ? 'Threads' : isInstagram ? 'Instagram' : 'TikTok'}
+                            {isReddit ? 'Reddit' : isX ? 'X' : isThreads ? 'Threads' : isInstagram ? 'Instagram' : isFacebook ? 'Facebook' : 'TikTok'}
                           </span>
                         </div>
                       ) : (
@@ -1156,6 +1161,8 @@ export default function Videos() {
                           ? <><span style={{ color: 'rgba(255, 69, 0, 0.7)' }}>TikTok</span><span className="text-zinc-600 mx-1">•</span><span className="text-zinc-200">{tikTokDisplayId ?? 'Video'}</span></>
                           : isInstagram
                           ? <><span style={{ color: 'rgba(255, 69, 0, 0.7)' }}>Instagram {instagramType}</span><span className="text-zinc-600 mx-1">•</span><span className="text-zinc-200">{instagramDisplayId ?? '—'}</span></>
+                          : isFacebook
+                          ? <><span style={{ color: 'rgba(255, 69, 0, 0.7)' }}>{v.video_title}</span></>
                           : <><span style={{ color: 'rgba(255, 69, 0, 0.7)' }}>Youtube</span><span className="text-zinc-600 mx-1">•</span><span className="text-zinc-200">{v.video_title}</span></>
                         }
                       </span>
@@ -1219,6 +1226,7 @@ export default function Videos() {
             const isThreads = v.platform === 'threads';
             const isTikTok = v.platform === 'tiktok';
             const isInstagram = v.platform === 'instagram';
+            const isFacebook = v.platform === 'facebook';
             const subreddit = isReddit ? parseSubreddit(v.platform_url) : null;
             const redditTitle = isReddit ? resolveRedditTitle(v.platform_url) : null;
             const xUsername = isX ? parseXUsername(v.platform_url) : null;
@@ -1233,8 +1241,9 @@ export default function Videos() {
             const tikTokDisplayId = isTikTok ? formatTikTokDisplayId(tikTokVideoId) : null;
             const instagramType = isInstagram ? resolveInstagramType(v.platform_url) : null;
             const instagramDisplayId = isInstagram ? (v.platform_post_id?.slice(0, 8) ?? null) : null;
+            const fbDisplayId = isFacebook ? (v.platform_post_id?.slice(0, 8) ?? null) : null;
 
-            const cardBorderStyle = isReddit || isX || isThreads || isTikTok || isInstagram
+            const cardBorderStyle = isReddit || isX || isThreads || isTikTok || isInstagram || isFacebook
               ? { borderColor: 'rgba(255, 69, 0, 0.15)' }
               : undefined;
 
@@ -1247,7 +1256,7 @@ export default function Videos() {
               className="bento-card flex flex-col md:flex-row gap-6 items-start md:items-center p-4 hover:border-zinc-800 transition-all"
               style={cardBorderStyle}
             >
-              {isReddit || isX || isThreads || isTikTok || isInstagram ? (
+              {isReddit || isX || isThreads || isTikTok || isInstagram || isFacebook ? (
                 <Link to={`/videos/${v.id}`} className="relative group shrink-0">
                   <div className="relative shrink-0">
                     <img
@@ -1292,6 +1301,8 @@ export default function Videos() {
                       ? <><span style={{ color: 'rgba(255, 69, 0, 0.7)' }}>TikTok</span><span className="text-zinc-600 mx-1">•</span><span>{tikTokDisplayId ?? 'Video'}</span></>
                       : isInstagram
                       ? <><span style={{ color: 'rgba(255, 69, 0, 0.7)' }}>Instagram {instagramType}</span><span className="text-zinc-600 mx-1">•</span><span>{instagramDisplayId ?? '—'}</span></>
+                      : isFacebook
+                      ? <><span style={{ color: 'rgba(255, 69, 0, 0.7)' }}>{v.video_title}</span></>
                       : <>
                           <span style={{ color: 'rgba(255, 69, 0, 0.7)' }}>YouTube</span><span className="text-zinc-600 mx-1">•</span><span>{v.video_title}</span>
                           
