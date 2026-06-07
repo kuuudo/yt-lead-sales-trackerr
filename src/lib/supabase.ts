@@ -22,3 +22,39 @@ export type PixelPurchase = {
   amount: number | null;
   created_at: string;
 };
+export type Video = {
+  id: string;
+  user_id: string;
+  organization_id: string;
+  platform: string | null;
+  platform_url: string | null;
+  platform_post_id: string | null;
+  youtube_video_id: string | null;
+  video_title: string | null;
+  thumbnail_url: string | null;
+  video_goal: Array<'newsletter' | 'calls' | 'consult' | 'sales' | 'viral'>;
+  campaign_id: string;
+  status: 'active' | 'error' | 'installed' | 'missing' | 'no_data';
+  selected_lead_magnet_ids: string[] | null;
+  created_at: string;
+};
+
+export type Campaign = {
+  id: string;
+  organization_id: string;
+  campaign_name: string;
+  landing_page_url: string;
+  newsletter_url?: string | null;
+  sales_call_booking_url?: string | null;
+  consultation_booking_url?: string | null;
+  checkout_url?: string | null;
+  purchase_thankyou_url?: string | null;
+  newsletter_thankyou_url?: string | null;
+};
+
+export type LeadMagnet = {
+  id: string;
+  campaign_id: string;
+  lead_magnet_name: string;
+  lead_magnet_url: string;
+};
