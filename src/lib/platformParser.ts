@@ -285,7 +285,7 @@ export async function getPlatformInfo(
         platform: 'facebook',
         platform_url: cleanUrl,
         platform_post_id: postId,
-        video_title: `${fbLabel} • ${postId}`,
+        video_title: original_title ?? '',
         thumbnail_url: '',
       }
     }
