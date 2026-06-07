@@ -1161,7 +1161,7 @@ export default function Videos() {
                           : isInstagram
                           ? <><span style={{ color: 'rgba(255, 69, 0, 0.7)' }}>Instagram {instagramType}</span><span className="text-zinc-600 mx-1">•</span><span className="text-zinc-200">{instagramDisplayId ?? '—'}</span></>
                           : isFacebook
-                          ? <span className="text-zinc-200">{v.video_title}</span>
+                          ? <><span style={{ color: 'rgba(255, 69, 0, 0.7)' }}>Facebook</span><span className="text-zinc-600 mx-1">•</span><span className="text-zinc-200">{v.platform_post_id}</span></>
                           : <><span style={{ color: 'rgba(255, 69, 0, 0.7)' }}>Youtube</span><span className="text-zinc-600 mx-1">•</span><span className="text-zinc-200">{v.video_title}</span></>
                         }
                       </span>
