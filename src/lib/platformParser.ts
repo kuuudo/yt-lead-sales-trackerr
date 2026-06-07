@@ -223,25 +223,32 @@ export async function getPlatformInfo(
         platform: 'tiktok',
         platform_url: cleanUrl,
         platform_post_id: postId,
-        video_title: `TikTok Video ${postId}`,
+        video_title: `TikTok • ${postId}`,
         thumbnail_url: '',
       }
 
-    case 'instagram':
+    case 'instagram': {
+      const igLabel =
+        /\/(?:reel|reels)\//.test(cleanUrl)
+          ? 'Instagram Reel'
+          : /\/(?:p|tv)\//.test(cleanUrl)
+          ? 'Instagram Post'
+          : 'Instagram'
       return {
         platform: 'instagram',
         platform_url: cleanUrl,
         platform_post_id: postId,
-        video_title: `Instagram Post ${postId}`,
+        video_title: `${igLabel} • ${postId}`,
         thumbnail_url: '',
       }
+    }
 
     case 'linkedin':
       return {
         platform: 'linkedin',
         platform_url: cleanUrl,
         platform_post_id: postId,
-        video_title: `LinkedIn Post ${postId}`,
+        video_title: `LinkedIn • ${postId}`,
         thumbnail_url: '',
       }
 
@@ -250,7 +257,7 @@ export async function getPlatformInfo(
         platform: 'x',
         platform_url: cleanUrl,
         platform_post_id: postId,
-        video_title: `X Post ${postId}`,
+        video_title: `X Post • ${postId}`,
         thumbnail_url: '',
       }
 
@@ -259,7 +266,7 @@ export async function getPlatformInfo(
         platform: 'threads',
         platform_url: cleanUrl,
         platform_post_id: postId,
-        video_title: `Threads Post ${postId}`,
+        video_title: `Threads • ${postId}`,
         thumbnail_url: '',
       }
 
@@ -283,21 +290,24 @@ export async function getPlatformInfo(
       }
     }
 
-    case 'reddit':
+    case 'reddit': {
+      const subreddit = cleanUrl.match(/\/r\/([^/]+)/)?.[1] ?? null
+      const redditLabel = subreddit ? `r/${subreddit}` : 'Reddit'
       return {
         platform: 'reddit',
         platform_url: cleanUrl,
         platform_post_id: postId,
-        video_title: `Reddit Post ${postId}`,
+        video_title: `${redditLabel} • ${postId}`,
         thumbnail_url: '',
       }
+    }
 
     case 'twitch':
       return {
         platform: 'twitch',
         platform_url: cleanUrl,
         platform_post_id: postId,
-        video_title: `Twitch Video ${postId}`,
+        video_title: `Twitch • ${postId}`,
         thumbnail_url: '',
       }
   }
