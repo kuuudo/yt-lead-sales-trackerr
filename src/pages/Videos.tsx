@@ -142,6 +142,7 @@ export default function Videos() {
     reddit: '/platform-thumbnails/reddit.jpg',
     x: '/platform-thumbnails/x.jpg',
     tiktok: '/platform-thumbnails/tiktok.jpg',
+    linkedin: '/platform-thumbnails/linkedin.jpg',
     instagram: '/platform-thumbnails/Instagram.jpg',
     facebook: '/platform-thumbnails/fb.jpg',
   };
@@ -230,6 +231,25 @@ export default function Videos() {
   function formatTikTokDisplayId(videoId: string | null | undefined): string {
     if (!videoId) return '';
     return videoId.slice(0, 6) + '...';
+  }
+
+  function parseLinkedInAuthor(platformUrl: string | null | undefined): string | null {
+    if (!platformUrl) return null;
+    const match = platformUrl.match(/linkedin\.com\/posts\/([^_/]+)/);
+    return match ? match[1] : null;
+  }
+
+  function parseLinkedInPostId(platformUrl: string | null | undefined): string | null {
+    if (!platformUrl) return null;
+    const activityMatch = platformUrl.match(/activity[:\-](\d+)/);
+    if (activityMatch) return activityMatch[1];
+    const postMatch = platformUrl.match(/-(\d{10,})-/);
+    return postMatch ? postMatch[1] : null;
+  }
+
+  function formatLinkedInDisplayId(postId: string | null | undefined): string {
+    if (!postId) return '';
+    return postId.slice(0, 6) + '...';
   }
 
   function resolveInstagramType(platformUrl: string | null | undefined): 'Post' | 'Reel' {
@@ -1091,6 +1111,10 @@ export default function Videos() {
                 const tikTokUsername = isTikTok ? parseTikTokUsername(v.platform_url) : null;
                 const tikTokVideoId = isTikTok ? parseTikTokVideoId(v.platform_url) : null;
                 const tikTokDisplayId = isTikTok ? formatTikTokDisplayId(tikTokVideoId) : null;
+                const isLinkedIn = v.platform === 'linkedin';
+                const linkedInAuthor = isLinkedIn ? parseLinkedInAuthor(v.platform_url) : null;
+                const linkedInPostId = isLinkedIn ? parseLinkedInPostId(v.platform_url) : null;
+                const linkedInDisplayId = isLinkedIn ? formatLinkedInDisplayId(linkedInPostId) : null;
                 const instagramType = isInstagram ? resolveInstagramType(v.platform_url) : null;
                 const instagramDisplayId = isInstagram ? (v.platform_post_id?.slice(0, 8) ?? null) : null;
                 const facebookType = isFacebook ? resolveFacebookType(v.platform_url) : null;
@@ -1126,7 +1150,7 @@ export default function Videos() {
                   >
                     {/* Platform */}
                     <div className="min-w-0 pr-4">
-                      {isReddit || isX || isThreads || isTikTok || isInstagram || isFacebook ? (
+                      {isReddit || isX || isThreads || isTikTok || isLinkedIn || isInstagram || isFacebook ? (
                         <div className="flex items-center gap-1.5">
                           <span className="text-xs font-black truncate" style={{ color: 'rgba(255, 69, 0, 0.85)' }}>
                             {isReddit
@@ -1135,6 +1159,8 @@ export default function Videos() {
                               ? (xUsername ? `@${xUsername}` : 'X')
                               : isThreads
                               ? (threadsUsername ? `@${threadsUsername}` : 'Threads')
+                              : isLinkedIn
+                              ? (linkedInAuthor ? `@${linkedInAuthor}` : 'LinkedIn')
                               : isInstagram
                               ? (instagramDisplayId ?? 'Instagram')
                               : isFacebook
@@ -1142,7 +1168,7 @@ export default function Videos() {
                               : (tikTokUsername ? `@${tikTokUsername}` : 'TikTok')}
                           </span>
                           <span className="shrink-0 text-[8px] font-black uppercase tracking-widest px-1.5 py-0.5 rounded border border-zinc-800 text-zinc-500">
-                            {isReddit ? 'Reddit' : isX ? 'X' : isThreads ? 'Threads' : isInstagram ? 'Instagram' : isFacebook ? 'Facebook' : 'TikTok'}
+                            {isReddit ? 'Reddit' : isX ? 'X' : isThreads ? 'Threads' : isLinkedIn ? 'LinkedIn' : isInstagram ? 'Instagram' : isFacebook ? 'Facebook' : 'TikTok'}
                           </span>
                         </div>
                       ) : (
@@ -1169,6 +1195,8 @@ export default function Videos() {
                           ? <><span style={{ color: 'rgba(255, 69, 0, 0.7)' }}>Threads</span><span className="text-zinc-600 mx-1">•</span><span className="text-zinc-200">{threadsPostId ?? 'Post'}</span></>
                           : isTikTok
                           ? <><span style={{ color: 'rgba(255, 69, 0, 0.7)' }}>TikTok</span><span className="text-zinc-600 mx-1">•</span><span className="text-zinc-200">{tikTokDisplayId ?? 'Video'}</span></>
+                          : isLinkedIn
+                          ? <><span style={{ color: 'rgba(255, 69, 0, 0.7)' }}>LinkedIn</span><span className="text-zinc-600 mx-1">•</span><span className="text-zinc-200">{linkedInDisplayId ?? '—'}</span></>
                           : isInstagram
                           ? <><span style={{ color: 'rgba(255, 69, 0, 0.7)' }}>Instagram {instagramType}</span><span className="text-zinc-600 mx-1">•</span><span className="text-zinc-200">{instagramDisplayId ?? '—'}</span></>
                           : isFacebook
@@ -1249,11 +1277,15 @@ export default function Videos() {
             const tikTokUsername = isTikTok ? parseTikTokUsername(v.platform_url) : null;
             const tikTokVideoId = isTikTok ? parseTikTokVideoId(v.platform_url) : null;
             const tikTokDisplayId = isTikTok ? formatTikTokDisplayId(tikTokVideoId) : null;
+            const isLinkedIn = v.platform === 'linkedin';
+            const linkedInAuthor = isLinkedIn ? parseLinkedInAuthor(v.platform_url) : null;
+            const linkedInPostId = isLinkedIn ? parseLinkedInPostId(v.platform_url) : null;
+            const linkedInDisplayId = isLinkedIn ? formatLinkedInDisplayId(linkedInPostId) : null;
             const instagramType = isInstagram ? resolveInstagramType(v.platform_url) : null;
             const instagramDisplayId = isInstagram ? (v.platform_post_id?.slice(0, 8) ?? null) : null;
             const facebookType = isFacebook ? resolveFacebookType(v.platform_url) : null;
 
-            const cardBorderStyle = isReddit || isX || isThreads || isTikTok || isInstagram || isFacebook
+            const cardBorderStyle = isReddit || isX || isThreads || isTikTok || isLinkedIn || isInstagram || isFacebook
               ? { borderColor: 'rgba(255, 69, 0, 0.15)' }
               : undefined;
 
@@ -1266,7 +1298,7 @@ export default function Videos() {
               className="bento-card flex flex-col md:flex-row gap-6 items-start md:items-center p-4 hover:border-zinc-800 transition-all"
               style={cardBorderStyle}
             >
-              {isReddit || isX || isThreads || isTikTok || isInstagram || isFacebook ? (
+              {isReddit || isX || isThreads || isTikTok || isLinkedIn || isInstagram || isFacebook ? (
                 <Link to={`/videos/${v.id}`} className="relative group shrink-0">
                   <div className="relative shrink-0">
                     <img
@@ -1309,6 +1341,8 @@ export default function Videos() {
                       ? <><span style={{ color: 'rgba(255, 69, 0, 0.7)' }}>Threads</span><span className="text-zinc-600 mx-1">•</span><span>{threadsPostId ?? 'Post'}</span></>
                       : isTikTok
                       ? <><span style={{ color: 'rgba(255, 69, 0, 0.7)' }}>TikTok</span><span className="text-zinc-600 mx-1">•</span><span>{tikTokDisplayId ?? 'Video'}</span></>
+                      : isLinkedIn
+                      ? <><span style={{ color: 'rgba(255, 69, 0, 0.7)' }}>LinkedIn</span><span className="text-zinc-600 mx-1">•</span><span>{linkedInDisplayId ?? '—'}</span></>
                       : isInstagram
                       ? <><span style={{ color: 'rgba(255, 69, 0, 0.7)' }}>Instagram {instagramType}</span><span className="text-zinc-600 mx-1">•</span><span>{instagramDisplayId ?? '—'}</span></>
                       : isFacebook
