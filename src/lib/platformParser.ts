@@ -263,14 +263,25 @@ export async function getPlatformInfo(
         thumbnail_url: '',
       }
 
-    case 'facebook':
+    case 'facebook': {
+      const fbLabel =
+        /\/reel(?:s)?\//.test(cleanUrl) || /\/share\/r\//.test(cleanUrl)
+          ? 'Facebook Reel'
+          : /\/watch\/live\//.test(cleanUrl)
+          ? 'Facebook Live'
+          : /\/watch\b/.test(cleanUrl) || /[?&]v=\d+/.test(url) || /\/videos\//.test(cleanUrl) || /\/share\/v\//.test(cleanUrl)
+          ? 'Facebook Video'
+          : /\/posts\//.test(cleanUrl) || /\/share\/p\//.test(cleanUrl) || /permalink\.php/.test(cleanUrl) || /story\.php/.test(cleanUrl) || /[?&](?:story_fbid|fbid)=\d+/.test(url)
+          ? 'Facebook Post'
+          : 'Facebook'
       return {
         platform: 'facebook',
         platform_url: cleanUrl,
         platform_post_id: postId,
-        video_title: `Facebook Post ${postId}`,
+        video_title: `${fbLabel} • ${postId}`,
         thumbnail_url: '',
       }
+    }
 
     case 'reddit':
       return {
