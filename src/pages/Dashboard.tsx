@@ -18,6 +18,12 @@
 //   4. "Direct Purchase" metric card added (purchase_thankyou from engine).
 //   5. Fetch pattern upgraded to match InDepthAnalyticsTest.tsx
 //      (stripe_purchase_type table + enrichment helpers from engine).
+//   6. Tracking Health sidebar removed (developer metrics, not executive metrics).
+//   7. simulateTraffic removed along with Tracking Health.
+//   8. Controls bar added: Revenue source + Date range + Platform filter.
+//   9. Leaderboard is now full-width with rank numbers, larger thumbnails,
+//      Added date, and elevated Revenue column styling.
+//  10. Quick Actions demoted to slim inline strip below leaderboard.
 //
 // MIGRATION STATUS LEGEND
 // ═══════════════════════
@@ -46,11 +52,12 @@ import {
   type StripePurchaseTypeRow,
   type RevenueView,
   type CampaignMeta,
+  type DateRange,
 } from '../lib/analyticsEngine';
 
 import {
-  LayoutDashboard, TrendingUp, Target, Users, DollarSign,
-  Activity, AlertCircle, CheckCircle2, ArrowRight, Video as VideoIcon,
+  Target, Users, DollarSign,
+  Activity, AlertCircle, CheckCircle2, ArrowRight,
   ShoppingCart,
 } from 'lucide-react';
 import { PLATFORM_CONFIG } from '../lib/platformParser';
@@ -146,8 +153,58 @@ function resolveDisplayTitle(
   }
 }
 
+// ─────────────────────────────────────────────────────────────────────────────
+// Date formatting helper for "Added:" display
+// ─────────────────────────────────────────────────────────────────────────────
+function formatAddedDate(createdAt: string | null | undefined): string {
+  if (!createdAt) return '';
+  const d = new Date(createdAt);
+  if (isNaN(d.getTime())) return '';
+  return `${d.getMonth() + 1}/${d.getDate()}/${d.getFullYear()}`;
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Platform filter config — all 9 supported platforms
+// ─────────────────────────────────────────────────────────────────────────────
+const PLATFORM_FILTERS = [
+  { value: 'all',       label: 'All'  },
+  { value: 'youtube',   label: 'YT'   },
+  { value: 'tiktok',    label: 'TT'   },
+  { value: 'instagram', label: 'IG'   },
+  { value: 'linkedin',  label: 'LI'   },
+  { value: 'x',         label: 'X'    },
+  { value: 'threads',   label: 'TH'   },
+  { value: 'facebook',  label: 'FB'   },
+  { value: 'reddit',    label: 'RD'   },
+  { value: 'twitch',    label: 'TW'   },
+] as const;
+
+type PlatformFilter = typeof PLATFORM_FILTERS[number]['value'];
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Date range options
+// ─────────────────────────────────────────────────────────────────────────────
+const DATE_RANGE_OPTIONS: { value: DateRange; label: string }[] = [
+  { value: 'all',   label: 'All time'   },
+  { value: '7d',    label: '7 days'     },
+  { value: '30d',   label: '30 days'    },
+  { value: 'month', label: 'This month' },
+];
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Rank color helper
+// ─────────────────────────────────────────────────────────────────────────────
+function rankColor(rank: number): string {
+  if (rank === 1) return 'text-amber-400';
+  if (rank === 2) return 'text-zinc-400';
+  if (rank === 3) return 'text-amber-700';
+  return 'text-zinc-700';
+}
 
 
+// ─────────────────────────────────────────────────────────────────────────────
+// Component
+// ─────────────────────────────────────────────────────────────────────────────
 
 export default function DashboardTest() {
   const { user } = useAuth();
@@ -162,9 +219,13 @@ export default function DashboardTest() {
   const [stripePurchases, setStripePurchases]   = useState<StripePurchaseRow[]>([]);
   const [pixelPurchases, setPixelPurchases]     = useState<PixelPurchaseRow[]>([]);
 
-  // ── Revenue source toggle ───────────────────────────────────────────────────
-  // 🟢 ENGINE-DRIVEN: order is TOTAL → PIXEL → STRIPE, default = 'total'
-  const [revenueView, setRevenueView] = useState<RevenueView>('total');
+  // ── Filter state ────────────────────────────────────────────────────────────
+  // 🟢 ENGINE-DRIVEN: revenueView and dateRange feed directly into engineInput.
+  // selectedPlatform is a client-side post-filter on sortedVideos (engine is
+  // platform-agnostic by design — no platform field in AnalyticsEngineInput).
+  const [revenueView,      setRevenueView]      = useState<RevenueView>('total');
+  const [dateRange,        setDateRange]         = useState<DateRange>('all');
+  const [selectedPlatform, setSelectedPlatform] = useState<PlatformFilter>('all');
 
   // ── Modal state ─────────────────────────────────────────────────────────────
   const [modalConfig, setModalConfig] = useState<{
@@ -291,7 +352,9 @@ export default function DashboardTest() {
 
   // ── Engine orchestration ────────────────────────────────────────────────────
   // 🟢 ENGINE-DRIVEN: ALL metric computation lives here, via getAnalyticsEngine().
-  // Dashboard uses no date-range or goal filters — pass permissive defaults.
+  // dateRange is now live state — reacts to the Period filter in the controls bar.
+  // selectedPlatform is applied as a post-filter on sortedVideos below (engine
+  // is platform-agnostic; no platform field exists in AnalyticsEngineInput).
   // ─────────────────────────────────────────────────────────────────────────────
   const engineInput = useMemo((): AnalyticsEngineInput => ({
     videos:              videos as any,
@@ -299,20 +362,29 @@ export default function DashboardTest() {
     rawEvents,
     stripePurchases,
     pixelPurchases,
-    // Dashboard has no date/goal/campaign filters — use permissive defaults
-    dateRange:           'all',
+    dateRange,
     selectedCampaignId:  'all',
     selectedGoals:       [],
     selectedLeadMagnets: [],
     activeSource:        revenueView,
     includeEV:           true,
     sortConfig:          { key: 'total_revenue', direction: 'desc' },
-  }), [videos, campaigns, rawEvents, stripePurchases, pixelPurchases, revenueView]);
+  }), [videos, campaigns, rawEvents, stripePurchases, pixelPurchases, revenueView, dateRange]);
 
   // 🟢 ENGINE-DRIVEN: sortedVideos and campaignTotals come entirely from the engine.
   const { sortedVideos, campaignTotals } = useMemo(
     () => getAnalyticsEngine(engineInput),
     [engineInput],
+  );
+
+  // Platform post-filter — applied after engine sort, before the 7-row slice.
+  // Engine sorts by total_revenue desc, so the top 7 within the selected
+  // platform are always the correct top performers for that platform.
+  const filteredVideos = useMemo(
+    () => selectedPlatform === 'all'
+      ? sortedVideos
+      : sortedVideos.filter(r => r.video.platform === selectedPlatform),
+    [sortedVideos, selectedPlatform],
   );
 
 
@@ -330,7 +402,6 @@ export default function DashboardTest() {
     : 'Total (Hybrid)';
 
   // Direct Purchases: total purchase_thankyou count across all videos (from engine).
-  // This replaces the legacy "Revenue Per Click" card.
   const totalDirectPurchases = campaignTotals.purchase_thankyou;
 
   // Opt-ins and call bookings from engine aggregates.
@@ -338,72 +409,12 @@ export default function DashboardTest() {
   const totalCallBooks = campaignTotals.call_booking_thankyou;
 
 
-  // ── Simulate Traffic ────────────────────────────────────────────────────────
-  // 🟡 LEGACY FALLBACK: simulation logic unchanged from Dashboard.tsx.
-  const simulateTraffic = async () => {
-    if (videos.length === 0) {
-      return showAlert('No Content', 'Please add at least one video before simulating traffic.', 'info');
-    }
-    const randomVideo = videos[Math.floor(Math.random() * videos.length)];
-
-    setLoading(true);
-    try {
-      const { data: sData, error: sErr } = await supabase.from('sessions').insert({
-        video_id:     randomVideo.id,
-        campaign_id:  randomVideo.campaign_id,
-        utm_source:   randomVideo.platform ?? 'unknown',
-        utm_medium:   'video',
-        utm_campaign: 'simulation',
-        utm_content:  randomVideo.platform_url ?? randomVideo.youtube_video_id ?? null,
-      }).select('id').single();
-
-      if (sErr) {
-        console.error('[DashboardTest] Supabase Session Insert Error:', sErr);
-        throw new Error(`[Supabase Session Error] ${sErr.message}`);
-      }
-
-      const realSessionId = sData.id;
-
-      await supabase.from('events').insert({ session_id: realSessionId, event_type: 'page_view' });
-
-      if (Math.random() > 0.3) {
-        await supabase.from('events').insert({ session_id: realSessionId, event_type: 'newsletter_click' });
-        if (Math.random() > 0.5) {
-          await supabase.from('leads').insert({
-            session_id:  realSessionId,
-            email:       `sim_${realSessionId.substring(0, 8)}@example.com`,
-            utm_content: randomVideo.platform_url ?? randomVideo.youtube_video_id ?? null,
-          });
-          await supabase.from('events').insert({ session_id: realSessionId, event_type: 'newsletter_optin' });
-        }
-      }
-
-      if (Math.random() > 0.8) {
-        const campaign = campaigns.find(c => c.id === randomVideo.campaign_id);
-        await supabase.from('events').insert({
-          session_id: realSessionId,
-          event_type: 'purchase',
-          value:      (campaign as any)?.offer_price || 99,
-        });
-      }
-
-      await fetchData();
-      showAlert('Simulation Complete', 'Mock traffic has been injected into your analytics system.', 'success');
-    } catch (err: any) {
-      console.error('[DashboardTest] Simulation Error:', err);
-      showAlert('Simulation Failed', `An error occurred: ${err.message}`, 'danger');
-    } finally {
-      setLoading(false);
-    }
-  };
-
-
   // ── Status icon helper ──────────────────────────────────────────────────────
   const getStatusIcon = (status: string) => {
     switch (status) {
-      case 'active':  return <CheckCircle2 size={12} className="text-green-500" />;
-      case 'error':   return <AlertCircle  size={12} className="text-red-500" />;
-      default:        return <Activity     size={12} className="text-zinc-500" />;
+      case 'active':  return <CheckCircle2 size={10} className="text-green-500" />;
+      case 'error':   return <AlertCircle  size={10} className="text-red-500" />;
+      default:        return <Activity     size={10} className="text-zinc-600" />;
     }
   };
 
@@ -412,10 +423,10 @@ export default function DashboardTest() {
   // Render
   // ─────────────────────────────────────────────────────────────────────────────
   return (
-    <div className="max-w-[1200px] mx-auto px-6 space-y-8">
+    <div className="max-w-[1200px] mx-auto px-6 space-y-6">
 
-      {/* Header */}
-      <header className="flex justify-between items-end">
+      {/* ── Header ─────────────────────────────────────────────────────────── */}
+      <header className="flex justify-between items-end pt-2">
         <div>
           <h1 className="text-3xl font-bold text-white flex items-center gap-3">
             <div className="w-2.5 h-2.5 bg-red-600 rounded-sm shadow-[0_0_15px_rgba(220,38,38,0.5)]" />
@@ -434,22 +445,18 @@ export default function DashboardTest() {
       </header>
 
 
-      {/* Metric Cards */}
-      {/* 🟢 ENGINE-DRIVEN: all values from campaignTotals / engine output         */}
-      {/* Revenue Per Click removed; Direct Purchase added.                        */}
-      {/* Revenue source toggle order: TOTAL → PIXEL → STRIPE (default: TOTAL)    */}
-      <section className="grid grid-cols-2 md:grid-cols-4 gap-4">
+      {/* ── Controls bar ───────────────────────────────────────────────────── */}
+      {/* Revenue source + Period + Platform — unified filter strip            */}
+      <div className="flex flex-wrap items-center gap-3">
 
-        {/* Revenue Source Toggle — TOTAL → PIXEL → STRIPE */}
-        <div className="col-span-2 md:col-span-4 flex items-center gap-1 p-1 bg-zinc-900 border border-zinc-800 rounded-xl w-fit mb-0">
+        {/* Revenue source toggle */}
+        <div className="flex items-center gap-1 p-1 bg-zinc-900 border border-zinc-800 rounded-xl">
           {(['total', 'pixel', 'stripe'] as RevenueView[]).map(v => (
             <button
               key={v}
               onClick={() => setRevenueView(v)}
               className={`px-3 py-1.5 rounded-lg text-[9px] font-black uppercase tracking-widest transition-all ${
-                revenueView === v
-                  ? 'bg-zinc-700 text-white'
-                  : 'text-zinc-600 hover:text-zinc-400'
+                revenueView === v ? 'bg-zinc-700 text-white' : 'text-zinc-600 hover:text-zinc-400'
               }`}
             >
               {v === 'total' ? 'Total' : v === 'pixel' ? 'Pixel' : 'Stripe'}
@@ -457,7 +464,55 @@ export default function DashboardTest() {
           ))}
         </div>
 
-        {/* Metric Card: Revenue */}
+        {/* Divider */}
+        <div className="w-px h-5 bg-zinc-800" />
+
+        {/* Period picker */}
+        <div className="flex items-center gap-2">
+          <span className="text-[9px] font-black uppercase tracking-widest text-zinc-600">Period</span>
+          <div className="flex items-center gap-1 p-1 bg-zinc-900 border border-zinc-800 rounded-xl">
+            {DATE_RANGE_OPTIONS.map(opt => (
+              <button
+                key={opt.value}
+                onClick={() => setDateRange(opt.value)}
+                className={`px-3 py-1.5 rounded-lg text-[9px] font-black uppercase tracking-widest transition-all ${
+                  dateRange === opt.value ? 'bg-zinc-700 text-white' : 'text-zinc-600 hover:text-zinc-400'
+                }`}
+              >
+                {opt.label}
+              </button>
+            ))}
+          </div>
+        </div>
+
+        {/* Divider */}
+        <div className="w-px h-5 bg-zinc-800" />
+
+        {/* Platform filter */}
+        <div className="flex items-center gap-2 flex-wrap">
+          <span className="text-[9px] font-black uppercase tracking-widest text-zinc-600">Platform</span>
+          <div className="flex flex-wrap gap-1">
+            {PLATFORM_FILTERS.map(p => (
+              <button
+                key={p.value}
+                onClick={() => setSelectedPlatform(p.value)}
+                className={`px-2.5 py-1 rounded-md text-[8px] font-black uppercase tracking-widest border transition-all ${
+                  selectedPlatform === p.value
+                    ? 'bg-zinc-700 border-zinc-600 text-white'
+                    : 'bg-zinc-900 border-zinc-800 text-zinc-600 hover:text-zinc-400 hover:border-zinc-700'
+                }`}
+              >
+                {p.label}
+              </button>
+            ))}
+          </div>
+        </div>
+      </div>
+
+
+      {/* ── Metric Cards ───────────────────────────────────────────────────── */}
+      {/* 🟢 ENGINE-DRIVEN: all values from campaignTotals / engine output     */}
+      <section className="grid grid-cols-2 md:grid-cols-4 gap-4">
         {[
           {
             label:    'Total Revenue',
@@ -467,7 +522,6 @@ export default function DashboardTest() {
             color:    'text-green-500',
           },
           {
-            // ✅ NEW METRIC: Direct Purchase (replaces Revenue Per Click)
             label:    'Direct Purchase',
             value:    totalDirectPurchases,
             sublabel: undefined,
@@ -510,172 +564,174 @@ export default function DashboardTest() {
       </section>
 
 
-      <div className="grid grid-cols-1 lg:grid-cols-12 gap-8">
+      {/* ── Top Performing Content — full-width leaderboard ────────────────── */}
+      {/* 🟢 ENGINE-DRIVEN: filteredVideos from engine → platform post-filter  */}
+      <section className="bento-card p-0 overflow-hidden">
+        <div className="px-6 py-4 border-b border-zinc-900 bg-zinc-900/10 flex justify-between items-center">
+          <h2 className="label-caps !text-white">Top Performing Content</h2>
+          <span className="text-[9px] font-black uppercase tracking-widest text-zinc-600">
+            Sorted by Revenue
+          </span>
+        </div>
 
-        {/* Ranked Content List */}
-        {/* 🟢 ENGINE-DRIVEN: sortedVideos from engine, revenue from selectDisplayRevenue */}
-        <section className="lg:col-span-9 bento-card p-0 overflow-hidden">
-          <div className="p-4 border-b border-zinc-900 bg-zinc-900/10 flex justify-between items-center">
-            <h2 className="label-caps !text-white">Top Performing Content</h2>
-            <div className="flex gap-2">
-              <span className="text-[10px] font-bold uppercase text-zinc-600">Metric:</span>
-              <span className="text-[10px] font-bold uppercase text-red-500 underline decoration-red-900 underline-offset-4 cursor-pointer">Revenue</span>
-            </div>
-          </div>
-
-          <div className="overflow-x-auto">
-            <table className="w-full text-left">
-              <thead className="bg-zinc-950/50 border-b border-zinc-900">
-                <tr className="text-[9px] font-black uppercase tracking-widest text-zinc-500">
-                  <th className="px-6 py-4">Video</th>
-                  <th className="px-6 py-4">Goal</th>
-                  <th className="px-6 py-4 text-center">Clicks</th>
-                  <th className="px-6 py-4 text-center">Opt-ins</th>
-                  <th className="px-6 py-4 text-center">Calls</th>
-                  <th className="px-6 py-4 text-right">Revenue</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-zinc-900/50">
-                {loading ? (
-                  Array.from({ length: 7 }).map((_, i) => (
-                    <tr key={i} className="animate-pulse">
-                      <td colSpan={6} className="px-6 py-8">
-                        <div className="h-4 bg-zinc-900 rounded w-full" />
-                      </td>
-                    </tr>
-                  ))
-                ) : sortedVideos.length === 0 ? (
-                  <tr>
-                    <td colSpan={6} className="px-6 py-20 text-center">
-                      <p className="text-[10px] font-bold uppercase text-zinc-600">
-                        Secure campaign data to see rankings
-                      </p>
+        <div className="overflow-x-auto">
+          <table className="w-full text-left">
+            <thead className="bg-zinc-950/50 border-b border-zinc-900">
+              <tr className="text-[9px] font-black uppercase tracking-widest text-zinc-500">
+                <th className="pl-4 pr-2 py-3 w-6">#</th>
+                <th className="px-4 py-3">Content</th>
+                <th className="px-4 py-3">Goal</th>
+                <th className="px-4 py-3 text-center">Clicks</th>
+                <th className="px-4 py-3 text-center">Opt-ins</th>
+                <th className="px-4 py-3 text-center">Calls</th>
+                <th className="px-4 py-3 text-right">Revenue ↓</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-zinc-900/50">
+              {loading ? (
+                Array.from({ length: 7 }).map((_, i) => (
+                  <tr key={i} className="animate-pulse">
+                    <td colSpan={7} className="px-6 py-6">
+                      <div className="h-4 bg-zinc-900 rounded w-full" />
                     </td>
                   </tr>
-                ) : (
-                  sortedVideos.slice(0, 7).map((row) => {
-                    // 🟢 ENGINE-DRIVEN: revenue per row from engine metrics
-                    const rowRevenue = selectDisplayRevenue(row, revenueView);
-                    const videoGoals = Array.isArray(row.video.video_goal)
-                      ? row.video.video_goal.join(', ')
-                      : (row.video.video_goal ?? '');
+                ))
+              ) : filteredVideos.length === 0 ? (
+                <tr>
+                  <td colSpan={7} className="px-6 py-20 text-center">
+                    <p className="text-[10px] font-bold uppercase text-zinc-600">
+                      No content matches the current filters
+                    </p>
+                  </td>
+                </tr>
+              ) : (
+                filteredVideos.slice(0, 7).map((row, idx) => {
+                  // 🟢 ENGINE-DRIVEN: revenue per row from engine metrics
+                  const rowRevenue = selectDisplayRevenue(row, revenueView);
+                  const videoGoals = Array.isArray(row.video.video_goal)
+                    ? row.video.video_goal.join(', ')
+                    : (row.video.video_goal ?? '');
+                  const rank       = idx + 1;
+                  const addedDate  = formatAddedDate(row.video.created_at);
 
-                    return (
-                      <tr
-                        key={row.video.id}
-                        className="hover:bg-white/[0.01] transition-colors group cursor-pointer"
-                        onClick={() => navigate(`/videos/${row.video.id}`)}
-                      >
-                        <td className="px-6 py-4">
-                          <div className="flex items-center gap-4">
-                            {/* Thumbnail with platform badge overlay */}
-                            <div className="relative flex-shrink-0">
-                              <img
-                                src={resolveThumbnail(row.video)}
-                                className="w-16 aspect-video rounded-lg object-cover border border-zinc-900 grayscale group-hover:grayscale-0 transition-all"
-                              />
-                              {row.video.platform && (
-                                <span className="absolute -top-1 -right-1 text-[7px] font-black uppercase tracking-wide px-1 py-0.5 rounded bg-zinc-800 border border-zinc-700 text-zinc-400 leading-none">
-                                  {PLATFORM_CONFIG[row.video.platform]?.label ?? row.video.platform.toUpperCase()}
-                                </span>
-                              )}
-                            </div>
-                            <div className="min-w-0 max-w-[180px]">
-                              <p className="text-[11px] font-bold text-zinc-300 truncate leading-tight mb-1">
-                                {resolveDisplayTitle(row.video.platform, row.title, row.video.platform_url)}
-                              </p>
-                              <div className="flex items-center gap-1.5">
-                                {getStatusIcon(row.video.status ?? '')}
-                                <span className="text-[9px] font-black uppercase text-zinc-600 tracking-tighter">
-                                  {(row.video.status ?? '').replace('_', ' ')}
-                                </span>
-                              </div>
-                            </div>
+                  return (
+                    <tr
+                      key={row.video.id}
+                      className="hover:bg-white/[0.015] transition-colors group cursor-pointer"
+                      onClick={() => navigate(`/videos/${row.video.id}`)}
+                    >
+
+                      {/* Rank */}
+                      <td className="pl-5 pr-2 py-4">
+                        <span className={`text-[10px] font-black tabular-nums ${rankColor(rank)}`}>
+                          #{rank}
+                        </span>
+                      </td>
+
+                      {/* Thumbnail + title */}
+                      <td className="px-4 py-3">
+                        <div className="flex items-center gap-3">
+                          {/* Thumbnail with platform badge */}
+                          <div className="relative flex-shrink-0">
+                            <img
+                              src={resolveThumbnail(row.video)}
+                              className="w-20 aspect-video rounded-lg object-cover border border-zinc-800 grayscale group-hover:grayscale-0 transition-all duration-300"
+                            />
+                            {row.video.platform && (
+                              <span className="absolute -top-1 -right-1 text-[6px] font-black uppercase tracking-wide px-1 py-0.5 rounded bg-zinc-900 border border-zinc-700 text-zinc-400 leading-none">
+                                {PLATFORM_CONFIG[row.video.platform]?.label ?? row.video.platform.toUpperCase()}
+                              </span>
+                            )}
                           </div>
-                        </td>
-                        <td className="px-6 py-4">
-                          <span className="text-[9px] font-black uppercase tracking-widest px-2 py-1 bg-zinc-900 text-zinc-500 rounded border border-zinc-800">
+
+                          {/* Title + status + added date */}
+                          <div className="min-w-0 max-w-[200px]">
+                            <p className="text-[11px] font-bold text-zinc-200 truncate leading-snug mb-1">
+                              {resolveDisplayTitle(row.video.platform, row.title, row.video.platform_url)}
+                            </p>
+                            <div className="flex items-center gap-1.5 mb-0.5">
+                              {getStatusIcon(row.video.status ?? '')}
+                              <span className="text-[8px] font-black uppercase text-zinc-600 tracking-tighter">
+                                {(row.video.status ?? '').replace('_', ' ')}
+                              </span>
+                            </div>
+                            {addedDate && (
+                              <p className="text-[8px] font-bold text-zinc-700 tracking-tight">
+                                Added: {addedDate}
+                              </p>
+                            )}
+                          </div>
+                        </div>
+                      </td>
+
+                      {/* Goal */}
+                      <td className="px-4 py-3">
+                        {videoGoals ? (
+                          <span className="text-[8px] font-black uppercase tracking-widest px-2 py-1 bg-zinc-900 text-zinc-500 rounded border border-zinc-800 whitespace-nowrap">
                             {videoGoals}
                           </span>
-                        </td>
-                        <td className="px-6 py-4 text-center text-xs font-bold text-zinc-400">
+                        ) : null}
+                      </td>
+
+                      {/* Clicks */}
+                      <td className="px-4 py-3 text-center">
+                        <span className="text-[11px] font-bold text-zinc-500 tabular-nums">
                           {row.landing_page_view.toLocaleString()}
-                        </td>
-                        <td className="px-6 py-4 text-center text-xs font-bold text-orange-500">
-                          {row.newsletter_thankyou}
-                        </td>
-                        <td className="px-6 py-4 text-center text-xs font-bold text-blue-500">
-                          {row.call_booking_thankyou}
-                        </td>
-                        <td className="px-6 py-4 text-right">
-                          <div className="text-xs font-black text-white">
-                            ${rowRevenue.toLocaleString()}
-                          </div>
-                          <div className="text-[9px] font-bold text-zinc-600 uppercase tracking-tighter">
-                            {row.revenue_mode_label}
-                          </div>
-                          {/* Direct Purchases per row (replaces per-row RPC) */}
-                          <div className="text-[9px] font-bold text-green-500/50 uppercase tracking-tighter">
-                            {row.purchase_thankyou} Direct
-                          </div>
-                        </td>
-                      </tr>
-                    );
-                  })
-                )}
-              </tbody>
-            </table>
-          </div>
-        </section>
+                        </span>
+                      </td>
+
+                      {/* Opt-ins */}
+                      <td className="px-4 py-3 text-center">
+                        <span className="text-[11px] font-bold text-orange-500 tabular-nums">
+                          {row.newsletter_thankyou.toLocaleString()}
+                        </span>
+                      </td>
+
+                      {/* Calls */}
+                      <td className="px-4 py-3 text-center">
+                        <span className="text-[11px] font-bold text-blue-500 tabular-nums">
+                          {row.call_booking_thankyou.toLocaleString()}
+                        </span>
+                      </td>
+
+                      {/* Revenue — primary metric, visually dominant */}
+                      <td className="px-4 py-3 text-right">
+                        <div className="text-sm font-black text-white tabular-nums">
+                          ${rowRevenue.toLocaleString()}
+                        </div>
+                        <div className="text-[8px] font-bold text-zinc-700 uppercase tracking-tighter mt-0.5">
+                          {row.revenue_mode_label}
+                        </div>
+                        <div className="text-[8px] font-bold text-green-500/40 uppercase tracking-tighter">
+                          {row.purchase_thankyou} Direct
+                        </div>
+                      </td>
+                    </tr>
+                  );
+                })
+              )}
+            </tbody>
+          </table>
+        </div>
+      </section>
 
 
-        {/* Tracking Health Sidebar */}
-        <section className="lg:col-span-3 space-y-6">
-          <div className="bento-card border-red-600/20 bg-red-600/5">
-            <h3 className="label-caps !text-red-500 mb-4">Tracking Health</h3>
-            <div className="space-y-4">
-              {[
-                { label: 'Active Links', value: videos.length,  icon: VideoIcon,    color: 'text-green-500' },
-                { label: 'Broken Flows', value: 0,              icon: AlertCircle,  color: 'text-zinc-600'  },
-                { label: 'Last Sync',    value: '2m ago',       icon: Activity,     color: 'text-red-500'   },
-              ].map(h => (
-                <div key={h.label} className="flex justify-between items-center text-[10px] font-bold uppercase">
-                  <div className="flex items-center gap-2 text-zinc-500">
-                    <h.icon size={12} className={h.color} /> {h.label}
-                  </div>
-                  <span className="text-white">{h.value}</span>
-                </div>
-              ))}
-            </div>
-            <div className="mt-6 pt-4 border-t border-red-600/10">
-              <button
-                onClick={simulateTraffic}
-                disabled={loading}
-                className="w-full h-8 text-[9px] font-black uppercase tracking-[0.2em] bg-red-600 text-white rounded-lg disabled:opacity-50"
-              >
-                {loading ? 'Simulating...' : 'Simulate Traffic'}
-              </button>
-            </div>
-          </div>
-
-          <div className="bento-card border-blue-500/10">
-            <p className="label-caps mb-4">Quick Actions</p>
-            <div className="space-y-2">
-              <Link
-                to="/videos"
-                className="w-full block py-3 px-4 bg-zinc-900 border border-zinc-800 rounded-xl text-[10px] font-black uppercase text-zinc-400 hover:text-white hover:border-zinc-700 transition-all"
-              >
-                Track New Video
-              </Link>
-              <Link
-                to="/campaigns"
-                className="w-full block py-3 px-4 bg-zinc-900 border border-zinc-800 rounded-xl text-[10px] font-black uppercase text-zinc-400 hover:text-white hover:border-zinc-700 transition-all"
-              >
-                View All Funnels
-              </Link>
-            </div>
-          </div>
-        </section>
+      {/* ── Quick Actions — slim inline strip ──────────────────────────────── */}
+      <div className="grid grid-cols-2 gap-3 pb-4">
+        <Link
+          to="/videos"
+          className="flex items-center justify-between px-5 py-3 bg-zinc-900 border border-zinc-800 rounded-xl text-[10px] font-black uppercase tracking-widest text-zinc-500 hover:text-white hover:border-zinc-700 transition-all group"
+        >
+          Track New Video
+          <ArrowRight size={13} className="text-zinc-700 group-hover:text-zinc-400 transition-colors" />
+        </Link>
+        <Link
+          to="/campaigns"
+          className="flex items-center justify-between px-5 py-3 bg-zinc-900 border border-zinc-800 rounded-xl text-[10px] font-black uppercase tracking-widest text-zinc-500 hover:text-white hover:border-zinc-700 transition-all group"
+        >
+          View All Funnels
+          <ArrowRight size={13} className="text-zinc-700 group-hover:text-zinc-400 transition-colors" />
+        </Link>
       </div>
 
 
