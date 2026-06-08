@@ -1,35 +1,30 @@
 // ─────────────────────────────────────────────────────────────────────────────
-// DashboardTest.tsx
+// Dashboard.tsx  (refactored)
 //
-// ENGINE-POWERED MIRROR of Dashboard.tsx.
-// Route: /dashboard-test
+// ARCHITECTURE
+// ════════════
+// Layer 1 — Raw data          : Supabase fetch, unchanged rows
+// Layer 2 — Campaign capability: deriveCampaignCapabilities / mergeCampaignCapabilities
+//                               Strictly from URL presence on selected campaign(s)
+// Layer 3 — Column engine      : buildColumnDefs(caps) → ColumnDef[]
+//                               Single source of truth. No column logic in JSX.
 //
-// CHANGES vs previous version
-// ════════════════════════════
-//   1. Content identity rendering now uses renderContentIdentity() from
-//      ../lib/videoFormatters — same source of truth as Videos.tsx.
-//   2. Thumbnail fallback uses resolveThumbnail() from videoFormatters —
-//      correct paths (/platform-thumbnails/), no more broken images.
-//   3. Thumbnails: full color by default, w-28 (112px), hover scale+glow.
-//   4. Goal column removed entirely.
-//   5. Sort By control added to controls bar — wired to engineInput.sortConfig.
-//   6. colSpan updated 7→6 throughout (Goal column removal).
-//   7. Removed local resolveXTitle/resolveThreadsTitle/resolveRedditTitle/
-//      resolveDisplayTitle — no duplicate parser logic remains.
-//
-// MIGRATION STATUS LEGEND
-// ═══════════════════════
-// 🟢 ENGINE-DRIVEN    — value comes directly from getAnalyticsEngine() output
-// 🟡 LEGACY FALLBACK  — still computed manually; engine does not yet expose this
-//
+// RULES ENFORCED
+// ══════════════
+// • "NO DATA" is completely eliminated — no string, no fallback label
+// • Null/missing values render as empty cell ("—") only at the renderer level
+// • Capability flags live on campaign(s), NEVER on rows
+// • Clicks shown ONLY when no funnel URLs exist (hard-enforced in columnEngine)
+// • Revenue column: always last, always visible, green + bold
+// • Campaign selector drives capability recalculation and column recomputation
+// • Sort label reflects both active metric AND selected campaign context
 // ─────────────────────────────────────────────────────────────────────────────
 
-import { useOrganization } from '../lib/useOrganization'
+import { useOrganization } from '../lib/useOrganization';
 import React, { useState, useEffect, useMemo } from 'react';
 import { supabase, Video, Campaign } from '../lib/supabase';
 import { useAuth } from '../lib/auth';
 
-// 🟢 ENGINE-DRIVEN — all computation comes from analyticsEngine.ts
 import {
   getAnalyticsEngine,
   buildStripeFromPurchaseTypeTable,
@@ -48,14 +43,23 @@ import {
   type MetricType,
 } from '../lib/analyticsEngine';
 
+// ── Column engine (Layer 2 + 3) ───────────────────────────────────────────────
+import {
+  deriveCampaignCapabilities,
+  mergeCampaignCapabilities,
+  buildColumnDefs,
+  buildSortLabel,
+  type CampaignCapabilitySource,
+  type ColumnDef,
+} from '../lib/columnEngine';
+
 import {
   Target, Users, DollarSign,
   Activity, AlertCircle, CheckCircle2, ArrowRight,
-  ShoppingCart,
+  ShoppingCart, ChevronDown,
 } from 'lucide-react';
 import { PLATFORM_CONFIG } from '../lib/platformParser';
 
-// Shared formatting — same source of truth as Videos.tsx
 import {
   resolveThumbnail,
   renderContentIdentity,
@@ -65,11 +69,45 @@ import { motion } from 'motion/react';
 import { useNavigate, Link } from 'react-router-dom';
 import { Modal } from '../components/Modal';
 
+// ─────────────────────────────────────────────────────────────────────────────
+// Constants
+// ─────────────────────────────────────────────────────────────────────────────
+
+const PLATFORM_FILTERS = [
+  { value: 'all',       label: 'All'  },
+  { value: 'youtube',   label: 'YT'   },
+  { value: 'tiktok',    label: 'TT'   },
+  { value: 'instagram', label: 'IG'   },
+  { value: 'linkedin',  label: 'LI'   },
+  { value: 'x',         label: 'X'    },
+  { value: 'threads',   label: 'TH'   },
+  { value: 'facebook',  label: 'FB'   },
+  { value: 'reddit',    label: 'RD'   },
+  { value: 'twitch',    label: 'TW'   },
+] as const;
+
+type PlatformFilter = typeof PLATFORM_FILTERS[number]['value'];
+
+const DATE_RANGE_OPTIONS: { value: DateRange; label: string }[] = [
+  { value: 'all',   label: 'All time'   },
+  { value: '7d',    label: '7 days'     },
+  { value: '30d',   label: '30 days'    },
+  { value: 'month', label: 'This month' },
+];
+
+// Sort options — only metrics that make sense globally
+const SORT_OPTIONS: { value: MetricType; label: string }[] = [
+  { value: 'total_revenue',         label: 'Revenue'        },
+  { value: 'consultation_thankyou', label: 'Consultations'  },
+  { value: 'purchase_thankyou',     label: 'Purchases'      },
+  { value: 'call_booking_thankyou', label: 'Calls'          },
+  { value: 'landing_page_view',     label: 'Clicks'         },
+];
 
 // ─────────────────────────────────────────────────────────────────────────────
-// 🟡 LEGACY FALLBACK: buildSessionLookup
-// Not yet in the engine (async Supabase op). Verbatim from InDepthAnalyticsTest.
+// Helpers
 // ─────────────────────────────────────────────────────────────────────────────
+
 async function buildSessionLookup(
   rows: any[],
 ): Promise<Record<string, { video_id: string; campaign_id: string }>> {
@@ -88,10 +126,6 @@ async function buildSessionLookup(
   return lookup;
 }
 
-
-// ─────────────────────────────────────────────────────────────────────────────
-// Date formatting helper for "Added:" display
-// ─────────────────────────────────────────────────────────────────────────────
 function formatAddedDate(createdAt: string | null | undefined): string {
   if (!createdAt) return '';
   const d = new Date(createdAt);
@@ -99,51 +133,6 @@ function formatAddedDate(createdAt: string | null | undefined): string {
   return `${d.getMonth() + 1}/${d.getDate()}/${d.getFullYear()}`;
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
-// Platform filter config — all 9 supported platforms
-// ─────────────────────────────────────────────────────────────────────────────
-const PLATFORM_FILTERS = [
-  { value: 'all',       label: 'All'  },
-  { value: 'youtube',   label: 'YT'   },
-  { value: 'tiktok',    label: 'TT'   },
-  { value: 'instagram', label: 'IG'   },
-  { value: 'linkedin',  label: 'LI'   },
-  { value: 'x',         label: 'X'    },
-  { value: 'threads',   label: 'TH'   },
-  { value: 'facebook',  label: 'FB'   },
-  { value: 'reddit',    label: 'RD'   },
-  { value: 'twitch',    label: 'TW'   },
-] as const;
-
-type PlatformFilter = typeof PLATFORM_FILTERS[number]['value'];
-
-// ─────────────────────────────────────────────────────────────────────────────
-// Date range options
-// ─────────────────────────────────────────────────────────────────────────────
-const DATE_RANGE_OPTIONS: { value: DateRange; label: string }[] = [
-  { value: 'all',   label: 'All time'   },
-  { value: '7d',    label: '7 days'     },
-  { value: '30d',   label: '30 days'    },
-  { value: 'month', label: 'This month' },
-];
-
-// ─────────────────────────────────────────────────────────────────────────────
-// Sort options — all keys are real fields on VideoMetricsResult / ProcessedVideoRow.
-// The engine's sortConfig.key accepts any MetricType string.
-// No analyticsEngine changes required.
-// ─────────────────────────────────────────────────────────────────────────────
-const SORT_OPTIONS: { value: MetricType; label: string }[] = [
-  { value: 'total_revenue',        label: 'Revenue'           },
-  { value: 'landing_page_view',    label: 'Clicks'            },
-  { value: 'newsletter_thankyou',  label: 'Newsletter Opt-ins' },
-  { value: 'call_booking_thankyou',label: 'Sales Calls'       },
-  { value: 'consultation_thankyou',label: 'Consultations'     },
-  { value: 'purchase_thankyou',    label: 'Purchases'         },
-];
-
-// ─────────────────────────────────────────────────────────────────────────────
-// Rank color helper
-// ─────────────────────────────────────────────────────────────────────────────
 function rankColor(rank: number): string {
   if (rank === 1) return 'text-amber-400';
   if (rank === 2) return 'text-zinc-400';
@@ -151,32 +140,150 @@ function rankColor(rank: number): string {
   return 'text-zinc-700';
 }
 
+function getStatusIcon(status: string) {
+  switch (status) {
+    case 'active':  return <CheckCircle2 size={10} className="text-green-500" />;
+    case 'error':   return <AlertCircle  size={10} className="text-red-500" />;
+    default:        return <Activity     size={10} className="text-zinc-600" />;
+  }
+}
+
+// ── Safe metric accessor ──────────────────────────────────────────────────────
+// UI-level null guard. Never propagates "NO DATA". Returns 0 for missing values.
+function getMetricValue(row: any, metricKey: MetricType | undefined): number {
+  if (!metricKey) return 0;
+  const val = row[metricKey];
+  return typeof val === 'number' ? val : 0;
+}
+
+// ── Cell renderer per column role ─────────────────────────────────────────────
+// All null/undefined handled HERE — nowhere else.
+function renderDynamicCell(col: ColumnDef, row: any, revenueView: RevenueView) {
+  if (col.role === 'revenue') {
+    const rev = selectDisplayRevenue(row, revenueView);
+    return (
+      <td key={col.key} className="px-5 py-3 text-right sticky right-0 bg-zinc-950">
+        <div className="text-sm font-black text-emerald-400 tabular-nums">
+          ${(rev ?? 0).toLocaleString()}
+        </div>
+        {row.revenue_mode_label && (
+          <div className="text-[8px] font-bold text-zinc-600 uppercase tracking-tighter mt-0.5">
+            {row.revenue_mode_label}
+          </div>
+        )}
+      </td>
+    );
+  }
+
+  const value = getMetricValue(row, col.metricKey);
+
+  // Color per metric
+  const color =
+    col.key === 'consultations' ? 'text-violet-400' :
+    col.key === 'purchases'     ? 'text-emerald-400' :
+    col.key === 'calls'         ? 'text-blue-400' :
+    col.key === 'clicks'        ? 'text-zinc-400' :
+    'text-zinc-400';
+
+  return (
+    <td key={col.key} className="px-4 py-3 text-center">
+      <span className={`text-[11px] font-bold tabular-nums ${color}`}>
+        {value > 0 ? value.toLocaleString() : <span className="text-zinc-700">—</span>}
+      </span>
+    </td>
+  );
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Campaign Selector Component
+// ─────────────────────────────────────────────────────────────────────────────
+
+interface CampaignSelectorProps {
+  campaigns:          Campaign[];
+  selectedCampaignId: string;
+  onChange:           (id: string) => void;
+}
+
+function CampaignSelector({ campaigns, selectedCampaignId, onChange }: CampaignSelectorProps) {
+  const [open, setOpen] = useState(false);
+
+  const selectedLabel = selectedCampaignId === 'all'
+    ? 'All Campaigns'
+    : campaigns.find(c => c.id === selectedCampaignId)?.campaign_name ?? 'Campaign';
+
+  return (
+    <div className="relative">
+      <button
+        onClick={() => setOpen(v => !v)}
+        className="flex items-center gap-2 px-3 py-1.5 bg-zinc-900 border border-zinc-800 rounded-xl text-[9px] font-black uppercase tracking-widest text-zinc-300 hover:border-zinc-700 transition-all"
+      >
+        <span className="text-zinc-600">Campaign</span>
+        <span className="max-w-[140px] truncate">{selectedLabel}</span>
+        <ChevronDown size={10} className={`text-zinc-600 transition-transform ${open ? 'rotate-180' : ''}`} />
+      </button>
+
+      {open && (
+        <div className="absolute top-full mt-1 left-0 z-50 min-w-[220px] bg-zinc-900 border border-zinc-800 rounded-xl overflow-hidden shadow-2xl">
+          {/* All Campaigns option */}
+          <button
+            onClick={() => { onChange('all'); setOpen(false); }}
+            className={`w-full text-left px-4 py-2.5 text-[9px] font-black uppercase tracking-widest transition-colors ${
+              selectedCampaignId === 'all'
+                ? 'bg-zinc-800 text-white'
+                : 'text-zinc-500 hover:bg-zinc-800 hover:text-zinc-300'
+            }`}
+          >
+            All Campaigns
+          </button>
+
+          {/* Divider */}
+          {campaigns.length > 0 && (
+            <div className="border-t border-zinc-800" />
+          )}
+
+          {/* Individual campaigns */}
+          {campaigns.map(c => (
+            <button
+              key={c.id}
+              onClick={() => { onChange(c.id); setOpen(false); }}
+              className={`w-full text-left px-4 py-2.5 text-[9px] font-black uppercase tracking-widest truncate transition-colors ${
+                selectedCampaignId === c.id
+                  ? 'bg-zinc-800 text-white'
+                  : 'text-zinc-500 hover:bg-zinc-800 hover:text-zinc-300'
+              }`}
+            >
+              {c.campaign_name ?? c.id}
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Component
 // ─────────────────────────────────────────────────────────────────────────────
 
-export default function DashboardTest() {
-  const { user } = useAuth();
+export default function Dashboard() {
+  const { user }           = useAuth();
   const { organizationId } = useOrganization();
-  const navigate = useNavigate();
+  const navigate           = useNavigate();
 
   // ── Raw data state ──────────────────────────────────────────────────────────
-  const [loading, setLoading]                   = useState(true);
-  const [videos, setVideos]                     = useState<Video[]>([]);
-  const [campaigns, setCampaigns]               = useState<Campaign[]>([]);
-  const [rawEvents, setRawEvents]               = useState<RawEvent[]>([]);
-  const [stripePurchases, setStripePurchases]   = useState<StripePurchaseRow[]>([]);
-  const [pixelPurchases, setPixelPurchases]     = useState<PixelPurchaseRow[]>([]);
+  const [loading, setLoading]                 = useState(true);
+  const [videos, setVideos]                   = useState<Video[]>([]);
+  const [campaigns, setCampaigns]             = useState<Campaign[]>([]);
+  const [rawEvents, setRawEvents]             = useState<RawEvent[]>([]);
+  const [stripePurchases, setStripePurchases] = useState<StripePurchaseRow[]>([]);
+  const [pixelPurchases, setPixelPurchases]   = useState<PixelPurchaseRow[]>([]);
 
   // ── Filter + sort state ─────────────────────────────────────────────────────
-  // revenueView and dateRange feed directly into engineInput (engine-driven).
-  // sortKey feeds into engineInput.sortConfig (engine-driven).
-  // selectedPlatform is a client-side post-filter (engine is platform-agnostic).
-  const [revenueView,      setRevenueView]      = useState<RevenueView>('total');
-  const [dateRange,        setDateRange]         = useState<DateRange>('all');
-  const [selectedPlatform, setSelectedPlatform] = useState<PlatformFilter>('all');
-  const [sortKey,          setSortKey]           = useState<MetricType>('total_revenue');
+  const [revenueView,       setRevenueView]      = useState<RevenueView>('total');
+  const [dateRange,         setDateRange]         = useState<DateRange>('all');
+  const [selectedPlatform,  setSelectedPlatform] = useState<PlatformFilter>('all');
+  const [sortKey,           setSortKey]           = useState<MetricType>('total_revenue');
+  const [selectedCampaignId,setSelectedCampaignId] = useState<string>('all');
 
   // ── Modal state ─────────────────────────────────────────────────────────────
   const [modalConfig, setModalConfig] = useState<{
@@ -185,12 +292,7 @@ export default function DashboardTest() {
     message: string;
     variant: 'info' | 'danger' | 'success';
     onConfirm?: () => void;
-  }>({
-    isOpen: false,
-    title: '',
-    message: '',
-    variant: 'info',
-  });
+  }>({ isOpen: false, title: '', message: '', variant: 'info' });
 
   const showAlert = (title: string, message: string, variant: 'info' | 'danger' | 'success' = 'info') => {
     setModalConfig({ isOpen: true, title, message, variant });
@@ -199,7 +301,6 @@ export default function DashboardTest() {
   useEffect(() => {
     if (user && organizationId) fetchData();
   }, [user, organizationId]);
-
 
   // ── Data fetching ───────────────────────────────────────────────────────────
   const fetchData = async () => {
@@ -278,16 +379,43 @@ export default function DashboardTest() {
       setStripePurchases(enrichedStripe);
       setPixelPurchases(enrichedPixel);
     } catch (err: any) {
-      console.error('[DashboardTest] Fetch Error:', err);
+      console.error('[Dashboard] Fetch Error:', err);
       showAlert('Dashboard Error', `Failed to load dashboard data: ${err.message}`, 'danger');
     } finally {
       setLoading(false);
     }
   };
 
+  // ─────────────────────────────────────────────────────────────────────────────
+  // LAYER 2 — Campaign capability derivation
+  // Recalculates whenever selectedCampaignId changes.
+  // Capabilities come ONLY from the selected campaign(s) — not from the global set.
+  // ─────────────────────────────────────────────────────────────────────────────
 
-  // ── Engine orchestration ────────────────────────────────────────────────────
-  // sortKey now drives engineInput.sortConfig — the engine sorts before we slice.
+  const activeCampaigns = useMemo((): CampaignCapabilitySource[] => {
+    if (selectedCampaignId === 'all') {
+      return campaigns as CampaignCapabilitySource[];
+    }
+    const match = campaigns.find(c => c.id === selectedCampaignId);
+    return match ? [match as CampaignCapabilitySource] : [];
+  }, [campaigns, selectedCampaignId]);
+
+  const capabilities = useMemo(() => {
+    if (selectedCampaignId === 'all') {
+      return mergeCampaignCapabilities(activeCampaigns);
+    }
+    return activeCampaigns.length > 0
+      ? deriveCampaignCapabilities(activeCampaigns[0])
+      : mergeCampaignCapabilities([]);
+  }, [activeCampaigns, selectedCampaignId]);
+
+  // LAYER 3 — Column engine: recomputes when capabilities change
+  const columns = useMemo(() => buildColumnDefs(capabilities), [capabilities]);
+
+  // ─────────────────────────────────────────────────────────────────────────────
+  // Engine orchestration — campaign filter passed directly
+  // ─────────────────────────────────────────────────────────────────────────────
+
   const engineInput = useMemo((): AnalyticsEngineInput => ({
     videos:              videos as any,
     campaigns:           campaigns as CampaignMeta[],
@@ -295,20 +423,20 @@ export default function DashboardTest() {
     stripePurchases,
     pixelPurchases,
     dateRange,
-    selectedCampaignId:  'all',
+    selectedCampaignId,
     selectedGoals:       [],
     selectedLeadMagnets: [],
     activeSource:        revenueView,
     includeEV:           true,
     sortConfig:          { key: sortKey, direction: 'desc' },
-  }), [videos, campaigns, rawEvents, stripePurchases, pixelPurchases, revenueView, dateRange, sortKey]);
+  }), [videos, campaigns, rawEvents, stripePurchases, pixelPurchases, revenueView, dateRange, sortKey, selectedCampaignId]);
 
   const { sortedVideos, campaignTotals } = useMemo(
     () => getAnalyticsEngine(engineInput),
     [engineInput],
   );
 
-  // Platform post-filter — after engine sort, before 7-row slice
+  // Platform post-filter
   const filteredVideos = useMemo(
     () => selectedPlatform === 'all'
       ? sortedVideos
@@ -316,38 +444,36 @@ export default function DashboardTest() {
     [sortedVideos, selectedPlatform],
   );
 
-
   // ── Derived display values ──────────────────────────────────────────────────
+
   const displayRevenue = useMemo(
     () => selectDisplayRevenue(campaignTotals as any, revenueView),
     [campaignTotals, revenueView],
   );
 
   const displayRevenueLabel = revenueView === 'stripe' ? 'Verified (Stripe)'
-    : revenueView === 'pixel' ? 'Estimated (Pixel)'
+    : revenueView === 'pixel'  ? 'Estimated (Pixel)'
     : 'Total (Hybrid)';
 
   const totalDirectPurchases = campaignTotals.purchase_thankyou;
   const totalOptins          = campaignTotals.newsletter_thankyou;
   const totalCallBooks       = campaignTotals.call_booking_thankyou;
 
-  // Dynamic leaderboard header label — reflects active sort key
-  const sortLabel = SORT_OPTIONS.find(o => o.value === sortKey)?.label ?? 'Revenue';
+  // Sort label: reflects both metric AND selected campaign context
+  const selectedCampaignName = useMemo(() => {
+    if (selectedCampaignId === 'all') return null;
+    return campaigns.find(c => c.id === selectedCampaignId)?.campaign_name ?? null;
+  }, [campaigns, selectedCampaignId]);
 
+  const sortLabel = buildSortLabel(sortKey, selectedCampaignName);
 
-  // ── Status icon helper ──────────────────────────────────────────────────────
-  const getStatusIcon = (status: string) => {
-    switch (status) {
-      case 'active':  return <CheckCircle2 size={10} className="text-green-500" />;
-      case 'error':   return <AlertCircle  size={10} className="text-red-500" />;
-      default:        return <Activity     size={10} className="text-zinc-600" />;
-    }
-  };
-
+  // Column span for empty/loading rows
+  const colSpan = columns.length;
 
   // ─────────────────────────────────────────────────────────────────────────────
   // Render
   // ─────────────────────────────────────────────────────────────────────────────
+
   return (
     <div className="max-w-[1200px] mx-auto px-6 space-y-6">
 
@@ -370,9 +496,17 @@ export default function DashboardTest() {
         </Link>
       </header>
 
-
       {/* ── Controls bar ───────────────────────────────────────────────────── */}
       <div className="flex flex-wrap items-center gap-3">
+
+        {/* Campaign selector */}
+        <CampaignSelector
+          campaigns={campaigns}
+          selectedCampaignId={selectedCampaignId}
+          onChange={setSelectedCampaignId}
+        />
+
+        <div className="w-px h-5 bg-zinc-800" />
 
         {/* Revenue source */}
         <div className="flex items-center gap-1 p-1 bg-zinc-900 border border-zinc-800 rounded-xl">
@@ -452,19 +586,18 @@ export default function DashboardTest() {
         </div>
       </div>
 
-
       {/* ── Metric Cards ───────────────────────────────────────────────────── */}
       <section className="grid grid-cols-2 md:grid-cols-4 gap-4">
         {[
           {
             label:    'Total Revenue',
-            value:    `$${displayRevenue.toLocaleString()}`,
+            value:    `$${(displayRevenue ?? 0).toLocaleString()}`,
             sublabel: displayRevenueLabel,
             icon:     DollarSign,
             color:    'text-green-500',
           },
           {
-            label:    'Direct Purchase',
+            label:    'Direct Purchases',
             value:    totalDirectPurchases,
             sublabel: undefined,
             icon:     ShoppingCart,
@@ -505,8 +638,7 @@ export default function DashboardTest() {
         ))}
       </section>
 
-
-      {/* ── Top Performing Content — full-width leaderboard ────────────────── */}
+      {/* ── Top Performing Content Leaderboard ─────────────────────────────── */}
       <section className="bento-card p-0 overflow-hidden">
         <div className="px-6 py-4 border-b border-zinc-900 bg-zinc-900/10 flex justify-between items-center">
           <h2 className="label-caps !text-white">Top Performing Content</h2>
@@ -517,28 +649,40 @@ export default function DashboardTest() {
 
         <div className="overflow-x-auto">
           <table className="w-full text-left">
+
+            {/* ── Column headers — driven entirely by column engine ─────────── */}
             <thead className="bg-zinc-950/50 border-b border-zinc-900">
               <tr className="text-[9px] font-black uppercase tracking-widest text-zinc-500">
-                <th className="pl-4 pr-2 py-3 w-6">#</th>
-                <th className="px-4 py-3">Content</th>
-                <th className="px-4 py-3 text-center">Clicks</th>
-                <th className="px-4 py-3 text-center">Opt-ins</th>
-                <th className="px-4 py-3 text-center">Calls</th>
-                <th className="px-4 py-3 text-right">Revenue ↓</th>
+                {columns.map(col => (
+                  <th
+                    key={col.key}
+                    className={`py-3 ${
+                      col.key === 'rank'    ? 'pl-4 pr-2 w-8' :
+                      col.key === 'content' ? 'px-4' :
+                      col.role === 'revenue' ? 'px-5 text-right sticky right-0 bg-zinc-950' :
+                      'px-4 text-center'
+                    }`}
+                  >
+                    {col.label}
+                    {col.role === 'revenue' && <span className="ml-1 text-zinc-700">↓</span>}
+                  </th>
+                ))}
               </tr>
             </thead>
+
+            {/* ── Rows ─────────────────────────────────────────────────────── */}
             <tbody className="divide-y divide-zinc-900/50">
               {loading ? (
                 Array.from({ length: 7 }).map((_, i) => (
                   <tr key={i} className="animate-pulse">
-                    <td colSpan={6} className="px-6 py-6">
+                    <td colSpan={colSpan} className="px-6 py-6">
                       <div className="h-4 bg-zinc-900 rounded w-full" />
                     </td>
                   </tr>
                 ))
               ) : filteredVideos.length === 0 ? (
                 <tr>
-                  <td colSpan={6} className="px-6 py-20 text-center">
+                  <td colSpan={colSpan} className="px-6 py-20 text-center">
                     <p className="text-[10px] font-bold uppercase text-zinc-600">
                       No content matches the current filters
                     </p>
@@ -546,95 +690,69 @@ export default function DashboardTest() {
                 </tr>
               ) : (
                 filteredVideos.slice(0, 7).map((row, idx) => {
-                  const rowRevenue = selectDisplayRevenue(row, revenueView);
-                  const rank       = idx + 1;
-                  const addedDate  = formatAddedDate(row.video.created_at);
+                  const rank      = idx + 1;
+                  const addedDate = formatAddedDate(row.video.created_at);
 
                   return (
                     <tr
                       key={row.video.id}
-                      className="hover:bg-white/[0.015] transition-colors group cursor-pointer"
+                      className="hover:bg-white/[0.015] transition-colors cursor-pointer"
                       onClick={() => navigate(`/videos/${row.video.id}`)}
                     >
+                      {columns.map(col => {
 
-                      {/* Rank */}
-                      <td className="pl-5 pr-2 py-4">
-                        <span className={`text-[10px] font-black tabular-nums ${rankColor(rank)}`}>
-                          #{rank}
-                        </span>
-                      </td>
-
-                      {/* Thumbnail + content identity */}
-                      <td className="px-4 py-3">
-                        <div className="flex items-center gap-3">
-
-                          {/* Thumbnail — full color, hover scale + glow */}
-                          <div className="relative flex-shrink-0">
-                            <img
-                              src={resolveThumbnail(row.video)}
-                              className="w-28 aspect-video rounded-lg object-cover border border-zinc-800 transition-all duration-200 hover:scale-105 hover:shadow-[0_0_14px_rgba(255,255,255,0.07)] hover:border-zinc-600"
-                            />
-                            {row.video.platform && (
-                              <span className="absolute -top-1 -right-1 text-[6px] font-black uppercase tracking-wide px-1 py-0.5 rounded bg-zinc-900 border border-zinc-700 text-zinc-400 leading-none">
-                                {PLATFORM_CONFIG[row.video.platform]?.label ?? row.video.platform.toUpperCase()}
+                        // ── Rank ─────────────────────────────────────────────
+                        if (col.key === 'rank') {
+                          return (
+                            <td key="rank" className="pl-5 pr-2 py-4">
+                              <span className={`text-[10px] font-black tabular-nums ${rankColor(rank)}`}>
+                                #{rank}
                               </span>
-                            )}
-                          </div>
+                            </td>
+                          );
+                        }
 
-                          {/* Content identity + status + added date */}
-                          <div className="min-w-0 max-w-[220px]">
-                            {/* Platform • identifier — same format as Videos.tsx */}
-                            <p className="text-[11px] font-bold truncate leading-snug mb-1">
-                              {renderContentIdentity(row.video)}
-                            </p>
-                            <div className="flex items-center gap-1.5 mb-0.5">
-                              {getStatusIcon(row.video.status ?? '')}
-                              <span className="text-[8px] font-black uppercase text-zinc-600 tracking-tighter">
-                                {(row.video.status ?? '').replace('_', ' ')}
-                              </span>
-                            </div>
-                            {addedDate && (
-                              <p className="text-[8px] font-bold text-zinc-700 tracking-tight">
-                                Added: {addedDate}
-                              </p>
-                            )}
-                          </div>
-                        </div>
-                      </td>
+                        // ── Content ───────────────────────────────────────────
+                        if (col.key === 'content') {
+                          return (
+                            <td key="content" className="px-4 py-3">
+                              <div className="flex items-center gap-3">
+                                <div className="relative flex-shrink-0">
+                                  <img
+                                    src={resolveThumbnail(row.video)}
+                                    className="w-28 aspect-video rounded-lg object-cover border border-zinc-800 transition-all duration-200 hover:scale-105 hover:shadow-[0_0_14px_rgba(255,255,255,0.07)] hover:border-zinc-600"
+                                  />
+                                  {row.video.platform && (
+                                    <span className="absolute -top-1 -right-1 text-[6px] font-black uppercase tracking-wide px-1 py-0.5 rounded bg-zinc-900 border border-zinc-700 text-zinc-400 leading-none">
+                                      {PLATFORM_CONFIG[row.video.platform]?.label ?? row.video.platform.toUpperCase()}
+                                    </span>
+                                  )}
+                                </div>
+                                <div className="min-w-0 max-w-[220px]">
+                                  <p className="text-[11px] font-bold truncate leading-snug mb-1">
+                                    {renderContentIdentity(row.video)}
+                                  </p>
+                                  <div className="flex items-center gap-1.5 mb-0.5">
+                                    {getStatusIcon(row.video.status ?? '')}
+                                    <span className="text-[8px] font-black uppercase text-zinc-600 tracking-tighter">
+                                      {(row.video.status ?? '').replace('_', ' ')}
+                                    </span>
+                                  </div>
+                                  {addedDate && (
+                                    <p className="text-[8px] font-bold text-zinc-700 tracking-tight">
+                                      Added: {addedDate}
+                                    </p>
+                                  )}
+                                </div>
+                              </div>
+                            </td>
+                          );
+                        }
 
-                      {/* Clicks */}
-                      <td className="px-4 py-3 text-center">
-                        <span className="text-[11px] font-bold text-zinc-500 tabular-nums">
-                          {row.landing_page_view.toLocaleString()}
-                        </span>
-                      </td>
-
-                      {/* Opt-ins */}
-                      <td className="px-4 py-3 text-center">
-                        <span className="text-[11px] font-bold text-orange-500 tabular-nums">
-                          {row.newsletter_thankyou.toLocaleString()}
-                        </span>
-                      </td>
-
-                      {/* Calls */}
-                      <td className="px-4 py-3 text-center">
-                        <span className="text-[11px] font-bold text-blue-500 tabular-nums">
-                          {row.call_booking_thankyou.toLocaleString()}
-                        </span>
-                      </td>
-
-                      {/* Revenue — primary metric, visually dominant */}
-                      <td className="px-4 py-3 text-right">
-                        <div className="text-sm font-black text-white tabular-nums">
-                          ${rowRevenue.toLocaleString()}
-                        </div>
-                        <div className="text-[8px] font-bold text-zinc-700 uppercase tracking-tighter mt-0.5">
-                          {row.revenue_mode_label}
-                        </div>
-                        <div className="text-[8px] font-bold text-green-500/40 uppercase tracking-tighter">
-                          {row.purchase_thankyou} Direct
-                        </div>
-                      </td>
+                        // ── Dynamic + Revenue columns ─────────────────────────
+                        // All null/undefined handled in renderDynamicCell — never "NO DATA"
+                        return renderDynamicCell(col, row, revenueView);
+                      })}
                     </tr>
                   );
                 })
@@ -644,8 +762,7 @@ export default function DashboardTest() {
         </div>
       </section>
 
-
-      {/* ── Quick Actions — slim inline strip ──────────────────────────────── */}
+      {/* ── Quick Actions ──────────────────────────────────────────────────── */}
       <div className="grid grid-cols-2 gap-3 pb-4">
         <Link
           to="/videos"
@@ -662,7 +779,6 @@ export default function DashboardTest() {
           <ArrowRight size={13} className="text-zinc-700 group-hover:text-zinc-400 transition-colors" />
         </Link>
       </div>
-
 
       <Modal
         isOpen={modalConfig.isOpen}
