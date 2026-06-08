@@ -11,6 +11,31 @@ import {
   detectPlatform,
   getPlatformInfo
 } from '../lib/platformParser';
+import {
+  PLATFORM_THUMBNAILS,
+  resolveThumbnail,
+  getPlatformIcon,
+  parseSubreddit,
+  resolveRedditTitle,
+  parseXUsername,
+  parseXPostId,
+  formatXDisplayId,
+  resolveXTitle,
+  parseThreadsUsername,
+  parseThreadsPostId,
+  resolveThreadsTitle,
+  parseTikTokUsername,
+  parseTikTokVideoId,
+  formatTikTokDisplayId,
+  parseLinkedInAuthor,
+  parseLinkedInPostId,
+  formatLinkedInDisplayId,
+  parseTwitchVideoId,
+  parseTwitchChannel,
+  formatTwitchDisplayId,
+  resolveInstagramType,
+  resolveFacebookType,
+} from '../lib/videoFormatters';
 import { motion, AnimatePresence } from 'motion/react';
 import { Modal } from '../components/Modal';
 import { createRedirectLink } from '../lib/redirects';
@@ -137,168 +162,6 @@ export default function Videos() {
     localStorage.setItem('videos_view_mode', viewMode);
   }, [viewMode]);
 
-  const PLATFORM_THUMBNAILS: Partial<Record<string, string>> = {
-    threads: '/platform-thumbnails/threads.jpg',
-    reddit: '/platform-thumbnails/reddit.jpg',
-    x: '/platform-thumbnails/x.jpg',
-    tiktok: '/platform-thumbnails/tiktok.jpg',
-    linkedin: '/platform-thumbnails/linkedin.jpg',
-    instagram: '/platform-thumbnails/Instagram.jpg',
-    facebook: '/platform-thumbnails/fb.jpg',
-    twitch: '/platform-thumbnails/twitch.jpg',
-  };
-
-  function resolveThumbnail(v: Video): string {
-    if (v.thumbnail_url && v.thumbnail_url.trim() !== '') return v.thumbnail_url;
-    if (v.platform && PLATFORM_THUMBNAILS[v.platform]) return PLATFORM_THUMBNAILS[v.platform]!;
-    return `https://placehold.co/160x90/18181b/52525b?text=${encodeURIComponent((v.platform ?? 'post').toUpperCase())}`;
-  }
-
-  function getPlatformIcon(platform: string) {
-    const icons: Record<string, string> = {
-      youtube: '▶',
-      tiktok: '♪',
-      instagram: '◉',
-      linkedin: 'in',
-      x: '𝕏',
-      threads: '@',
-      facebook: 'f',
-      reddit: '●',
-      twitch: '⬡',
-    };
-    return icons[platform] || '?';
-  }
-
-  function parseSubreddit(platformUrl: string | null | undefined): string | null {
-    if (!platformUrl) return null;
-    const match = platformUrl.match(/\/r\/([^/]+)/);
-    return match ? match[1] : null;
-  }
-
-  function resolveRedditTitle(platformUrl: string | null | undefined): string | null {
-    if (!platformUrl) return null;
-    // Extract slug from /comments/{id}/{slug}/
-    const match = platformUrl.match(/\/comments\/[^/]+\/([^/]+)/);
-    if (!match) return null;
-    return match[1]
-      .replace(/_/g, ' ')
-      .replace(/^./, c => c.toUpperCase());
-  }
-
-  function parseXUsername(platformUrl: string | null | undefined): string | null {
-    if (!platformUrl) return null;
-    // Extract username from https://x.com/{username}/status/{postId}
-    const match = platformUrl.match(/x\.com\/([^/]+)\/status\//);
-    return match ? match[1] : null;
-  }
-
-  function parseXPostId(platformUrl: string | null | undefined): string | null {
-    if (!platformUrl) return null;
-    // Extract numeric postId from https://x.com/{username}/status/{postId}
-    const match = platformUrl.match(/\/status\/(\d+)/);
-    return match ? match[1] : null;
-  }
-
-  function formatXDisplayId(postId: string | null | undefined): string {
-    if (!postId) return '';
-    // Show first 4–6 digits then ellipsis — never the full ID
-    return postId.slice(0, 6) + '...';
-  }
-
-  function parseThreadsUsername(platformUrl: string | null | undefined): string | null {
-    if (!platformUrl) return null;
-    const match = platformUrl.match(/threads\.(?:com|net)\/@([^/]+)/);
-    return match ? match[1] : null;
-  }
-
-  function parseThreadsPostId(platformUrl: string | null | undefined): string | null {
-    if (!platformUrl) return null;
-    const match = platformUrl.match(/\/post\/([^/?#]+)/);
-    return match ? match[1] : null;
-  }
-
-  function parseTikTokUsername(platformUrl: string | null | undefined): string | null {
-    if (!platformUrl) return null;
-    const match = platformUrl.match(/tiktok\.com\/@([^/]+)/);
-    return match ? match[1] : null;
-  }
-
-  function parseTikTokVideoId(platformUrl: string | null | undefined): string | null {
-    if (!platformUrl) return null;
-    const match = platformUrl.match(/\/video\/(\d+)/);
-    return match ? match[1] : null;
-  }
-
-  function formatTikTokDisplayId(videoId: string | null | undefined): string {
-    if (!videoId) return '';
-    return videoId.slice(0, 6) + '...';
-  }
-
-  function parseLinkedInAuthor(platformUrl: string | null | undefined): string | null {
-    if (!platformUrl) return null;
-    const match = platformUrl.match(/linkedin\.com\/posts\/([^_/]+)/);
-    return match ? match[1] : null;
-  }
-
-  function parseLinkedInPostId(platformUrl: string | null | undefined): string | null {
-    if (!platformUrl) return null;
-    const activityMatch = platformUrl.match(/activity[:\-](\d+)/);
-    if (activityMatch) return activityMatch[1];
-    const postMatch = platformUrl.match(/-(\d{10,})-/);
-    return postMatch ? postMatch[1] : null;
-  }
-
-  function formatLinkedInDisplayId(postId: string | null | undefined): string {
-    if (!postId) return '';
-    return postId.slice(0, 6) + '...';
-  }
-
-  function parseTwitchVideoId(platformUrl: string | null | undefined): string | null {
-    if (!platformUrl) return null;
-    const match = platformUrl.match(/\/videos\/(\d+)/);
-    return match ? match[1] : null;
-  }
-
-  function parseTwitchChannel(platformUrl: string | null | undefined): string | null {
-    if (!platformUrl) return null;
-    if (/\/videos\//.test(platformUrl)) return null;
-    const match = platformUrl.match(/twitch\.tv\/([^/?#]+)/);
-    return match ? match[1] : null;
-  }
-
-  function formatTwitchDisplayId(videoId: string | null | undefined): string {
-    if (!videoId) return '';
-    return videoId.slice(0, 6) + '...';
-  }
-
-  function resolveInstagramType(platformUrl: string | null | undefined): 'Post' | 'Reel' {
-    if (!platformUrl) return 'Post';
-    if (/\/reels?\//.test(platformUrl)) return 'Reel';
-    return 'Post';
-  }
-
-  function resolveFacebookType(platformUrl: string | null | undefined): 'Reel' | 'Live' | 'Video' | 'Post' | '' {
-    if (!platformUrl) return '';
-    const cleanUrl = platformUrl.split('?')[0].toLowerCase();
-    if (/\/reel(?:s)?\//.test(cleanUrl) || /\/share\/r\//.test(cleanUrl)) return 'Reel';
-    if (/\/watch\/live\//.test(cleanUrl)) return 'Live';
-    if (/\/watch\b/.test(cleanUrl) || /\/videos\//.test(cleanUrl) || /\/share\/v\//.test(cleanUrl)) return 'Video';
-    if (/\/posts\//.test(cleanUrl) || /\/share\/p\//.test(cleanUrl) || /permalink\.php/.test(cleanUrl) || /story\.php/.test(cleanUrl)) return 'Post';
-    return '';
-  }
-
-  function resolveThreadsTitle(videoTitle: string | null | undefined): string {
-    if (!videoTitle) return 'Threads Post';
-    const isPlaceholder = /^threads\s+post(\s+\S+)?$/i.test(videoTitle.trim());
-    return isPlaceholder ? 'Threads Post' : videoTitle;
-  }
-
-  function resolveXTitle(videoTitle: string | null | undefined): string {
-    if (!videoTitle) return 'X Post';
-    // Reject placeholder patterns: "X Post", "X Post 204148...", bare numeric IDs
-    const isPlaceholder = /^x\s+post(\s+\d+)?$/i.test(videoTitle.trim()) || /^\d+$/.test(videoTitle.trim());
-    return isPlaceholder ? 'X Post' : videoTitle;
-  }
 
   const [filters, setFilters] = useState({
     search: '',

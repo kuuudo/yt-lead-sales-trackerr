@@ -4,26 +4,18 @@
 // ENGINE-POWERED MIRROR of Dashboard.tsx.
 // Route: /dashboard-test
 //
-// PURPOSE
-// ═══════
-// Exact behavioral clone of Dashboard.tsx where all metric computation is
-// delegated to getAnalyticsEngine() from analyticsEngine.ts.
-// UI layout is preserved — same clean, uncluttered format as Dashboard.tsx.
-//
-// CHANGES vs Dashboard.tsx
-// ════════════════════════
-//   1. ALL metric computation comes from getAnalyticsEngine() — no duplicate logic.
-//   2. Revenue Source toggle order: TOTAL → PIXEL → STRIPE (default: TOTAL).
-//   3. "Revenue Per Click" metric card removed.
-//   4. "Direct Purchase" metric card added (purchase_thankyou from engine).
-//   5. Fetch pattern upgraded to match InDepthAnalyticsTest.tsx
-//      (stripe_purchase_type table + enrichment helpers from engine).
-//   6. Tracking Health sidebar removed (developer metrics, not executive metrics).
-//   7. simulateTraffic removed along with Tracking Health.
-//   8. Controls bar added: Revenue source + Date range + Platform filter.
-//   9. Leaderboard is now full-width with rank numbers, larger thumbnails,
-//      Added date, and elevated Revenue column styling.
-//  10. Quick Actions demoted to slim inline strip below leaderboard.
+// CHANGES vs previous version
+// ════════════════════════════
+//   1. Content identity rendering now uses renderContentIdentity() from
+//      ../lib/videoFormatters — same source of truth as Videos.tsx.
+//   2. Thumbnail fallback uses resolveThumbnail() from videoFormatters —
+//      correct paths (/platform-thumbnails/), no more broken images.
+//   3. Thumbnails: full color by default, w-28 (112px), hover scale+glow.
+//   4. Goal column removed entirely.
+//   5. Sort By control added to controls bar — wired to engineInput.sortConfig.
+//   6. colSpan updated 7→6 throughout (Goal column removal).
+//   7. Removed local resolveXTitle/resolveThreadsTitle/resolveRedditTitle/
+//      resolveDisplayTitle — no duplicate parser logic remains.
 //
 // MIGRATION STATUS LEGEND
 // ═══════════════════════
@@ -53,6 +45,7 @@ import {
   type RevenueView,
   type CampaignMeta,
   type DateRange,
+  type MetricType,
 } from '../lib/analyticsEngine';
 
 import {
@@ -61,6 +54,13 @@ import {
   ShoppingCart,
 } from 'lucide-react';
 import { PLATFORM_CONFIG } from '../lib/platformParser';
+
+// Shared formatting — same source of truth as Videos.tsx
+import {
+  resolveThumbnail,
+  renderContentIdentity,
+} from '../lib/videoFormatters';
+
 import { motion } from 'motion/react';
 import { useNavigate, Link } from 'react-router-dom';
 import { Modal } from '../components/Modal';
@@ -88,70 +88,6 @@ async function buildSessionLookup(
   return lookup;
 }
 
-
-// ─────────────────────────────────────────────────────────────────────────────
-// Platform thumbnail fallbacks — mirrors Videos.tsx PLATFORM_THUMBNAILS.
-// Used when thumbnail_url is null or empty for a given video row.
-// YouTube is intentionally absent: YouTube always provides a thumbnail URL.
-// ─────────────────────────────────────────────────────────────────────────────
-const PLATFORM_THUMBNAILS: Record<string, string> = {
-  threads:   '/thumbnails/threads-default.png',
-  reddit:    '/thumbnails/reddit-default.png',
-  x:         '/thumbnails/x-default.png',
-  tiktok:    '/thumbnails/tiktok-default.png',
-  linkedin:  '/thumbnails/linkedin-default.png',
-  instagram: '/thumbnails/instagram-default.png',
-  facebook:  '/thumbnails/facebook-default.png',
-  twitch:    '/thumbnails/twitch-default.png',
-};
-
-function resolveThumbnail(video: { thumbnail_url?: string | null; platform?: string | null }): string {
-  if (video.thumbnail_url) return video.thumbnail_url;
-  const platform = video.platform ?? '';
-  if (PLATFORM_THUMBNAILS[platform]) return PLATFORM_THUMBNAILS[platform];
-  return `https://placehold.co/160x90/18181b/52525b?text=${encodeURIComponent(platform || 'video')}`;
-}
-
-// ─────────────────────────────────────────────────────────────────────────────
-// Platform-specific title resolution — mirrors Videos.tsx resolver functions.
-// Corrects raw video_title values for platforms that store placeholders or
-// where the meaningful display title must be derived from platform_url.
-// ─────────────────────────────────────────────────────────────────────────────
-function resolveXTitle(videoTitle: string | undefined): string {
-  const t = (videoTitle ?? '').trim();
-  if (!t || /^x\s+post(\s+\d+)?$/i.test(t) || /^\d+$/.test(t)) return 'X Post';
-  return t;
-}
-
-function resolveThreadsTitle(videoTitle: string | undefined): string {
-  const t = (videoTitle ?? '').trim();
-  if (!t || /^threads\s+post(\s+\S+)?$/i.test(t)) return 'Threads Post';
-  return t;
-}
-
-function resolveRedditTitle(platformUrl: string | null | undefined, fallback: string | undefined): string {
-  if (platformUrl) {
-    const match = platformUrl.match(/\/comments\/[^/]+\/([^/]+)/);
-    if (match && match[1]) {
-      const slug = match[1].replace(/_/g, ' ');
-      return slug.charAt(0).toUpperCase() + slug.slice(1);
-    }
-  }
-  return fallback ?? 'Reddit Post';
-}
-
-function resolveDisplayTitle(
-  platform: string | null | undefined,
-  videoTitle: string | undefined,
-  platformUrl: string | null | undefined,
-): string {
-  switch (platform) {
-    case 'x':       return resolveXTitle(videoTitle);
-    case 'threads': return resolveThreadsTitle(videoTitle);
-    case 'reddit':  return resolveRedditTitle(platformUrl, videoTitle);
-    default:        return videoTitle ?? '';
-  }
-}
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Date formatting helper for "Added:" display
@@ -192,6 +128,20 @@ const DATE_RANGE_OPTIONS: { value: DateRange; label: string }[] = [
 ];
 
 // ─────────────────────────────────────────────────────────────────────────────
+// Sort options — all keys are real fields on VideoMetricsResult / ProcessedVideoRow.
+// The engine's sortConfig.key accepts any MetricType string.
+// No analyticsEngine changes required.
+// ─────────────────────────────────────────────────────────────────────────────
+const SORT_OPTIONS: { value: MetricType; label: string }[] = [
+  { value: 'total_revenue',        label: 'Revenue'           },
+  { value: 'landing_page_view',    label: 'Clicks'            },
+  { value: 'newsletter_thankyou',  label: 'Newsletter Opt-ins' },
+  { value: 'call_booking_thankyou',label: 'Sales Calls'       },
+  { value: 'consultation_thankyou',label: 'Consultations'     },
+  { value: 'purchase_thankyou',    label: 'Purchases'         },
+];
+
+// ─────────────────────────────────────────────────────────────────────────────
 // Rank color helper
 // ─────────────────────────────────────────────────────────────────────────────
 function rankColor(rank: number): string {
@@ -219,13 +169,14 @@ export default function DashboardTest() {
   const [stripePurchases, setStripePurchases]   = useState<StripePurchaseRow[]>([]);
   const [pixelPurchases, setPixelPurchases]     = useState<PixelPurchaseRow[]>([]);
 
-  // ── Filter state ────────────────────────────────────────────────────────────
-  // 🟢 ENGINE-DRIVEN: revenueView and dateRange feed directly into engineInput.
-  // selectedPlatform is a client-side post-filter on sortedVideos (engine is
-  // platform-agnostic by design — no platform field in AnalyticsEngineInput).
+  // ── Filter + sort state ─────────────────────────────────────────────────────
+  // revenueView and dateRange feed directly into engineInput (engine-driven).
+  // sortKey feeds into engineInput.sortConfig (engine-driven).
+  // selectedPlatform is a client-side post-filter (engine is platform-agnostic).
   const [revenueView,      setRevenueView]      = useState<RevenueView>('total');
   const [dateRange,        setDateRange]         = useState<DateRange>('all');
   const [selectedPlatform, setSelectedPlatform] = useState<PlatformFilter>('all');
+  const [sortKey,          setSortKey]           = useState<MetricType>('total_revenue');
 
   // ── Modal state ─────────────────────────────────────────────────────────────
   const [modalConfig, setModalConfig] = useState<{
@@ -251,11 +202,6 @@ export default function DashboardTest() {
 
 
   // ── Data fetching ───────────────────────────────────────────────────────────
-  // 🟡 LEGACY FALLBACK: fetch queries and Promise.all parallelism are not yet
-  // in the engine. Pattern is verbatim from InDepthAnalyticsTest.tsx.
-  // 🟢 ENGINE-DRIVEN TRANSITION POINTS: buildStripeFromPurchaseTypeTable(),
-  //    buildPixelPurchases(), flattenSessionEvents(), mergeEventSources().
-  // ─────────────────────────────────────────────────────────────────────────────
   const fetchData = async () => {
     setLoading(true);
     try {
@@ -288,7 +234,6 @@ export default function DashboardTest() {
           .is('video_id', null)
           .in('sessions.video_id', videoIds),
 
-        // stripe_purchase_type has the payment_type column — authoritative table.
         (() => {
           const q = supabase
             .from('stripe_purchase_type')
@@ -309,7 +254,6 @@ export default function DashboardTest() {
           : Promise.resolve({ data: [] as any[] }),
       ]);
 
-      // 🟢 ENGINE-DRIVEN: flattenSessionEvents() + mergeEventSources()
       const sessionResolvedEvents = flattenSessionEvents(eViaSessionData.data as any[] || []);
       const allEvents = mergeEventSources(eDirectData.data || [], sessionResolvedEvents);
 
@@ -322,21 +266,13 @@ export default function DashboardTest() {
       }));
       const pixelRaw = ppData.data || [];
 
-      // 🟡 LEGACY FALLBACK: buildSessionLookup is not yet in the engine.
       const [stripeSessLookup, pixelSessLookup] = await Promise.all([
         buildSessionLookup(stripeRaw.map(r => ({ ...r, session_id: r.stripe_session_id }))),
         buildSessionLookup(pixelRaw),
       ]);
 
-      // 🟢 ENGINE-DRIVEN: enrichment helpers from analyticsEngine.ts
       const enrichedStripe = buildStripeFromPurchaseTypeTable(stripeRaw, stripeSessLookup);
       const enrichedPixel  = buildPixelPurchases(pixelRaw, pixelSessLookup);
-
-      console.log('[DashboardTest] events direct:', eDirectData.data?.length ?? 0,
-        '| via session:', sessionResolvedEvents.length,
-        '| total:', allEvents.length);
-      console.log('[DashboardTest] stripe enriched:', enrichedStripe.length,
-        '| pixel enriched:', enrichedPixel.length);
 
       setRawEvents(allEvents);
       setStripePurchases(enrichedStripe);
@@ -351,11 +287,7 @@ export default function DashboardTest() {
 
 
   // ── Engine orchestration ────────────────────────────────────────────────────
-  // 🟢 ENGINE-DRIVEN: ALL metric computation lives here, via getAnalyticsEngine().
-  // dateRange is now live state — reacts to the Period filter in the controls bar.
-  // selectedPlatform is applied as a post-filter on sortedVideos below (engine
-  // is platform-agnostic; no platform field exists in AnalyticsEngineInput).
-  // ─────────────────────────────────────────────────────────────────────────────
+  // sortKey now drives engineInput.sortConfig — the engine sorts before we slice.
   const engineInput = useMemo((): AnalyticsEngineInput => ({
     videos:              videos as any,
     campaigns:           campaigns as CampaignMeta[],
@@ -368,18 +300,15 @@ export default function DashboardTest() {
     selectedLeadMagnets: [],
     activeSource:        revenueView,
     includeEV:           true,
-    sortConfig:          { key: 'total_revenue', direction: 'desc' },
-  }), [videos, campaigns, rawEvents, stripePurchases, pixelPurchases, revenueView, dateRange]);
+    sortConfig:          { key: sortKey, direction: 'desc' },
+  }), [videos, campaigns, rawEvents, stripePurchases, pixelPurchases, revenueView, dateRange, sortKey]);
 
-  // 🟢 ENGINE-DRIVEN: sortedVideos and campaignTotals come entirely from the engine.
   const { sortedVideos, campaignTotals } = useMemo(
     () => getAnalyticsEngine(engineInput),
     [engineInput],
   );
 
-  // Platform post-filter — applied after engine sort, before the 7-row slice.
-  // Engine sorts by total_revenue desc, so the top 7 within the selected
-  // platform are always the correct top performers for that platform.
+  // Platform post-filter — after engine sort, before 7-row slice
   const filteredVideos = useMemo(
     () => selectedPlatform === 'all'
       ? sortedVideos
@@ -389,9 +318,6 @@ export default function DashboardTest() {
 
 
   // ── Derived display values ──────────────────────────────────────────────────
-  // 🟢 ENGINE-DRIVEN: all values read from campaignTotals (engine output).
-
-  // Revenue displayed depends on the source toggle — selectDisplayRevenue is an engine helper.
   const displayRevenue = useMemo(
     () => selectDisplayRevenue(campaignTotals as any, revenueView),
     [campaignTotals, revenueView],
@@ -401,12 +327,12 @@ export default function DashboardTest() {
     : revenueView === 'pixel' ? 'Estimated (Pixel)'
     : 'Total (Hybrid)';
 
-  // Direct Purchases: total purchase_thankyou count across all videos (from engine).
   const totalDirectPurchases = campaignTotals.purchase_thankyou;
+  const totalOptins          = campaignTotals.newsletter_thankyou;
+  const totalCallBooks       = campaignTotals.call_booking_thankyou;
 
-  // Opt-ins and call bookings from engine aggregates.
-  const totalOptins    = campaignTotals.newsletter_thankyou;
-  const totalCallBooks = campaignTotals.call_booking_thankyou;
+  // Dynamic leaderboard header label — reflects active sort key
+  const sortLabel = SORT_OPTIONS.find(o => o.value === sortKey)?.label ?? 'Revenue';
 
 
   // ── Status icon helper ──────────────────────────────────────────────────────
@@ -446,10 +372,9 @@ export default function DashboardTest() {
 
 
       {/* ── Controls bar ───────────────────────────────────────────────────── */}
-      {/* Revenue source + Period + Platform — unified filter strip            */}
       <div className="flex flex-wrap items-center gap-3">
 
-        {/* Revenue source toggle */}
+        {/* Revenue source */}
         <div className="flex items-center gap-1 p-1 bg-zinc-900 border border-zinc-800 rounded-xl">
           {(['total', 'pixel', 'stripe'] as RevenueView[]).map(v => (
             <button
@@ -464,10 +389,9 @@ export default function DashboardTest() {
           ))}
         </div>
 
-        {/* Divider */}
         <div className="w-px h-5 bg-zinc-800" />
 
-        {/* Period picker */}
+        {/* Period */}
         <div className="flex items-center gap-2">
           <span className="text-[9px] font-black uppercase tracking-widest text-zinc-600">Period</span>
           <div className="flex items-center gap-1 p-1 bg-zinc-900 border border-zinc-800 rounded-xl">
@@ -485,7 +409,26 @@ export default function DashboardTest() {
           </div>
         </div>
 
-        {/* Divider */}
+        <div className="w-px h-5 bg-zinc-800" />
+
+        {/* Sort by */}
+        <div className="flex items-center gap-2">
+          <span className="text-[9px] font-black uppercase tracking-widest text-zinc-600">Sort</span>
+          <div className="flex items-center gap-1 p-1 bg-zinc-900 border border-zinc-800 rounded-xl">
+            {SORT_OPTIONS.map(opt => (
+              <button
+                key={opt.value}
+                onClick={() => setSortKey(opt.value)}
+                className={`px-3 py-1.5 rounded-lg text-[9px] font-black uppercase tracking-widest transition-all ${
+                  sortKey === opt.value ? 'bg-zinc-700 text-white' : 'text-zinc-600 hover:text-zinc-400'
+                }`}
+              >
+                {opt.label}
+              </button>
+            ))}
+          </div>
+        </div>
+
         <div className="w-px h-5 bg-zinc-800" />
 
         {/* Platform filter */}
@@ -511,7 +454,6 @@ export default function DashboardTest() {
 
 
       {/* ── Metric Cards ───────────────────────────────────────────────────── */}
-      {/* 🟢 ENGINE-DRIVEN: all values from campaignTotals / engine output     */}
       <section className="grid grid-cols-2 md:grid-cols-4 gap-4">
         {[
           {
@@ -565,12 +507,11 @@ export default function DashboardTest() {
 
 
       {/* ── Top Performing Content — full-width leaderboard ────────────────── */}
-      {/* 🟢 ENGINE-DRIVEN: filteredVideos from engine → platform post-filter  */}
       <section className="bento-card p-0 overflow-hidden">
         <div className="px-6 py-4 border-b border-zinc-900 bg-zinc-900/10 flex justify-between items-center">
           <h2 className="label-caps !text-white">Top Performing Content</h2>
           <span className="text-[9px] font-black uppercase tracking-widest text-zinc-600">
-            Sorted by Revenue
+            Sorted by {sortLabel}
           </span>
         </div>
 
@@ -580,7 +521,6 @@ export default function DashboardTest() {
               <tr className="text-[9px] font-black uppercase tracking-widest text-zinc-500">
                 <th className="pl-4 pr-2 py-3 w-6">#</th>
                 <th className="px-4 py-3">Content</th>
-                <th className="px-4 py-3">Goal</th>
                 <th className="px-4 py-3 text-center">Clicks</th>
                 <th className="px-4 py-3 text-center">Opt-ins</th>
                 <th className="px-4 py-3 text-center">Calls</th>
@@ -591,14 +531,14 @@ export default function DashboardTest() {
               {loading ? (
                 Array.from({ length: 7 }).map((_, i) => (
                   <tr key={i} className="animate-pulse">
-                    <td colSpan={7} className="px-6 py-6">
+                    <td colSpan={6} className="px-6 py-6">
                       <div className="h-4 bg-zinc-900 rounded w-full" />
                     </td>
                   </tr>
                 ))
               ) : filteredVideos.length === 0 ? (
                 <tr>
-                  <td colSpan={7} className="px-6 py-20 text-center">
+                  <td colSpan={6} className="px-6 py-20 text-center">
                     <p className="text-[10px] font-bold uppercase text-zinc-600">
                       No content matches the current filters
                     </p>
@@ -606,11 +546,7 @@ export default function DashboardTest() {
                 </tr>
               ) : (
                 filteredVideos.slice(0, 7).map((row, idx) => {
-                  // 🟢 ENGINE-DRIVEN: revenue per row from engine metrics
                   const rowRevenue = selectDisplayRevenue(row, revenueView);
-                  const videoGoals = Array.isArray(row.video.video_goal)
-                    ? row.video.video_goal.join(', ')
-                    : (row.video.video_goal ?? '');
                   const rank       = idx + 1;
                   const addedDate  = formatAddedDate(row.video.created_at);
 
@@ -628,14 +564,15 @@ export default function DashboardTest() {
                         </span>
                       </td>
 
-                      {/* Thumbnail + title */}
+                      {/* Thumbnail + content identity */}
                       <td className="px-4 py-3">
                         <div className="flex items-center gap-3">
-                          {/* Thumbnail with platform badge */}
+
+                          {/* Thumbnail — full color, hover scale + glow */}
                           <div className="relative flex-shrink-0">
                             <img
                               src={resolveThumbnail(row.video)}
-                              className="w-20 aspect-video rounded-lg object-cover border border-zinc-800 grayscale group-hover:grayscale-0 transition-all duration-300"
+                              className="w-28 aspect-video rounded-lg object-cover border border-zinc-800 transition-all duration-200 hover:scale-105 hover:shadow-[0_0_14px_rgba(255,255,255,0.07)] hover:border-zinc-600"
                             />
                             {row.video.platform && (
                               <span className="absolute -top-1 -right-1 text-[6px] font-black uppercase tracking-wide px-1 py-0.5 rounded bg-zinc-900 border border-zinc-700 text-zinc-400 leading-none">
@@ -644,10 +581,11 @@ export default function DashboardTest() {
                             )}
                           </div>
 
-                          {/* Title + status + added date */}
-                          <div className="min-w-0 max-w-[200px]">
-                            <p className="text-[11px] font-bold text-zinc-200 truncate leading-snug mb-1">
-                              {resolveDisplayTitle(row.video.platform, row.title, row.video.platform_url)}
+                          {/* Content identity + status + added date */}
+                          <div className="min-w-0 max-w-[220px]">
+                            {/* Platform • identifier — same format as Videos.tsx */}
+                            <p className="text-[11px] font-bold truncate leading-snug mb-1">
+                              {renderContentIdentity(row.video)}
                             </p>
                             <div className="flex items-center gap-1.5 mb-0.5">
                               {getStatusIcon(row.video.status ?? '')}
@@ -662,15 +600,6 @@ export default function DashboardTest() {
                             )}
                           </div>
                         </div>
-                      </td>
-
-                      {/* Goal */}
-                      <td className="px-4 py-3">
-                        {videoGoals ? (
-                          <span className="text-[8px] font-black uppercase tracking-widest px-2 py-1 bg-zinc-900 text-zinc-500 rounded border border-zinc-800 whitespace-nowrap">
-                            {videoGoals}
-                          </span>
-                        ) : null}
                       </td>
 
                       {/* Clicks */}
