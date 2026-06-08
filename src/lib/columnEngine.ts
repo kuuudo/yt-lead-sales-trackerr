@@ -170,6 +170,14 @@ const CLICKS_COLUMN: ColumnDef = {
   align:     'center',
 };
 
+const NEWSLETTER_COLUMN: ColumnDef = {
+  key:       'newsletter',
+  label:     'Newsletter Opt-ins',
+  metricKey: 'newsletter_thankyou',
+  role:      'dynamic',
+  align:     'center',
+};
+
 // ── Column engine — the single source of column truth ────────────────────────
 
 /**
@@ -205,6 +213,32 @@ export function buildColumnDefs(caps: CampaignCapabilities): ColumnDef[] {
     ...cappedDynamic,
     REVENUE_COLUMN,
   ];
+}
+
+// ── Full column catalog (all toggleable columns for the visibility panel) ────
+// Order here determines order in the panel UI.
+export const ALL_TOGGLEABLE_COLUMNS: ColumnDef[] = [
+  CONSULTATION_COLUMN,
+  PURCHASE_COLUMN,
+  CALLS_COLUMN,
+  CLICKS_COLUMN,
+  NEWSLETTER_COLUMN,
+];
+
+/**
+ * Returns the default visible column keys for a given capability set.
+ * Used to seed initial state and to compute campaign-change deltas.
+ *
+ * Revenue is always visible — not included here (it's never toggled).
+ */
+export function defaultVisibleKeys(caps: CampaignCapabilities): Set<string> {
+  const keys = new Set<string>();
+  if (caps.hasConsultations)   keys.add('consultations');
+  if (caps.hasPurchases)       keys.add('purchases');
+  if (caps.hasCalls)           keys.add('calls');
+  if (caps.showClicksFallback) keys.add('clicks');
+  // newsletter: never default
+  return keys;
 }
 
 // ─────────────────────────────────────────────────────────────────────────────

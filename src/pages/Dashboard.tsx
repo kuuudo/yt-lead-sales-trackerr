@@ -21,7 +21,7 @@
 // ─────────────────────────────────────────────────────────────────────────────
 
 import { useOrganization } from '../lib/useOrganization';
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import { supabase, Video, Campaign } from '../lib/supabase';
 import { useAuth } from '../lib/auth';
 
@@ -47,8 +47,12 @@ import {
 import {
   deriveCampaignCapabilities,
   mergeCampaignCapabilities,
-  buildColumnDefs,
   buildSortLabel,
+  defaultVisibleKeys,
+  ALL_TOGGLEABLE_COLUMNS,
+  RANK_COLUMN,
+  CONTENT_COLUMN,
+  REVENUE_COLUMN,
   type CampaignCapabilitySource,
   type ColumnDef,
 } from '../lib/columnEngine';
@@ -56,7 +60,7 @@ import {
 import {
   Target, Users, DollarSign,
   Activity, AlertCircle, CheckCircle2, ArrowRight,
-  ShoppingCart, ChevronDown,
+  ShoppingCart, ChevronDown, Settings2,
 } from 'lucide-react';
 import { PLATFORM_CONFIG } from '../lib/platformParser';
 
@@ -141,6 +145,7 @@ function rankColor(rank: number): string {
 }
 
 function getStatusIcon(status: string) {
+  if (!status || status === 'no_data') return null;
   switch (status) {
     case 'active':  return <CheckCircle2 size={10} className="text-green-500" />;
     case 'error':   return <AlertCircle  size={10} className="text-red-500" />;
@@ -176,6 +181,8 @@ function renderDynamicCell(col: ColumnDef, row: any, revenueView: RevenueView) {
   }
 
   const value = getMetricValue(row, col.metricKey);
+  const rawVal = col.metricKey ? row[col.metricKey] : undefined;
+  const isEmpty = rawVal === null || rawVal === undefined;
 
   // Color per metric
   const color =
@@ -188,7 +195,7 @@ function renderDynamicCell(col: ColumnDef, row: any, revenueView: RevenueView) {
   return (
     <td key={col.key} className="px-4 py-3 text-center">
       <span className={`text-[11px] font-bold tabular-nums ${color}`}>
-        {value > 0 ? value.toLocaleString() : <span className="text-zinc-700">—</span>}
+        {isEmpty ? '' : value.toLocaleString()}
       </span>
     </td>
   );
@@ -284,6 +291,14 @@ export default function Dashboard() {
   const [selectedPlatform,  setSelectedPlatform] = useState<PlatformFilter>('all');
   const [sortKey,           setSortKey]           = useState<MetricType>('total_revenue');
   const [selectedCampaignId,setSelectedCampaignId] = useState<string>('all');
+
+  // ── Column visibility state ─────────────────────────────────────────────────
+  // Seeded from campaign defaults. User overrides persist across campaign changes
+  // unless the column was newly enabled/disabled by the campaign switch.
+  const [visibleColumnKeys, setVisibleColumnKeys] = useState<Set<string>>(
+    () => new Set(['consultations', 'purchases', 'calls']), // sane bootstrap; recalculated below
+  );
+  const [columnPanelOpen, setColumnPanelOpen] = useState(false);
 
   // ── Modal state ─────────────────────────────────────────────────────────────
   const [modalConfig, setModalConfig] = useState<{
@@ -409,8 +424,59 @@ export default function Dashboard() {
       : mergeCampaignCapabilities([]);
   }, [activeCampaigns, selectedCampaignId]);
 
-  // LAYER 3 — Column engine: recomputes when capabilities change
-  const columns = useMemo(() => buildColumnDefs(capabilities), [capabilities]);
+  // LAYER 3 — Column engine capabilities still needed for defaultVisibleKeys
+
+  // ── Column visibility sync on campaign change ────────────────────────────────
+  // When campaign changes, apply new defaults — but preserve user overrides:
+  // - If user had explicitly turned ON a column → keep it on
+  // - If user had explicitly turned OFF a column → keep it off
+  // Only columns that were never touched follow the new campaign defaults.
+  // We track "user overrides" as a ref so we don't re-render on every toggle.
+  const userOverridesRef = useRef<Map<string, boolean>>(new Map());
+  const prevCapKeysRef   = useRef<Set<string>>(new Set());
+
+  useEffect(() => {
+    const newDefaults = defaultVisibleKeys(capabilities);
+
+    // On first run (prevCapKeysRef is empty), just apply defaults directly
+    if (prevCapKeysRef.current.size === 0) {
+      setVisibleColumnKeys(new Set(newDefaults));
+      prevCapKeysRef.current = newDefaults;
+      return;
+    }
+
+    // Merge: start from new campaign defaults, then apply user overrides
+    const merged = new Set(newDefaults);
+    for (const [key, userChoice] of userOverridesRef.current.entries()) {
+      if (userChoice) {
+        merged.add(key);
+      } else {
+        merged.delete(key);
+      }
+    }
+
+    setVisibleColumnKeys(merged);
+    prevCapKeysRef.current = newDefaults;
+  }, [capabilities]); // runs when campaign changes (capabilities recalculates)
+
+  // Toggle handler — records user override
+  const toggleColumn = useCallback((key: string, checked: boolean) => {
+    userOverridesRef.current.set(key, checked);
+    setVisibleColumnKeys(prev => {
+      const next = new Set(prev);
+      if (checked) next.add(key); else next.delete(key);
+      return next;
+    });
+  }, []);
+
+  // Final ordered column list for the table
+  // Order: Rank, Content, [visible dynamic in canonical order], Revenue
+  const columns = useMemo((): ColumnDef[] => {
+    const visibleDynamic = ALL_TOGGLEABLE_COLUMNS.filter(
+      col => visibleColumnKeys.has(col.key),
+    );
+    return [RANK_COLUMN, CONTENT_COLUMN, ...visibleDynamic, REVENUE_COLUMN];
+  }, [visibleColumnKeys]);
 
   // ─────────────────────────────────────────────────────────────────────────────
   // Engine orchestration — campaign filter passed directly
@@ -547,7 +613,10 @@ export default function Dashboard() {
 
         {/* Sort by */}
         <div className="flex items-center gap-2">
-          <span className="text-[9px] font-black uppercase tracking-widest text-zinc-600">Sort</span>
+          <div className="flex flex-col items-start">
+            <span className="text-[9px] font-black uppercase tracking-widest text-zinc-600">Sort</span>
+            <span className="text-[7px] font-bold uppercase tracking-widest text-zinc-700 -mt-0.5">ranks rows only</span>
+          </div>
           <div className="flex items-center gap-1 p-1 bg-zinc-900 border border-zinc-800 rounded-xl">
             {SORT_OPTIONS.map(opt => (
               <button
@@ -583,6 +652,79 @@ export default function Dashboard() {
               </button>
             ))}
           </div>
+        </div>
+
+        <div className="w-px h-5 bg-zinc-800" />
+
+        {/* ⚙️ Column visibility panel */}
+        <div className="relative">
+          <button
+            onClick={() => setColumnPanelOpen(v => !v)}
+            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-[9px] font-black uppercase tracking-widest border transition-all ${
+              columnPanelOpen
+                ? 'bg-zinc-800 border-zinc-600 text-white'
+                : 'bg-zinc-900 border-zinc-800 text-zinc-400 hover:border-zinc-700 hover:text-zinc-300'
+            }`}
+          >
+            <Settings2 size={11} />
+            Columns
+            <span className="px-1.5 py-0.5 rounded bg-zinc-700 text-zinc-400 text-[7px] font-black uppercase tracking-wider">
+              visibility only
+            </span>
+          </button>
+
+          {columnPanelOpen && (
+            <>
+              {/* Backdrop */}
+              <div
+                className="fixed inset-0 z-40"
+                onClick={() => setColumnPanelOpen(false)}
+              />
+              {/* Panel */}
+              <div className="absolute top-full mt-2 left-0 z-50 w-64 bg-zinc-900 border border-zinc-800 rounded-xl shadow-2xl overflow-hidden">
+                <div className="px-4 py-3 border-b border-zinc-800">
+                  <span className="text-[8px] font-black uppercase tracking-widest text-zinc-500">
+                    Column Visibility
+                  </span>
+                </div>
+
+                <div className="px-4 py-3 space-y-3">
+                  {/* Revenue — always on, locked */}
+                  <div className="flex items-center justify-between">
+                    <span className="text-[11px] font-semibold text-zinc-300">Revenue</span>
+                    <div className="flex items-center gap-2">
+                      <span className="text-[7px] font-black uppercase tracking-widest text-zinc-600">Always on</span>
+                      <input
+                        type="checkbox"
+                        checked
+                        disabled
+                        className="w-3.5 h-3.5 accent-emerald-500 opacity-50 cursor-not-allowed"
+                      />
+                    </div>
+                  </div>
+
+                  {/* Toggleable columns */}
+                  {ALL_TOGGLEABLE_COLUMNS.map(col => (
+                    <div key={col.key} className="flex items-center justify-between">
+                      <span className="text-[11px] font-semibold text-zinc-300">{col.label}</span>
+                      <input
+                        type="checkbox"
+                        checked={visibleColumnKeys.has(col.key)}
+                        onChange={e => toggleColumn(col.key, e.target.checked)}
+                        className="w-3.5 h-3.5 accent-zinc-400 cursor-pointer"
+                      />
+                    </div>
+                  ))}
+                </div>
+
+                <div className="px-4 py-2.5 border-t border-zinc-800">
+                  <span className="text-[8px] font-bold text-zinc-600">
+                    Defaults set by selected campaign
+                  </span>
+                </div>
+              </div>
+            </>
+          )}
         </div>
       </div>
 
@@ -732,12 +874,18 @@ export default function Dashboard() {
                                   <p className="text-[11px] font-bold truncate leading-snug mb-1">
                                     {renderContentIdentity(row.video)}
                                   </p>
-                                  <div className="flex items-center gap-1.5 mb-0.5">
-                                    {getStatusIcon(row.video.status ?? '')}
-                                    <span className="text-[8px] font-black uppercase text-zinc-600 tracking-tighter">
-                                      {(row.video.status ?? '').replace('_', ' ')}
-                                    </span>
-                                  </div>
+                                  {(() => {
+                                    const st = row.video.status;
+                                    if (!st || st === 'no_data') return null;
+                                    return (
+                                      <div className="flex items-center gap-1.5 mb-0.5">
+                                        {getStatusIcon(st)}
+                                        <span className="text-[8px] font-black uppercase text-zinc-600 tracking-tighter">
+                                          {st.replace('_', ' ')}
+                                        </span>
+                                      </div>
+                                    );
+                                  })()}
                                   {addedDate && (
                                     <p className="text-[8px] font-bold text-zinc-700 tracking-tight">
                                       Added: {addedDate}
