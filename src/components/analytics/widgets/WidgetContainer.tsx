@@ -179,7 +179,7 @@ export default function WidgetContainer({
             onMouseDown={(e) => { e.stopPropagation(); onDelete() }}
             title="Delete widget"
           >
-            ×
+            🗑
           </button>
         )}
       </div>
