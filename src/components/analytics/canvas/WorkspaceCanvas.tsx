@@ -40,7 +40,15 @@ import React, {
 import { useWorkspaceStore } from '../store/useWorkspaceStore'
 import WidgetContainer from '../widgets/WidgetContainer'
 import CanvasGrid from './CanvasGrid'
+// ─── Color Palette ────────────────────────────────────────────────────────────
 
+const BG_COLORS = [
+  { label: 'Dark',  value: '#111827' },
+  { label: 'White', value: '#ffffff' },
+  { label: 'Gray',  value: '#f3f4f6' },
+  { label: 'Blue',  value: '#dbeafe' },
+  { label: 'Green', value: '#dcfce7' },
+]
 // ─── Pointer Mode ─────────────────────────────────────────────────────────────
 
 type PointerMode = 'idle' | 'panning' | 'dragging-widget' | 'resizing-widget'
@@ -113,7 +121,13 @@ export default function WorkspaceCanvas() {
   const updateWidget = useWorkspaceStore((s) => s.updateWidget)
   const deleteWidget = useWorkspaceStore((s) => s.deleteWidget)
   const toCanvasPoint = useWorkspaceStore((s) => s.toCanvasPoint)
+  const activeBoardColor = useWorkspaceStore((s) =>
+    s.boards.find((b) => b.id === s.activeBoardId)?.background_color ?? '#111827'
+  )
 
+  const setBoardColor = useWorkspaceStore((s) => s.setBoardColor)
+
+  const activeBoardId = useWorkspaceStore((s) => s.activeBoardId)
   // ─── Global mousemove ────────────────────────────────────────────────────
 
   const handleMouseMove = useCallback(
@@ -317,7 +331,7 @@ export default function WorkspaceCanvas() {
   return (
     <div
       ref={containerRef}
-      style={styles.container}
+      style={{ ...styles.container, background: activeBoardColor }}
       onMouseDown={handleCanvasMouseDown}
     >
       {/* Grid — rendered in screen space, tiles behind the canvas layer */}
@@ -359,6 +373,23 @@ export default function WorkspaceCanvas() {
         <button style={{ ...styles.zoomBtn, ...styles.zoomReset }} onClick={resetView} title="Reset view">
           ⌂
         </button>
+        <div style={styles.colorSeparator} />
+
+        {BG_COLORS.map((c) => (
+          <button
+            key={c.value}
+            title={`Background: ${c.label}`}
+            style={{
+              ...styles.colorSwatch,
+              background: c.value,
+              border:
+                activeBoardColor === c.value
+                  ? '2px solid #6366f1'
+                  : '2px solid #3a3a3a',
+            }}
+    onClick={() => activeBoardId && setBoardColor(activeBoardId, c.value)}
+  />
+))}
       </div>
     </div>
   )
@@ -420,5 +451,21 @@ const styles: Record<string, React.CSSProperties> = {
     borderLeft: '1px solid #2a2a2a',
     marginLeft: 2,
     paddingLeft: 2,
+  },
+  colorSeparator: {
+    width: 1,
+    height: 18,
+    background: '#2a2a2a',
+    marginLeft: 4,
+    marginRight: 2,
+  },
+
+  colorSwatch: {
+    width: 16,
+    height: 16,
+    borderRadius: 4,
+    cursor: 'pointer',
+    padding: 0,
+    flexShrink: 0,
   },
 }

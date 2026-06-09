@@ -45,6 +45,7 @@ export interface Board {
   id: string
   user_id: string
   name: string
+  background_color: string     // canvas background — defaults to '#111827'
   created_at: string
   updated_at: string
 }
@@ -100,6 +101,7 @@ export interface WorkspaceStore {
   renameBoard: (boardId: string, name: string) => Promise<void>
   deleteBoard: (boardId: string) => Promise<void>
   switchBoard: (boardId: string) => void
+  setBoardColor: (boardId: string, color: string) => Promise<void>
 
   // ── Widgets ────────────────────────────────────────────────────────────────
   addWidget: (partial: Omit<Widget, 'created_at' | 'updated_at'>) => Promise<void>
@@ -118,6 +120,7 @@ export interface WorkspaceStore {
 const MIN_SCALE = 0.1
 const MAX_SCALE = 4.0
 const INITIAL_TRANSFORM: CanvasTransform = { x: 0, y: 0, scale: 1 }
+const DEFAULT_BG_COLOR = '#111827'
 
 // Debounce map: widgetId → timeout handle
 // Stored outside Zustand to avoid triggering re-renders
@@ -227,7 +230,10 @@ export const useWorkspaceStore = create<WorkspaceStore>((set, get) => ({
 
     if (boardError) throw boardError
 
-    const boards = (boardRows ?? []) as Board[]
+    const boards = (boardRows ?? []).map((row) => ({
+      ...row,
+      background_color: row.background_color ?? DEFAULT_BG_COLOR,
+    })) as Board[]
 
     // If user has no boards yet, create a default one
     if (boards.length === 0) {
@@ -317,6 +323,7 @@ export const useWorkspaceStore = create<WorkspaceStore>((set, get) => ({
       id: optimisticId,
       user_id: userId,
       name,
+      background_color: DEFAULT_BG_COLOR,
       created_at: now,
       updated_at: now,
     }
@@ -331,7 +338,7 @@ export const useWorkspaceStore = create<WorkspaceStore>((set, get) => ({
     // Persist to Supabase
     const { data, error } = await supabase
       .from('boards')
-      .insert({ name, user_id: userId })
+      .insert({ name, user_id: userId, background_color: DEFAULT_BG_COLOR })
       .select()
       .single()
 
@@ -351,7 +358,9 @@ export const useWorkspaceStore = create<WorkspaceStore>((set, get) => ({
     const realBoard = data as SupabaseBoard
     set((s) => ({
       boards: s.boards.map((b) =>
-        b.id === optimisticId ? { ...b, id: realBoard.id } : b
+        b.id === optimisticId
+          ? { ...b, id: realBoard.id, background_color: realBoard.background_color ?? DEFAULT_BG_COLOR }
+          : b
       ),
       widgetsByBoard: Object.fromEntries(
         Object.entries(s.widgetsByBoard).map(([k, v]) =>
@@ -400,6 +409,24 @@ export const useWorkspaceStore = create<WorkspaceStore>((set, get) => ({
 
   switchBoard: (boardId) => {
     set({ activeBoardId: boardId, transform: INITIAL_TRANSFORM })
+  },
+
+  setBoardColor: async (boardId, color) => {
+    // Optimistic
+    set((s) => ({
+      boards: s.boards.map((b) =>
+        b.id === boardId
+          ? { ...b, background_color: color, updated_at: new Date().toISOString() }
+          : b
+      ),
+    }))
+
+    const { error } = await supabase
+      .from('boards')
+      .update({ background_color: color, updated_at: new Date().toISOString() })
+      .eq('id', boardId)
+
+    if (error) throw error
   },
 
   // ─────────────────────────────────────────────────────────────────────────
