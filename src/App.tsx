@@ -33,6 +33,7 @@ function Navigation() {
     { to: '/dashboard', icon: LayoutDashboard, label: t.nav.dashboard },
     { to: '/campaigns', icon: Briefcase, label: t.nav.campaigns },
     { to: '/videos', icon: Video, label: t.nav.videos },
+    { to: '/workspace', icon: Briefcase, label: t.nav.workspace },
     { to: '/analytics', icon: BarChart3, label: t.nav.analytics },
     { to: '/installation', icon: Code, label: t.nav.installation || 'Install' },
   ];
