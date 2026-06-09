@@ -22,6 +22,7 @@ import Track from './pages/Track';
 import Settings from './pages/Settings';
 import AnalyticsTest from './pages/AnalyticsTest';
 import Pricing from './pages/Pricing';
+import Workspace from './pages/Workspace';
 
 function Navigation() {
   const { lang, toggleLanguage, t } = useLanguage();
@@ -136,6 +137,7 @@ function MainContent() {
         <Route path="*" element={<Navigate to="/dashboard" replace />} />
         <Route path="/analytics-test" element={<AnalyticsTest />} />
         <Route path="/pricing" element={<PageWrapper><Pricing /></PageWrapper>} />
+        <Route path="/workspace" element={<PageWrapper><Workspace /></PageWrapper>} />
       </Routes>
     </AnimatePresence>
   );

@@ -72,7 +72,7 @@ export interface WorkspaceStore {
 
   // ── Bootstrap ──────────────────────────────────────────────────────────────
   /** Load all boards (and their widgets) for the given user from Supabase. */
-  loadBoards: (userId: string | null) => Promise<void>
+  loadBoards: (userId: string) => Promise<void>
 
   // ── Canvas ─────────────────────────────────────────────────────────────────
   pan: (dx: number, dy: number) => void
@@ -122,22 +122,8 @@ export const useWorkspaceStore = create<WorkspaceStore>((set, get) => ({
   // ─────────────────────────────────────────────────────────────────────────
 
   loadBoards: async (userId) => {
-    // If no user, set up a guest board in memory only (no Supabase writes)
-    if (!userId) {
-      const guestBoard: Board = {
-        id: 'guest-board',
-        user_id: 'guest',
-        name: 'My Workspace',
-        created_at: new Date().toISOString(),
-        updated_at: new Date().toISOString(),
-      }
-      set({
-        boards: [guestBoard],
-        activeBoardId: guestBoard.id,
-        widgetsByBoard: { [guestBoard.id]: [] },
-      })
-      return
-    }
+    
+    
 
     // Fetch all boards for this user
     const { data: boardRows, error: boardError } = await supabase
@@ -240,7 +226,7 @@ export const useWorkspaceStore = create<WorkspaceStore>((set, get) => ({
       activeBoardId: optimisticId,
     }))
 
-    if (userId === 'guest') return  // guest mode: no Supabase
+    
 
     // Persist to Supabase
     const { data, error } = await supabase

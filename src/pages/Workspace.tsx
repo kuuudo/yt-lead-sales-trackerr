@@ -52,8 +52,10 @@ export default function Workspace() {
         if (sessionError) throw sessionError
 
         const currentUser = session?.user ?? null
-        if (!cancelled) setUser(currentUser)
-
+        setUser(currentUser)
+        if (currentUser) {
+          await loadBoards(currentUser.id)
+        }
         // 2. Load boards (and their widgets) into the store
         await loadBoards(currentUser?.id ?? null)
 
@@ -75,10 +77,13 @@ export default function Workspace() {
       (_event, session) => {
         if (!cancelled) {
           const nextUser = session?.user ?? null
-          setUser(nextUser)
-          loadBoards(nextUser?.id ?? null)
-        }
-      }
+          if (nextUser) {
+            setUser(nextUser)
+            loadBoards(nextUser.id)
+          } else {
+            setUser(null)
+            clearWorkspace()   // see below
+          }
     )
 
     return () => {
