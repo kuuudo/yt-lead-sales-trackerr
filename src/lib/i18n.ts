@@ -5,7 +5,7 @@ export const translations = {
     nav: {
       dashboard: 'Summary',
       campaigns: 'Campaigns',
-      videos: 'Video List',
+      videos: 'Content',
       analytics: 'Analytics',
       installation: 'Setup',
       settings: 'Settings',

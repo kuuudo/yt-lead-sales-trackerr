@@ -35,6 +35,7 @@ export default function Workspace() {
   const [user, setUser] = useState<User | null>(null)
 
   const loadBoards = useWorkspaceStore((s) => s.loadBoards)
+  const clearWorkspace = useWorkspaceStore((s) => s.clearWorkspace)
   const activeBoardId = useWorkspaceStore((s) => s.activeBoardId)
 
   // ── Bootstrap: resolve session then hydrate store ──────────────────────────
@@ -53,8 +54,9 @@ export default function Workspace() {
 
         const currentUser = session?.user ?? null
         setUser(currentUser)
-        if (currentUser) {
-          await loadBoards(currentUser.id)
+        const userId = currentUser?.id
+        if (userId) {
+          await loadBoards(userId)
         }
        
 
