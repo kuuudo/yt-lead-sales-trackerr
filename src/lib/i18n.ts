@@ -49,7 +49,7 @@ export const translations = {
     },
     videos: {
       title: 'Tracked Videos',
-      add: 'Track New Video',
+      add: 'Track New Content',
       objective: 'Primary Objective',
       status: {
         active: 'Active',
