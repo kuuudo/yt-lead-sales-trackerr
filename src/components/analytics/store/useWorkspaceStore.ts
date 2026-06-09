@@ -340,8 +340,16 @@ clearWorkspace: () => {
     console.log('widget.user_id =', widget.user_id)
     console.log('===================')
 
-    const { error } = await supabase.from('widgets').insert(widgetToRow(widget))
+    const payload = widgetToRow(widget)
+
+console.log('INSERT PAYLOAD', payload)
+
+const { error } = await supabase
+  .from('widgets')
+  .insert(payload)
     if (error) {
+      console.error('SUPABASE INSERT ERROR', error)
+    
       // Roll back
       set((s) => ({
         widgetsByBoard: {
