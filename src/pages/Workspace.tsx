@@ -84,7 +84,9 @@ export default function Workspace() {
             setUser(null)
             clearWorkspace()   // see below
           }
-    )
+        }
+      }
+    );
 
     return () => {
       cancelled = true
