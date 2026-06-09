@@ -69,6 +69,7 @@ export interface WorkspaceStore {
   widgetsByBoard: Record<string, Widget[]>   // boardId → Widget[]
   transform: CanvasTransform
   isSaving: boolean
+  clearWorkspace: () => void
 
   // ── Bootstrap ──────────────────────────────────────────────────────────────
   /** Load all boards (and their widgets) for the given user from Supabase. */
@@ -172,6 +173,15 @@ export const useWorkspaceStore = create<WorkspaceStore>((set, get) => ({
   // ─────────────────────────────────────────────────────────────────────────
   // Canvas
   // ─────────────────────────────────────────────────────────────────────────
+
+clearWorkspace: () => {
+    set({
+      boards: [],
+      activeBoardId: null,
+      widgetsByBoard: {},
+      transform: { x: 0, y: 0, scale: 1 },
+    })
+  },
 
   pan: (dx, dy) => {
     set((s) => ({
