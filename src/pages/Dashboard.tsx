@@ -924,7 +924,7 @@ export default function Dashboard() {
           to="/campaigns"
           className="flex items-center justify-between px-5 py-3 bg-zinc-900 border border-zinc-800 rounded-xl text-[10px] font-black uppercase tracking-widest text-zinc-500 hover:text-white hover:border-zinc-700 transition-all group"
         >
-          View All Funnels
+          View All Campaigns
           <ArrowRight size={13} className="text-zinc-700 group-hover:text-zinc-400 transition-colors" />
         </Link>
       </div>
