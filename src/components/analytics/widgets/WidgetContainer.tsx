@@ -179,7 +179,7 @@ export default function WidgetContainer({
             onMouseDown={(e) => { e.stopPropagation(); onDelete() }}
             title="Delete widget"
           >
-            🗑
+            ×
           </button>
         )}
       </div>
@@ -268,7 +268,7 @@ const styles: Record<string, React.CSSProperties> = {
   deleteBtn: {
     background: 'transparent',
     border: 'none',
-    color: '#444',
+    color: '#ccc',
     fontSize: 16,
     cursor: 'pointer',
     lineHeight: 1,
