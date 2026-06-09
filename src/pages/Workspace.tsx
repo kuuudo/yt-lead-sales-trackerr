@@ -56,8 +56,7 @@ export default function Workspace() {
         if (currentUser) {
           await loadBoards(currentUser.id)
         }
-        // 2. Load boards (and their widgets) into the store
-        await loadBoards(currentUser?.id ?? null)
+       
 
         if (!cancelled) setStatus('ready')
       } catch (err: unknown) {
