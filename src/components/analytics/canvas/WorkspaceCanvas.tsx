@@ -106,12 +106,13 @@ export default function WorkspaceCanvas() {
   const pan = useWorkspaceStore((s) => s.pan)
   const zoom = useWorkspaceStore((s) => s.zoom)
   const resetView = useWorkspaceStore((s) => s.resetView)
-  const activeWidgets = useWorkspaceStore((s) => s.activeWidgets)
+  const widgets = useWorkspaceStore((s) =>
+    s.activeBoardId ? (s.widgetsByBoard[s.activeBoardId] ?? []) : []
+  )
+
   const updateWidget = useWorkspaceStore((s) => s.updateWidget)
   const deleteWidget = useWorkspaceStore((s) => s.deleteWidget)
   const toCanvasPoint = useWorkspaceStore((s) => s.toCanvasPoint)
-
-  const widgets = activeWidgets()
 
   // ─── Global mousemove ────────────────────────────────────────────────────
 

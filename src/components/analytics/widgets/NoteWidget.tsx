@@ -4,19 +4,19 @@
  * Editable text note widget.
  *
  * Features:
- *  - Full-body textarea with auto-save on change (debounced via updateWidget)
+ *  - Local textarea state for instant typing
+ *  - Debounced Zustand updates (300ms)
+ *  - Prevents canvas re-render on every keystroke
  *  - Placeholder text when empty
- *  - Mousedown on textarea is stopped from reaching the canvas
- *    (handled by WidgetContainer's body stopPropagation — no extra work needed here)
- *  - Wheel events inside the textarea stop propagating to prevent
- *    accidental canvas zoom when scrolling long notes
- *
- * The `data` field stores: { text: string }
- * The `config` field is unused for notes but preserved for future note config
- * (e.g. font size, color, pinned).
+ *  - Wheel events inside textarea do not zoom canvas
  */
 
-import React, { useCallback, useRef } from 'react'
+import React, {
+  useCallback,
+  useEffect,
+  useRef,
+  useState,
+} from 'react'
 import type { Widget } from '../store/useWorkspaceStore'
 
 interface Props {
@@ -25,12 +25,48 @@ interface Props {
 }
 
 export default function NoteWidget({ widget, onUpdate }: Props) {
-  const text = (widget.data.text as string) ?? ''
   const textareaRef = useRef<HTMLTextAreaElement>(null)
+
+  // Store value
+  const storeText = (widget.data.text as string) ?? ''
+
+  // Local state drives the textarea
+  const [localText, setLocalText] = useState<string>(storeText)
+
+  // Tracks our own writes so we don't overwrite typing
+  const lastStorePush = useRef(storeText)
+
+  useEffect(() => {
+    if (storeText !== lastStorePush.current) {
+      setLocalText(storeText)
+      lastStorePush.current = storeText
+    }
+  }, [storeText])
+
+  // Debounce Zustand writes
+  const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
   const handleChange = useCallback(
     (e: React.ChangeEvent<HTMLTextAreaElement>) => {
-      onUpdate({ data: { ...widget.data, text: e.target.value } })
+      const value = e.target.value
+
+      // Instant UI update
+      setLocalText(value)
+
+      if (debounceRef.current) {
+        clearTimeout(debounceRef.current)
+      }
+
+      debounceRef.current = setTimeout(() => {
+        lastStorePush.current = value
+
+        onUpdate({
+          data: {
+            ...widget.data,
+            text: value,
+          },
+        })
+      }, 300)
     },
     [onUpdate, widget.data]
   )
@@ -40,10 +76,19 @@ export default function NoteWidget({ widget, onUpdate }: Props) {
     e.stopPropagation()
   }, [])
 
+  // Cleanup pending debounce if widget is removed
+  useEffect(() => {
+    return () => {
+      if (debounceRef.current) {
+        clearTimeout(debounceRef.current)
+      }
+    }
+  }, [])
+
   return (
     <textarea
       ref={textareaRef}
-      value={text}
+      value={localText}
       onChange={handleChange}
       onWheel={handleWheel}
       placeholder="Start writing…"

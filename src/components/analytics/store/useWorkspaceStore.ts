@@ -381,11 +381,13 @@ const { error } = await supabase
     const existing = saveDebounceMap.get(id)
     if (existing) clearTimeout(existing)
 
+    // AFTER
     saveDebounceMap.set(
       id,
       setTimeout(async () => {
         saveDebounceMap.delete(id)
-        // Find the latest state for this widget
+        // Read the LATEST state at fire-time, not the captured patch closure.
+        // This means a type-then-drag sequence always writes the full correct state.
         const allWidgets = Object.values(get().widgetsByBoard).flat()
         const widget = allWidgets.find((w) => w.id === id)
         if (!widget || widget.user_id === 'guest') return
@@ -393,10 +395,7 @@ const { error } = await supabase
         set({ isSaving: true })
         const { error } = await supabase
           .from('widgets')
-          .update({
-            ...patch,
-            updated_at: new Date().toISOString(),
-          })
+          .update(widgetToRow(widget))   // ← full state, not patch
           .eq('id', id)
 
         if (error) console.error('[useWorkspaceStore] updateWidget save error:', error)
