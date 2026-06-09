@@ -48,7 +48,7 @@ export const translations = {
       }
     },
     videos: {
-      title: 'Tracked Videos',
+      title: 'Content Library',
       add: 'Track New Content',
       objective: 'Primary Objective',
       status: {
