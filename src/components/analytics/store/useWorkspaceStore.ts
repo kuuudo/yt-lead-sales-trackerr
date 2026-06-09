@@ -18,7 +18,6 @@
  */
 
 import { create } from 'zustand'
-import { nanoid } from 'nanoid'
 import { supabase } from '../../../lib/supabaseClient'
 import type { SupabaseWidget, SupabaseBoard } from './types'
 
@@ -219,7 +218,7 @@ clearWorkspace: () => {
 
   createBoard: async (name, userId) => {
     const now = new Date().toISOString()
-    const optimisticId = nanoid()
+    const optimisticId = crypto.randomUUID()
 
     const newBoard: Board = {
       id: optimisticId,
@@ -333,6 +332,13 @@ clearWorkspace: () => {
     }))
 
     if (widget.user_id === 'guest') return  // guest mode: no Supabase
+
+    console.log('===================')
+    console.log('WIDGET INSERT')
+    console.log('widget.id =', widget.id)
+    console.log('widget.board_id =', widget.board_id)
+    console.log('widget.user_id =', widget.user_id)
+    console.log('===================')
 
     const { error } = await supabase.from('widgets').insert(widgetToRow(widget))
     if (error) {

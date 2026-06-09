@@ -17,7 +17,6 @@
  */
 
 import React, { useCallback } from 'react'
-import { nanoid } from 'nanoid'
 import { useWorkspaceStore } from '../store/useWorkspaceStore'
 import { TOOLBAR_ITEMS, WIDGET_DEFAULTS } from '../widgets/WidgetRegistry'
 
@@ -49,7 +48,7 @@ export default function WorkspaceToolbar({ userId }: Props) {
 
       const now = new Date().toISOString()
       const widget = {
-        id: nanoid(),
+        id: crypto.randomUUID(),
         board_id: activeBoardId,
         user_id: userId ?? 'guest',
         title: null,
