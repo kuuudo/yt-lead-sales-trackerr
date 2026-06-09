@@ -155,6 +155,9 @@ const styles: Record<string, React.CSSProperties> = {
     display: 'flex',
     flexDirection: 'column',
     background: '#0f0f0f',
+    backgroundImage: 'radial-gradient(#1f1f1f 1px, transparent 1px)',
+    backgroundSize: '24px 24px',
+
     overflow: 'hidden',
     fontFamily:
       '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif',
