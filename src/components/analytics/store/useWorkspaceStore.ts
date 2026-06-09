@@ -10,6 +10,7 @@
  *  - Supabase sync for all mutations
  *  - Optimistic in-memory updates: UI updates immediately, Supabase follows
  *  - Debounced position/size saves (widget move / resize generates many events)
+ *  - Undo / Redo (Ctrl+Z / Ctrl+Y) for create, delete, and text edits
  *
  * No localStorage. Supabase is the only persistence layer.
  *
@@ -59,6 +60,13 @@ export interface Point {
   y: number
 }
 
+// ─── History Types ────────────────────────────────────────────────────────────
+
+type HistoryEntry =
+  | { type: 'ADD_WIDGET';    widget: Widget }
+  | { type: 'DELETE_WIDGET'; widget: Widget }
+  | { type: 'UPDATE_WIDGET'; id: string; before: Partial<Widget>; after: Partial<Widget> }
+
 // ─── Store Interface ──────────────────────────────────────────────────────────
 
 export interface WorkspaceStore {
@@ -69,6 +77,14 @@ export interface WorkspaceStore {
   transform: CanvasTransform
   isSaving: boolean
   clearWorkspace: () => void
+
+  // ── History ────────────────────────────────────────────────────────────────
+  canUndo: boolean
+  canRedo: boolean
+  undo: () => Promise<void>
+  redo: () => Promise<void>
+  /** Internal: push an entry onto history. Called by add/delete/update. */
+  _recordHistory: (entry: HistoryEntry) => void
 
   // ── Bootstrap ──────────────────────────────────────────────────────────────
   /** Load all boards (and their widgets) for the given user from Supabase. */
@@ -108,6 +124,29 @@ const INITIAL_TRANSFORM: CanvasTransform = { x: 0, y: 0, scale: 1 }
 const saveDebounceMap = new Map<string, ReturnType<typeof setTimeout>>()
 const SAVE_DEBOUNCE_MS = 600
 
+// ─── History (module-level, outside Zustand state) ────────────────────────────
+//
+// Stored outside Zustand so the stacks don't trigger re-renders on every push.
+// Only `canUndo` / `canRedo` booleans live in Zustand state and cause renders.
+
+const MAX_HISTORY = 50
+
+const historyStack = {
+  past:   [] as HistoryEntry[],
+  future: [] as HistoryEntry[],
+}
+
+// Prevents undo/redo from re-recording the inverse action as a new history entry
+let _isUndoing = false
+
+// Debounce for UPDATE_WIDGET history entries (text edits fire on every keystroke)
+// Maps widgetId → { timeoutHandle, stateBeforeEdit }
+const historyDebounceMap = new Map<string, {
+  handle: ReturnType<typeof setTimeout>
+  before: Partial<Widget>
+}>()
+const HISTORY_DEBOUNCE_MS = 800  // slightly longer than save debounce
+
 // ─── Store Implementation ─────────────────────────────────────────────────────
 
 export const useWorkspaceStore = create<WorkspaceStore>((set, get) => ({
@@ -117,14 +156,68 @@ export const useWorkspaceStore = create<WorkspaceStore>((set, get) => ({
   transform: INITIAL_TRANSFORM,
   isSaving: false,
 
+  // ── History state ──────────────────────────────────────────────────────────
+  canUndo: false,
+  canRedo: false,
+
+  _recordHistory: (entry) => {
+    // Skip recording when the mutation was triggered by undo/redo itself
+    if (_isUndoing) return
+
+    historyStack.past.push(entry)
+
+    // Cap history at MAX_HISTORY entries
+    if (historyStack.past.length > MAX_HISTORY) {
+      historyStack.past.splice(0, historyStack.past.length - MAX_HISTORY)
+    }
+
+    // Any new action wipes the redo future
+    historyStack.future = []
+
+    set({ canUndo: true, canRedo: false })
+  },
+
+  undo: async () => {
+    const entry = historyStack.past.pop()
+    if (!entry) return
+
+    historyStack.future.push(entry)
+    set({
+      canUndo: historyStack.past.length > 0,
+      canRedo: true,
+    })
+
+    _isUndoing = true
+    try {
+      await applyInverse(entry, get())
+    } finally {
+      _isUndoing = false
+    }
+  },
+
+  redo: async () => {
+    const entry = historyStack.future.pop()
+    if (!entry) return
+
+    historyStack.past.push(entry)
+    set({
+      canUndo: true,
+      canRedo: historyStack.future.length > 0,
+    })
+
+    _isUndoing = true
+    try {
+      await applyForward(entry, get())
+    } finally {
+      _isUndoing = false
+    }
+  },
+
   // ─────────────────────────────────────────────────────────────────────────
   // Bootstrap
   // ─────────────────────────────────────────────────────────────────────────
 
   loadBoards: async (userId) => {
-    
-    
-
     // Fetch all boards for this user
     const { data: boardRows, error: boardError } = await supabase
       .from('boards')
@@ -173,7 +266,7 @@ export const useWorkspaceStore = create<WorkspaceStore>((set, get) => ({
   // Canvas
   // ─────────────────────────────────────────────────────────────────────────
 
-clearWorkspace: () => {
+  clearWorkspace: () => {
     set({
       boards: [],
       activeBoardId: null,
@@ -234,8 +327,6 @@ clearWorkspace: () => {
       widgetsByBoard: { ...s.widgetsByBoard, [optimisticId]: [] },
       activeBoardId: optimisticId,
     }))
-
-    
 
     // Persist to Supabase
     const { data, error } = await supabase
@@ -331,6 +422,9 @@ clearWorkspace: () => {
       },
     }))
 
+    // ── Record history ──────────────────────────────────────────────────────
+    get()._recordHistory({ type: 'ADD_WIDGET', widget })
+
     if (widget.user_id === 'guest') return  // guest mode: no Supabase
 
     console.log('===================')
@@ -342,14 +436,15 @@ clearWorkspace: () => {
 
     const payload = widgetToRow(widget)
 
-console.log('INSERT PAYLOAD', payload)
+    console.log('INSERT PAYLOAD', payload)
 
-const { error } = await supabase
-  .from('widgets')
-  .insert(payload)
+    const { error } = await supabase
+      .from('widgets')
+      .insert(payload)
+
     if (error) {
       console.error('SUPABASE INSERT ERROR', error)
-    
+
       // Roll back
       set((s) => ({
         widgetsByBoard: {
@@ -364,6 +459,43 @@ const { error } = await supabase
   },
 
   updateWidget: (id, patch) => {
+    // ── Capture the widget state BEFORE this edit sequence starts ───────────
+    // We only capture `before` on the first keystroke of a debounce window;
+    // subsequent keystrokes extend the timer but keep the original `before`.
+    if (!_isUndoing) {
+      const existingDebounce = historyDebounceMap.get(id)
+
+      // Snapshot the fields being patched, from the current (pre-patch) state
+      const before: Partial<Widget> = existingDebounce?.before ?? (() => {
+        const allWidgets = Object.values(get().widgetsByBoard).flat()
+        const current = allWidgets.find((w) => w.id === id)
+        if (!current) return patch
+        // Capture only the keys that are changing
+        return Object.fromEntries(
+          Object.keys(patch).map((k) => [k, (current as Record<string, unknown>)[k]])
+        ) as Partial<Widget>
+      })()
+
+      if (existingDebounce) clearTimeout(existingDebounce.handle)
+
+      historyDebounceMap.set(id, {
+        before,
+        handle: setTimeout(() => {
+          historyDebounceMap.delete(id)
+          // Only record if something actually changed
+          const allWidgets = Object.values(get().widgetsByBoard).flat()
+          const current = allWidgets.find((w) => w.id === id)
+          if (!current) return
+
+          const after = Object.fromEntries(
+            Object.keys(before).map((k) => [k, (current as Record<string, unknown>)[k]])
+          ) as Partial<Widget>
+
+          get()._recordHistory({ type: 'UPDATE_WIDGET', id, before, after })
+        }, HISTORY_DEBOUNCE_MS),
+      })
+    }
+
     // Optimistic in-memory update (synchronous, no await — used for drag/resize)
     set((s) => {
       const updated: Record<string, Widget[]> = {}
@@ -381,7 +513,6 @@ const { error } = await supabase
     const existing = saveDebounceMap.get(id)
     if (existing) clearTimeout(existing)
 
-    // AFTER
     saveDebounceMap.set(
       id,
       setTimeout(async () => {
@@ -418,6 +549,9 @@ const { error } = await supabase
 
     const widget = widgetsByBoard[boardId]?.find((w) => w.id === id)
     if (!widget) return
+
+    // ── Record history BEFORE removal ───────────────────────────────────────
+    get()._recordHistory({ type: 'DELETE_WIDGET', widget })
 
     // Optimistic
     set((s) => ({
@@ -460,6 +594,39 @@ const { error } = await supabase
     }
   },
 }))
+
+// ─── History: Apply forward / inverse ────────────────────────────────────────
+//
+// These run actual store mutations (which go through Supabase normally).
+// _isUndoing = true prevents them from re-recording history.
+
+async function applyInverse(entry: HistoryEntry, store: WorkspaceStore): Promise<void> {
+  switch (entry.type) {
+    case 'ADD_WIDGET':
+      await store.deleteWidget(entry.widget.id)
+      break
+    case 'DELETE_WIDGET':
+      await store.addWidget(entry.widget)
+      break
+    case 'UPDATE_WIDGET':
+      store.updateWidget(entry.id, entry.before)
+      break
+  }
+}
+
+async function applyForward(entry: HistoryEntry, store: WorkspaceStore): Promise<void> {
+  switch (entry.type) {
+    case 'ADD_WIDGET':
+      await store.addWidget(entry.widget)
+      break
+    case 'DELETE_WIDGET':
+      await store.deleteWidget(entry.widget.id)
+      break
+    case 'UPDATE_WIDGET':
+      store.updateWidget(entry.id, entry.after)
+      break
+  }
+}
 
 // ─── Row ↔ Widget Mappers ─────────────────────────────────────────────────────
 

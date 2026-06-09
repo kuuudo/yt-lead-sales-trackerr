@@ -11,12 +11,13 @@
  *   widgetOrigin = { x: canvasCenter.x - width/2, y: canvasCenter.y - height/2 }
  *
  * Save indicator lives here — it reads isSaving from the store.
+ * Undo / Redo buttons live here — Ctrl+Z / Ctrl+Y keyboard shortcuts too.
  *
  * Dependencies:
  *   nanoid — npm install nanoid
  */
 
-import React, { useCallback } from 'react'
+import React, { useCallback, useEffect } from 'react'
 import { useWorkspaceStore } from '../store/useWorkspaceStore'
 import { TOOLBAR_ITEMS, WIDGET_DEFAULTS } from '../widgets/WidgetRegistry'
 
@@ -26,10 +27,41 @@ interface Props {
 
 export default function WorkspaceToolbar({ userId }: Props) {
   const activeBoardId = useWorkspaceStore((s) => s.activeBoardId)
-  const addWidget = useWorkspaceStore((s) => s.addWidget)
+  const addWidget    = useWorkspaceStore((s) => s.addWidget)
   const toCanvasPoint = useWorkspaceStore((s) => s.toCanvasPoint)
-  const isSaving = useWorkspaceStore((s) => s.isSaving)
+  const isSaving     = useWorkspaceStore((s) => s.isSaving)
+  const canUndo      = useWorkspaceStore((s) => s.canUndo)
+  const canRedo      = useWorkspaceStore((s) => s.canRedo)
+  const undo         = useWorkspaceStore((s) => s.undo)
+  const redo         = useWorkspaceStore((s) => s.redo)
 
+  // ── Keyboard shortcuts ────────────────────────────────────────────────────
+  useEffect(() => {
+    const handleKey = (e: KeyboardEvent) => {
+      const isMac = navigator.platform.toUpperCase().includes('MAC')
+      const mod = isMac ? e.metaKey : e.ctrlKey
+
+      // Ignore shortcuts when the user is typing in an input / textarea
+      const tag = (e.target as HTMLElement)?.tagName
+      if (tag === 'INPUT' || tag === 'TEXTAREA' || (e.target as HTMLElement)?.isContentEditable) {
+        return
+      }
+
+      if (mod && !e.shiftKey && e.key === 'z') {
+        e.preventDefault()
+        undo()
+      } else if (mod && (e.key === 'y' || (e.shiftKey && e.key === 'z'))) {
+        // Ctrl+Y  or  Ctrl+Shift+Z (common on some OSes)
+        e.preventDefault()
+        redo()
+      }
+    }
+
+    window.addEventListener('keydown', handleKey)
+    return () => window.removeEventListener('keydown', handleKey)
+  }, [undo, redo])
+
+  // ── Widget creation ───────────────────────────────────────────────────────
   const handleAdd = useCallback(
     (type: string) => {
       if (!activeBoardId) return
@@ -72,6 +104,36 @@ export default function WorkspaceToolbar({ userId }: Props) {
   return (
     <div style={styles.wrapper}>
       <div style={styles.toolbar}>
+        {/* ── Undo / Redo ─────────────────────────────────────────────────── */}
+        <button
+          style={{
+            ...styles.btn,
+            ...(!canUndo ? styles.btnDisabled : {}),
+          }}
+          onClick={undo}
+          disabled={!canUndo}
+          title="Undo (Ctrl+Z)"
+        >
+          <span style={styles.icon}>↶</span>
+          <span style={styles.label}>Undo</span>
+        </button>
+
+        <button
+          style={{
+            ...styles.btn,
+            ...(!canRedo ? styles.btnDisabled : {}),
+          }}
+          onClick={redo}
+          disabled={!canRedo}
+          title="Redo (Ctrl+Y)"
+        >
+          <span style={styles.icon}>↷</span>
+          <span style={styles.label}>Redo</span>
+        </button>
+
+        <div style={styles.divider} />
+
+        {/* ── Widget add buttons ───────────────────────────────────────────── */}
         {TOOLBAR_ITEMS.map((item) => (
           <button
             key={item.type}
@@ -86,6 +148,7 @@ export default function WorkspaceToolbar({ userId }: Props) {
 
         <div style={styles.divider} />
 
+        {/* ── Save indicator ───────────────────────────────────────────────── */}
         <span style={styles.saveIndicator}>
           {isSaving ? (
             <span style={{ color: '#666' }}>Saving…</span>
@@ -132,6 +195,10 @@ const styles: Record<string, React.CSSProperties> = {
     borderRadius: 7,
     transition: 'background 0.15s, color 0.15s',
     fontFamily: 'inherit',
+  },
+  btnDisabled: {
+    color: '#444',
+    cursor: 'default',
   },
   icon: {
     fontSize: 14,
