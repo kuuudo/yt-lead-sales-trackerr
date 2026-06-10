@@ -173,8 +173,11 @@ const isCanvasObject =
     ...(isCanvasObject
       ? {
           opacity: 0,
+          height: '70%',
+          minHeight: '50%',
           borderBottom: 'none',
           background: 'transparent',
+          cursor: 'grab',
         }
       : {}),
   }}
