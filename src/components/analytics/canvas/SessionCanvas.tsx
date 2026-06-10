@@ -36,7 +36,7 @@ const BG_COLORS = [
   { label: 'Green', value: '#dcfce7' },
 ]
 
-const [sessionColor, setSessionColor] = useState('#111827')
+const [sessionColor, setSessionColor] = useState('#ffffff')
 const vpCx = window.innerWidth / 2
 const vpCy = window.innerHeight / 2
 
