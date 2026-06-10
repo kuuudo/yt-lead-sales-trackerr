@@ -240,11 +240,11 @@ const styles: Record<string, React.CSSProperties> = {
   },
   hubBtn: {
     position: 'fixed',
-    top: 16,
+    top: 68,
     left: 24,
-    zIndex: 9999,
+    zIndex: 10000,
     /* Modern styling */
-    background: 'linear-gradient(145deg, #1e1e2e, #16213e)',
+    background: '#16161f',
     color: '#FFFFFF',
     border: '1px solid rgba(255, 255, 255, 0.08)',
     borderRadius: '12px',
