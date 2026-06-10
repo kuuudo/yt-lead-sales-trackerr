@@ -40,7 +40,7 @@ export default function TextWidget({ widget, onUpdate }: Props) {
   const config = widget.config
 
   const storedText   = (config.text       as string) ?? 'New Text'
-  const color        = (config.color      as string) ?? '#e8e8e8'
+  const color        = (config.color      as string) ?? '#000000'
   const fontSize     = (config.fontSize   as number) ?? 24
   const fontWeight   = (config.fontWeight as string) ?? 'bold'
   const align        = (config.align      as string) ?? 'left'

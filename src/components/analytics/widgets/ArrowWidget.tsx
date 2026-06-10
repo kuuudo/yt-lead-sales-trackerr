@@ -29,7 +29,7 @@ interface Props {
 export default function ArrowWidget({ widget, onUpdate }: Props) {
   const config = widget.config
 
-  const color    = (config.color    as string) ?? '#f59e0b'
+  const color    = (config.color    as string) ?? 'transparent'
   const rotation = (config.rotation as number) ?? 0
   const headSize = (config.headSize as number) ?? 0.35
   const opacity  = (config.opacity  as number) ?? 1
