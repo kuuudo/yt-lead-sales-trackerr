@@ -143,48 +143,22 @@ export default function WidgetContainer({
         outline: selected
           ? '2px solid #6b7ff0'
           : hovered
-          ? '1px solid #2e2e2e'
-          : '1px solid #1e1e1e',
+          ? '1px solid rgba(255,255,255,0.15)'
+          : 'none',
         zIndex: selected ? 10 : 1,
       }}
       onMouseEnter={() => setHovered(true)}
       onMouseLeave={() => setHovered(false)}
       onMouseDown={handleBodyMouseDown}
     >
-      {/* Header — drag handle + title + delete */}
+      {/* Invisible drag surface — covers full widget, sits behind content */}
       <div
-        style={styles.header}
+        style={styles.dragSurface}
         onMouseDown={handleHeaderMouseDown}
         onDoubleClick={handleTitleDoubleClick}
-      >
-        {editingTitle ? (
-          <input
-            ref={titleInputRef}
-            value={titleDraft}
-            onChange={(e) => setTitleDraft(e.target.value)}
-            onBlur={commitTitleEdit}
-            onKeyDown={handleTitleKeyDown}
-            onMouseDown={(e) => e.stopPropagation()}
-            style={styles.titleInput}
-            maxLength={80}
-            autoFocus
-          />
-        ) : (
-          <span style={styles.title}>{displayTitle}</span>
-        )}
+      />
 
-        {showControls && !editingTitle && (
-          <button
-            style={styles.deleteBtn}
-            onMouseDown={(e) => { e.stopPropagation(); onDelete() }}
-            title="Delete widget"
-          >
-            ×
-          </button>
-        )}
-      </div>
-
-      {/* Widget body */}
+      {/* Widget body — fills the entire container */}
       <div style={styles.body}>
         {WidgetRenderer ? (
           <WidgetRenderer widget={widget} onUpdate={handleWidgetUpdate} />
@@ -192,6 +166,42 @@ export default function WidgetContainer({
           <div style={styles.unknown}>Unknown widget type: {widget.type}</div>
         )}
       </div>
+
+      {/* Floating label + delete — only visible on hover/select */}
+      {showControls && (
+        <div style={styles.floatingBar} onMouseDown={(e) => e.stopPropagation()}>
+          {editingTitle ? (
+            <input
+              ref={titleInputRef}
+              value={titleDraft}
+              onChange={(e) => setTitleDraft(e.target.value)}
+              onBlur={commitTitleEdit}
+              onKeyDown={handleTitleKeyDown}
+              onMouseDown={(e) => e.stopPropagation()}
+              style={styles.titleInput}
+              maxLength={80}
+              autoFocus
+            />
+          ) : (
+            <span
+              style={styles.title}
+              onDoubleClick={handleTitleDoubleClick}
+            >
+              {displayTitle}
+            </span>
+          )}
+
+          {!editingTitle && (
+            <button
+              style={styles.deleteBtn}
+              onMouseDown={(e) => { e.stopPropagation(); onDelete() }}
+              title="Delete widget"
+            >
+              ×
+            </button>
+          )}
+        </div>
+      )}
 
       {/* Resize handles — four corners only */}
       {showControls && (
@@ -221,55 +231,69 @@ export default function WidgetContainer({
 const styles: Record<string, React.CSSProperties> = {
   root: {
     position: 'absolute',
-    background: '#141414',
-    borderRadius: 8,
+    background: 'transparent',
+    borderRadius: 0,
     display: 'flex',
     flexDirection: 'column',
-    overflow: 'hidden',
-    boxShadow: '0 2px 12px rgba(0,0,0,0.4)',
+    overflow: 'visible',
+    boxShadow: 'none',
     transition: 'outline 0.1s',
   },
-  header: {
-    flexShrink: 0,
-    height: 32,
+  // Invisible layer that captures drag + double-click for title edit
+  dragSurface: {
+    position: 'absolute',
+    inset: 0,
+    zIndex: 1,
+    cursor: 'grab',
+  },
+  // Floating pill that appears above the widget on hover/select
+  floatingBar: {
+    position: 'absolute',
+    top: -26,
+    left: 0,
+    height: 22,
     display: 'flex',
     alignItems: 'center',
-    justifyContent: 'space-between',
-    padding: '0 10px 0 12px',
-    cursor: 'grab',
-    background: '#191919',
-    borderBottom: '1px solid #1e1e1e',
-    gap: 8,
-    userSelect: 'none',
+    gap: 4,
+    paddingLeft: 6,
+    paddingRight: 4,
+    background: 'rgba(20,20,20,0.85)',
+    backdropFilter: 'blur(6px)',
+    borderRadius: 5,
+    border: '1px solid rgba(255,255,255,0.07)',
+    zIndex: 30,
+    pointerEvents: 'auto',
+    whiteSpace: 'nowrap',
   },
   title: {
-    fontSize: 11,
+    fontSize: 10,
     fontWeight: 500,
-    color: '#666',
-    letterSpacing: '0.04em',
+    color: '#888',
+    letterSpacing: '0.05em',
     textTransform: 'uppercase',
     overflow: 'hidden',
     textOverflow: 'ellipsis',
     whiteSpace: 'nowrap',
-    flex: 1,
+    cursor: 'default',
+    userSelect: 'none',
   },
   titleInput: {
-    flex: 1,
     background: 'transparent',
     border: 'none',
     borderBottom: '1px solid #6b7ff0',
     outline: 'none',
     color: '#ccc',
-    fontSize: 11,
+    fontSize: 10,
     fontWeight: 500,
-    letterSpacing: '0.04em',
-    padding: '2px 0',
+    letterSpacing: '0.05em',
+    padding: '1px 0',
+    width: 80,
   },
   deleteBtn: {
     background: 'transparent',
     border: 'none',
-    color: '#ccc',
-    fontSize: 16,
+    color: '#666',
+    fontSize: 14,
     cursor: 'pointer',
     lineHeight: 1,
     padding: '0 2px',
@@ -277,9 +301,10 @@ const styles: Record<string, React.CSSProperties> = {
     transition: 'color 0.15s',
   },
   body: {
-    flex: 1,
+    position: 'absolute',
+    inset: 0,
     overflow: 'hidden',
-    position: 'relative',
+    zIndex: 2,
   },
   unknown: {
     padding: 16,
@@ -288,8 +313,8 @@ const styles: Record<string, React.CSSProperties> = {
   },
   resizeHandle: {
     position: 'absolute',
-    width: 10,
-    height: 10,
+    width: 8,
+    height: 8,
     background: '#6b7ff0',
     borderRadius: 2,
     zIndex: 20,
