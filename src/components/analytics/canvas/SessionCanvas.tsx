@@ -18,7 +18,7 @@
  * with the real board canvas.
  */
 
-import React, { useRef, useCallback } from 'react'
+import React, { useRef, useCallback, useState } from 'react'
 import { useWorkspaceStore } from '../store/useWorkspaceStore'
 import CanvasGrid from './CanvasGrid'
 export default function SessionCanvas() {
@@ -26,6 +26,24 @@ export default function SessionCanvas() {
   const transform = useWorkspaceStore((s) => s.transform)
   const pan = useWorkspaceStore((s) => s.pan)
   const zoom = useWorkspaceStore((s) => s.zoom)
+  const resetView = useWorkspaceStore((s) => s.resetView)
+
+const BG_COLORS = [
+  { label: 'Dark', value: '#111827' },
+  { label: 'White', value: '#ffffff' },
+  { label: 'Gray', value: '#f3f4f6' },
+  { label: 'Blue', value: '#dbeafe' },
+  { label: 'Green', value: '#dcfce7' },
+]
+
+const [sessionColor, setSessionColor] = useState('#ffffff')
+const vpCx = window.innerWidth / 2
+const vpCy = window.innerHeight / 2
+
+const zoomIn = () => zoom(1, vpCx, vpCy)
+const zoomOut = () => zoom(-1, vpCx, vpCy)
+
+const scalePercent = Math.round(transform.scale * 100)
 
   const isPanning = useRef(false)
   const lastPos = useRef({ x: 0, y: 0 })
@@ -54,7 +72,7 @@ export default function SessionCanvas() {
 
 return (
   <div
-    style={{ ...styles.container, background: '#ffffff' }}
+    style={{ ...styles.container, background: sessionColor }}
     onMouseDown={onMouseDown}
     onMouseMove={onMouseMove}
     onMouseUp={onMouseUp}
@@ -96,12 +114,47 @@ return (
         ))}
       </div>
 
-    
+    {/* Zoom controls */}
+<div style={styles.zoomControls}>
+  <button style={styles.zoomBtn} onClick={zoomIn}>
+    +
+  </button>
 
-      {/* Zoom level badge */}
-      <div style={styles.zoomBadge}>
-        {Math.round(transform.scale * 100)}%
-      </div>
+  <span style={styles.zoomLabel}>
+    {scalePercent}%
+  </span>
+
+  <button style={styles.zoomBtn} onClick={zoomOut}>
+    −
+  </button>
+
+  <button
+    style={{ ...styles.zoomBtn, ...styles.zoomReset }}
+    onClick={resetView}
+  >
+    ⌂
+  </button>
+
+  <div style={styles.colorSeparator} />
+
+  {BG_COLORS.map((c) => (
+    <button
+      key={c.value}
+      title={c.label}
+      style={{
+        ...styles.colorSwatch,
+        background: c.value,
+        border:
+          sessionColor === c.value
+            ? '2px solid #6366f1'
+            : '2px solid #3a3a3a',
+      }}
+      onClick={() => setSessionColor(c.value)}
+    />
+  ))}
+</div>
+
+      
     </div>
   )
 }
@@ -143,16 +196,62 @@ const styles: Record<string, React.CSSProperties> = {
     maxWidth: 320,
     textAlign: 'center',
   },
-  zoomBadge: {
-    position: 'absolute',
-    bottom: 16,
-    right: 16,
-    background: '#111',
-    border: '1px solid #222',
-    borderRadius: 6,
-    padding: '4px 10px',
-    fontSize: 11,
-    color: '#444',
-    pointerEvents: 'none',
-  },
+  zoomControls: {
+  position: 'absolute',
+  bottom: 20,
+  right: 20,
+  display: 'flex',
+  alignItems: 'center',
+  gap: 4,
+  background: '#1a1a1a',
+  border: '1px solid #2a2a2a',
+  borderRadius: 8,
+  padding: '4px 6px',
+  zIndex: 100,
+},
+
+zoomBtn: {
+  background: 'transparent',
+  border: 'none',
+  color: '#aaa',
+  fontSize: 16,
+  cursor: 'pointer',
+  width: 28,
+  height: 28,
+  display: 'flex',
+  alignItems: 'center',
+  justifyContent: 'center',
+  borderRadius: 4,
+  lineHeight: 1,
+},
+
+zoomLabel: {
+  fontSize: 11,
+  color: '#e5e7eb',
+  minWidth: 36,
+  textAlign: 'center',
+},
+
+zoomReset: {
+  borderLeft: '1px solid #2a2a2a',
+  marginLeft: 2,
+  paddingLeft: 2,
+},
+
+colorSeparator: {
+  width: 1,
+  height: 18,
+  background: '#2a2a2a',
+  marginLeft: 4,
+  marginRight: 2,
+},
+
+colorSwatch: {
+  width: 16,
+  height: 16,
+  borderRadius: 4,
+  cursor: 'pointer',
+  padding: 0,
+  flexShrink: 0,
+},
 }
