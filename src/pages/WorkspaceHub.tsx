@@ -36,6 +36,8 @@ export default function WorkspaceHub() {
   const [isCreating, setIsCreating] = useState(false)
   const [newBoardName, setNewBoardName] = useState('')
 
+  const [showCreateModal, setShowCreateModal] = useState(false)
+
   // Inline rename state
   const [renamingId, setRenamingId] = useState<string | null>(null)
   const [renameValue, setRenameValue] = useState('')
@@ -148,6 +150,12 @@ export default function WorkspaceHub() {
 
   return (
     <div style={styles.root}>
+      <button
+  style={styles.newBtn}
+  onClick={() => setShowCreateModal(true)}
+>
+  + New
+</button>
       {/* ── Header ── */}
       <header style={styles.header}>
         <div style={styles.headerLeft}>
@@ -246,6 +254,62 @@ export default function WorkspaceHub() {
           </div>
         </div>
       )}
+{showCreateModal && (
+  <div style={styles.overlay}>
+    <div style={styles.modalCard}>
+      <p style={styles.modalEyebrow}>New workspace</p>
+
+      <h2 style={styles.modalTitle}>
+        Name your workspace
+      </h2>
+
+      <p style={styles.modalHint}>
+        You can rename it anytime.
+      </p>
+
+      <input
+        autoFocus
+        style={styles.modalInput}
+        value={newBoardName}
+        onChange={(e) => setNewBoardName(e.target.value)}
+        onKeyDown={(e) => {
+          if (e.key === 'Enter') handleCreateBoard()
+          if (e.key === 'Escape') {
+            setShowCreateModal(false)
+            setNewBoardName('')
+          }
+        }}
+        placeholder="My Workspace"
+        maxLength={60}
+      />
+
+      <div style={styles.modalActions}>
+        <button
+          style={styles.btnPrimary}
+          onClick={async () => {
+            await handleCreateBoard()
+            setShowCreateModal(false)
+          }}
+        >
+          Create Workspace
+        </button>
+
+        <button
+          style={styles.btnGhost}
+          onClick={() => {
+            setShowCreateModal(false)
+            setNewBoardName('')
+          }}
+        >
+          Cancel
+        </button>
+      </div>
+    </div>
+  </div>
+)}
+
+
+
     </div>
   )
 }
@@ -316,6 +380,7 @@ function BoardCard({
             🗑️
           </button>
         </div>
+        
       </div>
     </div>
   )
@@ -571,4 +636,77 @@ const styles: Record<string, React.CSSProperties> = {
     gap: 10,
     justifyContent: 'center',
   },
+  newBtn: {
+  position: 'fixed',
+  top: 24,
+  right: 24,
+  zIndex: 10000,
+
+  background: '#16161f',
+  color: '#FFFFFF',
+  border: '1px solid rgba(255,255,255,0.08)',
+  borderRadius: '12px',
+  padding: '10px 18px',
+
+  fontSize: '13.5px',
+  fontWeight: 500,
+
+  cursor: 'pointer',
+
+  boxShadow: '0 4px 14px -2px rgba(0,0,0,0.35)',
+},
+
+modalCard: {
+  background: '#ffffff',
+  borderRadius: 16,
+  padding: '36px 40px',
+  width: 380,
+  maxWidth: '90vw',
+
+  display: 'flex',
+  flexDirection: 'column',
+  gap: 10,
+},
+
+modalEyebrow: {
+  margin: 0,
+  fontSize: 11,
+  fontWeight: 600,
+  letterSpacing: '0.08em',
+  textTransform: 'uppercase',
+  color: '#dc2626',
+},
+
+modalTitle: {
+  margin: 0,
+  fontSize: 22,
+  fontWeight: 700,
+  color: '#111',
+},
+
+modalHint: {
+  margin: 0,
+  fontSize: 13,
+  color: '#777',
+},
+
+modalInput: {
+  width: '100%',
+  boxSizing: 'border-box',
+
+  background: '#f5f5f7',
+  border: '1px solid #ddd',
+
+  borderRadius: 8,
+  padding: '10px 14px',
+
+  fontSize: 15,
+  color: '#111',
+},
+
+modalActions: {
+  display: 'flex',
+  gap: 10,
+  marginTop: 10,
+},
 }
