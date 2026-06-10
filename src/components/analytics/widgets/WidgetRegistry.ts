@@ -152,7 +152,7 @@ export const WIDGET_DEFAULTS: Record<string, WidgetDefaults> = {
     title: null,
     config: {
       fillColor:    'transparent',
-      strokeColor:  '#9ca3af'
+      strokeColor:  '#9ca3af',
       strokeWidth:  2,
       opacity:      1,
       cornerRadius: 8,
@@ -167,7 +167,7 @@ export const WIDGET_DEFAULTS: Record<string, WidgetDefaults> = {
     title: null,
     config: {
       fillColor:   'transparent',
-      strokeColor: '#9ca3af'
+      strokeColor: '#9ca3af',
       strokeWidth: 2,
       opacity:     1,
     },
