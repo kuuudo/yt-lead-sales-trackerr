@@ -68,7 +68,11 @@ export default function WidgetContainer({
   // Resolve renderer from registry
   const WidgetRenderer = WIDGET_REGISTRY[widget.type]
   const displayTitle = widget.title ?? TYPE_LABELS[widget.type] ?? widget.type
-
+const isCanvasObject =
+  widget.type === 'arrow' ||
+  widget.type === 'rectangle' ||
+  widget.type === 'circle' ||
+  widget.type === 'text'
   // ── Drag handle (header) ────────────────────────────────────────────────
   const handleHeaderMouseDown = useCallback(
     (e: React.MouseEvent) => {
@@ -135,11 +139,21 @@ export default function WidgetContainer({
   return (
     <div
       style={{
-        ...styles.root,
-        left: widget.x,
-        top: widget.y,
-        width: widget.width,
-        height: widget.height,
+  ...styles.root,
+
+  ...(isCanvasObject
+    ? {
+        background: 'transparent',
+        boxShadow: 'none',
+        borderRadius: 0,
+        overflow: 'visible',
+      }
+    : {}),
+
+  left: widget.x,
+  top: widget.y,
+  width: widget.width,
+  height: widget.height,
         outline: selected
           ? '2px solid #6b7ff0'
           : hovered
@@ -153,10 +167,22 @@ export default function WidgetContainer({
     >
       {/* Header — drag handle + title + delete */}
       <div
-        style={styles.header}
-        onMouseDown={handleHeaderMouseDown}
-        onDoubleClick={handleTitleDoubleClick}
-      >
+  style={{
+    ...styles.header,
+
+    ...(isCanvasObject
+      ? {
+          opacity: 0,
+          height: 8,
+          minHeight: 8,
+          borderBottom: 'none',
+          background: 'transparent',
+        }
+      : {}),
+  }}
+  onMouseDown={handleHeaderMouseDown}
+  onDoubleClick={handleTitleDoubleClick}
+>
         {editingTitle ? (
           <input
             ref={titleInputRef}
@@ -185,7 +211,17 @@ export default function WidgetContainer({
       </div>
 
       {/* Widget body */}
-      <div style={styles.body}>
+      <div
+  style={{
+    ...styles.body,
+
+    ...(isCanvasObject
+      ? {
+          marginTop: -8,
+        }
+      : {}),
+  }}
+>
         {WidgetRenderer ? (
           <WidgetRenderer widget={widget} onUpdate={handleWidgetUpdate} />
         ) : (
