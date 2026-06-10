@@ -27,7 +27,7 @@ interface Props {
 export default function CircleWidget({ widget, onUpdate }: Props) {
   const config = widget.config
 
-  const fillColor   = (config.fillColor   as string) ?? '#8b5cf6'
+  const fillColor   = (config.fillColor   as string) ?? 'transparent'
   const strokeColor = (config.strokeColor as string) ?? '#a78bfa'
   const strokeWidth = (config.strokeWidth as number) ?? 2
   const opacity     = (config.opacity     as number) ?? 1

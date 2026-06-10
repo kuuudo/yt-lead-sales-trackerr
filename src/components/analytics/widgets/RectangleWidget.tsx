@@ -27,7 +27,7 @@ interface Props {
 export default function RectangleWidget({ widget, onUpdate }: Props) {
   const config = widget.config
 
-  const fillColor   = (config.fillColor   as string)  ?? '#3b82f6'
+  const fillColor   = (config.fillColor   as string)  ?? 'transparent'
   const strokeColor = (config.strokeColor as string)  ?? '#60a5fa'
   const strokeWidth = (config.strokeWidth as number)  ?? 2
   const opacity     = (config.opacity     as number)  ?? 1
