@@ -41,7 +41,7 @@ function Navigation() {
   ];
 
   return (
-    <nav className="fixed top-0 left-0 right-0 z-50 bg-zinc-950/60 backdrop-blur-xl border-b border-zinc-900/50 h-14 flex items-center justify-between px-6">
+    <nav className="fixed top-0 left-0 right-0 z-50 bg-zinc-950/95 backdrop-blur-xl border-b border-zinc-900/50 h-14 flex items-center justify-between px-6">
       <div className="flex items-center gap-10">
         <Link to="/dashboard" className="text-sm font-black uppercase tracking-[0.2em] text-white flex items-center gap-2">
           <div className="w-2 h-2 bg-red-600 rounded-sm shadow-[0_0_10px_rgba(220,38,38,0.5)]" />
