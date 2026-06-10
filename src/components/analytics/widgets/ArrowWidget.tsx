@@ -113,8 +113,7 @@ export default function ArrowWidget({ widget, onUpdate }: Props) {
             width={shaftRight}
             height={shaftMidBot - shaftMidTop}
             fill={color}
-            stroke={strokeColor}
-            strokeWidth={strokeWidth}
+            
           />
           {/* Arrowhead (triangle) */}
           <polygon
