@@ -54,7 +54,7 @@ export default function SessionCanvas() {
 
   return (
     <div
-      style={styles.container}
+      style={{ ...styles.container, background: '#ffffff' }}
       onMouseDown={onMouseDown}
       onMouseMove={onMouseMove}
       onMouseUp={onMouseUp}
