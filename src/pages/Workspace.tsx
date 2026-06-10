@@ -305,10 +305,10 @@ const styles: Record<string, React.CSSProperties> = {
     fontSize: 14,
     cursor: 'pointer',
   },
+  
   hubBtn: {
-    newWorkspaceBtn: {
   position: 'fixed',
-  top: 122, // directly below Workspace Hub
+  top: 68,
   left: 24,
   zIndex: 10000,
 
@@ -329,29 +329,30 @@ const styles: Record<string, React.CSSProperties> = {
   transition: 'all 0.25s cubic-bezier(0.4, 0, 0.2, 1)',
   boxShadow: '0 4px 14px -2px rgba(0, 0, 0, 0.35)',
 },
-    position: 'fixed',
-    top: 68,
-    left: 24,
-    zIndex: 10000,
 
-    background: '#16161f',
-    color: '#FFFFFF',
-    border: '1px solid rgba(255, 255, 255, 0.08)',
-    borderRadius: '12px',
-    padding: '10px 18px',
-    fontSize: '13.5px',
-    fontWeight: 500,
-    letterSpacing: '0.4px',
-    cursor: 'pointer',
+newWorkspaceBtn: {
+  position: 'fixed',
+  top: 118,   // adjust this number
+  left: 24,
+  zIndex: 10000,
 
-    display: 'flex',
-    alignItems: 'center',
-    gap: '8px',
+  background: '#16161f',
+  color: '#FFFFFF',
+  border: '1px solid rgba(255, 255, 255, 0.08)',
+  borderRadius: '12px',
+  padding: '10px 18px',
+  fontSize: '13.5px',
+  fontWeight: 500,
+  letterSpacing: '0.4px',
+  cursor: 'pointer',
 
-    transition: 'all 0.25s cubic-bezier(0.4, 0, 0.2, 1)',
-    boxShadow: '0 4px 14px -2px rgba(0, 0, 0, 0.35)',
+  display: 'flex',
+  alignItems: 'center',
+  gap: '8px',
+
+  transition: 'all 0.25s cubic-bezier(0.4, 0, 0.2, 1)',
+  boxShadow: '0 4px 14px -2px rgba(0, 0, 0, 0.35)',
 },
-  
 }
 
 // Spinner keyframe (injected once)
