@@ -7,7 +7,7 @@
  * Rotation is stored in config.rotation and applied via CSS transform.
  *
  * Config fields (user-defined, persisted):
- *   config.color     — hex string, default 'transparent'
+ *   config.color     — hex string, default '#9ca3af'
  *   config.rotation  — degrees, default 0
  *   config.headSize  — number 0–1 proportion, default 0.35
  *   config.opacity   — number 0–1, default 1
@@ -29,13 +29,10 @@ interface Props {
 export default function ArrowWidget({ widget, onUpdate }: Props) {
   const config = widget.config
 
-  const color    = (config.color    as string) ?? 'transparent'
-  const strokeColor = (config.strokeColor as string) ?? '#9ca3af'
-  const strokeWidth = (config.strokeWidth as number) ?? 2
+  const color    = (config.color    as string) ?? '#9ca3af'
   const rotation = (config.rotation as number) ?? 0
   const headSize = (config.headSize as number) ?? 0.35
   const opacity  = (config.opacity  as number) ?? 1
-  
 
   const [showPanel, setShowPanel] = useState(false)
   const panelRef = useRef<HTMLDivElement>(null)
@@ -113,15 +110,11 @@ export default function ArrowWidget({ widget, onUpdate }: Props) {
             width={shaftRight}
             height={shaftMidBot - shaftMidTop}
             fill={color}
-            
           />
           {/* Arrowhead (triangle) */}
           <polygon
             points={`${shaftRight},0 ${VB_W},${VB_H / 2} ${shaftRight},${VB_H}`}
             fill={color}
-            stroke={strokeColor}
-            strokeWidth={strokeWidth}
-            strokeLinejoin="round"
           />
         </svg>
       </div>
