@@ -151,8 +151,8 @@ export const WIDGET_DEFAULTS: Record<string, WidgetDefaults> = {
     category: 'shapes',
     title: null,
     config: {
-      fillColor:    '#3b82f6',
-      strokeColor:  '#60a5fa',
+      fillColor:    'transparent',
+      strokeColor:  '#9ca3af'
       strokeWidth:  2,
       opacity:      1,
       cornerRadius: 8,
@@ -166,8 +166,8 @@ export const WIDGET_DEFAULTS: Record<string, WidgetDefaults> = {
     category: 'shapes',
     title: null,
     config: {
-      fillColor:   '#8b5cf6',
-      strokeColor: '#a78bfa',
+      fillColor:   'transparent',
+      strokeColor: '#9ca3af'
       strokeWidth: 2,
       opacity:     1,
     },
@@ -180,7 +180,7 @@ export const WIDGET_DEFAULTS: Record<string, WidgetDefaults> = {
     category: 'shapes',
     title: null,
     config: {
-      color:    '#f59e0b',
+      color:    'transparent',
       rotation: 0,
       headSize: 0.35,
       opacity:  1,
@@ -195,7 +195,7 @@ export const WIDGET_DEFAULTS: Record<string, WidgetDefaults> = {
     title: null,
     config: {
       text:       'New Text',
-      color:      '#e8e8e8',
+      color:      '#000000',
       fontSize:   24,
       fontWeight: 'bold',
       align:      'left',

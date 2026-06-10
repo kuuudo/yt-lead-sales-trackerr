@@ -7,7 +7,7 @@
  *
  * Config fields (user-defined, persisted):
  *   config.fillColor   — hex string, default 'transparent'
- *   config.strokeColor — hex string, default '#a78bfa'
+ *   config.strokeColor — hex string, default '#9ca3af'
  *   config.strokeWidth — number, default 2
  *   config.opacity     — number 0–1, default 1
  *
@@ -28,7 +28,7 @@ export default function CircleWidget({ widget, onUpdate }: Props) {
   const config = widget.config
 
   const fillColor   = (config.fillColor   as string) ?? 'transparent'
-  const strokeColor = (config.strokeColor as string) ?? '#a78bfa'
+  const strokeColor = (config.strokeColor as string) ?? '#9ca3af'
   const strokeWidth = (config.strokeWidth as number) ?? 2
   const opacity     = (config.opacity     as number) ?? 1
 

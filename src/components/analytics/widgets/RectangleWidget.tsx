@@ -5,7 +5,7 @@
  *
  * Config fields (user-defined, persisted):
  *   config.fillColor   — hex string, default 'transparent'
- *   config.strokeColor — hex string, default '#60a5fa'
+ *   config.strokeColor — hex string, default '#9ca3af'
  *   config.strokeWidth — number, default 2
  *   config.opacity     — number 0–1, default 1
  *   config.cornerRadius — number, default 8
@@ -28,7 +28,7 @@ export default function RectangleWidget({ widget, onUpdate }: Props) {
   const config = widget.config
 
   const fillColor   = (config.fillColor   as string)  ?? 'transparent'
-  const strokeColor = (config.strokeColor as string)  ?? '#60a5fa'
+  const strokeColor = (config.strokeColor as string)  ?? '#9ca3af'
   const strokeWidth = (config.strokeWidth as number)  ?? 2
   const opacity     = (config.opacity     as number)  ?? 1
   const cornerRadius = (config.cornerRadius as number) ?? 8
