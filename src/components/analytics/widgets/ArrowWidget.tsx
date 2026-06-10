@@ -7,7 +7,7 @@
  * Rotation is stored in config.rotation and applied via CSS transform.
  *
  * Config fields (user-defined, persisted):
- *   config.color     — hex string, default '#f59e0b'
+ *   config.color     — hex string, default 'transparent'
  *   config.rotation  — degrees, default 0
  *   config.headSize  — number 0–1 proportion, default 0.35
  *   config.opacity   — number 0–1, default 1

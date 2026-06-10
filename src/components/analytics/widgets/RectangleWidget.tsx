@@ -4,7 +4,7 @@
  * A coloured rectangle shape widget.
  *
  * Config fields (user-defined, persisted):
- *   config.fillColor   — hex string, default '#3b82f6'
+ *   config.fillColor   — hex string, default 'transparent'
  *   config.strokeColor — hex string, default '#60a5fa'
  *   config.strokeWidth — number, default 2
  *   config.opacity     — number 0–1, default 1

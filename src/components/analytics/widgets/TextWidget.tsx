@@ -5,7 +5,7 @@
  *
  * Config fields (user-defined, persisted):
  *   config.text      — string, default 'New Text'
- *   config.color     — hex string, default '#e8e8e8'
+ *   config.color     — hex string, default '#000000'
  *   config.fontSize  — number (px), default 24
  *   config.fontWeight — 'normal' | 'bold', default 'bold'
  *   config.align     — 'left' | 'center' | 'right', default 'left'

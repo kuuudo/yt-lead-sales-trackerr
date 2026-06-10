@@ -6,7 +6,7 @@
  * width === height (which the defaults enforce).
  *
  * Config fields (user-defined, persisted):
- *   config.fillColor   — hex string, default '#8b5cf6'
+ *   config.fillColor   — hex string, default 'transparent'
  *   config.strokeColor — hex string, default '#a78bfa'
  *   config.strokeWidth — number, default 2
  *   config.opacity     — number 0–1, default 1
