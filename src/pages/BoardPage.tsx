@@ -158,7 +158,7 @@ const styles: Record<string, React.CSSProperties> = {
     inset: 0,
     display: 'flex',
     flexDirection: 'column',
-    background: '#0f0f0f',
+    background: '#ffffff',
     backgroundImage: 'radial-gradient(#1f1f1f 1px, transparent 1px)',
     backgroundSize: '24px 24px',
 
