@@ -1,0 +1,220 @@
+/**
+ * src/components/analytics/widgets/RectangleWidget.tsx
+ *
+ * A coloured rectangle shape widget.
+ *
+ * Config fields (user-defined, persisted):
+ *   config.fillColor   — hex string, default '#3b82f6'
+ *   config.strokeColor — hex string, default '#60a5fa'
+ *   config.strokeWidth — number, default 2
+ *   config.opacity     — number 0–1, default 1
+ *   config.cornerRadius — number, default 8
+ *
+ * data: {} (no machine-written data for shape widgets)
+ *
+ * Resize / drag / delete are handled by the parent WidgetContainer.
+ * This component is purely visual + config editing.
+ */
+
+import React, { useState, useCallback, useRef, useEffect } from 'react'
+import type { Widget } from '../store/useWorkspaceStore'
+
+interface Props {
+  widget: Widget
+  onUpdate: (patch: Partial<Widget>) => void
+}
+
+export default function RectangleWidget({ widget, onUpdate }: Props) {
+  const config = widget.config
+
+  const fillColor   = (config.fillColor   as string)  ?? '#3b82f6'
+  const strokeColor = (config.strokeColor as string)  ?? '#60a5fa'
+  const strokeWidth = (config.strokeWidth as number)  ?? 2
+  const opacity     = (config.opacity     as number)  ?? 1
+  const cornerRadius = (config.cornerRadius as number) ?? 8
+
+  const [showPanel, setShowPanel] = useState(false)
+  const panelRef = useRef<HTMLDivElement>(null)
+
+  // Close panel on outside click
+  useEffect(() => {
+    if (!showPanel) return
+    function handler(e: MouseEvent) {
+      if (panelRef.current && !panelRef.current.contains(e.target as Node)) {
+        setShowPanel(false)
+      }
+    }
+    document.addEventListener('mousedown', handler)
+    return () => document.removeEventListener('mousedown', handler)
+  }, [showPanel])
+
+  const update = useCallback(
+    (key: string, value: unknown) => {
+      onUpdate({ config: { ...widget.config, [key]: value } })
+    },
+    [onUpdate, widget.config]
+  )
+
+  return (
+    <div
+      style={{
+        position: 'absolute',
+        inset: 0,
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'center',
+      }}
+      onDoubleClick={(e) => { e.stopPropagation(); setShowPanel(true) }}
+    >
+      {/* The rectangle shape */}
+      <div
+        style={{
+          position: 'absolute',
+          inset: 0,
+          background: fillColor,
+          borderRadius: cornerRadius,
+          border: `${strokeWidth}px solid ${strokeColor}`,
+          opacity,
+          boxSizing: 'border-box',
+        }}
+      />
+
+      {/* Config panel (double-click to open) */}
+      {showPanel && (
+        <div
+          ref={panelRef}
+          style={panelStyles.panel}
+          onMouseDown={(e) => e.stopPropagation()}
+        >
+          <p style={panelStyles.heading}>Rectangle Style</p>
+
+          <label style={panelStyles.row}>
+            <span style={panelStyles.label}>Fill</span>
+            <input
+              type="color"
+              value={fillColor}
+              onChange={(e) => update('fillColor', e.target.value)}
+              style={panelStyles.colorInput}
+            />
+          </label>
+
+          <label style={panelStyles.row}>
+            <span style={panelStyles.label}>Stroke</span>
+            <input
+              type="color"
+              value={strokeColor}
+              onChange={(e) => update('strokeColor', e.target.value)}
+              style={panelStyles.colorInput}
+            />
+          </label>
+
+          <label style={panelStyles.row}>
+            <span style={panelStyles.label}>Stroke W.</span>
+            <input
+              type="range" min={0} max={16} step={1}
+              value={strokeWidth}
+              onChange={(e) => update('strokeWidth', Number(e.target.value))}
+              style={{ flex: 1 }}
+            />
+            <span style={panelStyles.val}>{strokeWidth}px</span>
+          </label>
+
+          <label style={panelStyles.row}>
+            <span style={panelStyles.label}>Opacity</span>
+            <input
+              type="range" min={0} max={1} step={0.05}
+              value={opacity}
+              onChange={(e) => update('opacity', Number(e.target.value))}
+              style={{ flex: 1 }}
+            />
+            <span style={panelStyles.val}>{Math.round(opacity * 100)}%</span>
+          </label>
+
+          <label style={panelStyles.row}>
+            <span style={panelStyles.label}>Radius</span>
+            <input
+              type="range" min={0} max={60} step={1}
+              value={cornerRadius}
+              onChange={(e) => update('cornerRadius', Number(e.target.value))}
+              style={{ flex: 1 }}
+            />
+            <span style={panelStyles.val}>{cornerRadius}px</span>
+          </label>
+
+          <button
+            style={panelStyles.closeBtn}
+            onClick={() => setShowPanel(false)}
+          >
+            Done
+          </button>
+        </div>
+      )}
+    </div>
+  )
+}
+
+const panelStyles: Record<string, React.CSSProperties> = {
+  panel: {
+    position: 'absolute',
+    top: '50%',
+    left: '50%',
+    transform: 'translate(-50%, -50%)',
+    zIndex: 50,
+    background: '#1a1a1a',
+    border: '1px solid #2a2a2a',
+    borderRadius: 10,
+    padding: '14px 16px',
+    width: 220,
+    display: 'flex',
+    flexDirection: 'column',
+    gap: 10,
+    boxShadow: '0 8px 32px rgba(0,0,0,0.6)',
+  },
+  heading: {
+    margin: 0,
+    fontSize: 11,
+    fontWeight: 600,
+    letterSpacing: '0.06em',
+    textTransform: 'uppercase',
+    color: '#888',
+  },
+  row: {
+    display: 'flex',
+    alignItems: 'center',
+    gap: 8,
+    fontSize: 12,
+    color: '#ccc',
+  },
+  label: {
+    minWidth: 56,
+    fontSize: 11,
+    color: '#888',
+  },
+  val: {
+    minWidth: 34,
+    textAlign: 'right',
+    fontSize: 11,
+    color: '#aaa',
+    fontVariantNumeric: 'tabular-nums',
+  },
+  colorInput: {
+    width: 32,
+    height: 24,
+    border: 'none',
+    padding: 0,
+    cursor: 'pointer',
+    background: 'transparent',
+    borderRadius: 4,
+  },
+  closeBtn: {
+    marginTop: 4,
+    background: '#2a2a2a',
+    border: 'none',
+    borderRadius: 6,
+    color: '#ccc',
+    fontSize: 12,
+    padding: '6px 0',
+    cursor: 'pointer',
+    fontWeight: 500,
+  },
+}
