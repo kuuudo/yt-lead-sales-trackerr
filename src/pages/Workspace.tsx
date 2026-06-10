@@ -240,7 +240,7 @@ const styles: Record<string, React.CSSProperties> = {
   },
   hubBtn: {
     position: 'fixed',
-    top: 14,
+    top: 56,
     right: 16,
     background: '#1a1a2e',
     color: '#9aa',
@@ -249,7 +249,7 @@ const styles: Record<string, React.CSSProperties> = {
     padding: '6px 14px',
     fontSize: 12,
     cursor: 'pointer',
-    zIndex: 100,
+    zIndex: 9999,
   },
 }
 
