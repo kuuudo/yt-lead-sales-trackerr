@@ -30,9 +30,13 @@ export default function ArrowWidget({ widget, onUpdate }: Props) {
   const config = widget.config
 
   const color    = (config.color    as string) ?? 'transparent'
+  const strokeColor = (config.strokeColor as string) ?? '#9ca3af'
+  const strokeWidth = (config.strokeWidth as number) ?? 2
   const rotation = (config.rotation as number) ?? 0
   const headSize = (config.headSize as number) ?? 0.35
   const opacity  = (config.opacity  as number) ?? 1
+  const effectiveFill =
+  fillColor === 'transparent' ? 'none' : fillColor
 
   const [showPanel, setShowPanel] = useState(false)
   const panelRef = useRef<HTMLDivElement>(null)
@@ -109,12 +113,17 @@ export default function ArrowWidget({ widget, onUpdate }: Props) {
             y={shaftMidTop}
             width={shaftRight}
             height={shaftMidBot - shaftMidTop}
-            fill={color}
+            fill={effectiveFill}
+            stroke={strokeColor}
+            strokeWidth={strokeWidth}
           />
           {/* Arrowhead (triangle) */}
           <polygon
             points={`${shaftRight},0 ${VB_W},${VB_H / 2} ${shaftRight},${VB_H}`}
-            fill={color}
+            fill={effectiveFill}
+            stroke={strokeColor}
+            strokeWidth={strokeWidth}
+            strokeLinejoin="round"
           />
         </svg>
       </div>

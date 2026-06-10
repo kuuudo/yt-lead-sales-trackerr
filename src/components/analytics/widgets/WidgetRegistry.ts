@@ -180,7 +180,8 @@ export const WIDGET_DEFAULTS: Record<string, WidgetDefaults> = {
     category: 'shapes',
     title: null,
     config: {
-      color:    'transparent',
+      fillColor:   'transparent',
+      strokeColor: '#9ca3af',
       rotation: 0,
       headSize: 0.35,
       opacity:  1,
