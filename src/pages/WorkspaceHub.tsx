@@ -642,7 +642,7 @@ const styles: Record<string, React.CSSProperties> = {
   left: 24,
   zIndex: 10000,
 
-  background: '#16161f',
+  background: '#dc2626',
   color: '#FFFFFF',
   border: '1px solid rgba(255,255,255,0.08)',
   borderRadius: '16px',
