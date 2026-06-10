@@ -158,7 +158,7 @@ const isCanvasObject =
           ? '2px solid #6b7ff0'
           : hovered
           ? '1px solid #2e2e2e'
-          : '1px solid #1e1e1e',
+          : 'none',
         zIndex: selected ? 10 : 1,
       }}
       onMouseEnter={() => setHovered(true)}
