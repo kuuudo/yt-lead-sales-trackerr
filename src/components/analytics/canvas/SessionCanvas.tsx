@@ -20,7 +20,7 @@
 
 import React, { useRef, useCallback } from 'react'
 import { useWorkspaceStore } from '../store/useWorkspaceStore'
-
+import CanvasGrid from './CanvasGrid'
 export default function SessionCanvas() {
   const tempWidgets = useWorkspaceStore((s) => s.tempWidgets)
   const transform = useWorkspaceStore((s) => s.transform)
@@ -52,15 +52,16 @@ export default function SessionCanvas() {
     zoom(-e.deltaY, e.clientX, e.clientY)
   }, [zoom])
 
-  return (
-    <div
-      style={{ ...styles.container, background: '#ffffff' }}
-      onMouseDown={onMouseDown}
-      onMouseMove={onMouseMove}
-      onMouseUp={onMouseUp}
-      onMouseLeave={onMouseUp}
-      onWheel={onWheel}
-    >
+return (
+  <div
+    style={{ ...styles.container, background: '#ffffff' }}
+    onMouseDown={onMouseDown}
+    onMouseMove={onMouseMove}
+    onMouseUp={onMouseUp}
+    onMouseLeave={onMouseUp}
+    onWheel={onWheel}
+  >
+    <CanvasGrid transform={transform} />
       {/* Canvas transform layer */}
       <div
         style={{
