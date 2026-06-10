@@ -1,23 +1,19 @@
 /**
  * src/pages/Workspace.tsx
  *
- * Route: /workspace
- *
- * This is a TEMPORARY session canvas — no Supabase calls are made here.
- * All widget state lives in Zustand's `tempWidgets` until the user
- * explicitly saves as a board.
+ * Route: /workspace  —  TEMP SESSION CANVAS
  *
  * Flow:
- *  1. User lands on blank canvas
- *  2. User adds their first widget → "Save as Board" prompt appears
- *  3. User clicks "Save as Board" → saveSessionAsBoard() → redirect to /workspace/:id
- *  4. User clicks "Continue" → prompt dismisses, canvas keeps working
+ *  1. User enters /workspace → sees blank canvas + toolbar immediately
+ *  2. First pointer/key interaction → soft "Name your workspace" card appears
+ *  3. User types name → clicks "Create workspace"
+ *  4. saveSessionAsBoard() runs → redirect to /workspace/:boardId
  *
- * Auth is still resolved so WorkspaceToolbar knows the userId.
- * loadBoards() is NOT called here — that's /workspace/hub's job.
+ * No Supabase board calls here. Auth is resolved only to get userId for the
+ * save step and to pass to WorkspaceToolbar.
  */
 
-import React, { useEffect, useState, useCallback } from 'react'
+import React, { useEffect, useRef, useState, useCallback } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { supabase } from '../lib/supabaseClient'
 import { useWorkspaceStore } from '../components/analytics/store/useWorkspaceStore'
@@ -25,23 +21,22 @@ import SessionCanvas from '../components/analytics/canvas/SessionCanvas'
 import WorkspaceToolbar from '../components/analytics/toolbar/WorkspaceToolbar'
 import type { User } from '@supabase/supabase-js'
 
-// ─── Component ────────────────────────────────────────────────────────────────
-
 export default function Workspace() {
   const navigate = useNavigate()
 
-  const [user, setUser] = useState<User | null>(null)
+  const [user, setUser]         = useState<User | null>(null)
   const [authReady, setAuthReady] = useState(false)
-  const [showSavePrompt, setShowSavePrompt] = useState(false)
-  const [promptDismissed, setPromptDismissed] = useState(false)
-  const [isSaving, setIsSaving] = useState(false)
+  const [showCard, setShowCard] = useState(false)
   const [boardName, setBoardName] = useState('My Workspace')
+  const [creating, setCreating] = useState(false)
+  const [createError, setCreateError] = useState<string | null>(null)
 
-  const tempWidgets = useWorkspaceStore((s) => s.tempWidgets)
   const saveSessionAsBoard = useWorkspaceStore((s) => s.saveSessionAsBoard)
-  const clearTempWidgets = useWorkspaceStore((s) => s.clearTempWidgets)
 
-  // ── Resolve auth session (no DB board calls) ───────────────────────────────
+  // Track whether the card has been triggered yet so the listener is removed
+  const cardTriggered = useRef(false)
+
+  // ── 1. Resolve auth session (no board DB calls) ────────────────────────────
   useEffect(() => {
     let cancelled = false
 
@@ -62,38 +57,51 @@ export default function Workspace() {
     }
   }, [])
 
-  // ── Show save prompt on first widget add ───────────────────────────────────
+  // ── 2. Show onboarding card on first interaction ───────────────────────────
   useEffect(() => {
-    if (tempWidgets.length > 0 && !promptDismissed && !showSavePrompt) {
-      setShowSavePrompt(true)
+    function trigger() {
+      if (cardTriggered.current) return
+      cardTriggered.current = true
+      setShowCard(true)
+      window.removeEventListener('pointerdown', trigger)
+      window.removeEventListener('keydown', trigger)
     }
-  }, [tempWidgets.length, promptDismissed, showSavePrompt])
 
-  // ── Save handler ───────────────────────────────────────────────────────────
-  const handleSave = useCallback(async () => {
+    window.addEventListener('pointerdown', trigger)
+    window.addEventListener('keydown', trigger)
+
+    return () => {
+      window.removeEventListener('pointerdown', trigger)
+      window.removeEventListener('keydown', trigger)
+    }
+  }, [])
+
+  // ── 3. Create workspace handler ────────────────────────────────────────────
+  const handleCreate = useCallback(async () => {
+    if (creating) return
+
     if (!user) {
-      // Not logged in — redirect to login
       navigate('/login')
       return
     }
-    if (isSaving) return
 
-    setIsSaving(true)
+    setCreating(true)
+    setCreateError(null)
+
     try {
-      const newBoard = await saveSessionAsBoard(boardName.trim() || 'My Workspace', user.id)
+      const newBoard = await saveSessionAsBoard(
+        boardName.trim() || 'My Workspace',
+        user.id
+      )
       navigate(`/workspace/${newBoard.id}`)
     } catch (err) {
       console.error('[Workspace] saveSessionAsBoard error:', err)
-      setIsSaving(false)
+      setCreateError('Something went wrong. Please try again.')
+      setCreating(false)
     }
-  }, [user, boardName, isSaving, saveSessionAsBoard, navigate])
+  }, [creating, user, boardName, saveSessionAsBoard, navigate])
 
-  const handleDismiss = useCallback(() => {
-    setShowSavePrompt(false)
-    setPromptDismissed(true)
-  }, [])
-
-  // ── Loading: wait for auth only ────────────────────────────────────────────
+  // ── Loading spinner (auth only — fast) ────────────────────────────────────
   if (!authReady) {
     return (
       <div style={styles.centred}>
@@ -106,41 +114,60 @@ export default function Workspace() {
   // ─────────────────────────────────────────────────────────────────────────
   return (
     <div style={styles.root}>
-      {/* Temp session canvas — pure Zustand, no Supabase */}
+
+      {/* Blank session canvas — pure Zustand, no Supabase */}
       <SessionCanvas />
 
-      {/* Floating add-widget toolbar */}
+      {/* Floating widget toolbar — unchanged */}
       <WorkspaceToolbar userId={user?.id ?? null} sessionMode />
 
-      {/* ── Save-as-Board prompt ── */}
-      {showSavePrompt && (
-        <div style={styles.saveBar}>
-          <span style={styles.saveIcon}>✨</span>
-          <span style={styles.saveText}>Want to save this workspace?</span>
-          <input
-            style={styles.nameInput}
-            value={boardName}
-            onChange={(e) => setBoardName(e.target.value)}
-            placeholder="Board name…"
-            maxLength={60}
-          />
-          <button
-            style={styles.saveBtn}
-            onClick={handleSave}
-            disabled={isSaving}
-          >
-            {isSaving ? 'Saving…' : 'Save as Board'}
-          </button>
-          <button style={styles.dismissBtn} onClick={handleDismiss}>
-            Continue
-          </button>
-        </div>
+      {/* ── Name-first onboarding card ── */}
+      {showCard && (
+        <>
+          {/* Soft backdrop — does not block canvas interaction fully */}
+          <div style={styles.backdrop} onClick={() => setShowCard(false)} />
+
+          <div style={styles.card}>
+            <p style={styles.cardEyebrow}>New workspace</p>
+            <h2 style={styles.cardTitle}>Name your workspace</h2>
+            <p style={styles.cardHint}>You can rename it anytime from the hub.</p>
+
+            <input
+              autoFocus
+              style={styles.input}
+              value={boardName}
+              onChange={(e) => setBoardName(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') handleCreate()
+                if (e.key === 'Escape') setShowCard(false)
+              }}
+              placeholder="My Workspace"
+              maxLength={60}
+            />
+
+            {createError && (
+              <p style={styles.errorText}>{createError}</p>
+            )}
+
+            <div style={styles.cardActions}>
+              <button
+                style={styles.createBtn}
+                onClick={handleCreate}
+                disabled={creating}
+              >
+                {creating ? 'Creating…' : 'Create workspace'}
+              </button>
+              <button
+                style={styles.skipBtn}
+                onClick={() => setShowCard(false)}
+              >
+                Not now
+              </button>
+            </div>
+          </div>
+        </>
       )}
 
-      {/* Hub shortcut — always visible top-right */}
-      <button style={styles.hubBtn} onClick={() => navigate('/workspace/hub')}>
-        Workspace Hub
-      </button>
     </div>
   )
 }
@@ -153,13 +180,12 @@ const styles: Record<string, React.CSSProperties> = {
     inset: 0,
     display: 'flex',
     flexDirection: 'column',
-    background: '#0f0f0f',
-    backgroundImage: 'radial-gradient(#1f1f1f 1px, transparent 1px)',
-    backgroundSize: '24px 24px',
     overflow: 'hidden',
     fontFamily:
       '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif',
   },
+
+  // ── Loading state ──
   centred: {
     flex: 1,
     display: 'flex',
@@ -167,7 +193,6 @@ const styles: Record<string, React.CSSProperties> = {
     alignItems: 'center',
     justifyContent: 'center',
     gap: 12,
-    color: '#666',
   },
   spinner: {
     width: 28,
@@ -182,86 +207,95 @@ const styles: Record<string, React.CSSProperties> = {
     color: '#555',
     letterSpacing: '0.03em',
   },
-  saveBar: {
+
+  // ── Onboarding card ──
+  backdrop: {
     position: 'fixed',
-    bottom: 28,
+    inset: 0,
+    background: 'rgba(0, 0, 0, 0.35)',
+    zIndex: 300,
+  },
+  card: {
+    position: 'fixed',
+    top: '50%',
     left: '50%',
-    transform: 'translateX(-50%)',
-    display: 'flex',
-    alignItems: 'center',
-    gap: 10,
-    background: '#1a1a2e',
-    border: '1px solid #3a3a6a',
-    borderRadius: 12,
-    padding: '10px 16px',
-    boxShadow: '0 8px 32px rgba(0,0,0,0.5)',
-    zIndex: 200,
-    backdropFilter: 'blur(12px)',
+    transform: 'translate(-50%, -50%)',
+    zIndex: 301,
+    background: '#ffffff',
+    borderRadius: 16,
+    padding: '36px 40px',
+    width: 380,
     maxWidth: '90vw',
+    boxShadow: '0 24px 64px rgba(0,0,0,0.25)',
+    display: 'flex',
+    flexDirection: 'column',
+    gap: 10,
   },
-  saveIcon: {
-    fontSize: 18,
+  cardEyebrow: {
+    margin: 0,
+    fontSize: 11,
+    fontWeight: 600,
+    letterSpacing: '0.08em',
+    textTransform: 'uppercase' as const,
+    color: '#6b7ff0',
   },
-  saveText: {
+  cardTitle: {
+    margin: 0,
+    fontSize: 22,
+    fontWeight: 700,
+    color: '#111',
+    lineHeight: 1.2,
+  },
+  cardHint: {
+    margin: '0 0 6px',
     fontSize: 13,
-    color: '#aaa',
-    whiteSpace: 'nowrap',
+    color: '#888',
   },
-  nameInput: {
-    background: '#0f0f1e',
-    border: '1px solid #333',
-    borderRadius: 6,
-    padding: '5px 10px',
-    color: '#eee',
-    fontSize: 13,
-    width: 160,
+  input: {
+    width: '100%',
+    boxSizing: 'border-box' as const,
+    background: '#f5f5f7',
+    border: '1.5px solid #e0e0e0',
+    borderRadius: 8,
+    padding: '10px 14px',
+    fontSize: 15,
+    color: '#111',
     outline: 'none',
+    transition: 'border-color 0.15s',
   },
-  saveBtn: {
+  errorText: {
+    margin: 0,
+    fontSize: 12,
+    color: '#e05555',
+  },
+  cardActions: {
+    display: 'flex',
+    gap: 10,
+    marginTop: 6,
+  },
+  createBtn: {
+    flex: 1,
     background: '#6b7ff0',
     color: '#fff',
     border: 'none',
-    borderRadius: 7,
-    padding: '7px 16px',
-    fontSize: 13,
+    borderRadius: 8,
+    padding: '11px 0',
+    fontSize: 14,
     fontWeight: 600,
     cursor: 'pointer',
-    whiteSpace: 'nowrap',
   },
-  dismissBtn: {
+  skipBtn: {
     background: 'transparent',
-    color: '#666',
-    border: '1px solid #333',
-    borderRadius: 7,
-    padding: '7px 12px',
-    fontSize: 13,
+    color: '#aaa',
+    border: '1.5px solid #e8e8e8',
+    borderRadius: 8,
+    padding: '11px 18px',
+    fontSize: 14,
     cursor: 'pointer',
-    whiteSpace: 'nowrap',
-  },
-  hubBtn: {
-    position: 'fixed',
-    top: 68,
-    left: 24,
-    zIndex: 10000,
-    /* Modern styling */
-    background: '#16161f',
-    color: '#FFFFFF',
-    border: '1px solid rgba(255, 255, 255, 0.08)',
-    borderRadius: '12px',
-    padding: '10px 18px',
-    fontSize: '13.5px',
-    fontWeight: '500',
-    letterSpacing: '0.4px',
-    cursor: 'pointer',
-    display: 'flex',
-    alignItems: 'center',
-    gap: '8px',
-    transition: 'all 0.25s cubic-bezier(0.4, 0, 0.2, 1)', /* Smooth animation */
-    boxShadow: '0 4px 14px -2px rgba(0, 0, 0, 0.35)',     /* Depth */
-    userSelect: 'none',
   },
 }
 
+// Spinner keyframe (injected once)
 if (typeof document !== 'undefined') {
   const styleId = 'workspace-spin-keyframe'
   if (!document.getElementById(styleId)) {
