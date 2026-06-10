@@ -14,9 +14,13 @@
  */
 
 import React from 'react'
-import NoteWidget from './NoteWidget'
-import KPIWidget from './KPIWidget'
-import ChartWidget from './ChartWidget'
+import NoteWidget      from './NoteWidget'
+import KPIWidget       from './KPIWidget'
+import ChartWidget     from './ChartWidget'
+import RectangleWidget from './RectangleWidget'
+import CircleWidget    from './CircleWidget'
+import ArrowWidget     from './ArrowWidget'
+import TextWidget      from './TextWidget'
 import type { Widget } from '../store/useWorkspaceStore'
 
 // ─── Registry ─────────────────────────────────────────────────────────────────
@@ -29,9 +33,13 @@ export const WIDGET_REGISTRY: Record<
   string,
   React.ComponentType<{ widget: Widget; onUpdate: (patch: Partial<Widget>) => void }>
 > = {
-  note: NoteWidget,
-  kpi: KPIWidget,
-  chart: ChartWidget,
+  note:      NoteWidget,
+  kpi:       KPIWidget,
+  chart:     ChartWidget,
+  rectangle: RectangleWidget,
+  circle:    CircleWidget,
+  arrow:     ArrowWidget,
+  text:      TextWidget,
   // ─── Future widget types ───────────────────────────────────────────────
   // revenue_trend:  RevenueTrendWidget,
   // funnel:         FunnelWidget,
@@ -50,9 +58,13 @@ export const WIDGET_REGISTRY: Record<
  * Also used in the toolbar button labels.
  */
 export const TYPE_LABELS: Record<string, string> = {
-  note: 'Note',
-  kpi: 'KPI',
-  chart: 'Chart',
+  note:      'Note',
+  kpi:       'KPI',
+  chart:     'Chart',
+  rectangle: 'Rectangle',
+  circle:    'Circle',
+  arrow:     'Arrow',
+  text:      'Text',
   // Future:
   // revenue_trend:  'Revenue Trend',
   // funnel:         'Funnel',
@@ -130,6 +142,66 @@ export const WIDGET_DEFAULTS: Record<string, WidgetDefaults> = {
       fetchedAt: null,
     },
   },
+
+  // ── Shape widgets ──────────────────────────────────────────────────────────
+
+  rectangle: {
+    width: 200,
+    height: 120,
+    category: 'shapes',
+    title: null,
+    config: {
+      fillColor:    '#3b82f6',
+      strokeColor:  '#60a5fa',
+      strokeWidth:  2,
+      opacity:      1,
+      cornerRadius: 8,
+    },
+    data: {},
+  },
+
+  circle: {
+    width: 120,
+    height: 120,
+    category: 'shapes',
+    title: null,
+    config: {
+      fillColor:   '#8b5cf6',
+      strokeColor: '#a78bfa',
+      strokeWidth: 2,
+      opacity:     1,
+    },
+    data: {},
+  },
+
+  arrow: {
+    width: 200,
+    height: 40,
+    category: 'shapes',
+    title: null,
+    config: {
+      color:    '#f59e0b',
+      rotation: 0,
+      headSize: 0.35,
+      opacity:  1,
+    },
+    data: {},
+  },
+
+  text: {
+    width: 240,
+    height: 80,
+    category: 'text',
+    title: null,
+    config: {
+      text:       'New Text',
+      color:      '#e8e8e8',
+      fontSize:   24,
+      fontWeight: 'bold',
+      align:      'left',
+    },
+    data: {},
+  },
 }
 
 // ─── Toolbar Item Definitions ─────────────────────────────────────────────────
@@ -145,8 +217,12 @@ export interface ToolbarItem {
 }
 
 export const TOOLBAR_ITEMS: ToolbarItem[] = [
-  { type: 'note',  label: 'Note',  icon: '📝' },
-  { type: 'kpi',   label: 'KPI',   icon: '📊' },
-  { type: 'chart', label: 'Chart', icon: '📈' },
+  { type: 'note',      label: 'Note',      icon: '📝' },
+  { type: 'kpi',       label: 'KPI',       icon: '📊' },
+  { type: 'chart',     label: 'Chart',     icon: '📈' },
+  { type: 'rectangle', label: 'Rect',      icon: '▭'  },
+  { type: 'circle',    label: 'Circle',    icon: '○'  },
+  { type: 'arrow',     label: 'Arrow',     icon: '→'  },
+  { type: 'text',      label: 'Text',      icon: 'T'  },
   // Future toolbar items follow the same pattern — no core code changes needed
 ]
