@@ -131,7 +131,7 @@ export default function Workspace() {
         style={styles.newWorkspaceBtn}
         onClick={() => setShowCard(true)}
       >
-        + Workspace
+        + New
       </button>
       {/* ── Name-first onboarding card ── */}
       {showCard && (
