@@ -242,14 +242,21 @@ const styles: Record<string, React.CSSProperties> = {
     position: 'fixed',
     top: 56,
     right: 16,
-    background: '#1a1a2e',
+    background: 'linear-gradient(145deg, #1e1e2e, #16213e)',  /* Subtle gradient */
     color: '#FFFFFF',
-    border: '1px solid #2e2e4e',
-    borderRadius: 8,
-    padding: '6px 14px',
-    fontSize: 12,
+    border: '1px solid rgba(255, 255, 255, 0.08)',
+    borderRadius: '12px',
+    padding: '10px 20px',
+    fontSize: '13px',
+    fontWeight: '500',
+    letterSpacing: '0.3px',
     cursor: 'pointer',
     zIndex: 9999,
+    transition: 'all 0.2s cubic-bezier(0.4, 0, 0.2, 1)', /* Smooth animation */
+    boxShadow: '0 4px 12px -2px rgba(0, 0, 0, 0.3)',     /* Depth */
+    display: 'flex',
+    alignItems: 'center',
+    gap: '8px',
   },
 }
 
