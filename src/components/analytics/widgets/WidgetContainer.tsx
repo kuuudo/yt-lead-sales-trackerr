@@ -173,8 +173,6 @@ const isCanvasObject =
     ...(isCanvasObject
       ? {
           opacity: 0,
-          height: 8,
-          minHeight: 8,
           borderBottom: 'none',
           background: 'transparent',
         }
@@ -214,12 +212,6 @@ const isCanvasObject =
       <div
   style={{
     ...styles.body,
-
-    ...(isCanvasObject
-      ? {
-          marginTop: -8,
-        }
-      : {}),
   }}
 >
         {WidgetRenderer ? (
