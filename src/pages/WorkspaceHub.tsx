@@ -154,7 +154,7 @@ export default function WorkspaceHub() {
   style={styles.newBtn}
   onClick={() => setShowCreateModal(true)}
 >
-  + New
+  + New Workspace
 </button>
       {/* ── Header ── */}
       <header style={styles.header}>
@@ -638,22 +638,22 @@ const styles: Record<string, React.CSSProperties> = {
   },
   newBtn: {
   position: 'fixed',
-  top: 24,
-  right: 24,
+  bottom: 24,
+  left: 24,
   zIndex: 10000,
 
   background: '#16161f',
   color: '#FFFFFF',
   border: '1px solid rgba(255,255,255,0.08)',
-  borderRadius: '12px',
-  padding: '10px 18px',
+  borderRadius: '16px',
+  padding: '16px 28px',
 
-  fontSize: '13.5px',
-  fontWeight: 500,
+  fontSize: '18px',
+  fontWeight: 700,
 
   cursor: 'pointer',
 
-  boxShadow: '0 4px 14px -2px rgba(0,0,0,0.35)',
+  boxShadow: '0 8px 24px -2px rgba(0,0,0,0.35)',
 },
 
 modalCard: {
