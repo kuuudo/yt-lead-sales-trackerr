@@ -139,13 +139,13 @@ const styles: Record<string, React.CSSProperties> = {
   },
   emptyTitle: {
     fontSize: 18,
-    color: '#333',
+    color: '#d1d5db', // light gray (visible on dark bg)
     margin: 0,
     fontWeight: 600,
   },
   emptyHint: {
     fontSize: 13,
-    color: '#2e2e2e',
+    color: '#9ca3af', // softer gray
     margin: 0,
     maxWidth: 320,
     textAlign: 'center',
