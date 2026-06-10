@@ -139,7 +139,7 @@ export default function Workspace() {
 
       {/* Hub shortcut — always visible top-right */}
       <button style={styles.hubBtn} onClick={() => navigate('/workspace/hub')}>
-        My Boards
+        Workspace Hub
       </button>
     </div>
   )
@@ -243,7 +243,7 @@ const styles: Record<string, React.CSSProperties> = {
     top: 56,
     right: 16,
     background: '#1a1a2e',
-    color: '#9aa',
+    color: '#FFFFFF',
     border: '1px solid #2e2e4e',
     borderRadius: 8,
     padding: '6px 14px',
