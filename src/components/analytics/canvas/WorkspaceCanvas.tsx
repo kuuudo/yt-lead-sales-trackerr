@@ -479,22 +479,24 @@ const styles: Record<string, React.CSSProperties> = {
   },
   hubBtn: {
     position: 'fixed',
-    top: 56,
-    right: 16,
-    background: 'linear-gradient(145deg, #1e1e2e, #16213e)',  /* Subtle gradient */
+    top: 16,
+    left: 24,
+    zIndex: 9999,
+    /* Modern styling */
+    background: 'linear-gradient(145deg, #1e1e2e, #16213e)',
     color: '#FFFFFF',
     border: '1px solid rgba(255, 255, 255, 0.08)',
     borderRadius: '12px',
-    padding: '10px 20px',
-    fontSize: '13px',
+    padding: '10px 18px',
+    fontSize: '13.5px',
     fontWeight: '500',
-    letterSpacing: '0.3px',
+    letterSpacing: '0.4px',
     cursor: 'pointer',
-    zIndex: 9999,
-    transition: 'all 0.2s cubic-bezier(0.4, 0, 0.2, 1)', /* Smooth animation */
-    boxShadow: '0 4px 12px -2px rgba(0, 0, 0, 0.3)',     /* Depth */
     display: 'flex',
     alignItems: 'center',
     gap: '8px',
+    transition: 'all 0.25s cubic-bezier(0.4, 0, 0.2, 1)', /* Smooth animation */
+    boxShadow: '0 4px 14px -2px rgba(0, 0, 0, 0.35)',     /* Depth */
+    userSelect: 'none',
   },
 }
