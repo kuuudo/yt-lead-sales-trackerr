@@ -40,6 +40,7 @@ import React, {
 import { useWorkspaceStore } from '../store/useWorkspaceStore'
 import WidgetContainer from '../widgets/WidgetContainer'
 import CanvasGrid from './CanvasGrid'
+import { useNavigate } from 'react-router-dom'
 // ─── Color Palette ────────────────────────────────────────────────────────────
 
 const BG_COLORS = [
@@ -109,6 +110,8 @@ export default function WorkspaceCanvas() {
   const containerRef = useRef<HTMLDivElement>(null)
   const ptr = useRef<PointerState>(initialPointerState())
   const [selectedId, setSelectedId] = useState<string | null>(null)
+
+  const navigate = useNavigate()
 
   const transform = useWorkspaceStore((s) => s.transform)
   const pan = useWorkspaceStore((s) => s.pan)
@@ -391,6 +394,12 @@ export default function WorkspaceCanvas() {
   />
 ))}
       </div>
+      <button
+  style={styles.hubBtn}
+  onClick={() => navigate('/workspace/hub')}
+>
+  Workspace Hub
+</button>
     </div>
   )
 }
@@ -467,5 +476,18 @@ const styles: Record<string, React.CSSProperties> = {
     cursor: 'pointer',
     padding: 0,
     flexShrink: 0,
+  },
+  hubBtn: {
+    position: 'fixed',
+    top: 56,
+    right: 16,
+    background: '#1a1a2e',
+    color: '#FFFFFF',
+    border: '1px solid #2e2e4e',
+    borderRadius: 8,
+    padding: '6px 14px',
+    fontSize: 12,
+    cursor: 'pointer',
+    zIndex: 9999,
   },
 }
