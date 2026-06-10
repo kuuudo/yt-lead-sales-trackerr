@@ -127,6 +127,12 @@ export default function Workspace() {
         Workspace Hub
       </button>
 
+      <button
+        style={styles.newWorkspaceBtn}
+        onClick={() => setShowCard(true)}
+      >
+        + Workspace
+      </button>
       {/* ── Name-first onboarding card ── */}
       {showCard && (
         <>
@@ -300,6 +306,29 @@ const styles: Record<string, React.CSSProperties> = {
     cursor: 'pointer',
   },
   hubBtn: {
+    newWorkspaceBtn: {
+  position: 'fixed',
+  top: 122, // directly below Workspace Hub
+  left: 24,
+  zIndex: 10000,
+
+  background: '#16161f',
+  color: '#FFFFFF',
+  border: '1px solid rgba(255, 255, 255, 0.08)',
+  borderRadius: '12px',
+  padding: '10px 18px',
+  fontSize: '13.5px',
+  fontWeight: 500,
+  letterSpacing: '0.4px',
+  cursor: 'pointer',
+
+  display: 'flex',
+  alignItems: 'center',
+  gap: '8px',
+
+  transition: 'all 0.25s cubic-bezier(0.4, 0, 0.2, 1)',
+  boxShadow: '0 4px 14px -2px rgba(0, 0, 0, 0.35)',
+},
     position: 'fixed',
     top: 68,
     left: 24,
