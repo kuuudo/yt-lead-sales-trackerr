@@ -95,15 +95,7 @@ export default function SessionCanvas() {
         ))}
       </div>
 
-      {/* Empty state */}
-      {tempWidgets.length === 0 && (
-        <div style={styles.empty}>
-          <p style={styles.emptyTitle}>Blank Canvas</p>
-          <p style={styles.emptyHint}>
-            Use the toolbar to add widgets. Nothing is saved until you click "Save as Board".
-          </p>
-        </div>
-      )}
+    
 
       {/* Zoom level badge */}
       <div style={styles.zoomBadge}>
