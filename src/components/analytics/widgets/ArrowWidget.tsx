@@ -7,7 +7,7 @@
  * Rotation is stored in config.rotation and applied via CSS transform.
  *
  * Config fields (user-defined, persisted):
- *   config.color     — hex string, default '#FFFF00'
+ *   config.color     — hex string, default '#FACC15'
  *   config.rotation  — degrees, default 0
  *   config.headSize  — number 0–1 proportion, default 0.35
  *   config.opacity   — number 0–1, default 1
@@ -29,7 +29,7 @@ interface Props {
 export default function ArrowWidget({ widget, onUpdate }: Props) {
   const config = widget.config
 
-  const color    = (config.color    as string) ?? '#FFFF00'
+  const color    = (config.color    as string) ?? '#FACC15'
   const rotation = (config.rotation as number) ?? 0
   const headSize = (config.headSize as number) ?? 0.35
   const opacity  = (config.opacity  as number) ?? 1
