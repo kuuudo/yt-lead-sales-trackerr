@@ -124,7 +124,7 @@ export default function Workspace() {
         style={styles.hubBtn}
         onClick={() => navigate('/workspace/hub')}
 >
-        Hub
+        Workspace Hub
       </button>
 
       {/* ── Name-first onboarding card ── */}
