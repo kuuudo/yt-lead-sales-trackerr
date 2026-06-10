@@ -3,40 +3,34 @@
  *
  * Zustand store — single source of truth for the entire workspace.
  *
- * Responsibilities:
- *  - Board CRUD (create / rename / delete / switch)
- *  - Widget CRUD (add / update / delete) per board
- *  - Canvas transform state (pan x/y + scale)
- *  - Supabase sync for all mutations
- *  - Optimistic in-memory updates: UI updates immediately, Supabase follows
- *  - Debounced position/size saves (widget move / resize generates many events)
- *  - Undo / Redo (Ctrl+Z / Ctrl+Y) for create, delete, and text edits
- *
- * No localStorage. Supabase is the only persistence layer.
- *
- * Dependencies:
- *   npm install zustand nanoid @supabase/supabase-js
+ * KEY CHANGES vs previous version:
+ *  - loadBoards NO LONGER auto-creates a board when the user has none.
+ *    Boards are ONLY created by explicit user action (createBoard / saveSessionAsBoard).
+ *  - Added `tempWidgets` — in-memory widget list for the /workspace session canvas.
+ *  - Added `addTempWidget` / `clearTempWidgets` helpers for session canvas.
+ *  - Added `saveSessionAsBoard(name, userId)` — converts temp session into a real board.
+ *  - deleteBoard guard changed: allows deleting the last board (user might want zero boards).
  */
 
 import { create } from 'zustand'
 import { supabase } from '../../../lib/supabaseClient'
 import type { SupabaseWidget, SupabaseBoard } from './types'
 
-// ─── Public Types (re-exported for consumers) ─────────────────────────────────
+// ─── Public Types ─────────────────────────────────────────────────────────────
 
 export interface Widget {
   id: string
   board_id: string
   user_id: string
-  title: string | null         // null → UI falls back to TYPE_LABELS[type]
-  type: string                 // 'note' | 'kpi' | 'chart' | ...
-  x: number                    // canvas-space coordinate
-  y: number                    // canvas-space coordinate
-  width: number                // canvas-space size
-  height: number               // canvas-space size
-  category?: string            // 'revenue' | 'conversion' | 'content' | 'notes'
-  config: Record<string, unknown>   // user-defined intent (metric, dateRange, …)
-  data: Record<string, unknown>     // last machine-written payload (fetched values)
+  title: string | null
+  type: string
+  x: number
+  y: number
+  width: number
+  height: number
+  category?: string
+  config: Record<string, unknown>
+  data: Record<string, unknown>
   created_at: string
   updated_at: string
 }
@@ -45,15 +39,15 @@ export interface Board {
   id: string
   user_id: string
   name: string
-  background_color: string     // canvas background — defaults to '#111827'
+  background_color: string
   created_at: string
   updated_at: string
 }
 
 export interface CanvasTransform {
-  x: number       // pan offset in px
-  y: number       // pan offset in px
-  scale: number   // zoom multiplier (1 = 100%)
+  x: number
+  y: number
+  scale: number
 }
 
 export interface Point {
@@ -74,9 +68,16 @@ export interface WorkspaceStore {
   // ── State ──────────────────────────────────────────────────────────────────
   boards: Board[]
   activeBoardId: string | null
-  widgetsByBoard: Record<string, Widget[]>   // boardId → Widget[]
+  widgetsByBoard: Record<string, Widget[]>
   transform: CanvasTransform
   isSaving: boolean
+
+  /**
+   * Temporary widgets for the /workspace session canvas.
+   * These live in memory only — never persisted until saveSessionAsBoard() is called.
+   */
+  tempWidgets: Omit<Widget, 'board_id' | 'created_at' | 'updated_at'>[]
+
   clearWorkspace: () => void
 
   // ── History ────────────────────────────────────────────────────────────────
@@ -84,11 +85,9 @@ export interface WorkspaceStore {
   canRedo: boolean
   undo: () => Promise<void>
   redo: () => Promise<void>
-  /** Internal: push an entry onto history. Called by add/delete/update. */
   _recordHistory: (entry: HistoryEntry) => void
 
   // ── Bootstrap ──────────────────────────────────────────────────────────────
-  /** Load all boards (and their widgets) for the given user from Supabase. */
   loadBoards: (userId: string) => Promise<void>
 
   // ── Canvas ─────────────────────────────────────────────────────────────────
@@ -97,21 +96,30 @@ export interface WorkspaceStore {
   resetView: () => void
 
   // ── Boards ─────────────────────────────────────────────────────────────────
-  createBoard: (name: string, userId: string) => Promise<void>
+  createBoard: (name: string, userId: string) => Promise<Board>
   renameBoard: (boardId: string, name: string) => Promise<void>
   deleteBoard: (boardId: string) => Promise<void>
   switchBoard: (boardId: string) => void
   setBoardColor: (boardId: string, color: string) => Promise<void>
+
+  // ── Session canvas (temp, /workspace route) ────────────────────────────────
+  /** Add a widget to the in-memory session canvas (no Supabase call). */
+  addTempWidget: (partial: Omit<Widget, 'board_id' | 'created_at' | 'updated_at'>) => void
+  /** Wipe all temp widgets (e.g. after user dismisses save prompt). */
+  clearTempWidgets: () => void
+  /**
+   * Persist the current temp session as a new board.
+   * Calls createBoard, migrates tempWidgets into the new board, then clears tempWidgets.
+   * Returns the new board so the caller can redirect to /workspace/:boardId.
+   */
+  saveSessionAsBoard: (name: string, userId: string) => Promise<Board>
 
   // ── Widgets ────────────────────────────────────────────────────────────────
   addWidget: (partial: Omit<Widget, 'created_at' | 'updated_at'>) => Promise<void>
   updateWidget: (id: string, patch: Partial<Widget>) => void
   deleteWidget: (id: string) => Promise<void>
 
-  /** Derived helper: widgets for the currently active board. */
   activeWidgets: () => Widget[]
-
-  /** Convert a screen-space point to canvas-space coordinates. */
   toCanvasPoint: (screenX: number, screenY: number) => Point
 }
 
@@ -122,15 +130,8 @@ const MAX_SCALE = 4.0
 const INITIAL_TRANSFORM: CanvasTransform = { x: 0, y: 0, scale: 1 }
 const DEFAULT_BG_COLOR = '#111827'
 
-// Debounce map: widgetId → timeout handle
-// Stored outside Zustand to avoid triggering re-renders
 const saveDebounceMap = new Map<string, ReturnType<typeof setTimeout>>()
 const SAVE_DEBOUNCE_MS = 600
-
-// ─── History (module-level, outside Zustand state) ────────────────────────────
-//
-// Stored outside Zustand so the stacks don't trigger re-renders on every push.
-// Only `canUndo` / `canRedo` booleans live in Zustand state and cause renders.
 
 const MAX_HISTORY = 50
 
@@ -139,16 +140,13 @@ const historyStack = {
   future: [] as HistoryEntry[],
 }
 
-// Prevents undo/redo from re-recording the inverse action as a new history entry
 let _isUndoing = false
 
-// Debounce for UPDATE_WIDGET history entries (text edits fire on every keystroke)
-// Maps widgetId → { timeoutHandle, stateBeforeEdit }
 const historyDebounceMap = new Map<string, {
   handle: ReturnType<typeof setTimeout>
   before: Partial<Widget>
 }>()
-const HISTORY_DEBOUNCE_MS = 800  // slightly longer than save debounce
+const HISTORY_DEBOUNCE_MS = 800
 
 // ─── Store Implementation ─────────────────────────────────────────────────────
 
@@ -158,62 +156,38 @@ export const useWorkspaceStore = create<WorkspaceStore>((set, get) => ({
   widgetsByBoard: {},
   transform: INITIAL_TRANSFORM,
   isSaving: false,
+  tempWidgets: [],   // ← NEW: session canvas state
 
   // ── History state ──────────────────────────────────────────────────────────
   canUndo: false,
   canRedo: false,
 
   _recordHistory: (entry) => {
-    // Skip recording when the mutation was triggered by undo/redo itself
     if (_isUndoing) return
-
     historyStack.past.push(entry)
-
-    // Cap history at MAX_HISTORY entries
     if (historyStack.past.length > MAX_HISTORY) {
       historyStack.past.splice(0, historyStack.past.length - MAX_HISTORY)
     }
-
-    // Any new action wipes the redo future
     historyStack.future = []
-
     set({ canUndo: true, canRedo: false })
   },
 
   undo: async () => {
     const entry = historyStack.past.pop()
     if (!entry) return
-
     historyStack.future.push(entry)
-    set({
-      canUndo: historyStack.past.length > 0,
-      canRedo: true,
-    })
-
+    set({ canUndo: historyStack.past.length > 0, canRedo: true })
     _isUndoing = true
-    try {
-      await applyInverse(entry, get())
-    } finally {
-      _isUndoing = false
-    }
+    try { await applyInverse(entry, get()) } finally { _isUndoing = false }
   },
 
   redo: async () => {
     const entry = historyStack.future.pop()
     if (!entry) return
-
     historyStack.past.push(entry)
-    set({
-      canUndo: true,
-      canRedo: historyStack.future.length > 0,
-    })
-
+    set({ canUndo: true, canRedo: historyStack.future.length > 0 })
     _isUndoing = true
-    try {
-      await applyForward(entry, get())
-    } finally {
-      _isUndoing = false
-    }
+    try { await applyForward(entry, get()) } finally { _isUndoing = false }
   },
 
   // ─────────────────────────────────────────────────────────────────────────
@@ -221,7 +195,6 @@ export const useWorkspaceStore = create<WorkspaceStore>((set, get) => ({
   // ─────────────────────────────────────────────────────────────────────────
 
   loadBoards: async (userId) => {
-    // Fetch all boards for this user
     const { data: boardRows, error: boardError } = await supabase
       .from('boards')
       .select('*')
@@ -235,13 +208,13 @@ export const useWorkspaceStore = create<WorkspaceStore>((set, get) => ({
       background_color: row.background_color ?? DEFAULT_BG_COLOR,
     })) as Board[]
 
-    // If user has no boards yet, create a default one
+    // ✅ FIX: Do NOT auto-create a board when the user has none.
+    // The user will create boards manually from /workspace/hub.
     if (boards.length === 0) {
-      await get().createBoard('My Workspace', userId)
+      set({ boards: [], widgetsByBoard: {}, activeBoardId: null })
       return
     }
 
-    // Fetch all widgets for all boards in a single query
     const boardIds = boards.map((b) => b.id)
     const { data: widgetRows, error: widgetError } = await supabase
       .from('widgets')
@@ -251,7 +224,6 @@ export const useWorkspaceStore = create<WorkspaceStore>((set, get) => ({
 
     if (widgetError) throw widgetError
 
-    // Group widgets by board
     const widgetsByBoard: Record<string, Widget[]> = {}
     for (const b of boards) widgetsByBoard[b.id] = []
     for (const row of (widgetRows ?? []) as SupabaseWidget[]) {
@@ -278,16 +250,13 @@ export const useWorkspaceStore = create<WorkspaceStore>((set, get) => ({
       activeBoardId: null,
       widgetsByBoard: {},
       transform: { x: 0, y: 0, scale: 1 },
+      tempWidgets: [],
     })
   },
 
   pan: (dx, dy) => {
     set((s) => ({
-      transform: {
-        ...s.transform,
-        x: s.transform.x + dx,
-        y: s.transform.y + dy,
-      },
+      transform: { ...s.transform, x: s.transform.x + dx, y: s.transform.y + dy },
     }))
   },
 
@@ -296,25 +265,23 @@ export const useWorkspaceStore = create<WorkspaceStore>((set, get) => ({
       const { x, y, scale } = s.transform
       const factor = delta > 0 ? 1.08 : 0.926
       const nextScale = Math.min(MAX_SCALE, Math.max(MIN_SCALE, scale * factor))
-
-      // Zoom toward the pointer origin: keep the canvas point under the cursor
-      // fixed as scale changes.
-      // Formula: newPan = origin - (origin - oldPan) * (nextScale / oldScale)
       const nextX = originX - (originX - x) * (nextScale / scale)
       const nextY = originY - (originY - y) * (nextScale / scale)
-
       return { transform: { x: nextX, y: nextY, scale: nextScale } }
     })
   },
 
-  resetView: () => {
-    set({ transform: INITIAL_TRANSFORM })
-  },
+  resetView: () => set({ transform: INITIAL_TRANSFORM }),
 
   // ─────────────────────────────────────────────────────────────────────────
   // Boards
   // ─────────────────────────────────────────────────────────────────────────
 
+  /**
+   * Create a new board in Supabase.
+   * ✅ Returns the created Board so callers can redirect to /workspace/:id.
+   * ✅ NEVER called automatically — only from explicit user action.
+   */
   createBoard: async (name, userId) => {
     const now = new Date().toISOString()
     const optimisticId = crypto.randomUUID()
@@ -335,7 +302,6 @@ export const useWorkspaceStore = create<WorkspaceStore>((set, get) => ({
       activeBoardId: optimisticId,
     }))
 
-    // Persist to Supabase
     const { data, error } = await supabase
       .from('boards')
       .insert({ name, user_id: userId, background_color: DEFAULT_BG_COLOR })
@@ -343,25 +309,26 @@ export const useWorkspaceStore = create<WorkspaceStore>((set, get) => ({
       .single()
 
     if (error) {
-      // Roll back optimistic board
+      // Roll back
       set((s) => ({
         boards: s.boards.filter((b) => b.id !== optimisticId),
         widgetsByBoard: Object.fromEntries(
           Object.entries(s.widgetsByBoard).filter(([k]) => k !== optimisticId)
         ),
-        activeBoardId: s.boards[0]?.id ?? null,
+        activeBoardId: s.boards.find((b) => b.id !== optimisticId)?.id ?? null,
       }))
       throw error
     }
 
-    // Replace optimistic ID with real DB-assigned ID
     const realBoard = data as SupabaseBoard
+    const fullBoard: Board = {
+      ...newBoard,
+      id: realBoard.id,
+      background_color: realBoard.background_color ?? DEFAULT_BG_COLOR,
+    }
+
     set((s) => ({
-      boards: s.boards.map((b) =>
-        b.id === optimisticId
-          ? { ...b, id: realBoard.id, background_color: realBoard.background_color ?? DEFAULT_BG_COLOR }
-          : b
-      ),
+      boards: s.boards.map((b) => (b.id === optimisticId ? fullBoard : b)),
       widgetsByBoard: Object.fromEntries(
         Object.entries(s.widgetsByBoard).map(([k, v]) =>
           k === optimisticId ? [realBoard.id, v] : [k, v]
@@ -369,10 +336,11 @@ export const useWorkspaceStore = create<WorkspaceStore>((set, get) => ({
       ),
       activeBoardId: realBoard.id,
     }))
+
+    return fullBoard
   },
 
   renameBoard: async (boardId, name) => {
-    // Optimistic
     set((s) => ({
       boards: s.boards.map((b) =>
         b.id === boardId ? { ...b, name, updated_at: new Date().toISOString() } : b
@@ -389,14 +357,12 @@ export const useWorkspaceStore = create<WorkspaceStore>((set, get) => ({
 
   deleteBoard: async (boardId) => {
     const { boards } = get()
-    if (boards.length <= 1) return  // always keep at least one board
-
     const remainingBoards = boards.filter((b) => b.id !== boardId)
 
     set((s) => ({
       boards: remainingBoards,
       activeBoardId:
-        s.activeBoardId === boardId ? remainingBoards[0]?.id ?? null : s.activeBoardId,
+        s.activeBoardId === boardId ? (remainingBoards[0]?.id ?? null) : s.activeBoardId,
       widgetsByBoard: Object.fromEntries(
         Object.entries(s.widgetsByBoard).filter(([k]) => k !== boardId)
       ),
@@ -407,12 +373,9 @@ export const useWorkspaceStore = create<WorkspaceStore>((set, get) => ({
     // widgets are CASCADE deleted by the FK constraint
   },
 
-  switchBoard: (boardId) => {
-    set({ activeBoardId: boardId, transform: INITIAL_TRANSFORM })
-  },
+  switchBoard: (boardId) => set({ activeBoardId: boardId, transform: INITIAL_TRANSFORM }),
 
   setBoardColor: async (boardId, color) => {
-    // Optimistic
     set((s) => ({
       boards: s.boards.map((b) =>
         b.id === boardId
@@ -430,16 +393,46 @@ export const useWorkspaceStore = create<WorkspaceStore>((set, get) => ({
   },
 
   // ─────────────────────────────────────────────────────────────────────────
+  // Session canvas (temp, /workspace route)
+  // ─────────────────────────────────────────────────────────────────────────
+
+  addTempWidget: (partial) => {
+    set((s) => ({ tempWidgets: [...s.tempWidgets, partial] }))
+  },
+
+  clearTempWidgets: () => set({ tempWidgets: [] }),
+
+  saveSessionAsBoard: async (name, userId) => {
+    const { tempWidgets } = get()
+
+    // createBoard handles Supabase insert + optimistic update + returns the real Board
+    const newBoard = await get().createBoard(name, userId)
+
+    const now = new Date().toISOString()
+    // Migrate each temp widget into the real board
+    for (const tw of tempWidgets) {
+      const widget: Widget = {
+        ...tw,
+        board_id: newBoard.id,
+        created_at: now,
+        updated_at: now,
+      }
+      await get().addWidget(widget)
+    }
+
+    // Clear temp state now that everything is persisted
+    set({ tempWidgets: [] })
+
+    return newBoard
+  },
+
+  // ─────────────────────────────────────────────────────────────────────────
   // Widgets
   // ─────────────────────────────────────────────────────────────────────────
 
   addWidget: async (partial) => {
     const now = new Date().toISOString()
-    const widget: Widget = {
-      ...partial,
-      created_at: now,
-      updated_at: now,
-    }
+    const widget: Widget = { ...partial, created_at: now, updated_at: now }
 
     // Optimistic
     set((s) => ({
@@ -449,10 +442,9 @@ export const useWorkspaceStore = create<WorkspaceStore>((set, get) => ({
       },
     }))
 
-    // ── Record history ──────────────────────────────────────────────────────
     get()._recordHistory({ type: 'ADD_WIDGET', widget })
 
-    if (widget.user_id === 'guest') return  // guest mode: no Supabase
+    if (widget.user_id === 'guest') return
 
     console.log('===================')
     console.log('WIDGET INSERT')
@@ -462,17 +454,12 @@ export const useWorkspaceStore = create<WorkspaceStore>((set, get) => ({
     console.log('===================')
 
     const payload = widgetToRow(widget)
-
     console.log('INSERT PAYLOAD', payload)
 
-    const { error } = await supabase
-      .from('widgets')
-      .insert(payload)
+    const { error } = await supabase.from('widgets').insert(payload)
 
     if (error) {
       console.error('SUPABASE INSERT ERROR', error)
-
-      // Roll back
       set((s) => ({
         widgetsByBoard: {
           ...s.widgetsByBoard,
@@ -486,57 +473,43 @@ export const useWorkspaceStore = create<WorkspaceStore>((set, get) => ({
   },
 
   updateWidget: (id, patch) => {
-    // ── Capture the widget state BEFORE this edit sequence starts ───────────
-    // We only capture `before` on the first keystroke of a debounce window;
-    // subsequent keystrokes extend the timer but keep the original `before`.
     if (!_isUndoing) {
       const existingDebounce = historyDebounceMap.get(id)
-
-      // Snapshot the fields being patched, from the current (pre-patch) state
       const before: Partial<Widget> = existingDebounce?.before ?? (() => {
         const allWidgets = Object.values(get().widgetsByBoard).flat()
         const current = allWidgets.find((w) => w.id === id)
         if (!current) return patch
-        // Capture only the keys that are changing
         return Object.fromEntries(
           Object.keys(patch).map((k) => [k, (current as Record<string, unknown>)[k]])
         ) as Partial<Widget>
       })()
 
       if (existingDebounce) clearTimeout(existingDebounce.handle)
-
       historyDebounceMap.set(id, {
         before,
         handle: setTimeout(() => {
           historyDebounceMap.delete(id)
-          // Only record if something actually changed
           const allWidgets = Object.values(get().widgetsByBoard).flat()
           const current = allWidgets.find((w) => w.id === id)
           if (!current) return
-
           const after = Object.fromEntries(
             Object.keys(before).map((k) => [k, (current as Record<string, unknown>)[k]])
           ) as Partial<Widget>
-
           get()._recordHistory({ type: 'UPDATE_WIDGET', id, before, after })
         }, HISTORY_DEBOUNCE_MS),
       })
     }
 
-    // Optimistic in-memory update (synchronous, no await — used for drag/resize)
     set((s) => {
       const updated: Record<string, Widget[]> = {}
       for (const [boardId, widgets] of Object.entries(s.widgetsByBoard)) {
         updated[boardId] = widgets.map((w) =>
-          w.id === id
-            ? { ...w, ...patch, updated_at: new Date().toISOString() }
-            : w
+          w.id === id ? { ...w, ...patch, updated_at: new Date().toISOString() } : w
         )
       }
       return { widgetsByBoard: updated }
     })
 
-    // Debounced Supabase write
     const existing = saveDebounceMap.get(id)
     if (existing) clearTimeout(existing)
 
@@ -544,8 +517,6 @@ export const useWorkspaceStore = create<WorkspaceStore>((set, get) => ({
       id,
       setTimeout(async () => {
         saveDebounceMap.delete(id)
-        // Read the LATEST state at fire-time, not the captured patch closure.
-        // This means a type-then-drag sequence always writes the full correct state.
         const allWidgets = Object.values(get().widgetsByBoard).flat()
         const widget = allWidgets.find((w) => w.id === id)
         if (!widget || widget.user_id === 'guest') return
@@ -553,7 +524,7 @@ export const useWorkspaceStore = create<WorkspaceStore>((set, get) => ({
         set({ isSaving: true })
         const { error } = await supabase
           .from('widgets')
-          .update(widgetToRow(widget))   // ← full state, not patch
+          .update(widgetToRow(widget))
           .eq('id', id)
 
         if (error) console.error('[useWorkspaceStore] updateWidget save error:', error)
@@ -563,24 +534,18 @@ export const useWorkspaceStore = create<WorkspaceStore>((set, get) => ({
   },
 
   deleteWidget: async (id) => {
-    // Find the board this widget belongs to
     const { widgetsByBoard } = get()
     let boardId: string | null = null
     for (const [bid, widgets] of Object.entries(widgetsByBoard)) {
-      if (widgets.some((w) => w.id === id)) {
-        boardId = bid
-        break
-      }
+      if (widgets.some((w) => w.id === id)) { boardId = bid; break }
     }
     if (!boardId) return
 
     const widget = widgetsByBoard[boardId]?.find((w) => w.id === id)
     if (!widget) return
 
-    // ── Record history BEFORE removal ───────────────────────────────────────
     get()._recordHistory({ type: 'DELETE_WIDGET', widget })
 
-    // Optimistic
     set((s) => ({
       widgetsByBoard: {
         ...s.widgetsByBoard,
@@ -592,7 +557,6 @@ export const useWorkspaceStore = create<WorkspaceStore>((set, get) => ({
 
     const { error } = await supabase.from('widgets').delete().eq('id', id)
     if (error) {
-      // Roll back
       set((s) => ({
         widgetsByBoard: {
           ...s.widgetsByBoard,
@@ -615,43 +579,25 @@ export const useWorkspaceStore = create<WorkspaceStore>((set, get) => ({
 
   toCanvasPoint: (screenX, screenY) => {
     const { x, y, scale } = get().transform
-    return {
-      x: (screenX - x) / scale,
-      y: (screenY - y) / scale,
-    }
+    return { x: (screenX - x) / scale, y: (screenY - y) / scale }
   },
 }))
 
-// ─── History: Apply forward / inverse ────────────────────────────────────────
-//
-// These run actual store mutations (which go through Supabase normally).
-// _isUndoing = true prevents them from re-recording history.
+// ─── History helpers ──────────────────────────────────────────────────────────
 
 async function applyInverse(entry: HistoryEntry, store: WorkspaceStore): Promise<void> {
   switch (entry.type) {
-    case 'ADD_WIDGET':
-      await store.deleteWidget(entry.widget.id)
-      break
-    case 'DELETE_WIDGET':
-      await store.addWidget(entry.widget)
-      break
-    case 'UPDATE_WIDGET':
-      store.updateWidget(entry.id, entry.before)
-      break
+    case 'ADD_WIDGET':    await store.deleteWidget(entry.widget.id); break
+    case 'DELETE_WIDGET': await store.addWidget(entry.widget); break
+    case 'UPDATE_WIDGET': store.updateWidget(entry.id, entry.before); break
   }
 }
 
 async function applyForward(entry: HistoryEntry, store: WorkspaceStore): Promise<void> {
   switch (entry.type) {
-    case 'ADD_WIDGET':
-      await store.addWidget(entry.widget)
-      break
-    case 'DELETE_WIDGET':
-      await store.deleteWidget(entry.widget.id)
-      break
-    case 'UPDATE_WIDGET':
-      store.updateWidget(entry.id, entry.after)
-      break
+    case 'ADD_WIDGET':    await store.addWidget(entry.widget); break
+    case 'DELETE_WIDGET': await store.deleteWidget(entry.widget.id); break
+    case 'UPDATE_WIDGET': store.updateWidget(entry.id, entry.after); break
   }
 }
 

@@ -1,102 +1,100 @@
 /**
  * src/pages/Workspace.tsx
  *
- * Root page component for the VSTRK Analytics Workspace.
  * Route: /workspace
  *
- * Responsibilities:
- *  - Bootstrap Supabase session and resolve the active user
- *  - Load boards + widgets from Supabase on mount
- *  - Render the full-screen workspace shell (canvas + toolbar + board switcher)
- *  - Show a loading state while initial data resolves
- *  - Show an error state if Supabase is unreachable
+ * This is a TEMPORARY session canvas — no Supabase calls are made here.
+ * All widget state lives in Zustand's `tempWidgets` until the user
+ * explicitly saves as a board.
  *
- * Dependencies:
- *   npm install @supabase/supabase-js zustand nanoid @use-gesture/react recharts
+ * Flow:
+ *  1. User lands on blank canvas
+ *  2. User adds their first widget → "Save as Board" prompt appears
+ *  3. User clicks "Save as Board" → saveSessionAsBoard() → redirect to /workspace/:id
+ *  4. User clicks "Continue" → prompt dismisses, canvas keeps working
+ *
+ * Auth is still resolved so WorkspaceToolbar knows the userId.
+ * loadBoards() is NOT called here — that's /workspace/hub's job.
  */
 
-import React, { useEffect, useState } from 'react'
+import React, { useEffect, useState, useCallback } from 'react'
+import { useNavigate } from 'react-router-dom'
 import { supabase } from '../lib/supabaseClient'
 import { useWorkspaceStore } from '../components/analytics/store/useWorkspaceStore'
-import WorkspaceCanvas from '../components/analytics/canvas/WorkspaceCanvas'
+import SessionCanvas from '../components/analytics/canvas/SessionCanvas'
 import WorkspaceToolbar from '../components/analytics/toolbar/WorkspaceToolbar'
-import BoardSwitcher from '../components/analytics/toolbar/BoardSwitcher'
 import type { User } from '@supabase/supabase-js'
-
-// ─── Types ────────────────────────────────────────────────────────────────────
-
-type BootStatus = 'loading' | 'ready' | 'error'
 
 // ─── Component ────────────────────────────────────────────────────────────────
 
 export default function Workspace() {
-  const [status, setStatus] = useState<BootStatus>('loading')
-  const [error, setError] = useState<string | null>(null)
+  const navigate = useNavigate()
+
   const [user, setUser] = useState<User | null>(null)
+  const [authReady, setAuthReady] = useState(false)
+  const [showSavePrompt, setShowSavePrompt] = useState(false)
+  const [promptDismissed, setPromptDismissed] = useState(false)
+  const [isSaving, setIsSaving] = useState(false)
+  const [boardName, setBoardName] = useState('My Workspace')
 
-  const loadBoards = useWorkspaceStore((s) => s.loadBoards)
-  const clearWorkspace = useWorkspaceStore((s) => s.clearWorkspace)
-  const activeBoardId = useWorkspaceStore((s) => s.activeBoardId)
+  const tempWidgets = useWorkspaceStore((s) => s.tempWidgets)
+  const saveSessionAsBoard = useWorkspaceStore((s) => s.saveSessionAsBoard)
+  const clearTempWidgets = useWorkspaceStore((s) => s.clearTempWidgets)
 
-  // ── Bootstrap: resolve session then hydrate store ──────────────────────────
+  // ── Resolve auth session (no DB board calls) ───────────────────────────────
   useEffect(() => {
     let cancelled = false
 
-    async function boot() {
-      try {
-        // 1. Resolve current Supabase session
-        const {
-          data: { session },
-          error: sessionError,
-        } = await supabase.auth.getSession()
-
-        if (sessionError) throw sessionError
-
-        const currentUser = session?.user ?? null
-        setUser(currentUser)
-        const userId = currentUser?.id
-        if (userId) {
-          await loadBoards(userId)
-        }
-       
-
-        if (!cancelled) setStatus('ready')
-      } catch (err: unknown) {
-        if (!cancelled) {
-          const message =
-            err instanceof Error ? err.message : 'Failed to connect to database.'
-          setError(message)
-          setStatus('error')
-        }
+    supabase.auth.getSession().then(({ data: { session } }) => {
+      if (!cancelled) {
+        setUser(session?.user ?? null)
+        setAuthReady(true)
       }
-    }
+    })
 
-    boot()
-
-    // 3. Subscribe to auth changes (sign-in / sign-out while workspace is open)
-    const { data: authListener } = supabase.auth.onAuthStateChange(
-      (_event, session) => {
-        if (!cancelled) {
-          const nextUser = session?.user ?? null
-          if (nextUser) {
-            setUser(nextUser)
-            loadBoards(nextUser.id)
-          } else {
-            setUser(null)
-            clearWorkspace()   // see below
-          }
-        }
-      }
-    );
+    const { data: authListener } = supabase.auth.onAuthStateChange((_event, session) => {
+      if (!cancelled) setUser(session?.user ?? null)
+    })
 
     return () => {
       cancelled = true
       authListener.subscription.unsubscribe()
     }
-  }, [loadBoards])
+  }, [])
 
-  // ── Render: loading ────────────────────────────────────────────────────────
-  if (status === 'loading') {
+  // ── Show save prompt on first widget add ───────────────────────────────────
+  useEffect(() => {
+    if (tempWidgets.length > 0 && !promptDismissed && !showSavePrompt) {
+      setShowSavePrompt(true)
+    }
+  }, [tempWidgets.length, promptDismissed, showSavePrompt])
+
+  // ── Save handler ───────────────────────────────────────────────────────────
+  const handleSave = useCallback(async () => {
+    if (!user) {
+      // Not logged in — redirect to login
+      navigate('/login')
+      return
+    }
+    if (isSaving) return
+
+    setIsSaving(true)
+    try {
+      const newBoard = await saveSessionAsBoard(boardName.trim() || 'My Workspace', user.id)
+      navigate(`/workspace/${newBoard.id}`)
+    } catch (err) {
+      console.error('[Workspace] saveSessionAsBoard error:', err)
+      setIsSaving(false)
+    }
+  }, [user, boardName, isSaving, saveSessionAsBoard, navigate])
+
+  const handleDismiss = useCallback(() => {
+    setShowSavePrompt(false)
+    setPromptDismissed(true)
+  }, [])
+
+  // ── Loading: wait for auth only ────────────────────────────────────────────
+  if (!authReady) {
     return (
       <div style={styles.centred}>
         <div style={styles.spinner} />
@@ -105,49 +103,49 @@ export default function Workspace() {
     )
   }
 
-  // ── Render: error ──────────────────────────────────────────────────────────
-  if (status === 'error') {
-    return (
-      <div style={styles.centred}>
-        <span style={styles.errorIcon}>⚠</span>
-        <p style={styles.errorText}>Could not load workspace.</p>
-        <p style={styles.errorDetail}>{error}</p>
-        <button style={styles.retryButton} onClick={() => window.location.reload()}>
-          Retry
-        </button>
-      </div>
-    )
-  }
-
-  // ── Render: workspace ──────────────────────────────────────────────────────
+  // ─────────────────────────────────────────────────────────────────────────
   return (
     <div style={styles.root}>
-      {/* Board tabs along the top */}
-      <div style={styles.topBar}>
-        <BoardSwitcher />
-      </div>
+      {/* Temp session canvas — pure Zustand, no Supabase */}
+      <SessionCanvas />
 
-      {/* Infinite canvas — fills remaining space */}
-      {activeBoardId ? (
-        <WorkspaceCanvas />
-      ) : (
-        <div style={styles.centred}>
-          <p style={styles.emptyText}>Create a board to get started.</p>
+      {/* Floating add-widget toolbar */}
+      <WorkspaceToolbar userId={user?.id ?? null} sessionMode />
+
+      {/* ── Save-as-Board prompt ── */}
+      {showSavePrompt && (
+        <div style={styles.saveBar}>
+          <span style={styles.saveIcon}>✨</span>
+          <span style={styles.saveText}>Want to save this workspace?</span>
+          <input
+            style={styles.nameInput}
+            value={boardName}
+            onChange={(e) => setBoardName(e.target.value)}
+            placeholder="Board name…"
+            maxLength={60}
+          />
+          <button
+            style={styles.saveBtn}
+            onClick={handleSave}
+            disabled={isSaving}
+          >
+            {isSaving ? 'Saving…' : 'Save as Board'}
+          </button>
+          <button style={styles.dismissBtn} onClick={handleDismiss}>
+            Continue
+          </button>
         </div>
       )}
 
-      {/* Floating add-widget toolbar */}
-      {activeBoardId && (
-        <WorkspaceToolbar userId={user?.id ?? null} />
-      )}
+      {/* Hub shortcut — always visible top-right */}
+      <button style={styles.hubBtn} onClick={() => navigate('/workspace/hub')}>
+        My Boards
+      </button>
     </div>
   )
 }
 
 // ─── Styles ───────────────────────────────────────────────────────────────────
-//
-// Inline styles are used for layout primitives only.
-// Widget-level styling uses CSS classes or styled via widget components.
 
 const styles: Record<string, React.CSSProperties> = {
   root: {
@@ -158,21 +156,9 @@ const styles: Record<string, React.CSSProperties> = {
     background: '#0f0f0f',
     backgroundImage: 'radial-gradient(#1f1f1f 1px, transparent 1px)',
     backgroundSize: '24px 24px',
-
     overflow: 'hidden',
     fontFamily:
       '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif',
-  },
-  topBar: {
-    flexShrink: 0,
-    height: 48,
-    borderBottom: '1px solid #1e1e1e',
-    display: 'flex',
-    alignItems: 'center',
-    padding: '0 12px',
-    gap: 8,
-    zIndex: 50,
-    background: '#0f0f0f',
   },
   centred: {
     flex: 1,
@@ -196,40 +182,77 @@ const styles: Record<string, React.CSSProperties> = {
     color: '#555',
     letterSpacing: '0.03em',
   },
-  errorIcon: {
-    fontSize: 32,
-    color: '#e05555',
+  saveBar: {
+    position: 'fixed',
+    bottom: 28,
+    left: '50%',
+    transform: 'translateX(-50%)',
+    display: 'flex',
+    alignItems: 'center',
+    gap: 10,
+    background: '#1a1a2e',
+    border: '1px solid #3a3a6a',
+    borderRadius: 12,
+    padding: '10px 16px',
+    boxShadow: '0 8px 32px rgba(0,0,0,0.5)',
+    zIndex: 200,
+    backdropFilter: 'blur(12px)',
+    maxWidth: '90vw',
   },
-  errorText: {
-    fontSize: 15,
-    color: '#ccc',
-    margin: 0,
+  saveIcon: {
+    fontSize: 18,
   },
-  errorDetail: {
-    fontSize: 12,
-    color: '#555',
-    margin: 0,
-    maxWidth: 360,
-    textAlign: 'center',
+  saveText: {
+    fontSize: 13,
+    color: '#aaa',
+    whiteSpace: 'nowrap',
   },
-  retryButton: {
-    marginTop: 8,
-    padding: '8px 20px',
-    background: '#1e1e1e',
-    color: '#ccc',
+  nameInput: {
+    background: '#0f0f1e',
     border: '1px solid #333',
     borderRadius: 6,
+    padding: '5px 10px',
+    color: '#eee',
+    fontSize: 13,
+    width: 160,
+    outline: 'none',
+  },
+  saveBtn: {
+    background: '#6b7ff0',
+    color: '#fff',
+    border: 'none',
+    borderRadius: 7,
+    padding: '7px 16px',
+    fontSize: 13,
+    fontWeight: 600,
+    cursor: 'pointer',
+    whiteSpace: 'nowrap',
+  },
+  dismissBtn: {
+    background: 'transparent',
+    color: '#666',
+    border: '1px solid #333',
+    borderRadius: 7,
+    padding: '7px 12px',
     fontSize: 13,
     cursor: 'pointer',
+    whiteSpace: 'nowrap',
   },
-  emptyText: {
-    fontSize: 14,
-    color: '#444',
-    margin: 0,
+  hubBtn: {
+    position: 'fixed',
+    top: 14,
+    right: 16,
+    background: '#1a1a2e',
+    color: '#9aa',
+    border: '1px solid #2e2e4e',
+    borderRadius: 8,
+    padding: '6px 14px',
+    fontSize: 12,
+    cursor: 'pointer',
+    zIndex: 100,
   },
 }
 
-// Inject keyframe for spinner (runs once at module load)
 if (typeof document !== 'undefined') {
   const styleId = 'workspace-spin-keyframe'
   if (!document.getElementById(styleId)) {

@@ -23,6 +23,8 @@ import Settings from './pages/Settings';
 import AnalyticsTest from './pages/AnalyticsTest';
 import Pricing from './pages/Pricing';
 import Workspace from './pages/Workspace';
+import WorkspaceHub from './pages/WorkspaceHub';
+import BoardPage from './pages/BoardPage';
 
 function Navigation() {
   const { lang, toggleLanguage, t } = useLanguage();
@@ -139,6 +141,8 @@ function MainContent() {
         <Route path="/analytics-test" element={<AnalyticsTest />} />
         <Route path="/pricing" element={<PageWrapper><Pricing /></PageWrapper>} />
         <Route path="/workspace" element={<PageWrapper><Workspace /></PageWrapper>} />
+        <Route path="/workspace/hub" element={<WorkspaceHub />} />
+        <Route path="/workspace/:boardId" element={<BoardPage />} />
       </Routes>
     </AnimatePresence>
   );
