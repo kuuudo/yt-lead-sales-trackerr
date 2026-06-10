@@ -198,7 +198,7 @@ const styles: Record<string, React.CSSProperties> = {
     width: 28,
     height: 28,
     border: '2px solid #2a2a2a',
-    borderTop: '2px solid #6b7ff0',
+    borderTop: '2px solid #dc2626',
     borderRadius: '50%',
     animation: 'workspace-spin 0.8s linear infinite',
   },
@@ -237,7 +237,7 @@ const styles: Record<string, React.CSSProperties> = {
     fontWeight: 600,
     letterSpacing: '0.08em',
     textTransform: 'uppercase' as const,
-    color: '#6b7ff0',
+    color: '#dc2626',
   },
   cardTitle: {
     margin: 0,
@@ -275,7 +275,7 @@ const styles: Record<string, React.CSSProperties> = {
   },
   createBtn: {
     flex: 1,
-    background: '#6b7ff0',
+    background: '#dc2626',
     color: '#fff',
     border: 'none',
     borderRadius: 8,
