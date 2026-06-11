@@ -20,8 +20,10 @@ import ChartWidget     from './ChartWidget'
 import RectangleWidget from './RectangleWidget'
 import CircleWidget    from './CircleWidget'
 import ArrowWidget     from './ArrowWidget'
-import TextWidget      from './TextWidget'
+import TextWidget       from './TextWidget'
+import LineChartWidget  from './LineChartWidget'
 import type { Widget } from '../store/useWorkspaceStore'
+import type { AnalyticsResult } from '../types/analytics'
 
 // ─── Registry ─────────────────────────────────────────────────────────────────
 
@@ -31,15 +33,20 @@ import type { Widget } from '../store/useWorkspaceStore'
  */
 export const WIDGET_REGISTRY: Record<
   string,
-  React.ComponentType<{ widget: Widget; onUpdate: (patch: Partial<Widget>) => void }>
+  React.ComponentType<{
+    widget: Widget
+    analyticsResult?: AnalyticsResult | null
+    onUpdate: (patch: Partial<Widget>) => void
+  }>
 > = {
-  note:      NoteWidget,
-  kpi:       KPIWidget,
-  chart:     ChartWidget,
-  rectangle: RectangleWidget,
-  circle:    CircleWidget,
-  arrow:     ArrowWidget,
-  text:      TextWidget,
+  note:       NoteWidget,
+  kpi:        KPIWidget,
+  chart:      ChartWidget,
+  rectangle:  RectangleWidget,
+  circle:     CircleWidget,
+  arrow:      ArrowWidget,
+  text:       TextWidget,
+  line_chart: LineChartWidget,
   // ─── Future widget types ───────────────────────────────────────────────
   // revenue_trend:  RevenueTrendWidget,
   // funnel:         FunnelWidget,
@@ -58,13 +65,14 @@ export const WIDGET_REGISTRY: Record<
  * Also used in the toolbar button labels.
  */
 export const TYPE_LABELS: Record<string, string> = {
-  note:      'Note',
-  kpi:       'KPI',
-  chart:     'Chart',
-  rectangle: 'Rectangle',
-  circle:    'Circle',
-  arrow:     'Arrow',
-  text:      'Text',
+  note:       'Note',
+  kpi:        'KPI',
+  chart:      'Chart',
+  rectangle:  'Rectangle',
+  circle:     'Circle',
+  arrow:      'Arrow',
+  text:       'Text',
+  line_chart: 'Line Chart',
   // Future:
   // revenue_trend:  'Revenue Trend',
   // funnel:         'Funnel',
@@ -202,6 +210,24 @@ export const WIDGET_DEFAULTS: Record<string, WidgetDefaults> = {
     },
     data: {},
   },
+
+  line_chart: {
+    width: 480,
+    height: 300,
+    category: 'revenue',
+    title: null,
+    config: {
+      // Keys consumed by getWidgetAnalytics → getAnalyticsEngine
+      dateRange:          '30d',
+      activeSource:       'combined',
+      selectedCampaignId: null,
+      selectedGoals:      [],
+      selectedLeadMagnets:[],
+      selectedVideoIds:   [],
+      includeEV:          false,
+    },
+    data: {},
+  },
 }
 
 // ─── Toolbar Item Definitions ─────────────────────────────────────────────────
@@ -223,6 +249,7 @@ export const TOOLBAR_ITEMS: ToolbarItem[] = [
   { type: 'rectangle', label: 'Rect',      icon: '▭'  },
   { type: 'circle',    label: 'Circle',    icon: '○'  },
   { type: 'arrow',     label: 'Arrow',     icon: '→'  },
-  { type: 'text',      label: 'Text',      icon: 'T'  },
+  { type: 'text',       label: 'Text',       icon: 'T'  },
+  { type: 'line_chart', label: 'Line Chart', icon: '📉' },
   // Future toolbar items follow the same pattern — no core code changes needed
 ]

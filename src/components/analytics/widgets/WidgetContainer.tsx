@@ -22,9 +22,10 @@
 import React, { useState, useRef, useCallback } from 'react'
 import { WIDGET_REGISTRY, TYPE_LABELS } from './WidgetRegistry'
 import { useWorkspaceStore } from '../store/useWorkspaceStore'
+import { getWidgetAnalytics } from '../widgets/widgetAnalytics'
 import type { Widget } from '../store/useWorkspaceStore'
 import type { ResizeHandle } from '../canvas/WorkspaceCanvas'
-
+import type { AnalyticsResult } from '../types/analytics'
 // ─── Props ────────────────────────────────────────────────────────────────────
 
 interface Props {
@@ -60,6 +61,7 @@ export default function WidgetContainer({
   onDelete,
 }: Props) {
   const updateWidget = useWorkspaceStore((s) => s.updateWidget)
+  const dataPool     = useWorkspaceStore((s) => s.dataPool)
   const [hovered, setHovered] = useState(false)
   const [editingTitle, setEditingTitle] = useState(false)
   const [titleDraft, setTitleDraft] = useState(widget.title ?? '')
@@ -133,6 +135,11 @@ export default function WidgetContainer({
     },
     [updateWidget, widget.id]
   )
+
+  // ── Analytics result (passed to data widgets that need it) ──────────────
+  const analyticsResult = dataPool
+    ? getWidgetAnalytics(widget.config, dataPool)
+    : null
 
   // ─── Render ───────────────────────────────────────────────────────────────
 
@@ -218,6 +225,7 @@ export default function WidgetContainer({
         {WidgetRenderer ? (
           <WidgetRenderer
             widget={widget}
+            analyticsResult={analyticsResult}
             onUpdate={handleWidgetUpdate}
           />
         ) : (
