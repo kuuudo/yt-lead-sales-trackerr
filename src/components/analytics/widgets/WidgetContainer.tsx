@@ -68,11 +68,13 @@ export default function WidgetContainer({
   // Resolve renderer from registry
   const WidgetRenderer = WIDGET_REGISTRY[widget.type]
   const displayTitle = widget.title ?? TYPE_LABELS[widget.type] ?? widget.type
-const isCanvasObject =
-  widget.type === 'arrow' ||
-  widget.type === 'rectangle' ||
-  widget.type === 'circle' ||
-  widget.type === 'text'
+
+  const isCanvasObject =
+    widget.type === 'arrow' ||
+    widget.type === 'rectangle' ||
+    widget.type === 'circle' ||
+    widget.type === 'text'
+
   // ── Drag handle (header) ────────────────────────────────────────────────
   const handleHeaderMouseDown = useCallback(
     (e: React.MouseEvent) => {
@@ -139,21 +141,21 @@ const isCanvasObject =
   return (
     <div
       style={{
-  ...styles.root,
+        ...styles.root,
 
-  ...(isCanvasObject
-    ? {
-        background: 'transparent',
-        boxShadow: 'none',
-        borderRadius: 0,
-        overflow: 'visible',
-      }
-    : {}),
+        ...(isCanvasObject
+          ? {
+              background: 'transparent',
+              boxShadow: 'none',
+              borderRadius: 0,
+              overflow: 'visible',
+            }
+          : {}),
 
-  left: widget.x,
-  top: widget.y,
-  width: widget.width,
-  height: widget.height,
+        left: widget.x,
+        top: widget.y,
+        width: widget.width,
+        height: widget.height,
         outline: selected
           ? '2px solid #6b7ff0'
           : hovered
@@ -167,23 +169,23 @@ const isCanvasObject =
     >
       {/* Header — drag handle + title + delete */}
       <div
-  style={{
-    ...styles.header,
+        style={{
+          ...styles.header,
 
-    ...(isCanvasObject
-      ? {
-          opacity: 0,
-          height: '50%',
-          minHeight: '50%',
-          borderBottom: 'none',
-          background: 'transparent',
-          cursor: 'grab',
-        }
-      : {}),
-  }}
-  onMouseDown={handleHeaderMouseDown}
-  onDoubleClick={handleTitleDoubleClick}
->
+          ...(isCanvasObject
+            ? {
+                opacity: 0,
+                height: '50%',
+                minHeight: '50%',
+                borderBottom: 'none',
+                background: 'transparent',
+                cursor: 'grab',
+              }
+            : {}),
+        }}
+        onMouseDown={handleHeaderMouseDown}
+        onDoubleClick={handleTitleDoubleClick}
+      >
         {editingTitle ? (
           <input
             ref={titleInputRef}
@@ -212,13 +214,12 @@ const isCanvasObject =
       </div>
 
       {/* Widget body */}
-      <div
-  style={{
-    ...styles.body,
-  }}
->
+      <div style={styles.body}>
         {WidgetRenderer ? (
-          <WidgetRenderer widget={widget} onUpdate={handleWidgetUpdate} />
+          <WidgetRenderer
+            widget={widget}
+            onUpdate={handleWidgetUpdate}
+          />
         ) : (
           <div style={styles.unknown}>Unknown widget type: {widget.type}</div>
         )}
