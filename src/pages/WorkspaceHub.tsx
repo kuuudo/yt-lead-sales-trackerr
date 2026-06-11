@@ -197,9 +197,12 @@ export default function WorkspaceHub() {
               </button>
             </div>
           ) : (
-            <button style={styles.btnPrimary} onClick={() => setIsCreating(true)}>
-              + New Board
-            </button>
+<button
+  style={{ ...styles.btnPrimary, display: 'none' }}
+  onClick={() => setIsCreating(true)}
+>
+  + New Board
+</button>
           )}
         </div>
       </header>
