@@ -21,9 +21,9 @@
  */
 
 import React, { useState, useEffect, useMemo } from 'react'
-import { useAuth }         from '../../lib/auth'
-import { useOrganization } from '../../lib/useOrganization'
-import { supabase }        from '../../lib/supabase'
+import { useAuth }         from '../../../lib/auth'
+import { useOrganization } from '../../../lib/useOrganization'
+import { supabase }        from '../../../lib/supabase'
 
 import {
   getAnalyticsEngine,
@@ -40,10 +40,10 @@ import {
   type CampaignMeta,
   type DateRange,
   type MetricType,
-} from '../../lib/analyticsEngine'
+} from '../../../lib/analyticsEngine'
 
-import { resolveThumbnail, renderContentIdentity } from '../../lib/videoFormatters'
-import { PLATFORM_CONFIG }                         from '../../lib/platformParser'
+import { resolveThumbnail, renderContentIdentity } from '../../../lib/videoFormatters'
+import { PLATFORM_CONFIG }                         from '../../../lib/platformParser'
 import type { Widget }                             from '../store/useWorkspaceStore'
 
 // ─── Props ────────────────────────────────────────────────────────────────────
@@ -58,9 +58,9 @@ interface Props {
 
 const DATE_OPTIONS: { value: DateRange; label: string }[] = [
   { value: 'all',   label: 'All' },
-  { value: '7d',    label: '7d'  },
-  { value: '30d',   label: '30d' },
-  { value: 'month', label: 'Mo'  },
+  { value: '7days',    label: '7d'  },
+  { value: '30days',   label: '30d' },
+  { value: '2months', label: 'Mo'  },
 ]
 
 // Full list from Dashboard — compact labels for widget
