@@ -22,10 +22,10 @@
 import React, { useState, useRef, useCallback } from 'react'
 import { WIDGET_REGISTRY, TYPE_LABELS } from './WidgetRegistry'
 import { useWorkspaceStore } from '../store/useWorkspaceStore'
-import { getWidgetAnalytics } from '../../../lib/widgetAnalytics'
 import type { Widget } from '../store/useWorkspaceStore'
 import type { ResizeHandle } from '../canvas/WorkspaceCanvas'
 import type { AnalyticsResult } from '../types/analytics'
+
 // ─── Props ────────────────────────────────────────────────────────────────────
 
 interface Props {
@@ -61,10 +61,6 @@ export default function WidgetContainer({
   onDelete,
 }: Props) {
   const updateWidget = useWorkspaceStore((s) => s.updateWidget)
-  // NOTE: cast to any because WorkspaceStore type doesn't yet declare dataPool.
-  // Replace 'dataPool' with whatever key your store uses for the analytics pool
-  // (e.g. 'pool', 'analyticsPool'), then remove the cast.
-  const dataPool     = useWorkspaceStore((s) => (s as any).dataPool ?? null)
   const [hovered, setHovered] = useState(false)
   const [editingTitle, setEditingTitle] = useState(false)
   const [titleDraft, setTitleDraft] = useState(widget.title ?? '')
@@ -139,10 +135,11 @@ export default function WidgetContainer({
     [updateWidget, widget.id]
   )
 
-  // ── Analytics result (passed to data widgets that need it) ──────────────
-  const analyticsResult = dataPool
-    ? getWidgetAnalytics(widget.config, dataPool)
-    : null
+  // analyticsResult is intentionally null.
+  // Analytics widgets (DashboardWidget, etc.) fetch their own data internally.
+  // Legacy widgets that consumed this prop (KPIWidget, ChartWidget, LineChartWidget)
+  // can be migrated to self-fetch when needed.
+  const analyticsResult: AnalyticsResult | null = null
 
   // ─── Render ───────────────────────────────────────────────────────────────
 

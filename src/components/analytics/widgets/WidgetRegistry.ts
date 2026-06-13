@@ -14,14 +14,15 @@
  */
 
 import React from 'react'
-import NoteWidget      from './NoteWidget'
-import KPIWidget       from './KPIWidget'
-import ChartWidget     from './ChartWidget'
-import RectangleWidget from './RectangleWidget'
-import CircleWidget    from './CircleWidget'
-import ArrowWidget     from './ArrowWidget'
+import NoteWidget       from './NoteWidget'
+import KPIWidget        from './KPIWidget'
+import ChartWidget      from './ChartWidget'
+import RectangleWidget  from './RectangleWidget'
+import CircleWidget     from './CircleWidget'
+import ArrowWidget      from './ArrowWidget'
 import TextWidget       from './TextWidget'
 import LineChartWidget  from './LineChartWidget'
+import DashboardWidget  from './DashboardWidget'   // ← new
 import type { Widget } from '../store/useWorkspaceStore'
 import type { AnalyticsResult } from '../types/analytics'
 
@@ -47,15 +48,11 @@ export const WIDGET_REGISTRY: Record<
   arrow:      ArrowWidget,
   text:       TextWidget,
   line_chart: LineChartWidget,
+  dashboard:  DashboardWidget,  // ← new
   // ─── Future widget types ───────────────────────────────────────────────
-  // revenue_trend:  RevenueTrendWidget,
-  // funnel:         FunnelWidget,
-  // heatmap:        HeatmapWidget,
-  // topic_intel:    TopicIntelWidget,
-  // platform_risk:  PlatformRiskWidget,
-  // cohort:         CohortWidget,
-  // lead_quality:   LeadQualityWidget,
-  // top_content:    TopContentWidget,
+  // indepth_analytics: InDepthAnalyticsWidget,
+  // revenue_trend:     RevenueTrendWidget,
+  // funnel:            FunnelWidget,
 }
 
 // ─── Display Labels ───────────────────────────────────────────────────────────
@@ -73,15 +70,7 @@ export const TYPE_LABELS: Record<string, string> = {
   arrow:      'Arrow',
   text:       'Text',
   line_chart: 'Line Chart',
-  // Future:
-  // revenue_trend:  'Revenue Trend',
-  // funnel:         'Funnel',
-  // heatmap:        'Heatmap',
-  // topic_intel:    'Topic Intelligence',
-  // platform_risk:  'Platform Risk',
-  // cohort:         'Cohort Analysis',
-  // lead_quality:   'Lead Quality',
-  // top_content:    'Top Content',
+  dashboard:  'Top Content',   // ← new
 }
 
 // ─── Default Dimensions & Config ──────────────────────────────────────────────
@@ -188,10 +177,10 @@ export const WIDGET_DEFAULTS: Record<string, WidgetDefaults> = {
     category: 'shapes',
     title: null,
     config: {
-      fillColor:   '#FACC15',
-      rotation: 0,
-      headSize: 0.35,
-      opacity:  1,
+      fillColor: '#FACC15',
+      rotation:  0,
+      headSize:  0.35,
+      opacity:   1,
     },
     data: {},
   },
@@ -217,14 +206,27 @@ export const WIDGET_DEFAULTS: Record<string, WidgetDefaults> = {
     category: 'revenue',
     title: null,
     config: {
-      // Keys consumed by getWidgetAnalytics → getAnalyticsEngine
-      dateRange:          '30d',
-      activeSource:       'combined',
-      selectedCampaignId: null,
-      selectedGoals:      [],
-      selectedLeadMagnets:[],
-      selectedVideoIds:   [],
-      includeEV:          false,
+      dateRange:           '30d',
+      activeSource:        'combined',
+      selectedCampaignId:  null,
+      selectedGoals:       [],
+      selectedLeadMagnets: [],
+      selectedVideoIds:    [],
+      includeEV:           false,
+    },
+    data: {},
+  },
+
+  // ── Analytics widgets ──────────────────────────────────────────────────────
+
+  dashboard: {                        // ← new
+    width:    500,
+    height:   320,
+    category: 'analytics',
+    title:    null,                   // TYPE_LABELS fallback → 'Top Content'
+    config: {
+      dateRange:          '30days',   // matches DateRange type in analyticsEngine
+      selectedCampaignId: 'all',
     },
     data: {},
   },
@@ -243,13 +245,13 @@ export interface ToolbarItem {
 }
 
 export const TOOLBAR_ITEMS: ToolbarItem[] = [
-  { type: 'note',      label: 'Note',      icon: '📝' },
-  { type: 'kpi',       label: 'KPI',       icon: '📊' },
-  { type: 'chart',     label: 'Chart',     icon: '📈' },
-  { type: 'rectangle', label: 'Rect',      icon: '▭'  },
-  { type: 'circle',    label: 'Circle',    icon: '○'  },
-  { type: 'arrow',     label: 'Arrow',     icon: '→'  },
-  { type: 'text',       label: 'Text',       icon: 'T'  },
-  { type: 'line_chart', label: 'Line Chart', icon: '📉' },
-  // Future toolbar items follow the same pattern — no core code changes needed
+  { type: 'note',      label: 'Note',        icon: '📝' },
+  { type: 'kpi',       label: 'KPI',         icon: '📊' },
+  { type: 'chart',     label: 'Chart',       icon: '📈' },
+  { type: 'rectangle', label: 'Rect',        icon: '▭'  },
+  { type: 'circle',    label: 'Circle',      icon: '○'  },
+  { type: 'arrow',     label: 'Arrow',       icon: '→'  },
+  { type: 'text',      label: 'Text',        icon: 'T'  },
+  { type: 'line_chart',label: 'Line Chart',  icon: '📉' },
+  { type: 'dashboard', label: 'Top Content', icon: '🏆' },  // ← new
 ]
