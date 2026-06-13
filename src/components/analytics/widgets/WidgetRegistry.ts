@@ -22,7 +22,8 @@ import CircleWidget     from './CircleWidget'
 import ArrowWidget      from './ArrowWidget'
 import TextWidget       from './TextWidget'
 import LineChartWidget  from './LineChartWidget'
-import DashboardWidget  from './DashboardWidget'   // ← new
+import DashboardWidget  from './DashboardWidget'   
+import InDepthAnalyticsWidget from './InDepthAnalyticsWidget'
 import type { Widget } from '../store/useWorkspaceStore'
 import type { AnalyticsResult } from '../types/analytics'
 
@@ -48,9 +49,9 @@ export const WIDGET_REGISTRY: Record<
   arrow:      ArrowWidget,
   text:       TextWidget,
   line_chart: LineChartWidget,
-  dashboard:  DashboardWidget,  // ← new
+  dashboard:  DashboardWidget,  
+  indepth_analytics: InDepthAnalyticsWidget,
   // ─── Future widget types ───────────────────────────────────────────────
-  // indepth_analytics: InDepthAnalyticsWidget,
   // revenue_trend:     RevenueTrendWidget,
   // funnel:            FunnelWidget,
 }
@@ -70,7 +71,8 @@ export const TYPE_LABELS: Record<string, string> = {
   arrow:      'Arrow',
   text:       'Text',
   line_chart: 'Line Chart',
-  dashboard:  'Top Content',   // ← new
+  dashboard:  'Top Content',  
+    indepth_analytics: 'In-Depth Analytics',
 }
 
 // ─── Default Dimensions & Config ──────────────────────────────────────────────
@@ -219,13 +221,24 @@ export const WIDGET_DEFAULTS: Record<string, WidgetDefaults> = {
 
   // ── Analytics widgets ──────────────────────────────────────────────────────
 
-  dashboard: {                        // ← new
+  dashboard: {                        
     width:    500,
     height:   320,
     category: 'analytics',
     title:    null,                   // TYPE_LABELS fallback → 'Top Content'
     config: {
       dateRange:          '30days',   // matches DateRange type in analyticsEngine
+      selectedCampaignId: 'all',
+    },
+    data: {},
+  },
+    indepth_analytics: {
+    width: 700,
+    height: 420,
+    category: 'analytics',
+    title: null,
+    config: {
+      dateRange: '30days',
       selectedCampaignId: 'all',
     },
     data: {},
@@ -253,5 +266,6 @@ export const TOOLBAR_ITEMS: ToolbarItem[] = [
   { type: 'arrow',     label: 'Arrow',       icon: '→'  },
   { type: 'text',      label: 'Text',        icon: 'T'  },
   { type: 'line_chart',label: 'Line Chart',  icon: '📉' },
-  { type: 'dashboard', label: 'Top Content', icon: '🏆' },  // ← new
+  { type: 'dashboard', label: 'Top Content', icon: '🏆' },  
+    { type: 'indepth_analytics', label: 'In-Depth', icon: '📋' },// ← new
 ]
