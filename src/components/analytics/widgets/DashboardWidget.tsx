@@ -32,6 +32,7 @@ import {
   flattenSessionEvents,
   mergeEventSources,
   selectDisplayRevenue,
+  filterVideosByDateRange,
   type AnalyticsEngineInput,
   type RawEvent,
   type StripePurchaseRow,
@@ -39,6 +40,7 @@ import {
   type StripePurchaseTypeRow,
   type CampaignMeta,
   type DateRange,
+  type CustomDateRange,
   type MetricType,
 } from '../../../lib/analyticsEngine'
 
@@ -57,10 +59,10 @@ interface Props {
 // ─── Constants — identical values to Dashboard.tsx ───────────────────────────
 
 const DATE_OPTIONS: { value: DateRange; label: string }[] = [
-  { value: 'all',   label: 'All' },
-  { value: '7days',    label: '7d'  },
-  { value: '30days',   label: '30d' },
-  { value: '2months', label: 'Mo'  },
+  { value: 'all',       label: 'All' },
+  { value: '7days',     label: '7d'  },
+  { value: '30days',    label: '30d' },
+  { value: 'thismonth', label: 'Mo'  },
 ]
 
 // Full list from Dashboard — compact labels for widget
@@ -138,6 +140,7 @@ export default function DashboardWidget({ widget, onUpdate }: Props) {
   // Matches the config shape in WIDGET_DEFAULTS in WidgetRegistry.ts.
 
   const dateRange:          DateRange     = (widget.config?.dateRange          as DateRange)     ?? 'all'
+  const customRange:        CustomDateRange | null = (widget.config?.customRange as CustomDateRange | null) ?? null
   const selectedCampaignId: string        = (widget.config?.selectedCampaignId as string)        ?? 'all'
   const sortKey:            MetricType    = (widget.config?.sortKey            as MetricType)    ?? 'total_revenue'
   const selectedPlatform:   PlatformFilter = (widget.config?.selectedPlatform  as PlatformFilter) ?? 'all'
@@ -154,12 +157,14 @@ export default function DashboardWidget({ widget, onUpdate }: Props) {
   const setSortKey = (v: MetricType) =>
     patchConfig({ sortKey: v, visibleMetric: v })
 
-  const setDateRange        = (v: DateRange)      => patchConfig({ dateRange: v })
+  const setDateRange        = (v: DateRange)      => patchConfig({ dateRange: v, ...(v !== 'custom' ? { customRange: null } : {}) })
+  const setCustomRange      = (v: CustomDateRange | null) => patchConfig({ customRange: v })
   const setSelectedPlatform = (v: PlatformFilter) => patchConfig({ selectedPlatform: v })
   const setVisibleMetric    = (v: MetricType)      => patchConfig({ visibleMetric: v })
 
   // ── Column visibility panel (local UI state — not persisted) ────────────────
   const [colPanelOpen, setColPanelOpen] = useState(false)
+  const [customRangeOpen, setCustomRangeOpen] = useState(false)
 
   // ── Raw data state ──────────────────────────────────────────────────────────
   const [loading, setLoading]                 = useState(true)
@@ -281,23 +286,39 @@ export default function DashboardWidget({ widget, onUpdate }: Props) {
     stripePurchases,
     pixelPurchases,
     dateRange,
+    customRange,
     selectedCampaignId,
     selectedGoals:       [],
     selectedLeadMagnets: [],
     activeSource:        'total',
     includeEV:           true,
     sortConfig:          { key: sortKey, direction: 'desc' },
-  }), [videos, campaigns, rawEvents, stripePurchases, pixelPurchases, dateRange, selectedCampaignId, sortKey])
+  }), [videos, campaigns, rawEvents, stripePurchases, pixelPurchases, dateRange, customRange, selectedCampaignId, sortKey])
 
   const { sortedVideos } = useMemo(() => getAnalyticsEngine(engineInput), [engineInput])
 
-  // Platform post-filter — identical to Dashboard.tsx
-  const filteredVideos = useMemo(
-    () => selectedPlatform === 'all'
+  // Platform filter + content date filter — identical to Dashboard.tsx.
+  // analyticsEngine's date filtering only applies to events/metrics
+  // (sortedVideos retains ALL videos matching campaign/goal filters), so the
+  // displayed content list is additionally restricted here to videos whose
+  // created_at falls within the selected date range / custom range.
+  const filteredVideos = useMemo(() => {
+    const platformFiltered = selectedPlatform === 'all'
       ? sortedVideos
-      : sortedVideos.filter(r => r.video.platform === selectedPlatform),
-    [sortedVideos, selectedPlatform],
-  )
+      : sortedVideos.filter(r => r.video.platform === selectedPlatform)
+
+    if (dateRange === 'all') return platformFiltered
+
+    const datePassingVideos = new Set(
+      filterVideosByDateRange(
+        platformFiltered.map(r => r.video),
+        dateRange,
+        customRange,
+      ).map(v => v.id),
+    )
+
+    return platformFiltered.filter(r => datePassingVideos.has(r.video.id))
+  }, [sortedVideos, selectedPlatform, dateRange, customRange])
 
   const topVideos = filteredVideos.slice(0, TOP_N)
 
@@ -321,12 +342,49 @@ export default function DashboardWidget({ widget, onUpdate }: Props) {
             <button
               key={opt.value}
               style={{ ...styles.pill, ...(dateRange === opt.value ? styles.pillActive : {}) }}
-              onClick={() => setDateRange(opt.value)}
+              onClick={() => { setDateRange(opt.value); setCustomRangeOpen(false) }}
             >
               {opt.label}
             </button>
           ))}
+          <button
+            style={{ ...styles.pill, ...(dateRange === 'custom' ? styles.pillActive : {}) }}
+            onClick={() => setCustomRangeOpen(o => !o)}
+            title="Custom range"
+          >
+            Custom
+          </button>
         </div>
+
+        {customRangeOpen && (
+          <div style={{ ...styles.pillGroup, gap: 4, paddingLeft: 6, paddingRight: 6 }}>
+            <input
+              type="date"
+              value={typeof customRange?.start === 'string' ? customRange.start : ''}
+              max={typeof customRange?.end === 'string' ? customRange.end : undefined}
+              onChange={e => {
+                const start = e.target.value
+                const next = { start, end: (typeof customRange?.end === 'string' && customRange.end) || start }
+                setCustomRange(next)
+                if (start && next.end) setDateRange('custom')
+              }}
+              style={styles.dateInput}
+            />
+            <span style={styles.toolbarLabel}>–</span>
+            <input
+              type="date"
+              value={typeof customRange?.end === 'string' ? customRange.end : ''}
+              min={typeof customRange?.start === 'string' ? customRange.start : undefined}
+              onChange={e => {
+                const end = e.target.value
+                const next = { start: (typeof customRange?.start === 'string' && customRange.start) || end, end }
+                setCustomRange(next)
+                if (next.start && end) setDateRange('custom')
+              }}
+              style={styles.dateInput}
+            />
+          </div>
+        )}
 
         <div style={styles.divider} />
 
@@ -548,6 +606,16 @@ const styles: Record<string, React.CSSProperties> = {
   pillActive: {
     background: '#3f3f46',
     color:      '#ffffff',
+  },
+  dateInput: {
+    background:    'transparent',
+    border:        'none',
+    borderRadius:  6,
+    padding:       '3px 4px',
+    fontSize:      9,
+    fontWeight:    700,
+    color:         '#a1a1aa',
+    colorScheme:   'dark' as const,
   },
 
   // ── Sort context label ─────────────────────────────────────────────────────
