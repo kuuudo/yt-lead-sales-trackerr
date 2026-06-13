@@ -94,9 +94,9 @@ type PlatformFilter = typeof PLATFORM_FILTERS[number]['value'];
 
 const DATE_RANGE_OPTIONS: { value: DateRange; label: string }[] = [
   { value: 'all',   label: 'All time'   },
-  { value: '7d',    label: '7 days'     },
-  { value: '30d',   label: '30 days'    },
-  { value: 'month', label: 'This month' },
+  { value: '7days',    label: '7 days'     },
+  { value: '30days',   label: '30 days'    },
+  { value: '2months', label: 'This month' },
 ];
 
 // Sort options — only metrics that make sense globally
