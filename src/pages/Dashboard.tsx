@@ -32,6 +32,7 @@ import {
   flattenSessionEvents,
   mergeEventSources,
   selectDisplayRevenue,
+  filterVideosByDateRange,
   type AnalyticsEngineInput,
   type RawEvent,
   type StripePurchaseRow,
@@ -40,6 +41,7 @@ import {
   type RevenueView,
   type CampaignMeta,
   type DateRange,
+  type CustomDateRange,
   type MetricType,
 } from '../lib/analyticsEngine';
 
@@ -93,10 +95,10 @@ const PLATFORM_FILTERS = [
 type PlatformFilter = typeof PLATFORM_FILTERS[number]['value'];
 
 const DATE_RANGE_OPTIONS: { value: DateRange; label: string }[] = [
-  { value: 'all',   label: 'All time'   },
-  { value: '7days',    label: '7 days'     },
-  { value: '30days',   label: '30 days'    },
-  { value: '2months', label: 'This month' },
+  { value: 'all',       label: 'All time'   },
+  { value: '7days',     label: '7 days'     },
+  { value: '30days',    label: '30 days'    },
+  { value: 'thismonth', label: 'This month' },
 ];
 
 // Sort options — only metrics that make sense globally
@@ -289,6 +291,11 @@ export default function Dashboard() {
   // ── Filter + sort state ─────────────────────────────────────────────────────
   const [revenueView,       setRevenueView]      = useState<RevenueView>('total');
   const [dateRange,         setDateRange]         = useState<DateRange>('all');
+  // Custom "from"/"to" range. Populated via the date picker; only applied
+  // when dateRange === 'custom'. Selecting a preset clears this back to null
+  // so presets and custom range never both partially apply.
+  const [customRange,       setCustomRange]        = useState<CustomDateRange | null>(null);
+  const [customRangeOpen,   setCustomRangeOpen]     = useState(false);
   const [selectedPlatform,  setSelectedPlatform] = useState<PlatformFilter>('all');
   const [sortKey,           setSortKey]           = useState<MetricType>('total_revenue');
   const [selectedCampaignId,setSelectedCampaignId] = useState<string>('all');
@@ -490,26 +497,42 @@ export default function Dashboard() {
     stripePurchases,
     pixelPurchases,
     dateRange,
+    customRange,
     selectedCampaignId,
     selectedGoals:       [],
     selectedLeadMagnets: [],
     activeSource:        revenueView,
     includeEV:           true,
     sortConfig:          { key: sortKey, direction: 'desc' },
-  }), [videos, campaigns, rawEvents, stripePurchases, pixelPurchases, revenueView, dateRange, sortKey, selectedCampaignId]);
+  }), [videos, campaigns, rawEvents, stripePurchases, pixelPurchases, revenueView, dateRange, customRange, sortKey, selectedCampaignId]);
 
   const { sortedVideos, campaignTotals } = useMemo(
     () => getAnalyticsEngine(engineInput),
     [engineInput],
   );
 
-  // Platform post-filter
-  const filteredVideos = useMemo(
-    () => selectedPlatform === 'all'
+  // Platform filter + content date filter (Dashboard-only responsibility).
+  // analyticsEngine's date filtering only applies to events/metrics
+  // (sortedVideos retains ALL videos matching campaign/goal filters).
+  // Here we additionally restrict the displayed content list to videos whose
+  // created_at falls within the selected date range / custom range.
+  const filteredVideos = useMemo(() => {
+    const platformFiltered = selectedPlatform === 'all'
       ? sortedVideos
-      : sortedVideos.filter(r => r.video.platform === selectedPlatform),
-    [sortedVideos, selectedPlatform],
-  );
+      : sortedVideos.filter(r => r.video.platform === selectedPlatform);
+
+    if (dateRange === 'all') return platformFiltered;
+
+    const datePassingVideos = new Set(
+      filterVideosByDateRange(
+        platformFiltered.map(r => r.video),
+        dateRange,
+        customRange,
+      ).map(v => v.id),
+    );
+
+    return platformFiltered.filter(r => datePassingVideos.has(r.video.id));
+  }, [sortedVideos, selectedPlatform, dateRange, customRange]);
 
   // ── Derived display values ──────────────────────────────────────────────────
 
@@ -599,7 +622,11 @@ export default function Dashboard() {
             {DATE_RANGE_OPTIONS.map(opt => (
               <button
                 key={opt.value}
-                onClick={() => setDateRange(opt.value)}
+                onClick={() => {
+                  setDateRange(opt.value);
+                  setCustomRange(null);
+                  setCustomRangeOpen(false);
+                }}
                 className={`px-3 py-1.5 rounded-lg text-[9px] font-black uppercase tracking-widest transition-all ${
                   dateRange === opt.value ? 'bg-zinc-700 text-white' : 'text-zinc-600 hover:text-zinc-400'
                 }`}
@@ -607,7 +634,46 @@ export default function Dashboard() {
                 {opt.label}
               </button>
             ))}
+            <button
+              onClick={() => setCustomRangeOpen(o => !o)}
+              className={`px-3 py-1.5 rounded-lg text-[9px] font-black uppercase tracking-widest transition-all ${
+                dateRange === 'custom' ? 'bg-zinc-700 text-white' : 'text-zinc-600 hover:text-zinc-400'
+              }`}
+            >
+              Custom
+            </button>
           </div>
+
+          {customRangeOpen && (
+            <div className="flex items-center gap-2 p-1 pl-3 bg-zinc-900 border border-zinc-800 rounded-xl">
+              <span className="text-[9px] font-black uppercase tracking-widest text-zinc-600">From</span>
+              <input
+                type="date"
+                value={typeof customRange?.start === 'string' ? customRange.start : ''}
+                max={typeof customRange?.end === 'string' ? customRange.end : undefined}
+                onChange={e => {
+                  const start = e.target.value;
+                  const next = { start, end: (typeof customRange?.end === 'string' && customRange.end) || start };
+                  setCustomRange(next);
+                  if (start && next.end) setDateRange('custom');
+                }}
+                className="bg-zinc-950 border border-zinc-800 rounded-lg px-2 py-1 text-[9px] font-bold text-zinc-300 [color-scheme:dark]"
+              />
+              <span className="text-[9px] font-black uppercase tracking-widest text-zinc-600">To</span>
+              <input
+                type="date"
+                value={typeof customRange?.end === 'string' ? customRange.end : ''}
+                min={typeof customRange?.start === 'string' ? customRange.start : undefined}
+                onChange={e => {
+                  const end = e.target.value;
+                  const next = { start: (typeof customRange?.start === 'string' && customRange.start) || end, end };
+                  setCustomRange(next);
+                  if (next.start && end) setDateRange('custom');
+                }}
+                className="bg-zinc-950 border border-zinc-800 rounded-lg px-2 py-1 text-[9px] font-bold text-zinc-300 [color-scheme:dark]"
+              />
+            </div>
+          )}
         </div>
 
         <div className="w-px h-5 bg-zinc-800" />

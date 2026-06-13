@@ -264,24 +264,94 @@ export interface VideoMetricsResult extends VideoMetrics {
 
 // ── 2d. Date-range helpers ─────────────────────────────────────────────────────
 
-export type DateRange = '7days' | '30days' | '2months' | '6months' | '1year' | 'all';
+export type DateRange = '7days' | '30days' | '2months' | '6months' | '1year' | 'all' | 'thismonth' | 'custom';
+
+// A custom date range — both fields are inclusive. Values may be ISO date
+// strings (e.g. 'YYYY-MM-DD' from a <input type="date">) or Date objects.
+export interface CustomDateRange {
+  start: string | Date;
+  end:   string | Date;
+}
 
 export function getDateCutoff(range: DateRange): Date {
   const now = new Date();
   switch (range) {
-    case '7days':   { const d = new Date(now); d.setDate(d.getDate() - 7);         return d; }
-    case '30days':  { const d = new Date(now); d.setDate(d.getDate() - 30);        return d; }
-    case '2months': { const d = new Date(now); d.setMonth(d.getMonth() - 2);       return d; }
-    case '6months': { const d = new Date(now); d.setMonth(d.getMonth() - 6);       return d; }
-    case '1year':   { const d = new Date(now); d.setFullYear(d.getFullYear() - 1); return d; }
-    case 'all':     return new Date(0);
-    default:        { const d = new Date(now); d.setDate(d.getDate() - 30);        return d; }
+    case '7days':    { const d = new Date(now); d.setDate(d.getDate() - 7);         return d; }
+    case '30days':   { const d = new Date(now); d.setDate(d.getDate() - 30);        return d; }
+    case 'thismonth':{ const d = new Date(now.getFullYear(), now.getMonth(), 1); d.setHours(0, 0, 0, 0); return d; }
+    case '2months':  { const d = new Date(now); d.setMonth(d.getMonth() - 2);       return d; }
+    case '6months':  { const d = new Date(now); d.setMonth(d.getMonth() - 6);       return d; }
+    case '1year':    { const d = new Date(now); d.setFullYear(d.getFullYear() - 1); return d; }
+    case 'all':      return new Date(0);
+    case 'custom':   return new Date(0); // resolved via getDateBounds when a customRange is supplied
+    default:         { const d = new Date(now); d.setDate(d.getDate() - 30);        return d; }
   }
 }
 
-export function filterEventsByDate(events: RawEvent[], range: DateRange): RawEvent[] {
-  const cutoff = getDateCutoff(range);
-  return events.filter(e => new Date(e.created_at) >= cutoff);
+// ── Unified start/end resolution ───────────────────────────────────────────────
+//
+// Single source of truth for turning a (preset | custom) date-range selection
+// into a concrete [start, end] window. Used by BOTH event filtering and video/
+// content filtering so Dashboard and InDepthAnalytics can never diverge.
+//
+//   • Presets other than 'custom': start = getDateCutoff(range), end = now.
+//   • 'custom': start/end taken from customRange. If customRange is missing,
+//     falls back to 'all' (start = epoch, end = now) — fail-open, never
+//     silently hides everything.
+//   • 'end' is treated as inclusive through the END of that calendar day,
+//     so selecting "to: 2026-06-13" includes events/videos created any time
+//     on June 13th.
+export function getDateBounds(range: DateRange, customRange?: CustomDateRange | null): { start: Date; end: Date } {
+  const now = new Date();
+
+  if (range === 'custom' && customRange) {
+    const start = new Date(customRange.start);
+    const end   = new Date(customRange.end);
+    // Make the end date inclusive of its entire day when given a bare date
+    // (e.g. '2026-06-13' parses to midnight UTC — push to end of that day).
+    end.setHours(23, 59, 59, 999);
+    return { start, end };
+  }
+
+  return { start: getDateCutoff(range), end: now };
+}
+
+export function filterEventsByDate(
+  events: RawEvent[],
+  range: DateRange,
+  customRange?: CustomDateRange | null,
+): RawEvent[] {
+  const { start, end } = getDateBounds(range, customRange);
+  return events.filter(e => {
+    const t = new Date(e.created_at);
+    return t >= start && t <= end;
+  });
+}
+
+// ── Video / content date filtering ──────────────────────────────────────────
+//
+// Shared source of truth for filtering a video/content list by upload date
+// (video.created_at), using the SAME [start, end] window as filterEventsByDate.
+//
+//   • range === 'all': every video passes, including videos with a missing
+//     or null created_at.
+//   • Otherwise (including 'custom' without a supplied customRange, which
+//     falls back to the 'all' window): videos with a missing/null created_at
+//     are EXCLUDED, since we cannot determine whether they fall inside the
+//     selected window.
+export function filterVideosByDateRange<T extends { created_at?: string | null }>(
+  videos: T[],
+  range: DateRange,
+  customRange?: CustomDateRange | null,
+): T[] {
+  if (range === 'all') return videos;
+
+  const { start, end } = getDateBounds(range, customRange);
+  return videos.filter(v => {
+    if (!v.created_at) return false;
+    const t = new Date(v.created_at);
+    return t >= start && t <= end;
+  });
 }
 
 // ── 2e. Stripe enrichment ──────────────────────────────────────────────────────
@@ -814,6 +884,8 @@ export interface AnalyticsEngineInput {
 
   // Filter / UI state (mirrors the useState hooks in InDepthAnalytics).
   dateRange:             DateRange;
+  // Only used when dateRange === 'custom'. Ignored otherwise.
+  customRange?:          CustomDateRange | null;
   selectedCampaignId:    string;          // 'all' or a campaign id
   selectedGoals:         string[];
   selectedLeadMagnets:   string[];
@@ -838,6 +910,7 @@ export interface AnalyticsEngineResult {
 export interface AnalyticsEngineDebug {
   activeSource:          RevenueView;
   dateRange:             DateRange;
+  customRange?:          CustomDateRange | null;
   rowCounts: {
     rawEvents:       number;
     filteredEvents:  number;
@@ -906,6 +979,7 @@ export function getAnalyticsEngine(input: AnalyticsEngineInput): AnalyticsEngine
     stripePurchases,
     pixelPurchases,
     dateRange,
+    customRange,
     selectedCampaignId,
     selectedGoals,
     selectedLeadMagnets,
@@ -916,10 +990,15 @@ export function getAnalyticsEngine(input: AnalyticsEngineInput): AnalyticsEngine
 
   // ── Step 1: date-filter events ─────────────────────────────────────────────
   // Matches: const dateFilteredEvents = useMemo(() => filterEventsByDate(rawEvents, dateRange), …)
-  const dateFilteredEvents = filterEventsByDate(rawEvents, dateRange);
+  const dateFilteredEvents = filterEventsByDate(rawEvents, dateRange, customRange);
 
   // ── Step 2: video filters ──────────────────────────────────────────────────
   // Matches: const filteredVideos = useMemo(() => videos.filter(v => { … }), …)
+  // NOTE: video/content date filtering is intentionally NOT performed here.
+  // analyticsEngine only date-filters EVENTS (Step 1) for metric computation,
+  // matching InDepthAnalytics's pipeline 1:1. Filtering the video/content list
+  // by upload date (created_at) is a Dashboard-only concern — see
+  // filterVideosByDateRange, applied by callers as needed.
   const filteredVideos = videos.filter(v => {
     if (selectedCampaignId !== 'all' && v.campaign_id !== selectedCampaignId) return false;
     if (selectedGoals.length > 0) {
@@ -1024,6 +1103,7 @@ export function getAnalyticsEngine(input: AnalyticsEngineInput): AnalyticsEngine
   const debug: AnalyticsEngineDebug = {
     activeSource,
     dateRange,
+    customRange: customRange ?? null,
     rowCounts: {
       rawEvents:       rawEvents.length,
       filteredEvents:  dateFilteredEvents.length,
