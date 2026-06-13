@@ -36,6 +36,7 @@ import {
   mergeEventSources,
   handleSortToggle,
   formatCellValue,
+  getDateBounds,
   TABLE_COLUMNS,
   COLUMN_LABELS,
   type AnalyticsEngineInput,
@@ -319,6 +320,11 @@ export default function InDepthAnalyticsTest() {
 
   const engineResult  = useMemo(() => getAnalyticsEngine(engineInput), [engineInput]);
   const engineSorted  = engineResult.sortedVideos;
+
+  // ── In-range indicator bounds (UI-only — does NOT filter rows) ───────────
+  // Reuses the same start/end window the engine applies to events, purely to
+  // visually flag which videos were uploaded within the selected dateRange.
+  const dateRangeBounds = useMemo(() => getDateBounds(dateRange), [dateRange]);
 
   // ── Platform filter (applied after engine, pure UI) ──────────────────────
   const sortedVideos = useMemo(() => {
@@ -784,8 +790,22 @@ export default function InDepthAnalyticsTest() {
               </thead>
 
               <tbody className="bg-black divide-y divide-zinc-900">
-                {sortedVideos.map(row => (
-                  <tr key={row.video.id} className="hover:bg-zinc-950 transition-colors group">
+                {sortedVideos.map(row => {
+                  // UI-only indicator: was this video uploaded within the
+                  // currently selected dateRange window? Does NOT affect
+                  // which rows render or how metrics are computed.
+                  const createdAt = row.video.created_at;
+                  const inRange = dateRange !== 'all' && !!createdAt &&
+                    new Date(createdAt) >= dateRangeBounds.start &&
+                    new Date(createdAt) <= dateRangeBounds.end;
+
+                  return (
+                  <tr
+                    key={row.video.id}
+                    className={`hover:bg-zinc-950 transition-colors group ${
+                      inRange ? 'bg-emerald-500/[0.04] border-l-2 border-l-emerald-500/50' : ''
+                    }`}
+                  >
 
                     {/* ── Content identity cell ────────────────────────── */}
                     <td className="px-6 py-4 whitespace-nowrap sticky left-0 z-10 bg-black group-hover:bg-zinc-950 transition-colors">
@@ -806,8 +826,17 @@ export default function InDepthAnalyticsTest() {
                         />
                         {/* Platform identity via shared renderContentIdentity() */}
                         <div className="max-w-[220px] min-w-0">
-                          <div className="text-xs font-bold truncate leading-snug">
-                            {renderContentIdentity(row.video)}
+                          <div className="text-xs font-bold truncate leading-snug flex items-center gap-1.5">
+                            <span className="truncate">{renderContentIdentity(row.video)}</span>
+                            {inRange && (
+                              <span
+                                title="Uploaded within selected period"
+                                className="shrink-0 inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full bg-emerald-500/10 border border-emerald-500/30 text-[8px] font-black uppercase tracking-widest text-emerald-400"
+                              >
+                                <span className="w-1 h-1 rounded-full bg-emerald-400" />
+                                In range
+                              </span>
+                            )}
                           </div>
                           <div className="text-[9px] text-zinc-600 font-bold uppercase tracking-widest mt-0.5 truncate">
                             {(row.campaign as any)?.campaign_name || 'Individual Video'}
@@ -861,7 +890,8 @@ export default function InDepthAnalyticsTest() {
                       </button>
                     </td>
                   </tr>
-                ))}
+                  );
+                })}
               </tbody>
             </table>
 
