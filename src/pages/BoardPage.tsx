@@ -159,7 +159,7 @@ const styles: Record<string, React.CSSProperties> = {
     display: 'flex',
     flexDirection: 'column',
     background: '#ffffff',
-    backgroundImage: 'radial-gradient(#1f1f1f 1px, transparent 1px)',
+    backgroundImage: 'radial-gradient(#e6e6e6 1px, transparent 1px)',
     backgroundSize: '24px 24px',
 
     overflow: 'hidden',
