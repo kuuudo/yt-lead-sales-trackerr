@@ -67,6 +67,7 @@ import {
   type PixelPurchaseRow,
   type StripePurchaseTypeRow,
   type DateRange,
+  type CustomDateRange,
   type RevenueView,
   type MetricType,
   type CampaignMeta,
@@ -196,12 +197,17 @@ export default function InDepthAnalyticsWidget({ widget, onUpdate }: Props) {
 
   // ── Config — dateRange + campaign read from widget.config, written back ───
   const dateRange:          DateRange = (widget.config?.dateRange          as DateRange) ?? '30days'
+  // Custom date range — only used when dateRange === 'custom'. Persisted
+  // alongside dateRange, mirroring DashboardWidget's customRange pattern.
+  const customRange: CustomDateRange | null = (widget.config?.customRange as CustomDateRange | null) ?? null
   const selectedCampaignId: string    = (widget.config?.selectedCampaignId as string)    ?? 'all'
 
   const patchConfig = (patch: Record<string, unknown>) =>
     onUpdate?.({ config: { ...widget.config, ...patch } })
 
-  const setDateRange         = (v: DateRange) => patchConfig({ dateRange: v })
+  // Switching away from 'custom' clears the stored custom range (same as DashboardWidget).
+  const setDateRange         = (v: DateRange) => patchConfig({ dateRange: v, ...(v !== 'custom' ? { customRange: null } : {}) })
+  const setCustomRange       = (v: CustomDateRange | null) => patchConfig({ customRange: v })
   const setSelectedCampaignId = (v: string)   => patchConfig({ selectedCampaignId: v })
 
   // ── Local filter state (not persisted — intentional, same as full page) ───
@@ -219,6 +225,9 @@ export default function InDepthAnalyticsWidget({ widget, onUpdate }: Props) {
   // ── Dropdown / panel open state ───────────────────────────────────────────
   const [columnsOpen, setColumnsOpen]   = useState(false)
   const [filtersOpen, setFiltersOpen]   = useState(false)
+  // Custom date range picker — auto-open if a custom range is already active
+  // (e.g. on widget reload), mirroring DashboardWidget's customRangeOpen.
+  const [customRangeOpen, setCustomRangeOpen] = useState(dateRange === 'custom')
   const columnsRef = useRef<HTMLDivElement>(null)
   const filtersRef = useRef<HTMLDivElement>(null)
 
@@ -355,6 +364,7 @@ export default function InDepthAnalyticsWidget({ widget, onUpdate }: Props) {
     stripePurchases,
     pixelPurchases,
     dateRange,
+    customRange,
     selectedCampaignId,
     selectedGoals,
     selectedLeadMagnets,
@@ -363,7 +373,7 @@ export default function InDepthAnalyticsWidget({ widget, onUpdate }: Props) {
     sortConfig,
   }), [
     videos, campaigns, rawEvents, stripePurchases, pixelPurchases,
-    dateRange, selectedCampaignId, selectedGoals, selectedLeadMagnets,
+    dateRange, customRange, selectedCampaignId, selectedGoals, selectedLeadMagnets,
     activeSource, includeEV, sortConfig,
   ])
 
@@ -371,7 +381,7 @@ export default function InDepthAnalyticsWidget({ widget, onUpdate }: Props) {
   const engineSorted = engineResult.sortedVideos
 
   // ── In-range bounds (UI-only indicator) ──────────────────────────────────
-  const dateRangeBounds = useMemo(() => getDateBounds(dateRange), [dateRange])
+  const dateRangeBounds = useMemo(() => getDateBounds(dateRange, customRange), [dateRange, customRange])
 
   // ── Platform filter — post-engine, pure UI (verbatim) ────────────────────
   const sortedVideos = useMemo(() => {
@@ -434,12 +444,50 @@ export default function InDepthAnalyticsWidget({ widget, onUpdate }: Props) {
             <button
               key={opt.value}
               style={{ ...s.pill, ...(dateRange === opt.value ? s.pillActive : {}) }}
-              onClick={() => setDateRange(opt.value)}
+              onClick={() => { setDateRange(opt.value); setCustomRangeOpen(false) }}
             >
               {opt.label}
             </button>
           ))}
+          <button
+            style={{ ...s.pill, ...(dateRange === 'custom' ? s.pillActive : {}) }}
+            onClick={() => setCustomRangeOpen(o => !o)}
+            title="Custom range"
+          >
+            Custom
+          </button>
         </div>
+
+        {/* Custom range inline pickers — shown when toggled or already active */}
+        {customRangeOpen && (
+          <div style={{ ...s.pillGroup, gap: 4, paddingLeft: 6, paddingRight: 6 }}>
+            <input
+              type="date"
+              value={typeof customRange?.start === 'string' ? customRange.start : ''}
+              max={typeof customRange?.end === 'string' ? customRange.end : undefined}
+              onChange={e => {
+                const start = e.target.value
+                const next = { start, end: (typeof customRange?.end === 'string' && customRange.end) || start }
+                setCustomRange(next)
+                if (start && next.end) setDateRange('custom')
+              }}
+              style={s.dateInput}
+            />
+            <span style={s.label}>–</span>
+            <input
+              type="date"
+              value={typeof customRange?.end === 'string' ? customRange.end : ''}
+              min={typeof customRange?.start === 'string' ? customRange.start : undefined}
+              onChange={e => {
+                const end = e.target.value
+                const next = { start: (typeof customRange?.start === 'string' && customRange.start) || end, end }
+                setCustomRange(next)
+                if (next.start && end) setDateRange('custom')
+              }}
+              style={s.dateInput}
+            />
+          </div>
+        )}
 
         <div style={s.divider} />
 
@@ -893,6 +941,16 @@ const s: Record<string, React.CSSProperties> = {
     textTransform: 'uppercase' as const,
     letterSpacing: '0.04em',
     maxWidth:      110,
+  },
+  dateInput: {
+    background:    'transparent',
+    border:        'none',
+    borderRadius:  6,
+    padding:       '3px 4px',
+    fontSize:      9,
+    fontWeight:    700,
+    color:         '#a1a1aa',
+    colorScheme:   'dark' as const,
   },
 
   // ── Table wrapper ──────────────────────────────────────────────────────────

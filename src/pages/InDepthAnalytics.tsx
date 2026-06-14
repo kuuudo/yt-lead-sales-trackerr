@@ -45,6 +45,7 @@ import {
   type PixelPurchaseRow,
   type StripePurchaseTypeRow,
   type DateRange,
+  type CustomDateRange,
   type RevenueView,
   type MetricType,
   type CampaignMeta,
@@ -180,6 +181,8 @@ export default function InDepthAnalyticsTest() {
 
   // ── Filter state (unchanged) ─────────────────────────────────────────────
   const [dateRange, setDateRange]                     = useState<DateRange>('30days');
+  // Custom date range — only populated/used when dateRange === 'custom'.
+  const [customRange, setCustomRange]                 = useState<CustomDateRange | null>(null);
   const [selectedCampaignId, setSelectedCampaignId]   = useState<string>('all');
   const [selectedGoals, setSelectedGoals]             = useState<string[]>([]);
   const [selectedLeadMagnets, setSelectedLeadMagnets] = useState<string[]>([]);
@@ -306,6 +309,7 @@ export default function InDepthAnalyticsTest() {
     stripePurchases,
     pixelPurchases,
     dateRange,
+    customRange,
     selectedCampaignId,
     selectedGoals,
     selectedLeadMagnets,
@@ -314,7 +318,7 @@ export default function InDepthAnalyticsTest() {
     sortConfig,
   }), [
     videos, campaigns, rawEvents, stripePurchases, pixelPurchases,
-    dateRange, selectedCampaignId, selectedGoals, selectedLeadMagnets,
+    dateRange, customRange, selectedCampaignId, selectedGoals, selectedLeadMagnets,
     activeSource, includeEV, sortConfig,
   ]);
 
@@ -324,7 +328,7 @@ export default function InDepthAnalyticsTest() {
   // ── In-range indicator bounds (UI-only — does NOT filter rows) ───────────
   // Reuses the same start/end window the engine applies to events, purely to
   // visually flag which videos were uploaded within the selected dateRange.
-  const dateRangeBounds = useMemo(() => getDateBounds(dateRange), [dateRange]);
+  const dateRangeBounds = useMemo(() => getDateBounds(dateRange, customRange), [dateRange, customRange]);
 
   // ── Platform filter (applied after engine, pure UI) ──────────────────────
   const sortedVideos = useMemo(() => {
@@ -409,7 +413,11 @@ export default function InDepthAnalyticsTest() {
             <div className="relative">
               <select
                 value={dateRange}
-                onChange={e => setDateRange(e.target.value as DateRange)}
+                onChange={e => {
+                  const v = e.target.value as DateRange;
+                  setDateRange(v);
+                  if (v !== 'custom') setCustomRange(null);
+                }}
                 className="w-full bg-zinc-900 border border-zinc-800 rounded-xl px-4 py-2.5 text-[10px] font-bold uppercase tracking-widest outline-none focus:border-red-600 appearance-none cursor-pointer"
               >
                 <option value="7days">Last 7 Days</option>
@@ -418,9 +426,52 @@ export default function InDepthAnalyticsTest() {
                 <option value="6months">Last 6 Months</option>
                 <option value="1year">Last Year</option>
                 <option value="all">Lifetime</option>
+                <option value="custom">Custom Range</option>
               </select>
               <Calendar size={12} className="absolute right-4 top-1/2 -translate-y-1/2 text-zinc-600 pointer-events-none" />
             </div>
+
+            {/* Custom range pickers — only shown when dateRange === 'custom' */}
+            {dateRange === 'custom' && (
+              <div className="mt-3 grid grid-cols-2 gap-2">
+                <div>
+                  <label className="text-[8px] font-black uppercase tracking-widest text-zinc-600 mb-1.5 block">
+                    Start
+                  </label>
+                  <input
+                    type="date"
+                    value={typeof customRange?.start === 'string' ? customRange.start : ''}
+                    max={typeof customRange?.end === 'string' ? customRange.end : undefined}
+                    onChange={e => {
+                      const start = e.target.value;
+                      setCustomRange(prev => ({
+                        start,
+                        end: (typeof prev?.end === 'string' && prev.end) || start,
+                      }));
+                    }}
+                    className="w-full bg-zinc-900 border border-zinc-800 rounded-xl px-3 py-2 text-[10px] font-bold outline-none focus:border-red-600 [color-scheme:dark]"
+                  />
+                </div>
+                <div>
+                  <label className="text-[8px] font-black uppercase tracking-widest text-zinc-600 mb-1.5 block">
+                    End
+                  </label>
+                  <input
+                    type="date"
+                    value={typeof customRange?.end === 'string' ? customRange.end : ''}
+                    min={typeof customRange?.start === 'string' ? customRange.start : undefined}
+                    onChange={e => {
+                      const end = e.target.value;
+                      setCustomRange(prev => ({
+                        start: (typeof prev?.start === 'string' && prev.start) || end,
+                        end,
+                      }));
+                    }}
+                    className="w-full bg-zinc-900 border border-zinc-800 rounded-xl px-3 py-2 text-[10px] font-bold outline-none focus:border-red-600 [color-scheme:dark]"
+                  />
+                </div>
+              </div>
+            )}
           </div>
 
           {/* Campaign */}
