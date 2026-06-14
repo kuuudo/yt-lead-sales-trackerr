@@ -468,8 +468,10 @@ export default function InDepthAnalyticsWidget({ widget, onUpdate }: Props) {
               onChange={e => {
                 const start = e.target.value
                 const next = { start, end: (typeof customRange?.end === 'string' && customRange.end) || start }
-                setCustomRange(next)
-                if (start && next.end) setDateRange('custom')
+                // Single atomic patch — setCustomRange + setDateRange separately
+                // would each spread from the same stale widget.config, and the
+                // second call would overwrite the first's customRange write.
+                patchConfig({ customRange: next, dateRange: 'custom' })
               }}
               style={s.dateInput}
             />
@@ -481,8 +483,8 @@ export default function InDepthAnalyticsWidget({ widget, onUpdate }: Props) {
               onChange={e => {
                 const end = e.target.value
                 const next = { start: (typeof customRange?.start === 'string' && customRange.start) || end, end }
-                setCustomRange(next)
-                if (next.start && end) setDateRange('custom')
+                // Single atomic patch — see note above.
+                patchConfig({ customRange: next, dateRange: 'custom' })
               }}
               style={s.dateInput}
             />
