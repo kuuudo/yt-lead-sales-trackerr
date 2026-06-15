@@ -83,6 +83,17 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     const stripe = new Stripe(process.env.STRIPE_SECRET_KEY!, {
       apiVersion: '2025-04-30.basil',
     });
+    console.log(
+  "[stripe-webhook]",
+  "token:",
+  tokenFromPayload,
+  "resolvedUser:",
+  resolvedUserId,
+  "usingCreatorSecret:",
+  !!resolvedUserId,
+  "secretPrefix:",
+  webhookSecret?.substring(0, 12)
+);
     event = stripe.webhooks.constructEvent(rawBody, sig, webhookSecret);
   } catch (err: any) {
     console.error('[stripe-webhook] Signature verification failed:', err.message);
