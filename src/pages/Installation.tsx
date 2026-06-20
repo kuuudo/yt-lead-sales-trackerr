@@ -392,6 +392,7 @@ const RedirectTrackingBlock = ({
         .select('token, destination_url')
         .eq('campaign_id', campaignId)
         .eq('link_type', linkType)
+        .is('video_id', null)              // campaign-level row only — ignore video-level rows
         .order('created_at', { ascending: false })
         .limit(1)
         .single();
@@ -412,7 +413,8 @@ const RedirectTrackingBlock = ({
           .from('redirect_links')
           .update({ destination_url: destinationUrl })
           .eq('campaign_id', campaignId)
-          .eq('link_type', linkType);
+          .eq('link_type', linkType)
+          .is('video_id', null);             // campaign-level row only — ignore video-level rows
         setTrackedUrl(`${window.location.origin}/${existing.token}`);
       } else {
         setTrackedUrl(`${window.location.origin}/${existing.token}`);
@@ -563,6 +565,7 @@ const StripeSetupBlock = ({
         .select('token, destination_url')
         .eq('campaign_id', campaignId)
         .eq('link_type', dbLinkType)
+        .is('video_id', null)              // campaign-level row only — ignore video-level rows
         .order('created_at', { ascending: false })
         .limit(1)
         .single();
@@ -582,7 +585,8 @@ const StripeSetupBlock = ({
           .from('redirect_links')
           .update({ destination_url: checkoutUrl })
           .eq('campaign_id', campaignId)
-          .eq('link_type', dbLinkType);
+          .eq('link_type', dbLinkType)
+          .is('video_id', null);             // campaign-level row only — ignore video-level rows
         setTrackedUrl(`${window.location.origin}/${existing.token}`);
       } else {
         setTrackedUrl(`${window.location.origin}/${existing.token}`);
