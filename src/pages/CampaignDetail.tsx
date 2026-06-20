@@ -202,14 +202,7 @@ export default function CampaignDetail() {
       setSuccess(true);
       setTimeout(() => setSuccess(false), missing.length > 0 ? 10000 : 3000);
       await fetchCampaignData();
-      alert("Campaign updated successfully");
-      // force sync
-      window.location.href = "/installation";
-
-
-      // Signal Installation.tsx to refetch campaigns on next mount
-      localStorage.setItem('campaign_form_return', '/installation');
-      localStorage.setItem('campaign_updated', `${id}:${Date.now()}`);
+      window.dispatchEvent(new Event('campaign-updated'));
 
     } catch (err: any) {
       setError(err.message || 'Failed to save changes');

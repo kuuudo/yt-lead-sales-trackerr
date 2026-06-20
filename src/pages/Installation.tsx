@@ -572,14 +572,13 @@ const StripeSetupBlock = ({
 
       if (!existing) {
         const token = generateToken();
-        const { data, error } = await supabase.from('redirect_links').insert({
+        const { error } = await supabase.from('redirect_links').insert({
           token,
           campaign_id: campaignId,
           link_type: dbLinkType,
           destination_url: checkoutUrl,
           video_id: null,
         });
-        console.log('INSERT RESULT:', { data, error });
         if (!error) setTrackedUrl(`${window.location.origin}/${token}`);
       } else if (existing.destination_url !== checkoutUrl) {
         await supabase
@@ -1847,6 +1846,12 @@ export default function Installation() {
       localStorage.removeItem('campaign_form_return');
       fetchData();
     }
+  }, [fetchData]);
+
+  useEffect(() => {
+    const handler = () => fetchData();
+    window.addEventListener('campaign-updated', handler);
+    return () => window.removeEventListener('campaign-updated', handler);
   }, [fetchData]);
 
   const handleToggle = (id: string) => {
