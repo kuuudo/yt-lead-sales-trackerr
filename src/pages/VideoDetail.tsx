@@ -978,7 +978,7 @@ export default function VideoDetail() {
                   >
                     <option value="landing_page">🏠 Landing Page</option>
                     <option value="newsletter">📧 Newsletter</option>
-                    <option value="checkout">🛒 Checkout</option>
+                    {/* checkout intentionally omitted — owned by campaign, not video */}
                     <option value="consultation">💼 Consultation</option>
                     <option value="sales_call">📞 Sales Call</option>
                     <option value="lead_magnet">📦 Lead Magnet</option>

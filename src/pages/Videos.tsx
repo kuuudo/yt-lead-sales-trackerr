@@ -382,7 +382,7 @@ export default function Videos() {
           if (campaign.newsletter_url) redirectJobs.push(['newsletter', campaign.newsletter_url, '📧 Newsletter']);
           if (campaign.sales_call_booking_url) redirectJobs.push(['sales_call', campaign.sales_call_booking_url, '📞 Sales Call']);
           if (campaign.consultation_booking_url) redirectJobs.push(['consultation', campaign.consultation_booking_url, '💼 Consultation']);
-          if (campaign.checkout_url) redirectJobs.push(['checkout', campaign.checkout_url, '🛒 Checkout']);
+          // checkout link intentionally omitted — owned by campaign via Installation.tsx (video_id = null)
           if (campaign.purchase_thankyou_url) redirectJobs.push(['purchase_thankyou', campaign.purchase_thankyou_url, '✅ Purchase Thank You']);
           if (campaign.newsletter_thankyou_url) redirectJobs.push(['newsletter_thankyou', campaign.newsletter_thankyou_url, '✅ Newsletter Thank You']);
 
@@ -411,7 +411,7 @@ export default function Videos() {
             const urlUpdates: Array<[string, string]> = [
               ['landing_page', campaign.landing_page_url],
             ];
-            if (campaign.checkout_url) urlUpdates.push(['checkout', campaign.checkout_url]);
+            // checkout url update intentionally omitted — owned by campaign via Installation.tsx
             if (campaign.newsletter_url) urlUpdates.push(['newsletter', campaign.newsletter_url]);
             if (campaign.purchase_thankyou_url) urlUpdates.push(['purchase_thankyou', campaign.purchase_thankyou_url]);
             if (campaign.newsletter_thankyou_url) urlUpdates.push(['newsletter_thankyou', campaign.newsletter_thankyou_url]);
