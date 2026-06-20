@@ -203,6 +203,9 @@ export default function CampaignDetail() {
       setTimeout(() => setSuccess(false), missing.length > 0 ? 10000 : 3000);
       await fetchCampaignData();
 
+      // Notify Installation.tsx to refetch so syncTrackedLink runs with fresh checkout URLs
+      window.dispatchEvent(new Event('campaign-updated'));
+
     } catch (err: any) {
       setError(err.message || 'Failed to save changes');
     } finally {
