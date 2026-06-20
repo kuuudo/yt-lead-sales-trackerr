@@ -202,7 +202,6 @@ export default function CampaignDetail() {
       setSuccess(true);
       setTimeout(() => setSuccess(false), missing.length > 0 ? 10000 : 3000);
       await fetchCampaignData();
-      window.dispatchEvent(new Event('campaign-updated'));
 
     } catch (err: any) {
       setError(err.message || 'Failed to save changes');
