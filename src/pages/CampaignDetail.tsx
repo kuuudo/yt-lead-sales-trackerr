@@ -203,6 +203,10 @@ export default function CampaignDetail() {
       setTimeout(() => setSuccess(false), missing.length > 0 ? 10000 : 3000);
       await fetchCampaignData();
 
+      // Signal Installation.tsx to refetch campaigns on next mount
+      localStorage.setItem('campaign_form_return', '/installation');
+      localStorage.setItem('campaign_updated', `${id}:${Date.now()}`);
+
     } catch (err: any) {
       setError(err.message || 'Failed to save changes');
     } finally {
