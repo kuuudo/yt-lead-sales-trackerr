@@ -80,6 +80,8 @@ export async function syncCampaignRedirectLink(
   linkType: CampaignLinkType,
   destinationUrl: string
 ): Promise<SyncResult> {
+
+  console.log('ENGINE CALLED:', campaignId, linkType, destinationUrl);
   if (!campaignId) throw new Error('[campaignRedirectEngine] campaignId is required');
   if (!destinationUrl) throw new Error('[campaignRedirectEngine] destinationUrl is required');
   if (!linkType) throw new Error('[campaignRedirectEngine] linkType is required');

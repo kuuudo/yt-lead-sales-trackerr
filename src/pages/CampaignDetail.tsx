@@ -182,6 +182,7 @@ export default function CampaignDetail() {
 
       // Sync campaign-level checkout redirect link (destination_url only — token never changes)
       if (formData.checkout_url) {
+        console.log('CHECKOUT URL BEING SENT:', formData.checkout_url);
         await syncCampaignRedirectLinks(id, [
           { linkType: 'checkout', destinationUrl: formData.checkout_url },
         ]);
