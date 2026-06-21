@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { supabase } from '../lib/supabase';
+import { syncCampaignRedirectLink } from '../lib/campaignRedirectEngine';
 import { useAuth } from '../lib/auth';
 import { useNavigate, Link } from 'react-router-dom';
 import { generatePixelSnippet, WEBHOOK_ENDPOINT } from '../lib/tracker';
@@ -386,42 +387,9 @@ const RedirectTrackingBlock = ({
   useEffect(() => {
     if (!destinationUrl || !campaignId) return;
 
-    const syncLink = async () => {
-      const { data: existing } = await supabase
-        .from('redirect_links')
-        .select('token, destination_url')
-        .eq('campaign_id', campaignId)
-        .eq('link_type', linkType)
-        .is('video_id', null)              // campaign-level row only — ignore video-level rows
-        .order('created_at', { ascending: false })
-        .limit(1)
-        .single();
-
-      if (!existing) {
-        const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789';
-        const token = Array.from({ length: 4 }, () => chars[Math.floor(Math.random() * chars.length)]).join('');
-        const { error } = await supabase.from('redirect_links').insert({
-          token,
-          campaign_id: campaignId,
-          link_type: linkType,
-          destination_url: destinationUrl,
-          video_id: null,
-        });
-        if (!error) setTrackedUrl(`${window.location.origin}/${token}`);
-      } else if (existing.destination_url !== destinationUrl) {
-        await supabase
-          .from('redirect_links')
-          .update({ destination_url: destinationUrl })
-          .eq('campaign_id', campaignId)
-          .eq('link_type', linkType)
-          .is('video_id', null);             // campaign-level row only — ignore video-level rows
-        setTrackedUrl(`${window.location.origin}/${existing.token}`);
-      } else {
-        setTrackedUrl(`${window.location.origin}/${existing.token}`);
-      }
-    };
-
-    syncLink();
+    syncCampaignRedirectLink(campaignId, linkType as any, destinationUrl)
+      .then(({ token }) => setTrackedUrl(`${window.location.origin}/${token}`))
+      .catch(err => console.error('[RedirectTrackingBlock] syncCampaignRedirectLink failed:', err));
   }, [campaignId, destinationUrl, linkType]);
 
   return (
@@ -559,41 +527,9 @@ const StripeSetupBlock = ({
     if (!checkoutUrl || !campaignId) return;
     const dbLinkType = linkType === 'consultation' ? 'consultation' : 'checkout';
 
-    const syncTrackedLink = async () => {
-      const { data: existing } = await supabase
-        .from('redirect_links')
-        .select('token, destination_url')
-        .eq('campaign_id', campaignId)
-        .eq('link_type', dbLinkType)
-        .is('video_id', null)              // campaign-level row only — ignore video-level rows
-        .order('created_at', { ascending: false })
-        .limit(1)
-        .single();
-
-      if (!existing) {
-        const token = generateToken();
-        const { error } = await supabase.from('redirect_links').insert({
-          token,
-          campaign_id: campaignId,
-          link_type: dbLinkType,
-          destination_url: checkoutUrl,
-          video_id: null,
-        });
-        if (!error) setTrackedUrl(`${window.location.origin}/${token}`);
-      } else if (existing.destination_url !== checkoutUrl) {
-        await supabase
-          .from('redirect_links')
-          .update({ destination_url: checkoutUrl })
-          .eq('campaign_id', campaignId)
-          .eq('link_type', dbLinkType)
-          .is('video_id', null);             // campaign-level row only — ignore video-level rows
-        setTrackedUrl(`${window.location.origin}/${existing.token}`);
-      } else {
-        setTrackedUrl(`${window.location.origin}/${existing.token}`);
-      }
-    };
-
-    syncTrackedLink();
+    syncCampaignRedirectLink(campaignId, dbLinkType, checkoutUrl)
+      .then(({ token }) => setTrackedUrl(`${window.location.origin}/${token}`))
+      .catch(err => console.error('[StripeSetupBlock] syncCampaignRedirectLink failed:', err));
   }, [campaignId, checkoutUrl, linkType]);
 
   const handleSave = async () => {
