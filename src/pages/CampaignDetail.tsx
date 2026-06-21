@@ -189,6 +189,7 @@ export default function CampaignDetail() {
       }
 
       // Handle lead magnets
+      // Handle lead magnets
       try {
         await supabase.from('lead_magnets').delete().eq('campaign_id', id);
         if (formData.has_lead_magnet && leadMagnets.length > 0) {
