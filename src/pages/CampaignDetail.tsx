@@ -11,6 +11,7 @@ import {
   CreditCard, AlertTriangle
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
+import { syncCampaignRedirectLinks } from '../lib/campaignRedirectEngine';
 
 // Reusable Stripe toggle component
 const StripeToggle = ({ value, onChange }: { value: boolean; onChange: (v: boolean) => void }) => (
@@ -179,6 +180,13 @@ export default function CampaignDetail() {
 
       if (updateErr) throw updateErr;
 
+      // Sync campaign-level checkout redirect link (destination_url only — token never changes)
+      if (formData.checkout_url) {
+        await syncCampaignRedirectLinks(id, [
+          { linkType: 'checkout', destinationUrl: formData.checkout_url },
+        ]);
+      }
+
       // Handle lead magnets
       try {
         await supabase.from('lead_magnets').delete().eq('campaign_id', id);
@@ -202,9 +210,6 @@ export default function CampaignDetail() {
       setSuccess(true);
       setTimeout(() => setSuccess(false), missing.length > 0 ? 10000 : 3000);
       await fetchCampaignData();
-
-      // Notify Installation.tsx to refetch so syncTrackedLink runs with fresh checkout URLs
-      window.dispatchEvent(new Event('campaign-updated'));
 
     } catch (err: any) {
       setError(err.message || 'Failed to save changes');
