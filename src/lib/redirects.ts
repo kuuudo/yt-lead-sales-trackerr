@@ -54,15 +54,14 @@ export const createRedirectLink = async (
     }
   }
 
-  const token = generateToken();
-// 🔥 ADD THIS DEBUG LOG HERE
-console.log("CREATE_REDIRECT_INPUT:", {
+const token = generateToken();
+
+// 🧪 CHECKOUT LINK CREATION DEBUG
+console.log("CREATE CHECKOUT LINK:", {
   videoId,
   campaignId,
-  token,
   linkType,
-  destinationUrl,
-  leadMagnetId: leadMagnetId || null
+  token
 });
   const { error } = await supabase.from('redirect_links').insert({
     token,
