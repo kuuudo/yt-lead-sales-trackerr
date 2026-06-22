@@ -218,7 +218,7 @@ export default function CampaignDetail() {
       );
       originalCheckoutUrl.current = formData.checkout_url ?? '';
       setSuccess(true);
-      setTimeout(() => setSuccess(false), missing.length > 0 ? 10000 : 3000);
+      setTimeout(() => setSuccess(false), missing.length > 0 ? 50000 : 30000);
       await fetchCampaignData();
 
     } catch (err: any) {
