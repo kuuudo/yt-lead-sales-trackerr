@@ -56,12 +56,12 @@ export const createRedirectLink = async (
 
 const token = generateToken();
 
-// 🧪 FINAL CONFIRMATION LOG (CHECKOUT LINK CREATED)
-console.log("CHECKOUT LINK CREATED:", {
-  token,
+// 🧪 CHECKOUT LINK BUILD DEBUG
+console.log("CHECKOUT LINK BUILD:", {
   videoId,
   campaignId,
-  linkType
+  linkType,
+  token
 });
   const { error } = await supabase.from('redirect_links').insert({
     token,
