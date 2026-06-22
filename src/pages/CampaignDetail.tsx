@@ -102,6 +102,8 @@ export default function CampaignDetail() {
   });
 
   const [leadMagnets, setLeadMagnets] = useState<Partial<LeadMagnet>[]>([]);
+  const [checkoutUrlChanged, setCheckoutUrlChanged] = useState(false);
+  const originalCheckoutUrl = React.useRef<string>('');
 
   useEffect(() => {
     if (user && id) fetchCampaignData();
@@ -119,7 +121,10 @@ export default function CampaignDetail() {
         .single();
 
       if (cErr) throw cErr;
-      if (campaign) setFormData(campaign);
+      if (campaign) {
+        setFormData(campaign);
+        originalCheckoutUrl.current = campaign.checkout_url ?? '';
+      }
 
       const { data: magnets, error: mErr } = await supabase
         .from('lead_magnets')
@@ -182,13 +187,11 @@ export default function CampaignDetail() {
 
       // Sync campaign-level checkout redirect link (destination_url only — token never changes)
       if (formData.checkout_url) {
-        console.log('CHECKOUT URL BEING SENT:', formData.checkout_url);
         await syncCampaignRedirectLinks(id, [
           { linkType: 'checkout', destinationUrl: formData.checkout_url },
         ]);
       }
 
-      // Handle lead magnets
       // Handle lead magnets
       try {
         await supabase.from('lead_magnets').delete().eq('campaign_id', id);
@@ -209,6 +212,11 @@ export default function CampaignDetail() {
       // Show missing fields notice after save
       const missing = getMissingFields(formData);
       setMissingAfterSave(missing);
+      setCheckoutUrlChanged(
+        !!formData.checkout_url &&
+        formData.checkout_url !== originalCheckoutUrl.current
+      );
+      originalCheckoutUrl.current = formData.checkout_url ?? '';
       setSuccess(true);
       setTimeout(() => setSuccess(false), missing.length > 0 ? 10000 : 3000);
       await fetchCampaignData();
@@ -289,6 +297,29 @@ export default function CampaignDetail() {
           <AlertCircle size={18} /> {error}
         </div>
       )}
+
+      {/* Post-save checkout URL changed notice */}
+      <AnimatePresence>
+        {success && checkoutUrlChanged && (
+          <motion.div
+            initial={{ opacity: 0, y: -10 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: -10 }}
+            className="flex gap-3 p-5 bg-green-500/5 border border-green-500/20 rounded-2xl"
+          >
+            <CheckCircle2 size={16} className="text-green-500 shrink-0 mt-0.5" />
+            <div className="space-y-1">
+              <p className="text-[11px] font-bold text-green-400 uppercase tracking-widest">Payment settings saved</p>
+              <p className="text-[12px] text-zinc-300 leading-relaxed">
+                Your Stripe checkout URL has been updated — but your VS-Track link stays exactly the same.
+              </p>
+              <p className="text-[11px] text-zinc-500 leading-relaxed">
+                You do not need to update anything on your website, landing page, or YouTube descriptions. Anyone who clicks your existing VS-Track link will automatically be sent to the new checkout.
+              </p>
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
 
       {/* Post-save missing fields notice */}
       <AnimatePresence>
