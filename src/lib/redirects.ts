@@ -55,7 +55,15 @@ export const createRedirectLink = async (
   }
 
   const token = generateToken();
-
+// 🔥 ADD THIS DEBUG LOG HERE
+console.log("CREATE_REDIRECT_INPUT:", {
+  videoId,
+  campaignId,
+  token,
+  linkType,
+  destinationUrl,
+  leadMagnetId: leadMagnetId || null
+});
   const { error } = await supabase.from('redirect_links').insert({
     token,
     video_id: videoId,
