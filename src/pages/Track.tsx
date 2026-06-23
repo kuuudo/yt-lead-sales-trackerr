@@ -137,6 +137,16 @@ try {
     url.searchParams.set('vt_cid', finalCampaignId);
   }
 
+  // ── Composite client_reference_id for deterministic Stripe attribution ──
+  // Format: "{token}:{session_id}"
+  // Webhook splits on ':' to recover both campaign token and unique session.
+  // Only applied to Stripe Payment Links — other destinations are unaffected.
+  if (finalSessionId && link.destination_url?.includes('buy.stripe.com')) {
+    const composite = `${token}:${finalSessionId}`;
+    url.searchParams.set('client_reference_id', composite);
+    console.log('[Track] ⑨ composite client_reference_id set:', composite);
+  }
+
   console.log('[Track] ⑨ redirecting to:', url.toString());
 
 } catch (urlErr) {

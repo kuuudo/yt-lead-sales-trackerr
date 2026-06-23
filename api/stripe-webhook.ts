@@ -35,7 +35,9 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   try {
     const peeked = JSON.parse(rawBody.toString());
     const session = peeked?.data?.object;
-    tokenFromPayload = session?.client_reference_id ?? null;
+    // Support composite format "{token}:{session_id}" — extract token portion only
+    const raw = session?.client_reference_id ?? null;
+    tokenFromPayload = raw?.includes('__') ? raw.split('__')[0] : raw;
   } catch {
     // fall through to platform secret
   }
@@ -107,14 +109,21 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   }
 
   const session = event.data.object as Stripe.Checkout.Session;
-  const token = session.client_reference_id;
 
+  // Parse composite client_reference_id: "{token}:{session_id}"
+  // Falls back gracefully to legacy plain token format.
+  const rawRef = session.client_reference_id ?? '';
+  const isComposite = rawRef.includes('__');
+  const token = isComposite ? rawRef.split('__')[0] : rawRef;
+  const resolvedSessionId: string | null = isComposite ? rawRef.split('__').slice(1).join('__') : null;
   if (!token) {
     console.log('[stripe-webhook] No client_reference_id — skipping');
     return res.status(200).json({ received: true });
   }
 
-  // Look up redirect link (also gets campaign_id and video_id)
+  console.log('[stripe-webhook] parsed ref — token:', token, '| session_id:', resolvedSessionId);
+
+  // Look up redirect link via token → campaign_id (video_id is null for campaign-level tokens)
   const { data: link, error: linkError } = await supabase
     .from('redirect_links')
     .select('video_id, campaign_id')
@@ -124,6 +133,20 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   if (linkError || !link) {
     console.error('[stripe-webhook] No redirect link for token:', token);
     return res.status(200).json({ received: true });
+  }
+
+  // Resolve video_id from events via session_id (campaign-level tokens have video_id = null)
+  let resolvedVideoId: string | null = link.video_id ?? null;
+  if (!resolvedVideoId && resolvedSessionId) {
+    const { data: eventRow } = await supabase
+      .from('events')
+      .select('video_id')
+      .eq('session_id', resolvedSessionId)
+      .eq('campaign_id', link.campaign_id)
+      .limit(1)
+      .single();
+    resolvedVideoId = eventRow?.video_id ?? link.video_id ?? null;
+    console.log('[stripe-webhook] video_id resolved from events:', resolvedVideoId);
   }
 
   // Re-resolve user_id from the verified token (pre-verification lookup may have been skipped)
@@ -152,9 +175,10 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   const { error: insertError } = await supabase.from('stripe_purchases').insert({
     stripe_session_id: session.id,
     token,
-    video_id: link.video_id,
+    video_id: resolvedVideoId,
     campaign_id: link.campaign_id,
     user_id: resolvedUserId,
+    session_id: resolvedSessionId,
     amount: session.amount_total ? session.amount_total / 100 : null,
     currency: session.currency,
     customer_email: session.customer_details?.email ?? null,
@@ -165,6 +189,6 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     return res.status(500).json({ error: 'Database insert failed' });
   }
 
-  console.log(`[stripe-webhook] ✅ Recorded — token: ${token}, user: ${resolvedUserId}, amount: ${session.amount_total}`);
+  console.log(`[stripe-webhook] ✅ Recorded — token: ${token}, session: ${resolvedSessionId}, video: ${resolvedVideoId}, user: ${resolvedUserId}, amount: ${session.amount_total}`);
   return res.status(200).json({ received: true });
 }
