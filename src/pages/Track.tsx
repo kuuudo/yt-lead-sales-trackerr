@@ -142,7 +142,7 @@ try {
   // Webhook splits on ':' to recover both campaign token and unique session.
   // Only applied to Stripe Payment Links — other destinations are unaffected.
   if (finalSessionId && link.destination_url?.includes('buy.stripe.com')) {
-    const composite = `${token}:${finalSessionId}`;
+    const composite = `${token}__${finalSessionId}`;
     url.searchParams.set('client_reference_id', composite);
     console.log('[Track] ⑨ composite client_reference_id set:', composite);
   }
