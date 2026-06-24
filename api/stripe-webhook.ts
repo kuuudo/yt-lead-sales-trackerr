@@ -126,7 +126,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   // Look up redirect link via token → campaign_id (video_id is null for campaign-level tokens)
   const { data: link, error: linkError } = await supabase
     .from('redirect_links')
-    .select('video_id, campaign_id')
+    .select('video_id, campaign_id, organization_id')
     .eq('token', token)
     .single();
 
@@ -179,6 +179,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     campaign_id: link.campaign_id,
     user_id: resolvedUserId,
     session_id: resolvedSessionId,
+    organization_id: link.organization_id ?? null,
     amount: session.amount_total ? session.amount_total / 100 : null,
     currency: session.currency,
     customer_email: session.customer_details?.email ?? null,
