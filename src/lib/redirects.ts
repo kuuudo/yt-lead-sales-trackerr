@@ -27,6 +27,7 @@ export interface RedirectLink {
   link_type: RedirectLinkType;
   destination_url: string;
   created_at: string;
+  organization_id: string | null;
 }
 
 export const createRedirectLink = async (
@@ -63,12 +64,23 @@ console.log("CHECKOUT LINK BUILD:", {
   linkType,
   token
 });
+
+  // Resolve organization_id from campaigns at creation time.
+  // campaignId is always in scope here — one read, written once, inherited by all downstream.
+  const { data: campaignRow } = await supabase
+    .from('campaigns')
+    .select('organization_id')
+    .eq('id', campaignId)
+    .single();
+  const organizationId = campaignRow?.organization_id ?? null;
+
   const { error } = await supabase.from('redirect_links').insert({
     token,
     video_id: videoId,
     campaign_id: campaignId,
     link_type: linkType,
     destination_url: destinationUrl,
+    organization_id: organizationId,
     ...(leadMagnetId ? { lead_magnet_id: leadMagnetId } : {}),
   });
 

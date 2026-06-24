@@ -70,21 +70,39 @@ const generateToken = (): string =>
  *
  * Idempotent: safe to call on every page load or after every campaign save.
  *
- * @param campaignId   UUID of the campaign
- * @param linkType     Which link type to sync (e.g. 'checkout', 'consultation')
+ * @param campaignId      UUID of the campaign
+ * @param linkType        Which link type to sync (e.g. 'checkout', 'consultation')
  * @param destinationUrl  Current URL from campaigns table (checkout_url, etc.)
+ * @param organizationId  Optional — if caller already has it, skips the campaigns fetch
  * @returns SyncResult with stable token, or throws on unrecoverable error
  */
 export async function syncCampaignRedirectLink(
   campaignId: string,
   linkType: CampaignLinkType,
-  destinationUrl: string
+  destinationUrl: string,
+  organizationId?: string | null
 ): Promise<SyncResult> {
 
   console.log('ENGINE CALLED:', campaignId, linkType, destinationUrl);
   if (!campaignId) throw new Error('[campaignRedirectEngine] campaignId is required');
   if (!destinationUrl) throw new Error('[campaignRedirectEngine] destinationUrl is required');
   if (!linkType) throw new Error('[campaignRedirectEngine] linkType is required');
+
+  // ── Step 0: resolve organization_id if not supplied by caller ─────────────
+  // campaigns.organization_id is the authoritative source. Fetch once here so
+  // every redirect_links row is written with org attribution at creation time.
+  // This is a read on a row that already exists — no extra round-trip cost
+  // beyond what the caller has already paid to load the campaign.
+  let resolvedOrgId = organizationId ?? null;
+  if (!resolvedOrgId) {
+    const { data: campaignRow } = await supabase
+      .from('campaigns')
+      .select('organization_id')
+      .eq('id', campaignId)
+      .single();
+    resolvedOrgId = campaignRow?.organization_id ?? null;
+    console.log('[campaignRedirectEngine] resolved organization_id:', resolvedOrgId);
+  }
 
   // ── Step 1: look up existing campaign-level row ────────────────────────────
   // video_id IS NULL is the hard boundary between campaign-level and video-level rows.
@@ -114,6 +132,7 @@ export async function syncCampaignRedirectLink(
         link_type: linkType,
         destination_url: destinationUrl,
         video_id: null,             // explicitly campaign-level
+        organization_id: resolvedOrgId,
       });
 
     if (insertError) {
