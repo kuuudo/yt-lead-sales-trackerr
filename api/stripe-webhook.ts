@@ -110,23 +110,26 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
   const session = event.data.object as Stripe.Checkout.Session;
 
-  // Parse composite client_reference_id: "{token}:{session_id}"
-  // Falls back gracefully to legacy plain token format.
+  // Parse composite client_reference_id: "{token}__{session_id}__{video_id}"
+  // Falls back gracefully to legacy token__session_id or plain token formats.
+  // video_id segment may be empty string for direct/cold traffic — treated as null.
   const rawRef = session.client_reference_id ?? '';
-  const isComposite = rawRef.includes('__');
-  const token = isComposite ? rawRef.split('__')[0] : rawRef;
-  const resolvedSessionId: string | null = isComposite ? rawRef.split('__').slice(1).join('__') : null;
+  const parts = rawRef.split('__');
+  const token = parts[0] || null;
+  const resolvedSessionId: string | null = parts[1] || null;
+  const resolvedVideoId: string | null = parts[2] || null;
+
   if (!token) {
     console.log('[stripe-webhook] No client_reference_id — skipping');
     return res.status(200).json({ received: true });
   }
 
-  console.log('[stripe-webhook] parsed ref — token:', token, '| session_id:', resolvedSessionId);
+  console.log('[stripe-webhook] parsed ref — token:', token, '| session_id:', resolvedSessionId, '| video_id:', resolvedVideoId);
 
-  // Look up redirect link via token → campaign_id (video_id is null for campaign-level tokens)
+  // Look up redirect link via token → campaign_id
   const { data: link, error: linkError } = await supabase
     .from('redirect_links')
-    .select('video_id, campaign_id, organization_id')
+    .select('video_id, campaign_id')
     .eq('token', token)
     .single();
 
@@ -135,19 +138,8 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     return res.status(200).json({ received: true });
   }
 
-  // Resolve video_id from events via session_id (campaign-level tokens have video_id = null)
-  let resolvedVideoId: string | null = link.video_id ?? null;
-  if (!resolvedVideoId && resolvedSessionId) {
-    const { data: eventRow } = await supabase
-      .from('events')
-      .select('video_id')
-      .eq('session_id', resolvedSessionId)
-      .eq('campaign_id', link.campaign_id)
-      .limit(1)
-      .single();
-    resolvedVideoId = eventRow?.video_id ?? link.video_id ?? null;
-    console.log('[stripe-webhook] video_id resolved from events:', resolvedVideoId);
-  }
+  // video_id comes directly from composite — no events table lookup.
+  // NULL is honest for direct/cold traffic. Wrong video from events is not acceptable.
 
   // Re-resolve user_id from the verified token (pre-verification lookup may have been skipped)
   if (!resolvedUserId) {
@@ -179,7 +171,6 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     campaign_id: link.campaign_id,
     user_id: resolvedUserId,
     session_id: resolvedSessionId,
-    organization_id: link.organization_id ?? null,
     amount: session.amount_total ? session.amount_total / 100 : null,
     currency: session.currency,
     customer_email: session.customer_details?.email ?? null,

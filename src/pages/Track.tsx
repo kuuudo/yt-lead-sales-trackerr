@@ -138,11 +138,12 @@ try {
   }
 
   // ── Composite client_reference_id for deterministic Stripe attribution ──
-  // Format: "{token}:{session_id}"
-  // Webhook splits on ':' to recover both campaign token and unique session.
+  // Format: "{token}__{session_id}__{video_id}"
+  // video_id segment is empty string when not available (direct/cold traffic) — never "undefined".
+  // Webhook splits on '__' to recover all three values without any events table lookup.
   // Only applied to Stripe Payment Links — other destinations are unaffected.
   if (finalSessionId && link.destination_url?.includes('buy.stripe.com')) {
-    const composite = `${token}__${finalSessionId}`;
+    const composite = `${token}__${finalSessionId}__${finalVideoId ?? ''}`;
     url.searchParams.set('client_reference_id', composite);
     console.log('[Track] ⑨ composite client_reference_id set:', composite);
   }
