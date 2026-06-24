@@ -122,6 +122,7 @@ export const logRedirectEvent = async (link: RedirectLink) => {
     campaign_id: link.campaign_id,
     event_type: link.link_type,
     value: null,
+    organization_id: link.organization_id ?? null,
   });
 };
 

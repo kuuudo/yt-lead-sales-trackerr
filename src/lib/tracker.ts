@@ -131,7 +131,7 @@ export const syncSession = async () => {
 export const trackEvent = async (
   eventType: string,
   value: number | null = null,
-  meta?: { video_id?: string; campaign_id?: string }
+  meta?: { video_id?: string; campaign_id?: string; organization_id?: string }
 ) => {
   const sessionId = getSessionId();
   if (!sessionId) return;
@@ -148,6 +148,7 @@ export const trackEvent = async (
     value,
     ...(videoId ? { video_id: videoId } : {}),
     ...(campaignId ? { campaign_id: campaignId } : {}),
+    organization_id: meta?.organization_id ?? null,
   };
 
   console.debug('[tracker] trackEvent', payload);
