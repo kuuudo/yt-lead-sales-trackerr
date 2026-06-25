@@ -208,6 +208,7 @@ export const useWorkspaceStore = create<WorkspaceStore>((set, get) => ({
       ...row,
       background_color: row.background_color ?? DEFAULT_BG_COLOR,
     })) as Board[]
+    console.log('[loadBoards] boards from db', boards)
 
     // ✅ FIX: Do NOT auto-create a board when the user has none.
     // The user will create boards manually from /workspace/hub.
