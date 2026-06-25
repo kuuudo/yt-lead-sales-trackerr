@@ -608,7 +608,7 @@ async function applyForward(entry: HistoryEntry, store: WorkspaceStore): Promise
 }
 
 // ─── Row ↔ Widget Mappers ─────────────────────────────────────────────────────
-
+// same
 function rowToWidget(row: SupabaseWidget): Widget {
   return {
     id: row.id,
