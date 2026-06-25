@@ -1,9 +1,12 @@
 import { supabase } from './supabase';
 
-const SESSION_KEY      = 'yt_tracker_session_id';
-const UTM_KEY          = 'yt_tracker_utm_params';
-const VIDEO_ID_KEY     = 'yt_tracker_video_id';
-const CAMPAIGN_ID_KEY  = 'yt_tracker_campaign_id';
+const SESSION_KEY           = 'yt_tracker_session_id';
+const UTM_KEY               = 'yt_tracker_utm_params';
+const VIDEO_ID_KEY          = 'yt_tracker_video_id';
+const CAMPAIGN_ID_KEY       = 'yt_tracker_campaign_id';
+// First-touch keys: written once, never overwritten, survive the full browser session.
+const FT_VIDEO_ID_KEY       = 'yt_tracker_ft_video_id';
+const FT_CAMPAIGN_ID_KEY    = 'yt_tracker_ft_campaign_id';
 
 export const VTRACK_BASE_URL  = 'https://www.vstrk.com';
 export const PIXEL_ENDPOINT   = `${VTRACK_BASE_URL}/api/pixel`;
@@ -19,6 +22,10 @@ export const getSessionId = (): string => {
 
   return sessionId;
 };
+
+/** Returns existing session_id WITHOUT creating one. Used by syncSession to distinguish new vs returning. */
+const getExistingSessionId = (): string | null =>
+  localStorage.getItem(SESSION_KEY);
 
 export const getUtmParams = () => {
   const urlParams = new URLSearchParams(window.location.search);
@@ -41,12 +48,36 @@ export const getUtmParams = () => {
   return stored ? JSON.parse(stored) : utms;
 };
 
-/** Store attribution globally */
+/**
+ * Store attribution globally.
+ *
+ * Current keys (VIDEO_ID_KEY / CAMPAIGN_ID_KEY) are always updated —
+ * they reflect whatever campaign the user is currently interacting with.
+ *
+ * First-touch keys (FT_*) are written exactly once per browser and never
+ * overwritten. They are what you should use for revenue attribution so that
+ * a checkout redirect link can't silently replace the original landing campaign.
+ */
 export const setAttribution = (videoId: string, campaignId: string) => {
+  // Always update current attribution
   localStorage.setItem(VIDEO_ID_KEY, videoId);
   localStorage.setItem(CAMPAIGN_ID_KEY, campaignId);
 
-  console.debug('[tracker] setAttribution', { videoId, campaignId });
+  // Only write first-touch if not already set
+  if (!localStorage.getItem(FT_VIDEO_ID_KEY)) {
+    localStorage.setItem(FT_VIDEO_ID_KEY, videoId);
+  }
+  if (!localStorage.getItem(FT_CAMPAIGN_ID_KEY)) {
+    localStorage.setItem(FT_CAMPAIGN_ID_KEY, campaignId);
+  }
+
+  console.debug('[tracker] setAttribution', {
+    current: { videoId, campaignId },
+    firstTouch: {
+      videoId: localStorage.getItem(FT_VIDEO_ID_KEY),
+      campaignId: localStorage.getItem(FT_CAMPAIGN_ID_KEY),
+    },
+  });
 };
 
 export const getVideoId = (): string | null =>
@@ -55,13 +86,26 @@ export const getVideoId = (): string | null =>
 export const getCampaignId = (): string | null =>
   localStorage.getItem(CAMPAIGN_ID_KEY);
 
+/** First-touch video — set on first landing, never overwritten. Use this for revenue attribution. */
+export const getFirstTouchVideoId = (): string | null =>
+  localStorage.getItem(FT_VIDEO_ID_KEY) ?? localStorage.getItem(VIDEO_ID_KEY);
+
+/** First-touch campaign — set on first landing, never overwritten. Use this for revenue attribution. */
+export const getFirstTouchCampaignId = (): string | null =>
+  localStorage.getItem(FT_CAMPAIGN_ID_KEY) ?? localStorage.getItem(CAMPAIGN_ID_KEY);
+
 /**
  * SESSION SYNC
- * - creates session if missing
- * - patches attribution if session already exists
+ * - creates session row in DB if this is the first visit (no session_id in localStorage yet)
+ * - patches attribution on the existing session row if attribution keys are now available
+ *
+ * IMPORTANT: uses getExistingSessionId() (not getSessionId()) so we can distinguish
+ * "session already existed in localStorage" from "no session yet". Previously this used
+ * getSessionId() which auto-creates a UUID, making existingSessionId always truthy and
+ * meaning the INSERT branch could never run.
  */
 export const syncSession = async () => {
-  const existingSessionId = getSessionId();
+  const existingSessionId = getExistingSessionId(); // null if first visit
   const videoId = getVideoId();
   const campaignId = getCampaignId();
 
@@ -78,7 +122,7 @@ export const syncSession = async () => {
         .from('sessions')
         .update(patch)
         .eq('id', existingSessionId)
-        .is('video_id', null);
+        .is('video_id', null);   // only patch if not already attributed
 
       if (error) {
         console.warn('[tracker] syncSession patch failed:', error.message);

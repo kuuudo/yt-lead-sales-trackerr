@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { useParams } from 'react-router-dom';
 import { resolveRedirectToken, logRedirectEvent, buildRedirectUrl } from '../lib/redirects';
-import { setAttribution, syncSession } from '../lib/tracker';
+import { setAttribution, syncSession, getFirstTouchVideoId, getFirstTouchCampaignId } from '../lib/tracker';
 import { supabase } from '../lib/supabase';
 import { Loader2, AlertCircle } from 'lucide-react';
 
@@ -106,8 +106,11 @@ export default function Track() {
 
         // ── Step 6: sanity-check all three keys before redirecting ───────────
         const finalSessionId  = localStorage.getItem('yt_tracker_session_id');
-        const finalVideoId    = localStorage.getItem('yt_tracker_video_id');
-        const finalCampaignId = localStorage.getItem('yt_tracker_campaign_id');
+        // Use first-touch video/campaign for Stripe attribution so that clicking a
+        // checkout redirect link (which calls setAttribution again) does not silently
+        // replace the original landing campaign in client_reference_id.
+        const finalVideoId    = getFirstTouchVideoId();
+        const finalCampaignId = getFirstTouchCampaignId();
 
         if (!finalSessionId || !finalVideoId || !finalCampaignId) {
           console.warn('[Track] ⚠ one or more localStorage keys missing before redirect:',
