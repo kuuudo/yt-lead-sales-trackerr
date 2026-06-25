@@ -302,7 +302,10 @@ export const useWorkspaceStore = create<WorkspaceStore>((set, get) => ({
       widgetsByBoard: { ...s.widgetsByBoard, [optimisticId]: [] },
       activeBoardId: optimisticId,
     }))
-
+console.log('[createBoard] org check:', {
+  boards: get().boards,
+  firstBoardOrgId: get().boards[0]?.organization_id,
+})
     const organization_id = get().boards[0]?.organization_id ?? null
     const { data, error } = await supabase
       .from('boards')
@@ -460,6 +463,11 @@ export const useWorkspaceStore = create<WorkspaceStore>((set, get) => ({
       ...widgetToRow(widget),
       organization_id: board?.organization_id ?? null,
     }
+    console.log('[addWidget] org check:', {
+  board,
+  boardOrgId: board?.organization_id,
+  payload,
+})
     console.log('INSERT PAYLOAD', payload)
 
     const { error } = await supabase.from('widgets').insert(payload)
