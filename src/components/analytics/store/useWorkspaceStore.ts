@@ -38,6 +38,7 @@ export interface Widget {
 export interface Board {
   id: string
   user_id: string
+  organization_id: string | null
   name: string
   background_color: string
   created_at: string
@@ -302,9 +303,10 @@ export const useWorkspaceStore = create<WorkspaceStore>((set, get) => ({
       activeBoardId: optimisticId,
     }))
 
+    const organization_id = get().boards[0]?.organization_id ?? null
     const { data, error } = await supabase
       .from('boards')
-      .insert({ name, user_id: userId, background_color: DEFAULT_BG_COLOR })
+      .insert({ name, user_id: userId, background_color: DEFAULT_BG_COLOR, organization_id })
       .select()
       .single()
 
@@ -453,7 +455,11 @@ export const useWorkspaceStore = create<WorkspaceStore>((set, get) => ({
     console.log('widget.user_id =', widget.user_id)
     console.log('===================')
 
-    const payload = widgetToRow(widget)
+    const board = get().boards.find((b) => b.id === widget.board_id)
+    const payload = {
+      ...widgetToRow(widget),
+      organization_id: board?.organization_id ?? null,
+    }
     console.log('INSERT PAYLOAD', payload)
 
     const { error } = await supabase.from('widgets').insert(payload)
@@ -480,7 +486,7 @@ export const useWorkspaceStore = create<WorkspaceStore>((set, get) => ({
         const current = allWidgets.find((w) => w.id === id)
         if (!current) return patch
         return Object.fromEntries(
-          Object.keys(patch).map((k) => [k, (current as Record<string, unknown>)[k]])
+          Object.keys(patch).map((k) => [k, (current as unknown as Record<string, unknown>)[k]])
         ) as Partial<Widget>
       })()
 
@@ -493,7 +499,7 @@ export const useWorkspaceStore = create<WorkspaceStore>((set, get) => ({
           const current = allWidgets.find((w) => w.id === id)
           if (!current) return
           const after = Object.fromEntries(
-            Object.keys(before).map((k) => [k, (current as Record<string, unknown>)[k]])
+            Object.keys(before).map((k) => [k, (current as unknown as Record<string, unknown>)[k]])
           ) as Partial<Widget>
           get()._recordHistory({ type: 'UPDATE_WIDGET', id, before, after })
         }, HISTORY_DEBOUNCE_MS),
