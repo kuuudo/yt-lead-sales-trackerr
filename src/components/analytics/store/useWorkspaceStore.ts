@@ -290,13 +290,26 @@ export const useWorkspaceStore = create<WorkspaceStore>((set, get) => ({
    * ✅ Returns the created Board so callers can redirect to /workspace/:id.
    * ✅ NEVER called automatically — only from explicit user action.
    */
+
+
+  
   createBoard: async (name, userId) => {
+
+    const { data: org } = await supabase
+  .from('organizations')
+  .select('id')
+  .eq('owner_id', userId)
+  .single()
+
+const organization_id = org?.id ?? null
+
     const now = new Date().toISOString()
     const optimisticId = crypto.randomUUID()
 
     const newBoard: Board = {
       id: optimisticId,
       user_id: userId,
+      organization_id,
       name,
       background_color: DEFAULT_BG_COLOR,
       created_at: now,
@@ -310,10 +323,10 @@ export const useWorkspaceStore = create<WorkspaceStore>((set, get) => ({
       activeBoardId: optimisticId,
     }))
 console.log('[createBoard] org check:', {
-  boards: get().boards,
-  firstBoardOrgId: get().boards[0]?.organization_id,
+  organization_id,
+  boardsLength: get().boards.length,
 })
-    const organization_id = get().boards[0]?.organization_id ?? null
+
     const { data, error } = await supabase
       .from('boards')
       .insert({ name, user_id: userId, background_color: DEFAULT_BG_COLOR, organization_id })
