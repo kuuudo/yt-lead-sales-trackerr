@@ -483,10 +483,9 @@ console.log('[createBoard] org check:', {
       ...widgetToRow(widget),
       organization_id: board?.organization_id ?? null,
     }
-    console.log('[addWidget] org check:', {
-  board,
-  boardOrgId: board?.organization_id,
-  payload,
+    console.log('[FINAL WIDGET CHECK]', {
+  boardOrg: board?.organization_id,
+  payloadOrg: payload.organization_id,
 })
     console.log('INSERT PAYLOAD', payload)
 
