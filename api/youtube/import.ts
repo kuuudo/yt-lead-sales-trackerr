@@ -65,12 +65,19 @@ export default async function handler(
   }
 
   // ── Auth ──────────────────────────────────────────────────────────────────
+  console.log("STEP 2 - file received (before auth)");
+  
   const userId = await getUserFromRequest(req);
+
+  console.log("STEP 3 - after auth check");
+
   if (!userId) {
     return res.status(401).json({ error: 'Unauthorized' });
   }
 
   // ── Parse multipart form ──────────────────────────────────────────────────
+  console.log("STEP 4 - before form parse");
+  
   const form = formidable({ maxFileSize: 50 * 1024 * 1024 }); // 50MB max
 
   let csvText: string;
@@ -78,6 +85,9 @@ export default async function handler(
 
   try {
     const [, files] = await form.parse(req);
+
+    console.log("STEP 5 - form parsed");
+
     const uploaded = files['file'];
     const file = Array.isArray(uploaded) ? uploaded[0] : uploaded;
 
@@ -85,11 +95,15 @@ export default async function handler(
       return res.status(400).json({ error: 'No file uploaded. Send a CSV as form-data field "file".' });
     }
 
+    console.log("STEP 6 - file extracted");
+    
     fileName = file.originalFilename ?? file.newFilename ?? 'upload.csv';
     csvText = fs.readFileSync(file.filepath, 'utf-8');
 
     // Clean up tmp file
     fs.unlinkSync(file.filepath);
+
+    console.log("STEP 7 - file read complete");
 
   } catch (parseErr: any) {
     console.error('[api/youtube/import] Form parse error:', parseErr);
@@ -97,11 +111,15 @@ export default async function handler(
   }
 
   // ── Validate file is plausibly a CSV ─────────────────────────────────────
+  console.log("STEP 8 - before CSV validation");
   if (!fileName.endsWith('.csv') && !csvText.includes(',')) {
     return res.status(400).json({ error: 'File does not appear to be a CSV.' });
   }
 
   // ── Delegate to service ───────────────────────────────────────────────────
+  
+  console.log("STEP 9 - before runImport");
+
   try {
     console.log("STEP 2 - before runImport");
     const result = await runImport(csvText, fileName, userId);
@@ -114,9 +132,12 @@ export default async function handler(
       `errors: ${result.errors.length}`
     );
 
+    console.log("STEP 10 - after runImport SUCCESS");
+
     return res.status(200).json(result);
 
   } catch (svcErr: any) {
+    console.log("STEP CRASH - runImport failed");
     console.error('[api/youtube/import] Service error:', svcErr);
     return res.status(500).json({ error: svcErr.message ?? 'Import failed' });
   }

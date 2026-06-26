@@ -581,6 +581,7 @@ export async function runImport(
   fileName: string,
   uploadedBy: string
 ): Promise<ImportResult> {
+  console.log("STEP A - service started");
   const errors: string[] = [];
   let insertedRaw = 0;
   let skippedDuplicates = 0;
@@ -591,6 +592,8 @@ export async function runImport(
   let rows: ParsedCSVRow[];
   try {
     rows = parseYouTubeCSV(csvText);
+    console.log("STEP B - after CSV parse");
+    console.log("rows count =", rows.length);
   } catch (e: any) {
     throw new Error(`[youtubeImportService] CSV parse failed: ${e.message}`);
   }
@@ -598,7 +601,7 @@ export async function runImport(
   if (rows.length === 0) {
     throw new Error('[youtubeImportService] No valid rows found in CSV. Check column headers and date format.');
   }
-  console.log("STEP 2 - before batch insert");
+  console.log("STEP C - before insert import_batches");
   // ── Step 2: Create import_batches record ─────────────────────────────────
   const { data: batch, error: batchError } = await supabase
   .from('import_batches')
@@ -610,8 +613,9 @@ export async function runImport(
   })
   .select('id')
   .single();
-
-console.log("BATCH ERROR:", batchError);
+console.log("STEP D - after insert import_batches");
+console.log("batch =", batch);
+console.log("batchError =", batchError);
 console.log("BATCH DATA:", batch);
 
   if (batchError || !batch) {
@@ -623,14 +627,19 @@ console.log("BATCH DATA:", batch);
   // ── Step 3: Load internal videos for matching ────────────────────────────
   let internalVideos: InternalVideo[];
   try {
+    console.log("STEP E - before load internal videos");
     internalVideos = await loadInternalVideos();
+    console.log("STEP F - after load internal videos");
+    console.log("internalVideos count =", internalVideos.length);
   } catch (e: any) {
     errors.push(`Failed to load internal videos: ${e.message}`);
     internalVideos = []; // continue — all rows will be unmapped
   }
 
   // ── Step 4: Process each row ─────────────────────────────────────────────
+  console.log("STEP G - start processing rows loop");
   for (const row of rows) {
+    console.log("STEP H - processing row:", row.video_title);
     try {
       const normalizedTitle = normalizeTitle(row.video_title);
       const dedupKey = buildDedupKey(PLATFORM, row.youtube_video_id, normalizedTitle, row.date);
