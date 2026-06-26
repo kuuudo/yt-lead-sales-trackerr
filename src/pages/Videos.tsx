@@ -3,6 +3,7 @@ import { Link } from 'react-router-dom';
 import { useLanguage } from '../lib/hooks';
 import { supabase, Video, Campaign, LeadMagnet } from '../lib/supabase';
 import { useAuth } from '../lib/auth';
+import { Link } from 'react-router-dom';
 import { Youtube, Plus, Link2, Copy, Check, ExternalLink, Calendar, Target, AlertCircle, Loader2, BarChart3, ChevronDown, X, Edit2, Trash2,
   Music2, Camera, Linkedin, Twitter, AtSign, LayoutGrid, List,
   // Phase 2.5 additions
@@ -274,6 +275,21 @@ function YouTubeImportPanel({ onClose }: { onClose: () => void }) {
                 New Upload
               </button>
             )}
+            {/* 👇 ADD THIS */}
+            <Link
+              to="/unmapped-videos"
+              className="text-[10px] font-bold uppercase tracking-widest text-zinc-500 hover:text-zinc-300 transition-colors"
+            >
+              View Unmapped
+            </Link>
+
+            <button
+              onClick={onClose}
+              className="text-zinc-500 hover:text-zinc-300 transition-colors"
+            >
+              <X size={18} />
+            </button>
+           
             <button
               onClick={onClose}
               className="text-zinc-500 hover:text-zinc-300 transition-colors"
