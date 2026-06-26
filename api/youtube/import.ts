@@ -52,6 +52,8 @@ export default async function handler(
   req: VercelRequest,
   res: VercelResponse
 ) {
+
+  console.log("STEP 1 - request received");
   // CORS
   res.setHeader('Access-Control-Allow-Origin', '*');
   res.setHeader('Access-Control-Allow-Methods', 'POST, OPTIONS');
@@ -101,6 +103,7 @@ export default async function handler(
 
   // ── Delegate to service ───────────────────────────────────────────────────
   try {
+    console.log("STEP 2 - before runImport");
     const result = await runImport(csvText, fileName, userId);
 
     console.log(
