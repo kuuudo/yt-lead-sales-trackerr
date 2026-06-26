@@ -1,10 +1,13 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { Link } from 'react-router-dom';
 import { useLanguage } from '../lib/hooks';
 import { supabase, Video, Campaign, LeadMagnet } from '../lib/supabase';
 import { useAuth } from '../lib/auth';
 import { Youtube, Plus, Link2, Copy, Check, ExternalLink, Calendar, Target, AlertCircle, Loader2, BarChart3, ChevronDown, X, Edit2, Trash2,
-  Music2, Camera, Linkedin, Twitter, AtSign, LayoutGrid, List } from 'lucide-react';
+  Music2, Camera, Linkedin, Twitter, AtSign, LayoutGrid, List,
+  // Phase 2.5 additions
+  Upload, FileText, CheckCircle2, AlertTriangle, ArrowRight, RefreshCw,
+} from 'lucide-react';
 import {
   type Platform,
   PLATFORM_CONFIG,
@@ -135,6 +138,326 @@ function MultiSelectDropdown({ label, options, selected, onChange, placeholder }
   );
 }
 
+// ---------------------------------------------------------------------------
+// Phase 2.5 Types
+// ---------------------------------------------------------------------------
+
+type ImportStatus = 'idle' | 'uploading' | 'success' | 'error';
+
+interface ImportResult {
+  batchId: string;
+  totalRows: number;
+  insertedRaw: number;
+  skippedDuplicates: number;
+  matched: number;
+  unmapped: number;
+  errors: string[];
+}
+
+// ---------------------------------------------------------------------------
+// Phase 2.5: CSV Import Panel Component
+// Fully isolated — does not touch any existing Videos state
+// ---------------------------------------------------------------------------
+
+function YouTubeImportPanel({ onClose }: { onClose: () => void }) {
+  const { user } = useAuth();
+  const [status, setStatus] = useState<ImportStatus>('idle');
+  const [result, setResult] = useState<ImportResult | null>(null);
+  const [errorMessage, setErrorMessage] = useState<string>('');
+  const [isDragging, setIsDragging] = useState(false);
+  const [selectedFile, setSelectedFile] = useState<File | null>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
+  const handleFile = useCallback((file: File) => {
+    if (!file.name.endsWith('.csv')) {
+      setErrorMessage('Only .csv files are supported. Export from YouTube Studio → Analytics → Advanced Mode → Export.');
+      setStatus('error');
+      return;
+    }
+    setSelectedFile(file);
+    setStatus('idle');
+    setResult(null);
+    setErrorMessage('');
+  }, []);
+
+  const handleDrop = useCallback((e: React.DragEvent<HTMLDivElement>) => {
+    e.preventDefault();
+    setIsDragging(false);
+    const file = e.dataTransfer.files[0];
+    if (file) handleFile(file);
+  }, [handleFile]);
+
+  const handleDragOver = useCallback((e: React.DragEvent<HTMLDivElement>) => {
+    e.preventDefault();
+    setIsDragging(true);
+  }, []);
+
+  const handleDragLeave = useCallback(() => {
+    setIsDragging(false);
+  }, []);
+
+  const handleFileInputChange = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (file) handleFile(file);
+    e.target.value = '';
+  }, [handleFile]);
+
+  const handleUpload = async () => {
+    if (!selectedFile || !user) return;
+
+    setStatus('uploading');
+    setResult(null);
+    setErrorMessage('');
+
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session?.access_token) {
+        throw new Error('Not authenticated. Please refresh and try again.');
+      }
+
+      const formData = new FormData();
+      formData.append('file', selectedFile);
+
+      const response = await fetch('/api/youtube/import', {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${session.access_token}`,
+        },
+        body: formData,
+      });
+
+      const data = await response.json();
+
+      if (!response.ok) {
+        throw new Error(data.error ?? `Server error: ${response.status}`);
+      }
+
+      setResult(data as ImportResult);
+      setStatus('success');
+      setSelectedFile(null);
+
+    } catch (err: any) {
+      console.error('[YouTubeImportPanel] Upload failed:', err);
+      setErrorMessage(err.message ?? 'Upload failed. Please try again.');
+      setStatus('error');
+    }
+  };
+
+  const reset = () => {
+    setStatus('idle');
+    setResult(null);
+    setErrorMessage('');
+    setSelectedFile(null);
+  };
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-zinc-950/90 backdrop-blur-sm">
+      <div className="w-full max-w-lg mx-4 bg-zinc-900 border border-zinc-800 rounded-2xl p-6 space-y-5 shadow-2xl">
+        {/* Header */}
+        <div className="flex items-center justify-between">
+          <div>
+            <h2 className="text-white font-black uppercase tracking-tight text-sm flex items-center gap-2">
+              <BarChart3 size={16} className="text-red-500" />
+              Import YouTube Analytics
+            </h2>
+            <p className="text-zinc-500 text-[10px] uppercase tracking-widest font-bold mt-1">
+              YouTube Studio → Analytics → Advanced Mode → Export
+            </p>
+          </div>
+          <div className="flex items-center gap-3">
+            {(status === 'success' || status === 'error') && (
+              <button
+                onClick={reset}
+                className="flex items-center gap-1.5 text-zinc-500 hover:text-zinc-300 text-[10px] font-bold uppercase tracking-widest transition-colors"
+              >
+                <RefreshCw size={12} />
+                New Upload
+              </button>
+            )}
+            <button
+              onClick={onClose}
+              className="text-zinc-500 hover:text-zinc-300 transition-colors"
+            >
+              <X size={18} />
+            </button>
+          </div>
+        </div>
+
+        {/* Result Panel */}
+        <AnimatePresence>
+          {status === 'success' && result && (
+            <motion.div
+              initial={{ opacity: 0, y: -8 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0 }}
+              className="bg-zinc-950 border border-zinc-800 rounded-xl p-4 space-y-4"
+            >
+              <div className="flex items-center gap-2">
+                <CheckCircle2 size={16} className="text-green-500 shrink-0" />
+                <span className="text-green-400 text-[11px] font-black uppercase tracking-widest">
+                  Import Complete
+                </span>
+              </div>
+
+              {/* Stats Grid */}
+              <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+                {[
+                  { label: 'Total Rows',    value: result.totalRows,         color: 'text-zinc-300' },
+                  { label: 'Stored Raw',    value: result.insertedRaw,       color: 'text-blue-400' },
+                  { label: 'Matched',       value: result.matched,           color: 'text-green-400' },
+                  { label: 'Dedup Skipped', value: result.skippedDuplicates, color: 'text-zinc-500' },
+                ].map(({ label, value, color }) => (
+                  <div key={label} className="bg-zinc-900 rounded-xl p-3 text-center">
+                    <p className={`text-lg font-black ${color}`}>{value}</p>
+                    <p className="text-zinc-600 text-[9px] uppercase tracking-widest font-bold mt-0.5">{label}</p>
+                  </div>
+                ))}
+              </div>
+
+              {/* Unmapped CTA */}
+              {result.unmapped > 0 && (
+                <div className="flex items-center justify-between bg-amber-950/30 border border-amber-900/50 rounded-xl p-3">
+                  <div className="flex items-center gap-2">
+                    <AlertTriangle size={14} className="text-amber-500 shrink-0" />
+                    <span className="text-amber-400 text-[10px] font-black uppercase tracking-widest">
+                      {result.unmapped} video{result.unmapped !== 1 ? 's' : ''} need mapping
+                    </span>
+                  </div>
+                  <Link
+                    to="/unmapped-videos"
+                    className="flex items-center gap-1.5 text-amber-400 hover:text-amber-300 text-[10px] font-black uppercase tracking-widest transition-colors"
+                  >
+                    Resolve <ArrowRight size={12} />
+                  </Link>
+                </div>
+              )}
+
+              {/* Import errors (non-fatal) */}
+              {result.errors.length > 0 && (
+                <details className="group">
+                  <summary className="cursor-pointer text-[10px] font-bold uppercase tracking-widest text-zinc-500 hover:text-zinc-300 transition-colors">
+                    {result.errors.length} row-level error{result.errors.length !== 1 ? 's' : ''} (non-fatal)
+                  </summary>
+                  <ul className="mt-2 space-y-1 max-h-32 overflow-y-auto custom-scrollbar">
+                    {result.errors.map((e, i) => (
+                      <li key={i} className="text-[10px] text-red-400 font-mono bg-red-950/20 rounded px-2 py-1">
+                        {e}
+                      </li>
+                    ))}
+                  </ul>
+                </details>
+              )}
+
+              <p className="text-zinc-600 text-[9px] font-mono">
+                Batch ID: {result.batchId}
+              </p>
+            </motion.div>
+          )}
+
+          {status === 'error' && (
+            <motion.div
+              initial={{ opacity: 0, y: -8 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0 }}
+              className="flex items-start gap-3 bg-red-950/30 border border-red-900/50 rounded-xl p-4"
+            >
+              <AlertCircle size={16} className="text-red-500 shrink-0 mt-0.5" />
+              <div>
+                <p className="text-red-400 text-[11px] font-black uppercase tracking-widest mb-1">
+                  Import Failed
+                </p>
+                <p className="text-red-300/70 text-[10px] font-mono">{errorMessage}</p>
+              </div>
+            </motion.div>
+          )}
+        </AnimatePresence>
+
+        {/* Drop Zone — only shown when not in success/uploading state */}
+        {status !== 'success' && (
+          <div
+            onDrop={handleDrop}
+            onDragOver={handleDragOver}
+            onDragLeave={handleDragLeave}
+            onClick={() => fileInputRef.current?.click()}
+            className={`
+              relative border-2 border-dashed rounded-xl p-8 text-center cursor-pointer transition-all
+              ${isDragging
+                ? 'border-red-500 bg-red-950/20'
+                : selectedFile
+                  ? 'border-blue-700 bg-blue-950/10'
+                  : 'border-zinc-800 bg-zinc-950/30 hover:border-zinc-600 hover:bg-zinc-900/30'
+              }
+            `}
+          >
+            <input
+              ref={fileInputRef}
+              type="file"
+              accept=".csv"
+              className="hidden"
+              onChange={handleFileInputChange}
+            />
+
+            {selectedFile ? (
+              <div className="space-y-2">
+                <FileText size={24} className="text-blue-400 mx-auto" />
+                <p className="text-blue-300 text-sm font-black">{selectedFile.name}</p>
+                <p className="text-zinc-500 text-[10px] font-bold uppercase tracking-widest">
+                  {(selectedFile.size / 1024).toFixed(1)} KB — Ready to upload
+                </p>
+              </div>
+            ) : (
+              <div className="space-y-2">
+                <Upload
+                  size={24}
+                  className={`mx-auto transition-colors ${isDragging ? 'text-red-500' : 'text-zinc-600'}`}
+                />
+                <p className="text-zinc-400 text-[11px] font-black uppercase tracking-widest">
+                  {isDragging ? 'Drop CSV here' : 'Drag & drop CSV or click to browse'}
+                </p>
+                <p className="text-zinc-600 text-[10px] font-bold">
+                  YouTube Studio export (.csv only)
+                </p>
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* Upload Button */}
+        {selectedFile && status !== 'uploading' && status !== 'success' && (
+          <button
+            onClick={handleUpload}
+            className="w-full h-11 bg-red-600 hover:bg-red-500 text-white rounded-xl text-[10px] font-black uppercase tracking-widest transition-all flex items-center justify-center gap-2 shadow-lg shadow-red-900/30"
+          >
+            <Upload size={14} />
+            Upload & Import
+          </button>
+        )}
+
+        {/* Uploading state */}
+        {status === 'uploading' && (
+          <div className="flex items-center justify-center gap-3 py-4">
+            <Loader2 size={18} className="text-red-500 animate-spin" />
+            <span className="text-zinc-400 text-[10px] font-black uppercase tracking-widest">
+              Processing CSV…
+            </span>
+          </div>
+        )}
+
+        {/* How-to hint */}
+        {status === 'idle' && !selectedFile && (
+          <p className="text-zinc-700 text-[9px] font-bold uppercase tracking-widest text-center">
+            YouTube Studio → Analytics → Advanced Mode → Export current view (.csv)
+          </p>
+        )}
+      </div>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// End Phase 2.5
+// ---------------------------------------------------------------------------
+
 export default function Videos() {
   const { t } = useLanguage();
   const { user } = useAuth();
@@ -143,6 +466,7 @@ export default function Videos() {
   const [campaigns, setCampaigns] = useState<Campaign[]>([]);
   const [allLeadMagnets, setAllLeadMagnets] = useState<LeadMagnet[]>([]);
   const [showAdd, setShowAdd] = useState(false);
+  const [showImportWizard, setShowImportWizard] = useState(false);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [copied, setCopied] = useState<string | null>(null);
@@ -568,26 +892,35 @@ export default function Videos() {
           </h1>
           <p className="text-zinc-500 text-[10px] uppercase tracking-widest mt-1">Manage your tracked content</p>
         </div>
-        <button 
-          onClick={() => {
-            if (showAdd) {
-              setEditingVideoId(null);
-              setGenerated(null);
-              setFormData({
-                url: '',
-                platform: 'youtube' as Platform,
-                campaign_id: campaigns[0]?.id || '',
-                objectives: ['sales'],
-                hasLeadMagnet: false,
-                selectedLeadMagnets: []
-              });
-            }
-            setShowAdd(!showAdd);
-          }} 
-          className="flex items-center gap-2 bg-white hover:bg-zinc-200 text-zinc-950 px-5 py-2.5 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all"
-        >
-          {showAdd ? 'Cancel' : <><Plus size={16} /> {t.videos.add}</>}
-        </button>
+        <div className="flex items-center gap-3">
+          <button
+            onClick={() => setShowImportWizard(true)}
+            className="flex items-center gap-2 border border-zinc-700 hover:border-zinc-500 text-zinc-400 hover:text-zinc-200 px-4 py-2.5 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all"
+          >
+            <Upload size={14} />
+            Import YouTube Analytics
+          </button>
+          <button 
+            onClick={() => {
+              if (showAdd) {
+                setEditingVideoId(null);
+                setGenerated(null);
+                setFormData({
+                  url: '',
+                  platform: 'youtube' as Platform,
+                  campaign_id: campaigns[0]?.id || '',
+                  objectives: ['sales'],
+                  hasLeadMagnet: false,
+                  selectedLeadMagnets: []
+                });
+              }
+              setShowAdd(!showAdd);
+            }} 
+            className="flex items-center gap-2 bg-white hover:bg-zinc-200 text-zinc-950 px-5 py-2.5 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all"
+          >
+            {showAdd ? 'Cancel' : <><Plus size={16} /> {t.videos.add}</>}
+          </button>
+        </div>
       </header>
 
       <AnimatePresence>
@@ -1445,6 +1778,11 @@ export default function Videos() {
         variant={modalConfig.variant}
         onConfirm={modalConfig.onConfirm}
       />
+
+      {/* Phase 2.5: YouTube Analytics Import Overlay */}
+      {showImportWizard && (
+        <YouTubeImportPanel onClose={() => setShowImportWizard(false)} />
+      )}
     </div>
   );
 }
