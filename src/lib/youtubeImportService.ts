@@ -599,8 +599,17 @@ export async function runImport(
   }
 
   if (rows.length === 0) {
-    throw new Error('[youtubeImportService] No valid rows found in CSV. Check column headers and date format.');
-  }
+  console.log("STEP ERROR - no valid rows");
+  return {
+    batchId: "failed",
+    totalRows: 0,
+    insertedRaw: 0,
+    skippedDuplicates: 0,
+    matched: 0,
+    unmapped: 0,
+    errors: ["No valid rows found in CSV"]
+  };
+}
   console.log("STEP C - before insert import_batches");
   // ── Step 2: Create import_batches record ─────────────────────────────────
   const { data: batch, error: batchError } = await supabase

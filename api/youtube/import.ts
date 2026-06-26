@@ -137,8 +137,8 @@ export default async function handler(
     return res.status(200).json(result);
 
   } catch (svcErr: any) {
-    console.log("STEP CRASH - runImport failed");
     console.error('[api/youtube/import] Service error:', svcErr);
-    return res.status(500).json({ error: svcErr.message ?? 'Import failed' });
+    
+    return res.status(500).json({ error: svcErr.message || 'Import failed', step: 'runImport crashed' });
   }
 }
