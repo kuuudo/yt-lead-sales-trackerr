@@ -2,7 +2,11 @@ import { createClient } from '@supabase/supabase-js';
 
 const supabaseUrl = (import.meta as any).env.VITE_SUPABASE_URL;
 const supabaseAnonKey = (import.meta as any).env.VITE_SUPABASE_ANON_KEY;
-
+// 👇 加這裡（最正確）
+console.log("ENV CHECK:", {
+  url: supabaseUrl,
+  anon: supabaseAnonKey,
+});
 if (!supabaseUrl || !supabaseAnonKey) {
   console.warn('Supabase credentials missing. Analytics will not be saved.');
 }
