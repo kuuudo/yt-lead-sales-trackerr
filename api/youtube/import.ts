@@ -194,6 +194,9 @@ function parseYouTubeCSV(csvText: string): ParsedCSVRow[] {
     const field = YT_COLUMN_MAP[header];
     if (field && !(field in colIndex)) colIndex[field] = idx;
   });
+console.log("[DEBUG] headers detected:", headers);
+console.log("[DEBUG] colIndex:", colIndex);
+console.log("[DEBUG] first CSV line:", lines[1]);
 
   const rows: ParsedCSVRow[] = [];
   for (let i = 1; i < lines.length; i++) {
@@ -209,6 +212,11 @@ function parseYouTubeCSV(csvText: string): ParsedCSVRow[] {
 
     const title = get('video_title');
     const rawDate = get('date');
+    console.log("[DEBUG] row extract", {
+  title,
+  rawDate,
+  videoId: get('youtube_video_id'),
+});
     if (!title || !rawDate) continue;
 
     const date = parseDate(rawDate);
