@@ -278,7 +278,10 @@ function YouTubeImportPanel({ onClose }: { onClose: () => void }) {
             {/* 👇 ADD THIS */}
             <Link
               to="/unmapped-videos"
-              className="text-[10px] font-bold uppercase tracking-widest text-zinc-500 hover:text-zinc-300 transition-colors"
+              className="flex items-center gap-1.5 px-3 py-1.5 text-[10px] font-bold uppercase tracking-widest 
+             bg-zinc-800 hover:bg-zinc-700 border border-zinc-700 hover:border-zinc-600 
+             rounded-lg text-zinc-300 hover:text-white transition-all active:scale-[0.97]"
+            
             >
               View Unmapped
             </Link>
