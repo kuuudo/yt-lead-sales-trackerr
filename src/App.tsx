@@ -25,7 +25,7 @@ import Pricing from './pages/Pricing';
 import Workspace from './pages/Workspace';
 import WorkspaceHub from './pages/WorkspaceHub';
 import BoardPage from './pages/BoardPage';
-
+import UnmappedVideos from './pages/UnmappedVideos';
 function Navigation() {
   const { lang, toggleLanguage, t } = useLanguage();
   const { user, signOut } = useAuth();
@@ -129,6 +129,7 @@ function MainContent() {
         <Route path="/dashboard" element={<PageWrapper><Dashboard /></PageWrapper>} />
         <Route path="/campaigns" element={<PageWrapper><Campaigns /></PageWrapper>} />
         <Route path="/videos" element={<PageWrapper><Videos /></PageWrapper>} />
+        <Route path="/unmapped-videos" element={<PageWrapper><UnmappedVideos /></PageWrapper>} />
         <Route path="/videos/:id" element={<PageWrapper><VideoDetail /></PageWrapper>} />
         <Route path="/campaigns/:id" element={<PageWrapper><CampaignDetail /></PageWrapper>} />
         <Route path="/analytics" element={<PageWrapper><Analytics /></PageWrapper>} />
