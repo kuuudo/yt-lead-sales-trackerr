@@ -288,7 +288,7 @@ function YouTubeImportPanel({ onClose }: { onClose: () => void }) {
               className="text-zinc-500 hover:text-zinc-300 transition-colors"
             >
               <X size={18} />
-            </button>
+            
            
             <button
               onClick={onClose}
