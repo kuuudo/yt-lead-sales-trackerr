@@ -15,7 +15,7 @@ import type { VercelRequest, VercelResponse } from '@vercel/node';
 import { createClient } from '@supabase/supabase-js';
 import formidable from 'formidable';
 import fs from 'fs';
-import { runImport } from '../../src/lib/youtubeImportService';
+import { runImport } from '../lib/youtubeImportService';
 
 // ---------------------------------------------------------------------------
 // Disable Vercel's default body parser — formidable handles multipart
