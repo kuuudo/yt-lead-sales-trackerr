@@ -243,11 +243,12 @@ console.log("[DEBUG] first CSV line:", lines[1]);
 // ---------------------------------------------------------------------------
 // Internal Video Loader
 // ---------------------------------------------------------------------------
-async function loadInternalVideos(): Promise<InternalVideo[]> {
-  const { data, error } = await supabase
-    .from('videos')
-    .select('id, youtube_video_id, video_title')
-    .eq('platform', PLATFORM);
+async function loadInternalVideos(organizationId: string): Promise<InternalVideo[]> {
+const { data, error } = await supabase
+  .from('videos')
+  .select('id, youtube_video_id, video_title')
+  .eq('platform', PLATFORM)
+  .eq('organization_id', organizationId);
 
   if (error) throw new Error(`Failed to load internal videos: ${error.message}`);
 
@@ -303,8 +304,9 @@ async function upsertVideoRegistry(row: ParsedCSVRow, match: MatchResult | null,
     const { data } = await supabase
       .from('video_registry')
       .select('id, status')
-      .eq('youtube_video_id', row.youtube_video_id)
+      .eq('organization_id', organizationId)
       .eq('platform', PLATFORM)
+      .eq('youtube_video_id', row.youtube_video_id)
       .maybeSingle();
 
     if (data) {
@@ -322,8 +324,9 @@ async function upsertVideoRegistry(row: ParsedCSVRow, match: MatchResult | null,
     const { data } = await supabase
       .from('video_registry')
       .select('id, status')
-      .eq('normalized_title', normalized)
+      .eq('organization_id', organizationId)
       .eq('platform', PLATFORM)
+      .eq('normalized_title', normalized)
       .is('youtube_video_id', null)
       .maybeSingle();
 
@@ -359,8 +362,8 @@ async function upsertVideoRegistry(row: ParsedCSVRow, match: MatchResult | null,
   if (error) {
     if (error.code === '23505') {
       const fallbackQuery = row.youtube_video_id
-        ? supabase.from('video_registry').select('id').eq('youtube_video_id', row.youtube_video_id).eq('platform', PLATFORM).maybeSingle()
-        : supabase.from('video_registry').select('id').eq('normalized_title', normalized).eq('platform', PLATFORM).is('youtube_video_id', null).maybeSingle();
+        ? supabase.from('video_registry').select('id').eq('organization_id', organizationId).eq('platform', PLATFORM).eq('youtube_video_id', row.youtube_video_id).maybeSingle()
+        : supabase.from('video_registry').select('id').eq('organization_id', organizationId).eq('platform', PLATFORM).eq('normalized_title', normalized).is('youtube_video_id', null).maybeSingle();
       const { data: fallback } = await fallbackQuery;
       if (fallback) return fallback.id;
     }
@@ -397,7 +400,7 @@ async function upsertVideoMetrics(
         import_batch_id:   batchId,
         organization_id: organizationId   // ✅ ADD
       },
-      { onConflict: 'video_registry_id,date' }
+      { onConflict: 'organization_id,video_registry_id,date' }
     );
 
   if (error) {
@@ -454,7 +457,9 @@ async function runImport(
   console.log('[import] STEP 5 - loading internal videos');
   let internalVideos: InternalVideo[] = [];
   try {
-    internalVideos = await loadInternalVideos();
+    internalVideos = await loadInternalVideos(
+    organizationId
+);
     console.log(`[import] STEP 6 - loaded ${internalVideos.length} internal videos`);
   } catch (e: any) {
     errors.push(`Failed to load internal videos: ${e.message}`);
@@ -496,7 +501,7 @@ async function runImport(
       const match = matchRow(row, internalVideos);
       const registryId = await upsertVideoRegistry(row, match, organizationId);
 
-      await supabase.from('youtube_import_rows').update({ video_registry_id: registryId }).eq('stable_dedup_key', dedupKey);
+      await supabase.from('youtube_import_rows').update({ video_registry_id: registryId }).eq('organization_id', organizationId).eq('stable_dedup_key', dedupKey);
 
       if (match) {
         await upsertVideoMetrics(registryId, match.internalVideoId, row, batchId, organizationId);
