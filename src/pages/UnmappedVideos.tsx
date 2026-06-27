@@ -23,7 +23,7 @@ import React, { useState, useEffect, useCallback } from 'react';
 import { Link } from 'react-router-dom';
 import { supabase } from '../lib/supabase';
 import { useAuth } from '../lib/auth';
-import { useOrganization } from '../hooks/useOrganization';
+import { useOrganization } from '../lib/useOrganization';
 import {
   AlertTriangle, Check, X, Loader2, Search, Link2,
   Plus, ArrowLeft, RefreshCw, ExternalLink, ChevronDown,
