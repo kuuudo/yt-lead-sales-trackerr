@@ -23,6 +23,7 @@ import React, { useState, useEffect, useCallback } from 'react';
 import { Link } from 'react-router-dom';
 import { supabase } from '../lib/supabase';
 import { useAuth } from '../lib/auth';
+import { useOrganization } from '../hooks/useOrganization';
 import {
   AlertTriangle, Check, X, Loader2, Search, Link2,
   Plus, ArrowLeft, RefreshCw, ExternalLink, ChevronDown,
@@ -67,10 +68,12 @@ interface RowAction {
 
 function MapToExistingModal({
   entry,
+  organizationId,
   onConfirm,
   onCancel,
 }: {
   entry: RegistryEntry;
+  organizationId: string;
   onConfirm: (internalVideoId: string) => Promise<void>;
   onCancel: () => void;
 }) {
@@ -86,12 +89,13 @@ function MapToExistingModal({
         .from('videos')
         .select('id, video_title, youtube_video_id, platform_url, campaign_id, status')
         .eq('platform', 'youtube')
+        .eq('organization_id', organizationId)
         .order('created_at', { ascending: false });
       setVideos(data ?? []);
       setLoadingVideos(false);
     };
     load();
-  }, []);
+  }, [organizationId]);
 
   const filtered = videos.filter(v => {
     const q = search.toLowerCase();
@@ -307,6 +311,7 @@ function CreateAndMapModal({
 
 export default function UnmappedVideos() {
   const { user } = useAuth();
+  const { organizationId } = useOrganization();
   const [entries, setEntries] = useState<RegistryEntry[]>([]);
   const [loading, setLoading] = useState(true);
   const [activeAction, setActiveAction] = useState<RowAction>({ registryId: '', type: null });
@@ -319,11 +324,13 @@ export default function UnmappedVideos() {
   };
 
   const loadEntries = useCallback(async () => {
+    if (!organizationId) return;
     setLoading(true);
     const { data, error } = await supabase
       .from('video_registry')
       .select('id, youtube_video_id, canonical_title, normalized_title, status, match_method, match_score, created_at')
       .eq('status', 'unmapped')
+      .eq('organization_id', organizationId)
       .order('created_at', { ascending: false });
 
     if (error) {
@@ -333,7 +340,7 @@ export default function UnmappedVideos() {
       setEntries(data ?? []);
     }
     setLoading(false);
-  }, []);
+  }, [organizationId]);
 
   useEffect(() => {
     loadEntries();
@@ -602,6 +609,7 @@ export default function UnmappedVideos() {
           <MapToExistingModal
             key="map-modal"
             entry={activeEntry}
+            organizationId={organizationId ?? ''}
             onConfirm={(internalVideoId) => handleMapToExisting(activeEntry.id, internalVideoId)}
             onCancel={() => setActiveAction({ registryId: '', type: null })}
           />
