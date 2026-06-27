@@ -263,6 +263,16 @@ async function loadInternalVideos(): Promise<InternalVideo[]> {
 // Matching Logic
 // ---------------------------------------------------------------------------
 function matchRow(row: ParsedCSVRow, internalVideos: InternalVideo[]): MatchResult | null {
+ if (row.youtube_video_id) {
+  console.log(
+    "[MATCH]",
+    row.youtube_video_id,
+    internalVideos.some(
+      v => v.youtube_video_id === row.youtube_video_id
+    )
+  );
+}
+ 
   if (row.youtube_video_id) {
     const exact = internalVideos.find(v => v.youtube_video_id === row.youtube_video_id);
     if (exact) return { internalVideoId: exact.id, method: 'video_id', score: 1.0 };
