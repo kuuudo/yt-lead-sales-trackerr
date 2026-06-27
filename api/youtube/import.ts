@@ -296,7 +296,7 @@ function matchRow(row: ParsedCSVRow, internalVideos: InternalVideo[]): MatchResu
 // ---------------------------------------------------------------------------
 // video_registry Upsert
 // ---------------------------------------------------------------------------
-async function upsertVideoRegistry(row: ParsedCSVRow, match: MatchResult | null): Promise<string> {
+async function upsertVideoRegistry(row: ParsedCSVRow, match: MatchResult | null, organizationId: string): Promise<string> {
   const normalized = normalizeTitle(row.video_title);
 
   if (row.youtube_video_id) {
@@ -351,6 +351,7 @@ async function upsertVideoRegistry(row: ParsedCSVRow, match: MatchResult | null)
       status:            match ? 'mapped' : 'unmapped',
       match_method:      match?.method ?? null,
       match_score:       match?.score ?? null,
+      organization_id: organizationId   // ✅ ADD
     })
     .select('id')
     .single();
@@ -376,7 +377,8 @@ async function upsertVideoMetrics(
   registryId: string,
   internalVideoId: string,
   row: ParsedCSVRow,
-  batchId: string
+  batchId: string,
+  organizationId: string
 ): Promise<void> {
   const { error } = await supabase
     .from('video_metrics')
@@ -393,6 +395,7 @@ async function upsertVideoMetrics(
         impressions:       row.impressions,
         ctr:               row.ctr,
         import_batch_id:   batchId,
+        organization_id: organizationId   // ✅ ADD
       },
       { onConflict: 'video_registry_id,date' }
     );
@@ -408,7 +411,8 @@ async function upsertVideoMetrics(
 async function runImport(
   csvText: string,
   fileName: string,
-  uploadedBy: string
+  uploadedBy: string,
+  organizationId: string
 ): Promise<ImportResult> {
   const errors: string[] = [];
   let insertedRaw = 0;
@@ -434,7 +438,7 @@ async function runImport(
   console.log('[import] STEP 3 - creating batch record');
   const { data: batch, error: batchError } = await supabase
     .from('import_batches')
-    .insert({ platform: PLATFORM, file_name: fileName, row_count: rows.length, uploaded_by: uploadedBy })
+    .insert({ platform: PLATFORM, file_name: fileName, row_count: rows.length, uploaded_by: uploadedBy, organization_id: organizationId })
     .select('id')
     .single();
 
@@ -479,6 +483,7 @@ async function runImport(
           ctr:              row.ctr,
           date:             row.date,
           stable_dedup_key: dedupKey,
+          organization_id: organizationId   // ✅ ADD
         });
 
       if (rawError) {
@@ -489,12 +494,12 @@ async function runImport(
       }
 
       const match = matchRow(row, internalVideos);
-      const registryId = await upsertVideoRegistry(row, match);
+      const registryId = await upsertVideoRegistry(row, match, organizationId);
 
       await supabase.from('youtube_import_rows').update({ video_registry_id: registryId }).eq('stable_dedup_key', dedupKey);
 
       if (match) {
-        await upsertVideoMetrics(registryId, match.internalVideoId, row, batchId);
+        await upsertVideoMetrics(registryId, match.internalVideoId, row, batchId, organizationId);
         matched++;
       } else {
         unmapped++;
@@ -539,6 +544,17 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   console.log('[import] STEP 0 - handler hit');
 
   const userId = await getUserFromRequest(req);
+  const { data: member } = await supabase
+  .from('organization_members')
+  .select('organization_id')
+  .eq('user_id', userId)
+  .single();
+
+if (!member) {
+  return res.status(403).json({ error: 'No organization found' });
+}
+
+const organizationId = member.organization_id;
   if (!userId) return res.status(401).json({ error: 'Unauthorized' });
 
   const form = formidable({ maxFileSize: 50 * 1024 * 1024 });
@@ -563,7 +579,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   }
 
   try {
-    const result = await runImport(csvText, fileName, userId);
+    const result = await runImport(csvText, fileName, userId, organizationId);
     return res.status(200).json(result);
   } catch (svcErr: any) {
     console.error('[import] Service error:', svcErr);
