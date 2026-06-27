@@ -445,15 +445,25 @@ function YouTubeImportPanel({ onClose }: { onClose: () => void }) {
           </button>
         )}
 
-        {/* Uploading state */}
-        {status === 'uploading' && (
-          <div className="flex items-center justify-center gap-3 py-4">
-            <Loader2 size={18} className="text-red-500 animate-spin" />
-            <span className="text-zinc-400 text-[10px] font-black uppercase tracking-widest">
-              Processing CSV…
-            </span>
-          </div>
-        )}
+{/* Uploading state */}
+{status === 'uploading' && (
+  <div className="flex flex-col items-center justify-center gap-3 py-6">
+    <Loader2
+      size={22}
+      className="text-red-500 animate-spin"
+    />
+
+    <span className="text-zinc-300 text-[11px] font-black uppercase tracking-widest">
+      Processing your YouTube Analytics...
+    </span>
+
+    <p className="text-zinc-500 text-[10px] text-center max-w-xs leading-relaxed">
+      Uploading your CSV, validating data, matching videos, and importing analytics.
+      <br />
+      Large exports may take up to a minute. Please keep this window open.
+    </p>
+  </div>
+)}
 
         {/* How-to hint */}
         {status === 'idle' && !selectedFile && (
