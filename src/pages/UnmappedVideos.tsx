@@ -390,6 +390,23 @@ export default function UnmappedVideos() {
         await supabase
           .from('video_metrics')
           .upsert(metricsRows, { onConflict: 'video_registry_id,date', ignoreDuplicates: true });
+      } else {
+      // 🔥 ADD THIS BLOCK (STUB METRICS)
+        await supabase
+          .from('video_metrics')
+          .insert({
+            video_registry_id: registryId,
+            internal_video_id: internalVideoId,
+            organization_id: organizationId, // IMPORTANT: use org from outer scope
+            platform: 'youtube',
+            date: new Date().toISOString().split('T')[0],
+            views: 0,
+            likes: 0,
+            comments: 0,
+            watch_time: 0,
+            impressions: 0,
+            ctr: 0,
+          });
       }
 
       setEntries(prev => prev.filter(e => e.id !== registryId));
