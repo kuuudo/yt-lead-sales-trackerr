@@ -184,6 +184,7 @@ export default function VideoDetail() {
   // YouTube Import Status (only relevant when video.platform === 'youtube')
   type YTImportStatus = 'loading' | 'no_analytics' | 'unmapped' | 'mapped';
   const [ytImportStatus, setYtImportStatus] = useState<YTImportStatus>('loading');
+  const [ytRegistryId, setYtRegistryId] = useState<string | null>(null);
 
   const [editForm, setEditForm] = useState({
     campaign_id:              '',
@@ -260,6 +261,7 @@ export default function VideoDetail() {
 
           if (unmappedReg) {
             setYtImportStatus('unmapped');
+            setYtRegistryId(unmappedReg.id);
           } else {
             setYtImportStatus('no_analytics');
           }
@@ -832,7 +834,7 @@ export default function VideoDetail() {
             )}
             {ytImportStatus === 'unmapped' && (
               <Link
-                to="/unmapped-videos"
+                to={`/unmapped-videos${ytRegistryId ? `?highlight=${ytRegistryId}` : ''}`}
                 className="px-4 py-2 bg-yellow-500/10 hover:bg-yellow-500/20 text-yellow-400 text-xs font-bold uppercase tracking-widest rounded-xl transition-all"
               >
                 Review &amp; Map

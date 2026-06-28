@@ -19,8 +19,8 @@
  * Add to App.tsx: <Route path="/unmapped-videos" element={<PageWrapper><UnmappedVideos /></PageWrapper>} />
  */
 
-import React, { useState, useEffect, useCallback } from 'react';
-import { Link } from 'react-router-dom';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
+import { Link, useSearchParams } from 'react-router-dom';
 import { supabase } from '../lib/supabase';
 import { useAuth } from '../lib/auth';
 import { useOrganization } from '../lib/useOrganization';
@@ -349,6 +349,13 @@ export default function UnmappedVideos() {
   const [loading, setLoading] = useState(true);
   const [activeAction, setActiveAction] = useState<RowAction>({ registryId: '', type: null });
   const [processingId, setProcessingId] = useState<string | null>(null);
+
+  // Deep-link highlight (from VideoDetail \u201cReview & Map\u201d button)
+  const [searchParams] = useSearchParams();
+  const [highlightId, setHighlightId] = useState<string | null>(
+    () => searchParams.get('highlight')
+  );
+  const rowRefs = useRef<Record<string, HTMLDivElement | null>>({});
   const [toast, setToast] = useState<{ message: string; type: 'success' | 'error' } | null>(null);
 
   const showToast = (message: string, type: 'success' | 'error' = 'success') => {
@@ -379,6 +386,17 @@ export default function UnmappedVideos() {
     loadEntries();
   }, [loadEntries]);
 
+  // Auto-scroll to highlighted row once entries are loaded
+  useEffect(() => {
+    if (!highlightId || loading) return;
+    const el = rowRefs.current[highlightId];
+    if (el) {
+      setTimeout(() => {
+        el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      }, 150);
+    }
+  }, [highlightId, loading]);
+
   // ── Action: Map to Existing ───────────────────────────────────────────────
 
   const handleMapToExisting = async (registryId: string, internalVideoId: string) => {
@@ -397,27 +415,65 @@ export default function UnmappedVideos() {
 
       if (regError) throw regError;
 
-      // Back-fill video_metrics via server endpoint (service role, bypasses RLS).
-      // Keeps video_metrics writes server-side, consistent with CSV import pipeline.
-      const { data: { session } } = await supabase.auth.getSession();
-      if (!session?.access_token) throw new Error('Not authenticated');
+      // Back-fill video_metrics.
+      // Design rule: metrics insert must ALWAYS run after mapping success.
+      // rawRows are used for enrichment only — they do NOT gate the insert.
 
-      console.log('[BACKFILL] Calling /api/youtube/backfill', { registryId, internalVideoId });
+      const { data: rawRows, error: rawRowsError } = await supabase
+        .from('youtube_import_rows')
+        .select('*')
+        .eq('video_registry_id', registryId);
 
-      const backfillRes = await fetch('/api/youtube/backfill', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: `Bearer ${session.access_token}`,
-        },
-        body: JSON.stringify({ registryId, internalVideoId }),
-      });
+      console.log('[BACKFILL] youtube_import_rows:', { count: rawRows?.length ?? 0, rawRowsError, registryId });
 
-      const backfillData = await backfillRes.json();
-      console.log('[BACKFILL] Response:', backfillData);
+      if (rawRowsError) {
+        // Log but do not abort — we still insert the stub row below
+        console.error('[BACKFILL] Failed to fetch import rows (RLS or network):', rawRowsError.message);
+      }
 
-      if (!backfillRes.ok) {
-        throw new Error(`Backfill failed: ${backfillData.error ?? backfillRes.status}`);
+      // Build metrics rows: one row per import row if available, otherwise a single stub
+      const today = new Date().toISOString().split('T')[0];
+      const metricsRows = (rawRows && rawRows.length > 0)
+        ? rawRows.map(row => ({
+            video_registry_id: registryId,
+            internal_video_id: internalVideoId,
+            organization_id: row.organization_id,
+            platform: 'youtube',
+            date: row.date,
+            views: row.views ?? null,
+            likes: row.likes ?? null,
+            comments: row.comments ?? null,
+            watch_time: row.watch_time ?? null,
+            impressions: row.impressions ?? null,
+            ctr: row.ctr ?? null,
+            import_batch_id: row.import_batch_id,
+          }))
+        : [{
+            // Stub row so this video always has a metrics record after mapping
+            video_registry_id: registryId,
+            internal_video_id: internalVideoId,
+            organization_id: organizationId,
+            platform: 'youtube',
+            date: today,
+            views: null,
+            likes: null,
+            comments: null,
+            watch_time: null,
+            impressions: null,
+            ctr: null,
+            import_batch_id: null,
+          }];
+
+      console.log('[BACKFILL] Inserting video_metrics rows:', metricsRows.length);
+
+      const { error: upsertError } = await supabase
+        .from('video_metrics')
+        .upsert(metricsRows, { onConflict: 'video_registry_id,date', ignoreDuplicates: true });
+
+      console.log('[BACKFILL] video_metrics upsert error:', upsertError);
+
+      if (upsertError) {
+        throw new Error(`Backfill failed: ${upsertError.message}`);
       }
 
       setEntries(prev => prev.filter(e => e.id !== registryId));
@@ -582,11 +638,16 @@ export default function UnmappedVideos() {
           {entries.map(entry => (
             <motion.div
               key={entry.id}
+              ref={(el: HTMLDivElement | null) => { rowRefs.current[entry.id] = el; }}
               layout
               initial={{ opacity: 0, y: 6 }}
               animate={{ opacity: 1, y: 0 }}
               exit={{ opacity: 0, x: -20 }}
-              className="bg-zinc-900 border border-zinc-800 rounded-xl p-4 flex flex-col md:flex-row md:items-center gap-4"
+              className={`bg-zinc-900 border rounded-xl p-4 flex flex-col md:flex-row md:items-center gap-4 transition-colors duration-700 ${
+                highlightId === entry.id
+                  ? 'border-yellow-500/60 bg-yellow-500/5'
+                  : 'border-zinc-800'
+              }`}
             >
               {/* Info */}
               <div className="flex-1 min-w-0">
@@ -617,21 +678,21 @@ export default function UnmappedVideos() {
                 ) : (
                   <>
                     <button
-                      onClick={() => setActiveAction({ registryId: entry.id, type: 'map' })}
+                      onClick={() => { setHighlightId(null); setActiveAction({ registryId: entry.id, type: 'map' }); }}
                       className="h-8 px-3 bg-zinc-800 hover:bg-zinc-700 rounded-lg text-[9px] font-black uppercase tracking-widest text-zinc-300 transition-all flex items-center gap-1.5"
                     >
                       <Link2 size={11} />
                       Map
                     </button>
                     <button
-                      onClick={() => setActiveAction({ registryId: entry.id, type: 'create' })}
+                      onClick={() => { setHighlightId(null); setActiveAction({ registryId: entry.id, type: 'create' }); }}
                       className="h-8 px-3 bg-zinc-800 hover:bg-zinc-700 rounded-lg text-[9px] font-black uppercase tracking-widest text-zinc-300 transition-all flex items-center gap-1.5"
                     >
                       <Plus size={11} />
                       Create
                     </button>
                     <button
-                      onClick={() => handleIgnore(entry.id)}
+                      onClick={() => { setHighlightId(null); handleIgnore(entry.id); }}
                       className="h-8 px-3 border border-zinc-800 hover:bg-zinc-900 rounded-lg text-[9px] font-black uppercase tracking-widest text-zinc-600 hover:text-zinc-400 transition-all"
                     >
                       Ignore
