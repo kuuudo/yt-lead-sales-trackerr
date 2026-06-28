@@ -181,6 +181,10 @@ export default function VideoDetail() {
   const [savingExtraLink, setSavingExtraLink]     = useState(false);
   const [deletingLinkToken, setDeletingLinkToken] = useState<string | null>(null);
 
+  // YouTube Import Status (only relevant when video.platform === 'youtube')
+  type YTImportStatus = 'loading' | 'no_analytics' | 'unmapped' | 'mapped';
+  const [ytImportStatus, setYtImportStatus] = useState<YTImportStatus>('loading');
+
   const [editForm, setEditForm] = useState({
     campaign_id:              '',
     video_goal:               [] as string[],
@@ -227,6 +231,24 @@ export default function VideoDetail() {
       console.log('[VideoDetail] video query — error:', vErr?.message ?? 'none', 'found:', !!vData);
       if (vErr) throw vErr;
       setVideo(vData);
+
+      // ── YouTube Import Status ───────────────────────────────────────────────
+      if (vData.platform === 'youtube') {
+        const { data: regData } = await supabase
+          .from('video_registry')
+          .select('id, status')
+          .eq('internal_video_id', vData.id)
+          .limit(1)
+          .maybeSingle();
+
+        if (!regData) {
+          setYtImportStatus('no_analytics');
+        } else if (regData.status === 'mapped') {
+          setYtImportStatus('mapped');
+        } else {
+          setYtImportStatus('unmapped');
+        }
+      }
 
       setEditForm({
         campaign_id:              vData.campaign_id,
@@ -749,6 +771,68 @@ export default function VideoDetail() {
           </a>
         </div>
       </header>
+
+      {/* ── 1b. YouTube Import Status (YouTube only) ──────────────────────────── */}
+      {video.platform === 'youtube' && ytImportStatus !== 'loading' && (
+        <section className="bento-card p-5 flex items-center justify-between gap-4">
+          <div className="flex items-center gap-3">
+            {ytImportStatus === 'no_analytics' && (
+              <>
+                <span className="text-base leading-none">⚪</span>
+                <div>
+                  <p className="text-[10px] font-black uppercase tracking-widest text-zinc-500 mb-0.5">YouTube Import Status</p>
+                  <p className="text-sm text-zinc-400">No analytics have been imported for this video yet.</p>
+                </div>
+              </>
+            )}
+            {ytImportStatus === 'unmapped' && (
+              <>
+                <span className="text-base leading-none">🟡</span>
+                <div>
+                  <p className="text-[10px] font-black uppercase tracking-widest text-zinc-500 mb-0.5">YouTube Import Status</p>
+                  <p className="text-sm text-zinc-400">Imported analytics are waiting to be mapped.</p>
+                </div>
+              </>
+            )}
+            {ytImportStatus === 'mapped' && (
+              <>
+                <span className="text-base leading-none">🟢</span>
+                <div>
+                  <p className="text-[10px] font-black uppercase tracking-widest text-zinc-500 mb-0.5">YouTube Import Status</p>
+                  <p className="text-sm text-zinc-400">Analytics have been successfully mapped.</p>
+                </div>
+              </>
+            )}
+          </div>
+
+          <div className="shrink-0">
+            {ytImportStatus === 'no_analytics' && (
+              <button
+                onClick={() => navigate('/videos?openImport=true')}
+                className="px-4 py-2 bg-zinc-800 hover:bg-zinc-700 text-white text-xs font-bold uppercase tracking-widest rounded-xl transition-all"
+              >
+                Import Analytics
+              </button>
+            )}
+            {ytImportStatus === 'unmapped' && (
+              <Link
+                to="/unmapped-videos"
+                className="px-4 py-2 bg-yellow-500/10 hover:bg-yellow-500/20 text-yellow-400 text-xs font-bold uppercase tracking-widest rounded-xl transition-all"
+              >
+                Review &amp; Map
+              </Link>
+            )}
+            {ytImportStatus === 'mapped' && (
+              <Link
+                to="/unmapped-videos"
+                className="px-4 py-2 bg-green-500/10 hover:bg-green-500/20 text-green-400 text-xs font-bold uppercase tracking-widest rounded-xl transition-all"
+              >
+                View Analytics Mapping
+              </Link>
+            )}
+          </div>
+        </section>
+      )}
 
       {/* ── 2. Summary Cards ───────────────────────────────────────────────────── */}
       <section className="grid grid-cols-2 md:grid-cols-5 gap-4">

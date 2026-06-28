@@ -1,9 +1,8 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
-import { Link } from 'react-router-dom';
+import { Link, useSearchParams } from 'react-router-dom';
 import { useLanguage } from '../lib/hooks';
 import { supabase, Video, Campaign, LeadMagnet } from '../lib/supabase';
 import { useAuth } from '../lib/auth';
-import { Link } from 'react-router-dom';
 import { Youtube, Plus, Link2, Copy, Check, ExternalLink, Calendar, Target, AlertCircle, Loader2, BarChart3, ChevronDown, X, Edit2, Trash2,
   Music2, Camera, Linkedin, Twitter, AtSign, LayoutGrid, List,
   // Phase 2.5 additions
@@ -489,6 +488,17 @@ export default function Videos() {
   const [allLeadMagnets, setAllLeadMagnets] = useState<LeadMagnet[]>([]);
   const [showAdd, setShowAdd] = useState(false);
   const [showImportWizard, setShowImportWizard] = useState(false);
+
+  // Auto-open import modal when navigated here with ?openImport=true
+  // (e.g. from VideoDetail "Import Analytics" button)
+  const [searchParams, setSearchParams] = useSearchParams();
+  useEffect(() => {
+    if (searchParams.get('openImport') === 'true') {
+      setShowImportWizard(true);
+      // Clean the param so back-navigation doesn't re-trigger
+      setSearchParams(prev => { prev.delete('openImport'); return prev; }, { replace: true });
+    }
+  }, [searchParams, setSearchParams]);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [copied, setCopied] = useState<string | null>(null);
