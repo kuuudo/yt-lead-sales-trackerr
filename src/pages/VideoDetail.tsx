@@ -234,19 +234,35 @@ export default function VideoDetail() {
 
       // ── YouTube Import Status ───────────────────────────────────────────────
       if (vData.platform === 'youtube') {
-        const { data: regData } = await supabase
+        const orgId = vData.organization_id;
+
+        // Step 1: mapped rows have internal_video_id set
+        const { data: mappedReg } = await supabase
           .from('video_registry')
           .select('id, status')
+          .eq('organization_id', orgId)
           .eq('internal_video_id', vData.id)
           .limit(1)
           .maybeSingle();
 
-        if (!regData) {
-          setYtImportStatus('no_analytics');
-        } else if (regData.status === 'mapped') {
+        if (mappedReg) {
           setYtImportStatus('mapped');
         } else {
-          setYtImportStatus('unmapped');
+          // Step 2: unmapped rows have internal_video_id = null, match by youtube_video_id
+          const { data: unmappedReg } = await supabase
+            .from('video_registry')
+            .select('id, status')
+            .eq('organization_id', orgId)
+            .eq('youtube_video_id', vData.youtube_video_id)
+            .eq('status', 'unmapped')
+            .limit(1)
+            .maybeSingle();
+
+          if (unmappedReg) {
+            setYtImportStatus('unmapped');
+          } else {
+            setYtImportStatus('no_analytics');
+          }
         }
       }
 
