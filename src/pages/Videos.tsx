@@ -41,8 +41,8 @@ import {
 } from '../lib/videoFormatters';
 import { motion, AnimatePresence } from 'motion/react';
 import { Modal } from '../components/Modal';
-import { createRedirectLink } from '../lib/redirects';
-import { useOrganization } from '../lib/useOrganization'
+import { useOrganization } from '../lib/useOrganization';
+import { createVideo } from '../services/video/createVideo';
 
 type VideoStatus = Video['status'];
 
@@ -705,85 +705,42 @@ export default function Videos() {
     if (!generated || !user) return;
     setSaving(true);
     try {
-      const payload = {
-        ...generated.video,
-        user_id: user.id,
-        organization_id: organizationId,
-        // platform, platform_url, platform_post_id come from generated.video (via getPlatformInfo)
-        // DO NOT override them here — that was causing all non-YouTube entries to save as 'youtube'
-      };
-      let error, data;
 
+      // ── Edit path: kept inline until updateVideo() is extracted ──────────
       if (editingVideoId) {
+        const payload = {
+          ...generated.video,
+          user_id: user.id,
+          organization_id: organizationId,
+          // platform, platform_url, platform_post_id come from generated.video (via getPlatformInfo)
+          // DO NOT override them here — that was causing all non-YouTube entries to save as 'youtube'
+        };
         const { data: updateData, error: updateError } = await supabase
           .from('videos').update(payload).eq('id', editingVideoId).select();
-        error = updateError; data = updateData;
-      } else {
-        const { data: insertData, error: insertError } = await supabase
-          .from('videos').insert([payload]).select();
-        error = insertError; data = insertData;
-      }
+        if (updateError) throw new Error(updateError.message);
 
-      if (error) throw new Error(error.message);
-
-      if (data) {
-        const savedVideo = data[0];
-        const campaign = generated.campaign;
-        const appBaseUrl = window.location.origin;
-
-        if (campaign) {
-          const redirectJobs: Array<[string, string, string]> = [
-            ['landing_page', campaign.landing_page_url, '🏠 Landing Page'],
+        const savedVideo = updateData?.[0];
+        if (savedVideo && generated.campaign) {
+          const campaign = generated.campaign;
+          const urlUpdates: Array<[string, string]> = [
+            ['landing_page', campaign.landing_page_url],
           ];
-          if (campaign.newsletter_url) redirectJobs.push(['newsletter', campaign.newsletter_url, '📧 Newsletter']);
-          if (campaign.sales_call_booking_url) redirectJobs.push(['sales_call', campaign.sales_call_booking_url, '📞 Sales Call']);
-          if (campaign.consultation_booking_url) redirectJobs.push(['consultation', campaign.consultation_booking_url, '💼 Consultation']);
-          // checkout link intentionally omitted — owned by campaign via Installation.tsx (video_id = null)
-          if (campaign.purchase_thankyou_url) redirectJobs.push(['purchase_thankyou', campaign.purchase_thankyou_url, '✅ Purchase Thank You']);
-          if (campaign.newsletter_thankyou_url) redirectJobs.push(['newsletter_thankyou', campaign.newsletter_thankyou_url, '✅ Newsletter Thank You']);
+          // checkout url update intentionally omitted — owned by campaign via Installation.tsx
+          if (campaign.newsletter_url) urlUpdates.push(['newsletter', campaign.newsletter_url]);
+          if (campaign.purchase_thankyou_url) urlUpdates.push(['purchase_thankyou', campaign.purchase_thankyou_url]);
+          if (campaign.newsletter_thankyou_url) urlUpdates.push(['newsletter_thankyou', campaign.newsletter_thankyou_url]);
+          if (campaign.sales_call_booking_url) urlUpdates.push(['sales_call', campaign.sales_call_booking_url]);
+          if (campaign.consultation_booking_url) urlUpdates.push(['consultation', campaign.consultation_booking_url]);
 
           await Promise.all(
-            redirectJobs.map(([type, url]) =>
-              createRedirectLink(savedVideo.id, savedVideo.campaign_id, type as any, url, appBaseUrl)
+            urlUpdates.map(([type, url]) =>
+              supabase
+                .from('redirect_links')
+                .update({ destination_url: url })
+                .eq('video_id', editingVideoId)
+                .eq('link_type', type)
             )
           );
-
-          if (generated.video.selected_lead_magnet_ids && generated.video.selected_lead_magnet_ids.length > 0) {
-            const { data: lmData } = await supabase
-              .from('lead_magnets')
-              .select('*')
-              .in('id', generated.video.selected_lead_magnet_ids);
-
-            if (lmData) {
-              await Promise.all(
-                lmData.map((lm: any) =>
-                  createRedirectLink(savedVideo.id, savedVideo.campaign_id, 'lead_magnet' as any, lm.lead_magnet_url, appBaseUrl, lm.id)
-                )
-              );
-            }
-          }
-
-          if (editingVideoId && campaign) {
-            const urlUpdates: Array<[string, string]> = [
-              ['landing_page', campaign.landing_page_url],
-            ];
-            // checkout url update intentionally omitted — owned by campaign via Installation.tsx
-            if (campaign.newsletter_url) urlUpdates.push(['newsletter', campaign.newsletter_url]);
-            if (campaign.purchase_thankyou_url) urlUpdates.push(['purchase_thankyou', campaign.purchase_thankyou_url]);
-            if (campaign.newsletter_thankyou_url) urlUpdates.push(['newsletter_thankyou', campaign.newsletter_thankyou_url]);
-            if (campaign.sales_call_booking_url) urlUpdates.push(['sales_call', campaign.sales_call_booking_url]);
-            if (campaign.consultation_booking_url) urlUpdates.push(['consultation', campaign.consultation_booking_url]);
-
-            await Promise.all(
-              urlUpdates.map(([type, url]) =>
-                supabase
-                  .from('redirect_links')
-                  .update({ destination_url: url })
-                  .eq('video_id', editingVideoId)
-                  .eq('link_type', type)
-              )
-            );
-          }
 
           const { data: allLinks } = await supabase
             .from('redirect_links')
@@ -793,37 +750,72 @@ export default function Videos() {
           let lmNames: Record<string, string> = {};
           if (generated.video.selected_lead_magnet_ids && generated.video.selected_lead_magnet_ids.length > 0) {
             const { data: lmData } = await supabase
-              .from('lead_magnets')
-              .select('id, lead_magnet_name')
+              .from('lead_magnets').select('id, lead_magnet_name')
               .in('id', generated.video.selected_lead_magnet_ids);
             if (lmData) lmData.forEach((lm: any) => { lmNames[lm.id] = lm.lead_magnet_name; });
           }
-
           if (allLinks) {
-            setSavedLinks(allLinks.map((l: any) => ({
-              ...l,
-              label: getLinkLabel(l.link_type, lmNames, l.lead_magnet_id)
-            })));
+            setSavedLinks(allLinks.map((l: any) => ({ ...l, label: getLinkLabel(l.link_type, lmNames, l.lead_magnet_id) })));
+            setShowLinksModal(true);
+          }
+          setVideos(videos.map(v => v.id === editingVideoId ? savedVideo : v));
+        }
+
+      // ── Create path: delegated to createVideo() service ─────────────────
+      } else {
+        const { savedVideo } = await createVideo({
+          payload: {
+            platform:                 generated.video.platform!,
+            platform_url:             generated.video.platform_url!,
+            platform_post_id:         generated.video.platform_post_id ?? null,
+            youtube_video_id:         generated.video.youtube_video_id ?? null,
+            video_title:              generated.video.video_title!,
+            thumbnail_url:            generated.video.thumbnail_url ?? null,
+            campaign_id:              generated.video.campaign_id!,
+            video_goal:               generated.video.video_goal ?? [],
+            selected_lead_magnet_ids: generated.video.selected_lead_magnet_ids ?? null,
+            status:                   'no_data',
+          },
+          campaign:       generated.campaign,
+          organizationId: organizationId!,
+          userId:         user.id,
+        });
+
+        // UI: query links back and show the links modal (UI concern — stays here)
+        if (generated.campaign) {
+          const { data: allLinks } = await supabase
+            .from('redirect_links')
+            .select('token, link_type, destination_url, lead_magnet_id')
+            .eq('video_id', savedVideo.id);
+
+          let lmNames: Record<string, string> = {};
+          if (generated.video.selected_lead_magnet_ids && generated.video.selected_lead_magnet_ids.length > 0) {
+            const { data: lmData } = await supabase
+              .from('lead_magnets').select('id, lead_magnet_name')
+              .in('id', generated.video.selected_lead_magnet_ids);
+            if (lmData) lmData.forEach((lm: any) => { lmNames[lm.id] = lm.lead_magnet_name; });
+          }
+          if (allLinks) {
+            setSavedLinks(allLinks.map((l: any) => ({ ...l, label: getLinkLabel(l.link_type, lmNames, l.lead_magnet_id) })));
             setShowLinksModal(true);
           }
         }
 
-        if (editingVideoId) {
-          setVideos(videos.map(v => v.id === editingVideoId ? savedVideo : v));
-        } else {
-          setVideos([savedVideo, ...videos]);
-        }
-        setShowAdd(false);
-        setEditingVideoId(null);
-        setFormData({
-          url: '',
-          platform: 'youtube' as Platform,
-          campaign_id: campaigns[0]?.id || '',
-          objectives: ['sales'],
-          hasLeadMagnet: false,
-          selectedLeadMagnets: []
-        });
+        setVideos([savedVideo, ...videos]);
       }
+
+      // Common cleanup
+      setShowAdd(false);
+      setEditingVideoId(null);
+      setFormData({
+        url: '',
+        platform: 'youtube' as Platform,
+        campaign_id: campaigns[0]?.id || '',
+        objectives: ['sales'],
+        hasLeadMagnet: false,
+        selectedLeadMagnets: [],
+      });
+
     } catch (err: any) {
       showAlert('Save Error', err.message || 'An unexpected error occurred.', 'danger');
     } finally {

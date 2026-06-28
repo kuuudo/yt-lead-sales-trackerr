@@ -22,8 +22,10 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
 import { supabase } from '../lib/supabase';
+import type { Campaign, LeadMagnet } from '../lib/supabase';
 import { useAuth } from '../lib/auth';
 import { useOrganization } from '../lib/useOrganization';
+import { createVideo } from '../services/video/createVideo';
 import {
   AlertTriangle, Check, X, Loader2, Search, Link2,
   Plus, ArrowLeft, RefreshCw, ExternalLink, ChevronDown,
@@ -240,32 +242,156 @@ function MapToExistingModal({
 }
 
 // ---------------------------------------------------------------------------
-// Action: Create New Video
-// Minimal form to create a stub video entry and auto-map
+// Action: Import & Map — full video creation from registry analytics data
 // ---------------------------------------------------------------------------
 
-function CreateAndMapModal({
+/**
+ * ImportEntry encapsulates the analytics data already available from the registry.
+ * Platform-agnostic by design: today YouTube, tomorrow TikTok/Instagram/LinkedIn.
+ * To support a new platform, extend buildImportEntry() only — modal is unchanged.
+ */
+interface ImportEntry {
+  platform: 'youtube' | 'tiktok' | 'instagram' | 'linkedin';
+  platformVideoId: string | null;
+  title: string;
+  importDate: string;
+  prefillUrl: string | null;
+}
+
+function buildImportEntry(entry: RegistryEntry): ImportEntry {
+  // Currently YouTube-only. Future platforms: add a branch here.
+  const prefillUrl = entry.youtube_video_id
+    ? `https://www.youtube.com/watch?v=${entry.youtube_video_id}`
+    : null;
+  return {
+    platform: 'youtube',
+    platformVideoId: entry.youtube_video_id,
+    title: entry.canonical_title,
+    importDate: entry.created_at,
+    prefillUrl,
+  };
+}
+
+const PLATFORM_LABELS: Record<string, string> = {
+  youtube:   'YouTube',
+  tiktok:    'TikTok',
+  instagram: 'Instagram',
+  linkedin:  'LinkedIn',
+};
+
+const GOALS = ['sales', 'newsletter', 'calls', 'consult', 'viral'] as const;
+const GOAL_LABELS: Record<string, string> = {
+  sales: 'Sales', newsletter: 'Newsletter', calls: 'Sales Call',
+  consult: 'Consultation', viral: 'Viral / Awareness',
+};
+
+function ImportVideoModal({
   entry,
+  organizationId,
+  userId,
   onConfirm,
   onCancel,
 }: {
   entry: RegistryEntry;
-  onConfirm: (title: string, youtubeUrl: string) => Promise<void>;
+  organizationId: string;
+  userId: string;
+  onConfirm: (savedVideoId: string) => Promise<void>;
   onCancel: () => void;
 }) {
-  const [title, setTitle] = useState(entry.canonical_title);
-  const [url, setUrl] = useState(
-    entry.youtube_video_id
-      ? `https://www.youtube.com/watch?v=${entry.youtube_video_id}`
-      : ''
-  );
-  const [saving, setSaving] = useState(false);
+  const importEntry = buildImportEntry(entry);
 
-  const handleConfirm = async () => {
-    if (!title.trim()) return;
+  const [campaigns, setCampaigns] = useState<Campaign[]>([]);
+  const [selectedCampaignId, setSelectedCampaignId] = useState('');
+  const [selectedGoals, setSelectedGoals] = useState<string[]>(['sales']);
+  const [availableMagnets, setAvailableMagnets] = useState<LeadMagnet[]>([]);
+  const [hasLeadMagnet, setHasLeadMagnet] = useState(false);
+  const [selectedMagnetIds, setSelectedMagnetIds] = useState<string[]>([]);
+  const [loadingCampaigns, setLoadingCampaigns] = useState(true);
+  const [loadingMagnets, setLoadingMagnets] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    const load = async () => {
+      const { data } = await supabase
+        .from('campaigns')
+        .select('*')
+        .eq('organization_id', organizationId)
+        .order('created_at', { ascending: false });
+      const list = data ?? [];
+      setCampaigns(list);
+      if (list.length > 0) setSelectedCampaignId(list[0].id);
+      setLoadingCampaigns(false);
+    };
+    load();
+  }, [organizationId]);
+
+  useEffect(() => {
+    if (!selectedCampaignId) { setAvailableMagnets([]); return; }
+    setLoadingMagnets(true);
+    supabase
+      .from('lead_magnets')
+      .select('*')
+      .eq('campaign_id', selectedCampaignId)
+      .then(({ data }) => {
+        const list = data ?? [];
+        setAvailableMagnets(list);
+        setSelectedMagnetIds(ids => ids.filter(id => list.some((m: LeadMagnet) => m.id === id)));
+        setLoadingMagnets(false);
+      });
+  }, [selectedCampaignId]);
+
+  const toggleGoal = (goal: string) => {
+    setSelectedGoals(prev =>
+      prev.includes(goal)
+        ? (prev.length > 1 ? prev.filter(g => g !== goal) : prev)
+        : [...prev, goal]
+    );
+  };
+
+  const toggleMagnet = (id: string) => {
+    setSelectedMagnetIds(prev =>
+      prev.includes(id) ? prev.filter(m => m !== id) : [...prev, id]
+    );
+  };
+
+  const handleSave = async () => {
+    if (!selectedCampaignId) { setError('Please select a campaign.'); return; }
+    setError(null);
     setSaving(true);
-    await onConfirm(title.trim(), url.trim());
-    setSaving(false);
+    try {
+      const campaign = campaigns.find(c => c.id === selectedCampaignId);
+
+      // Build thumbnail from video ID — no API call needed.
+      // Registry data is already the source of truth.
+      const thumbnailUrl = importEntry.platform === 'youtube' && importEntry.platformVideoId
+        ? `https://img.youtube.com/vi/${importEntry.platformVideoId}/maxresdefault.jpg`
+        : null;
+
+      const { savedVideo } = await createVideo({
+        payload: {
+          platform:                 importEntry.platform as any,
+          platform_url:             importEntry.prefillUrl ?? '',
+          platform_post_id:         importEntry.platformVideoId ?? null,
+          youtube_video_id:         importEntry.platform === 'youtube' ? importEntry.platformVideoId : null,
+          video_title:              importEntry.title,
+          thumbnail_url:            thumbnailUrl,
+          campaign_id:              selectedCampaignId,
+          video_goal:               selectedGoals as any,
+          selected_lead_magnet_ids: hasLeadMagnet && selectedMagnetIds.length > 0 ? selectedMagnetIds : null,
+          status:                   'no_data',
+        },
+        campaign,
+        organizationId,
+        userId,
+      });
+
+      // Delegate mapping + backfill to caller (handleMapToExisting)
+      await onConfirm(savedVideo.id);
+    } catch (err: any) {
+      setError(err.message ?? 'An unexpected error occurred.');
+      setSaving(false);
+    }
   };
 
   return (
@@ -273,13 +399,14 @@ function CreateAndMapModal({
       <motion.div
         initial={{ opacity: 0, scale: 0.96 }}
         animate={{ opacity: 1, scale: 1 }}
-        className="bg-zinc-900 border border-zinc-800 rounded-2xl p-6 w-full max-w-md space-y-4"
+        className="bg-zinc-900 border border-zinc-800 rounded-2xl w-full max-w-lg overflow-y-auto max-h-[90vh]"
       >
-        <div className="flex items-start justify-between">
+        {/* Header */}
+        <div className="flex items-start justify-between p-6 pb-4">
           <div>
-            <h3 className="text-white font-black uppercase tracking-tight text-sm">Create & Map New Video</h3>
+            <h3 className="text-white font-black uppercase tracking-tight text-sm">Track New Content</h3>
             <p className="text-zinc-500 text-[10px] mt-1 font-bold uppercase tracking-widest">
-              A stub video entry will be created and linked
+              Import from analytics data
             </p>
           </div>
           <button onClick={onCancel} className="text-zinc-500 hover:text-white transition-colors">
@@ -287,51 +414,154 @@ function CreateAndMapModal({
           </button>
         </div>
 
-        <div className="space-y-3">
-          <div>
-            <label className="text-[10px] font-black uppercase tracking-widest text-zinc-500 block mb-1.5">
-              Video Title
-            </label>
-            <input
-              type="text"
-              value={title}
-              onChange={e => setTitle(e.target.value)}
-              className="w-full h-10 bg-zinc-950 border border-zinc-800 rounded-xl px-4 text-[11px] text-zinc-300 outline-none focus:border-zinc-600 transition-all"
-            />
+        {/* Analytics Info Panel — always visible so user knows which record they're importing */}
+        <div className="mx-6 mb-4 p-4 bg-zinc-950 border border-zinc-800 rounded-xl space-y-2">
+          <p className="text-[9px] font-black uppercase tracking-widest text-zinc-500">
+            Importing Analytics Record
+          </p>
+          <div className="flex items-center gap-2">
+            <span className="px-2 py-0.5 bg-red-600/20 border border-red-600/30 rounded text-[9px] font-black uppercase tracking-widest text-red-400">
+              {PLATFORM_LABELS[importEntry.platform] ?? importEntry.platform}
+            </span>
+            {importEntry.platformVideoId && (
+              <span className="text-[10px] font-mono text-zinc-600">
+                {importEntry.platformVideoId}
+              </span>
+            )}
           </div>
-          <div>
-            <label className="text-[10px] font-black uppercase tracking-widest text-zinc-500 block mb-1.5">
-              YouTube URL (optional)
-            </label>
-            <input
-              type="url"
-              value={url}
-              onChange={e => setUrl(e.target.value)}
-              placeholder="https://youtube.com/watch?v=…"
-              className="w-full h-10 bg-zinc-950 border border-zinc-800 rounded-xl px-4 text-[11px] font-mono text-zinc-300 placeholder:text-zinc-700 outline-none focus:border-zinc-600 transition-all"
-            />
-          </div>
+          <p className="text-white text-[11px] font-bold leading-snug">
+            {importEntry.title}
+          </p>
+          <p className="text-zinc-600 text-[9px] font-mono">
+            Imported {new Date(importEntry.importDate).toLocaleDateString()}
+          </p>
+          {importEntry.prefillUrl && (
+            <a
+              href={importEntry.prefillUrl}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="inline-flex items-center gap-1 text-zinc-500 hover:text-zinc-300 text-[9px] font-mono transition-colors"
+            >
+              <ExternalLink size={10} />
+              {importEntry.prefillUrl}
+            </a>
+          )}
         </div>
 
-        <p className="text-zinc-600 text-[10px] font-bold">
-          Note: The new video will be created without a campaign. You can assign it a campaign later in the Videos page.
-        </p>
+        {/* Business fields — user fills in what the analytics record doesn't have */}
+        <div className="px-6 pb-6 space-y-4">
 
-        <div className="flex gap-2">
-          <button
-            onClick={onCancel}
-            className="flex-1 h-10 border border-zinc-800 rounded-xl text-[10px] font-black uppercase tracking-widest text-zinc-500 hover:text-zinc-300 transition-all"
-          >
-            Cancel
-          </button>
-          <button
-            onClick={handleConfirm}
-            disabled={!title.trim() || saving}
-            className="flex-1 h-10 bg-red-600 hover:bg-red-500 disabled:opacity-40 disabled:cursor-not-allowed text-white rounded-xl text-[10px] font-black uppercase tracking-widest transition-all flex items-center justify-center gap-2"
-          >
-            {saving ? <Loader2 size={14} className="animate-spin" /> : <Plus size={14} />}
-            Create & Map
-          </button>
+          {/* Campaign */}
+          <div>
+            <label className="text-[10px] font-black uppercase tracking-widest text-zinc-500 block mb-1.5">
+              Campaign
+            </label>
+            {loadingCampaigns ? (
+              <div className="h-10 flex items-center">
+                <Loader2 size={14} className="text-zinc-600 animate-spin" />
+              </div>
+            ) : campaigns.length === 0 ? (
+              <p className="text-zinc-600 text-[10px] font-bold uppercase">
+                No campaigns found — create one first.
+              </p>
+            ) : (
+              <select
+                value={selectedCampaignId}
+                onChange={e => setSelectedCampaignId(e.target.value)}
+                className="w-full h-10 bg-zinc-950 border border-zinc-800 rounded-xl px-4 text-[11px] text-zinc-300 outline-none focus:border-zinc-600 transition-all"
+              >
+                {campaigns.map(c => (
+                  <option key={c.id} value={c.id}>{c.campaign_name}</option>
+                ))}
+              </select>
+            )}
+          </div>
+
+          {/* Goals */}
+          <div>
+            <label className="text-[10px] font-black uppercase tracking-widest text-zinc-500 block mb-1.5">
+              Goals
+            </label>
+            <div className="flex flex-wrap gap-1.5">
+              {GOALS.map(goal => (
+                <button
+                  key={goal}
+                  onClick={() => toggleGoal(goal)}
+                  className={`h-7 px-3 rounded-lg text-[9px] font-black uppercase tracking-widest transition-all ${
+                    selectedGoals.includes(goal)
+                      ? 'bg-red-600 text-white'
+                      : 'bg-zinc-800 text-zinc-400 hover:bg-zinc-700'
+                  }`}
+                >
+                  {GOAL_LABELS[goal]}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          {/* Lead Magnet */}
+          <div>
+            <label className="flex items-center gap-2 cursor-pointer mb-2">
+              <input
+                type="checkbox"
+                checked={hasLeadMagnet}
+                onChange={e => setHasLeadMagnet(e.target.checked)}
+                className="accent-red-600"
+              />
+              <span className="text-[10px] font-black uppercase tracking-widest text-zinc-400">
+                Include Lead Magnet
+              </span>
+            </label>
+            {hasLeadMagnet && (
+              <div className="space-y-1 pl-1">
+                {loadingMagnets ? (
+                  <Loader2 size={12} className="text-zinc-600 animate-spin" />
+                ) : !selectedCampaignId ? (
+                  <p className="text-zinc-600 text-[10px]">Select a campaign first.</p>
+                ) : availableMagnets.length === 0 ? (
+                  <p className="text-zinc-600 text-[10px]">No lead magnets in this campaign.</p>
+                ) : (
+                  availableMagnets.map(m => (
+                    <button
+                      key={m.id}
+                      onClick={() => toggleMagnet(m.id)}
+                      className={`w-full flex items-center justify-between px-3 py-2 rounded-lg border text-left text-[10px] font-bold transition-all ${
+                        selectedMagnetIds.includes(m.id)
+                          ? 'bg-red-600/10 border-red-600/40 text-white'
+                          : 'bg-zinc-950 border-zinc-800 text-zinc-400 hover:border-zinc-700'
+                      }`}
+                    >
+                      <span className="truncate">{m.lead_magnet_name}</span>
+                      {selectedMagnetIds.includes(m.id) && <Check size={11} className="text-red-500 shrink-0" />}
+                    </button>
+                  ))
+                )}
+              </div>
+            )}
+          </div>
+
+          {/* Error */}
+          {error && (
+            <p className="text-red-400 text-[10px] font-bold">{error}</p>
+          )}
+
+          {/* Actions */}
+          <div className="flex gap-2 pt-2">
+            <button
+              onClick={onCancel}
+              className="flex-1 h-10 border border-zinc-800 rounded-xl text-[10px] font-black uppercase tracking-widest text-zinc-500 hover:text-zinc-300 transition-all"
+            >
+              Cancel
+            </button>
+            <button
+              onClick={handleSave}
+              disabled={saving || loadingCampaigns || campaigns.length === 0}
+              className="flex-1 h-10 bg-red-600 hover:bg-red-500 disabled:opacity-40 disabled:cursor-not-allowed text-white rounded-xl text-[10px] font-black uppercase tracking-widest transition-all flex items-center justify-center gap-2"
+            >
+              {saving ? <Loader2 size={14} className="animate-spin" /> : <Check size={14} />}
+              Save & Map
+            </button>
+          </div>
         </div>
       </motion.div>
     </div>
@@ -445,61 +675,6 @@ export default function UnmappedVideos() {
       console.error('[UnmappedVideos] Map error:', err);
       showToast(`Mapping failed: ${err.message}`, 'error');
     } finally {
-      setProcessingId(null);
-    }
-  };
-
-  // ── Action: Create & Map ─────────────────────────────────────────────────
-
-  const handleCreateAndMap = async (registryId: string, title: string, youtubeUrl: string) => {
-    // Guard: organizationId and user must be present before any write
-    if (!organizationId) {
-      showToast('Create failed: missing organization context', 'error');
-      return;
-    }
-    if (!user?.id) {
-      showToast('Create failed: not authenticated', 'error');
-      return;
-    }
-
-    setProcessingId(registryId);
-    try {
-      // 1. Get registry entry for youtube_video_id
-      const entry = entries.find(e => e.id === registryId);
-      if (!entry) throw new Error('Registry entry not found');
-
-      // 2. Extract video ID from URL if provided, fall back to registry's youtube_video_id
-      const videoIdFromUrl = youtubeUrl
-        ? youtubeUrl.match(/[?&]v=([0-9A-Za-z_-]{11})/)?.[1] ?? null
-        : entry.youtube_video_id;
-
-      // 3. Create video in videos table
-      // organization_id is required for RLS — this was the root cause of the previous failure
-      const { data: newVideo, error: insertError } = await supabase
-        .from('videos')
-        .insert({
-          user_id: user.id,
-          organization_id: organizationId,
-          video_title: title,
-          platform: 'youtube',
-          youtube_video_id: videoIdFromUrl,
-          platform_url: youtubeUrl || (videoIdFromUrl ? `https://www.youtube.com/watch?v=${videoIdFromUrl}` : null),
-          platform_post_id: videoIdFromUrl,
-          status: 'no_data',
-          video_goal: [],
-        })
-        .select('id')
-        .single();
-
-      if (insertError || !newVideo) throw insertError ?? new Error('Insert failed');
-
-      // 4. Map the registry entry + backfill metrics
-      await handleMapToExisting(registryId, newVideo.id);
-
-      setActiveAction({ registryId: '', type: null });
-    } catch (err: any) {
-      console.error('[UnmappedVideos] Create+map error:', err);
-      showToast(`Create & map failed: ${err.message}`, 'error');
       setProcessingId(null);
     }
   };
@@ -678,11 +853,13 @@ export default function UnmappedVideos() {
             onCancel={() => setActiveAction({ registryId: '', type: null })}
           />
         )}
-        {activeAction.type === 'create' && activeEntry && (
-          <CreateAndMapModal
+        {activeAction.type === 'create' && activeEntry && organizationId && user && (
+          <ImportVideoModal
             key="create-modal"
             entry={activeEntry}
-            onConfirm={(title, url) => handleCreateAndMap(activeEntry.id, title, url)}
+            organizationId={organizationId}
+            userId={user.id}
+            onConfirm={(savedVideoId) => handleMapToExisting(activeEntry.id, savedVideoId)}
             onCancel={() => setActiveAction({ registryId: '', type: null })}
           />
         )}
