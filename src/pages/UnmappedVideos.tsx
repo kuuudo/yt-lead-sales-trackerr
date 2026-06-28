@@ -92,18 +92,34 @@ function MapToExistingModal({
         .eq('organization_id', organizationId)
         .order('created_at', { ascending: false });
       setVideos(data ?? []);
+
+      // Auto-select exact match by youtube_video_id (100% confidence only)
+      if (entry.youtube_video_id) {
+        const exactMatch = (data ?? []).find(
+          v => v.youtube_video_id && v.youtube_video_id === entry.youtube_video_id
+        );
+        if (exactMatch) setSelectedId(exactMatch.id);
+      }
+
       setLoadingVideos(false);
     };
     load();
-  }, [organizationId]);
+  }, [organizationId, entry.youtube_video_id]);
 
-  const filtered = videos.filter(v => {
-    const q = search.toLowerCase();
-    return (
-      (v.video_title ?? '').toLowerCase().includes(q) ||
-      (v.youtube_video_id ?? '').toLowerCase().includes(q)
-    );
-  });
+  const filtered = videos
+    .filter(v => {
+      const q = search.toLowerCase();
+      return (
+        (v.video_title ?? '').toLowerCase().includes(q) ||
+        (v.youtube_video_id ?? '').toLowerCase().includes(q)
+      );
+    })
+    // Exact match always sorts to top
+    .sort((a, b) => {
+      const aExact = a.youtube_video_id === entry.youtube_video_id ? -1 : 0;
+      const bExact = b.youtube_video_id === entry.youtube_video_id ? -1 : 0;
+      return aExact - bExact;
+    });
 
   const handleConfirm = async () => {
     if (!selectedId) return;
@@ -154,33 +170,50 @@ function MapToExistingModal({
               No videos found
             </p>
           ) : (
-            filtered.map(v => (
-              <button
-                key={v.id}
-                onClick={() => setSelectedId(v.id)}
-                className={`w-full flex items-start gap-3 p-3 rounded-xl border text-left transition-all ${
-                  selectedId === v.id
-                    ? 'bg-red-600/10 border-red-600/50 text-white'
-                    : 'border-zinc-800 bg-zinc-950 text-zinc-400 hover:bg-zinc-800 hover:border-zinc-700'
-                }`}
-              >
-                <div className={`w-4 h-4 rounded-full border-2 mt-0.5 flex items-center justify-center shrink-0 ${
-                  selectedId === v.id ? 'border-red-500 bg-red-500' : 'border-zinc-700'
-                }`}>
-                  {selectedId === v.id && <div className="w-1.5 h-1.5 bg-white rounded-full" />}
-                </div>
-                <div className="min-w-0 flex-1">
-                  <p className="text-[11px] font-bold truncate text-inherit">
-                    {v.video_title ?? '(untitled)'}
-                  </p>
-                  {v.youtube_video_id && (
-                    <p className="text-[10px] font-mono text-zinc-600 mt-0.5">
-                      {v.youtube_video_id}
-                    </p>
-                  )}
-                </div>
-              </button>
-            ))
+            filtered.map(v => {
+              const isExact = !!(v.youtube_video_id && v.youtube_video_id === entry.youtube_video_id);
+              return (
+                <button
+                  key={v.id}
+                  onClick={() => setSelectedId(v.id)}
+                  className={`w-full flex items-start gap-3 p-3 rounded-xl border text-left transition-all ${
+                    isExact
+                      ? selectedId === v.id
+                        ? 'bg-green-600/10 border-green-600/50 text-white'
+                        : 'border-green-800/50 bg-green-950/20 text-zinc-400 hover:bg-green-900/20'
+                      : selectedId === v.id
+                        ? 'bg-red-600/10 border-red-600/50 text-white'
+                        : 'border-zinc-800 bg-zinc-950 text-zinc-400 hover:bg-zinc-800 hover:border-zinc-700'
+                  }`}
+                >
+                  <div className={`w-4 h-4 rounded-full border-2 mt-0.5 flex items-center justify-center shrink-0 ${
+                    selectedId === v.id
+                      ? isExact ? 'border-green-500 bg-green-500' : 'border-red-500 bg-red-500'
+                      : 'border-zinc-700'
+                  }`}>
+                    {selectedId === v.id && <div className="w-1.5 h-1.5 bg-white rounded-full" />}
+                  </div>
+                  <div className="min-w-0 flex-1">
+                    <div className="flex items-center gap-2">
+                      <p className="text-[11px] font-bold truncate text-inherit">
+                        {v.video_title ?? '(untitled)'}
+                      </p>
+                      {isExact && (
+                        <span className="shrink-0 flex items-center gap-1 px-1.5 py-0.5 bg-green-900/50 border border-green-700/50 rounded text-[9px] font-black uppercase tracking-widest text-green-400">
+                          <Check size={9} />
+                          Exact Match
+                        </span>
+                      )}
+                    </div>
+                    {v.youtube_video_id && (
+                      <p className="text-[10px] font-mono text-zinc-600 mt-0.5">
+                        {v.youtube_video_id}
+                      </p>
+                    )}
+                  </div>
+                </button>
+              );
+            })
           )}
         </div>
 
@@ -364,49 +397,65 @@ export default function UnmappedVideos() {
 
       if (regError) throw regError;
 
-      // Back-fill video_metrics for all raw rows linked to this registry entry
-      // that don't yet have a metrics row
-      const { data: rawRows } = await supabase
+      // Back-fill video_metrics.
+      // Design rule: metrics insert must ALWAYS run after mapping success.
+      // rawRows are used for enrichment only — they do NOT gate the insert.
+
+      const { data: rawRows, error: rawRowsError } = await supabase
         .from('youtube_import_rows')
         .select('*')
         .eq('video_registry_id', registryId);
 
-      if (rawRows && rawRows.length > 0) {
-        const metricsRows = rawRows.map(row => ({
-          video_registry_id: registryId,
-          internal_video_id: internalVideoId,
-          organization_id: row.organization_id,
-          platform: 'youtube',
-          date: row.date,
-          views: row.views,
-          likes: row.likes,
-          comments: row.comments,
-          watch_time: row.watch_time,
-          impressions: row.impressions,
-          ctr: row.ctr,
-          import_batch_id: row.import_batch_id,
-        }));
+      console.log('[BACKFILL] youtube_import_rows:', { count: rawRows?.length ?? 0, rawRowsError, registryId });
 
-        await supabase
-          .from('video_metrics')
-          .upsert(metricsRows, { onConflict: 'video_registry_id,date', ignoreDuplicates: true });
-      } else {
-      // 🔥 ADD THIS BLOCK (STUB METRICS)
-        await supabase
-          .from('video_metrics')
-          .insert({
+      if (rawRowsError) {
+        // Log but do not abort — we still insert the stub row below
+        console.error('[BACKFILL] Failed to fetch import rows (RLS or network):', rawRowsError.message);
+      }
+
+      // Build metrics rows: one row per import row if available, otherwise a single stub
+      const today = new Date().toISOString().split('T')[0];
+      const metricsRows = (rawRows && rawRows.length > 0)
+        ? rawRows.map(row => ({
             video_registry_id: registryId,
             internal_video_id: internalVideoId,
-            organization_id: organizationId, // IMPORTANT: use org from outer scope
+            organization_id: row.organization_id,
             platform: 'youtube',
-            date: new Date().toISOString().split('T')[0],
-            views: 0,
-            likes: 0,
-            comments: 0,
-            watch_time: 0,
-            impressions: 0,
-            ctr: 0,
-          });
+            date: row.date,
+            views: row.views ?? null,
+            likes: row.likes ?? null,
+            comments: row.comments ?? null,
+            watch_time: row.watch_time ?? null,
+            impressions: row.impressions ?? null,
+            ctr: row.ctr ?? null,
+            import_batch_id: row.import_batch_id,
+          }))
+        : [{
+            // Stub row so this video always has a metrics record after mapping
+            video_registry_id: registryId,
+            internal_video_id: internalVideoId,
+            organization_id: organizationId,
+            platform: 'youtube',
+            date: today,
+            views: null,
+            likes: null,
+            comments: null,
+            watch_time: null,
+            impressions: null,
+            ctr: null,
+            import_batch_id: null,
+          }];
+
+      console.log('[BACKFILL] Inserting video_metrics rows:', metricsRows.length);
+
+      const { error: upsertError } = await supabase
+        .from('video_metrics')
+        .upsert(metricsRows, { onConflict: 'video_registry_id,date', ignoreDuplicates: true });
+
+      console.log('[BACKFILL] video_metrics upsert error:', upsertError);
+
+      if (upsertError) {
+        throw new Error(`Backfill failed: ${upsertError.message}`);
       }
 
       setEntries(prev => prev.filter(e => e.id !== registryId));
@@ -497,7 +546,7 @@ export default function UnmappedVideos() {
   };
 
   // ---------------------------------------------------------------------------
-  // Renderr
+  // Render
   // ---------------------------------------------------------------------------
 
   const activeEntry = entries.find(e => e.id === activeAction.registryId);
