@@ -376,7 +376,7 @@ async function upsertVideoRegistry(row: ParsedCSVRow, match: MatchResult | null,
 // ---------------------------------------------------------------------------
 // video_metrics Upsert
 // ---------------------------------------------------------------------------
-async function upsertVideoMetrics(
+export async function upsertVideoMetrics(
   registryId: string,
   internalVideoId: string,
   row: ParsedCSVRow,

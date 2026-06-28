@@ -397,65 +397,27 @@ export default function UnmappedVideos() {
 
       if (regError) throw regError;
 
-      // Back-fill video_metrics.
-      // Design rule: metrics insert must ALWAYS run after mapping success.
-      // rawRows are used for enrichment only — they do NOT gate the insert.
+      // Back-fill video_metrics via server endpoint (service role, bypasses RLS).
+      // Keeps video_metrics writes server-side, consistent with CSV import pipeline.
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session?.access_token) throw new Error('Not authenticated');
 
-      const { data: rawRows, error: rawRowsError } = await supabase
-        .from('youtube_import_rows')
-        .select('*')
-        .eq('video_registry_id', registryId);
+      console.log('[BACKFILL] Calling /api/youtube/backfill', { registryId, internalVideoId });
 
-      console.log('[BACKFILL] youtube_import_rows:', { count: rawRows?.length ?? 0, rawRowsError, registryId });
+      const backfillRes = await fetch('/api/youtube/backfill', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${session.access_token}`,
+        },
+        body: JSON.stringify({ registryId, internalVideoId }),
+      });
 
-      if (rawRowsError) {
-        // Log but do not abort — we still insert the stub row below
-        console.error('[BACKFILL] Failed to fetch import rows (RLS or network):', rawRowsError.message);
-      }
+      const backfillData = await backfillRes.json();
+      console.log('[BACKFILL] Response:', backfillData);
 
-      // Build metrics rows: one row per import row if available, otherwise a single stub
-      const today = new Date().toISOString().split('T')[0];
-      const metricsRows = (rawRows && rawRows.length > 0)
-        ? rawRows.map(row => ({
-            video_registry_id: registryId,
-            internal_video_id: internalVideoId,
-            organization_id: row.organization_id,
-            platform: 'youtube',
-            date: row.date,
-            views: row.views ?? null,
-            likes: row.likes ?? null,
-            comments: row.comments ?? null,
-            watch_time: row.watch_time ?? null,
-            impressions: row.impressions ?? null,
-            ctr: row.ctr ?? null,
-            import_batch_id: row.import_batch_id,
-          }))
-        : [{
-            // Stub row so this video always has a metrics record after mapping
-            video_registry_id: registryId,
-            internal_video_id: internalVideoId,
-            organization_id: organizationId,
-            platform: 'youtube',
-            date: today,
-            views: null,
-            likes: null,
-            comments: null,
-            watch_time: null,
-            impressions: null,
-            ctr: null,
-            import_batch_id: null,
-          }];
-
-      console.log('[BACKFILL] Inserting video_metrics rows:', metricsRows.length);
-
-      const { error: upsertError } = await supabase
-        .from('video_metrics')
-        .upsert(metricsRows, { onConflict: 'organization_id,video_registry_id,date', ignoreDuplicates: true });
-
-      console.log('[BACKFILL] video_metrics upsert error:', upsertError);
-
-      if (upsertError) {
-        throw new Error(`Backfill failed: ${upsertError.message}`);
+      if (!backfillRes.ok) {
+        throw new Error(`Backfill failed: ${backfillData.error ?? backfillRes.status}`);
       }
 
       setEntries(prev => prev.filter(e => e.id !== registryId));
