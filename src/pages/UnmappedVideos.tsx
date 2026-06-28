@@ -375,6 +375,7 @@ export default function UnmappedVideos() {
         const metricsRows = rawRows.map(row => ({
           video_registry_id: registryId,
           internal_video_id: internalVideoId,
+          organization_id: row.organization_id,
           platform: 'youtube',
           date: row.date,
           views: row.views,
@@ -405,22 +406,34 @@ export default function UnmappedVideos() {
   // ── Action: Create & Map ─────────────────────────────────────────────────
 
   const handleCreateAndMap = async (registryId: string, title: string, youtubeUrl: string) => {
+    // Guard: organizationId and user must be present before any write
+    if (!organizationId) {
+      showToast('Create failed: missing organization context', 'error');
+      return;
+    }
+    if (!user?.id) {
+      showToast('Create failed: not authenticated', 'error');
+      return;
+    }
+
     setProcessingId(registryId);
     try {
       // 1. Get registry entry for youtube_video_id
       const entry = entries.find(e => e.id === registryId);
       if (!entry) throw new Error('Registry entry not found');
 
-      // 2. Extract video ID from URL if provided
+      // 2. Extract video ID from URL if provided, fall back to registry's youtube_video_id
       const videoIdFromUrl = youtubeUrl
         ? youtubeUrl.match(/[?&]v=([0-9A-Za-z_-]{11})/)?.[1] ?? null
         : entry.youtube_video_id;
 
-      // 3. Create stub video in videos table
+      // 3. Create video in videos table
+      // organization_id is required for RLS — this was the root cause of the previous failure
       const { data: newVideo, error: insertError } = await supabase
         .from('videos')
         .insert({
-          user_id: user?.id,
+          user_id: user.id,
+          organization_id: organizationId,
           video_title: title,
           platform: 'youtube',
           youtube_video_id: videoIdFromUrl,
@@ -434,7 +447,7 @@ export default function UnmappedVideos() {
 
       if (insertError || !newVideo) throw insertError ?? new Error('Insert failed');
 
-      // 4. Map the registry entry
+      // 4. Map the registry entry + backfill metrics
       await handleMapToExisting(registryId, newVideo.id);
 
       setActiveAction({ registryId: '', type: null });
