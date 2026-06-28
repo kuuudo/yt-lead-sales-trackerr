@@ -450,7 +450,7 @@ export default function UnmappedVideos() {
 
       const { error: upsertError } = await supabase
         .from('video_metrics')
-        .upsert(metricsRows, { onConflict: 'video_registry_id,date', ignoreDuplicates: true });
+        .upsert(metricsRows, { onConflict: 'organization_id,video_registry_id,date', ignoreDuplicates: true });
 
       console.log('[BACKFILL] video_metrics upsert error:', upsertError);
 
