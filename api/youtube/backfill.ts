@@ -1,48 +1,76 @@
 /**
  * api/youtube/backfill.ts
  *
- * Vercel serverless API route.
- *
- * Called after a manual Map or Create action in UnmappedVideos.tsx.
- * Writes video_metrics rows using the service role client (bypasses RLS),
- * reusing the same upsertVideoMetrics() function as the CSV import pipeline.
+ * Vercel serverless API route — self-contained single file.
+ * (Same pattern as import.ts — no cross-file imports to avoid Vercel module resolution issues.)
  *
  * POST /api/youtube/backfill
  * Body (JSON): { registryId: string, internalVideoId: string }
+ *
+ * Called after a manual Map or Create in UnmappedVideos.tsx.
+ * Uses service role to write video_metrics, bypassing RLS.
  */
 
 import type { VercelRequest, VercelResponse } from '@vercel/node';
 import { createClient } from '@supabase/supabase-js';
-import { upsertVideoMetrics } from './import';
 
 // ---------------------------------------------------------------------------
-// Service role client — same as import.ts, bypasses RLS
+// Supabase clients
 // ---------------------------------------------------------------------------
 const supabase = createClient(
   process.env.SUPABASE_URL!,
-  process.env.SUPABASE_SERVICE_KEY!
+  process.env.SUPABASE_SERVICE_KEY!   // service role — bypasses RLS
 );
 
+const supabaseAnon = createClient(
+  process.env.SUPABASE_URL!,
+  process.env.SUPABASE_ANON_KEY!      // anon — used only to verify user JWT
+);
+
+const PLATFORM = 'youtube' as const;
+
 // ---------------------------------------------------------------------------
-// Auth helper — verify the request comes from a logged-in org member
+// Inline upsertVideoMetrics — same logic as import.ts, self-contained
 // ---------------------------------------------------------------------------
-async function getOrgFromRequest(req: VercelRequest): Promise<{ userId: string; organizationId: string } | null> {
-  const authHeader = req.headers['authorization'];
-  if (!authHeader?.startsWith('Bearer ')) return null;
+async function upsertVideoMetrics(
+  registryId: string,
+  internalVideoId: string,
+  row: {
+    date: string;
+    views: number | null;
+    likes: number | null;
+    comments: number | null;
+    watch_time: number | null;
+    impressions: number | null;
+    ctr: number | null;
+    import_batch_id: string | null;
+  },
+  organizationId: string
+): Promise<void> {
+  const { error } = await supabase
+    .from('video_metrics')
+    .upsert(
+      {
+        video_registry_id: registryId,
+        internal_video_id: internalVideoId,
+        platform:          PLATFORM,
+        date:              row.date,
+        views:             row.views,
+        likes:             row.likes,
+        comments:          row.comments,
+        watch_time:        row.watch_time,
+        impressions:       row.impressions,
+        ctr:               row.ctr,
+        import_batch_id:   row.import_batch_id,
+        organization_id:   organizationId,
+      },
+      { onConflict: 'organization_id,video_registry_id,date' }
+    );
 
-  const token = authHeader.slice(7);
-  const supabaseAnon = createClient(process.env.SUPABASE_URL!, process.env.SUPABASE_ANON_KEY!);
-  const { data: { user }, error } = await supabaseAnon.auth.getUser(token);
-  if (error || !user) return null;
-
-  const { data: member } = await supabase
-    .from('organization_members')
-    .select('organization_id')
-    .eq('user_id', user.id)
-    .single();
-
-  if (!member) return null;
-  return { userId: user.id, organizationId: member.organization_id };
+  if (error) {
+    console.error(`[backfill] video_metrics upsert failed for ${registryId} / ${row.date}:`, error.message);
+    throw new Error(error.message);
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -56,18 +84,39 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   if (req.method === 'OPTIONS') return res.status(200).end();
   if (req.method !== 'POST') return res.status(405).json({ error: 'Method not allowed' });
 
-  // Auth
-  const auth = await getOrgFromRequest(req);
-  if (!auth) return res.status(401).json({ error: 'Unauthorized' });
-  const { organizationId } = auth;
+  // --- Auth: verify JWT and get organizationId ---
+  const authHeader = req.headers['authorization'];
+  if (!authHeader?.startsWith('Bearer ')) {
+    return res.status(401).json({ error: 'Missing authorization header' });
+  }
 
-  // Validate body
+  const token = authHeader.slice(7);
+  const { data: { user }, error: userError } = await supabaseAnon.auth.getUser(token);
+  if (userError || !user) {
+    return res.status(401).json({ error: 'Invalid or expired token' });
+  }
+
+  const { data: member, error: memberError } = await supabase
+    .from('organization_members')
+    .select('organization_id')
+    .eq('user_id', user.id)
+    .single();
+
+  if (memberError || !member) {
+    return res.status(403).json({ error: 'User is not a member of any organization' });
+  }
+
+  const organizationId = member.organization_id;
+
+  // --- Validate body ---
   const { registryId, internalVideoId } = req.body ?? {};
   if (!registryId || !internalVideoId) {
     return res.status(400).json({ error: 'Missing registryId or internalVideoId' });
   }
 
-  // Fetch raw import rows for this registry entry
+  console.log('[backfill] Starting', { registryId, internalVideoId, organizationId });
+
+  // --- Fetch import rows for this registry entry ---
   const { data: rawRows, error: rowsError } = await supabase
     .from('youtube_import_rows')
     .select('*')
@@ -78,54 +127,36 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     return res.status(500).json({ error: `Failed to fetch import rows: ${rowsError.message}` });
   }
 
-  // If no import rows exist, insert a single stub so the video always has
-  // at least one metrics record after mapping (matches UnmappedVideos stub logic).
+  // --- Backfill metrics ---
   if (!rawRows || rawRows.length === 0) {
+    // No import rows — insert a stub so the video always has a metrics record
     const today = new Date().toISOString().split('T')[0];
-    await upsertVideoMetrics(
-      registryId,
-      internalVideoId,
-      {
-        youtube_video_id: null,
-        video_title: '',
-        views: null,
-        likes: null,
-        comments: null,
-        watch_time: null,
-        impressions: null,
-        ctr: null,
-        date: today,
-      },
-      '', // no import_batch_id for stub
-      organizationId
-    );
-    console.log('[backfill] No import rows found — inserted stub row');
+    await upsertVideoMetrics(registryId, internalVideoId, {
+      date: today,
+      views: null, likes: null, comments: null,
+      watch_time: null, impressions: null, ctr: null,
+      import_batch_id: null,
+    }, organizationId);
+
+    console.log('[backfill] No import rows — inserted stub row');
     return res.status(200).json({ backfilled: 0, stub: true });
   }
 
-  // Backfill one metrics row per import row, reusing upsertVideoMetrics()
   let backfilled = 0;
   const errors: string[] = [];
 
   for (const row of rawRows) {
     try {
-      await upsertVideoMetrics(
-        registryId,
-        internalVideoId,
-        {
-          youtube_video_id: row.youtube_video_id,
-          video_title: row.video_title,
-          views: row.views,
-          likes: row.likes,
-          comments: row.comments,
-          watch_time: row.watch_time,
-          impressions: row.impressions,
-          ctr: row.ctr,
-          date: row.date,
-        },
-        row.import_batch_id ?? '',
-        organizationId
-      );
+      await upsertVideoMetrics(registryId, internalVideoId, {
+        date:            row.date,
+        views:           row.views,
+        likes:           row.likes,
+        comments:        row.comments,
+        watch_time:      row.watch_time,
+        impressions:     row.impressions,
+        ctr:             row.ctr,
+        import_batch_id: row.import_batch_id ?? null,
+      }, organizationId);
       backfilled++;
     } catch (err: any) {
       errors.push(`Row ${row.id} (${row.date}): ${err.message}`);
@@ -133,6 +164,5 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   }
 
   console.log(`[backfill] Done — registryId=${registryId}, backfilled=${backfilled}, errors=${errors.length}`);
-
   return res.status(200).json({ backfilled, stub: false, errors });
 }
