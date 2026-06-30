@@ -2,6 +2,33 @@ import type { VercelRequest, VercelResponse } from '@vercel/node';
 import Stripe from 'stripe';
 import { createClient } from '@supabase/supabase-js';
 
+// ============================================================================
+// api/stripe-webhook.ts
+//
+// Single global endpoint for ALL tenant Stripe accounts.
+// https://www.vstrk.com/api/stripe-webhook
+//
+// Phase 3A scope (deliberately minimal):
+//   - Only checkout.session.completed is processed. Onboarding instructs
+//     every tenant to subscribe to ONLY this event — nothing else is sent
+//     to this endpoint, so nothing else needs to be handled.
+//   - 1 user = 1 Stripe account = 1 webhook secret (stripe_configs.user_id)
+//   - campaign token is the resolution key: token -> redirect_links ->
+//     campaigns -> user_id -> stripe_configs -> secret. This is the ONLY
+//     identity resolution path. No identity-map table — not needed, since
+//     client_reference_id always carries the token on this event type.
+//   - NO platform-secret fallback. If resolution fails at any step, the
+//     event is rejected with an explicit error. There are no live tenants
+//     yet, so silent fallback would only mask configuration bugs.
+//   - Existing tables only: redirect_links, campaigns, stripe_configs,
+//     stripe_purchases, plus one new table (stripe_events_log) for
+//     idempotency.
+//
+// Deferred to a later phase (only if/when those event types are actually
+// subscribed to): subscription updates, invoice failures, refunds, and the
+// stripe_identity_map table that resolving those would require.
+// ============================================================================
+
 const supabase = createClient(
   process.env.SUPABASE_URL!,
   process.env.SUPABASE_SERVICE_KEY!
@@ -29,159 +56,172 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
   const rawBody = await getRawBody(req);
 
-  // Peek at payload to extract client_reference_id (token)
-  // so we can look up the right user's webhook secret.
+  // ── Step 1: peek unverified payload for the resolution key ───────────────
+  // No writes happen based on this peek. It only determines which secret to
+  // attempt verification with. Nothing here is trusted until verification
+  // succeeds below.
+  // Parsed once here, reused for the rest of the request — no re-parsing
+  // client_reference_id later once the event is verified.
   let tokenFromPayload: string | null = null;
+  let sessionIdFromPayload: string | null = null;
+  let videoIdFromPayload: string | null = null;
+
   try {
     const peeked = JSON.parse(rawBody.toString());
     const session = peeked?.data?.object;
-    // Support composite format "{token}:{session_id}" — extract token portion only
-    const raw = session?.client_reference_id ?? null;
-    tokenFromPayload = raw?.includes('__') ? raw.split('__')[0] : raw;
+    const rawRef: string = session?.client_reference_id ?? '';
+    const parts = rawRef.split('__');
+
+    tokenFromPayload = parts[0] || null;
+    sessionIdFromPayload = parts[1] || null;
+    videoIdFromPayload = parts[2] || null;
   } catch {
-    // fall through to platform secret
+    // fall through — resolution will fail below and event will be rejected
   }
 
-  // Look up user's webhook secret via token → redirect_links → campaigns → stripe_configs
-  let webhookSecret: string | null = null;
-  let resolvedUserId: string | null = null;
-
-  if (tokenFromPayload) {
-    const { data: link } = await supabase
-      .from('redirect_links')
-      .select('campaign_id, video_id')
-      .eq('token', tokenFromPayload)
-      .single();
-
-    if (link) {
-      const { data: campaign } = await supabase
-        .from('campaigns')
-        .select('user_id')
-        .eq('id', link.campaign_id)
-        .single();
-
-      if (campaign?.user_id) {
-        resolvedUserId = campaign.user_id;
-
-        const { data: stripeConfig } = await supabase
-          .from('stripe_configs')
-          .select('stripe_webhook_secret')
-          .eq('user_id', campaign.user_id)
-          .single();
-
-        webhookSecret = stripeConfig?.stripe_webhook_secret ?? null;
-      }
-    }
+  if (!tokenFromPayload) {
+    console.error('[stripe-webhook] No client_reference_id / token in payload');
+    return res.status(400).json({ error: 'Unable to resolve token from payload' });
   }
 
-  // Fall back to platform-level secret
-  if (!webhookSecret) {
-    webhookSecret = process.env.STRIPE_WEBHOOK_SECRET!;
+  // ── Step 2: resolve token -> campaign -> user (single query for campaign) ─
+  const { data: link, error: linkError } = await supabase
+    .from('redirect_links')
+    .select('campaign_id, video_id, organization_id')
+    .eq('token', tokenFromPayload)
+    .maybeSingle();
+
+  if (linkError || !link) {
+    console.error('[stripe-webhook] No redirect_links row for token:', tokenFromPayload);
+    return res.status(400).json({ error: 'Unknown token — no matching campaign' });
   }
 
-  // Verify webhook signature
+  const { data: campaign, error: campaignError } = await supabase
+    .from('campaigns')
+    .select('user_id')
+    .eq('id', link.campaign_id)
+    .maybeSingle();
+
+  if (campaignError || !campaign?.user_id) {
+    console.error('[stripe-webhook] No campaign/user for campaign_id:', link.campaign_id);
+    return res.status(400).json({ error: 'Unable to resolve user for this campaign' });
+  }
+
+  const resolvedUserId = campaign.user_id;
+
+  // ── Step 3: get this user's webhook secret — NO fallback ─────────────────
+  const { data: stripeConfig, error: configError } = await supabase
+    .from('stripe_configs')
+    .select('stripe_webhook_secret')
+    .eq('user_id', resolvedUserId)
+    .maybeSingle();
+
+  if (configError || !stripeConfig?.stripe_webhook_secret) {
+    console.error('[stripe-webhook] No webhook secret configured for user:', resolvedUserId);
+    return res.status(400).json({ error: 'User resolved but no webhook secret configured' });
+  }
+
+  const webhookSecret = stripeConfig.stripe_webhook_secret;
+
+  // ── Step 4: verify signature ──────────────────────────────────────────────
   let event: Stripe.Event;
   try {
     const stripe = new Stripe(process.env.STRIPE_SECRET_KEY!, {
       apiVersion: '2025-04-30.basil',
     });
-    console.log(
-  "[stripe-webhook]",
-  "token:",
-  tokenFromPayload,
-  "resolvedUser:",
-  resolvedUserId,
-  "usingCreatorSecret:",
-  !!resolvedUserId,
-  "secretPrefix:",
-  webhookSecret?.substring(0, 12)
-);
+
     event = stripe.webhooks.constructEvent(rawBody, sig, webhookSecret);
   } catch (err: any) {
     console.error('[stripe-webhook] Signature verification failed:', err.message);
     return res.status(400).json({ error: `Webhook error: ${err.message}` });
   }
 
-  console.log(`[stripe-webhook] Received event: ${event.type}`);
-
+  // ── Step 5: only checkout.session.completed is handled ───────────────────
+  // Onboarding subscribes tenants to this event only. Anything else arriving
+  // here is unexpected — acknowledge it so Stripe doesn't retry, but don't
+  // process it.
   if (event.type !== 'checkout.session.completed') {
-    return res.status(200).json({ received: true });
+    console.warn('[stripe-webhook] Unexpected event type received:', event.type);
+    return res.status(200).json({ received: true, ignored: true });
   }
 
+  // ── Step 6: idempotency via upsert — no race window ───────────────────────
+  // INSERT ... ON CONFLICT DO NOTHING replaces SELECT-then-INSERT. Two
+  // concurrent deliveries of the same event can no longer both "see no row"
+  // and both proceed — the DB resolves the conflict atomically.
+  const { data: insertedEvent, error: eventLogError } = await supabase
+    .from('stripe_events_log')
+    .upsert(
+      {
+        stripe_event_id: event.id,
+        event_type: event.type,
+        user_id: resolvedUserId,
+        campaign_id: link.campaign_id,
+        organization_id: link.organization_id ?? null,
+        token: tokenFromPayload,
+      },
+      { onConflict: 'stripe_event_id', ignoreDuplicates: true }
+    )
+    .select('stripe_event_id');
+
+  if (eventLogError) {
+    console.error('[stripe-webhook] Event log write failed:', eventLogError);
+    return res.status(500).json({ error: 'Event log write failed' });
+  }
+
+  // ignoreDuplicates means a conflicting row returns no data — that's our
+  // duplicate signal, with no race window since the check and the write are
+  // the same atomic operation.
+  if (!insertedEvent || insertedEvent.length === 0) {
+    return res.status(200).json({ received: true, duplicate: true });
+  }
+
+  // ── Step 7: use the already-parsed client_reference_id fields ────────────
   const session = event.data.object as Stripe.Checkout.Session;
+  const token = tokenFromPayload;
+  const resolvedSessionId = sessionIdFromPayload;
+  // Attribution comes only from client_reference_id. redirect_links.video_id
+  // is a different concept (which row this token belongs to, not which
+  // video the customer actually clicked) — never used as a fallback here.
+  // Empty string in the payload correctly means cold traffic -> null.
+  const resolvedVideoId = videoIdFromPayload || null;
 
-  // Parse composite client_reference_id: "{token}__{session_id}__{video_id}"
-  // Falls back gracefully to legacy token__session_id or plain token formats.
-  // video_id segment may be empty string for direct/cold traffic — treated as null.
-  const rawRef = session.client_reference_id ?? '';
-  const parts = rawRef.split('__');
-  const token = parts[0] || null;
-  const resolvedSessionId: string | null = parts[1] || null;
-  const resolvedVideoId: string | null = parts[2] || null;
-
-  if (!token) {
-    console.log('[stripe-webhook] No client_reference_id — skipping');
-    return res.status(200).json({ received: true });
-  }
-
-  console.log('[stripe-webhook] parsed ref — token:', token, '| session_id:', resolvedSessionId, '| video_id:', resolvedVideoId);
-
-  // Look up redirect link via token → campaign_id
-  const { data: link, error: linkError } = await supabase
-    .from('redirect_links')
-    .select('video_id, campaign_id, organization_id')
-    .eq('token', token)
-    .single();
-
-  if (linkError || !link) {
-    console.error('[stripe-webhook] No redirect link for token:', token);
-    return res.status(200).json({ received: true });
-  }
-
-  // video_id comes directly from composite — no events table lookup.
-  // NULL is honest for direct/cold traffic. Wrong video from events is not acceptable.
-
-  // Re-resolve user_id from the verified token (pre-verification lookup may have been skipped)
-  if (!resolvedUserId) {
-    const { data: campaign } = await supabase
-      .from('campaigns')
-      .select('user_id')
-      .eq('id', link.campaign_id)
-      .single();
-    resolvedUserId = campaign?.user_id ?? null;
-  }
-
-  // Deduplicate
-  const { data: existing } = await supabase
+  // ── Step 8: dedup + write purchase via upsert — same race fix ────────────
+  const { data: insertedPurchase, error: insertError } = await supabase
     .from('stripe_purchases')
-    .select('id')
-    .eq('stripe_session_id', session.id)
-    .single();
-
-  if (existing) {
-    console.log('[stripe-webhook] Duplicate — already recorded:', session.id);
-    return res.status(200).json({ received: true });
-  }
-
-  // Insert purchase
-  const { error: insertError } = await supabase.from('stripe_purchases').insert({
-    stripe_session_id: session.id,
-    token,
-    video_id: resolvedVideoId,
-    campaign_id: link.campaign_id,
-    user_id: resolvedUserId,
-    session_id: resolvedSessionId,
-    organization_id: link.organization_id ?? null,
-    amount: session.amount_total ? session.amount_total / 100 : null,
-    currency: session.currency,
-    customer_email: session.customer_details?.email ?? null,
-  });
+    .upsert(
+      {
+        stripe_session_id: session.id,
+        token,
+        video_id: resolvedVideoId,
+        campaign_id: link.campaign_id,
+        user_id: resolvedUserId,
+        session_id: resolvedSessionId,
+        organization_id: link.organization_id ?? null,
+        amount: session.amount_total ? session.amount_total / 100 : null,
+        currency: session.currency,
+        customer_email: session.customer_details?.email ?? null,
+      },
+      { onConflict: 'stripe_session_id', ignoreDuplicates: true }
+    )
+    .select('id');
 
   if (insertError) {
-    console.error('[stripe-webhook] Insert failed:', insertError);
+    console.error('[stripe-webhook] Purchase insert failed:', insertError);
     return res.status(500).json({ error: 'Database insert failed' });
   }
 
-  console.log(`[stripe-webhook] ✅ Recorded — token: ${token}, session: ${resolvedSessionId}, video: ${resolvedVideoId}, user: ${resolvedUserId}, amount: ${session.amount_total}`);
+  if (!insertedPurchase || insertedPurchase.length === 0) {
+    console.log('[stripe-webhook] Duplicate purchase — already recorded:', session.id);
+    return res.status(200).json({ received: true, duplicate: true });
+  }
+
+  console.log(
+    '[stripe-webhook] Recorded purchase —',
+    'token:', token,
+    'user:', resolvedUserId,
+    'amount:', session.amount_total
+  );
+
   return res.status(200).json({ received: true });
 }
