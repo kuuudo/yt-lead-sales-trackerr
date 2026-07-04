@@ -37,6 +37,27 @@ export type Video = {
   status: 'active' | 'error' | 'installed' | 'missing' | 'no_data';
   selected_lead_magnet_ids: string[] | null;
   created_at: string;
+  // Every Video has a corresponding Asset (Design Lock §1, Option A).
+  // Column already exists in DB (Migration 003 backfilled it); type was
+  // just missing it until now.
+  asset_id: string;
+  // Soft-delete marker (Migration 008). NULL = not deleted. Set instead of
+  // hard-deleting a Video whose Asset has been added to the Library.
+  // Not yet used by any query in this phase — deleteVideo() is a later phase.
+  deleted_at: string | null;
+};
+
+// Asset is Content Identity — intentionally minimal. It never stores title,
+// thumbnail, platform, or URL; those are always retrieved by joining to the
+// type-specific table (currently only `videos`). No owner_user_id either —
+// ownership for Phase 1 is expressed via organization_id only.
+export type Asset = {
+  id: string;
+  organization_id: string;
+  asset_type: 'video';
+  created_at: string;
+  // NULL = not yet added to the Asset Library.
+  added_to_library_at: string | null;
 };
 
 export type Campaign = {

@@ -24,12 +24,16 @@
 import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import { useParams, Link, useNavigate } from 'react-router-dom';
 import { useLanguage } from '../lib/hooks';
-import { supabase, Video, Campaign, LeadMagnet } from '../lib/supabase';
+import { supabase, Video, Campaign, LeadMagnet, Asset } from '../lib/supabase';
 import { useAuth } from '../lib/auth';
+import { getAsset } from '../services/asset/getAsset';
+import { addToLibrary } from '../services/asset/addToLibrary';
+import { deleteVideo } from '../services/video/deleteVideo';
 import {
   ArrowLeft, Youtube, DollarSign, Users, Activity,
   TrendingUp, MousePointer2, Phone, Briefcase,
-  ExternalLink, BarChart3, Clock, Edit2, Trash2, Save, X, Loader2, Check, Link2, Plus, Copy
+  ExternalLink, BarChart3, Clock, Edit2, Trash2, Save, X, Loader2, Check, Link2, Plus, Copy,
+  BookmarkPlus, BookmarkCheck
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { ResponsiveContainer, AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip } from 'recharts';
@@ -155,6 +159,8 @@ export default function VideoDetail() {
   // ── Data state ───────────────────────────────────────────────────────────────
   const [loading, setLoading]     = useState(true);
   const [video, setVideo]         = useState<Video | null>(null);
+  const [asset, setAsset]         = useState<Asset | null>(null);
+  const [addingToLibrary, setAddingToLibrary] = useState(false);
   const [campaign, setCampaign]   = useState<Campaign | null>(null);
   const [leadMagnets, setLeadMagnets] = useState<LeadMagnet[]>([]);
 
@@ -232,6 +238,19 @@ export default function VideoDetail() {
       console.log('[VideoDetail] video query — error:', vErr?.message ?? 'none', 'found:', !!vData);
       if (vErr) throw vErr;
       setVideo(vData);
+
+      // ── Asset (Content Identity) ────────────────────────────────────────────
+      // Every Video has an Asset (Design Lock §1, Option A). Fetched
+      // separately rather than joined into the videos query above, reusing
+      // the existing Asset Module service instead of a raw query here.
+      // Non-fatal: if this fails, the Add to Library button just renders in
+      // its default (not-yet-in-library) state instead of blocking the page.
+      try {
+        const assetData = await getAsset(vData.asset_id);
+        setAsset(assetData);
+      } catch (assetErr: any) {
+        console.warn('[VideoDetail] Could not load asset:', assetErr?.message);
+      }
 
       // ── YouTube Import Status ───────────────────────────────────────────────
       if (vData.platform === 'youtube') {
@@ -627,20 +646,48 @@ export default function VideoDetail() {
     }
   };
 
+  const handleAddToLibrary = async () => {
+    if (!video?.asset_id) return;
+    setAddingToLibrary(true);
+    try {
+      const { asset: updated } = await addToLibrary(video.asset_id);
+      setAsset(updated);
+    } catch (err: any) {
+      showAlert('Error', err.message || 'Could not add to library.', 'danger');
+    } finally {
+      setAddingToLibrary(false);
+    }
+  };
+
   const handleDelete = async () => {
     showConfirm(
       'Delete Video',
+      // TODO(integration testing / UX): this copy assumes hard delete for
+      // every video. Once a video is in the Library, deleteVideo() actually
+      // performs a soft delete instead — the confirm dialog can't know which
+      // mode will run ahead of time without an extra asset lookup here, so
+      // for now the success message (below) is what actually communicates
+      // which one happened. Revisit copy once this is in front of real users.
       'Are you sure you want to permanently delete this video? This action cannot be undone.',
       async () => {
         setDeleting(true);
         try {
-          const { error } = await supabase.from('videos').delete().eq('id', id);
-          if (error) throw error;
-          showAlert('Deleted Successfully',
-            'The video has been removed. You will be redirected back to the videos list.',
-            'success', () => navigate('/videos'));
+          const result = await deleteVideo(id!);
+          const message =
+            result.mode === 'soft'
+              ? 'This video has been removed. Since it was in your Asset Library, its record has been archived rather than permanently deleted.'
+              : 'The video has been removed. You will be redirected back to the videos list.';
+          showAlert('Deleted Successfully', message, 'success', () => navigate('/videos'));
         } catch (err: any) {
-          showAlert('Delete Failed', `Could not delete the video. Error: ${err.message}`, 'danger');
+          if (err?.code === 'ASSET_IN_USE') {
+            showAlert(
+              'Delete Failed',
+              'This video is still referenced elsewhere (assignments, campaigns, or redirect links) and cannot be deleted.',
+              'danger',
+            );
+          } else {
+            showAlert('Delete Failed', `Could not delete the video. Error: ${err.message}`, 'danger');
+          }
         } finally {
           setDeleting(false);
         }
@@ -764,6 +811,20 @@ export default function VideoDetail() {
         </div>
 
         <div className="flex gap-2">
+          <button
+            onClick={handleAddToLibrary}
+            disabled={addingToLibrary || !!asset?.added_to_library_at}
+            className="p-3 bg-zinc-900 border border-zinc-800 rounded-xl text-zinc-500 hover:text-white transition-all disabled:opacity-50"
+            title={asset?.added_to_library_at ? 'In Asset Library' : 'Add to Library'}
+          >
+            {addingToLibrary ? (
+              <Loader2 size={20} className="animate-spin" />
+            ) : asset?.added_to_library_at ? (
+              <BookmarkCheck size={20} />
+            ) : (
+              <BookmarkPlus size={20} />
+            )}
+          </button>
           <button
             onClick={() => setShowEdit(true)}
             className="p-3 bg-zinc-900 border border-zinc-800 rounded-xl text-zinc-500 hover:text-white transition-all"

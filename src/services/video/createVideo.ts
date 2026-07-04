@@ -4,10 +4,18 @@
  * Single source of truth for the "create video" business logic.
  *
  * Responsibilities:
- *   1. INSERT into `videos` table
- *   2. Create all redirect links for the video (via createRedirectLink)
- *   3. Create lead-magnet redirect links if selected
- *   4. Return the saved video row
+ *   1. Create the Asset (Content Identity) via createAsset() — every Video
+ *      must have a corresponding Asset (Design Lock §1, Option A)
+ *   2. INSERT into `videos` table, carrying the new asset_id
+ *   3. Create all redirect links for the video (via createRedirectLink)
+ *   4. Create lead-magnet redirect links if selected
+ *   5. Return the saved video row
+ *
+ * Aggregate boundary (Design Lock §1): createAsset() + insert `videos` are
+ * the only two writes inside the consistency boundary. If the `videos`
+ * insert fails, the Asset just created is compensated (deleted) since it is
+ * guaranteed to have zero references at that point. Redirect links are
+ * created outside this boundary and are allowed to fail independently.
  *
  * NOT responsible for:
  *   - Any React state (no setState, no hooks)
@@ -24,6 +32,7 @@
 
 import { supabase } from '../../lib/supabase';
 import { createRedirectLink } from '../../lib/redirects';
+import { createAsset } from '../asset/createAsset';
 import type { Video, Campaign } from '../../lib/supabase';
 
 // ---------------------------------------------------------------------------
@@ -82,13 +91,22 @@ export async function createVideo({
   organizationId,
   userId,
 }: CreateVideoOptions): Promise<CreateVideoResult> {
-  // 1. Build the DB row.
+  // 1. Create the Asset first (Design Lock §1, Option A: every Video must
+  //    have a corresponding Asset). No compensation target exists for this
+  //    step itself — if it fails, we throw immediately.
+  const { asset } = await createAsset({
+    organizationId,
+    assetType: 'video',
+  });
+
+  // 2. Build the DB row.
   //    organization_id and user_id are write-time snapshots —
   //    never derived from localStorage or session inference.
   const row = {
     ...payload,
     organization_id: organizationId,
     user_id: userId,
+    asset_id: asset.id,
   };
 
   const { data: insertData, error: insertError } = await supabase
@@ -97,13 +115,29 @@ export async function createVideo({
     .select();
 
   if (insertError || !insertData || insertData.length === 0) {
+    // Compensation: the Asset created in step 1 is guaranteed to have no
+    // references yet — no `videos` row was ever successfully linked to it —
+    // so it is safe to delete outright.
+    const { error: compensationError } = await supabase
+      .from('assets')
+      .delete()
+      .eq('id', asset.id);
+
+    if (compensationError) {
+      console.error(
+        '[createVideo] Compensation failed — orphaned asset:',
+        asset.id,
+        compensationError.message
+      );
+    }
+
     throw new Error(insertError?.message ?? 'Video insert returned no data');
   }
 
   const savedVideo: Video = insertData[0];
   const appBaseUrl = window.location.origin;
 
-  // 2. Create redirect links — only if a campaign is present.
+  // 3. Create redirect links — only if a campaign is present.
   if (campaign) {
     const redirectJobs: Array<[string, string]> = [
       ['landing_page', campaign.landing_page_url],
@@ -132,7 +166,7 @@ export async function createVideo({
       )
     );
 
-    // 3. Lead-magnet redirect links
+    // 4. Lead-magnet redirect links
     if (payload.selected_lead_magnet_ids && payload.selected_lead_magnet_ids.length > 0) {
       const { data: lmData } = await supabase
         .from('lead_magnets')

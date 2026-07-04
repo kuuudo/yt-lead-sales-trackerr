@@ -43,6 +43,7 @@ import { motion, AnimatePresence } from 'motion/react';
 import { Modal } from '../components/Modal';
 import { useOrganization } from '../lib/useOrganization';
 import { createVideo } from '../services/video/createVideo';
+import { deleteVideo } from '../services/video/deleteVideo';
 
 type VideoStatus = Video['status'];
 
@@ -606,6 +607,7 @@ export default function Videos() {
         .from('videos')
         .select('*')
         .eq('organization_id', organizationId)
+        .is('deleted_at', null)
         .order('created_at', { ascending: false });
 
       console.log('Supabase Videos Response:', { data: vData, error: vError });
@@ -1681,28 +1683,33 @@ export default function Videos() {
                     
                     showConfirm(
                       'Confirm Deletion',
+                      // TODO(integration testing / UX): same caveat as
+                      // VideoDetail.tsx — this copy assumes hard delete;
+                      // deleteVideo() may actually soft-delete if the video
+                      // is in the Library. The success message reflects
+                      // which mode actually ran.
                       'Are you sure you want to delete this video? This cannot be undone.',
                       async () => {
                         setDeletingVideoId(v.id);
-                        console.log(`[DEBUG] Initiating Supabase DELETE for video ID: ${v.id}`);
-                        
-                        try {
-                          const response = await supabase.from('videos').delete().eq('id', v.id);
-                          console.log('[DEBUG] Supabase full response:', response);
-                          
-                          const { error, count, status } = response;
 
-                          if (error) {
-                            console.error('[DEBUG] Supabase Delete Error:', error);
-                            showAlert('Delete Failed', `Could not delete the video. Error: ${error.message}`, 'danger');
-                          } else {
-                            console.log('[DEBUG] Delete successful. Status:', status, 'Count:', count);
-                            showAlert('Video Deleted', 'The video has been successfully removed from your list.', 'success');
-                            setVideos(prev => prev.filter(vid => vid.id !== v.id));
-                          }
+                        try {
+                          const result = await deleteVideo(v.id);
+                          const message =
+                            result.mode === 'soft'
+                              ? 'This video has been removed. Since it was in your Asset Library, its record has been archived rather than permanently deleted.'
+                              : 'The video has been successfully removed from your list.';
+                          showAlert(result.mode === 'soft' ? 'Video Archived' : 'Video Deleted', message, 'success');
+                          setVideos(prev => prev.filter(vid => vid.id !== v.id));
                         } catch (err: any) {
-                          console.error('[DEBUG] Catch Delete Error:', err);
-                          showAlert('Unexpected Error', `An error occurred during deletion: ${err?.message || 'Unknown error'}`, 'danger');
+                          if (err?.code === 'ASSET_IN_USE') {
+                            showAlert(
+                              'Delete Failed',
+                              'This video is still referenced elsewhere (assignments, campaigns, or redirect links) and cannot be deleted.',
+                              'danger',
+                            );
+                          } else {
+                            showAlert('Unexpected Error', `An error occurred during deletion: ${err?.message || 'Unknown error'}`, 'danger');
+                          }
                         } finally {
                           setDeletingVideoId(null);
                         }
