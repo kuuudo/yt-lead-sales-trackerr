@@ -29,6 +29,7 @@ import UnmappedVideos from './pages/UnmappedVideos';
 import Assets from './pages/Assets';
 import Marketplace from './pages/Marketplace';
 import AssignmentDetail from './pages/AssignmentDetail';
+import CreateAssignment from './pages/CreateAssignment';
 function Navigation() {
   const { lang, toggleLanguage, t } = useLanguage();
   const { user, signOut } = useAuth();
@@ -150,6 +151,7 @@ function MainContent() {
         <Route path="/workspace/hub" element={<WorkspaceHub />} />
         <Route path="/workspace/:boardId" element={<BoardPage />} />
         <Route path="/marketplace" element={<PageWrapper><Marketplace /></PageWrapper>} />
+        <Route path="/marketplace/assignments/new" element={<PageWrapper><CreateAssignment /></PageWrapper>} />
         <Route path="/marketplace/assignments/:assignmentId" element={<PageWrapper><AssignmentDetail /></PageWrapper>} />
       </Routes>
     </AnimatePresence>

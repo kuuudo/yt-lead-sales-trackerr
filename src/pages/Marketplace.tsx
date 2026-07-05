@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Briefcase, Mail, Rocket, Loader2 } from 'lucide-react';
+import { Briefcase, Mail, Rocket, Loader2, Plus } from 'lucide-react';
 import { supabase } from '../lib/supabase';
 import {
   listOrgAssignments,
@@ -102,7 +102,16 @@ export default function Marketplace() {
             </button>
           ))}
         </div>
-
+        <div className="flex justify-end mb-6">
+          <button
+            onClick={() => navigate('/marketplace/assignments/new')}
+            className="flex items-center gap-2 bg-red-600 hover:bg-red-500 text-white text-xs font-bold uppercase tracking-wider px-4 py-2 rounded-lg"
+          >
+            <Plus size={14} />
+            Create Assignment
+          </button>
+        </div>
+        
         {loading && (
           <div className="flex items-center gap-2 text-zinc-500 text-sm">
             <Loader2 className="animate-spin" size={16} /> Loading…
