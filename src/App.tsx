@@ -27,6 +27,8 @@ import WorkspaceHub from './pages/WorkspaceHub';
 import BoardPage from './pages/BoardPage';
 import UnmappedVideos from './pages/UnmappedVideos';
 import Assets from './pages/Assets';
+import Marketplace from './pages/Marketplace';
+import AssignmentDetail from './pages/AssignmentDetail';
 function Navigation() {
   const { lang, toggleLanguage, t } = useLanguage();
   const { user, signOut } = useAuth();
@@ -36,6 +38,7 @@ function Navigation() {
     { to: '/dashboard', icon: LayoutDashboard, label: t.nav.dashboard },
     { to: '/campaigns', icon: Briefcase, label: t.nav.campaigns },
     { to: '/videos', icon: Video, label: t.nav.videos },
+    { to: '/marketplace', icon: Briefcase, label: t.nav.marketplace },
     { to: '/workspace', icon: Briefcase, label: t.nav.workspace },
     { to: '/analytics', icon: BarChart3, label: t.nav.analytics },
     { to: '/installation', icon: Code, label: t.nav.installation || 'Install' },
@@ -146,6 +149,8 @@ function MainContent() {
         <Route path="/workspace" element={<PageWrapper><Workspace /></PageWrapper>} />
         <Route path="/workspace/hub" element={<WorkspaceHub />} />
         <Route path="/workspace/:boardId" element={<BoardPage />} />
+        <Route path="/marketplace" element={<PageWrapper><Marketplace /></PageWrapper>} />
+        <Route path="/marketplace/assignments/:assignmentId" element={<PageWrapper><AssignmentDetail /></PageWrapper>} />
       </Routes>
     </AnimatePresence>
   );
