@@ -660,15 +660,16 @@ export default function VideoDetail() {
   };
 
   const handleDelete = async () => {
+    // We already have `asset` loaded on this page, so we know in advance
+    // which mode deleteVideo() will take — no extra fetch needed, just using
+    // data this component already has.
+    const confirmMessage = asset?.added_to_library_at
+      ? 'This video is in your Asset Library. Deleting it here will archive its record (soft delete) — the Asset and its history are kept, they just won\'t appear as an active video anymore.'
+      : 'Are you sure you want to permanently delete this video? This action cannot be undone.';
+
     showConfirm(
       'Delete Video',
-      // TODO(integration testing / UX): this copy assumes hard delete for
-      // every video. Once a video is in the Library, deleteVideo() actually
-      // performs a soft delete instead — the confirm dialog can't know which
-      // mode will run ahead of time without an extra asset lookup here, so
-      // for now the success message (below) is what actually communicates
-      // which one happened. Revisit copy once this is in front of real users.
-      'Are you sure you want to permanently delete this video? This action cannot be undone.',
+      confirmMessage,
       async () => {
         setDeleting(true);
         try {

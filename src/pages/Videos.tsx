@@ -1683,12 +1683,12 @@ export default function Videos() {
                     
                     showConfirm(
                       'Confirm Deletion',
-                      // TODO(integration testing / UX): same caveat as
-                      // VideoDetail.tsx — this copy assumes hard delete;
-                      // deleteVideo() may actually soft-delete if the video
-                      // is in the Library. The success message reflects
-                      // which mode actually ran.
-                      'Are you sure you want to delete this video? This cannot be undone.',
+                      // This list doesn't have each row's Library status
+                      // loaded (that would mean joining to `assets` here,
+                      // out of scope for this pass), so the copy covers
+                      // both outcomes instead of predicting one. The exact
+                      // result is confirmed in the success message below.
+                      'Are you sure you want to delete this video? If it\'s in your Asset Library, its record will be archived instead of removed; otherwise it will be permanently deleted and cannot be undone.',
                       async () => {
                         setDeletingVideoId(v.id);
 

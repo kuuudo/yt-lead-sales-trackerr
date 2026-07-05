@@ -4,8 +4,9 @@
  * Fetches a single Asset by id. Does not join to `videos` — callers who need
  * display metadata should use listAssetsByOrganization.ts instead.
  *
- * Not called by anything yet in Phase 1. Included because it is part of the
- * locked Asset Module skeleton (Design Lock §3 Step 2), not a new addition.
+ * Callers:
+ *   - video/deleteVideo.ts (resolves the Video's Asset to decide soft vs hard delete)
+ *   - pages/VideoDetail.tsx (loads Library status for the Add to Library button)
  */
 
 import { supabase } from '../../lib/supabase';
