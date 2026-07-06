@@ -7,17 +7,32 @@
  */
 
 import { supabase } from '../../lib/supabase';
+import { resolveElementThumbnail, getElementTypeLabel, type CampaignElementType } from '../../lib/videoFormatters';
 
 export interface CampaignOption {
   id: string;
   campaign_name: string | null;
 }
 
-export interface AssetOption {
+/** Video assets — unchanged, same shape as before. Rendered via videoFormatters.tsx exactly as already locked. */
+export interface VideoAssetOption {
+  kind: 'video';
   asset_id: string;
   video_title: string | null;
   thumbnail_url: string | null;
+  platform?: string | null;
 }
+
+/** Campaign-element assets — the new kind. Rendered via resolveElementThumbnail/getElementTypeLabel, not videoFormatters' platform logic. */
+export interface CampaignElementAssetOption {
+  kind: 'campaign_element';
+  asset_id: string;
+  display_name: string;
+  element_type: CampaignElementType;
+  thumbnail_url: string; // always resolved — resolveElementThumbnail never returns null
+}
+
+export type AssetOption = VideoAssetOption | CampaignElementAssetOption;
 
 export async function listCampaignsForOrg(organizationId: string): Promise<CampaignOption[]> {
   const { data, error } = await supabase
@@ -30,7 +45,12 @@ export async function listCampaignsForOrg(organizationId: string): Promise<Campa
   return data ?? [];
 }
 
-/** Assets belonging to one Campaign, with display info joined from videos — same shape as getAssignmentDetail.ts uses. */
+/**
+ * Assets belonging to one Campaign, split by asset_type and rendered
+ * through the appropriate formatter for each kind. Video assets keep the
+ * exact same query/shape as before this change — nothing about that path
+ * was altered, only extended alongside.
+ */
 export async function listAssetsForCampaign(campaignId: string): Promise<AssetOption[]> {
   const { data: campaignAssetRows, error: caErr } = await supabase
     .from('campaign_assets')
@@ -42,16 +62,55 @@ export async function listAssetsForCampaign(campaignId: string): Promise<AssetOp
   const assetIds = (campaignAssetRows ?? []).map(r => r.asset_id);
   if (assetIds.length === 0) return [];
 
-  const { data: videoRows, error: videoErr } = await supabase
-    .from('videos')
-    .select('asset_id, video_title, thumbnail_url')
-    .in('asset_id', assetIds);
+  const { data: assetRows, error: assetErr } = await supabase
+    .from('assets')
+    .select('id, asset_type')
+    .in('id', assetIds);
 
-  if (videoErr) throw new Error(`Failed to load asset display info: ${videoErr.message}`);
+  if (assetErr) throw new Error(`Failed to load asset types: ${assetErr.message}`);
 
-  return (videoRows ?? []).map(v => ({
-    asset_id: v.asset_id,
-    video_title: v.video_title,
-    thumbnail_url: v.thumbnail_url,
-  }));
+  const videoAssetIds = (assetRows ?? []).filter(a => a.asset_type === 'video').map(a => a.id);
+  const elementAssetIds = (assetRows ?? []).filter(a => a.asset_type === 'campaign_element').map(a => a.id);
+
+  const results: AssetOption[] = [];
+
+  if (videoAssetIds.length > 0) {
+    const { data: videoRows, error: videoErr } = await supabase
+      .from('videos')
+      .select('asset_id, video_title, thumbnail_url, platform')
+      .in('asset_id', videoAssetIds);
+
+    if (videoErr) throw new Error(`Failed to load video asset display info: ${videoErr.message}`);
+
+    for (const v of videoRows ?? []) {
+      results.push({
+        kind: 'video',
+        asset_id: v.asset_id,
+        video_title: v.video_title,
+        thumbnail_url: v.thumbnail_url,
+        platform: (v as any).platform ?? null,
+      });
+    }
+  }
+
+  if (elementAssetIds.length > 0) {
+    const { data: elementRows, error: elementErr } = await supabase
+      .from('campaign_element_assets')
+      .select('asset_id, display_name, element_type')
+      .in('asset_id', elementAssetIds);
+
+    if (elementErr) throw new Error(`Failed to load campaign element asset display info: ${elementErr.message}`);
+
+    for (const e of elementRows ?? []) {
+      results.push({
+        kind: 'campaign_element',
+        asset_id: e.asset_id,
+        display_name: e.display_name,
+        element_type: e.element_type,
+        thumbnail_url: resolveElementThumbnail(e.element_type),
+      });
+    }
+  }
+
+  return results;
 }

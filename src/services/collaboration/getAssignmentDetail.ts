@@ -10,15 +10,19 @@
  * Assets are grouped by Campaign because Promotion requires a single
  * campaign_id (Design Lock) — an Assignment's assets may span more than
  * one Campaign, so the user picks one Campaign's worth at a time before
- * generating a Promotionn.
- */ 
+ * generating a Promotion.
+ */
 
 import { supabase } from '../../lib/supabase';
+import { resolveElementThumbnail, type CampaignElementType } from '../../lib/videoFormatters';
 
 export interface AssignmentAssetOption {
   asset_id: string;
+  kind: 'video' | 'campaign_element';
   video_title: string | null;
   thumbnail_url: string | null;
+  display_name?: string;
+  element_type?: CampaignElementType;
 }
 
 export interface CampaignGroup {
@@ -97,7 +101,15 @@ export async function getAssignmentDetail(
 
     if (videoErr) throw new Error(`Failed to load asset display info: ${videoErr.message}`);
 
+    const { data: elementRows, error: elementErr } = await supabase
+      .from('campaign_element_assets')
+      .select('asset_id, display_name, element_type')
+      .in('asset_id', assetIds);
+
+    if (elementErr) throw new Error(`Failed to load campaign element display info: ${elementErr.message}`);
+
     const videoByAsset = new Map((videoRows ?? []).map(v => [v.asset_id, v]));
+    const elementByAsset = new Map((elementRows ?? []).map(e => [e.asset_id, e]));
     const groupMap = new Map<string, CampaignGroup>();
 
     for (const row of campaignAssetRows ?? []) {
@@ -110,11 +122,24 @@ export async function getAssignmentDetail(
         });
       }
       const video = videoByAsset.get(row.asset_id);
-      groupMap.get(campaignId)!.assets.push({
-        asset_id: row.asset_id,
-        video_title: video?.video_title ?? null,
-        thumbnail_url: video?.thumbnail_url ?? null,
-      });
+      const element = elementByAsset.get(row.asset_id);
+      if (element) {
+        groupMap.get(campaignId)!.assets.push({
+          asset_id: row.asset_id,
+          kind: 'campaign_element',
+          video_title: null,
+          thumbnail_url: resolveElementThumbnail(element.element_type),
+          display_name: element.display_name,
+          element_type: element.element_type,
+        });
+      } else {
+        groupMap.get(campaignId)!.assets.push({
+          asset_id: row.asset_id,
+          kind: 'video',
+          video_title: video?.video_title ?? null,
+          thumbnail_url: video?.thumbnail_url ?? null,
+        });
+      }
     }
 
     campaignGroups = Array.from(groupMap.values());

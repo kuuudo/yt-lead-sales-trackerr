@@ -12,6 +12,8 @@ import {
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { syncCampaignRedirectLinks } from '../lib/campaignRedirectEngine';
+import { PublishAssetButton } from './PublishAssetButton';
+import { getPublishedElements, type PublishedElement } from '../services/asset/publishCampaignElementAsAsset';
 
 // Reusable Stripe toggle component
 const StripeToggle = ({ value, onChange }: { value: boolean; onChange: (v: boolean) => void }) => (
@@ -104,6 +106,7 @@ export default function CampaignDetail() {
   const [leadMagnets, setLeadMagnets] = useState<Partial<LeadMagnet>[]>([]);
   const [checkoutUrlChanged, setCheckoutUrlChanged] = useState(false);
   const originalCheckoutUrl = React.useRef<string>('');
+  const [publishedElements, setPublishedElements] = useState<Record<string, PublishedElement>>({});
 
   useEffect(() => {
     if (user && id) fetchCampaignData();
@@ -133,6 +136,12 @@ export default function CampaignDetail() {
 
       if (mErr) throw mErr;
       setLeadMagnets(magnets || []);
+
+      try {
+        setPublishedElements(await getPublishedElements(id));
+      } catch (pubErr) {
+        console.error('Failed to load published elements:', pubErr);
+      }
 
     } catch (err: any) {
       setError(err.message || 'Failed to load campaign data');
@@ -396,10 +405,34 @@ export default function CampaignDetail() {
                 <div>
                   <label className="text-[9px] font-bold text-zinc-600 uppercase mb-1 block">Landing Page URL</label>
                   <input type="url" value={formData.landing_page_url || ''} onChange={e => setFormData({ ...formData, landing_page_url: e.target.value })} className={inputClass} />
+                  <div className="mt-1.5">
+                    <PublishAssetButton
+                      organizationId={(formData as any).organization_id}
+                      campaignId={id!}
+                      elementType="landing_page"
+                      sourceField="landing_page_url"
+                      currentUrl={formData.landing_page_url}
+                      defaultDisplayName={`${formData.campaign_name || 'Campaign'} - Landing Page`}
+                      published={publishedElements['landing_page_url']}
+                      onPublished={el => setPublishedElements(prev => ({ ...prev, [el.source_field]: el }))}
+                    />
+                  </div>
                 </div>
                 <div>
                   <label className="text-[9px] font-bold text-zinc-600 uppercase mb-1 block">Checkout URL</label>
                   <input type="url" value={formData.checkout_url || ''} onChange={e => setFormData({ ...formData, checkout_url: e.target.value })} className={inputClass} />
+                  <div className="mt-1.5">
+                    <PublishAssetButton
+                      organizationId={(formData as any).organization_id}
+                      campaignId={id!}
+                      elementType="checkout"
+                      sourceField="checkout_url"
+                      currentUrl={formData.checkout_url}
+                      defaultDisplayName={`${formData.campaign_name || 'Campaign'} - Checkout`}
+                      published={publishedElements['checkout_url']}
+                      onPublished={el => setPublishedElements(prev => ({ ...prev, [el.source_field]: el }))}
+                    />
+                  </div>
                 </div>
                 <div>
                   <label className="text-[9px] font-bold text-zinc-600 uppercase mb-1 block">
@@ -407,6 +440,18 @@ export default function CampaignDetail() {
                     {!formData.purchase_thankyou_url && <span className="ml-2 text-orange-500">⚠ needed for pixel tracking</span>}
                   </label>
                   <input type="url" value={formData.purchase_thankyou_url || ''} onChange={e => setFormData({ ...formData, purchase_thankyou_url: e.target.value })} className={inputClass} />
+                  <div className="mt-1.5">
+                    <PublishAssetButton
+                      organizationId={(formData as any).organization_id}
+                      campaignId={id!}
+                      elementType="thank_you"
+                      sourceField="purchase_thankyou_url"
+                      currentUrl={formData.purchase_thankyou_url}
+                      defaultDisplayName={`${formData.campaign_name || 'Campaign'} - Thank You`}
+                      published={publishedElements['purchase_thankyou_url']}
+                      onPublished={el => setPublishedElements(prev => ({ ...prev, [el.source_field]: el }))}
+                    />
+                  </div>
                 </div>
               </div>
             </div>
@@ -467,6 +512,18 @@ export default function CampaignDetail() {
               <div>
                 <label className="text-[9px] font-bold text-zinc-600 uppercase mb-1 block">Newsletter Signup URL</label>
                 <input type="url" value={formData.newsletter_url || ''} onChange={e => setFormData({ ...formData, newsletter_url: e.target.value })} className={inputClass} />
+                <div className="mt-1.5">
+                  <PublishAssetButton
+                    organizationId={(formData as any).organization_id}
+                    campaignId={id!}
+                    elementType="newsletter"
+                    sourceField="newsletter_url"
+                    currentUrl={formData.newsletter_url}
+                    defaultDisplayName={`${formData.campaign_name || 'Campaign'} - Newsletter`}
+                    published={publishedElements['newsletter_url']}
+                    onPublished={el => setPublishedElements(prev => ({ ...prev, [el.source_field]: el }))}
+                  />
+                </div>
               </div>
               <div>
                 <label className="text-[9px] font-bold text-zinc-600 uppercase mb-1 block">
@@ -505,6 +562,18 @@ export default function CampaignDetail() {
                 <div>
                   <label className="text-[9px] font-bold text-zinc-600 uppercase mb-1 block">Booking Page URL</label>
                   <input type="url" value={formData.sales_call_booking_url || ''} onChange={e => setFormData({ ...formData, sales_call_booking_url: e.target.value })} className={inputClass} />
+                  <div className="mt-1.5">
+                    <PublishAssetButton
+                      organizationId={(formData as any).organization_id}
+                      campaignId={id!}
+                      elementType="sales_call"
+                      sourceField="sales_call_booking_url"
+                      currentUrl={formData.sales_call_booking_url}
+                      defaultDisplayName={`${formData.campaign_name || 'Campaign'} - Sales Call`}
+                      published={publishedElements['sales_call_booking_url']}
+                      onPublished={el => setPublishedElements(prev => ({ ...prev, [el.source_field]: el }))}
+                    />
+                  </div>
                 </div>
                 <div>
                   <label className="text-[9px] font-bold text-zinc-600 uppercase mb-1 block">
@@ -557,6 +626,18 @@ export default function CampaignDetail() {
                 <div>
                   <label className="text-[9px] font-bold text-zinc-600 uppercase mb-1 block">Booking Page URL (TidyCal, Calendly...)</label>
                   <input type="url" value={formData.consultation_booking_url || ''} onChange={e => setFormData({ ...formData, consultation_booking_url: e.target.value })} className={inputClass} />
+                  <div className="mt-1.5">
+                    <PublishAssetButton
+                      organizationId={(formData as any).organization_id}
+                      campaignId={id!}
+                      elementType="consultation"
+                      sourceField="consultation_booking_url"
+                      currentUrl={formData.consultation_booking_url}
+                      defaultDisplayName={`${formData.campaign_name || 'Campaign'} - Consultation`}
+                      published={publishedElements['consultation_booking_url']}
+                      onPublished={el => setPublishedElements(prev => ({ ...prev, [el.source_field]: el }))}
+                    />
+                  </div>
                 </div>
                 {((formData as any).consultation_delivery ?? 'external_platform') === 'own_website' && (
                   <>

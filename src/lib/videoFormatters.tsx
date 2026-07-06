@@ -367,3 +367,70 @@ export function renderContentIdentity(video: {
     }
   }
 }
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Campaign Element utilities
+//
+// Campaign Elements are NOT videos. They are a separate asset type (landing
+// pages, checkouts, newsletters, etc.) used by Assignment Picker, Campaign
+// Detail, and other non-Video surfaces.
+//
+// These utilities are intentionally independent of the video formatter logic
+// above. They do not call, wrap, or share state with resolveThumbnail(),
+// renderContentIdentity(), or any platform parser. Adding a Campaign Element
+// type must never require touching video logic, and vice versa.
+// ─────────────────────────────────────────────────────────────────────────────
+
+export type CampaignElementType =
+  | 'landing_page'
+  | 'checkout'
+  | 'newsletter'
+  | 'consultation'
+  | 'sales_call'
+  | 'thank_you'
+  | 'lead_magnet';
+
+// Fixed thumbnails per element type. No custom/override thumbnail support —
+// Campaign Elements always resolve to one of these fixed images, or the
+// placeholder fallback in resolveElementThumbnail().
+export const ELEMENT_THUMBNAILS: Partial<Record<CampaignElementType, string>> = {
+  landing_page:  '/element-thumbnails/landing_page.jpg',
+  checkout:      '/element-thumbnails/checkout.jpg',
+  newsletter:    '/element-thumbnails/newsletter.jpg',
+  consultation:  '/element-thumbnails/consultation.jpg',
+  sales_call:    '/element-thumbnails/sales_call.jpg',
+  thank_you:     '/element-thumbnails/thank_you.jpg',
+  lead_magnet:   '/element-thumbnails/lead_magnet.jpg',
+};
+
+// UI labels for each element type.
+export const ELEMENT_TYPE_LABELS: Record<CampaignElementType, string> = {
+  landing_page:  'Landing Page',
+  checkout:      'Checkout',
+  newsletter:    'Newsletter',
+  consultation:  'Consultation',
+  sales_call:    'Sales Call',
+  thank_you:     'Thank You',
+  lead_magnet:   'Lead Magnet',
+};
+
+// Mirrors resolveThumbnail()'s fallback pattern: fixed thumbnail if known,
+// otherwise a placehold.co placeholder labeled with the element type.
+// No custom thumbnail_url input — Campaign Elements have no custom thumbnails.
+export function resolveElementThumbnail(elementType: CampaignElementType | string): string {
+  const known = ELEMENT_THUMBNAILS[elementType as CampaignElementType];
+  if (known) return known;
+  return `https://placehold.co/160x90/18181b/52525b?text=${encodeURIComponent(String(elementType).toUpperCase())}`;
+}
+
+// Mirrors the lookup-with-fallback pattern of getPlatformIcon().
+// Falls back to a title-cased version of the raw element type string
+// (underscores replaced with spaces) if the type isn't in ELEMENT_TYPE_LABELS.
+export function getElementTypeLabel(elementType: CampaignElementType | string): string {
+  const known = ELEMENT_TYPE_LABELS[elementType as CampaignElementType];
+  if (known) return known;
+  return String(elementType)
+    .split('_')
+    .map(word => word.charAt(0).toUpperCase() + word.slice(1))
+    .join(' ');
+}
