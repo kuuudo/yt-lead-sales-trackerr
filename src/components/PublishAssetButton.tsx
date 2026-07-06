@@ -4,7 +4,6 @@ import { publishCampaignElementAsAsset, type PublishedElement } from '../service
 import { resolveElementThumbnail, getElementTypeLabel, type CampaignElementType } from '../lib/videoFormatters';
 
 interface PublishAssetButtonProps {
-  organizationId: string;
   campaignId: string;
   elementType: CampaignElementType;
   sourceField: string;
@@ -17,7 +16,6 @@ interface PublishAssetButtonProps {
 }
 
 export function PublishAssetButton({
-  organizationId,
   campaignId,
   elementType,
   sourceField,
@@ -46,7 +44,6 @@ export function PublishAssetButton({
     setError(null);
     try {
       const { assetId } = await publishCampaignElementAsAsset({
-        organizationId,
         campaignId,
         elementType,
         sourceField,
