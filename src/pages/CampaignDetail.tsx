@@ -12,7 +12,7 @@ import {
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { syncCampaignRedirectLinks } from '../lib/campaignRedirectEngine';
-import { PublishAssetButton } from './PublishAssetButton';
+import { PublishAssetButton } from "../components/PublishAssetButton";
 import { getPublishedElements, type PublishedElement } from '../services/asset/publishCampaignElementAsAsset';
 
 // Reusable Stripe toggle component
