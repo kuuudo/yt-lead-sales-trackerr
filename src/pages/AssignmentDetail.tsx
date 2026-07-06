@@ -4,7 +4,6 @@ import { Loader2, AlertCircle, CheckCircle2, Rocket, ArrowLeft } from 'lucide-re
 import { supabase } from '../lib/supabase';
 import { getAssignmentDetail, type AssignmentDetailData, type CampaignGroup } from '../services/assignment/getAssignmentDetail';
 import { acceptInvitation } from '../services/assignment/acceptInvitation';
-import { createPromotion } from '../services/promotion/createPromotion';
 import { getElementTypeLabel } from '../lib/videoFormatters';
 
 export default function AssignmentDetail() {
@@ -15,7 +14,7 @@ export default function AssignmentDetail() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [accepting, setAccepting] = useState(false);
-  const [generating, setGenerating] = useState(false);
+  const [starting, setStarting] = useState(false);
 
   const [selectedCampaignId, setSelectedCampaignId] = useState<string | null>(null);
   const [selectedAssetIds, setSelectedAssetIds] = useState<Set<string>>(new Set());
@@ -69,27 +68,27 @@ export default function AssignmentDetail() {
     });
   };
 
-  const handleGeneratePromotion = async () => {
+  const handleStartPromoting = async () => {
     if (!data || !selectedCampaignId || selectedAssetIds.size === 0) return;
-    setGenerating(true);
+    setStarting(true);
     setError(null);
     try {
-      const { data: { user } } = await supabase.auth.getUser();
-      if (!user) throw new Error('Not signed in');
-
-      const { promotionId } = await createPromotion({
-        organizationId: data.assignment.organization_id,
-        campaignId: selectedCampaignId,
-        ownerUserId: user.id,
-        assetIds: Array.from(selectedAssetIds),
-        assignmentCollaboratorId: data.myCollaboratorId,
+      const { data: promotionId, error: rpcError } = await supabase.rpc('create_promotion', {
+        p_organization_id: data.assignment.organization_id,
+        p_campaign_id: selectedCampaignId,
+        p_asset_ids: Array.from(selectedAssetIds),
+        p_assignment_collaborator_id: data.myCollaboratorId,
       });
+
+      if (rpcError || !promotionId) {
+        throw new Error(rpcError?.message ?? 'Failed to create promotion');
+      }
 
       navigate(`/marketplace/promotions/${promotionId}`);
     } catch (e: any) {
-      setError(e.message ?? 'Failed to generate promotion');
+      setError(e.message ?? 'Failed to start promoting');
     } finally {
-      setGenerating(false);
+      setStarting(false);
     }
   };
 
@@ -114,7 +113,7 @@ export default function AssignmentDetail() {
 
   const { assignment, myInvitation, myCollaboratorId, campaignGroups } = data;
   const activeGroup: CampaignGroup | undefined = campaignGroups.find(g => g.campaign_id === selectedCampaignId);
-  const canAct = myCollaboratorId !== null; // must be an accepted collaborator to select assets / generate
+  const canAct = myCollaboratorId !== null;
 
   return (
     <div className="min-h-screen bg-zinc-950 text-zinc-100">
@@ -247,12 +246,12 @@ export default function AssignmentDetail() {
                 </div>
 
                 <button
-                  onClick={handleGeneratePromotion}
-                  disabled={generating || selectedAssetIds.size === 0}
+                  onClick={handleStartPromoting}
+                  disabled={starting || selectedAssetIds.size === 0}
                   className="flex items-center gap-2 bg-red-600 hover:bg-red-500 disabled:opacity-40 text-white text-xs font-bold uppercase tracking-wider px-5 py-3 rounded-lg"
                 >
-                  {generating ? <Loader2 className="animate-spin" size={14} /> : <Rocket size={14} />}
-                  Generate Promotion
+                  {starting ? <Loader2 className="animate-spin" size={14} /> : <Rocket size={14} />}
+                  Start Promoting
                 </button>
               </>
             )}
