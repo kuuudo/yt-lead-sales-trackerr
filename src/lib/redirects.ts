@@ -6,7 +6,7 @@ const generateToken = (): string => {
   return Array.from({ length: 4 }, () => chars[Math.floor(Math.random() * chars.length)]).join('');
 };
 
-export type RedirectLinkType = 
+export type RedirectLinkType =
   | 'landing_page'
   | 'checkout'
   | 'purchase_thankyou'
@@ -28,6 +28,13 @@ export interface RedirectLink {
   destination_url: string;
   created_at: string;
   organization_id: string | null;
+  promotion_id: string | null;
+  asset_id: string | null;
+}
+
+export interface CreateRedirectLinkOptions {
+  promotionId?: string | null;
+  assetId?: string | null;
 }
 
 export const createRedirectLink = async (
@@ -37,8 +44,57 @@ export const createRedirectLink = async (
   destinationUrl: string,
   appBaseUrl: string,
   leadMagnetId?: string,
-  allowDuplicate?: boolean
+  allowDuplicate?: boolean,
+  options?: CreateRedirectLinkOptions
 ): Promise<string | null> => {
+  const promotionId = options?.promotionId ?? null;
+  const assetId = options?.assetId ?? null;
+
+  if (promotionId && !assetId) {
+    console.error('createRedirectLink: promotionId requires assetId');
+    return null;
+  }
+
+  // Resolve organization_id from campaign
+  const { data: campaignRow } = await supabase
+    .from('campaigns')
+    .select('organization_id')
+    .eq('id', campaignId)
+    .single();
+
+  const organizationId = campaignRow?.organization_id ?? null;
+
+  // Validate promotion
+  if (promotionId) {
+    const { data: promotionRow, error: promotionErr } = await supabase
+      .from('promotions')
+      .select('organization_id')
+      .eq('id', promotionId)
+      .maybeSingle();
+
+    if (promotionErr || !promotionRow) {
+      console.error('Promotion not found');
+      return null;
+    }
+
+    if (promotionRow.organization_id !== organizationId) {
+      console.error('Promotion organization mismatch');
+      return null;
+    }
+
+    const { data: promotionAssetRow, error: promotionAssetErr } = await supabase
+      .from('promotion_assets')
+      .select('asset_id')
+      .eq('promotion_id', promotionId)
+      .eq('asset_id', assetId)
+      .maybeSingle();
+
+    if (promotionAssetErr || !promotionAssetRow) {
+      console.error('Asset does not belong to promotion');
+      return null;
+    }
+  }
+
   if (!allowDuplicate) {
     let existingQuery = supabase
       .from('redirect_links')
@@ -46,7 +102,13 @@ export const createRedirectLink = async (
       .eq('video_id', videoId)
       .eq('link_type', linkType);
 
-    if (leadMagnetId) existingQuery = existingQuery.eq('lead_magnet_id', leadMagnetId);
+    if (leadMagnetId) {
+      existingQuery = existingQuery.eq('lead_magnet_id', leadMagnetId);
+    }
+
+    if (promotionId) {
+      existingQuery = existingQuery.eq('promotion_id', promotionId);
+    }
 
     const { data: existing } = await existingQuery.single();
 
@@ -55,66 +117,57 @@ export const createRedirectLink = async (
     }
   }
 
-const token = generateToken();
+  const token = generateToken();
 
-// 🧪 CHECKOUT LINK BUILD DEBUG
-console.log("CHECKOUT LINK BUILD:", {
-  videoId,
-  campaignId,
-  linkType,
-  token
-});
-
-  // Resolve organization_id from campaigns at creation time.
-  // campaignId is always in scope here — one read, written once, inherited by all downstream.
-  const { data: campaignRow } = await supabase
-    .from('campaigns')
-    .select('organization_id')
-    .eq('id', campaignId)
-    .single();
-  const organizationId = campaignRow?.organization_id ?? null;
-
-  const { error } = await supabase.from('redirect_links').insert({
+  console.log('CHECKOUT LINK BUILD', {
+    videoId,
+    campaignId,
+    linkType,
     token,
-    video_id: videoId,
-    campaign_id: campaignId,
-    link_type: linkType,
-    destination_url: destinationUrl,
-    organization_id: organizationId,
-    ...(leadMagnetId ? { lead_magnet_id: leadMagnetId } : {}),
+    promotionId,
+    assetId,
   });
 
+  const { error } = await supabase
+    .from('redirect_links')
+    .insert({
+      token,
+      video_id: videoId,
+      campaign_id: campaignId,
+      link_type: linkType,
+      destination_url: destinationUrl,
+      organization_id: organizationId,
+      ...(leadMagnetId ? { lead_magnet_id: leadMagnetId } : {}),
+      ...(promotionId ? { promotion_id: promotionId } : {}),
+      ...(assetId ? { asset_id: assetId } : {}),
+    });
+
   if (error) {
-    console.error('Error creating redirect link:', error);
+    console.error(error);
     return null;
   }
 
   return `${appBaseUrl}/${token}`;
 };
 
-export const resolveRedirectToken = async (token: string): Promise<RedirectLink | null> => {
-  console.log('Looking up token:', token);
-  
+export const resolveRedirectToken = async (
+  token: string
+): Promise<RedirectLink | null> => {
   const { data, error } = await supabase
     .from('redirect_links')
     .select('*')
     .eq('token', token)
     .single();
 
-  console.log('Result:', { data, error });
-
   if (error || !data) return null;
+
   return data as RedirectLink;
 };
 
 export const logRedirectEvent = async (link: RedirectLink) => {
-  // ✅ REUSE EXISTING SESSION (NO MORE DUPLICATES)
   const sessionId = getSessionId();
 
-  if (!sessionId) {
-    console.warn('No session found - skipping event log');
-    return;
-  }
+  if (!sessionId) return;
 
   await supabase.from('events').insert({
     session_id: sessionId,
@@ -122,15 +175,14 @@ export const logRedirectEvent = async (link: RedirectLink) => {
     campaign_id: link.campaign_id,
     event_type: link.link_type,
     value: null,
-    organization_id: link.organization_id ?? null,
+    organization_id: link.organization_id,
+    promotion_id: link.promotion_id,
   });
 };
 
-// For checkout links pointing to Stripe Payment Links,
-// append ?client_reference_id=TOKEN so the webhook can attribute the purchase.
 export const buildRedirectUrl = (link: RedirectLink): string => {
   const isStripeLink = link.destination_url.includes('buy.stripe.com');
-  
+
   if (link.link_type === 'checkout' && isStripeLink) {
     const separator = link.destination_url.includes('?') ? '&' : '?';
     return `${link.destination_url}${separator}client_reference_id=${link.token}`;
