@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import { Loader2, AlertCircle, CheckCircle2, Rocket } from 'lucide-react';
+import { Loader2, AlertCircle, CheckCircle2, Rocket, ArrowLeft } from 'lucide-react';
 import { supabase } from '../lib/supabase';
 import { getAssignmentDetail, type AssignmentDetailData, type CampaignGroup } from '../services/assignment/getAssignmentDetail';
 import { acceptInvitation } from '../services/assignment/acceptInvitation';
@@ -119,6 +119,14 @@ export default function AssignmentDetail() {
   return (
     <div className="min-h-screen bg-zinc-950 text-zinc-100">
       <div className="max-w-3xl mx-auto px-6 py-10">
+        <button
+          onClick={() => navigate('/marketplace')}
+          className="flex items-center gap-1.5 text-zinc-500 hover:text-white text-xs font-bold uppercase tracking-wider mb-6"
+        >
+          <ArrowLeft size={14} />
+          Back to Marketplace
+        </button>
+
         <span className="text-[10px] font-bold uppercase tracking-widest text-zinc-500">
           {assignment.status}
         </span>
@@ -153,15 +161,42 @@ export default function AssignmentDetail() {
           </div>
         )}
 
-        {canAct && (
-          <>
-            {campaignGroups.length === 0 && (
-              <div className="text-zinc-500 text-sm border border-dashed border-zinc-800 rounded-xl p-6">
-                No assets are attached to this Assignment yet.
-              </div>
-            )}
+        {campaignGroups.length === 0 && (
+          <div className="text-zinc-500 text-sm border border-dashed border-zinc-800 rounded-xl p-6">
+            This Assignment doesn't contain any Assets yet.
+          </div>
+        )}
 
-            {campaignGroups.length > 0 && (
+        {campaignGroups.length > 0 && (
+          <>
+            <label className="block text-[10px] font-bold uppercase tracking-widest text-zinc-500 mb-2">
+              Assets in this Assignment
+            </label>
+            <div className="space-y-2 mb-6">
+              {campaignGroups.flatMap(g => g.assets).map(asset => (
+                <div
+                  key={asset.asset_id}
+                  className="flex items-center gap-3 bg-zinc-900 border border-zinc-800 rounded-lg p-3"
+                >
+                  <img src={asset.thumbnail_url ?? ''} alt="" className="w-16 h-9 object-cover rounded bg-zinc-950 shrink-0" />
+                  <span className="text-sm text-zinc-200">
+                    {asset.kind === 'campaign_element' ? (
+                      <>
+                        <span style={{ color: 'rgba(255, 69, 0, 0.7)' }}>
+                          {asset.element_type ? getElementTypeLabel(asset.element_type) : 'Asset'}
+                        </span>
+                        <span className="text-zinc-600 mx-1">•</span>
+                        {asset.display_name}
+                      </>
+                    ) : (
+                      asset.video_title ?? asset.asset_id
+                    )}
+                  </span>
+                </div>
+              ))}
+            </div>
+
+            {canAct && (
               <>
                 <label className="block text-[10px] font-bold uppercase tracking-widest text-zinc-500 mb-2">
                   Campaign
@@ -179,7 +214,7 @@ export default function AssignmentDetail() {
                 </select>
 
                 <label className="block text-[10px] font-bold uppercase tracking-widest text-zinc-500 mb-2">
-                  Assets to promote
+                  Select Assets to promote from this Campaign
                 </label>
                 <div className="space-y-2 mb-6">
                   {activeGroup?.assets.map(asset => (

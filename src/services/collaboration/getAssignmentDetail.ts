@@ -61,7 +61,14 @@ export async function getAssignmentDetail(
     throw new Error(assignmentErr?.message ?? 'Assignment not found');
   }
 
-  const [{ data: invitation }, { data: collaborator }, { data: assignmentAssets }] = await Promise.all([
+  // TODO: Remove after diagnosis.
+  console.log('[getAssignmentDetail] input', { assignmentId, currentUserId, currentUserEmail });
+
+  const [
+    { data: invitation, error: invitationErr },
+    { data: collaborator, error: collaboratorErr },
+    { data: assignmentAssets, error: assetsErr },
+  ] = await Promise.all([
     supabase
       .from('assignment_invitations')
       .select('id, status')
@@ -82,6 +89,13 @@ export async function getAssignmentDetail(
       .select('asset_id')
       .eq('assignment_id', assignmentId),
   ]);
+
+  // TODO: Remove after diagnosis.
+  console.log('[getAssignmentDetail] raw results', { invitation, collaborator, assignmentAssets, invitationErr, collaboratorErr, assetsErr });
+
+  if (invitationErr) throw new Error(`Invitation query failed: ${invitationErr.message}`);
+  if (collaboratorErr) throw new Error(`Collaborator query failed: ${collaboratorErr.message}`);
+  if (assetsErr) throw new Error(`Assignment assets query failed: ${assetsErr.message}`);
 
   const assetIds = (assignmentAssets ?? []).map(r => r.asset_id);
   let campaignGroups: CampaignGroup[] = [];
