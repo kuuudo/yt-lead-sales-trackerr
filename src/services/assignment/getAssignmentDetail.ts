@@ -110,7 +110,10 @@ export async function getAssignmentDetail(
   if (assetsErr) throw new Error(`Assignment assets query failed: ${assetsErr.message}`);
 
   const assetIds = (assignmentAssetRows ?? []).map(r => r.asset_id);
-
+console.log('==============================');
+console.log('[getAssignmentDetail] assignmentId:', assignmentId);
+console.log('[getAssignmentDetail] currentUserId:', currentUserId);
+console.log('[getAssignmentDetail] assetIds:', assetIds);
   let assignmentAssets: AssignmentAssetOption[] = [];
   let campaignGroups: CampaignGroup[] = [];
 
@@ -137,8 +140,21 @@ export async function getAssignmentDetail(
     if (videoErr) throw new Error(`Failed to load asset display info: ${videoErr.message}`);
     if (elementErr) throw new Error(`Failed to load campaign element display info: ${elementErr.message}`);
     if (caErr) throw new Error(`Failed to load campaign groupings: ${caErr.message}`);
+console.log('------------------------------');
+console.log('[getAssignmentDetail] videoRows:', videoRows);
+console.log('[getAssignmentDetail] videoErr:', videoErr);
 
+console.log('[getAssignmentDetail] elementRows:', elementRows);
+console.log('[getAssignmentDetail] elementErr:', elementErr);
+
+console.log('[getAssignmentDetail] campaignAssetRows:', campaignAssetRows);
+console.log('[getAssignmentDetail] caErr:', caErr);
     const videoByAsset = new Map((videoRows ?? []).map(v => [v.asset_id, v]));
+    console.log('------------------------------');
+console.log(
+  '[getAssignmentDetail] videoByAsset keys:',
+  [...videoByAsset.keys()]
+);
     const elementByAsset = new Map((elementRows ?? []).map(e => [e.asset_id, e]));
 
     // Shared resolver so assignmentAssets and campaignGroups never disagree
