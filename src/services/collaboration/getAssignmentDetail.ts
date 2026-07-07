@@ -121,12 +121,21 @@ export async function getAssignmentDetail(
       .in('asset_id', assetIds);
 
     if (elementErr) throw new Error(`Failed to load campaign element display info: ${elementErr.message}`);
-
+    console.log('==============================');
+    console.log('elementRows');
+    console.log(elementRows);
+    console.log('==============================');
     const videoByAsset = new Map((videoRows ?? []).map(v => [v.asset_id, v]));
     const elementByAsset = new Map((elementRows ?? []).map(e => [e.asset_id, e]));
+    console.log('elementByAsset');
+    console.log(elementByAsset);
+    
     const groupMap = new Map<string, CampaignGroup>();
 
     for (const row of campaignAssetRows ?? []) {
+      console.log('----------------------');
+      console.log('campaignAsset row');
+      console.log(row); 
       const campaignId = row.campaign_id as string;
       if (!groupMap.has(campaignId)) {
         groupMap.set(campaignId, {
@@ -137,7 +146,23 @@ export async function getAssignmentDetail(
       }
       const video = videoByAsset.get(row.asset_id);
       const element = elementByAsset.get(row.asset_id);
+      console.log('asset_id =', row.asset_id);
+      console.log('video =');
+      console.log(video);
+      console.log('element =');
+      console.log(element);
+
+
       if (element) {
+        console.log('===== ELEMENT FOUND =====');
+        console.log({
+          asset_id: row.asset_id,
+          display_name: element.display_name,
+          element_type: element.element_type,
+        });
+        console.log('resolveElementThumbnail input =', element.element_type);
+        console.log('thumbnail result =', resolveElementThumbnail(element.element_type));
+
         groupMap.get(campaignId)!.assets.push({
           asset_id: row.asset_id,
           kind: 'campaign_element',
@@ -147,6 +172,11 @@ export async function getAssignmentDetail(
           element_type: element.element_type,
         });
       } else {
+        console.log('===== VIDEO =====');
+        console.log({
+          asset_id: row.asset_id,
+          video,
+        });
         groupMap.get(campaignId)!.assets.push({
           asset_id: row.asset_id,
           kind: 'video',
