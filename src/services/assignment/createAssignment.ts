@@ -20,7 +20,7 @@
  *
  * NOT responsible for:
  *   - Sending invitations (see inviteCollaborator.ts — called separately,
- *     once an assignmentId exists).
+ *     once an assignmentId exists)..
  */
 
 import { supabase } from '../../lib/supabase';
