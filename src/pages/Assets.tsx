@@ -26,6 +26,7 @@ import { useAuth } from '../lib/auth';
 import { useOrganization } from '../lib/useOrganization';
 import { listAssetsByOrganization } from '../services/asset/listAssetsByOrganization';
 import type { AssetLibraryRow } from '../services/asset/listAssetsByOrganization';
+import { resolveThumbnail } from '../lib/videoFormatters';
 
 export default function Assets() {
   const { user } = useAuth();
@@ -85,9 +86,7 @@ export default function Assets() {
               className="flex items-center gap-4 p-4 bg-zinc-900 border border-zinc-800 rounded-xl hover:border-zinc-600 transition-all"
             >
               <div className="w-16 h-10 overflow-hidden rounded-lg border border-zinc-800 flex-shrink-0">
-                {row.thumbnail_url && (
-                  <img src={row.thumbnail_url} className="w-full h-full object-cover" />
-                )}
+                <img src={resolveThumbnail(row)} className="w-full h-full object-cover" />
               </div>
               <div className="min-w-0">
                 <p className="text-sm font-bold text-white truncate">

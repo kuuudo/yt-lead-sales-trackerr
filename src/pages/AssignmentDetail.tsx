@@ -4,7 +4,7 @@ import { Loader2, AlertCircle, CheckCircle2, Rocket, ArrowLeft } from 'lucide-re
 import { supabase } from '../lib/supabase';
 import { getAssignmentDetail, type AssignmentDetailData, type CampaignGroup } from '../services/assignment/getAssignmentDetail';
 import { acceptInvitation } from '../services/assignment/acceptInvitation';
-import { getElementTypeLabel } from '../lib/videoFormatters';
+import { getElementTypeLabel, resolveThumbnail, resolveElementThumbnail } from '../lib/videoFormatters';
 
 export default function AssignmentDetail() {
   const { assignmentId } = useParams<{ assignmentId: string }>();
@@ -177,7 +177,11 @@ export default function AssignmentDetail() {
                   key={asset.asset_id}
                   className="flex items-center gap-3 bg-zinc-900 border border-zinc-800 rounded-lg p-3"
                 >
-                  <img src={asset.thumbnail_url ?? ''} alt="" className="w-16 h-9 object-cover rounded bg-zinc-950 shrink-0" />
+                  <img
+                    src={asset.kind === 'campaign_element' ? resolveElementThumbnail(asset.element_type ?? '') : resolveThumbnail(asset)}
+                    alt=""
+                    className="w-16 h-9 object-cover rounded bg-zinc-950 shrink-0"
+                  />
                   <span className="text-sm text-zinc-200">
                     {asset.kind === 'campaign_element' ? (
                       <>
@@ -227,7 +231,11 @@ export default function AssignmentDetail() {
                         onChange={() => toggleAsset(asset.asset_id)}
                         className="accent-red-600"
                       />
-                      <img src={asset.thumbnail_url ?? ''} alt="" className="w-16 h-9 object-cover rounded bg-zinc-950 shrink-0" />
+                      <img
+                        src={asset.kind === 'campaign_element' ? resolveElementThumbnail(asset.element_type ?? '') : resolveThumbnail(asset)}
+                        alt=""
+                        className="w-16 h-9 object-cover rounded bg-zinc-950 shrink-0"
+                      />
                       <span className="text-sm text-zinc-200">
                         {asset.kind === 'campaign_element' ? (
                           <>

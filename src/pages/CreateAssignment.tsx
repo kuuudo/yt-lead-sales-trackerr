@@ -10,7 +10,7 @@ import {
   type CampaignOption,
   type AssetOption,
 } from '../services/assignment/listAssetsForAssignmentPicker';
-import { getElementTypeLabel } from '../lib/videoFormatters';
+import { getElementTypeLabel, resolveThumbnail, resolveElementThumbnail } from '../lib/videoFormatters';
 
 export default function CreateAssignment() {
   const navigate = useNavigate();
@@ -211,7 +211,11 @@ export default function CreateAssignment() {
                   onChange={() => toggleAsset(asset.asset_id)}
                   className="accent-red-600"
                 />
-                <img src={asset.thumbnail_url ?? ''} alt="" className="w-16 h-9 object-cover rounded bg-zinc-950 shrink-0" />
+                <img
+                  src={asset.kind === 'campaign_element' ? resolveElementThumbnail(asset.element_type ?? '') : resolveThumbnail(asset)}
+                  alt=""
+                  className="w-16 h-9 object-cover rounded bg-zinc-950 shrink-0"
+                />
                 {asset.kind === 'video' ? (
                   <span className="text-sm text-zinc-200">
                     {asset.video_title ?? asset.asset_id}
