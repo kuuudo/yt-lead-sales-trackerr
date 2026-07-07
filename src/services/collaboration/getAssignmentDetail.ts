@@ -61,7 +61,7 @@ export async function getAssignmentDetail(
     throw new Error(assignmentErr?.message ?? 'Assignment not found');
   }
 
-  // TODO: Remove after diagnosis.
+  // TODO: Remove after diagnosis.s
   console.log('[getAssignmentDetail] input', { assignmentId, currentUserId, currentUserEmail });
 
   const [
