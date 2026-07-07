@@ -5,12 +5,27 @@
  *   - the assignment itself
  *   - the current user's relationship to it (pending invitation? active
  *     collaborator? neither — e.g. viewing as the org owner)
- *   - its assets, grouped by Campaign
+ *   - its assets — as two separate views, per the Design Lock:
  *
- * Assets are grouped by Campaign because Promotion requires a single
- * campaign_id (Design Lock) — an Assignment's assets may span more than
- * one Campaign, so the user picks one Campaign's worth at a time before
- * generating a Promotion.
+ *     `assignmentAssets` — EVERY asset attached via assignment_assets,
+ *     regardless of Campaign provenance. This is "what's in this
+ *     Assignment" and is the source of truth for the assets list shown
+ *     to the user.
+ *
+ *     `campaignGroups` — only assets that also have a campaign_assets
+ *     record, grouped by Campaign. This exists purely to drive the
+ *     "Select Assets to Promote" flow, since Promotion requires a single
+ *     campaign_id (Design Lock) and Library assets with no Campaign
+ *     provenance simply aren't eligible for Promotion.
+ *
+ * These two were previously conflated — campaignGroups was the only
+ * source used for display, which silently dropped any asset that had no
+ * campaign_assets row (e.g. a Library asset added directly via the Asset
+ * Picker, never published from a Campaign). They're now computed
+ * independently from the same underlying assignment_assets / videos /
+ * campaign_element_assets data, so an asset with no Campaign provenance
+ * still shows up in the Assignment's asset list — it just won't appear
+ * as a Promotion candidate, which is correct.
  */
 
 import { supabase } from '../../lib/supabase';
@@ -43,6 +58,9 @@ export interface AssignmentDetailData {
   myInvitation: { id: string; status: string } | null;
   /** null until the invitation has been accepted */
   myCollaboratorId: string | null;
+  /** Every asset attached to this Assignment, regardless of Campaign provenance. Drives "Assets in this Assignment". */
+  assignmentAssets: AssignmentAssetOption[];
+  /** Only Campaign-backed assets, grouped by Campaign. Drives "Select Assets to Promote" only. */
   campaignGroups: CampaignGroup[];
 }
 
@@ -61,13 +79,10 @@ export async function getAssignmentDetail(
     throw new Error(assignmentErr?.message ?? 'Assignment not found');
   }
 
-  // TODO: Remove after diagnosis.s
-  console.log('[getAssignmentDetail] input', { assignmentId, currentUserId, currentUserEmail });
-
   const [
     { data: invitation, error: invitationErr },
     { data: collaborator, error: collaboratorErr },
-    { data: assignmentAssets, error: assetsErr },
+    { data: assignmentAssetRows, error: assetsErr },
   ] = await Promise.all([
     supabase
       .from('assignment_invitations')
@@ -90,53 +105,76 @@ export async function getAssignmentDetail(
       .eq('assignment_id', assignmentId),
   ]);
 
-  // TODO: Remove after diagnosis.
-  console.log('[getAssignmentDetail] raw results', { invitation, collaborator, assignmentAssets, invitationErr, collaboratorErr, assetsErr });
-
   if (invitationErr) throw new Error(`Invitation query failed: ${invitationErr.message}`);
   if (collaboratorErr) throw new Error(`Collaborator query failed: ${collaboratorErr.message}`);
   if (assetsErr) throw new Error(`Assignment assets query failed: ${assetsErr.message}`);
 
-  const assetIds = (assignmentAssets ?? []).map(r => r.asset_id);
+  const assetIds = (assignmentAssetRows ?? []).map(r => r.asset_id);
+
+  let assignmentAssets: AssignmentAssetOption[] = [];
   let campaignGroups: CampaignGroup[] = [];
 
   if (assetIds.length > 0) {
-    const { data: campaignAssetRows, error: caErr } = await supabase
-      .from('campaign_assets')
-      .select('campaign_id, asset_id, campaigns(campaign_name)')
-      .in('asset_id', assetIds);
-
-    if (caErr) throw new Error(`Failed to load campaign groupings: ${caErr.message}`);
-console.log('campaignAssetRows');
-console.log(campaignAssetRows);
-    const { data: videoRows, error: videoErr } = await supabase
-      .from('videos')
-      .select('asset_id, video_title, thumbnail_url')
-      .in('asset_id', assetIds);
+    const [
+      { data: videoRows, error: videoErr },
+      { data: elementRows, error: elementErr },
+      { data: campaignAssetRows, error: caErr },
+    ] = await Promise.all([
+      supabase
+        .from('videos')
+        .select('asset_id, video_title, thumbnail_url')
+        .in('asset_id', assetIds),
+      supabase
+        .from('campaign_element_assets')
+        .select('asset_id, display_name, element_type')
+        .in('asset_id', assetIds),
+      supabase
+        .from('campaign_assets')
+        .select('campaign_id, asset_id, campaigns(campaign_name)')
+        .in('asset_id', assetIds),
+    ]);
 
     if (videoErr) throw new Error(`Failed to load asset display info: ${videoErr.message}`);
-
-    const { data: elementRows, error: elementErr } = await supabase
-      .from('campaign_element_assets')
-      .select('asset_id, display_name, element_type')
-      .in('asset_id', assetIds);
-
     if (elementErr) throw new Error(`Failed to load campaign element display info: ${elementErr.message}`);
-    console.log('==============================');
-    console.log('elementRows');
-    console.log(elementRows);
-    console.log('==============================');
+    if (caErr) throw new Error(`Failed to load campaign groupings: ${caErr.message}`);
+
     const videoByAsset = new Map((videoRows ?? []).map(v => [v.asset_id, v]));
     const elementByAsset = new Map((elementRows ?? []).map(e => [e.asset_id, e]));
-    console.log('elementByAsset');
-    console.log(elementByAsset);
-    
-    const groupMap = new Map<string, CampaignGroup>();
 
+    // Shared resolver so assignmentAssets and campaignGroups never disagree
+    // about how a given asset_id renders (title/thumbnail/kind).
+    const toAssetOption = (assetId: string): AssignmentAssetOption => {
+      const element = elementByAsset.get(assetId);
+      if (element) {
+        return {
+          asset_id: assetId,
+          kind: 'campaign_element',
+          video_title: null,
+          thumbnail_url: resolveElementThumbnail(element.element_type),
+          display_name: element.display_name,
+          element_type: element.element_type,
+        };
+      }
+      const video = videoByAsset.get(assetId);
+      return {
+        asset_id: assetId,
+        kind: 'video',
+        video_title: video?.video_title ?? null,
+        thumbnail_url: video?.thumbnail_url ?? null,
+      };
+    };
+
+    // "Assets in this Assignment" — every asset attached via
+    // assignment_assets, regardless of Campaign provenance.
+    assignmentAssets = assetIds.map(toAssetOption);
+
+    // "Select Assets to Promote" — only assets that also have a
+    // campaign_assets record, grouped by Campaign. Assets with no Campaign
+    // provenance (e.g. Library assets added directly, never published from
+    // a Campaign) are correctly absent here — they have no campaign_id to
+    // promote under.
+    const groupMap = new Map<string, CampaignGroup>();
     for (const row of campaignAssetRows ?? []) {
-      console.log('----------------------');
-      console.log('campaignAsset row');
-      console.log(row); 
       const campaignId = row.campaign_id as string;
       if (!groupMap.has(campaignId)) {
         groupMap.set(campaignId, {
@@ -145,48 +183,8 @@ console.log(campaignAssetRows);
           assets: [],
         });
       }
-      const video = videoByAsset.get(row.asset_id);
-      const element = elementByAsset.get(row.asset_id);
-      console.log('asset_id =', row.asset_id);
-      console.log('video =');
-      console.log(video);
-      console.log('element =');
-      console.log(element);
-
-
-      if (element) {
-        console.log('===== ELEMENT FOUND =====');
-        console.log({
-          asset_id: row.asset_id,
-          display_name: element.display_name,
-          element_type: element.element_type,
-        });
-        console.log('resolveElementThumbnail input =', element.element_type);
-        console.log('thumbnail result =', resolveElementThumbnail(element.element_type));
-
-        groupMap.get(campaignId)!.assets.push({
-          asset_id: row.asset_id,
-          kind: 'campaign_element',
-          video_title: null,
-          thumbnail_url: resolveElementThumbnail(element.element_type),
-          display_name: element.display_name,
-          element_type: element.element_type,
-        });
-      } else {
-        console.log('===== VIDEO =====');
-        console.log({
-          asset_id: row.asset_id,
-          video,
-        });
-        groupMap.get(campaignId)!.assets.push({
-          asset_id: row.asset_id,
-          kind: 'video',
-          video_title: video?.video_title ?? null,
-          thumbnail_url: video?.thumbnail_url ?? null,
-        });
-      }
+      groupMap.get(campaignId)!.assets.push(toAssetOption(row.asset_id));
     }
-
     campaignGroups = Array.from(groupMap.values());
   }
 
@@ -194,6 +192,7 @@ console.log(campaignAssetRows);
     assignment,
     myInvitation: invitation ?? null,
     myCollaboratorId: collaborator?.id ?? null,
+    assignmentAssets,
     campaignGroups,
   };
 }

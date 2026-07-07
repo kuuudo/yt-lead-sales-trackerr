@@ -111,7 +111,7 @@ export default function AssignmentDetail() {
 
   if (!data) return null;
 
-  const { assignment, myInvitation, myCollaboratorId, campaignGroups } = data;
+  const { assignment, myInvitation, myCollaboratorId, assignmentAssets, campaignGroups } = data;
   const activeGroup: CampaignGroup | undefined = campaignGroups.find(g => g.campaign_id === selectedCampaignId);
   const canAct = myCollaboratorId !== null;
 
@@ -160,19 +160,19 @@ export default function AssignmentDetail() {
           </div>
         )}
 
-        {campaignGroups.length === 0 && (
+        {assignmentAssets.length === 0 && (
           <div className="text-zinc-500 text-sm border border-dashed border-zinc-800 rounded-xl p-6">
             This Assignment doesn't contain any Assets yet.
           </div>
         )}
 
-        {campaignGroups.length > 0 && (
+        {assignmentAssets.length > 0 && (
           <>
             <label className="block text-[10px] font-bold uppercase tracking-widest text-zinc-500 mb-2">
               Assets in this Assignment
             </label>
             <div className="space-y-2 mb-6">
-              {campaignGroups.flatMap(g => g.assets).map(asset => (
+              {assignmentAssets.map(asset => (
                 <div
                   key={asset.asset_id}
                   className="flex items-center gap-3 bg-zinc-900 border border-zinc-800 rounded-lg p-3"
@@ -199,7 +199,7 @@ export default function AssignmentDetail() {
               ))}
             </div>
 
-            {canAct && (
+            {canAct && campaignGroups.length > 0 && (
               <>
                 <label className="block text-[10px] font-bold uppercase tracking-widest text-zinc-500 mb-2">
                   Campaign
@@ -262,6 +262,12 @@ export default function AssignmentDetail() {
                   Start Promoting
                 </button>
               </>
+            )}
+
+            {canAct && campaignGroups.length === 0 && (
+              <div className="text-zinc-500 text-sm border border-dashed border-zinc-800 rounded-xl p-6">
+                None of this Assignment's Assets have Campaign provenance, so there's nothing available to promote yet.
+              </div>
             )}
           </>
         )}
