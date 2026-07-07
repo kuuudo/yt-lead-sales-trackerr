@@ -14,11 +14,15 @@
  */
 
 import { supabase } from '../../lib/supabase';
+import { resolveElementThumbnail, type CampaignElementType } from '../../lib/videoFormatters';
 
 export interface AssignmentAssetOption {
   asset_id: string;
+  kind: 'video' | 'campaign_element';
   video_title: string | null;
   thumbnail_url: string | null;
+  display_name?: string;
+  element_type?: CampaignElementType;
 }
 
 export interface CampaignGroup {
@@ -57,7 +61,14 @@ export async function getAssignmentDetail(
     throw new Error(assignmentErr?.message ?? 'Assignment not found');
   }
 
-  const [{ data: invitation }, { data: collaborator }, { data: assignmentAssets }] = await Promise.all([
+  // TODO: Remove after diagnosis.s
+  console.log('[getAssignmentDetail] input', { assignmentId, currentUserId, currentUserEmail });
+
+  const [
+    { data: invitation, error: invitationErr },
+    { data: collaborator, error: collaboratorErr },
+    { data: assignmentAssets, error: assetsErr },
+  ] = await Promise.all([
     supabase
       .from('assignment_invitations')
       .select('id, status')
@@ -79,6 +90,13 @@ export async function getAssignmentDetail(
       .eq('assignment_id', assignmentId),
   ]);
 
+  // TODO: Remove after diagnosis.
+  console.log('[getAssignmentDetail] raw results', { invitation, collaborator, assignmentAssets, invitationErr, collaboratorErr, assetsErr });
+
+  if (invitationErr) throw new Error(`Invitation query failed: ${invitationErr.message}`);
+  if (collaboratorErr) throw new Error(`Collaborator query failed: ${collaboratorErr.message}`);
+  if (assetsErr) throw new Error(`Assignment assets query failed: ${assetsErr.message}`);
+
   const assetIds = (assignmentAssets ?? []).map(r => r.asset_id);
   let campaignGroups: CampaignGroup[] = [];
 
@@ -97,10 +115,27 @@ export async function getAssignmentDetail(
 
     if (videoErr) throw new Error(`Failed to load asset display info: ${videoErr.message}`);
 
+    const { data: elementRows, error: elementErr } = await supabase
+      .from('campaign_element_assets')
+      .select('asset_id, display_name, element_type')
+      .in('asset_id', assetIds);
+
+    if (elementErr) throw new Error(`Failed to load campaign element display info: ${elementErr.message}`);
+    console.log('==============================');
+    console.log('elementRows');
+    console.log(elementRows);
+    console.log('==============================');
     const videoByAsset = new Map((videoRows ?? []).map(v => [v.asset_id, v]));
+    const elementByAsset = new Map((elementRows ?? []).map(e => [e.asset_id, e]));
+    console.log('elementByAsset');
+    console.log(elementByAsset);
+    
     const groupMap = new Map<string, CampaignGroup>();
 
     for (const row of campaignAssetRows ?? []) {
+      console.log('----------------------');
+      console.log('campaignAsset row');
+      console.log(row); 
       const campaignId = row.campaign_id as string;
       if (!groupMap.has(campaignId)) {
         groupMap.set(campaignId, {
@@ -110,11 +145,45 @@ export async function getAssignmentDetail(
         });
       }
       const video = videoByAsset.get(row.asset_id);
-      groupMap.get(campaignId)!.assets.push({
-        asset_id: row.asset_id,
-        video_title: video?.video_title ?? null,
-        thumbnail_url: video?.thumbnail_url ?? null,
-      });
+      const element = elementByAsset.get(row.asset_id);
+      console.log('asset_id =', row.asset_id);
+      console.log('video =');
+      console.log(video);
+      console.log('element =');
+      console.log(element);
+
+
+      if (element) {
+        console.log('===== ELEMENT FOUND =====');
+        console.log({
+          asset_id: row.asset_id,
+          display_name: element.display_name,
+          element_type: element.element_type,
+        });
+        console.log('resolveElementThumbnail input =', element.element_type);
+        console.log('thumbnail result =', resolveElementThumbnail(element.element_type));
+
+        groupMap.get(campaignId)!.assets.push({
+          asset_id: row.asset_id,
+          kind: 'campaign_element',
+          video_title: null,
+          thumbnail_url: resolveElementThumbnail(element.element_type),
+          display_name: element.display_name,
+          element_type: element.element_type,
+        });
+      } else {
+        console.log('===== VIDEO =====');
+        console.log({
+          asset_id: row.asset_id,
+          video,
+        });
+        groupMap.get(campaignId)!.assets.push({
+          asset_id: row.asset_id,
+          kind: 'video',
+          video_title: video?.video_title ?? null,
+          thumbnail_url: video?.thumbnail_url ?? null,
+        });
+      }
     }
 
     campaignGroups = Array.from(groupMap.values());
