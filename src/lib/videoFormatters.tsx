@@ -392,7 +392,7 @@ export type CampaignElementType =
 
 // Fixed thumbnails per element type. No custom/override thumbnail support —
 // Campaign Elements always resolve to one of these fixed images, or the
-// placeholder fallback in resolveElementThumbnail().
+// placeholder fallback in resolveElementThumbnail().c
 export const ELEMENT_THUMBNAILS: Partial<Record<CampaignElementType, string>> = {
   landing_page:  '/element-thumbnails/landing_page.jpg',
   checkout:      '/element-thumbnails/checkout.jpg',
