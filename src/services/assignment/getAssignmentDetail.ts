@@ -107,7 +107,8 @@ export async function getAssignmentDetail(
       .in('asset_id', assetIds);
 
     if (caErr) throw new Error(`Failed to load campaign groupings: ${caErr.message}`);
-
+console.log('campaignAssetRows');
+console.log(campaignAssetRows);
     const { data: videoRows, error: videoErr } = await supabase
       .from('videos')
       .select('asset_id, video_title, thumbnail_url')
