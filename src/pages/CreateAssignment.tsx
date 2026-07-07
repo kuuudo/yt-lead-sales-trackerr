@@ -4,13 +4,7 @@ import { Loader2, Plus, X, Send } from 'lucide-react';
 import { supabase } from '../lib/supabase';
 import { createAssignment } from '../services/assignment/createAssignment';
 import { inviteCollaborators } from '../services/assignment/inviteCollaborator';
-import {
-  listCampaignsForOrg,
-  listAssetsForCampaign,
-  type CampaignOption,
-  type AssetOption,
-} from '../services/assignment/listAssetsForAssignmentPicker';
-import { getElementTypeLabel, resolveThumbnail, resolveElementThumbnail } from '../lib/videoFormatters';
+import { AssetPicker } from '../components/assignment/AssetPicker';
 
 export default function CreateAssignment() {
   const navigate = useNavigate();
@@ -21,23 +15,19 @@ export default function CreateAssignment() {
   const [title, setTitle] = useState('');
   const [description, setDescription] = useState('');
 
-  const [campaigns, setCampaigns] = useState<CampaignOption[]>([]);
-  const [selectedCampaignId, setSelectedCampaignId] = useState<string | null>(null);
-  const [assets, setAssets] = useState<AssetOption[]>([]);
-  const [selectedAssetIds, setSelectedAssetIds] = useState<Set<string>>(new Set());
+  const [selectedAssetIds, setSelectedAssetIds] = useState<string[]>([]);
 
   const [emailInput, setEmailInput] = useState('');
   const [emails, setEmails] = useState<string[]>([]);
 
-  const [loadingCampaigns, setLoadingCampaigns] = useState(true);
-  const [loadingAssets, setLoadingAssets] = useState(false);
+  const [loadingOrg, setLoadingOrg] = useState(true);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
     const init = async () => {
       const { data: { user } } = await supabase.auth.getUser();
-      if (!user) { setError('Not signed in'); setLoadingCampaigns(false); return; }
+      if (!user) { setError('Not signed in'); setLoadingOrg(false); return; }
       setUserId(user.id);
 
       const { data: membership } = await supabase
@@ -49,42 +39,15 @@ export default function CreateAssignment() {
 
       if (!membership?.organization_id) {
         setError('No organization found for this user');
-        setLoadingCampaigns(false);
+        setLoadingOrg(false);
         return;
       }
       setOrganizationId(membership.organization_id);
-
-      try {
-        const orgCampaigns = await listCampaignsForOrg(membership.organization_id);
-        setCampaigns(orgCampaigns);
-        if (orgCampaigns.length > 0) setSelectedCampaignId(orgCampaigns[0].id);
-      } catch (e: any) {
-        setError(e.message);
-      } finally {
-        setLoadingCampaigns(false);
-      }
+      setLoadingOrg(false);
     };
     init();
   }, []);
 
-  useEffect(() => {
-    if (!selectedCampaignId) { setAssets([]); return; }
-    setLoadingAssets(true);
-    setSelectedAssetIds(new Set());
-    listAssetsForCampaign(selectedCampaignId)
-      .then(setAssets)
-      .catch(e => setError(e.message))
-      .finally(() => setLoadingAssets(false));
-  }, [selectedCampaignId]);
-
-  const toggleAsset = (assetId: string) => {
-    setSelectedAssetIds(prev => {
-      const next = new Set(prev);
-      if (next.has(assetId)) next.delete(assetId);
-      else next.add(assetId);
-      return next;
-    });
-  };
 
   const addEmail = () => {
     const value = emailInput.trim().toLowerCase();
@@ -103,7 +66,7 @@ export default function CreateAssignment() {
     setError(null);
 
     if (!title.trim()) return setError('Title is required');
-    if (selectedAssetIds.size === 0) return setError('Select at least one Asset');
+    if (selectedAssetIds.length === 0) return setError('Select at least one Asset');
     if (emails.length === 0) return setError('Add at least one collaborator email');
 
     setSubmitting(true);
@@ -113,7 +76,7 @@ export default function CreateAssignment() {
         createdByUserId: userId,
         title,
         description: description || null,
-        assetIds: Array.from(selectedAssetIds),
+        assetIds: selectedAssetIds,
       });
 
       const { failed } = await inviteCollaborators(assignmentId, userId, emails);
@@ -167,68 +130,18 @@ export default function CreateAssignment() {
         />
 
         <label className="block text-[10px] font-bold uppercase tracking-widest text-zinc-500 mb-2">
-          Campaign <span className="normal-case text-zinc-600">(filters the Asset list below only)</span>
+          Choose Assets
         </label>
-        {loadingCampaigns ? (
+        {!organizationId ? (
           <div className="flex items-center gap-2 text-zinc-500 text-sm mb-6">
-            <Loader2 className="animate-spin" size={14} /> Loading campaigns…
+            <Loader2 className="animate-spin" size={14} /> Loading…
           </div>
         ) : (
-          <select
-            value={selectedCampaignId ?? ''}
-            onChange={e => setSelectedCampaignId(e.target.value)}
-            className="w-full bg-zinc-900 border border-zinc-800 rounded-lg px-4 py-2 text-sm mb-6"
-          >
-            {campaigns.length === 0 && <option value="">No campaigns found</option>}
-            {campaigns.map(c => (
-              <option key={c.id} value={c.id}>{c.campaign_name ?? c.id}</option>
-            ))}
-          </select>
-        )}
-
-        <label className="block text-[10px] font-bold uppercase tracking-widest text-zinc-500 mb-2">
-          Authorized Assets
-        </label>
-        {loadingAssets ? (
-          <div className="flex items-center gap-2 text-zinc-500 text-sm mb-6">
-            <Loader2 className="animate-spin" size={14} /> Loading assets…
-          </div>
-        ) : (
-          <div className="space-y-2 mb-6">
-            {assets.length === 0 && (
-              <div className="text-zinc-600 text-sm border border-dashed border-zinc-800 rounded-lg p-4 text-center">
-                No assets in this Campaign
-              </div>
-            )}
-            {assets.map(asset => (
-              <label
-                key={asset.asset_id}
-                className="flex items-center gap-3 bg-zinc-900 border border-zinc-800 rounded-lg p-3 cursor-pointer hover:border-zinc-700"
-              >
-                <input
-                  type="checkbox"
-                  checked={selectedAssetIds.has(asset.asset_id)}
-                  onChange={() => toggleAsset(asset.asset_id)}
-                  className="accent-red-600"
-                />
-                <img
-                  src={asset.kind === 'campaign_element' ? resolveElementThumbnail(asset.element_type ?? '') : resolveThumbnail(asset)}
-                  alt=""
-                  className="w-16 h-9 object-cover rounded bg-zinc-950 shrink-0"
-                />
-                {asset.kind === 'video' ? (
-                  <span className="text-sm text-zinc-200">
-                    {asset.video_title ?? asset.asset_id}
-                  </span>
-                ) : (
-                  <span className="text-sm text-zinc-200">
-                    <span style={{ color: 'rgba(255, 69, 0, 0.7)' }}>{getElementTypeLabel(asset.element_type)}</span>
-                    <span className="text-zinc-600 mx-1">•</span>
-                    {asset.display_name}
-                  </span>
-                )}
-              </label>
-            ))}
+          <div className="mb-6">
+            <AssetPicker
+              organizationId={organizationId}
+              onSelectionChange={setSelectedAssetIds}
+            />
           </div>
         )}
 
