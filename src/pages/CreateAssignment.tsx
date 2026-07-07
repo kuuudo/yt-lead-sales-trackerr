@@ -4,7 +4,7 @@ import { Loader2, Plus, X, Send } from 'lucide-react';
 import { supabase } from '../lib/supabase';
 import { createAssignment } from '../services/assignment/createAssignment';
 import { inviteCollaborators } from '../services/assignment/inviteCollaborator';
-import { AssetPicker } from '../components/assignment/AssetPicker';
+import { AssetPicker } from '../services/assignment/AssetPicker';
 
 export default function CreateAssignment() {
   const navigate = useNavigate();
