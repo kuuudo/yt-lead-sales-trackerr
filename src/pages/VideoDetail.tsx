@@ -33,7 +33,7 @@ import {
   ArrowLeft, Youtube, DollarSign, Users, Activity,
   TrendingUp, MousePointer2, Phone, Briefcase,
   ExternalLink, BarChart3, Clock, Edit2, Trash2, Save, X, Loader2, Check, Link2, Plus, Copy,
-  BookmarkPlus, BookmarkCheck
+  BookmarkPlus, ArrowRight
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { ResponsiveContainer, AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip } from 'recharts';
@@ -806,26 +806,23 @@ export default function VideoDetail() {
                 <span className="text-[9px] font-bold text-zinc-600 uppercase tracking-widest">
                   {new Date(video.created_at).toLocaleDateString()}
                 </span>
+                {asset?.added_to_library_at && (
+                  <>
+                    <span className="w-1 h-1 bg-zinc-800 rounded-full" />
+                    <button
+                      onClick={() => navigate(`/assets/${asset.id}`)}
+                      className="flex items-center gap-1 text-[10px] font-black uppercase text-blue-400 hover:text-blue-300 hover:underline underline-offset-2 tracking-widest transition-colors cursor-pointer focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-blue-400 rounded-sm"
+                    >
+                      View Asset <ArrowRight size={10} />
+                    </button>
+                  </>
+                )}
               </div>
             </div>
           </div>
         </div>
 
         <div className="flex gap-2">
-          <button
-            onClick={handleAddToLibrary}
-            disabled={addingToLibrary || !!asset?.added_to_library_at}
-            className="p-3 bg-zinc-900 border border-zinc-800 rounded-xl text-zinc-500 hover:text-white transition-all disabled:opacity-50"
-            title={asset?.added_to_library_at ? 'In Asset Library' : 'Add to Library'}
-          >
-            {addingToLibrary ? (
-              <Loader2 size={20} className="animate-spin" />
-            ) : asset?.added_to_library_at ? (
-              <BookmarkCheck size={20} />
-            ) : (
-              <BookmarkPlus size={20} />
-            )}
-          </button>
           <button
             onClick={() => setShowEdit(true)}
             className="p-3 bg-zinc-900 border border-zinc-800 rounded-xl text-zinc-500 hover:text-white transition-all"
@@ -858,7 +855,7 @@ export default function VideoDetail() {
           <div className="flex items-center gap-3">
             {ytImportStatus === 'no_analytics' && (
               <>
-                <span className="text-base leading-none">⚪</span>
+                <span className="text-base leading-none">⬜</span>
                 <div>
                   <p className="text-[10px] font-black uppercase tracking-widest text-zinc-500 mb-0.5">YouTube Import Status</p>
                   <p className="text-sm text-zinc-400">No analytics have been imported for this video yet.</p>
@@ -867,7 +864,7 @@ export default function VideoDetail() {
             )}
             {ytImportStatus === 'unmapped' && (
               <>
-                <span className="text-base leading-none">🟡</span>
+                <span className="text-base leading-none">🟨</span>
                 <div>
                   <p className="text-[10px] font-black uppercase tracking-widest text-zinc-500 mb-0.5">YouTube Import Status</p>
                   <p className="text-sm text-zinc-400">Imported analytics are waiting to be mapped.</p>
@@ -876,7 +873,7 @@ export default function VideoDetail() {
             )}
             {ytImportStatus === 'mapped' && (
               <>
-                <span className="text-base leading-none">🟢</span>
+                <span className="text-base leading-none">🟩</span>
                 <div>
                   <p className="text-[10px] font-black uppercase tracking-widest text-zinc-500 mb-0.5">YouTube Import Status</p>
                   <p className="text-sm text-zinc-400">Analytics have been successfully mapped.</p>
@@ -1261,6 +1258,26 @@ export default function VideoDetail() {
           })()}
         </div>
       </section>
+
+      {/* ── Asset Library (setup action — one-time, low frequency) ────────────────
+          Shown only before the video has an Asset in the library. Once added,
+          this block disappears entirely — the "View Asset" link in the header
+          metadata row (above) is the ongoing navigation entry point, so no
+          redundant "already added" state needs to live here. */}
+      {!asset?.added_to_library_at && (
+        <section className="bento-card p-8 space-y-4">
+          <h3 className="label-caps !text-white flex items-center gap-2 font-black uppercase tracking-widest">
+            <BookmarkPlus size={14} className="text-red-600" /> Asset Library
+          </h3>
+          <button
+            onClick={handleAddToLibrary}
+            disabled={addingToLibrary}
+            className="flex items-center gap-2 h-9 px-4 rounded-xl border border-zinc-800 hover:bg-zinc-900 text-[10px] font-black uppercase tracking-widest text-zinc-400 hover:text-white transition-all disabled:opacity-50"
+          >
+            {addingToLibrary ? <Loader2 size={14} className="animate-spin" /> : <Plus size={14} />} Add to Asset Library
+          </button>
+        </section>
+      )}
 
       {/* ── 7. Edit Modal ───────────────────────────────────────────────────────── */}
       <AnimatePresence>
