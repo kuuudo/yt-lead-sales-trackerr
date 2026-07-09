@@ -147,6 +147,81 @@ function buildTimeline(
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
+// Asset Library empty-state illustration
+//
+// A lightweight, monochrome product illustration — deliberately NOT a
+// flowchart. One "orbit" (center Asset dot + 4 platform satellites) repeated
+// at shrinking scale/opacity communicates "the same Asset gets reused,
+// indefinitely" without literal boxes, arrows, or a step-by-step diagram.
+// Pure presentation: no data, no interactivity, no business logic.
+// ─────────────────────────────────────────────────────────────────────────────
+
+function AssetOrbit({
+  cx, cy, scale, opacity, showLabels = false,
+}: {
+  cx: number; cy: number; scale: number; opacity: number; showLabels?: boolean;
+}) {
+  const spread = 55;
+  return (
+    <g transform={`translate(${cx} ${cy}) scale(${scale})`} opacity={opacity}>
+      {showLabels && <circle r={20} fill="url(#assetGlow)" />}
+
+      <line x1={0} y1={0} x2={0} y2={-spread} className="stroke-zinc-700" strokeWidth={1} />
+      <line x1={0} y1={0} x2={spread} y2={0} className="stroke-zinc-700" strokeWidth={1} />
+      <line x1={0} y1={0} x2={0} y2={spread} className="stroke-zinc-700" strokeWidth={1} />
+      <line x1={0} y1={0} x2={-spread} y2={0} className="stroke-zinc-700" strokeWidth={1} />
+
+      <circle r={4} cy={-spread} className="fill-zinc-500" />
+      <circle r={4} cx={spread} className="fill-zinc-500" />
+      <circle r={4} cy={spread} className="fill-zinc-500" />
+      <circle r={4} cx={-spread} className="fill-zinc-500" />
+
+      <circle r={6} className="fill-red-600" />
+
+      {showLabels && (
+        <>
+          <text y={-spread - 12} textAnchor="middle" className="fill-zinc-500 text-[8px] font-black uppercase tracking-widest">
+            Instagram
+          </text>
+          <text x={spread + 10} dominantBaseline="middle" textAnchor="start" className="fill-zinc-500 text-[8px] font-black uppercase tracking-widest">
+            Threads
+          </text>
+          <text y={spread + 16} textAnchor="middle" className="fill-zinc-500 text-[8px] font-black uppercase tracking-widest">
+            Facebook
+          </text>
+          <text x={-spread - 10} dominantBaseline="middle" textAnchor="end" className="fill-zinc-500 text-[8px] font-black uppercase tracking-widest">
+            TikTok
+          </text>
+          <text y={20} textAnchor="middle" className="fill-red-500 text-[7px] font-black uppercase tracking-widest opacity-80">
+            Asset
+          </text>
+        </>
+      )}
+    </g>
+  );
+}
+
+function AssetReachIllustration() {
+  return (
+    <div className="flex justify-center py-2" aria-hidden="true">
+      <svg viewBox="0 0 260 220" className="w-full max-w-[280px] h-auto">
+        <defs>
+          <radialGradient id="assetGlow">
+            <stop offset="0%" stopColor="currentColor" className="text-red-600" stopOpacity={0.45} />
+            <stop offset="100%" stopColor="currentColor" className="text-red-600" stopOpacity={0} />
+          </radialGradient>
+        </defs>
+        {/* Background layers: same orbit, smaller and fainter — "this repeats indefinitely" */}
+        <AssetOrbit cx={162} cy={152} scale={0.46} opacity={0.14} />
+        <AssetOrbit cx={135} cy={125} scale={0.68} opacity={0.32} />
+        {/* Foreground layer: "you" — the only one with labels, drawn last (on top) */}
+        <AssetOrbit cx={100} cy={90} scale={1} opacity={1} showLabels />
+      </svg>
+    </div>
+  );
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 // Component
 // ─────────────────────────────────────────────────────────────────────────────
 
@@ -855,7 +930,7 @@ export default function VideoDetail() {
           <div className="flex items-center gap-3">
             {ytImportStatus === 'no_analytics' && (
               <>
-                <span className="text-base leading-none">⬜</span>
+                <span className="text-base leading-none">⚪</span>
                 <div>
                   <p className="text-[10px] font-black uppercase tracking-widest text-zinc-500 mb-0.5">YouTube Import Status</p>
                   <p className="text-sm text-zinc-400">No analytics have been imported for this video yet.</p>
@@ -864,7 +939,7 @@ export default function VideoDetail() {
             )}
             {ytImportStatus === 'unmapped' && (
               <>
-                <span className="text-base leading-none">🟨</span>
+                <span className="text-base leading-none">🟡</span>
                 <div>
                   <p className="text-[10px] font-black uppercase tracking-widest text-zinc-500 mb-0.5">YouTube Import Status</p>
                   <p className="text-sm text-zinc-400">Imported analytics are waiting to be mapped.</p>
@@ -873,7 +948,7 @@ export default function VideoDetail() {
             )}
             {ytImportStatus === 'mapped' && (
               <>
-                <span className="text-base leading-none">🟩</span>
+                <span className="text-base leading-none">🟢</span>
                 <div>
                   <p className="text-[10px] font-black uppercase tracking-widest text-zinc-500 mb-0.5">YouTube Import Status</p>
                   <p className="text-sm text-zinc-400">Analytics have been successfully mapped.</p>
@@ -1265,14 +1340,30 @@ export default function VideoDetail() {
           metadata row (above) is the ongoing navigation entry point, so no
           redundant "already added" state needs to live here. */}
       {!asset?.added_to_library_at && (
-        <section className="bento-card p-8 space-y-4">
-          <h3 className="label-caps !text-white flex items-center gap-2 font-black uppercase tracking-widest">
-            <BookmarkPlus size={14} className="text-red-600" /> Asset Library
-          </h3>
+        <section className="bento-card p-10 space-y-8 text-center">
+          <div className="space-y-3 max-w-md mx-auto">
+            <h3 className="label-caps !text-white flex items-center justify-center gap-2 font-black uppercase tracking-widest">
+              <BookmarkPlus size={14} className="text-red-600" /> Asset Library
+            </h3>
+            <p className="text-sm text-zinc-300">
+              Turn this video into a reusable asset.
+            </p>
+            <p className="text-sm text-zinc-500 leading-relaxed">
+              Reuse it across your business, let others promote it, and track its performance everywhere it goes.
+            </p>
+          </div>
+
+          <AssetReachIllustration />
+
+          <p className="text-sm">
+            <span className="font-bold text-white">One asset.</span>{' '}
+            <span className="font-bold text-red-600">Unlimited possibilities.</span>
+          </p>
+
           <button
             onClick={handleAddToLibrary}
             disabled={addingToLibrary}
-            className="flex items-center gap-2 h-9 px-4 rounded-xl border border-zinc-800 hover:bg-zinc-900 text-[10px] font-black uppercase tracking-widest text-zinc-400 hover:text-white transition-all disabled:opacity-50"
+            className="flex items-center gap-2 h-9 px-4 mx-auto rounded-xl border border-zinc-800 hover:bg-zinc-900 text-[10px] font-black uppercase tracking-widest text-zinc-400 hover:text-white transition-all disabled:opacity-50"
           >
             {addingToLibrary ? <Loader2 size={14} className="animate-spin" /> : <Plus size={14} />} Add to Asset Library
           </button>
