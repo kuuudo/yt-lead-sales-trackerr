@@ -104,7 +104,7 @@ export default function Assets() {
                 <img
                   src={
                     row.resource_type
-                      ? resolveAssetThumbnail({ thumbnail_url: row.thumbnail_url, resource_type: row.resource_type })
+                      ? resolveAssetThumbnail({ thumbnail_url: row.thumbnail_url, resource_type: row.resource_type, platform: row.platform })
                       : resolveThumbnail(row)
                   }
                   className="w-full h-full object-cover"

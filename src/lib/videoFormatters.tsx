@@ -502,9 +502,16 @@ export const RESOURCE_TYPE_LABELS: Record<ResourceType, string> = {
 export function resolveAssetThumbnail(resource: {
   thumbnail_url?: string | null;
   resource_type: ResourceType | string;
+  platform?: string | null;
 }): string {
   if (resource.thumbnail_url && resource.thumbnail_url.trim() !== '') {
     return resource.thumbnail_url;
+  }
+  // Reuses the existing PLATFORM_THUMBNAILS map (video-domain) before
+  // falling to the resource_type default — platform='website' or an
+  // unrecognized platform simply has no entry here, so it falls through.
+  if (resource.platform && PLATFORM_THUMBNAILS[resource.platform]) {
+    return PLATFORM_THUMBNAILS[resource.platform]!;
   }
   return (
     ASSET_THUMBNAILS[resource.resource_type as ResourceType] ??

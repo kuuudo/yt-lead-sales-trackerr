@@ -70,6 +70,7 @@ export function ImportAssetModal({ onClose, onImported }: ImportAssetModalProps)
     ? resolveAssetThumbnail({
         thumbnail_url: null,
         resource_type: identified.resourceType ?? manualResourceType,
+        platform: identified.platform,
       })
     : null;
 

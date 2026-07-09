@@ -90,6 +90,7 @@ export default function AssetDetail() {
           src={resolveAssetThumbnail({
             thumbnail_url: resource?.thumbnail_url ?? null,
             resource_type: resource?.resource_type ?? 'other',
+            platform: resource?.platform ?? null,
           })}
           className="w-full h-48 object-cover rounded-xl border border-zinc-800"
         />
