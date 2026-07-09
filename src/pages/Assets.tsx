@@ -23,14 +23,14 @@
  * video-domain and resource-domain fallbacks depending on row.resource_type.
  */
 
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { Library, Loader2, Plus } from 'lucide-react';
 import { useAuth } from '../lib/auth';
 import { useOrganization } from '../lib/useOrganization';
 import { listAssetsByOrganization } from '../services/asset/listAssetsByOrganization';
 import type { AssetLibraryRow } from '../services/asset/listAssetsByOrganization';
-import { resolveThumbnail, resolveAssetThumbnail } from '../lib/videoFormatters';
+import { resolveThumbnail, resolveAssetThumbnail, RESOURCE_TYPE_LABELS, type ResourceType } from '../lib/videoFormatters';
 import { ImportAssetModal } from '../components/ImportAssetModal';
 import type { AssetResource } from '../services/asset/createAssetResource';
 
@@ -41,7 +41,40 @@ export default function Assets() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [showImportModal, setShowImportModal] = useState(false);
+const [activeTab, setActiveTab] = useState<'all' | ResourceType>('all');
 
+// video asset 目前 resource_type 是 null
+// 只在這頁補上，不改 service
+function getEffectiveResourceType(row: AssetLibraryRow): ResourceType {
+  if (row.resource_type) return row.resource_type as ResourceType;
+
+  if (row.asset_type === 'video') return 'video';
+
+  return 'other';
+}
+
+
+// 計算每個 Resource Type 有幾個
+const tabCounts = useMemo(() => {
+  const counts: Record<string, number> = {};
+
+  for (const row of rows) {
+    const rt = getEffectiveResourceType(row);
+    counts[rt] = (counts[rt] ?? 0) + 1;
+  }
+
+  return counts;
+}, [rows]);
+
+
+// 根據 tab 過濾
+const filteredRows = useMemo(() => {
+  if (activeTab === 'all') return rows;
+
+  return rows.filter(
+    row => getEffectiveResourceType(row) === activeTab
+  );
+}, [rows, activeTab]);
   const fetchAssets = async () => {
     if (!organizationId) return;
     setLoading(true);
@@ -77,7 +110,32 @@ export default function Assets() {
           <Plus size={14} /> Import Asset
         </button>
       </header>
+<div className="flex items-center gap-2 flex-wrap">
+  <button
+    onClick={() => setActiveTab('all')}
+    className={`text-[10px] font-black uppercase tracking-widest px-3 py-1.5 rounded-lg transition-all ${
+      activeTab === 'all'
+        ? 'bg-red-600 text-white'
+        : 'bg-zinc-900 text-zinc-500 hover:text-white'
+    }`}
+  >
+    All ({rows.length})
+  </button>
 
+  {(Object.keys(RESOURCE_TYPE_LABELS) as ResourceType[]).map(rt => (
+    <button
+      key={rt}
+      onClick={() => setActiveTab(rt)}
+      className={`text-[10px] font-black uppercase tracking-widest px-3 py-1.5 rounded-lg transition-all ${
+        activeTab === rt
+          ? 'bg-red-600 text-white'
+          : 'bg-zinc-900 text-zinc-500 hover:text-white'
+      }`}
+    >
+      {RESOURCE_TYPE_LABELS[rt]} ({tabCounts[rt] ?? 0})
+    </button>
+  ))}
+</div>
       {loading && (
         <div className="flex items-center gap-2 text-zinc-500 text-sm">
           <Loader2 size={16} className="animate-spin" /> Loading...
@@ -92,9 +150,9 @@ export default function Assets() {
         </p>
       )}
 
-      {!loading && !error && rows.length > 0 && (
+      {!loading && !error && filteredRows.length > 0 && (
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-          {rows.map((row) => (
+          {filteredRows.map((row) => (
             <Link
               key={row.id}
               to={`/assets/${row.id}`}
@@ -111,20 +169,29 @@ export default function Assets() {
                 />
               </div>
               <div className="min-w-0">
-                <p className="text-sm font-bold text-white truncate">
-                  {row.video_title || 'Untitled'}
-                </p>
-                <div className="flex items-center gap-2 mt-1">
-                  <span className="text-[9px] font-black uppercase text-zinc-600 tracking-widest">
-                    {row.platform}
-                  </span>
-                  {row.deleted_at && (
-                    <span className="text-[9px] font-black uppercase text-red-600 tracking-widest">
-                      Original content deleted
-                    </span>
-                  )}
-                </div>
-              </div>
+  <p className="text-sm font-bold text-white truncate">
+    {row.video_title || 'Untitled'}
+  </p>
+
+  <p className="text-[10px] font-bold uppercase text-zinc-300 tracking-wide mt-1">
+    {RESOURCE_TYPE_LABELS[getEffectiveResourceType(row)]}
+  </p>
+
+  <div className="flex items-center gap-2 mt-0.5">
+    {row.platform && (
+      <span className="text-[9px] font-black uppercase text-zinc-600 tracking-widest">
+        {row.platform}
+      </span>
+    )}
+
+    {row.deleted_at && (
+      <span className="text-[9px] font-black uppercase text-red-600 tracking-widest">
+        Original content deleted
+      </span>
+    )}
+  </div>
+</div>
+                
             </Link>
           ))}
         </div>
