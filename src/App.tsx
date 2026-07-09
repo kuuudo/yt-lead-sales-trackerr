@@ -5,7 +5,7 @@
 
 import React from 'react';
 import { BrowserRouter as Router, Routes, Route, Link, useLocation, Navigate } from 'react-router-dom';
-import { LayoutDashboard, Globe, BarChart3, Video, Briefcase, LogOut, Loader2, User as UserIcon, Code, Settings as SettingsIcon } from 'lucide-react';
+import { LayoutDashboard, Globe, BarChart3, Video, Library, Briefcase, LogOut, Loader2, User as UserIcon, Code, Settings as SettingsIcon } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { useTracker, useLanguage } from './lib/hooks';
 import { AuthProvider, useAuth } from './lib/auth';
@@ -16,6 +16,7 @@ import Videos from './pages/Videos';
 import Analytics from './pages/Analytics';
 import Installation from './pages/Installation';
 import VideoDetail from './pages/VideoDetail';
+import AssetDetail from './pages/AssetDetail';
 import CampaignDetail from './pages/CampaignDetail';
 import InDepthAnalytics from './pages/InDepthAnalytics';
 import Track from './pages/Track';
@@ -39,6 +40,7 @@ function Navigation() {
     { to: '/dashboard', icon: LayoutDashboard, label: t.nav.dashboard },
     { to: '/campaigns', icon: Briefcase, label: t.nav.campaigns },
     { to: '/videos', icon: Video, label: t.nav.videos },
+    { to: '/assets', icon: Library, label: t.nav.assets },
     { to: '/marketplace', icon: Briefcase, label: t.nav.marketplace },
     { to: '/workspace', icon: Briefcase, label: t.nav.workspace },
     { to: '/analytics', icon: BarChart3, label: t.nav.analytics },
@@ -137,6 +139,7 @@ function MainContent() {
         <Route path="/assets" element={<PageWrapper><Assets /></PageWrapper>} />
         <Route path="/unmapped-videos" element={<PageWrapper><UnmappedVideos /></PageWrapper>} />
         <Route path="/videos/:id" element={<PageWrapper><VideoDetail /></PageWrapper>} />
+        <Route path="/assets/:id" element={<PageWrapper><AssetDetail /></PageWrapper>} />
         <Route path="/campaigns/:id" element={<PageWrapper><CampaignDetail /></PageWrapper>} />
         <Route path="/analytics" element={<PageWrapper><Analytics /></PageWrapper>} />
         <Route path="/analytics/indepth" element={<InDepthAnalytics />} />

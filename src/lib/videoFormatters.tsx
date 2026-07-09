@@ -434,3 +434,80 @@ export function getElementTypeLabel(elementType: CampaignElementType | string): 
     .map(word => word.charAt(0).toUpperCase() + word.slice(1))
     .join(' ');
 }
+// ─────────────────────────────────────────────────────────────────────────────
+// Asset Resource utilities (Import Asset pipeline)
+//
+// Asset Resources are NOT videos and NOT Campaign Elements. resource_type is
+// the VS-Track resource category (Design Lock §4) — independent of platform.
+// Mirrors the ELEMENT_THUMBNAILS pattern above; intentionally does not share
+// state or logic with the video formatters or Campaign Element utilities.
+// ─────────────────────────────────────────────────────────────────────────────
+
+export type ResourceType =
+  | 'website'
+  | 'video'
+  | 'document'
+  | 'presentation'
+  | 'image'
+  | 'audio'
+  | 'design'
+  | 'file'
+  | 'social_post'
+  | 'newsletter'
+  | 'consultation'
+  | 'sales_call'
+  | 'lead_magnet'
+  | 'other';
+
+// Default thumbnails per resource_type (Design Lock §6). newsletter/
+// consultation/sales_call/lead_magnet reuse the existing Campaign Element
+// thumbnails — same visual concept, no duplicate asset needed.
+export const ASSET_THUMBNAILS: Record<ResourceType, string> = {
+  website:      '/asset-thumbnails/website.jpg',
+  video:        '/asset-thumbnails/video.jpg',
+  document:     '/asset-thumbnails/document.jpg',
+  presentation: '/asset-thumbnails/presentation.jpg',
+  image:        '/asset-thumbnails/image.jpg',
+  audio:        '/asset-thumbnails/audio.jpg',
+  design:       '/asset-thumbnails/design.jpg',
+  file:         '/asset-thumbnails/file.jpg',
+  social_post:  '/asset-thumbnails/social_post.jpg',
+  newsletter:   '/element-thumbnails/newsletter.jpg',
+  consultation: '/element-thumbnails/consultation.jpg',
+  sales_call:   '/element-thumbnails/sales_call.jpg',
+  lead_magnet:  '/element-thumbnails/lead_magnet.jpg',
+  other:        '/asset-thumbnails/other.jpg',
+};
+
+// UI labels for the manual resource_type picker (Design Lock §4).
+export const RESOURCE_TYPE_LABELS: Record<ResourceType, string> = {
+  website:      'Website',
+  video:        'Video',
+  document:     'Document',
+  presentation: 'Presentation',
+  image:        'Image',
+  audio:        'Audio',
+  design:       'Design',
+  file:         'File',
+  social_post:  'Social Post',
+  newsletter:   'Newsletter',
+  consultation: 'Consultation',
+  sales_call:   'Sales Call',
+  lead_magnet:  'Lead Magnet',
+  other:        'Other',
+};
+
+// Mirrors resolveThumbnail()/resolveElementThumbnail(): extracted thumbnail
+// wins if present, otherwise fall back to the resource_type's default image.
+export function resolveAssetThumbnail(resource: {
+  thumbnail_url?: string | null;
+  resource_type: ResourceType | string;
+}): string {
+  if (resource.thumbnail_url && resource.thumbnail_url.trim() !== '') {
+    return resource.thumbnail_url;
+  }
+  return (
+    ASSET_THUMBNAILS[resource.resource_type as ResourceType] ??
+    `https://placehold.co/160x90/18181b/52525b?text=${encodeURIComponent(String(resource.resource_type).toUpperCase())}`
+  );
+}

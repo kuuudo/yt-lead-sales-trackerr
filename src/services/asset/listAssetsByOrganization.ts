@@ -1,46 +1,40 @@
 /**
  * src/services/asset/listAssetsByOrganization.ts
  *
- * Returns Library-visible assets (added_to_library_at IS NOT NULL) joined
- * with `videos` for display metadata (Design Lock §3 Step 6).
+ * Returns Library-visible assets (added_to_library_at IS NOT NULL), joined
+ * with `videos` OR `asset_resources` depending on asset_type, for display
+ * metadata.
  *
  * Consumer: Assets.tsx.
  *
  * ─────────────────────────────────────────────────────────────────────────
- * INTEGRATION TESTING FIX (root cause, confirmed):
+ * UPDATE (Import Asset pass): now handles two sibling metadata sources
+ * instead of one.
  *
- * `videos.asset_id -> assets.id` has a regular index but NO UNIQUE
- * constraint. Design Lock §1 (Option A) guarantees "exactly one Video per
- * Asset" as an APPLICATION-level invariant, but PostgREST only looks at the
- * FK/index shape in the DB — without a UNIQUE constraint it cannot infer
- * the relationship is 1:1, so it always embeds `videos` as an ARRAY, even
- * though in practice there is ever only one match.
+ * `videos` embed: still returned as an ARRAY by PostgREST (no UNIQUE on
+ * videos.asset_id — unchanged, still an app-level invariant only), so it's
+ * still normalized here exactly as before. `!inner` was dropped because
+ * not every asset_type has a videos row anymore.
  *
- * The original version of this file did `row.videos.video_title` — treating
- * the embed as a single object — which silently returned `undefined` for
- * every field (arrays don't have `.video_title`), surfacing in Assets.tsx as
- * "Untitled" / no thumbnail / no platform. The join itself was working the
- * whole time; the shape assumption was wrong.
+ * `asset_resources` embed: returned as a single OBJECT, not an array —
+ * because asset_resources.asset_id DOES have a UNIQUE constraint (locked
+ * in the Import Asset schema pass), so PostgREST can correctly infer the
+ * 1:1 relationship on its own. No normalization needed for this one; flagging
+ * the asymmetry explicitly so a future reader doesn't assume both embeds
+ * behave the same way.
  *
- * Fix: normalize the array here (take the first/only match) and flatten it
- * onto the asset, so the returned shape matches the ORIGINAL Design Lock §5
- * API Contract exactly — `Array<Asset & { video_title, thumbnail_url,
- * platform }>` — not a nested `videos` object/array. (The previous version
- * of this file had drifted from that contract into a nested shape, which is
- * what made the array-vs-object mismatch possible in the first place.)
+ * asset_type is explicitly filtered to ['video', 'resource'] — campaign_element
+ * assets are deliberately excluded here. There's no display-metadata join
+ * for them yet (that would read from campaign_element_assets + a live
+ * campaigns lookup, a different shape entirely) and no consumer asking for
+ * them in this view. Scoped out on purpose, not an oversight.
  *
- * Not fixed at the schema level (no UNIQUE constraint added) — that would be
- * a DB/architecture change outside this pass's scope, not just an
- * integration bug fix. Flagging it here as a real gap worth a deliberate
- * decision later, not something to slip in silently:
- *   TODO(future): consider `ALTER TABLE videos ADD CONSTRAINT
- *   videos_asset_id_unique UNIQUE (asset_id);` to make the 1:1 invariant
- *   enforceable at the DB level and let PostgREST embed it as an object
- *   natively. Requires your explicit sign-off since it's a schema change.
+ * NAMING NOTE: `video_title`/`thumbnail_url`/`platform` are reused as the
+ * generic display fields for BOTH videos and asset_resources rows, to avoid
+ * a wider rename across Assets.tsx in this pass. `video_title` is a bit of
+ * a misnomer for a PDF/Notion row now — flagging as a deliberate smallest-
+ * change tradeoff, not a decision to leave unrevisited forever.
  * ─────────────────────────────────────────────────────────────────────────
- *
- * Only the `video` asset_type branch is implemented, per Import Philosophy
- * point 5 (new types are introduced only when a concrete consumer exists).
  */
 
 import { supabase } from '../../lib/supabase';
@@ -53,6 +47,10 @@ export interface AssetLibraryRow extends Asset {
   thumbnail_url: string | null;
   platform: string | null;
   deleted_at: string | null;
+  // New — only populated for asset_type: 'resource' rows.
+  asset_resource_id: string | null;
+  resource_type: string | null;
+  url: string | null;
 }
 
 interface EmbeddedVideo {
@@ -63,15 +61,25 @@ interface EmbeddedVideo {
   deleted_at: string | null;
 }
 
+interface EmbeddedAssetResource {
+  id: string;
+  title: string | null;
+  thumbnail_url: string | null;
+  platform: string | null;
+  resource_type: string | null;
+  url: string;
+}
+
 export async function listAssetsByOrganization({
   organizationId,
   filters,
 }: ListAssetsByOrganizationInput): Promise<AssetLibraryRow[]> {
   let query = supabase
     .from('assets')
-    .select('*, videos!inner(id, video_title, thumbnail_url, platform, deleted_at)')
+    .select('*, videos(id, video_title, thumbnail_url, platform, deleted_at), asset_resources(id, title, thumbnail_url, platform, resource_type, url)')
     .eq('organization_id', organizationId)
-    .not('added_to_library_at', 'is', null);
+    .not('added_to_library_at', 'is', null)
+    .in('asset_type', ['video', 'resource']);
 
   if (filters?.assetType) {
     query = query.eq('asset_type', filters.assetType);
@@ -84,22 +92,25 @@ export async function listAssetsByOrganization({
   }
 
   return (data ?? []).map((row: any) => {
-    // Normalize: PostgREST gives us an array here (see comment above).
-    // `!inner` guarantees at least one match, and the domain invariant
-    // (Design Lock §1, Option A) guarantees there's never more than one —
-    // so [0] is safe, not a guess.
+    // videos: still array-shaped (no UNIQUE constraint) — normalize as before.
     const rawVideo = row.videos;
     const video: EmbeddedVideo | undefined = Array.isArray(rawVideo) ? rawVideo[0] : rawVideo;
 
-    const { videos: _omit, ...asset } = row;
+    // asset_resources: object-shaped (UNIQUE constraint present) — no normalization needed.
+    const resource: EmbeddedAssetResource | undefined = row.asset_resources ?? undefined;
+
+    const { videos: _omitVideos, asset_resources: _omitResource, ...asset } = row;
 
     return {
       ...asset,
       video_id: video?.id ?? null,
-      video_title: video?.video_title ?? null,
-      thumbnail_url: video?.thumbnail_url ?? null,
-      platform: video?.platform ?? null,
+      video_title: video?.video_title ?? resource?.title ?? null,
+      thumbnail_url: video?.thumbnail_url ?? resource?.thumbnail_url ?? null,
+      platform: video?.platform ?? resource?.platform ?? null,
       deleted_at: video?.deleted_at ?? null,
+      asset_resource_id: resource?.id ?? null,
+      resource_type: resource?.resource_type ?? null,
+      url: resource?.url ?? null,
     } as AssetLibraryRow;
   });
 }

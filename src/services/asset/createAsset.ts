@@ -20,10 +20,15 @@ import type { CreateAssetInput, CreateAssetResult } from './types';
 export async function createAsset({
   organizationId,
   assetType,
+  addToLibrary = false,
 }: CreateAssetInput): Promise<CreateAssetResult> {
   const { data, error } = await supabase
     .from('assets')
-    .insert([{ organization_id: organizationId, asset_type: assetType }])
+    .insert([{
+      organization_id: organizationId,
+      asset_type: assetType,
+      added_to_library_at: addToLibrary ? new Date().toISOString() : null,
+    }])
     .select()
     .single();
 
