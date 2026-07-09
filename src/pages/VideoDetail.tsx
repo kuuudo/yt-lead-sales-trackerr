@@ -157,100 +157,118 @@ function buildTimeline(
 // Asset Library empty-state illustration
 //
 // A lightweight, monochrome product illustration — deliberately NOT a
-// flowchart. One "orbit" (center Asset dot + 4 platform satellites) is the
-// primary focus, unchanged. Around it: a few smaller, fainter orbits
-// scattered in different directions (not one receding line) plus a faint
-// outer field of unconnected dots — together suggesting an ecosystem that
-// extends beyond the frame (many people, many platforms, indefinitely),
-// without adding labels, arrows, or literal diagram structure.
+// flowchart. Two small cards side by side: the same orbit motif (center
+// Asset dot + platform satellites) appears in each, one labeled "You," one
+// labeled "Marketer A," connected by a thin, quietly-labeled "Assigned"
+// arrow. The point is collaboration, not repetition — the same Asset
+// handed to someone else, who reaches their own platforms. A faint "..."
+// past the second card hints this can continue to more marketers without
+// widening the illustration or adding a third card.
 // Pure presentation: no data, no interactivity, no business logic.
 // ─────────────────────────────────────────────────────────────────────────────
 
-function AssetOrbit({
-  cx, cy, scale, opacity, showLabels = false,
-}: {
-  cx: number; cy: number; scale: number; opacity: number; showLabels?: boolean;
-}) {
-  const spread = 55;
+interface OrbitSatellite {
+  label: string;
+  position: 'top' | 'right' | 'bottom' | 'left';
+}
+
+// Small, card-scale version of the orbit motif. Only the passed satellites
+// are labeled; any cross position not supplied is simply omitted (not
+// rendered faint/blank) — keeps each card lean, matching the 3-satellite
+// mockup rather than forcing all 4 positions every time.
+function MiniAssetOrbit({ satellites, glow = false }: { satellites: OrbitSatellite[]; glow?: boolean }) {
+  const spread = 34;
+  const coords: Record<OrbitSatellite['position'], { x: number; y: number }> = {
+    top: { x: 0, y: -spread },
+    right: { x: spread, y: 0 },
+    bottom: { x: 0, y: spread },
+    left: { x: -spread, y: 0 },
+  };
+  const labelProps: Record<OrbitSatellite['position'], React.SVGProps<SVGTextElement>> = {
+    top: { y: -spread - 9, textAnchor: 'middle' },
+    right: { x: spread + 8, dominantBaseline: 'middle', textAnchor: 'start' },
+    bottom: { y: spread + 13, textAnchor: 'middle' },
+    left: { x: -spread - 8, dominantBaseline: 'middle', textAnchor: 'end' },
+  };
+
   return (
-    <g transform={`translate(${cx} ${cy}) scale(${scale})`} opacity={opacity}>
-      {showLabels && <circle r={20} fill="url(#assetGlow)" />}
-
-      <line x1={0} y1={0} x2={0} y2={-spread} className="stroke-zinc-700" strokeWidth={1} />
-      <line x1={0} y1={0} x2={spread} y2={0} className="stroke-zinc-700" strokeWidth={1} />
-      <line x1={0} y1={0} x2={0} y2={spread} className="stroke-zinc-700" strokeWidth={1} />
-      <line x1={0} y1={0} x2={-spread} y2={0} className="stroke-zinc-700" strokeWidth={1} />
-
-      <circle r={4} cy={-spread} className="fill-zinc-500" />
-      <circle r={4} cx={spread} className="fill-zinc-500" />
-      <circle r={4} cy={spread} className="fill-zinc-500" />
-      <circle r={4} cx={-spread} className="fill-zinc-500" />
-
-      <circle r={6} className="fill-red-600" />
-
-      {showLabels && (
-        <>
-          <text y={-spread - 12} textAnchor="middle" className="fill-zinc-500 text-[8px] font-black uppercase tracking-widest">
-            Instagram
+    <svg viewBox="0 0 140 130" className="w-full max-w-[150px] h-auto" aria-hidden="true">
+      <g transform="translate(70 60)">
+        {glow && <circle r={16} fill="url(#assetGlow)" />}
+        {satellites.map((s) => (
+          <line
+            key={s.position}
+            x1={0} y1={0}
+            x2={coords[s.position].x} y2={coords[s.position].y}
+            className="stroke-zinc-700"
+            strokeWidth={1}
+          />
+        ))}
+        {satellites.map((s) => (
+          <circle key={s.position} r={3.5} cx={coords[s.position].x} cy={coords[s.position].y} className="fill-zinc-500" />
+        ))}
+        <circle r={5} className="fill-red-600" />
+        {satellites.map((s) => (
+          <text key={s.position} {...labelProps[s.position]} className="fill-zinc-500 text-[7px] font-black uppercase tracking-widest">
+            {s.label}
           </text>
-          <text x={spread + 10} dominantBaseline="middle" textAnchor="start" className="fill-zinc-500 text-[8px] font-black uppercase tracking-widest">
-            Threads
-          </text>
-          <text y={spread + 16} textAnchor="middle" className="fill-zinc-500 text-[8px] font-black uppercase tracking-widest">
-            Facebook
-          </text>
-          <text x={-spread - 10} dominantBaseline="middle" textAnchor="end" className="fill-zinc-500 text-[8px] font-black uppercase tracking-widest">
-            TikTok
-          </text>
-          <text y={20} textAnchor="middle" className="fill-red-500 text-[7px] font-black uppercase tracking-widest opacity-80">
-            Asset
-          </text>
-        </>
-      )}
-    </g>
+        ))}
+        <text y={16} textAnchor="middle" className="fill-red-500 text-[6px] font-black uppercase tracking-widest opacity-80">
+          Asset
+        </text>
+      </g>
+    </svg>
   );
 }
 
-// Unconnected, unlabeled points scattered past the secondary orbits — no
-// lines, no meaning beyond "there's more out here." Kept extremely faint so
-// it reads as ambient texture, not additional content to parse.
-const NETWORK_FIELD_DOTS: Array<{ cx: number; cy: number; r: number; opacity: number }> = [
-  { cx: 34, cy: 46, r: 2, opacity: 0.16 },
-  { cx: 284, cy: 38, r: 1.5, opacity: 0.12 },
-  { cx: 20, cy: 150, r: 1.5, opacity: 0.14 },
-  { cx: 292, cy: 128, r: 2, opacity: 0.18 },
-  { cx: 55, cy: 232, r: 1.5, opacity: 0.1 },
-  { cx: 250, cy: 240, r: 2, opacity: 0.15 },
-  { cx: 160, cy: 20, r: 1.5, opacity: 0.1 },
-  { cx: 165, cy: 250, r: 1.5, opacity: 0.12 },
-];
+function AssetOrbitCard({ title, satellites, glow = false }: { title: string; satellites: OrbitSatellite[]; glow?: boolean }) {
+  return (
+    <div className="flex flex-col items-center gap-2 rounded-xl border border-zinc-800 bg-zinc-950/40 px-4 py-4 w-[148px] shrink-0">
+      <span className="text-[8px] font-black uppercase tracking-widest text-zinc-500">{title}</span>
+      <MiniAssetOrbit satellites={satellites} glow={glow} />
+    </div>
+  );
+}
 
 function AssetReachIllustration() {
   return (
-    <div className="flex justify-center py-2" aria-hidden="true">
-      <svg viewBox="0 0 300 260" className="w-full max-w-[320px] h-auto">
+    <div className="flex items-center justify-center gap-1 py-2 overflow-x-auto" aria-hidden="true">
+      <svg width="0" height="0">
         <defs>
           <radialGradient id="assetGlow">
             <stop offset="0%" stopColor="currentColor" className="text-red-600" stopOpacity={0.45} />
             <stop offset="100%" stopColor="currentColor" className="text-red-600" stopOpacity={0} />
           </radialGradient>
         </defs>
-
-        {/* Outermost layer: faint scattered points — the ecosystem extends past what's drawn */}
-        {NETWORK_FIELD_DOTS.map((d, i) => (
-          <circle key={i} cx={d.cx} cy={d.cy} r={d.r} opacity={d.opacity} className="fill-zinc-500" />
-        ))}
-
-        {/* Secondary orbits: scattered in different directions, not a single receding
-            line — reads as "many people, many platforms" rather than "one repeated copy" */}
-        <AssetOrbit cx={230} cy={70} scale={0.42} opacity={0.2} />
-        <AssetOrbit cx={80} cy={175} scale={0.4} opacity={0.22} />
-        <AssetOrbit cx={225} cy={185} scale={0.48} opacity={0.3} />
-        <AssetOrbit cx={90} cy={60} scale={0.36} opacity={0.16} />
-
-        {/* Foreground layer: "you" — the only one with labels, drawn last (on top) */}
-        <AssetOrbit cx={148} cy={125} scale={1} opacity={1} showLabels />
       </svg>
+
+      <AssetOrbitCard
+        title="You"
+        glow
+        satellites={[
+          { label: 'LinkedIn', position: 'top' },
+          { label: 'YouTube', position: 'left' },
+          { label: 'Reddit', position: 'bottom' },
+        ]}
+      />
+
+      <div className="flex flex-col items-center gap-1 px-2 shrink-0">
+        <span className="text-[7px] font-black uppercase tracking-widest text-zinc-600">Assigned</span>
+        <ArrowRight size={14} className="text-zinc-700" />
+      </div>
+
+      <AssetOrbitCard
+        title="Marketer A"
+        satellites={[
+          { label: 'Instagram', position: 'top' },
+          { label: 'Threads', position: 'left' },
+          { label: 'TikTok', position: 'bottom' },
+        ]}
+      />
+
+      <span className="text-zinc-700 text-lg font-black tracking-widest pl-1 self-center shrink-0" aria-hidden="true">
+        ...
+      </span>
     </div>
   );
 }
@@ -994,7 +1012,7 @@ export default function VideoDetail() {
           <div className="flex items-center gap-3">
             {ytImportStatus === 'no_analytics' && (
               <>
-                <span className="text-base leading-none">⚪</span>
+                <span className="text-base leading-none">⬜</span>
                 <div>
                   <p className="text-[10px] font-black uppercase tracking-widest text-zinc-500 mb-0.5">YouTube Import Status</p>
                   <p className="text-sm text-zinc-400">No analytics have been imported for this video yet.</p>
@@ -1003,7 +1021,7 @@ export default function VideoDetail() {
             )}
             {ytImportStatus === 'unmapped' && (
               <>
-                <span className="text-base leading-none">🟡</span>
+                <span className="text-base leading-none">🟨</span>
                 <div>
                   <p className="text-[10px] font-black uppercase tracking-widest text-zinc-500 mb-0.5">YouTube Import Status</p>
                   <p className="text-sm text-zinc-400">Imported analytics are waiting to be mapped.</p>
@@ -1012,7 +1030,7 @@ export default function VideoDetail() {
             )}
             {ytImportStatus === 'mapped' && (
               <>
-                <span className="text-base leading-none">🟢</span>
+                <span className="text-base leading-none">🟩</span>
                 <div>
                   <p className="text-[10px] font-black uppercase tracking-widest text-zinc-500 mb-0.5">YouTube Import Status</p>
                   <p className="text-sm text-zinc-400">Analytics have been successfully mapped.</p>
