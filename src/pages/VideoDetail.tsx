@@ -247,7 +247,7 @@ function AssetReachIllustration() {
         glow
         satellites={[
           { label: 'LinkedIn', position: 'top' },
-          { label: 'YouTube', position: 'left' },
+          { label: 'YT', position: 'left' },
           { label: 'Reddit', position: 'bottom' },
         ]}
       />
@@ -261,7 +261,7 @@ function AssetReachIllustration() {
         title="Marketer A"
         satellites={[
           { label: 'Instagram', position: 'top' },
-          { label: 'Threads', position: 'left' },
+          { label: 'X', position: 'left' },
           { label: 'TikTok', position: 'bottom' },
         ]}
       />
