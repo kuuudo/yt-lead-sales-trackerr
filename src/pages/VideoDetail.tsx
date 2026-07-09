@@ -21,7 +21,7 @@
 //   6. Tracking Links
 //   7. Edit Modal
 
-import React, { useState, useEffect, useMemo, useCallback } from 'react';
+import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import { useParams, Link, useNavigate } from 'react-router-dom';
 import { useLanguage } from '../lib/hooks';
 import { supabase, Video, Campaign, LeadMagnet, Asset } from '../lib/supabase';
@@ -33,12 +33,19 @@ import {
   ArrowLeft, Youtube, DollarSign, Users, Activity,
   TrendingUp, MousePointer2, Phone, Briefcase,
   ExternalLink, BarChart3, Clock, Edit2, Trash2, Save, X, Loader2, Check, Link2, Plus, Copy,
-  BookmarkPlus, ArrowRight
+  BookmarkPlus, ArrowRight, ChevronRight
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { ResponsiveContainer, AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip } from 'recharts';
 import { Modal } from '../components/Modal';
 import { createRedirectLink, RedirectLinkType } from '../lib/redirects';
+
+// Asset Library illustration — progressive onboarding. Shown in full for the
+// first N times a user encounters the empty state, across any video, then
+// starts collapsed by default (still manually expandable). See the
+// `illustrationExpanded` state below for how this is applied.
+const ASSET_LIBRARY_ILLUSTRATION_VIEW_LIMIT = 5;
+const ASSET_LIBRARY_ILLUSTRATION_STORAGE_KEY = 'vs-track:asset-library-illustration-views';
 
 // ── analyticsEngine imports ────────────────────────────────────────────────────
 import {
@@ -150,9 +157,12 @@ function buildTimeline(
 // Asset Library empty-state illustration
 //
 // A lightweight, monochrome product illustration — deliberately NOT a
-// flowchart. One "orbit" (center Asset dot + 4 platform satellites) repeated
-// at shrinking scale/opacity communicates "the same Asset gets reused,
-// indefinitely" without literal boxes, arrows, or a step-by-step diagram.
+// flowchart. One "orbit" (center Asset dot + 4 platform satellites) is the
+// primary focus, unchanged. Around it: a few smaller, fainter orbits
+// scattered in different directions (not one receding line) plus a faint
+// outer field of unconnected dots — together suggesting an ecosystem that
+// extends beyond the frame (many people, many platforms, indefinitely),
+// without adding labels, arrows, or literal diagram structure.
 // Pure presentation: no data, no interactivity, no business logic.
 // ─────────────────────────────────────────────────────────────────────────────
 
@@ -201,21 +211,45 @@ function AssetOrbit({
   );
 }
 
+// Unconnected, unlabeled points scattered past the secondary orbits — no
+// lines, no meaning beyond "there's more out here." Kept extremely faint so
+// it reads as ambient texture, not additional content to parse.
+const NETWORK_FIELD_DOTS: Array<{ cx: number; cy: number; r: number; opacity: number }> = [
+  { cx: 34, cy: 46, r: 2, opacity: 0.16 },
+  { cx: 284, cy: 38, r: 1.5, opacity: 0.12 },
+  { cx: 20, cy: 150, r: 1.5, opacity: 0.14 },
+  { cx: 292, cy: 128, r: 2, opacity: 0.18 },
+  { cx: 55, cy: 232, r: 1.5, opacity: 0.1 },
+  { cx: 250, cy: 240, r: 2, opacity: 0.15 },
+  { cx: 160, cy: 20, r: 1.5, opacity: 0.1 },
+  { cx: 165, cy: 250, r: 1.5, opacity: 0.12 },
+];
+
 function AssetReachIllustration() {
   return (
     <div className="flex justify-center py-2" aria-hidden="true">
-      <svg viewBox="0 0 260 220" className="w-full max-w-[280px] h-auto">
+      <svg viewBox="0 0 300 260" className="w-full max-w-[320px] h-auto">
         <defs>
           <radialGradient id="assetGlow">
             <stop offset="0%" stopColor="currentColor" className="text-red-600" stopOpacity={0.45} />
             <stop offset="100%" stopColor="currentColor" className="text-red-600" stopOpacity={0} />
           </radialGradient>
         </defs>
-        {/* Background layers: same orbit, smaller and fainter — "this repeats indefinitely" */}
-        <AssetOrbit cx={162} cy={152} scale={0.46} opacity={0.14} />
-        <AssetOrbit cx={135} cy={125} scale={0.68} opacity={0.32} />
+
+        {/* Outermost layer: faint scattered points — the ecosystem extends past what's drawn */}
+        {NETWORK_FIELD_DOTS.map((d, i) => (
+          <circle key={i} cx={d.cx} cy={d.cy} r={d.r} opacity={d.opacity} className="fill-zinc-500" />
+        ))}
+
+        {/* Secondary orbits: scattered in different directions, not a single receding
+            line — reads as "many people, many platforms" rather than "one repeated copy" */}
+        <AssetOrbit cx={230} cy={70} scale={0.42} opacity={0.2} />
+        <AssetOrbit cx={80} cy={175} scale={0.4} opacity={0.22} />
+        <AssetOrbit cx={225} cy={185} scale={0.48} opacity={0.3} />
+        <AssetOrbit cx={90} cy={60} scale={0.36} opacity={0.16} />
+
         {/* Foreground layer: "you" — the only one with labels, drawn last (on top) */}
-        <AssetOrbit cx={100} cy={90} scale={1} opacity={1} showLabels />
+        <AssetOrbit cx={148} cy={125} scale={1} opacity={1} showLabels />
       </svg>
     </div>
   );
@@ -238,6 +272,16 @@ export default function VideoDetail() {
   const [addingToLibrary, setAddingToLibrary] = useState(false);
   const [campaign, setCampaign]   = useState<Campaign | null>(null);
   const [leadMagnets, setLeadMagnets] = useState<LeadMagnet[]>([]);
+
+  // ── Asset Library illustration — progressive onboarding ────────────────────
+  // Full illustration for the first ASSET_LIBRARY_ILLUSTRATION_VIEW_LIMIT
+  // times a user encounters this empty state (tracked in localStorage, not
+  // per-video — this is "have you seen the onboarding" not "have you seen
+  // this specific video's card"). After that it starts collapsed; the user
+  // can still expand it manually, but that choice is session-only (plain
+  // useState), per the request that expand/collapse doesn't need to persist.
+  const [illustrationExpanded, setIllustrationExpanded] = useState(true);
+  const hasCountedIllustrationView = useRef(false);
 
   // Enriched data — same shapes as Analytics.tsx state
   const [allEvents, setAllEvents]           = useState<RawEvent[]>([]);
@@ -537,6 +581,26 @@ export default function VideoDetail() {
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [id, user]);
+
+  // ── Asset Library illustration — view-count effect ──────────────────────────
+  // Fires once asset state settles. Only counts a "view" when the empty state
+  // will actually render (asset loaded, not yet added to the library) — and
+  // only once per page load, guarded by the ref. Does not touch Asset data or
+  // the addToLibrary flow in any way; this is display-state only.
+  useEffect(() => {
+    if (!asset || asset.added_to_library_at || hasCountedIllustrationView.current) return;
+    hasCountedIllustrationView.current = true;
+
+    try {
+      const previousViews = parseInt(localStorage.getItem(ASSET_LIBRARY_ILLUSTRATION_STORAGE_KEY) ?? '0', 10) || 0;
+      const nextViews = previousViews + 1;
+      localStorage.setItem(ASSET_LIBRARY_ILLUSTRATION_STORAGE_KEY, String(nextViews));
+      setIllustrationExpanded(nextViews <= ASSET_LIBRARY_ILLUSTRATION_VIEW_LIMIT);
+    } catch {
+      // localStorage unavailable (e.g. private browsing) — harmless fallback,
+      // just keep showing the full illustration.
+    }
+  }, [asset]);
 
   // ── Metrics — via processVideoMetrics (analyticsEngine) ─────────────────────
   //
@@ -1338,7 +1402,13 @@ export default function VideoDetail() {
           Shown only before the video has an Asset in the library. Once added,
           this block disappears entirely — the "View Asset" link in the header
           metadata row (above) is the ongoing navigation entry point, so no
-          redundant "already added" state needs to live here. */}
+          redundant "already added" state needs to live here.
+
+          Progressive onboarding: the illustration itself shows in full for
+          the first ASSET_LIBRARY_ILLUSTRATION_VIEW_LIMIT views (tracked via
+          the effect above), then collapses to a one-line toggle so it stops
+          dominating the page for returning users. The copy and the Add to
+          Asset Library button are unaffected either way. */}
       {!asset?.added_to_library_at && (
         <section className="bento-card p-10 space-y-8 text-center">
           <div className="space-y-3 max-w-md mx-auto">
@@ -1353,12 +1423,33 @@ export default function VideoDetail() {
             </p>
           </div>
 
-          <AssetReachIllustration />
-
-          <p className="text-sm">
-            <span className="font-bold text-white">One asset.</span>{' '}
-            <span className="font-bold text-red-600">Unlimited possibilities.</span>
-          </p>
+          <AnimatePresence mode="wait" initial={false}>
+            {illustrationExpanded ? (
+              <motion.div
+                key="illustration-expanded"
+                initial={{ opacity: 0, y: -8 }}
+                animate={{ opacity: 1, y: 0 }}
+                exit={{ opacity: 0 }}
+                className="space-y-6"
+              >
+                <AssetReachIllustration />
+                <p className="text-sm">
+                  <span className="font-bold text-white">One asset.</span>{' '}
+                  <span className="font-bold text-red-600">Unlimited possibilities.</span>
+                </p>
+              </motion.div>
+            ) : (
+              <motion.div key="illustration-collapsed" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}>
+                <button
+                  type="button"
+                  onClick={() => setIllustrationExpanded(true)}
+                  className="flex items-center justify-center gap-1.5 mx-auto text-[10px] font-black uppercase tracking-widest text-zinc-500 hover:text-white transition-colors cursor-pointer"
+                >
+                  <ChevronRight size={12} /> Show illustration
+                </button>
+              </motion.div>
+            )}
+          </AnimatePresence>
 
           <button
             onClick={handleAddToLibrary}
