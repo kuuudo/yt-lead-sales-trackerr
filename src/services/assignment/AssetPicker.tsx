@@ -42,6 +42,10 @@ const FILTERS: FilterOption[] = [
   { label: 'Landing Page', value: 'landing_page' },
   { label: 'Newsletter', value: 'newsletter' },
   { label: 'Sales Call', value: 'sales_call' },
+  // Deliberately one broad chip, not split per resource_type — smallest
+  // change to close the gap; per current Domain decision, splitting this
+  // further is deferred until there's real demand for it.
+  { label: 'Resource', value: 'resource' },
 ];
 
 export function AssetPicker({
