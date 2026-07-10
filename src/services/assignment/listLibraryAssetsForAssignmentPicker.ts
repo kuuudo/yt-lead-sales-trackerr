@@ -34,15 +34,24 @@
  */
 
 import { supabase } from '../../lib/supabase';
-import { resolveElementThumbnail, type CampaignElementType } from '../../lib/videoFormatters';
+import {
+  resolveElementThumbnail,
+  resolveAssetThumbnail,
+  type CampaignElementType,
+  type ResourceType,
+} from '../../lib/videoFormatters';
 
-export type AssetPickerFilterType = 'video' | 'landing_page' | 'newsletter' | 'sales_call';
+export type AssetPickerFilterType = 'video' | 'landing_page' | 'newsletter' | 'sales_call' | 'resource';
 
 export interface LibraryAssetPickerRow {
   asset_id: string;
   display_name: string;
-  asset_type: 'video' | 'campaign_element';
+  asset_type: 'video' | 'campaign_element' | 'resource';
   element_type: CampaignElementType | null;
+  // New — only populated for asset_type: 'resource' rows. Scope-locked to
+  // this addition only; no unified type introduced (per current Domain
+  // decision — CampaignElementType and ResourceType stay separate).
+  resource_type: ResourceType | null;
   thumbnail: string | null;
 }
 
@@ -52,7 +61,7 @@ export interface ListLibraryAssetsForAssignmentPickerInput {
   search?: string;
 }
 
-const ELEMENT_TYPE_BY_FILTER: Record<Exclude<AssetPickerFilterType, 'video'>, CampaignElementType> = {
+const ELEMENT_TYPE_BY_FILTER: Record<Exclude<AssetPickerFilterType, 'video' | 'resource'>, CampaignElementType> = {
   landing_page: 'landing_page',
   newsletter: 'newsletter',
   sales_call: 'sales_call',
@@ -67,7 +76,8 @@ export async function listLibraryAssetsForAssignmentPicker({
   const searchLower = search?.trim().toLowerCase() || undefined;
 
   const wantsVideo = !filterType || filterType === 'video';
-  const wantsElement = !filterType || filterType !== 'video';
+  const wantsElement = !filterType || (filterType !== 'video' && filterType !== 'resource');
+  const wantsResource = !filterType || filterType === 'resource';
 
   // ---- Video branch ----
   // Same scoping rule as listAssetsByOrganization.ts (org + Library-visible),
@@ -100,6 +110,7 @@ export async function listLibraryAssetsForAssignmentPicker({
         display_name: title ?? 'Untitled video',
         asset_type: 'video',
         element_type: null,
+        resource_type: null,
         thumbnail: video?.thumbnail_url ?? null,
       });
     }
@@ -126,7 +137,7 @@ export async function listLibraryAssetsForAssignmentPicker({
         .select('asset_id, display_name, element_type')
         .in('asset_id', elementAssetIds);
 
-      if (filterType && filterType !== 'video') {
+      if (filterType && filterType !== 'video' && filterType !== 'resource') {
         elementQuery = elementQuery.eq('element_type', ELEMENT_TYPE_BY_FILTER[filterType]);
       }
 
@@ -146,9 +157,53 @@ export async function listLibraryAssetsForAssignmentPicker({
           display_name: e.display_name,
           asset_type: 'campaign_element',
           element_type: e.element_type,
+          resource_type: null,
           thumbnail: resolveElementThumbnail(e.element_type),
         });
       }
+    }
+  }
+
+  // ---- Resource branch (Import Asset pipeline) ----
+  // Same scoping rule as the video/element branches above (org + Library-
+  // visible). asset_resources.asset_id has a UNIQUE constraint (see
+  // listAssetsByOrganization.ts's own note on this), so the embed is
+  // object-shaped — but we defensively handle the array case too, same
+  // as the video branch does, in case that ever changes.
+  if (wantsResource) {
+    const { data: resourceAssetRows, error: resourceErr } = await supabase
+      .from('assets')
+      .select('id, asset_resources!inner(title, thumbnail_url, platform, resource_type)')
+      .eq('organization_id', organizationId)
+      .eq('asset_type', 'resource')
+      .not('added_to_library_at', 'is', null);
+
+    if (resourceErr) {
+      throw new Error(`Failed to load resource assets for picker: ${resourceErr.message}`);
+    }
+
+    for (const row of (resourceAssetRows ?? []) as any[]) {
+      const resource = Array.isArray(row.asset_resources) ? row.asset_resources[0] : row.asset_resources;
+      const title: string | null = resource?.title ?? null;
+
+      if (searchLower && !(title ?? '').toLowerCase().includes(searchLower)) {
+        continue;
+      }
+
+      results.push({
+        asset_id: row.id,
+        display_name: title ?? 'Untitled resource',
+        asset_type: 'resource',
+        element_type: null,
+        resource_type: resource?.resource_type ?? null,
+        thumbnail: resource
+          ? resolveAssetThumbnail({
+              thumbnail_url: resource.thumbnail_url,
+              resource_type: resource.resource_type,
+              platform: resource.platform,
+            })
+          : null,
+      });
     }
   }
 
