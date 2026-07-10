@@ -1434,7 +1434,7 @@ export default function VideoDetail() {
               <BookmarkPlus size={14} className="text-red-600" /> Asset Library
             </h3>
             <p className="text-sm text-zinc-300">
-              Turn this video into a reusable asset.
+              Turn this content into a reusable asset.
             </p>
             <p className="text-sm text-zinc-500 leading-relaxed">
               Reuse it across your business, let others promote it, and track its performance everywhere it goes.

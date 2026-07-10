@@ -5,7 +5,7 @@
 
 import React from 'react';
 import { BrowserRouter as Router, Routes, Route, Link, useLocation, Navigate } from 'react-router-dom';
-import { LayoutDashboard, Globe, BarChart3, Video, Library, Briefcase, LogOut, Loader2, User as UserIcon, Code, Settings as SettingsIcon } from 'lucide-react';
+import { LayoutDashboard, Globe, BarChart3, Video, Library, Briefcase, Users, LogOut, Loader2, User as UserIcon, Code, Settings as SettingsIcon } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { useTracker, useLanguage } from './lib/hooks';
 import { AuthProvider, useAuth } from './lib/auth';
@@ -31,6 +31,11 @@ import Assets from './pages/Assets';
 import Marketplace from './pages/Marketplace';
 import AssignmentDetail from './pages/AssignmentDetail';
 import CreateAssignment from './pages/CreateAssignment';
+import Overview from './pages/operator/Overview';
+import Members from './pages/operator/Members';
+import MemberDetail from './pages/operator/MemberDetail';
+import InviteMember from './pages/operator/InviteMember';
+import AcceptInvitation from './pages/operator/AcceptInvitation';
 function Navigation() {
   const { lang, toggleLanguage, t } = useLanguage();
   const { user, signOut } = useAuth();
@@ -42,6 +47,7 @@ function Navigation() {
     { to: '/videos', icon: Video, label: t.nav.videos },
     { to: '/assets', icon: Library, label: t.nav.assets },
     { to: '/marketplace', icon: Briefcase, label: t.nav.marketplace },
+    { to: '/operator', icon: Users, label: t.nav.operator },
     { to: '/workspace', icon: Briefcase, label: t.nav.workspace },
     { to: '/analytics', icon: BarChart3, label: t.nav.analytics },
     { to: '/installation', icon: Code, label: t.nav.installation || 'Install' },
@@ -156,6 +162,11 @@ function MainContent() {
         <Route path="/marketplace" element={<PageWrapper><Marketplace /></PageWrapper>} />
         <Route path="/marketplace/assignments/new" element={<PageWrapper><CreateAssignment /></PageWrapper>} />
         <Route path="/marketplace/assignments/:assignmentId" element={<PageWrapper><AssignmentDetail /></PageWrapper>} />
+        <Route path="/operator" element={<PageWrapper><Overview /></PageWrapper>} />
+        <Route path="/operator/members" element={<PageWrapper><Members /></PageWrapper>} />
+        <Route path="/operator/members/:id" element={<PageWrapper><MemberDetail /></PageWrapper>} />
+        <Route path="/operator/members/invite" element={<PageWrapper><InviteMember /></PageWrapper>} />
+        <Route path="/invite/:token" element={<AcceptInvitation />} />
       </Routes>
     </AnimatePresence>
   );
