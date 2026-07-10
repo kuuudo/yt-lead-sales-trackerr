@@ -29,15 +29,22 @@
  */
 
 import { supabase } from '../../lib/supabase';
-import { resolveElementThumbnail, type CampaignElementType } from '../../lib/videoFormatters';
+import {
+  resolveElementThumbnail,
+  resolveAssetThumbnail,
+  type CampaignElementType,
+  type ResourceType,
+} from '../../lib/videoFormatters';
 
 export interface AssignmentAssetOption {
   asset_id: string;
-  kind: 'video' | 'campaign_element';
+  kind: 'video' | 'campaign_element' | 'resource';
   video_title: string | null;
   thumbnail_url: string | null;
   display_name?: string;
   element_type?: CampaignElementType;
+  // New — only populated for kind: 'resource' rows.
+  resource_type?: ResourceType;
 }
 
 export interface CampaignGroup {
@@ -110,10 +117,7 @@ export async function getAssignmentDetail(
   if (assetsErr) throw new Error(`Assignment assets query failed: ${assetsErr.message}`);
 
   const assetIds = (assignmentAssetRows ?? []).map(r => r.asset_id);
-console.log('==============================');
-console.log('[getAssignmentDetail] assignmentId:', assignmentId);
-console.log('[getAssignmentDetail] currentUserId:', currentUserId);
-console.log('[getAssignmentDetail] assetIds:', assetIds);
+
   let assignmentAssets: AssignmentAssetOption[] = [];
   let campaignGroups: CampaignGroup[] = [];
 
@@ -121,6 +125,7 @@ console.log('[getAssignmentDetail] assetIds:', assetIds);
     const [
       { data: videoRows, error: videoErr },
       { data: elementRows, error: elementErr },
+      { data: resourceRows, error: resourceErr },
       { data: campaignAssetRows, error: caErr },
     ] = await Promise.all([
       supabase
@@ -132,6 +137,10 @@ console.log('[getAssignmentDetail] assetIds:', assetIds);
         .select('asset_id, display_name, element_type')
         .in('asset_id', assetIds),
       supabase
+        .from('asset_resources')
+        .select('asset_id, title, thumbnail_url, platform, resource_type')
+        .in('asset_id', assetIds),
+      supabase
         .from('campaign_assets')
         .select('campaign_id, asset_id, campaigns(campaign_name)')
         .in('asset_id', assetIds),
@@ -139,23 +148,12 @@ console.log('[getAssignmentDetail] assetIds:', assetIds);
 
     if (videoErr) throw new Error(`Failed to load asset display info: ${videoErr.message}`);
     if (elementErr) throw new Error(`Failed to load campaign element display info: ${elementErr.message}`);
+    if (resourceErr) throw new Error(`Failed to load resource display info: ${resourceErr.message}`);
     if (caErr) throw new Error(`Failed to load campaign groupings: ${caErr.message}`);
-console.log('------------------------------');
-console.log('[getAssignmentDetail] videoRows:', videoRows);
-console.log('[getAssignmentDetail] videoErr:', videoErr);
 
-console.log('[getAssignmentDetail] elementRows:', elementRows);
-console.log('[getAssignmentDetail] elementErr:', elementErr);
-
-console.log('[getAssignmentDetail] campaignAssetRows:', campaignAssetRows);
-console.log('[getAssignmentDetail] caErr:', caErr);
     const videoByAsset = new Map((videoRows ?? []).map(v => [v.asset_id, v]));
-    console.log('------------------------------');
-console.log(
-  '[getAssignmentDetail] videoByAsset keys:',
-  [...videoByAsset.keys()]
-);
     const elementByAsset = new Map((elementRows ?? []).map(e => [e.asset_id, e]));
+    const resourceByAsset = new Map((resourceRows ?? []).map(r => [r.asset_id, r]));
 
     // Shared resolver so assignmentAssets and campaignGroups never disagree
     // about how a given asset_id renders (title/thumbnail/kind).
@@ -172,11 +170,36 @@ console.log(
         };
       }
       const video = videoByAsset.get(assetId);
+      if (video) {
+        return {
+          asset_id: assetId,
+          kind: 'video',
+          video_title: video.video_title ?? null,
+          thumbnail_url: video.thumbnail_url ?? null,
+        };
+      }
+      const resource = resourceByAsset.get(assetId);
+      if (resource) {
+        return {
+          asset_id: assetId,
+          kind: 'resource',
+          video_title: resource.title ?? null,
+          thumbnail_url: resolveAssetThumbnail({
+            thumbnail_url: resource.thumbnail_url,
+            resource_type: resource.resource_type,
+            platform: resource.platform,
+          }),
+          resource_type: resource.resource_type,
+        };
+      }
+      // No matching row in any of the three tables — shouldn't happen under
+      // normal invariants, but keeps the old fallback shape rather than
+      // throwing, same as before this change.
       return {
         asset_id: assetId,
         kind: 'video',
-        video_title: video?.video_title ?? null,
-        thumbnail_url: video?.thumbnail_url ?? null,
+        video_title: null,
+        thumbnail_url: null,
       };
     };
 
