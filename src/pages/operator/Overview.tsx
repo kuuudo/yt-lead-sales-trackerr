@@ -1,30 +1,38 @@
 // ─────────────────────────────────────────────────────────────────────────────
 // Overview.tsx
 //
-// Operator homepage. Team KPIs, Top Performers, Recent Activity.
-// MOCK DATA ONLY — no Supabase calls yet. Swap `mockMembers` / `mockActivity`
-// for real queries once Members.tsx's query shape is proven out.
+// Team KPIs and Top Performers now wired to real data via
+// organization_members + profiles — same query pattern as Members.tsx.
 //
-// Intentionally NOT extracting a StatCard / TopPerformers / ActivityFeed
-// component yet. Overview and MemberDetail will both want stat cards, but
-// per YAGNI we wait until the UI is stable and duplication is confirmed
-// before extracting — see matching comment in MemberDetail.tsx.
+// Recent Activity is STILL MOCK. It was not part of this step's scope
+// (Team KPIs / Top Performers only), and its data doesn't come from
+// organization_members/profiles anyway — it would need assets/
+// assignment_collaborators/promotions queries, which is a separate step.
+// Flagging this explicitly rather than silently leaving it mock.
+//
+// Same placeholder caveat as Members.tsx: revenue/conversions/cvr are 0
+// for every member until analytics wiring happens later. KPIs and Top
+// Performers will render, but with real member count and $0 numbers —
+// that's correct, not broken.
+//
+// Owner is excluded from the member set, same as Members.tsx, per your
+// confirmed decision.
 // ─────────────────────────────────────────────────────────────────────────────
 
-import React from 'react';
+import React, { useState, useEffect } from 'react';
 import { Users, DollarSign, Target, Activity } from 'lucide-react';
-
-// ── Mock data (UI contract — matches the shape queries will eventually return) ──
+import { supabase } from '../../lib/supabase';
+import { useOrganization } from '../../lib/useOrganization';
 
 interface OperatorMember {
   id: string;
   name: string;
-  email: string;
-  revenue: number;
-  conversions: number;
-  cvr: number;
+  revenue: number;      // placeholder — not wired yet
+  conversions: number;  // placeholder — not wired yet
+  cvr: number;           // placeholder — not wired yet
 }
 
+// Recent Activity stays mock — see file header note.
 interface ActivityItem {
   id: string;
   memberName: string;
@@ -32,41 +40,80 @@ interface ActivityItem {
   timestamp: string;
 }
 
-const mockMembers: OperatorMember[] = [
-  { id: '1', name: 'John Doe',   email: 'john@gmail.com', revenue: 5420, conversions: 42, cvr: 24 },
-  { id: '2', name: 'Mary Reyes', email: 'mary@gmail.com', revenue: 3820, conversions: 31, cvr: 17 },
-  { id: '3', name: 'Alex Kim',   email: 'alex@gmail.com', revenue: 2900, conversions: 22, cvr: 14 },
-];
-
 const mockActivity: ActivityItem[] = [
   { id: 'a1', memberName: 'John', action: 'imported 2 assets',       timestamp: '5m ago' },
   { id: 'a2', memberName: 'Mary', action: 'accepted an assignment',  timestamp: '1d ago' },
   { id: 'a3', memberName: 'Alex', action: 'published 3 promotions',  timestamp: '2d ago' },
 ];
 
-// ── Helpers ──────────────────────────────────────────────────────────────────
-
 function initials(name: string): string {
   return name.split(' ').map(p => p[0]).join('').slice(0, 2).toUpperCase();
 }
 
 export default function Overview() {
-  // Aggregation is derived from mockMembers, same as it will be derived from
-  // a real query later — keeps the mock path and real path identical in shape.
-  const memberCount = mockMembers.length;
-  const totalRevenue = mockMembers.reduce((sum, m) => sum + m.revenue, 0);
-  const totalConversions = mockMembers.reduce((sum, m) => sum + m.conversions, 0);
-  const avgCvr = mockMembers.length
-    ? (mockMembers.reduce((sum, m) => sum + m.cvr, 0) / mockMembers.length).toFixed(1)
+  const { organizationId, loading: orgLoading } = useOrganization();
+  const [members, setMembers] = useState<OperatorMember[]>([]);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    if (!organizationId) return;
+
+    supabase
+      .from('organization_members')
+      .select('user_id, role, profiles(id, full_name, email)')
+      .eq('organization_id', organizationId)
+      .then(({ data, error }) => {
+        if (error) {
+          console.error('Failed to load members:', error);
+          setLoading(false);
+          return;
+        }
+
+        const rows = (data ?? [])
+          .filter(row => row.role !== 'owner') // exclude Owner, same as Members.tsx
+          .map(row => {
+            const profile = row.profiles as unknown as {
+              id: string;
+              full_name: string | null;
+              email: string | null;
+            } | null;
+
+            return {
+              id: row.user_id,
+              name: profile?.full_name || profile?.email || 'Unnamed member',
+              revenue: 0,       // placeholder — not wired yet
+              conversions: 0,   // placeholder — not wired yet
+              cvr: 0,            // placeholder — not wired yet
+            };
+          });
+
+        setMembers(rows);
+        setLoading(false);
+      });
+  }, [organizationId]);
+
+  if (orgLoading || loading) {
+    return (
+      <div className="max-w-6xl mx-auto px-6 py-20 text-center">
+        <p className="text-[10px] font-black uppercase text-zinc-600 tracking-widest">Loading…</p>
+      </div>
+    );
+  }
+
+  const memberCount = members.length;
+  const totalRevenue = members.reduce((sum, m) => sum + m.revenue, 0);
+  const totalConversions = members.reduce((sum, m) => sum + m.conversions, 0);
+  const avgCvr = members.length
+    ? (members.reduce((sum, m) => sum + m.cvr, 0) / members.length).toFixed(1)
     : '0.0';
 
-  const topPerformers = [...mockMembers].sort((a, b) => b.revenue - a.revenue).slice(0, 3);
+  const topPerformers = [...members].sort((a, b) => b.revenue - a.revenue).slice(0, 3);
 
   return (
     <div className="max-w-6xl mx-auto px-6 py-8 space-y-6">
       <h1 className="label-caps !text-white text-lg mb-2">Operator Overview</h1>
 
-      {/* ── Team KPI cards ────────────────────────────────────────────────── */}
+      {/* ── Team KPI cards — wired ──────────────────────────────────────── */}
       <section className="grid grid-cols-4 gap-3">
         {[
           { label: 'Members',     value: memberCount,             icon: Users,       color: 'text-zinc-500' },
@@ -86,35 +133,41 @@ export default function Overview() {
         ))}
       </section>
 
-      {/* ── Top Performers ────────────────────────────────────────────────── */}
+      {/* ── Top Performers — wired ──────────────────────────────────────── */}
       <section className="bento-card p-0 overflow-hidden">
         <div className="px-6 py-4 border-b border-zinc-900 bg-zinc-900/10">
           <h2 className="label-caps !text-white">Top Performers</h2>
         </div>
-        <div className="divide-y divide-zinc-900/50">
-          {topPerformers.map((m, idx) => (
-            <div key={m.id} className="flex items-center justify-between px-6 py-3">
-              <div className="flex items-center gap-3">
-                <span className="text-[10px] font-black tabular-nums text-zinc-600 w-4">#{idx + 1}</span>
-                <div className="w-8 h-8 rounded-lg bg-zinc-900 border border-zinc-700 flex items-center justify-center text-[10px] font-black text-zinc-400">
-                  {initials(m.name)}
+        {topPerformers.length === 0 ? (
+          <div className="py-16 text-center">
+            <p className="text-[10px] font-black uppercase text-zinc-600 tracking-widest">No members yet</p>
+          </div>
+        ) : (
+          <div className="divide-y divide-zinc-900/50">
+            {topPerformers.map((m, idx) => (
+              <div key={m.id} className="flex items-center justify-between px-6 py-3">
+                <div className="flex items-center gap-3">
+                  <span className="text-[10px] font-black tabular-nums text-zinc-600 w-4">#{idx + 1}</span>
+                  <div className="w-8 h-8 rounded-lg bg-zinc-900 border border-zinc-700 flex items-center justify-center text-[10px] font-black text-zinc-400">
+                    {initials(m.name)}
+                  </div>
+                  <span className="text-[11px] font-bold text-zinc-200">{m.name}</span>
                 </div>
-                <span className="text-[11px] font-bold text-zinc-200">{m.name}</span>
+                <div className="flex items-center gap-6">
+                  <span className="text-[9px] font-black uppercase tracking-widest text-zinc-600">
+                    CVR <span className="text-zinc-300">{m.cvr}%</span>
+                  </span>
+                  <span className="text-sm font-black text-emerald-400 tabular-nums">
+                    ${m.revenue.toLocaleString()}
+                  </span>
+                </div>
               </div>
-              <div className="flex items-center gap-6">
-                <span className="text-[9px] font-black uppercase tracking-widest text-zinc-600">
-                  CVR <span className="text-zinc-300">{m.cvr}%</span>
-                </span>
-                <span className="text-sm font-black text-emerald-400 tabular-nums">
-                  ${m.revenue.toLocaleString()}
-                </span>
-              </div>
-            </div>
-          ))}
-        </div>
+            ))}
+          </div>
+        )}
       </section>
 
-      {/* ── Recent Activity ───────────────────────────────────────────────── */}
+      {/* ── Recent Activity — STILL MOCK, see file header note ───────────── */}
       <section className="bento-card p-0 overflow-hidden">
         <div className="px-6 py-4 border-b border-zinc-900 bg-zinc-900/10">
           <h2 className="label-caps !text-white">Recent Activity</h2>
