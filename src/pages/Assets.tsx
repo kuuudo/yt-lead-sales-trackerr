@@ -38,6 +38,10 @@ export default function Assets() {
   const { user } = useAuth();
   const { organizationId } = useOrganization();
   const [rows, setRows] = useState<AssetLibraryRow[]>([]);
+  useEffect(() => {
+  console.log("=== rows state ===");
+  console.log(rows);
+}, [rows]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [showImportModal, setShowImportModal] = useState(false);
@@ -59,6 +63,12 @@ const tabCounts = useMemo(() => {
   const counts: Record<string, number> = {};
 
   for (const row of rows) {
+    console.log(
+  row.video_title,
+  row.asset_type,
+  row.resource_type,
+  getEffectiveResourceType(row)
+);
     const rt = getEffectiveResourceType(row);
     counts[rt] = (counts[rt] ?? 0) + 1;
   }
@@ -81,6 +91,8 @@ const filteredRows = useMemo(() => {
     setError(null);
     try {
       const data = await listAssetsByOrganization({ organizationId });
+      console.log("=== listAssetsByOrganization ===");
+      console.log(data);
       setRows(data);
     } catch (err: any) {
       setError(err.message || 'Could not load your Asset Library.');
@@ -153,6 +165,7 @@ const filteredRows = useMemo(() => {
       {!loading && !error && filteredRows.length > 0 && (
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
           {filteredRows.map((row) => (
+            
             <Link
               key={row.id}
               to={`/assets/${row.id}`}
