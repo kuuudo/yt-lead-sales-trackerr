@@ -21,6 +21,14 @@
  * UPDATE (Import Asset pass): added the "Import Asset" entry point
  * (ImportAssetModal) and switched thumbnail resolution to branch between
  * video-domain and resource-domain fallbacks depending on row.resource_type.
+ *
+ * UPDATE (Campaign Element pass): added a standalone "Campaign Assets" tab
+ * (kept separate from the ResourceType tabs, not merged in — Campaign
+ * Elements are asset_type: 'campaign_element', a different provenance from
+ * asset_type: 'resource', even where the content looks similar, e.g.
+ * "Newsletter"). Thumbnail/label for this tab reuse resolveElementThumbnail
+ * / getElementTypeLabel — the same formatters Assignment Picker and
+ * Assignment Detail already use, no new presentation logic introduced.
  */
 
 import React, { useEffect, useMemo, useState } from 'react';
@@ -30,7 +38,7 @@ import { useAuth } from '../lib/auth';
 import { useOrganization } from '../lib/useOrganization';
 import { listAssetsByOrganization } from '../services/asset/listAssetsByOrganization';
 import type { AssetLibraryRow } from '../services/asset/listAssetsByOrganization';
-import { resolveThumbnail, resolveAssetThumbnail, RESOURCE_TYPE_LABELS, type ResourceType } from '../lib/videoFormatters';
+import { resolveThumbnail, resolveAssetThumbnail, resolveElementThumbnail, getElementTypeLabel, RESOURCE_TYPE_LABELS, type ResourceType, type CampaignElementType } from '../lib/videoFormatters';
 import { ImportAssetModal } from '../components/ImportAssetModal';
 import type { AssetResource } from '../services/asset/createAssetResource';
 
@@ -38,38 +46,31 @@ export default function Assets() {
   const { user } = useAuth();
   const { organizationId } = useOrganization();
   const [rows, setRows] = useState<AssetLibraryRow[]>([]);
-  useEffect(() => {
-  console.log("=== rows state ===");
-  console.log(rows);
-}, [rows]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [showImportModal, setShowImportModal] = useState(false);
-const [activeTab, setActiveTab] = useState<'all' | ResourceType>('all');
+type AssetLibraryTab = 'all' | ResourceType | 'campaign_element';
+
+const [activeTab, setActiveTab] = useState<AssetLibraryTab>('all');
 
 // video asset 目前 resource_type 是 null
-// 只在這頁補上，不改 service
-function getEffectiveResourceType(row: AssetLibraryRow): ResourceType {
+// campaign_element asset 沒有 resource_type,只有 element_type,獨立分類,不混進 ResourceType
+// 只在這頁補上,不改 service
+function getEffectiveTab(row: AssetLibraryRow): AssetLibraryTab {
+  if (row.asset_type === 'campaign_element') return 'campaign_element';
   if (row.resource_type) return row.resource_type as ResourceType;
-
   if (row.asset_type === 'video') return 'video';
 
   return 'other';
 }
 
 
-// 計算每個 Resource Type 有幾個
+// 計算每個 Tab 有幾個
 const tabCounts = useMemo(() => {
   const counts: Record<string, number> = {};
 
   for (const row of rows) {
-    console.log(
-  row.video_title,
-  row.asset_type,
-  row.resource_type,
-  getEffectiveResourceType(row)
-);
-    const rt = getEffectiveResourceType(row);
+    const rt = getEffectiveTab(row);
     counts[rt] = (counts[rt] ?? 0) + 1;
   }
 
@@ -82,7 +83,7 @@ const filteredRows = useMemo(() => {
   if (activeTab === 'all') return rows;
 
   return rows.filter(
-    row => getEffectiveResourceType(row) === activeTab
+    row => getEffectiveTab(row) === activeTab
   );
 }, [rows, activeTab]);
   const fetchAssets = async () => {
@@ -91,8 +92,6 @@ const filteredRows = useMemo(() => {
     setError(null);
     try {
       const data = await listAssetsByOrganization({ organizationId });
-      console.log("=== listAssetsByOrganization ===");
-      console.log(data);
       setRows(data);
     } catch (err: any) {
       setError(err.message || 'Could not load your Asset Library.');
@@ -134,6 +133,17 @@ const filteredRows = useMemo(() => {
     All ({rows.length})
   </button>
 
+  <button
+    onClick={() => setActiveTab('campaign_element')}
+    className={`text-[10px] font-black uppercase tracking-widest px-3 py-1.5 rounded-lg transition-all ${
+      activeTab === 'campaign_element'
+        ? 'bg-red-600 text-white'
+        : 'bg-zinc-900 text-zinc-500 hover:text-white'
+    }`}
+  >
+    Campaign Assets ({tabCounts['campaign_element'] ?? 0})
+  </button>
+
   {(Object.keys(RESOURCE_TYPE_LABELS) as ResourceType[]).map(rt => (
     <button
       key={rt}
@@ -165,7 +175,6 @@ const filteredRows = useMemo(() => {
       {!loading && !error && filteredRows.length > 0 && (
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
           {filteredRows.map((row) => (
-            
             <Link
               key={row.id}
               to={`/assets/${row.id}`}
@@ -174,7 +183,9 @@ const filteredRows = useMemo(() => {
               <div className="w-16 h-10 overflow-hidden rounded-lg border border-zinc-800 flex-shrink-0">
                 <img
                   src={
-                    row.resource_type
+                    row.asset_type === 'campaign_element'
+                      ? resolveElementThumbnail(row.element_type as CampaignElementType)
+                      : row.resource_type
                       ? resolveAssetThumbnail({ thumbnail_url: row.thumbnail_url, resource_type: row.resource_type, platform: row.platform })
                       : resolveThumbnail(row)
                   }
@@ -187,7 +198,9 @@ const filteredRows = useMemo(() => {
   </p>
 
   <p className="text-[10px] font-bold uppercase text-zinc-300 tracking-wide mt-1">
-    {RESOURCE_TYPE_LABELS[getEffectiveResourceType(row)]}
+    {row.asset_type === 'campaign_element'
+      ? getElementTypeLabel(row.element_type as CampaignElementType)
+      : RESOURCE_TYPE_LABELS[getEffectiveTab(row) as ResourceType]}
   </p>
 
   <div className="flex items-center gap-2 mt-0.5">
