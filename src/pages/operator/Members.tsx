@@ -1,32 +1,46 @@
 // ─────────────────────────────────────────────────────────────────────────────
 // Members.tsx
 //
-// MOCK DATA ONLY. Search, Invite (nav to a page, not a modal), Member table.
+// Real data via organization_members + profiles. UI/JSX unchanged from the
+// mock version — only the data source changed.
 //
-// Intentionally NOT extracted into MemberTable / MemberRow / StatusBadge /
-// ActionButtons components yet. Status values below (`connected` /
-// `no_analytics` / `no_campaign`) are placeholders to unblock the UI —
-// the real status vocabulary hasn't been decided, so don't treat this
-// union type as settled; it's here only so the page renders something.
+// Reuses useOrganization() and useAuth() exactly as they exist. No new hooks,
+// no new tables, no migrations.
+//
+// Notes on this wiring:
+//
+// 1. useOrganization() only resolves organizationId when the current user
+//    has role = 'owner' in organization_members (see useOrganization.ts).
+//    That matches this page's expected use — only the Owner views Members —
+//    so nothing extra is needed here, but it's worth naming: this page will
+//    render nothing useful for a non-Owner Member, by the hook's own design.
+//
+// 2. The query excludes the Owner's own row from the list. Rationale: the
+//    Owner isn't a "Member added under them" (per Operator Domain Boundary
+//    v3 §1) — they're the person doing the managing, not a managed Member.
+//    This is an assumption, not a locked decision — trivial to remove the
+//    filter if you want the Owner to appear in their own list.
+//
+// 3. `revenue` and `status` are NOT present in organization_members or
+//    profiles. Per instruction, these stay as placeholder values rather than
+//    triggering a new table/migration — they are NOT wired to real analytics
+//    yet. That's a later step, not this one.
 // ─────────────────────────────────────────────────────────────────────────────
 
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
 import { Search, Plus, BarChart3, X } from 'lucide-react';
+import { supabase } from '../../lib/supabase';
+import { useAuth } from '../../lib/auth';
+import { useOrganization } from '../../lib/useOrganization';
 
 interface OperatorMember {
-  id: string;
+  id: string;       // = organization_members.user_id
   name: string;
   email: string;
-  revenue: number;
-  status: 'connected' | 'no_analytics' | 'no_campaign'; // placeholder only, not decided
+  revenue: number;                                        // placeholder — not wired yet
+  status: 'connected' | 'no_analytics' | 'no_campaign';    // placeholder — not decided yet
 }
-
-const mockMembers: OperatorMember[] = [
-  { id: '1', name: 'John Doe',   email: 'john@gmail.com', revenue: 5420, status: 'connected' },
-  { id: '2', name: 'Mary Reyes', email: 'mary@gmail.com', revenue: 3820, status: 'no_analytics' },
-  { id: '3', name: 'Alex Kim',   email: 'alex@gmail.com', revenue: 2900, status: 'no_campaign' },
-];
 
 function initials(name: string): string {
   return name.split(' ').map(p => p[0]).join('').slice(0, 2).toUpperCase();
@@ -42,12 +56,66 @@ function statusLabel(status: OperatorMember['status']): { text: string; color: s
 
 export default function Members() {
   const navigate = useNavigate();
+  const { user } = useAuth();
+  const { organizationId, loading: orgLoading } = useOrganization();
+
+  const [members, setMembers] = useState<OperatorMember[]>([]);
+  const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState('');
 
-  const filtered = mockMembers.filter(m =>
+  useEffect(() => {
+    if (!organizationId) return;
+
+    supabase
+      .from('organization_members')
+      .select('user_id, role, profiles(id, full_name, email, avatar_url)')
+      .eq('organization_id', organizationId)
+      .then(({ data, error }) => {
+        if (error) {
+          console.error('Failed to load members:', error);
+          setLoading(false);
+          return;
+        }
+
+        const rows = (data ?? [])
+          // Exclude the Owner's own row — see file header note #2.
+          .filter(row => row.role !== 'owner')
+          .map(row => {
+            // Supabase returns the joined relation as an object here since
+            // user_id -> profiles.id is a many-to-one relationship.
+            const profile = row.profiles as unknown as {
+              id: string;
+              full_name: string | null;
+              email: string | null;
+              avatar_url: string | null;
+            } | null;
+
+            return {
+              id: row.user_id,
+              name: profile?.full_name || profile?.email || 'Unnamed member',
+              email: profile?.email || '',
+              revenue: 0,                 // placeholder — not wired yet
+              status: 'no_analytics' as const, // placeholder — not decided yet
+            };
+          });
+
+        setMembers(rows);
+        setLoading(false);
+      });
+  }, [organizationId]);
+
+  const filtered = members.filter(m =>
     m.name.toLowerCase().includes(search.toLowerCase()) ||
     m.email.toLowerCase().includes(search.toLowerCase())
   );
+
+  if (orgLoading || loading) {
+    return (
+      <div className="max-w-6xl mx-auto px-6 py-20 text-center">
+        <p className="text-[10px] font-black uppercase text-zinc-600 tracking-widest">Loading…</p>
+      </div>
+    );
+  }
 
   return (
     <div className="max-w-6xl mx-auto px-6 py-8 space-y-6">
@@ -75,14 +143,14 @@ export default function Members() {
         <div className="px-6 py-4 border-b border-zinc-900 bg-zinc-900/10 flex justify-between">
           <h2 className="label-caps !text-white">All Members</h2>
           <span className="text-[9px] font-black uppercase tracking-widest text-zinc-600">
-            {filtered.length} of {mockMembers.length}
+            {filtered.length} of {members.length}
           </span>
         </div>
 
         {filtered.length === 0 ? (
           <div className="py-20 text-center">
             <p className="text-[10px] font-black uppercase text-zinc-600 tracking-widest">
-              No members match your search
+              {members.length === 0 ? 'No members yet' : 'No members match your search'}
             </p>
           </div>
         ) : (
