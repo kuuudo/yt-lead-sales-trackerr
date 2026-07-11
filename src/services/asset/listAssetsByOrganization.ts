@@ -130,6 +130,7 @@ console.table(
   }
 
   return (data ?? []).map((row: any) => {
+    console.log("campaign_element_assets =", row.campaign_element_assets);
     // videos: still array-shaped (no UNIQUE constraint) — normalize as before.
     const rawVideo = row.videos;
     const video: EmbeddedVideo | undefined = Array.isArray(rawVideo) ? rawVideo[0] : rawVideo;
