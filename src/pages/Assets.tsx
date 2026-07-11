@@ -92,6 +92,11 @@ const filteredRows = useMemo(() => {
     setError(null);
     try {
       const data = await listAssetsByOrganization({ organizationId });
+
+console.log("========== Assets ==========");
+console.log(data);
+
+setRows(data);
       setRows(data);
     } catch (err: any) {
       setError(err.message || 'Could not load your Asset Library.');
