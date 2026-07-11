@@ -1,24 +1,108 @@
 // ─────────────────────────────────────────────────────────────────────────────
 // InviteMember.tsx
 //
-// Standalone page (not a modal), per decision to keep Invite reusable for
-// future Collaborator / Team invite flows. Mock submit only — no Supabase,
-// no member_invitations insert yet.
+// Real invitation flow: no email sending. Creates a member_invitations row,
+// generates a shareable link, shows it with a Copy button. Owner sends the
+// link themselves via whatever channel they want — per your product decision,
+// email/notification delivery is explicitly out of scope for Operator.
+//
+// Duplicate-invite guards (your explicit requirement):
+// 1. Reject if the email already belongs to a current member of this org.
+// 2. Reject if a pending invitation already exists for this email in this org.
+//
+// Reuses useOrganization()/useAuth()/supabase exactly as before. No new hooks.
 // ─────────────────────────────────────────────────────────────────────────────
 
 import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { ChevronLeft } from 'lucide-react';
+import { ChevronLeft, Copy, Check } from 'lucide-react';
+import { supabase } from '../../lib/supabase';
+import { useAuth } from '../../lib/auth';
+import { useOrganization } from '../../lib/useOrganization';
 
 export default function InviteMember() {
   const navigate = useNavigate();
-  const [email, setEmail] = useState('');
-  const [sent, setSent] = useState(false);
+  const { user } = useAuth();
+  const { organizationId } = useOrganization();
 
-  function handleInvite() {
-    // TODO: replace with member_invitations insert once migration exists
-    console.log('Invite sent (mock):', email);
-    setSent(true);
+  const [email, setEmail] = useState('');
+  const [submitting, setSubmitting] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [inviteLink, setInviteLink] = useState<string | null>(null);
+  const [copied, setCopied] = useState(false);
+
+  async function handleInvite() {
+    if (!organizationId || !user) return;
+    setSubmitting(true);
+    setError(null);
+
+    const normalizedEmail = email.trim().toLowerCase();
+
+    // 1. Already a member? — look up the profile by email, then check
+    //    organization_members for that user_id in this org.
+    const { data: existingProfile } = await supabase
+      .from('profiles')
+      .select('id')
+      .eq('email', normalizedEmail)
+      .maybeSingle();
+
+    if (existingProfile) {
+      const { data: existingMembership } = await supabase
+        .from('organization_members')
+        .select('user_id')
+        .eq('organization_id', organizationId)
+        .eq('user_id', existingProfile.id)
+        .maybeSingle();
+
+      if (existingMembership) {
+        setError('This person is already a member.');
+        setSubmitting(false);
+        return;
+      }
+    }
+
+    // 2. Already a pending invitation for this email in this org?
+    const { data: existingInvite } = await supabase
+      .from('member_invitations')
+      .select('id')
+      .eq('organization_id', organizationId)
+      .eq('invited_email', normalizedEmail)
+      .maybeSingle();
+
+    if (existingInvite) {
+      setError('An invitation is already pending for this email.');
+      setSubmitting(false);
+      return;
+    }
+
+    // 3. Create the invitation.
+    const token = crypto.randomUUID();
+
+    const { error: insertError } = await supabase
+      .from('member_invitations')
+      .insert({
+        organization_id: organizationId,
+        invited_email: normalizedEmail,
+        token,
+        invited_by_user_id: user.id,
+      });
+
+    if (insertError) {
+      console.error('Failed to create invitation:', insertError);
+      setError('Something went wrong creating the invitation.');
+      setSubmitting(false);
+      return;
+    }
+
+    setInviteLink(`${window.location.origin}/invite/${token}`);
+    setSubmitting(false);
+  }
+
+  function handleCopy() {
+    if (!inviteLink) return;
+    navigator.clipboard.writeText(inviteLink);
+    setCopied(true);
+    setTimeout(() => setCopied(false), 2000);
   }
 
   return (
@@ -33,11 +117,22 @@ export default function InviteMember() {
       <div className="bento-card p-6">
         <h1 className="label-caps !text-white mb-6">Invite member</h1>
 
-        {sent ? (
-          <div className="py-6 text-center">
-            <p className="text-[11px] font-bold text-emerald-400 mb-1">Invite sent</p>
-            <p className="text-[9px] font-bold text-zinc-600">{email}</p>
-          </div>
+        {inviteLink ? (
+          <>
+            <p className="text-[11px] font-bold text-emerald-400 mb-1">Invitation created</p>
+            <p className="text-[9px] font-bold text-zinc-600 mb-5">
+              Share this link with {email} however you'd like — email, chat, DM.
+            </p>
+            <div className="flex items-center gap-2 bg-zinc-900 border border-zinc-700 rounded-xl px-3 py-2.5 mb-3">
+              <span className="text-[10px] text-zinc-300 truncate flex-1">{inviteLink}</span>
+            </div>
+            <button
+              onClick={handleCopy}
+              className="w-full flex items-center justify-center gap-2 bg-emerald-500 text-emerald-950 text-[10px] font-black uppercase tracking-widest py-3 rounded-xl transition-colors"
+            >
+              {copied ? <><Check size={13} /> Copied</> : <><Copy size={13} /> Copy invite link</>}
+            </button>
+          </>
         ) : (
           <>
             <label className="text-[9px] font-black uppercase tracking-widest text-zinc-600 block mb-2">
@@ -47,14 +142,17 @@ export default function InviteMember() {
               value={email}
               onChange={e => setEmail(e.target.value)}
               placeholder="name@company.com"
-              className="w-full bg-zinc-900 border border-zinc-700 rounded-xl px-3 py-2.5 text-[11px] text-zinc-200 placeholder:text-zinc-600 focus:outline-none focus:border-zinc-500 mb-5"
+              className="w-full bg-zinc-900 border border-zinc-700 rounded-xl px-3 py-2.5 text-[11px] text-zinc-200 placeholder:text-zinc-600 focus:outline-none focus:border-zinc-500 mb-3"
             />
+            {error && (
+              <p className="text-[10px] font-bold text-amber-500 mb-3">{error}</p>
+            )}
             <button
               onClick={handleInvite}
-              disabled={!email}
+              disabled={!email || submitting}
               className="w-full bg-emerald-500 disabled:bg-zinc-800 disabled:text-zinc-600 text-emerald-950 text-[10px] font-black uppercase tracking-widest py-3 rounded-xl transition-colors"
             >
-              Send invite
+              {submitting ? 'Creating…' : 'Create invitation'}
             </button>
           </>
         )}
