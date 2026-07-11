@@ -1,37 +1,43 @@
 // ─────────────────────────────────────────────────────────────────────────────
 // MemberDetail.tsx
 //
-// MOCK DATA ONLY, looked up by :id from the same mock shape Members.tsx uses.
+// Real data via organization_members + profiles, scoped by both
+// organization_id (from useOrganization) AND the :id route param — so this
+// page can only ever load a member who actually belongs to the current
+// Owner's organization, not an arbitrary user_id someone types into the URL.
 //
-// Stat card JSX below is intentionally duplicated from Overview.tsx rather
-// than imported from a shared component. Per YAGNI, wait until this is
-// confirmed stable in both places before extracting — don't decide the
-// shared shape prematurely.
+// Data shape kept consistent with Members.tsx: id/name/email derived the
+// same way (full_name -> email -> 'Unnamed member' fallback). Additional
+// fields this page needs (views, conversions, ctr) that Members.tsx doesn't
+// use are placeholders, same convention as revenue's placeholder there.
 //
-// Assets / Campaigns quick actions are stubbed (disabled) — those domains
-// aren't wired to member-scoped views yet. Analytics is the only live action,
-// and will eventually reuse InDepthAnalyticsTest.tsx filtered by this member.
+// NOT extracting a shared hook yet, per your instruction — this is now the
+// third page running a similar organization_members + profiles query
+// (Overview, Members, MemberDetail). Flagged at the bottom of this file's
+// summary, not acted on.
+//
+// Analytics quick-action is intentionally NOT wired to InDepthAnalyticsTest
+// yet — that component filters by useAuth()'s own user.id, not an arbitrary
+// member. Reusing it here would require adding a memberId prop/filter to
+// that component, which is a change to existing code, not a data-source
+// swap. Left as a flagged blocker rather than silently faked.
 // ─────────────────────────────────────────────────────────────────────────────
 
-import React from 'react';
+import React, { useState, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { ChevronLeft, BarChart3, Folder, Megaphone, DollarSign, Eye, Target, Percent } from 'lucide-react';
+import { supabase } from '../../lib/supabase';
+import { useOrganization } from '../../lib/useOrganization';
 
-interface OperatorMember {
+interface MemberDetailData {
   id: string;
   name: string;
   email: string;
-  revenue: number;
-  views: number;
-  conversions: number;
-  ctr: number;
+  revenue: number;      // placeholder — not wired yet
+  views: number;        // placeholder — not wired yet
+  conversions: number;  // placeholder — not wired yet
+  ctr: number;           // placeholder — not wired yet
 }
-
-const mockMembers: OperatorMember[] = [
-  { id: '1', name: 'John Doe',   email: 'john@gmail.com', revenue: 5420, views: 18200, conversions: 42, ctr: 4.1 },
-  { id: '2', name: 'Mary Reyes', email: 'mary@gmail.com', revenue: 3820, views: 12400, conversions: 31, ctr: 3.6 },
-  { id: '3', name: 'Alex Kim',   email: 'alex@gmail.com', revenue: 2900, views: 9800,  conversions: 22, ctr: 3.1 },
-];
 
 function initials(name: string): string {
   return name.split(' ').map(p => p[0]).join('').slice(0, 2).toUpperCase();
@@ -40,9 +46,62 @@ function initials(name: string): string {
 export default function MemberDetail() {
   const { id } = useParams();
   const navigate = useNavigate();
-  const member = mockMembers.find(m => m.id === id);
+  const { organizationId, loading: orgLoading } = useOrganization();
 
-  if (!member) {
+  const [member, setMember] = useState<MemberDetailData | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [notFound, setNotFound] = useState(false);
+
+  useEffect(() => {
+    if (!organizationId || !id) return;
+
+    supabase
+      .from('organization_members')
+      .select('user_id, role, profiles(id, full_name, email)')
+      .eq('organization_id', organizationId)
+      .eq('user_id', id)
+      .maybeSingle()
+      .then(({ data, error }) => {
+        if (error) {
+          console.error('Failed to load member:', error);
+          setLoading(false);
+          return;
+        }
+
+        if (!data) {
+          setNotFound(true);
+          setLoading(false);
+          return;
+        }
+
+        const profile = data.profiles as unknown as {
+          id: string;
+          full_name: string | null;
+          email: string | null;
+        } | null;
+
+        setMember({
+          id: data.user_id,
+          name: profile?.full_name || profile?.email || 'Unnamed member',
+          email: profile?.email || '',
+          revenue: 0,       // placeholder — not wired yet
+          views: 0,         // placeholder — not wired yet
+          conversions: 0,   // placeholder — not wired yet
+          ctr: 0,            // placeholder — not wired yet
+        });
+        setLoading(false);
+      });
+  }, [organizationId, id]);
+
+  if (orgLoading || loading) {
+    return (
+      <div className="max-w-4xl mx-auto px-6 py-20 text-center">
+        <p className="text-[10px] font-black uppercase text-zinc-600 tracking-widest">Loading…</p>
+      </div>
+    );
+  }
+
+  if (notFound || !member) {
     return (
       <div className="max-w-3xl mx-auto px-6 py-20 text-center">
         <p className="text-[10px] font-black uppercase text-zinc-600 tracking-widest">
@@ -72,7 +131,7 @@ export default function MemberDetail() {
         </div>
       </div>
 
-      {/* ── Stats (duplicated from Overview.tsx — see file header note) ───── */}
+      {/* ── Stats (placeholders — see file header) ─────────────────────── */}
       <section className="grid grid-cols-4 gap-3">
         {[
           { label: 'Revenue',     value: `$${member.revenue.toLocaleString()}`, icon: DollarSign, color: 'text-emerald-400' },
@@ -96,6 +155,7 @@ export default function MemberDetail() {
           <h2 className="label-caps !text-white">Quick actions</h2>
         </div>
         <div className="grid grid-cols-3 gap-3 p-6">
+          {/* Not wired — see file header note on InDepthAnalyticsTest needing a memberId filter */}
           <button className="flex items-center gap-2 justify-center px-4 py-3 bg-zinc-900 border border-zinc-700 rounded-xl text-[10px] font-black uppercase tracking-widest text-zinc-200 hover:border-zinc-500 transition-all">
             <BarChart3 size={13} /> Analytics
           </button>
