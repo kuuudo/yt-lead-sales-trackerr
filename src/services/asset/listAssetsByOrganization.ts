@@ -115,22 +115,11 @@ export async function listAssetsByOrganization({
 
   const { data, error } = await query;
 
-console.log("========== listAssetsByOrganization ==========");
-console.log(data);
-console.table(
-  (data ?? []).map(row => ({
-    id: row.id,
-    asset_type: row.asset_type,
-    added_to_library_at: row.added_to_library_at,
-    campaign_element_assets: row.campaign_element_assets
-  }))
-);
   if (error) {
     throw new Error(error.message);
   }
 
   return (data ?? []).map((row: any) => {
-    console.log("campaign_element_assets =", row.campaign_element_assets);
     // videos: still array-shaped (no UNIQUE constraint) — normalize as before.
     const rawVideo = row.videos;
     const video: EmbeddedVideo | undefined = Array.isArray(rawVideo) ? rawVideo[0] : rawVideo;
@@ -140,7 +129,14 @@ console.table(
 
     // campaign_element_assets: same as asset_resources — asset_id is unique
     // on this table too, so this is also object-shaped, no array handling needed.
-    const element: EmbeddedCampaignElement | undefined = row.campaign_element_assets ?? undefined;
+    const rawElement = row.campaign_element_assets;
+
+    const rawElement = row.campaign_element_assets;
+
+    const element: EmbeddedCampaignElement | undefined =
+      Array.isArray(rawElement)
+        ? rawElement[0]
+        : rawElement;
 
     const { videos: _omitVideos, asset_resources: _omitResource, campaign_element_assets: _omitElement, ...asset } = row;
 
