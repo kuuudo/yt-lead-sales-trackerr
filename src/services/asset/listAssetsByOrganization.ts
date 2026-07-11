@@ -131,7 +131,7 @@ export async function listAssetsByOrganization({
     // on this table too, so this is also object-shaped, no array handling needed.
     const rawElement = row.campaign_element_assets;
 
-    const rawElement = row.campaign_element_assets;
+    
 
     const element: EmbeddedCampaignElement | undefined =
       Array.isArray(rawElement)
