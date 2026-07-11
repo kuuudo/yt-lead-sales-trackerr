@@ -115,6 +115,16 @@ export async function listAssetsByOrganization({
 
   const { data, error } = await query;
 
+console.log("========== listAssetsByOrganization ==========");
+console.log(data);
+console.table(
+  (data ?? []).map(row => ({
+    id: row.id,
+    asset_type: row.asset_type,
+    added_to_library_at: row.added_to_library_at,
+    campaign_element_assets: row.campaign_element_assets
+  }))
+);
   if (error) {
     throw new Error(error.message);
   }
