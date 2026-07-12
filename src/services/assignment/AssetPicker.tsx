@@ -5,7 +5,7 @@
  *
  * Responsibilities ONLY:
  *   1. Fetch Library assets via listLibraryAssetsForAssignmentPicker
- *   2. Display a selectable, filterable list
+ *   2. Display a selectable, filterable grid
  *   3. Track selection state
  *   4. Report selectedAssetIds up to the parent via onSelectionChange
  *
@@ -14,12 +14,23 @@
  *   - Deciding what happens with the selected IDs afterward
  *   - Any assignment-specific validation (title, description, etc.)
  *
- * Data source: listLibraryAssetsForAssignmentPicker.ts, used unmodified.
- * Styling kept minimal/functional on purpose — not a design pass, just
- * enough structure to be usable and testable.
+ * Data source: listLibraryAssetsForAssignmentPicker.ts. Scope is video +
+ * resource only — Campaign Elements are handled by their own Authorized
+ * Assets section elsewhere in CreateAssignment.tsx, not duplicated here.
+ *
+ * UPDATE (Picker UI pass): switched from a bare <ul>/checkbox list with
+ * plain CSS classes to a Tailwind card grid, matching the visual language
+ * the rest of the app already uses (Assets.tsx included). Cards are fully
+ * clickable (not just a small checkbox target) — selection state shown via
+ * border highlight + a check badge, not a native checkbox input. This is a
+ * deliberate one-off card layout for this component, not a shared
+ * component with Assets.tsx — the interaction models differ (select vs.
+ * navigate), so nothing is being abstracted here until there's a real,
+ * observed need to.
  */
 
 import { useEffect, useState } from 'react';
+import { Check, Loader2, Search } from 'lucide-react';
 import {
   listLibraryAssetsForAssignmentPicker,
   type AssetPickerFilterType,
@@ -39,12 +50,6 @@ type FilterOption = { label: string; value: AssetPickerFilterType | 'all' };
 const FILTERS: FilterOption[] = [
   { label: 'All', value: 'all' },
   { label: 'Video', value: 'video' },
-  { label: 'Landing Page', value: 'landing_page' },
-  { label: 'Newsletter', value: 'newsletter' },
-  { label: 'Sales Call', value: 'sales_call' },
-  // Deliberately one broad chip, not split per resource_type — smallest
-  // change to close the gap; per current Domain decision, splitting this
-  // further is deferred until there's real demand for it.
   { label: 'Resource', value: 'resource' },
 ];
 
@@ -118,24 +123,32 @@ export function AssetPicker({
   const selectedAssets = Array.from(selectedAssetsMap.values());
 
   return (
-    <div className="asset-picker">
-      <div className="asset-picker__controls">
-        <input
-          type="text"
-          value={search}
-          onChange={e => setSearch(e.target.value)}
-          placeholder="Search assets"
-          aria-label="Search assets"
-        />
+    <div className="space-y-4">
+      <div className="flex flex-col sm:flex-row gap-3 sm:items-center sm:justify-between">
+        <div className="relative flex-1 max-w-xs">
+          <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-zinc-600" />
+          <input
+            type="text"
+            value={search}
+            onChange={e => setSearch(e.target.value)}
+            placeholder="Search assets"
+            aria-label="Search assets"
+            className="w-full bg-zinc-950 border border-zinc-800 rounded-lg pl-9 pr-3 py-2 text-sm text-white placeholder:text-zinc-600"
+          />
+        </div>
 
-        <div className="asset-picker__filters" role="group" aria-label="Filter by type">
+        <div className="flex items-center gap-2 flex-wrap" role="group" aria-label="Filter by type">
           {FILTERS.map(f => (
             <button
               key={f.value}
               type="button"
               aria-pressed={activeFilter === f.value}
               onClick={() => setActiveFilter(f.value)}
-              className={activeFilter === f.value ? 'is-active' : ''}
+              className={`text-[10px] font-black uppercase tracking-widest px-3 py-1.5 rounded-lg transition-all ${
+                activeFilter === f.value
+                  ? 'bg-red-600 text-white'
+                  : 'bg-zinc-950 text-zinc-500 hover:text-white'
+              }`}
             >
               {f.label}
             </button>
@@ -143,46 +156,61 @@ export function AssetPicker({
         </div>
       </div>
 
-      {loading && <p className="asset-picker__status">Loading assets…</p>}
+      {loading && (
+        <div className="flex items-center gap-2 text-zinc-500 text-sm">
+          <Loader2 size={16} className="animate-spin" /> Loading assets…
+        </div>
+      )}
       {error && (
-        <p className="asset-picker__status" role="alert">
+        <p className="text-red-500 text-sm" role="alert">
           Couldn't load assets: {error}
         </p>
       )}
       {!loading && !error && assets.length === 0 && (
-        <p className="asset-picker__status">No Library assets match this filter.</p>
+        <p className="text-zinc-500 text-sm">No Library assets match this filter.</p>
       )}
 
-      <ul className="asset-picker__list">
+      <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
         {assets.map(asset => {
           const isSelected = selectedAssetsMap.has(asset.asset_id);
           return (
-            <li key={asset.asset_id} className="asset-picker__item">
-              <label>
-                <input
-                  type="checkbox"
-                  checked={isSelected}
-                  onChange={() => toggleAsset(asset)}
-                />
+            <button
+              key={asset.asset_id}
+              type="button"
+              aria-pressed={isSelected}
+              onClick={() => toggleAsset(asset)}
+              className={`relative flex flex-col text-left bg-zinc-950 border rounded-xl overflow-hidden transition-all ${
+                isSelected
+                  ? 'border-red-600 ring-1 ring-red-600'
+                  : 'border-zinc-800 hover:border-zinc-600'
+              }`}
+            >
+              <div className="w-full aspect-video bg-zinc-900 overflow-hidden">
                 {asset.thumbnail && (
-                  <img src={asset.thumbnail} alt="" width={40} height={40} />
+                  <img src={asset.thumbnail} alt="" className="w-full h-full object-cover" />
                 )}
-                <span>{asset.display_name}</span>
-              </label>
-            </li>
+              </div>
+              <div className="px-3 py-2">
+                <p className="text-xs font-bold text-white truncate">{asset.display_name}</p>
+                <p className="text-[9px] font-black uppercase text-zinc-600 tracking-widest mt-0.5">
+                  {asset.asset_type === 'video' ? 'Video' : 'Resource'}
+                </p>
+              </div>
+
+              {isSelected && (
+                <span className="absolute top-2 right-2 flex items-center justify-center w-5 h-5 rounded-full bg-red-600 text-white">
+                  <Check size={12} />
+                </span>
+              )}
+            </button>
           );
         })}
-      </ul>
+      </div>
 
       {selectedAssets.length > 0 && (
-        <div className="asset-picker__selected">
-          <h4>Selected Assets:</h4>
-          <ul>
-            {selectedAssets.map(a => (
-              <li key={a.asset_id}>{a.display_name}</li>
-            ))}
-          </ul>
-        </div>
+        <p className="text-[10px] font-black uppercase tracking-widest text-zinc-500">
+          {selectedAssets.length} asset{selectedAssets.length === 1 ? '' : 's'} selected
+        </p>
       )}
     </div>
   );

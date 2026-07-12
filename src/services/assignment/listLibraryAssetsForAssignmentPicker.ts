@@ -11,46 +11,28 @@
  *     added_to_library_at IS NOT NULL — i.e. the actual Asset Library,
  *     matching the scoping rule already used in listAssetsByOrganization.ts.
  *
- * "Type" filters as presented in the UI map onto the underlying schema as:
- *   - video          -> assets.asset_type = 'video'
- *   - landing_page   -> assets.asset_type = 'campaign_element', campaign_element_assets.element_type = 'landing_page'
- *   - newsletter     -> assets.asset_type = 'campaign_element', campaign_element_assets.element_type = 'newsletter'
- *   - sales_call     -> assets.asset_type = 'campaign_element', campaign_element_assets.element_type = 'sales_call'
- *
- * RLS note (flagged, not fixed here):
- *   campaign_element_assets' RLS policy scopes visibility via
- *   campaign_id -> campaigns.organization_id, NOT via assets.organization_id
- *   directly. This function's join path (assets.id -> campaign_element_assets.asset_id)
- *   is therefore a *different* column than the one RLS checks. Rows will only
- *   return correctly if the invariant "asset's org == its campaign_element_assets
- *   row's campaign's org" always holds. That invariant has not yet been
- *   verified with a direct query — see pending verification query discussed
- *   separately. If it doesn't hold for some rows, those rows will silently
- *   disappear from picker results (not an error, just missing rows) — worth
- *   checking when testing this against real data.
+ * UPDATE (Picker UI pass): campaign_element removed from this picker's
+ * scope. Not a permissions decision — Campaign Elements already have a
+ * dedicated authorization flow in CreateAssignment.tsx (Campaign ->
+ * Authorized Assets, above this picker), which writes the same
+ * assignment_assets rows this picker's selections do. Showing them again
+ * here would let the same Landing Page / Newsletter / Sales Call be
+ * selected in two different places in the same form — this picker now
+ * covers Library assets only (video / resource).
  *
  * Does NOT touch: RLS policies, schema, createAssignment.ts, or existing
  * shared types. Read-only. Additive only.
  */
 
 import { supabase } from '../../lib/supabase';
-import {
-  resolveElementThumbnail,
-  resolveAssetThumbnail,
-  type CampaignElementType,
-  type ResourceType,
-} from '../../lib/videoFormatters';
+import { resolveAssetThumbnail, type ResourceType } from '../../lib/videoFormatters';
 
-export type AssetPickerFilterType = 'video' | 'landing_page' | 'newsletter' | 'sales_call' | 'resource';
+export type AssetPickerFilterType = 'video' | 'resource';
 
 export interface LibraryAssetPickerRow {
   asset_id: string;
   display_name: string;
-  asset_type: 'video' | 'campaign_element' | 'resource';
-  element_type: CampaignElementType | null;
-  // New — only populated for asset_type: 'resource' rows. Scope-locked to
-  // this addition only; no unified type introduced (per current Domain
-  // decision — CampaignElementType and ResourceType stay separate).
+  asset_type: 'video' | 'resource';
   resource_type: ResourceType | null;
   thumbnail: string | null;
 }
@@ -61,12 +43,6 @@ export interface ListLibraryAssetsForAssignmentPickerInput {
   search?: string;
 }
 
-const ELEMENT_TYPE_BY_FILTER: Record<Exclude<AssetPickerFilterType, 'video' | 'resource'>, CampaignElementType> = {
-  landing_page: 'landing_page',
-  newsletter: 'newsletter',
-  sales_call: 'sales_call',
-};
-
 export async function listLibraryAssetsForAssignmentPicker({
   organizationId,
   filterType,
@@ -76,7 +52,6 @@ export async function listLibraryAssetsForAssignmentPicker({
   const searchLower = search?.trim().toLowerCase() || undefined;
 
   const wantsVideo = !filterType || filterType === 'video';
-  const wantsElement = !filterType || (filterType !== 'video' && filterType !== 'resource');
   const wantsResource = !filterType || filterType === 'resource';
 
   // ---- Video branch ----
@@ -109,64 +84,15 @@ export async function listLibraryAssetsForAssignmentPicker({
         asset_id: row.id,
         display_name: title ?? 'Untitled video',
         asset_type: 'video',
-        element_type: null,
         resource_type: null,
         thumbnail: video?.thumbnail_url ?? null,
       });
     }
   }
 
-  // ---- Campaign element branch (Landing Page / Newsletter / Sales Call) ----
-  if (wantsElement) {
-    const { data: elementAssetRows, error: assetErr } = await supabase
-      .from('assets')
-      .select('id')
-      .eq('organization_id', organizationId)
-      .eq('asset_type', 'campaign_element')
-      .not('added_to_library_at', 'is', null);
-
-    if (assetErr) {
-      throw new Error(`Failed to load campaign_element assets for picker: ${assetErr.message}`);
-    }
-
-    const elementAssetIds = (elementAssetRows ?? []).map(r => r.id);
-
-    if (elementAssetIds.length > 0) {
-      let elementQuery = supabase
-        .from('campaign_element_assets')
-        .select('asset_id, display_name, element_type')
-        .in('asset_id', elementAssetIds);
-
-      if (filterType && filterType !== 'video' && filterType !== 'resource') {
-        elementQuery = elementQuery.eq('element_type', ELEMENT_TYPE_BY_FILTER[filterType]);
-      }
-
-      const { data: elementRows, error: elementErr } = await elementQuery;
-
-      if (elementErr) {
-        throw new Error(`Failed to load campaign_element_assets for picker: ${elementErr.message}`);
-      }
-
-      for (const e of elementRows ?? []) {
-        if (searchLower && !e.display_name.toLowerCase().includes(searchLower)) {
-          continue;
-        }
-
-        results.push({
-          asset_id: e.asset_id,
-          display_name: e.display_name,
-          asset_type: 'campaign_element',
-          element_type: e.element_type,
-          resource_type: null,
-          thumbnail: resolveElementThumbnail(e.element_type),
-        });
-      }
-    }
-  }
-
   // ---- Resource branch (Import Asset pipeline) ----
-  // Same scoping rule as the video/element branches above (org + Library-
-  // visible). asset_resources.asset_id has a UNIQUE constraint (see
+  // Same scoping rule as the video branch above (org + Library-visible).
+  // asset_resources.asset_id has a UNIQUE constraint (see
   // listAssetsByOrganization.ts's own note on this), so the embed is
   // object-shaped — but we defensively handle the array case too, same
   // as the video branch does, in case that ever changes.
@@ -194,7 +120,6 @@ export async function listLibraryAssetsForAssignmentPicker({
         asset_id: row.id,
         display_name: title ?? 'Untitled resource',
         asset_type: 'resource',
-        element_type: null,
         resource_type: resource?.resource_type ?? null,
         thumbnail: resource
           ? resolveAssetThumbnail({

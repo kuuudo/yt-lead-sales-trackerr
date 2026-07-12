@@ -29,11 +29,17 @@
  * "Newsletter"). Thumbnail/label for this tab reuse resolveElementThumbnail
  * / getElementTypeLabel — the same formatters Assignment Picker and
  * Assignment Detail already use, no new presentation logic introduced.
+ *
+ * UPDATE (Picker UI pass): added a search box (substring match on
+ * video_title, same approach the Assignment Picker already used). Card
+ * markup itself unchanged — this pass only added search, kept deliberately
+ * separate from the Assignment Picker's card-grid rework happening in the
+ * same pass, since the two changes don't depend on each other.
  */
 
 import React, { useEffect, useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
-import { Library, Loader2, Plus } from 'lucide-react';
+import { Library, Loader2, Plus, Search } from 'lucide-react';
 import { useAuth } from '../lib/auth';
 import { useOrganization } from '../lib/useOrganization';
 import { listAssetsByOrganization } from '../services/asset/listAssetsByOrganization';
@@ -49,6 +55,7 @@ export default function Assets() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [showImportModal, setShowImportModal] = useState(false);
+  const [search, setSearch] = useState('');
 type AssetLibraryTab = 'all' | ResourceType | 'campaign_element';
 
 const [activeTab, setActiveTab] = useState<AssetLibraryTab>('all');
@@ -80,23 +87,20 @@ const tabCounts = useMemo(() => {
 
 // 根據 tab 過濾
 const filteredRows = useMemo(() => {
-  if (activeTab === 'all') return rows;
+  const searchLower = search.trim().toLowerCase();
 
-  return rows.filter(
-    row => getEffectiveTab(row) === activeTab
-  );
-}, [rows, activeTab]);
+  return rows.filter(row => {
+    if (activeTab !== 'all' && getEffectiveTab(row) !== activeTab) return false;
+    if (searchLower && !(row.video_title ?? '').toLowerCase().includes(searchLower)) return false;
+    return true;
+  });
+}, [rows, activeTab, search]);
   const fetchAssets = async () => {
     if (!organizationId) return;
     setLoading(true);
     setError(null);
     try {
       const data = await listAssetsByOrganization({ organizationId });
-
-console.log("========== Assets ==========");
-console.log(data);
-
-setRows(data);
       setRows(data);
     } catch (err: any) {
       setError(err.message || 'Could not load your Asset Library.');
@@ -126,6 +130,19 @@ setRows(data);
           <Plus size={14} /> Import Asset
         </button>
       </header>
+
+      <div className="relative max-w-xs">
+        <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-zinc-600" />
+        <input
+          type="text"
+          value={search}
+          onChange={e => setSearch(e.target.value)}
+          placeholder="Search assets"
+          aria-label="Search assets"
+          className="w-full bg-zinc-900 border border-zinc-800 rounded-lg pl-9 pr-3 py-2 text-sm text-white placeholder:text-zinc-600"
+        />
+      </div>
+
 <div className="flex items-center gap-2 flex-wrap">
   <button
     onClick={() => setActiveTab('all')}
