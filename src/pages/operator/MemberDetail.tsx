@@ -82,7 +82,7 @@ export default function MemberDetail() {
 
         setMember({
           id: data.user_id,
-          name: profile?.full_name || profile?.email || 'Unnamed member',
+          name: profile?.full_name || 'Unnamed member',
           email: profile?.email || '',
           revenue: 0,       // placeholder — not wired yet
           views: 0,         // placeholder — not wired yet

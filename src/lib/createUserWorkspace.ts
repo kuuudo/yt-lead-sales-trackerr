@@ -1,10 +1,10 @@
 import { supabase } from './supabase'
 
-export async function createUserWorkspace(userId: string, email: string) {
+export async function createUserWorkspace(userId: string, email: string, fullName: string) {
   // STEP 1 - PROFILE
   const { error: profileError } = await supabase
     .from('profiles')
-    .insert({ id: userId, email })
+    .insert({ id: userId, email, full_name: fullName })
 
   if (profileError && profileError.code !== '23505') {
     console.error('Profile creation failed:', profileError)

@@ -2,7 +2,7 @@ import React, { useState } from 'react';
 import { supabase } from '../lib/supabase';
 import { useLanguage } from '../lib/hooks';
 import { motion } from 'motion/react';
-import { KeyRound, Mail, Loader2 } from 'lucide-react';
+import { KeyRound, Mail, User, Loader2 } from 'lucide-react';
 import { Modal } from '../components/Modal';
 import { createUserWorkspace } from '../lib/createUserWorkspace';
 
@@ -10,6 +10,7 @@ export default function Auth() {
   const { t } = useLanguage();
   const [isLogin, setIsLogin] = useState(true);
   const [loading, setLoading] = useState(false);
+  const [fullName, setFullName] = useState('');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [error, setError] = useState<string | null>(null);
@@ -41,7 +42,11 @@ export default function Auth() {
         const { error } = await supabase.auth.signInWithPassword({ email, password });
         if (error) throw error;
       } else {
-        const { data, error } = await supabase.auth.signUp({ email, password });
+        const { data, error } = await supabase.auth.signUp({
+          email,
+          password,
+          options: { data: { full_name: fullName } },
+        });
         if (error) throw error;
 
         if (data.user) {
@@ -51,7 +56,14 @@ export default function Auth() {
           const session = data.session ?? (await supabase.auth.getSession()).data.session;
   
           if (session) {
-            await createUserWorkspace(data.user.id, email);
+            // Confirmed against createUserWorkspace.ts: it inserts into
+            // profiles directly (id, email, full_name) — this is the actual
+            // persistence path. The full_name passed via signUp's
+            // options.data above only reaches auth.users' own metadata, not
+            // profiles — kept anyway since it's harmless and Supabase uses
+            // it in some auth emails, but it is NOT what makes full_name
+            // show up on the Members page. This call is.
+            await createUserWorkspace(data.user.id, email, fullName);
           } else {
             console.error('No session after signup — workspace not created');
           }
@@ -81,6 +93,23 @@ export default function Auth() {
         </header>
 
         <form onSubmit={handleSubmit} className="space-y-4">
+          {!isLogin && (
+            <div className="space-y-1">
+              <label className="label-caps">Full Name</label>
+              <div className="relative">
+                <User className="absolute left-3 top-3.5 text-zinc-600" size={16} />
+                <input
+                  required
+                  type="text"
+                  value={fullName}
+                  onChange={e => setFullName(e.target.value)}
+                  className="w-full bg-zinc-950 border border-zinc-900 rounded-xl py-3 pl-10 pr-4 text-sm text-white focus:border-red-600 outline-none transition-all"
+                  placeholder="Jane Doe"
+                />
+              </div>
+            </div>
+          )}
+
           <div className="space-y-1">
             <label className="label-caps">{t.auth.email}</label>
             <div className="relative">

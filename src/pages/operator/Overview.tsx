@@ -81,7 +81,7 @@ export default function Overview() {
 
             return {
               id: row.user_id,
-              name: profile?.full_name || profile?.email || 'Unnamed member',
+              name: profile?.full_name || 'Unnamed member',
               revenue: 0,       // placeholder — not wired yet
               conversions: 0,   // placeholder — not wired yet
               cvr: 0,            // placeholder — not wired yet
