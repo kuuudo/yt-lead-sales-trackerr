@@ -8,10 +8,9 @@
  *
  * DOMAIN NOTE: "Asset -> Resource" is a domain-layer abstraction, not a
  * database relationship. There is no single `resources` table. Today:
- *   asset_type: 'video'            -> metadata lives in `videos`           (legacy)
- *   asset_type: 'resource'         -> metadata lives in `asset_resources`  (native, Import Asset)
- *   asset_type: 'campaign_element' -> no resolved source yet (deliberately out of scope,
- *                                      same as listAssetsByOrganization.ts's exclusion)
+ *   asset_type: 'video'            -> metadata lives in `videos`                  (legacy)
+ *   asset_type: 'resource'         -> metadata lives in `asset_resources`         (native, Import Asset)
+ *   asset_type: 'campaign_element' -> metadata lives in `campaign_element_assets` (native, Publish as Asset)
  * This loader hides that branching behind one normalized shape so
  * AssetDetail.tsx never needs to know which table backed the data, and
  * never has to assume every Asset is a Video.
@@ -21,12 +20,12 @@
  * concerns and must not be pulled into this loader.
  *
  * DUPLICATION NOTE: resource resolution here intentionally overlaps in
- * behavior with listAssetsByOrganization.ts (same video/resource
- * precedence, same field mapping) but not in query shape — that one is
- * list-scoped (many rows, LEFT-join style), this one is single-asset-
- * scoped (`maybeSingle`). If the merge/precedence rules change in one,
- * check the other — this was a deliberate smallest-change tradeoff, not
- * an oversight to leave unrevisited forever.
+ * behavior with listAssetsByOrganization.ts (same video/resource/
+ * campaign_element precedence, same field mapping) but not in query shape —
+ * that one is list-scoped (many rows, LEFT-join style), this one is
+ * single-asset-scoped (`maybeSingle`). If the merge/precedence rules change
+ * in one, check the other — this was a deliberate smallest-change
+ * tradeoff, not an oversight to leave unrevisited forever.
  *
  * Does NOT migrate existing video-assets into asset_resources. `videos`
  * remains a first-class, permanent source table for asset_type: 'video'
@@ -55,7 +54,7 @@ export interface AssetResourceView {
    * reciprocal "Open Video Detail" link applies — not for branching
    * display logic, which should stay generic.
    */
-  origin: 'video' | 'asset_resource';
+  origin: 'video' | 'asset_resource' | 'campaign_element';
   originId: string;
   title: string | null;
   thumbnailUrl: string | null;
@@ -82,9 +81,8 @@ export async function getAssetDetail(assetId: string): Promise<AssetDetail | nul
 
 // ── Resource resolution ─────────────────────────────────────────────────
 // Branches on asset_type, same precedence as listAssetsByOrganization.ts.
-// Only 'video' and 'resource' are handled; 'campaign_element' (and any
-// future unhandled type) resolves to null — no metadata source exists for
-// it yet, matching listAssetsByOrganization.ts's deliberate exclusion.
+// 'video', 'resource', and 'campaign_element' are all handled. Any future
+// unhandled asset_type still resolves to null.
 async function resolveAssetResource(asset: Asset): Promise<AssetResourceView | null> {
   if (asset.asset_type === 'resource') {
     const { data, error } = await supabase
@@ -131,6 +129,45 @@ async function resolveAssetResource(asset: Asset): Promise<AssetResourceView | n
       url: null,
       description: null,
       deletedAt: data.deleted_at ?? null,
+    };
+  }
+
+  if (asset.asset_type === 'campaign_element') {
+    // asset_id -> campaign_element_assets is a genuine 1:1 relationship
+    // here (a fresh asset_id is minted per publish, unique constraint is
+    // (campaign_id, source_field), not asset_id) — .maybeSingle() is the
+    // right call: 2+ rows means the data is actually broken and should
+    // throw, not be silently resolved to the first row.
+    const { data, error } = await supabase
+      .from('campaign_element_assets')
+      .select('id, display_name, element_type')
+      .eq('asset_id', asset.id)
+      .maybeSingle();
+
+    if (error) throw new Error(error.message);
+    if (!data) return null;
+
+    return {
+      origin: 'campaign_element',
+      originId: data.id,
+      // title = the human-readable name, never the type — mirrors the
+      // video/resource branches above (video_title / title), not the
+      // classification value.
+      title: data.display_name ?? null,
+      // No thumbnail_url column on this table — resolved from element_type
+      // via resolveElementThumbnail() at render time, same as
+      // Assignment Picker / Assignment Detail already do.
+      thumbnailUrl: null,
+      platform: null,
+      // Carries element_type here — this field drives the "Type" label,
+      // not the title. Rendered via getElementTypeLabel(), not
+      // RESOURCE_TYPE_LABELS (different dictionary, deliberately not merged).
+      resourceType: data.element_type ?? null,
+      // campaign_element_assets has no url/description columns.
+      url: null,
+      description: null,
+      // No soft-delete concept on this table either.
+      deletedAt: null,
     };
   }
 
