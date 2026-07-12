@@ -1,108 +1,69 @@
 // ─────────────────────────────────────────────────────────────────────────────
 // AcceptInvitation.tsx
 //
-// Real token lookup + accept action. On accept: creates organization_members,
-// deletes the member_invitations row (invitation is disposable, per your
-// decision — not archived).
+// Calls the single accept_invitation RPC instead of doing separate select /
+// insert / delete calls from the client. See migration 003.
 //
-// BLOCKED / FLAGGED, not invented:
-// The "no account yet" branch needs a real sign-up route to redirect to,
-// ideally pre-filled with the invited email. I don't have that route in
-// anything I've been given — the button below is a clearly-marked
-// placeholder. Tell me the actual route (e.g. /signup?email=...) and I'll
-// wire it for real.
+// BEHAVIOR CHANGE from the previous version, caused directly by the RLS
+// decision (not a redesign choice): this page can no longer pre-fetch the
+// organization name or validate the token on page load, because the
+// SELECT policy on member_invitations is owner-scoped only. The invitee's
+// direct table read was already broken by that policy — it just hadn't
+// been exercised yet. So:
+//   - The page shows a generic "You've been invited" message on load,
+//     not the organization's name.
+//   - Token validity is only known AFTER the user clicks Accept and the
+//     RPC responds — not before, as it was previously.
 //
-// Light guard added: if the authenticated user's email doesn't match the
-// invitation's invited_email, acceptance is blocked with a message, rather
-// than silently letting anyone with a valid session claim someone else's
-// invite. This wasn't explicitly requested but follows directly from why
-// invited_email exists on the table (see migration comment) — flagging it
-// here in case you want it removed or handled differently.
+// Still a flagged placeholder: the unauthenticated branch's sign-in button.
+// I still don't have your real sign-up/login route.
 // ─────────────────────────────────────────────────────────────────────────────
 
-import React, { useState, useEffect } from 'react';
+import React, { useState } from 'react';
 import { useParams } from 'react-router-dom';
 import { supabase } from '../../lib/supabase';
 import { useAuth } from '../../lib/auth';
 
-interface InvitationInfo {
-  id: string;
-  organizationId: string;
-  organizationName: string;
-  invitedEmail: string;
-}
+type AcceptResult =
+  | { success: true; organization_id: string; organization_name: string }
+  | { success: false; error: 'invalid_token' | 'not_authenticated' | 'organization_not_found' | 'already_member'; }
+  | { success: false; error: 'email_mismatch'; invited_email: string };
 
 export default function AcceptInvitation() {
   const { token } = useParams();
   const { user, loading: authLoading } = useAuth();
 
-  const [invitation, setInvitation] = useState<InvitationInfo | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [notFound, setNotFound] = useState(false);
   const [accepting, setAccepting] = useState(false);
-  const [accepted, setAccepted] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-
-  useEffect(() => {
-    if (!token) return;
-
-    supabase
-      .from('member_invitations')
-      .select('id, organization_id, invited_email, organizations(name)')
-      .eq('token', token)
-      .maybeSingle()
-      .then(({ data, error: fetchError }) => {
-        if (fetchError || !data) {
-          setNotFound(true);
-          setLoading(false);
-          return;
-        }
-
-        const org = data.organizations as unknown as { name: string } | null;
-
-        setInvitation({
-          id: data.id,
-          organizationId: data.organization_id,
-          organizationName: org?.name || 'this organization',
-          invitedEmail: data.invited_email,
-        });
-        setLoading(false);
-      });
-  }, [token]);
+  const [result, setResult] = useState<AcceptResult | null>(null);
 
   async function handleAccept() {
-    if (!invitation || !user) return;
-
-    if (user.email?.toLowerCase() !== invitation.invitedEmail.toLowerCase()) {
-      setError(`This invitation was sent to ${invitation.invitedEmail}. Please sign in with that email to accept.`);
-      return;
-    }
-
+    if (!token) return;
     setAccepting(true);
-    setError(null);
 
-    const { error: insertError } = await supabase
-      .from('organization_members')
-      .insert({
-        organization_id: invitation.organizationId,
-        user_id: user.id,
-        role: 'member',
-      });
+    const { data, error } = await supabase.rpc('accept_invitation', { p_token: token });
 
-    if (insertError) {
-      console.error('Failed to accept invitation:', insertError);
-      setError('Something went wrong accepting the invitation.');
+    if (error) {
+      console.error('accept_invitation RPC failed:', error);
+      setResult({ success: false, error: 'invalid_token' });
       setAccepting(false);
       return;
     }
 
-    await supabase.from('member_invitations').delete().eq('id', invitation.id);
-
-    setAccepted(true);
+    setResult(data as AcceptResult);
     setAccepting(false);
   }
 
-  if (loading || authLoading) {
+  function errorMessage(r: Extract<AcceptResult, { success: false }>): string {
+    switch (r.error) {
+      case 'invalid_token':          return 'This invitation link is invalid or has already been used.';
+      case 'organization_not_found': return 'This organization no longer exists.';
+      case 'already_member':         return 'You are already a member of this organization.';
+      case 'not_authenticated':      return 'Please sign in to accept this invitation.';
+      case 'email_mismatch':         return `This invitation was sent to ${r.invited_email}. Please sign in with that email to accept.`;
+    }
+  }
+
+  if (authLoading) {
     return (
       <div className="max-w-sm mx-auto px-6 py-24 text-center">
         <p className="text-[10px] font-black uppercase text-zinc-600 tracking-widest">Loading…</p>
@@ -110,35 +71,23 @@ export default function AcceptInvitation() {
     );
   }
 
-  if (notFound || !invitation) {
-    return (
-      <div className="max-w-sm mx-auto px-6 py-24">
-        <div className="bento-card p-6 text-center">
-          <p className="text-[10px] font-black uppercase text-zinc-600 tracking-widest">
-            This invitation link is invalid or has already been used.
-          </p>
-        </div>
-      </div>
-    );
-  }
-
   return (
     <div className="max-w-sm mx-auto px-6 py-24">
       <div className="bento-card p-6 text-center">
-        {accepted ? (
+        {result?.success ? (
           <>
             <p className="text-[11px] font-bold text-emerald-400 mb-1">You're in</p>
-            <p className="text-[9px] font-bold text-zinc-600">Welcome to {invitation.organizationName}</p>
+            <p className="text-[9px] font-bold text-zinc-600">Welcome to {result.organization_name}</p>
           </>
         ) : !user ? (
           <>
-            <h1 className="label-caps !text-white mb-2">Join {invitation.organizationName}</h1>
+            <h1 className="label-caps !text-white mb-2">You've been invited</h1>
             <p className="text-[9px] font-bold text-zinc-600 mb-6">
-              You've been invited as {invitation.invitedEmail}. Sign in or create an account to continue.
+              Sign in or create an account to view and accept this invitation.
             </p>
-            {/* PLACEHOLDER — needs your real sign-up/login route, see file header */}
+            {/* PLACEHOLDER — needs your real sign-up/login route */}
             <button
-              onClick={() => alert('TODO: route to real sign-up/login page, pre-filled with ' + invitation.invitedEmail)}
+              onClick={() => alert('TODO: route to real sign-up/login page')}
               className="w-full bg-emerald-500 text-emerald-950 text-[10px] font-black uppercase tracking-widest py-3 rounded-xl"
             >
               Sign in / Sign up
@@ -146,12 +95,12 @@ export default function AcceptInvitation() {
           </>
         ) : (
           <>
-            <h1 className="label-caps !text-white mb-2">Join {invitation.organizationName}</h1>
+            <h1 className="label-caps !text-white mb-2">You've been invited</h1>
             <p className="text-[9px] font-bold text-zinc-600 mb-6">
-              You've been invited to join this organization on VS-Track.
+              You've been invited to join an organization on VS-Track.
             </p>
-            {error && (
-              <p className="text-[10px] font-bold text-amber-500 mb-4">{error}</p>
+            {result && !result.success && (
+              <p className="text-[10px] font-bold text-amber-500 mb-4">{errorMessage(result)}</p>
             )}
             <button
               onClick={handleAccept}
