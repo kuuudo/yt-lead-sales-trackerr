@@ -220,7 +220,7 @@ export default function AssignmentDetail() {
                   Select Assets to promote from this Campaign
                 </label>
                 <div className="space-y-2 mb-6">
-                  {activeGroup?.assets.map(asset => (
+                  {assignmentAssets.map(asset => (
                     <label
                       key={asset.asset_id}
                       className="flex items-center gap-3 bg-zinc-900 border border-zinc-800 rounded-lg p-3 cursor-pointer hover:border-zinc-700"
