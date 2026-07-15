@@ -199,7 +199,7 @@ export default function AssignmentDetail() {
               ))}
             </div>
 
-            {canAct && campaignGroups.length > 0 && (
+            {canAct && assignmentAssets.length > 0 && (
               <>
                 <label className="block text-[10px] font-bold uppercase tracking-widest text-zinc-500 mb-2">
                   Campaign
