@@ -43,6 +43,8 @@ import { motion, AnimatePresence } from 'motion/react';
 import { Modal } from '../components/Modal';
 import { useOrganization } from '../lib/useOrganization';
 import { createVideo } from '../services/video/createVideo';
+import { PromotedAssetPicker } from '../components/PromotedAssetPicker';
+import type { LibraryAssetPickerRow } from '../services/assignment/listLibraryAssetsForAssignmentPicker';
 import { deleteVideo } from '../services/video/deleteVideo';
 
 type VideoStatus = Video['status'];
@@ -490,6 +492,12 @@ export default function Videos() {
   const [showAdd, setShowAdd] = useState(false);
   const [showImportWizard, setShowImportWizard] = useState(false);
 
+  // Promoted Asset (optional) — UI-only per locked scope: this selection is
+  // never sent to createVideo() and nothing is persisted from it yet.
+  // Wiring it into a real video -> asset relationship is separate, later work.
+  const [showAssetPicker, setShowAssetPicker] = useState(false);
+  const [promotedAsset, setPromotedAsset] = useState<LibraryAssetPickerRow | null>(null);
+
   // Auto-open import modal when navigated here with ?openImport=true
   // (e.g. from VideoDetail "Import Analytics" button)
   const [searchParams, setSearchParams] = useSearchParams();
@@ -817,6 +825,7 @@ export default function Videos() {
         hasLeadMagnet: false,
         selectedLeadMagnets: [],
       });
+      setPromotedAsset(null);
 
     } catch (err: any) {
       showAlert('Save Error', err.message || 'An unexpected error occurred.', 'danger');
@@ -939,6 +948,7 @@ export default function Videos() {
                   hasLeadMagnet: false,
                   selectedLeadMagnets: []
                 });
+                setPromotedAsset(null);
               }
               setShowAdd(!showAdd);
             }} 
@@ -1114,6 +1124,44 @@ export default function Videos() {
                       )}
                     </div>
 
+                    {/* Promoted Asset (Optional) — UI only, per locked scope.
+                        Not sent to createVideo(), not persisted. Same
+                        "needs a Campaign first" gating pattern as Lead
+                        Magnet above — NOTE: this gate is a UX consistency
+                        choice, not a data dependency (Option B: Asset is
+                        Library-scoped, not Campaign-scoped, so nothing
+                        here actually reads campaign_id). */}
+                    <div className="space-y-2">
+                      <label className="label-caps">
+                        Promoted Asset <span className="normal-case text-zinc-600">(optional)</span>
+                      </label>
+                      {!formData.campaign_id ? (
+                        <p className="text-[10px] text-zinc-600 italic">{t.videos.selectCampaignFirst}</p>
+                      ) : promotedAsset ? (
+                        <div className="flex items-center justify-between p-3 rounded-xl border border-zinc-900 bg-zinc-900/30">
+                          <span className="flex items-center gap-2 text-[10px] font-bold uppercase tracking-wide text-white truncate max-w-[220px]">
+                            <Check size={14} className="text-emerald-500 shrink-0" />
+                            {promotedAsset.display_name}
+                          </span>
+                          <button
+                            type="button"
+                            onClick={() => setShowAssetPicker(true)}
+                            className="text-[10px] font-black uppercase tracking-widest text-zinc-500 hover:text-white shrink-0"
+                          >
+                            Change
+                          </button>
+                        </div>
+                      ) : (
+                        <button
+                          type="button"
+                          onClick={() => setShowAssetPicker(true)}
+                          className="flex items-center gap-2 text-[10px] font-black uppercase tracking-widest text-zinc-400 hover:text-white border border-zinc-800 rounded-xl px-4 py-3 transition-all"
+                        >
+                          <Plus size={14} /> Select Asset
+                        </button>
+                      )}
+                    </div>
+
                     <button 
                       onClick={handleGenerate}
                       disabled={fetchingInfo}
@@ -1130,6 +1178,18 @@ export default function Videos() {
                     </button>
                   </div>
                 </div>
+
+                {showAssetPicker && organizationId && (
+                  <PromotedAssetPicker
+                    organizationId={organizationId}
+                    initialSelectedAssetId={promotedAsset?.asset_id ?? null}
+                    onClose={() => setShowAssetPicker(false)}
+                    onSelect={asset => {
+                      setPromotedAsset(asset);
+                      setShowAssetPicker(false);
+                    }}
+                  />
+                )}
 
                 <div className="flex flex-col">
                   {generated ? (
