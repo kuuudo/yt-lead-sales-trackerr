@@ -71,16 +71,25 @@ export default function Members() {
       .select('user_id, role, profiles(id, full_name, email, avatar_url)')
       .eq('organization_id', organizationId)
       .then(({ data, error }) => {
-        if (error) {
-          console.error('Failed to load members:', error);
-          setLoading(false);
-          return;
-        }
+  console.log("=== MEMBERS RAW RESPONSE ===");
+  console.log("error:", error);
+  console.log("data:", data);
 
-        const rows = (data ?? [])
+  if (error) {
+    console.error('Failed to load members:', error);
+    setLoading(false);
+    return;
+  }
+
+  const rows = (data ?? [])
           // Exclude the Owner's own row — see file header note #2.
           .filter(row => row.role !== 'owner')
           .map(row => {
+  console.log("ROW");
+  console.log(row);
+
+  console.log("PROFILE");
+  console.log(row.profiles);
             // Supabase returns the joined relation as an object here since
             // user_id -> profiles.id is a many-to-one relationship.
             const profile = row.profiles as unknown as {
