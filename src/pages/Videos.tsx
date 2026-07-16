@@ -7,6 +7,7 @@ import { Youtube, Plus, Link2, Copy, Check, ExternalLink, Calendar, Target, Aler
   Music2, Camera, Linkedin, Twitter, AtSign, LayoutGrid, List,
   // Phase 2.5 additions
   Upload, FileText, CheckCircle2, AlertTriangle, ArrowRight, RefreshCw,
+  HelpCircle,
 } from 'lucide-react';
 import {
   type Platform,
@@ -1161,64 +1162,95 @@ export default function Videos() {
                       )}
                     </div>
 
-                  <div className="space-y-3 border border-zinc-800 rounded-2xl p-4 bg-zinc-950/50">
-  <div className="flex items-start gap-3">
-    <div className="relative flex-shrink-0 mt-0.5">
-      <input
-        type="checkbox"
-        checked={useOnlyPromoteAsset}
-        onChange={e => handleToggleOnlyPromoteAsset(e.target.checked)}
-        className="peer w-5 h-5 border-2 border-zinc-700 rounded-lg bg-zinc-900 checked:bg-red-600 checked:border-red-600 accent-red-600 cursor-pointer"
-      />
-      <Check 
-        size={16} 
-        className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 text-white opacity-0 peer-checked:opacity-100 pointer-events-none" 
-      />
-    </div>
+                    {/* Promoted Asset (Optional) — UI only, per locked scope.
+                        Not sent to createVideo(), not persisted. Same
+                        "needs a Campaign first" gating pattern as Lead
+                        Magnet above — NOTE: this gate is a UX consistency
+                        choice, not a data dependency (Option B: Asset is
+                        Library-scoped, not Campaign-scoped, so nothing
+                        here actually reads campaign_id). */}
+                    <div className="space-y-2">
+                      <div className="flex items-center gap-1.5">
+                        <label className="label-caps">Tracking Type</label>
+                        <div className="relative group/tip">
+                          <HelpCircle size={13} className="text-zinc-600 hover:text-zinc-400 cursor-help transition-colors" />
+                          <div className="hidden group-hover/tip:block absolute left-0 top-5 z-20 w-64 p-3 rounded-xl border border-zinc-800 bg-zinc-900 shadow-2xl">
+                            <p className="text-[10px] leading-relaxed text-zinc-400 normal-case font-medium">
+                              Use asset only when you just want to track traffic and performance for this asset, with no campaign goals like newsletter signups, sales calls, landing pages, or conversions. If you want to promote both campaigns and assets together, keep asset + campaign objective.
+                            </p>
+                          </div>
+                        </div>
+                      </div>
+                      <div className="grid grid-cols-2 gap-2">
+                        <label
+                          className={`flex items-center gap-2 border rounded-xl px-3 py-2.5 cursor-pointer transition-all ${
+                            !useOnlyPromoteAsset
+                              ? 'border-red-600 bg-red-600/10'
+                              : 'border-zinc-800 bg-zinc-950 hover:border-zinc-600'
+                          }`}
+                        >
+                          <input
+                            type="radio"
+                            name="trackingType"
+                            checked={!useOnlyPromoteAsset}
+                            onChange={() => handleToggleOnlyPromoteAsset(false)}
+                            className="w-3.5 h-3.5 accent-red-600 cursor-pointer"
+                          />
+                          <span className="text-[9px] font-black uppercase tracking-widest text-zinc-300">
+                            Asset + Campaign Objective
+                          </span>
+                        </label>
+                        <label
+                          className={`flex items-center gap-2 border rounded-xl px-3 py-2.5 cursor-pointer transition-all ${
+                            useOnlyPromoteAsset
+                              ? 'border-red-600 bg-red-600/10'
+                              : 'border-zinc-800 bg-zinc-950 hover:border-zinc-600'
+                          }`}
+                        >
+                          <input
+                            type="radio"
+                            name="trackingType"
+                            checked={useOnlyPromoteAsset}
+                            onChange={() => handleToggleOnlyPromoteAsset(true)}
+                            className="w-3.5 h-3.5 accent-red-600 cursor-pointer"
+                          />
+                          <span className="text-[9px] font-black uppercase tracking-widest text-zinc-300">
+                            Asset Only
+                          </span>
+                        </label>
+                      </div>
+                    </div>
 
-    <div className="space-y-1">
-      <label className="font-semibold text-white cursor-pointer">
-        Only promote this asset
-      </label>
-
-      <p className="text-sm text-zinc-400 leading-snug">
-        Use this when you just want to drive traffic to a specific asset 
-        without newsletter opt-in, sales calls, or other campaign objectives.
-      </p>
-    </div>
-  </div>
-
-  {useOnlyPromoteAsset && (
-    <div className="mt-4">
-      {promotedAsset ? (
-        <div className="flex items-center justify-between bg-zinc-900 rounded-xl p-3 border border-emerald-900">
-          <div className="flex items-center gap-2">
-            <Check className="text-emerald-500" size={18} />
-            <span className="font-medium">
-              {promotedAsset.display_name}
-            </span>
-          </div>
-
-          <button
-            type="button"
-            onClick={() => setShowAssetPicker(true)}
-            className="text-red-400 hover:text-red-300 text-sm font-medium"
-          >
-            Change
-          </button>
-        </div>
-      ) : (
-        <button
-          type="button"
-          onClick={() => setShowAssetPicker(true)}
-          className="w-full py-3 border border-dashed border-zinc-700 hover:border-zinc-500 rounded-xl text-zinc-400 hover:text-white flex items-center justify-center gap-2"
-        >
-          <Plus size={18} /> Select Asset to Promote
-        </button>
-      )}
-    </div>
-  )}
-</div>
+                    <div className="space-y-2">
+                      <label className="label-caps">
+                        Promoted Asset <span className="normal-case text-zinc-600">(optional)</span>
+                      </label>
+                      {!formData.campaign_id ? (
+                        <p className="text-[10px] text-zinc-600 italic">{t.videos.selectCampaignFirst}</p>
+                      ) : promotedAsset ? (
+                        <div className="flex items-center justify-between p-3 rounded-xl border border-zinc-900 bg-zinc-900/30">
+                          <span className="flex items-center gap-2 text-[10px] font-bold uppercase tracking-wide text-white truncate max-w-[220px]">
+                            <Check size={14} className="text-emerald-500 shrink-0" />
+                            {promotedAsset.display_name}
+                          </span>
+                          <button
+                            type="button"
+                            onClick={() => setShowAssetPicker(true)}
+                            className="text-[10px] font-black uppercase tracking-widest text-zinc-500 hover:text-white shrink-0"
+                          >
+                            Change
+                          </button>
+                        </div>
+                      ) : (
+                        <button
+                          type="button"
+                          onClick={() => setShowAssetPicker(true)}
+                          className="flex items-center gap-2 text-[10px] font-black uppercase tracking-widest text-zinc-400 hover:text-white border border-zinc-800 rounded-xl px-4 py-3 transition-all"
+                        >
+                          <Plus size={14} /> Select Asset
+                        </button>
+                      )}
+                    </div>
 
                     <button 
                       onClick={handleGenerate}
