@@ -1,6 +1,7 @@
 import { supabase } from './supabase'
 
 export async function createUserWorkspace(userId: string, email: string, fullName: string) {
+  console.log("createUserWorkspace", userId, new Date().toISOString());
   // STEP 1 - PROFILE
   const { error: profileError } = await supabase
     .from('profiles')
