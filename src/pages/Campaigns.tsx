@@ -80,6 +80,7 @@ export default function Campaigns() {
         .from('campaigns')
         .select('*')
         .eq('organization_id', organizationId) 
+        .eq('is_system', false)
         .order('created_at', { ascending: false });
       if (error) throw error;
       if (data) setCampaigns(data);
