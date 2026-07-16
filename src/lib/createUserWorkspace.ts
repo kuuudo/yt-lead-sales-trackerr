@@ -25,7 +25,20 @@ export async function createUserWorkspace(userId: string, email: string, fullNam
     console.error('Organization creation failed:', orgError)
     return { success: false, step: 'organization', error: orgError }
   }
-// STEP 3 - SYSTEM CAMPAIGN
+ // STEP 3 - MEMBERSHIP
+  const { error: membershipError } = await supabase
+    .from('organization_members')
+    .insert({
+      organization_id: org.id,
+      user_id: userId,
+      role: 'owner'
+    })
+
+  if (membershipError) {
+    console.error('Membership creation failed:', membershipError)
+    return { success: false, step: 'membership', error: membershipError }
+  }
+  // STEP 4 - SYSTEM CAMPAIGN
 const { error: systemCampaignError } = await supabase
   .from('campaigns')
   .insert({
@@ -42,19 +55,7 @@ if (systemCampaignError && systemCampaignError.code !== '23505') {
     error: systemCampaignError,
   }
 }
-  // STEP 4 - MEMBERSHIP
-  const { error: membershipError } = await supabase
-    .from('organization_members')
-    .insert({
-      organization_id: org.id,
-      user_id: userId,
-      role: 'owner'
-    })
 
-  if (membershipError) {
-    console.error('Membership creation failed:', membershipError)
-    return { success: false, step: 'membership', error: membershipError }
-  }
 
   // STEP 5 - SUBSCRIPTION
   const { error: subscriptionError } = await supabase
