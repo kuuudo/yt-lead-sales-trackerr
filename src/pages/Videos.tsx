@@ -571,6 +571,36 @@ export default function Videos() {
   const [loadingMagnets, setLoadingMagnets] = useState(false);
   const [generated, setGenerated] = useState<{ link: string, video: Partial<Video>, campaign?: Campaign } | null>(null);
 
+  // "ONLY PROMOTE ASSET" — existing System Campaign, one per organization,
+  // already seeded in the DB (see product decision doc). We resolve it from
+  // the `campaigns` array that's already fetched for the Campaign dropdown —
+  // no extra query. Assets imported directly (no natural campaign) attach to
+  // this campaign purely so they retain a campaign_id for attribution.
+  const onlyPromoteAssetCampaign = campaigns.find(c => c.campaign_name === 'ONLY PROMOTE ASSET');
+  const [useOnlyPromoteAsset, setUseOnlyPromoteAsset] = useState(false);
+  // Remembers the manually-selected campaign so unchecking restores it
+  // instead of clearing the field.
+  const [previousCampaignId, setPreviousCampaignId] = useState('');
+
+  const handleToggleOnlyPromoteAsset = (checked: boolean) => {
+    if (checked) {
+      if (!onlyPromoteAssetCampaign) {
+        showAlert(
+          'Campaign Not Found',
+          'The "ONLY PROMOTE ASSET" campaign has not been set up for this organization yet. Please contact support.',
+          'info'
+        );
+        return;
+      }
+      setPreviousCampaignId(formData.campaign_id);
+      setUseOnlyPromoteAsset(true);
+      setFormData(prev => ({ ...prev, campaign_id: onlyPromoteAssetCampaign.id }));
+    } else {
+      setUseOnlyPromoteAsset(false);
+      setFormData(prev => ({ ...prev, campaign_id: previousCampaignId || campaigns[0]?.id || '' }));
+    }
+  };
+
   useEffect(() => {
     if (formData.campaign_id) {
       fetchLeadMagnets(formData.campaign_id);
@@ -826,6 +856,8 @@ export default function Videos() {
         selectedLeadMagnets: [],
       });
       setPromotedAsset(null);
+      setUseOnlyPromoteAsset(false);
+      setPreviousCampaignId('');
 
     } catch (err: any) {
       showAlert('Save Error', err.message || 'An unexpected error occurred.', 'danger');
@@ -949,6 +981,8 @@ export default function Videos() {
                   selectedLeadMagnets: []
                 });
                 setPromotedAsset(null);
+                setUseOnlyPromoteAsset(false);
+                setPreviousCampaignId('');
               }
               setShowAdd(!showAdd);
             }} 
@@ -1033,7 +1067,10 @@ export default function Videos() {
                         <select 
                           value={formData.campaign_id}
                           onChange={e => setFormData({ ...formData, campaign_id: e.target.value })}
-                          className="w-full bg-zinc-950 border border-zinc-900 rounded-xl p-3 text-[11px] font-bold uppercase outline-none focus:border-red-600 appearance-none"
+                          disabled={useOnlyPromoteAsset}
+                          className={`w-full bg-zinc-950 border border-zinc-900 rounded-xl p-3 text-[11px] font-bold uppercase outline-none focus:border-red-600 appearance-none ${
+                            useOnlyPromoteAsset ? 'opacity-50 cursor-not-allowed' : ''
+                          }`}
                         >
                           <option value="">Select a campaign</option>
                           {campaigns.map(c => <option key={c.id} value={c.id}>{c.campaign_name}</option>)}
@@ -1132,9 +1169,25 @@ export default function Videos() {
                         Library-scoped, not Campaign-scoped, so nothing
                         here actually reads campaign_id). */}
                     <div className="space-y-2">
-                      <label className="label-caps">
-                        Promoted Asset <span className="normal-case text-zinc-600">(optional)</span>
-                      </label>
+                      <div className="flex items-center justify-between">
+                        <label className="label-caps">
+                          Promoted Asset <span className="normal-case text-zinc-600">(optional)</span>
+                        </label>
+                        <label className="flex items-center gap-2 cursor-pointer group">
+                          <div className="relative flex items-center justify-center">
+                            <input
+                              type="checkbox"
+                              checked={useOnlyPromoteAsset}
+                              onChange={e => handleToggleOnlyPromoteAsset(e.target.checked)}
+                              className="peer appearance-none w-4 h-4 border border-zinc-800 rounded bg-zinc-950 checked:bg-red-600 checked:border-red-600 transition-all cursor-pointer"
+                            />
+                            <Check size={10} className="absolute text-white opacity-0 peer-checked:opacity-100 transition-opacity pointer-events-none" />
+                          </div>
+                          <span className="text-[9px] font-black uppercase tracking-widest text-zinc-500 group-hover:text-zinc-300 transition-colors">
+                            Only Promote Asset
+                          </span>
+                        </label>
+                      </div>
                       {!formData.campaign_id ? (
                         <p className="text-[10px] text-zinc-600 italic">{t.videos.selectCampaignFirst}</p>
                       ) : promotedAsset ? (
@@ -1728,6 +1781,10 @@ export default function Videos() {
                       hasLeadMagnet: !!(v.selected_lead_magnet_ids && v.selected_lead_magnet_ids.length > 0),
                       selectedLeadMagnets: v.selected_lead_magnet_ids || []
                     });
+                    const editingOnlyPromoteAsset =
+                      !!onlyPromoteAssetCampaign && v.campaign_id === onlyPromoteAssetCampaign.id;
+                    setUseOnlyPromoteAsset(editingOnlyPromoteAsset);
+                    setPreviousCampaignId(editingOnlyPromoteAsset ? '' : v.campaign_id);
                     setEditingVideoId(v.id);
                     setShowAdd(true);
                   }}
