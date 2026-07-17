@@ -122,6 +122,7 @@ async function getSharedAssetRows(
   if (assetIds.length === 0) return [];
 
   const results: LibraryAssetPickerRow[] = [];
+  console.log("search =", search, typeof search);
   const searchLower = search?.trim().toLowerCase() || undefined;
   const wantsVideo = !filterType || filterType === 'video';
   const wantsResource = !filterType || filterType === 'resource';
