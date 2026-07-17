@@ -1,55 +1,36 @@
 /**
  * src/services/asset/getAssignedAssetSummaryForOwner.ts
  *
- * "Assigned" — the Sponsor-side counterpart to listSharedAssetsForCollaborator.ts.
- * Answers: "which of MY OWN assets have I authorized out via an Assignment,
- * and to how many people?"
+ * "Assigned" workspace annotation — for a Sponsor (Assignment creator),
+ * which of MY assets have I authorized out via an Assignment, and to
+ * how many collaborators.
  *
- * ARCHITECTURE LOCK (do not restructure without re-opening this discussion):
- *   Workspace has exactly two real Asset sources: My Assets and Shared Assets.
- *     All = My + Shared
- *   Assigned is NOT a third source. It is an annotation over My:
- *     Assigned = My.filter(isAssigned)
- *   This service therefore:
- *     - does NOT query `assets` at all
- *     - does NOT return display fields (title, thumbnail, etc.)
- *     - returns only { assetId, collaboratorCount } pairs, to be merged
- *       onto rows the caller already has from listAssetsByOrganization.ts
- *   If a future change makes this function return full asset rows or a
- *   query against `assets`, that is a sign the Workspace Model itself is
- *   being redesigned — stop and confirm before proceeding, don't just
- *   extend this file.
+ * Architecture lock: Assigned is NOT a third Asset source. It is a thin
+ * annotation layer over My Assets (listAssetsByOrganization). This
+ * service never queries `assets` and never returns display data (title,
+ * thumbnail, etc.) — that data already exists in the caller's My Assets
+ * rows. Returning full rows here would tempt callers to union this into
+ * `All` the way Shared is unioned, which would violate the "no dedup in
+ * UI, disjoint queries only" rule, since every Assigned asset is by
+ * definition already present in My (an Assignment can only reference
+ * assets you already own — see AssetPicker.tsx's My-only scope, the
+ * anti-re-share boundary).
  *
- * SCOPE — gates on assignment_assets EXISTENCE only, same principle as
- * the Shared side gating on Promotion existence, not status:
- *   - Does NOT require a Promotion to exist. "Assigned" is an
- *     Authorization-layer fact (I created an Assignment referencing this
- *     asset), not an Activation-layer one. A Sponsor sees an asset as
- *     Assigned the moment the Assignment is created, regardless of
- *     whether any Collaborator has accepted or started Promoting.
- *   - Does NOT touch `promotions` / `promotion_assets` at all.
- *   - Does NOT return or query any `status` field (assignment_collaborators
- *     status, invitation status, etc.) — Status is explicitly out of scope
- *     for the Workspace/Asset Detail feature; it belongs to the
- *     Invitation/Assignment/Promotion/Collaboration domains.
+ * Gate condition: existence of an assignment_assets row referencing the
+ * asset, scoped to Assignments this user created. Deliberately does NOT
+ * require a Promotion / promotion_assets row to exist — "I've authorized
+ * this out" is an Authorization-layer fact (Assignment), independent of
+ * whether any collaborator has started Activation (Promotion). Do not
+ * gate this on promotions.
  *
- * An asset referenced by MULTIPLE assignments counts collaborators as the
- * distinct union of every collaborator across all of the viewer's
- * assignments that reference that asset — not per-assignment. Card UI
- * only needs a single number; per-assignment breakdown is Asset Detail's
- * job, not this service's.
+ * collaboratorCount = distinct collaborator user_ids across ALL of this
+ * user's Assignments that reference the asset (an asset can be
+ * referenced by multiple Assignments, each with multiple collaborators;
+ * we count distinct people, not distinct assignment_collaborators rows).
  *
- * Deliberately three small, independently-debuggable queries rather than
- * one nested embedded query — same convention as
- * listSharedAssetsForCollaborator.ts, for the same reasons: each step is
- * a different table/relationship and each can be inspected on its own
- * when something looks wrong.
- *
- * RLS note: `assignments` and `assignment_collaborators` currently have
- * RLS OFF (see handoff §2.7 / §9 RLS review notes). This function's own
- * WHERE clause (`created_by_user_id = ownerId`) enforces correct scoping
- * for the happy path today, but does not substitute for the deferred RLS
- * policies — do not treat this file as fixing that gap.
+ * Implemented as small, independently-debuggable steps, consistent with
+ * listSharedAssetsForCollaborator.ts's convention. Do not collapse into
+ * a single nested query.
  */
 
 import { supabase } from '../../lib/supabase';
@@ -59,12 +40,12 @@ export interface AssignedAssetSummary {
   collaboratorCount: number;
 }
 
-// ---- Step 1: resolve assignments I created ----
-async function getMyAssignments(ownerId: string): Promise<string[]> {
+// ---- Step 1: assignments I created ----
+async function getMyAssignmentIds(ownerUserId: string): Promise<string[]> {
   const { data, error } = await supabase
     .from('assignments')
     .select('id')
-    .eq('created_by_user_id', ownerId);
+    .eq('created_by_user_id', ownerUserId);
 
   if (error) {
     throw new Error(`Failed to load assignments for owner: ${error.message}`);
@@ -73,8 +54,8 @@ async function getMyAssignments(ownerId: string): Promise<string[]> {
   return (data ?? []).map((row: any) => row.id as string);
 }
 
-// ---- Step 2: resolve which assets those assignments reference ----
-async function getAssignedAssetPairs(
+// ---- Step 2: which assets those assignments authorize, keeping the assignment_id link ----
+async function getAssetAssignmentPairs(
   assignmentIds: string[]
 ): Promise<{ asset_id: string; assignment_id: string }[]> {
   if (assignmentIds.length === 0) return [];
@@ -91,8 +72,8 @@ async function getAssignedAssetPairs(
   return (data ?? []) as { asset_id: string; assignment_id: string }[];
 }
 
-// ---- Step 3: resolve collaborators per assignment (no status column — deliberately excluded) ----
-async function getAssignmentCollaboratorPairs(
+// ---- Step 3: collaborators per assignment ----
+async function getCollaboratorsForAssignments(
   assignmentIds: string[]
 ): Promise<{ assignment_id: string; user_id: string }[]> {
   if (assignmentIds.length === 0) return [];
@@ -110,29 +91,28 @@ async function getAssignmentCollaboratorPairs(
 }
 
 export async function getAssignedAssetSummaryForOwner(
-  ownerId: string
+  ownerUserId: string
 ): Promise<AssignedAssetSummary[]> {
-  const assignmentIds = await getMyAssignments(ownerId);
+  const assignmentIds = await getMyAssignmentIds(ownerUserId);
   if (assignmentIds.length === 0) return [];
 
-  const [assetPairs, collaboratorPairs] = await Promise.all([
-    getAssignedAssetPairs(assignmentIds),
-    getAssignmentCollaboratorPairs(assignmentIds),
-  ]);
+  const assetAssignmentPairs = await getAssetAssignmentPairs(assignmentIds);
+  if (assetAssignmentPairs.length === 0) return [];
 
-  // assignment_id -> distinct collaborator user_ids
+  const collaboratorPairs = await getCollaboratorsForAssignments(assignmentIds);
+
+  // assignment_id -> Set<user_id>
   const collaboratorsByAssignment = new Map<string, Set<string>>();
-  for (const pair of collaboratorPairs) {
-    if (!collaboratorsByAssignment.has(pair.assignment_id)) {
-      collaboratorsByAssignment.set(pair.assignment_id, new Set());
+  for (const c of collaboratorPairs) {
+    if (!collaboratorsByAssignment.has(c.assignment_id)) {
+      collaboratorsByAssignment.set(c.assignment_id, new Set());
     }
-    collaboratorsByAssignment.get(pair.assignment_id)!.add(pair.user_id);
+    collaboratorsByAssignment.get(c.assignment_id)!.add(c.user_id);
   }
 
-  // asset_id -> distinct collaborator user_ids, unioned across every
-  // assignment (of mine) that references this asset
+  // asset_id -> Set<user_id> (distinct collaborators across ALL assignments referencing this asset)
   const collaboratorsByAsset = new Map<string, Set<string>>();
-  for (const pair of assetPairs) {
+  for (const pair of assetAssignmentPairs) {
     if (!collaboratorsByAsset.has(pair.asset_id)) {
       collaboratorsByAsset.set(pair.asset_id, new Set());
     }
@@ -144,8 +124,8 @@ export async function getAssignedAssetSummaryForOwner(
     }
   }
 
-  return Array.from(collaboratorsByAsset.entries()).map(([assetId, collaborators]) => ({
+  return Array.from(collaboratorsByAsset.entries()).map(([assetId, userSet]) => ({
     assetId,
-    collaboratorCount: collaborators.size,
+    collaboratorCount: userSet.size,
   }));
 }
