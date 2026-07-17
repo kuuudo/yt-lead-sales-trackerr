@@ -74,8 +74,9 @@ import type {
   LibraryAssetPickerRow,
 } from '../assignment/listLibraryAssetsForAssignmentPicker';
 export interface SharedAssetLibraryRow extends LibraryAssetPickerRow {
-  sponsor_name: string;
+  organization_name: string;
 }
+
 export interface ListSharedAssetsForCollaboratorInput {
   userId: string;
   /**
@@ -249,7 +250,7 @@ export async function listSharedAssetsForCollaborator({
   excludeOrganizationId,
   filterType,
   search,
-}: ListSharedAssetsForCollaboratorInput): Promise<LibraryAssetPickerRow[]> {
+}: ListSharedAssetsForCollaboratorInput): Promise<SharedAssetLibraryRow[]> {
 const promotionIds = await getMyPromotionIds(userId);
 
 const assetIds = await getAssetIdsForPromotions(promotionIds);
@@ -260,19 +261,23 @@ const { rows, assetOrgMap } = await getSharedAssetRows(
   filterType,
   search
 );
-
-const sponsorNames = await getSponsorNames(
+console.log('rows', rows);
+console.log('assetOrgMap', Array.from(assetOrgMap.entries()));
+const organizationNames = await getOwnerOrganizationNames(
   Array.from(assetOrgMap.values())
 );
-
+console.log(
+  'organizationNames',
+  Array.from(organizationNames.entries())
+);
 return rows.map(row => ({
   ...row,
-  sponsor_name:
-    sponsorNames.get(assetOrgMap.get(row.asset_id) ?? '') ??
-    'Unknown Sponsor',
+  organization_name:
+    organizationNames.get(assetOrgMap.get(row.asset_id) ?? '') ??
+    'Unknown Organization',
 }));
 }
-async function getSponsorNames(
+async function getOwnerOrganizationNames(
   organizationIds: string[]
 ): Promise<Map<string, string>> {
   const uniqueIds = Array.from(new Set(organizationIds));
@@ -288,7 +293,7 @@ async function getSponsorNames(
 
   if (error) {
     throw new Error(
-      `Failed to load sponsor organization names: ${error.message}`
+      `Failed to load owner organization names: ${error.message}`
     );
   }
 
