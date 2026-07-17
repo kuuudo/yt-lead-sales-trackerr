@@ -44,6 +44,13 @@ import { useAuth } from '../lib/auth';
 import { useOrganization } from '../lib/useOrganization';
 import { listAssetsByOrganization } from '../services/asset/listAssetsByOrganization';
 import type { AssetLibraryRow } from '../services/asset/listAssetsByOrganization';
+import {
+  listSharedAssetsForCollaborator,
+} from '../services/asset/listSharedAssetsForCollaborator';
+
+import type {
+  SharedAssetLibraryRow,
+} from '../services/asset/listSharedAssetsForCollaborator';
 import { resolveThumbnail, resolveAssetThumbnail, resolveElementThumbnail, getElementTypeLabel, RESOURCE_TYPE_LABELS, type ResourceType, type CampaignElementType } from '../lib/videoFormatters';
 import { ImportAssetModal } from '../components/ImportAssetModal';
 import type { AssetResource } from '../services/asset/createAssetResource';
@@ -52,17 +59,40 @@ export default function Assets() {
   const { user } = useAuth();
   const { organizationId } = useOrganization();
   const [rows, setRows] = useState<AssetLibraryRow[]>([]);
+  const [sharedRows, setSharedRows] = useState<SharedAssetLibraryRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [showImportModal, setShowImportModal] = useState(false);
   const [search, setSearch] = useState('');
 type AssetLibraryTab = 'all' | ResourceType | 'campaign_element';
-
+type OwnershipFilter = 'all' | 'mine' | 'shared';
 const [activeTab, setActiveTab] = useState<AssetLibraryTab>('all');
-
+const [ownershipFilter, setOwnershipFilter] =
+  useState<OwnershipFilter>('all');
 // video asset 目前 resource_type 是 null
 // campaign_element asset 沒有 resource_type,只有 element_type,獨立分類,不混進 ResourceType
 // 只在這頁補上,不改 service
+interface UnifiedAssetRow {
+  key: string;
+  linkId: string;
+  title: string;
+
+  thumbnail: string | null;
+
+  resourceType: ResourceType | 'other' | null;
+
+  elementType: CampaignElementType | null;
+
+  assetType: string;
+
+  platform: string | null;
+
+  deletedAt: string | null;
+
+  isShared: boolean;
+
+  organizationName: string | null;
+}
 function getEffectiveTab(row: AssetLibraryRow): AssetLibraryTab {
   if (row.asset_type === 'campaign_element') return 'campaign_element';
   if (row.resource_type) return row.resource_type as ResourceType;
@@ -70,38 +100,87 @@ function getEffectiveTab(row: AssetLibraryRow): AssetLibraryTab {
 
   return 'other';
 }
+const unifiedRows = useMemo<UnifiedAssetRow[]>(() => {
+  const mine = rows.map(fromMyRow);
 
+  const shared = sharedRows.map(fromSharedRow);
+
+  if (ownershipFilter === 'mine') return mine;
+
+  if (ownershipFilter === 'shared') return shared;
+
+  return [...mine, ...shared];
+}, [
+  rows,
+  sharedRows,
+  ownershipFilter,
+]);
 
 // 計算每個 Tab 有幾個
 const tabCounts = useMemo(() => {
   const counts: Record<string, number> = {};
 
-  for (const row of rows) {
-    const rt = getEffectiveTab(row);
+  for (const row of unifiedRows) {
+    const rt =
+  row.assetType === 'campaign_element'
+    ? 'campaign_element'
+    : row.resourceType ?? 'other';
     counts[rt] = (counts[rt] ?? 0) + 1;
   }
 
   return counts;
-}, [rows]);
+}, [unifiedRows]);
 
 
 // 根據 tab 過濾
 const filteredRows = useMemo(() => {
   const searchLower = search.trim().toLowerCase();
 
-  return rows.filter(row => {
-    if (activeTab !== 'all' && getEffectiveTab(row) !== activeTab) return false;
-    if (searchLower && !(row.video_title ?? '').toLowerCase().includes(searchLower)) return false;
+  return unifiedRows.filter(row => {
+    const effectiveTab =
+      row.assetType === 'campaign_element'
+        ? 'campaign_element'
+        : row.resourceType ?? 'other';
+
+    if (activeTab !== 'all' && effectiveTab !== activeTab) {
+      return false;
+    }
+
+    if (
+      searchLower &&
+      !row.title.toLowerCase().includes(searchLower)
+    ) {
+      return false;
+    }
+
     return true;
   });
-}, [rows, activeTab, search]);
+}, [
+  unifiedRows,
+  activeTab,
+  search,
+]);
   const fetchAssets = async () => {
     if (!organizationId) return;
     setLoading(true);
     setError(null);
     try {
-      const data = await listAssetsByOrganization({ organizationId });
-      setRows(data);
+      const [myData, sharedData] = await Promise.all([
+  listAssetsByOrganization({
+    organizationId,
+  }),
+
+  user
+    ? listSharedAssetsForCollaborator({
+        userId: user.id,
+        excludeOrganizationId: organizationId,
+      })
+    : Promise.resolve([]),
+]);
+
+setRows(myData);
+
+setSharedRows(sharedData);
     } catch (err: any) {
       setError(err.message || 'Could not load your Asset Library.');
     } finally {
@@ -142,7 +221,40 @@ const filteredRows = useMemo(() => {
           className="w-full bg-zinc-900 border border-zinc-800 rounded-lg pl-9 pr-3 py-2 text-sm text-white placeholder:text-zinc-600"
         />
       </div>
+<div className="flex items-center gap-2 flex-wrap mb-3">
+  <button
+    onClick={() => setOwnershipFilter('all')}
+    className={`text-[10px] font-black uppercase tracking-widest px-3 py-1.5 rounded-lg transition-all ${
+      ownershipFilter === 'all'
+        ? 'bg-red-600 text-white'
+        : 'bg-zinc-900 text-zinc-500 hover:text-white'
+    }`}
+  >
+    All
+  </button>
 
+  <button
+    onClick={() => setOwnershipFilter('mine')}
+    className={`text-[10px] font-black uppercase tracking-widest px-3 py-1.5 rounded-lg transition-all ${
+      ownershipFilter === 'mine'
+        ? 'bg-red-600 text-white'
+        : 'bg-zinc-900 text-zinc-500 hover:text-white'
+    }`}
+  >
+    My
+  </button>
+
+  <button
+    onClick={() => setOwnershipFilter('shared')}
+    className={`text-[10px] font-black uppercase tracking-widest px-3 py-1.5 rounded-lg transition-all ${
+      ownershipFilter === 'shared'
+        ? 'bg-red-600 text-white'
+        : 'bg-zinc-900 text-zinc-500 hover:text-white'
+    }`}
+  >
+    Shared
+  </button>
+</div>
 <div className="flex items-center gap-2 flex-wrap">
   <button
     onClick={() => setActiveTab('all')}
@@ -152,7 +264,7 @@ const filteredRows = useMemo(() => {
         : 'bg-zinc-900 text-zinc-500 hover:text-white'
     }`}
   >
-    All ({rows.length})
+    All ({unifiedRows.length})
   </button>
 
   <button
@@ -198,32 +310,32 @@ const filteredRows = useMemo(() => {
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
           {filteredRows.map((row) => (
             <Link
-              key={row.id}
-              to={`/assets/${row.id}`}
+              key={row.key}
+              to={`/assets/${row.linkId}`}
               className="flex items-center gap-4 p-4 bg-zinc-900 border border-zinc-800 rounded-xl hover:border-zinc-600 transition-all"
             >
               <div className="w-16 h-10 overflow-hidden rounded-lg border border-zinc-800 flex-shrink-0">
                 <img
-                  src={
-                    row.asset_type === 'campaign_element'
-                      ? resolveElementThumbnail(row.element_type as CampaignElementType)
-                      : row.resource_type
-                      ? resolveAssetThumbnail({ thumbnail_url: row.thumbnail_url, resource_type: row.resource_type, platform: row.platform })
-                      : resolveThumbnail(row)
-                  }
-                  className="w-full h-full object-cover"
-                />
+  src={row.thumbnail ?? undefined}
+  className="w-full h-full object-cover"
+/>
               </div>
               <div className="min-w-0">
   <p className="text-sm font-bold text-white truncate">
-    {row.video_title || 'Untitled'}
+    {row.title}
   </p>
 
   <p className="text-[10px] font-bold uppercase text-zinc-300 tracking-wide mt-1">
-    {row.asset_type === 'campaign_element'
-      ? getElementTypeLabel(row.element_type as CampaignElementType)
-      : RESOURCE_TYPE_LABELS[getEffectiveTab(row) as ResourceType]}
+    {row.assetType === 'campaign_element'
+  ? getElementTypeLabel(row.elementType as CampaignElementType)
+  : RESOURCE_TYPE_LABELS[row.resourceType as ResourceType]}
   </p>
+
+  {row.isShared && (
+    <p className="text-[9px] font-black uppercase text-red-500 tracking-widest mt-0.5">
+      Shared by {row.organizationName}
+    </p>
+  )}   
 
   <div className="flex items-center gap-2 mt-0.5">
     {row.platform && (
@@ -232,7 +344,7 @@ const filteredRows = useMemo(() => {
       </span>
     )}
 
-    {row.deleted_at && (
+    {row.deletedAt && (
       <span className="text-[9px] font-black uppercase text-red-600 tracking-widest">
         Original content deleted
       </span>
@@ -255,4 +367,67 @@ const filteredRows = useMemo(() => {
       )}
     </div>
   );
+}
+
+
+function fromMyRow(row: AssetLibraryRow): UnifiedAssetRow {
+  return {
+    key: row.id,
+    linkId: row.id,
+
+    title: row.video_title || 'Untitled',
+
+    thumbnail:
+      row.asset_type === 'campaign_element'
+        ? resolveElementThumbnail(row.element_type as CampaignElementType)
+        : row.resource_type
+        ? resolveAssetThumbnail({
+            thumbnail_url: row.thumbnail_url,
+            resource_type: row.resource_type,
+            platform: row.platform,
+          })
+        : resolveThumbnail(row),
+
+    resourceType: (row.resource_type as ResourceType) ?? null,
+
+    elementType: (row.element_type as CampaignElementType) ?? null,
+
+    assetType: row.asset_type,
+
+    platform: row.platform,
+
+    deletedAt: row.deleted_at,
+
+    isShared: false,
+
+    organizationName: null,
+  };
+}
+
+function fromSharedRow(
+  row: SharedAssetLibraryRow
+): UnifiedAssetRow {
+  return {
+    key: row.asset_id,
+
+    linkId: row.asset_id,
+
+    title: row.display_name,
+
+    thumbnail: row.thumbnail,
+
+    resourceType: row.resource_type,
+
+    elementType: null,
+
+    assetType: row.asset_type,
+
+    platform: null,
+
+    deletedAt: null,
+
+    isShared: true,
+
+    organizationName: row.organization_name,
+  };
 }
