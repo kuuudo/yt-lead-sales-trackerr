@@ -30,23 +30,49 @@
  * a fixed aspect-video box instead of object-cover, so non-16:9 images
  * (e.g. portrait Instagram, PDF covers) don't get cropped or stretched.
  *
+ * UPDATE (Sharing Info pass, Phase 1 — DATA ONLY, no UI yet):
+ * added a second, independent fetch — getAssetSharingInfo.ts — composed
+ * via Promise.all alongside getAssetDetail(), mirroring the My/Shared/
+ * Assigned pattern from Assets.tsx (Promise.all of independently-scoped
+ * queries, not one merged query). Deliberately NOT rendering sharing
+ * info yet — this pass only wires up the fetch and logs the result to
+ * verify the data shape (viewer-filtered assignments, sharedBy,
+ * collaboratorCount, collaborators) is correct before any UI is built
+ * on top of it. See getAssetSharingInfo.ts for the full architecture
+ * rationale (viewer-dependent filtering, no Status, sharedBy vocabulary).
+ * Sharing fetch failure does NOT fail the page — Title/Thumbnail/Type/
+ * Created/Source must still render even if sharing info errors out,
+ * since assignment_collaborators/assignments RLS is currently OFF and
+ * undecided; this independent-failure behavior was called out explicitly
+ * as a reason to keep this a separate service in the Architecture Review.
+ *
  * No edit, no delete, no analytics, no attribution, no timeline, no
- * comments, no assignment/promotion relationships — explicitly out of
- * scope for this pass.
+ * comments, no assignment/promotion relationships beyond the read-only
+ * Sharing Info fetch above — explicitly out of scope for this pass.
  */
 
 import React, { useEffect, useState } from 'react';
 import { useParams, Link } from 'react-router-dom';
 import { ArrowLeft, Loader2, ExternalLink, Video as VideoIcon } from 'lucide-react';
+import { useAuth } from '../lib/auth';
 import { getAssetDetail } from '../services/asset/getAssetDetail';
 import type { AssetDetail as AssetDetailData } from '../services/asset/getAssetDetail';
+import { getAssetSharingInfo } from '../services/asset/getAssetSharingInfo';
+import type { AssetSharingInfo } from '../services/asset/getAssetSharingInfo';
 import { resolveAssetThumbnail, resolveElementThumbnail, getElementTypeLabel, RESOURCE_TYPE_LABELS, type ResourceType, type CampaignElementType } from '../lib/videoFormatters';
 
 export default function AssetDetail() {
   const { id } = useParams<{ id: string }>();
+  const { user } = useAuth();
   const [detail, setDetail] = useState<AssetDetailData | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+
+  // ---- Sharing Info state — separate from `detail`/`loading`/`error`
+  // above on purpose (see file header: independent fetch, independent
+  // failure mode). Not rendered anywhere yet in this pass.
+  const [sharingInfo, setSharingInfo] = useState<AssetSharingInfo | null>(null);
+  const [sharingError, setSharingError] = useState<string | null>(null);
 
   useEffect(() => {
     if (!id) return;
@@ -54,20 +80,57 @@ export default function AssetDetail() {
     (async () => {
       setLoading(true);
       setError(null);
-      try {
-        const data = await getAssetDetail(id);
-        if (!data) {
-          setError('Asset not found.');
-          return;
-        }
-        setDetail(data);
-      } catch (err: any) {
-        setError(err.message || 'Could not load this asset.');
-      } finally {
+      setSharingError(null);
+
+      // Two independent, differently-scoped queries composed at the page
+      // level — same pattern as Assets.tsx's Promise.all([My, Shared,
+      // Assigned]). getAssetSharingInfo needs the viewer's id; if there's
+      // no authenticated user yet, skip that fetch rather than calling it
+      // with a bad id — the asset detail itself doesn't require a viewer.
+      const [assetResult, sharingResult] = await Promise.all([
+        getAssetDetail(id).then(
+          data => ({ ok: true as const, data }),
+          err => ({ ok: false as const, err })
+        ),
+        user
+          ? getAssetSharingInfo(id, user.id).then(
+              data => ({ ok: true as const, data }),
+              err => ({ ok: false as const, err })
+            )
+          : Promise.resolve({ ok: true as const, data: null }),
+      ]);
+
+      if (!assetResult.ok) {
+        setError(assetResult.err?.message || 'Could not load this asset.');
         setLoading(false);
+        return;
+      }
+
+      if (!assetResult.data) {
+        setError('Asset not found.');
+        setLoading(false);
+        return;
+      }
+
+      setDetail(assetResult.data);
+      setLoading(false);
+
+      // Sharing info failure is logged but does NOT set the page-level
+      // `error` state — Title/Thumbnail/Type/Created/Source must still
+      // render. See file header.
+      if (!sharingResult.ok) {
+        setSharingError(sharingResult.err?.message || 'Could not load sharing info.');
+        console.error('[AssetDetail] getAssetSharingInfo failed:', sharingResult.err);
+      } else if (sharingResult.data) {
+        setSharingInfo(sharingResult.data);
+        // Phase 1 verification log — remove once Sharing Information UI
+        // is built on top of this in Phase 2. Confirms shape: viewer-
+        // filtered assignments[], each with sharedBy/viewerRole/
+        // collaboratorCount/collaborators, no status field anywhere.
+        console.log('[AssetDetail] sharingInfo:', sharingResult.data);
       }
     })();
-  }, [id]);
+  }, [id, user]);
 
   if (loading) {
     return (
@@ -156,7 +219,13 @@ export default function AssetDetail() {
         {/* Right column (~60%) — Type / Created / Source. General Info
             (Asset ID, Library status) removed entirely — no display value
             once an asset can even be viewed here, it's already in the
-            Library by definition. */}
+            Library by definition.
+
+            Sharing Information UI intentionally NOT added here yet —
+            Phase 1 of this pass only verifies getAssetSharingInfo's data
+            shape via console.log (see useEffect above). Phase 2 will add
+            a "Sharing Information" section here once the data is
+            confirmed correct. */}
         <div className="md:w-3/5">
           <section className="bg-zinc-900 border border-zinc-800 rounded-xl p-6 space-y-5">
             {/* Type */}
