@@ -30,25 +30,37 @@
  * a fixed aspect-video box instead of object-cover, so non-16:9 images
  * (e.g. portrait Instagram, PDF covers) don't get cropped or stretched.
  *
- * UPDATE (Sharing Info pass, Phase 1 — DATA ONLY, no UI yet):
+ * UPDATE (Sharing Info pass, Phase 1 — DATA ONLY, verified working):
  * added a second, independent fetch — getAssetSharingInfo.ts — composed
  * via Promise.all alongside getAssetDetail(), mirroring the My/Shared/
  * Assigned pattern from Assets.tsx (Promise.all of independently-scoped
- * queries, not one merged query). Deliberately NOT rendering sharing
- * info yet — this pass only wires up the fetch and logs the result to
- * verify the data shape (viewer-filtered assignments, sharedBy,
- * collaboratorCount, collaborators) is correct before any UI is built
- * on top of it. See getAssetSharingInfo.ts for the full architecture
- * rationale (viewer-dependent filtering, no Status, sharedBy vocabulary).
- * Sharing fetch failure does NOT fail the page — Title/Thumbnail/Type/
- * Created/Source must still render even if sharing info errors out,
- * since assignment_collaborators/assignments RLS is currently OFF and
- * undecided; this independent-failure behavior was called out explicitly
- * as a reason to keep this a separate service in the Architecture Review.
+ * queries, not one merged query). Sharing fetch failure does NOT fail
+ * the page — Title/Thumbnail/Type/Created/Source still render even if
+ * sharing info errors out, since assignment_collaborators/assignments
+ * RLS is currently OFF and undecided; this independent-failure behavior
+ * was called out explicitly as a reason to keep this a separate service
+ * in the Architecture Review. Phase 1 verification (console.log) has
+ * been confirmed working for both a sponsor viewer and a collaborator
+ * viewer and is removed in Phase 2 below.
+ *
+ * UPDATE (Sharing Info pass, Phase 2 — UI):
+ * added a "Sharing Information" section below the Type/Created/Source
+ * card. Renders `sharingInfo.assignments` as-is — this page does NOT
+ * branch on viewerRole to decide what to show. getAssetSharingInfo.ts
+ * already returns a pre-filtered `collaborators` array (sponsor viewer:
+ * everyone on that assignment; collaborator viewer: only themselves) —
+ * this component trusts that filtering completely and just renders the
+ * array it's given. No Status, no Avatar, no actions (Accept / Remove
+ * Collaborator / Edit / Delete) — this pass is display-only, per the
+ * locked scope. Empty state ("This asset has not been shared.") shown
+ * when `sharingInfo.assignments.length === 0`, including while sharing
+ * info is still loading or failed to load, so the page never shows a
+ * bare gap where this section would be.
  *
  * No edit, no delete, no analytics, no attribution, no timeline, no
  * comments, no assignment/promotion relationships beyond the read-only
- * Sharing Info fetch above — explicitly out of scope for this pass.
+ * Sharing Information display above — explicitly out of scope for this
+ * pass.
  */
 
 import React, { useEffect, useState } from 'react';
@@ -127,7 +139,7 @@ export default function AssetDetail() {
         // is built on top of this in Phase 2. Confirms shape: viewer-
         // filtered assignments[], each with sharedBy/viewerRole/
         // collaboratorCount/collaborators, no status field anywhere.
-        console.log('[AssetDetail] sharingInfo:', sharingResult.data);
+        
       }
     })();
   }, [id, user]);
@@ -266,6 +278,77 @@ export default function AssetDetail() {
           </section>
         </div>
       </div>
+    
+    {/* Sharing Information */}
+<div>
+  <p className="text-[10px] font-black uppercase tracking-widest text-zinc-500 mb-3">
+    Sharing Information
+  </p>
+
+  {sharingError ? (
+    <p className="text-sm text-zinc-500">
+      Could not load sharing information.
+    </p>
+  ) : !sharingInfo || sharingInfo.assignments.length === 0 ? (
+    <p className="text-sm text-zinc-500">
+      This asset has not been shared.
+    </p>
+  ) : (
+    <div className="space-y-4">
+      {sharingInfo.assignments.map((assignment) => (
+        <div
+          key={assignment.assignmentId}
+          className="rounded-lg border border-zinc-800 bg-zinc-950 p-4"
+        >
+          <p className="text-sm font-semibold text-white">
+            {assignment.assignmentTitle}
+          </p>
+
+          <div className="mt-3">
+            <p className="text-[10px] font-black uppercase tracking-widest text-zinc-500">
+              Shared by
+            </p>
+
+            <p className="text-sm text-white">
+              {assignment.sharedBy.name}
+            </p>
+
+            {assignment.sharedBy.email && (
+              <p className="text-xs text-zinc-500">
+                {assignment.sharedBy.email}
+              </p>
+            )}
+          </div>
+
+          <div className="mt-4">
+            <p className="text-[10px] font-black uppercase tracking-widest text-zinc-500">
+              {assignment.collaboratorCount}{' '}
+              {assignment.collaboratorCount === 1
+                ? 'Collaborator'
+                : 'Collaborators'}
+            </p>
+
+            <div className="mt-2 space-y-2">
+              {assignment.collaborators.map((person) => (
+                <div key={person.id}>
+                  <p className="text-sm text-white">
+                    {person.name}
+                  </p>
+
+                  {person.email && (
+                    <p className="text-xs text-zinc-500">
+                      {person.email}
+                    </p>
+                  )}
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
+      ))}
     </div>
-  );
+  )}
+</div>
+</div> 
+);
 }
