@@ -124,8 +124,18 @@ export async function getAssignedAssetSummaryForOwner(
     }
   }
 
-  return Array.from(collaboratorsByAsset.entries()).map(([assetId, userSet]) => ({
-    assetId,
-    collaboratorCount: userSet.size,
-  }));
+  const results: AssignedAssetSummary[] = [];
+
+  for (const [assetId, userSet] of collaboratorsByAsset.entries()) {
+    if (userSet.size === 0) {
+      continue;
+    }
+
+    results.push({
+      assetId,
+      collaboratorCount: userSet.size,
+  });
+}
+
+return results;
 }

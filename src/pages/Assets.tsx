@@ -47,7 +47,13 @@ import type { AssetLibraryRow } from '../services/asset/listAssetsByOrganization
 import {
   listSharedAssetsForCollaborator,
 } from '../services/asset/listSharedAssetsForCollaborator';
+import {
+  getAssignedAssetSummaryForOwner,
+} from '../services/asset/getAssignedAssetSummaryForOwner';
 
+import type {
+  AssignedAssetSummary,
+} from '../services/asset/getAssignedAssetSummaryForOwner';
 import type {
   SharedAssetLibraryRow,
 } from '../services/asset/listSharedAssetsForCollaborator';
@@ -60,12 +66,14 @@ export default function Assets() {
   const { organizationId } = useOrganization();
   const [rows, setRows] = useState<AssetLibraryRow[]>([]);
   const [sharedRows, setSharedRows] = useState<SharedAssetLibraryRow[]>([]);
+  const [assignedSummary, setAssignedSummary] =
+  useState<AssignedAssetSummary[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [showImportModal, setShowImportModal] = useState(false);
   const [search, setSearch] = useState('');
 type AssetLibraryTab = 'all' | ResourceType | 'campaign_element';
-type OwnershipFilter = 'all' | 'mine' | 'shared';
+type OwnershipFilter = 'all' | 'mine' | 'shared' | 'assigned';
 const [activeTab, setActiveTab] = useState<AssetLibraryTab>('all');
 const [ownershipFilter, setOwnershipFilter] =
   useState<OwnershipFilter>('all');
@@ -94,6 +102,10 @@ interface UnifiedAssetRow {
   sharedByName: string | null;
 
   sharedByEmail: string | null;
+
+  isAssigned: boolean;
+
+  assignedCollaboratorCount: number | null;
 }
 function getEffectiveTab(row: AssetLibraryRow): AssetLibraryTab {
   if (row.asset_type === 'campaign_element') return 'campaign_element';
@@ -103,18 +115,36 @@ function getEffectiveTab(row: AssetLibraryRow): AssetLibraryTab {
   return 'other';
 }
 const unifiedRows = useMemo<UnifiedAssetRow[]>(() => {
-  const mine = rows.map(fromMyRow);
+  const assignedMap = new Map(
+    assignedSummary.map(summary => [
+      summary.assetId,
+      summary.collaboratorCount,
+    ])
+  );
+
+  const mine = rows.map(row =>
+    fromMyRow(row, assignedMap)
+  );
 
   const shared = sharedRows.map(fromSharedRow);
 
-  if (ownershipFilter === 'mine') return mine;
+  if (ownershipFilter === 'mine') {
+    return mine;
+  }
 
-  if (ownershipFilter === 'shared') return shared;
+  if (ownershipFilter === 'shared') {
+    return shared;
+  }
+
+  if (ownershipFilter === 'assigned') {
+    return mine.filter(row => row.isAssigned);
+  }
 
   return [...mine, ...shared];
 }, [
   rows,
   sharedRows,
+  assignedSummary,
   ownershipFilter,
 ]);
 
@@ -167,7 +197,7 @@ const filteredRows = useMemo(() => {
     setLoading(true);
     setError(null);
     try {
-      const [myData, sharedData] = await Promise.all([
+      const [myData, sharedData, assignedData] = await Promise.all([
   listAssetsByOrganization({
     organizationId,
   }),
@@ -178,11 +208,16 @@ const filteredRows = useMemo(() => {
         excludeOrganizationId: organizationId,
       })
     : Promise.resolve([]),
+  user
+    ? getAssignedAssetSummaryForOwner(user.id)
+    : Promise.resolve([]),  
 ]);
 
 setRows(myData);
 
 setSharedRows(sharedData);
+
+setAssignedSummary(assignedData);
     } catch (err: any) {
       setError(err.message || 'Could not load your Asset Library.');
     } finally {
@@ -256,6 +291,16 @@ setSharedRows(sharedData);
   >
     Shared
   </button>
+  <button
+  onClick={() => setOwnershipFilter('assigned')}
+  className={`text-[10px] font-black uppercase tracking-widest px-3 py-1.5 rounded-lg transition-all ${
+    ownershipFilter === 'assigned'
+      ? 'bg-red-600 text-white'
+      : 'bg-zinc-900 text-zinc-500 hover:text-white'
+  }`}
+>
+  Assigned
+</button>
 </div>
 <div className="flex items-center gap-2 flex-wrap">
   <button
@@ -351,7 +396,14 @@ setSharedRows(sharedData);
     </p>
   </div>
 )}
-
+{row.isAssigned && (
+  <p className="text-[9px] font-black uppercase text-blue-400 tracking-widest mt-0.5">
+    Assigned · {row.assignedCollaboratorCount}{' '}
+    {row.assignedCollaboratorCount === 1
+      ? 'User'
+      : 'Users'}
+  </p>
+)}
   <div className="flex items-center gap-2 mt-0.5">
     {row.platform && (
       <span className="text-[9px] font-black uppercase text-zinc-600 tracking-widest">
@@ -385,7 +437,10 @@ setSharedRows(sharedData);
 }
 
 
-function fromMyRow(row: AssetLibraryRow): UnifiedAssetRow {
+function fromMyRow(
+  row: AssetLibraryRow,
+  assignedMap: Map<string, number>
+): UnifiedAssetRow {
   return {
     key: row.id,
     linkId: row.id,
@@ -415,9 +470,14 @@ function fromMyRow(row: AssetLibraryRow): UnifiedAssetRow {
 
     isShared: false,
 
-    sharedByName: null,
+sharedByName: null,
 
-    sharedByEmail: null,
+sharedByEmail: null,
+
+isAssigned: assignedMap.has(row.id),
+
+assignedCollaboratorCount:
+  assignedMap.get(row.id) ?? null,
   };
 }
 
@@ -448,5 +508,9 @@ function fromSharedRow(
     sharedByName: row.shared_by_name,
 
     sharedByEmail: row.shared_by_email,
+
+isAssigned: false,
+
+assignedCollaboratorCount: null,
   };
 }
