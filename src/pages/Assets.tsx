@@ -341,13 +341,14 @@ setSharedRows(sharedData);
 
     <p className="text-[10px] text-zinc-300">
       {row.sharedByName}
-    </p>
 
-    {row.sharedByEmail && (
-      <p className="text-[9px] text-zinc-500">
-        {row.sharedByEmail}
-      </p>
-    )}
+      {row.sharedByEmail && (
+        <span className="text-zinc-400">
+          {" "}
+          ({row.sharedByEmail})
+        </span>
+      )}
+    </p>
   </div>
 )}
 
