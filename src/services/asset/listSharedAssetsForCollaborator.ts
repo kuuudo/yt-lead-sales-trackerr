@@ -12,59 +12,45 @@
  *
  * Visibility is unlocked by the EXISTENCE of a Promotion row linking the
  * asset to this user — NOT by promotions.status. Do not add a status
- * filter on `promotions` here; Promotion lifecycle (draft/active/paused/
- * etc.) is a separate concern from Asset sharing visibility. This was
- * deliberately decided, not an oversight — see project history if this
- * needs revisiting.
+ * filter on `promotions` here.
  *
- * "Shared Asset" is not a persisted Asset state — there is no shared=true
- * column anywhere, and this function does not create one. It is a
- * per-user workspace projection: the same `assets` row is "My Asset" for
- * members of its owning organization, and "Shared Asset" for a Promotion
- * collaborator outside that organization. That's why `excludeOrganizationId`
- * is required — "My" and "Shared" are two disjoint queries by
- * construction, not two overlapping queries reconciled with a de-dupe
- * step in the UI.
+ * "Shared Asset" is not a persisted Asset state — it is a per-user
+ * workspace projection. That's why `excludeOrganizationId` is required —
+ * "My" and "Shared" are two disjoint queries by construction.
+ *
+ * UPDATE (sharer identity pass): dropped the organizations.name lookup
+ * entirely. Root cause of the earlier blank "Shared by" bug was
+ * `organizations` RLS silently returning zero rows for cross-org
+ * collaborators — not a code bug. Rather than relaxing organization
+ * visibility just to render a workspace name, the product decision is
+ * to show WHO shared the asset (a person), not WHICH organization owns
+ * it. "Who shared this" = the Assignment's creator (assignments.
+ * created_by_user_id) — NOT promotions.owner_user_id. owner_user_id is
+ * the Marketer's own id (the person calling create_promotion), so using
+ * it here would incorrectly label the Marketer as the sharer of their
+ * own shared asset. The Assignment creator is the Sponsor who actually
+ * granted access, which is the correct "shared by" identity per the
+ * Assignment = Authorization architecture lock.
  *
  * Current implementation:
  *
- * owner_user_id is used only because create_promotion() guarantees that
- * the Promotion owner is the Assignment collaborator who created it.
+ * owner_user_id is used only to resolve MY promotion ids (Step 1) —
+ * because create_promotion() guarantees promotions.owner_user_id is the
+ * calling collaborator. This is unrelated to whose name gets displayed;
+ * see Step 4/5 for the sharer identity resolution.
  *
- * This is an implementation detail.
+ * If Promotion ownership semantics ever change (co-marketers, delegated
+ * promotions, etc.), Step 1 should be migrated to resolve promotion ids
+ * via assignment_collaborators.user_id -> promotions.assignment_collaborator_id
+ * instead of owner_user_id.
  *
- * The business authority remains:
+ * Deliberately implemented as small, independently-debuggable queries
+ * rather than one nested embedded query, for the same debuggability
+ * reasons as before. Do not collapse this into a single query.
  *
- * Assignment
- *   -> Promotion
- *   -> Promotion Assets
- *
- * If Promotion ownership ever changes (co-marketers, delegated
- * promotions, etc.), this lookup should be replaced with the Assignment
- * relationship rather than relying on owner_user_id.
- *
- * Deliberately implemented as three separate, independently-debuggable
- * queries (Promotions -> Promotion Assets -> Assets) rather than one
- * nested embedded query. Each step's output can be logged/inspected on
- * its own. This can be collapsed into a single embedded query later as
- * an optimization once the feature is verified end-to-end — not before.
- *
- * RLS note (deferred on purpose, tracked as a separate follow-up):
- * `assets` currently has RLS enabled with an organization-membership-only
- * SELECT policy. Until a policy is added allowing read access via the
- * promotion_assets/promotions path, cross-organization Shared Assets
- * will resolve correctly through Steps 1-2 but return zero rows at
- * Step 3 once they hit the `assets` table's RLS. Same-organization
- * collaborators are unaffected. Not addressed here — intentionally out
- * of scope until the feature is verified end-to-end.
- *
- * Step 3 mirrors listLibraryAssetsForAssignmentPicker.ts's video/resource
- * branching (including the embed array-vs-object caveat) and reuses its
- * LibraryAssetPickerRow shape, so picker UIs can render "My" and
- * "Shared" rows identically without a second row type.
- *
- * Scope note: same as listLibraryAssetsForAssignmentPicker.ts,
- * campaign_element assets are out of scope here.
+ * RLS note: `assets` has an organization-membership-only SELECT policy;
+ * a policy allowing read access via the promotion_assets/promotions path
+ * is still deferred as a separate follow-up (per earlier decision).
  */
 
 import { supabase } from '../../lib/supabase';
@@ -73,96 +59,69 @@ import type {
   AssetPickerFilterType,
   LibraryAssetPickerRow,
 } from '../assignment/listLibraryAssetsForAssignmentPicker';
+
 export interface SharedAssetLibraryRow extends LibraryAssetPickerRow {
-  organization_name: string;
+  /** Display name of the person who shared this asset (Assignment creator). Falls back to email, then 'Unknown User'. */
+  shared_by_name: string;
+  /** Email of the person who shared this asset. */
+  shared_by_email: string | null;
 }
 
 export interface ListSharedAssetsForCollaboratorInput {
   userId: string;
-  /**
-   * The viewer's current organization context — the same organizationId
-   * already passed to listAssetsByOrganization() / 
-   * listLibraryAssetsForAssignmentPicker() for "My Assets". Assets
-   * belonging to this organization are excluded here so "My" and
-   * "Shared" never overlap.
-   */
   excludeOrganizationId: string;
   filterType?: AssetPickerFilterType;
   search?: string;
 }
 
-// ---- Step 1: resolve my Promotion IDs ----
+// ---- Step 1: resolve my Promotion IDs, keeping each promotion's assignment_id ----
 //
-// TODO: this lookup uses owner_user_id purely as an implementation
-// convenience — the same pattern already used by
-// collaborationHub.ts's listMyPromotions(). It works today ONLY because
-// create_promotion() guarantees that promotions.owner_user_id ===
-// the assignment_collaborators.user_id who created it.
-//
-// owner_user_id is NOT the business authority here. The authority is:
-//
-//   Assignment (assignment_collaborators)
-//     -> Promotion
-//     -> Promotion Assets
-//
-// If Promotion ownership semantics ever change (co-marketers, delegated
-// promotions, a promotion created on behalf of a collaborator by someone
-// else, etc.), this function should be migrated to resolve promotion IDs
-// via assignment_collaborators.user_id -> promotions.assignment_collaborator_id
-// instead of owner_user_id. Do not treat owner_user_id as authorization
-// just because it happens to agree with it today.
-async function getMyPromotionIds(userId: string): Promise<string[]> {
+// TODO: owner_user_id is an implementation convenience for finding MY
+// promotions (see file header). Not related to sharer identity.
+async function getMyPromotions(
+  userId: string
+): Promise<{ id: string; assignment_id: string | null }[]> {
   const { data, error } = await supabase
     .from('promotions')
-    .select('id')
+    .select('id, assignment_id')
     .eq('owner_user_id', userId);
 
   if (error) {
     throw new Error(`Failed to load promotions for user: ${error.message}`);
   }
 
-  return (data ?? []).map((row: any) => row.id as string);
+  return (data ?? []) as { id: string; assignment_id: string | null }[];
 }
 
-// ---- Step 2: resolve which asset_ids those Promotions activated ----
-async function getAssetIdsForPromotions(promotionIds: string[]): Promise<string[]> {
+// ---- Step 2: resolve asset_ids per promotion, keeping the promotion_id link ----
+async function getAssetPromotionPairs(
+  promotionIds: string[]
+): Promise<{ asset_id: string; promotion_id: string }[]> {
   if (promotionIds.length === 0) return [];
 
   const { data, error } = await supabase
     .from('promotion_assets')
-    .select('asset_id')
+    .select('asset_id, promotion_id')
     .in('promotion_id', promotionIds);
 
   if (error) {
     throw new Error(`Failed to load promotion assets: ${error.message}`);
   }
 
-  return Array.from(new Set((data ?? []).map((row: any) => row.asset_id as string)));
+  return (data ?? []) as { asset_id: string; promotion_id: string }[];
 }
 
 // ---- Step 3: load display rows for those asset_ids ----
-// Mirrors listLibraryAssetsForAssignmentPicker.ts's video/resource
-// branching verbatim, filtered by asset_id instead of organization_id,
-// and with excludeOrganizationId subtracted so this never overlaps with
-// "My Assets".
+// Unchanged from before — mirrors listLibraryAssetsForAssignmentPicker.ts.
 async function getSharedAssetRows(
   assetIds: string[],
   excludeOrganizationId: string,
   filterType?: AssetPickerFilterType,
   search?: string
-): Promise<{
-  rows: LibraryAssetPickerRow[];
-  assetOrgMap: Map<string, string>;
-}> {
-  if (assetIds.length === 0) {
-    return {
-        rows: [],
-        assetOrgMap: new Map(),
-    };
-}
+): Promise<LibraryAssetPickerRow[]> {
+  if (assetIds.length === 0) return [];
 
   const results: LibraryAssetPickerRow[] = [];
-  const assetOrgMap = new Map<string, string>();
   const searchLower = search?.trim().toLowerCase() || undefined;
   const wantsVideo = !filterType || filterType === 'video';
   const wantsResource = !filterType || filterType === 'resource';
@@ -170,7 +129,7 @@ async function getSharedAssetRows(
   if (wantsVideo) {
     const { data: videoAssetRows, error: videoErr } = await supabase
       .from('assets')
-      .select('id, organization_id, videos!inner(video_title, thumbnail_url, platform)')
+      .select('id, videos!inner(video_title, thumbnail_url, platform)')
       .in('id', assetIds)
       .eq('asset_type', 'video')
       .neq('organization_id', excludeOrganizationId);
@@ -194,16 +153,13 @@ async function getSharedAssetRows(
         resource_type: null,
         thumbnail: video?.thumbnail_url ?? null,
       });
-    assetOrgMap.set(row.id, row.organization_id);  
     }
   }
 
   if (wantsResource) {
     const { data: resourceAssetRows, error: resourceErr } = await supabase
       .from('assets')
-      .select(
-        'id, organization_id, asset_resources!inner(title, thumbnail_url, platform, resource_type)'
-      )
+      .select('id, asset_resources!inner(title, thumbnail_url, platform, resource_type)')
       .in('id', assetIds)
       .eq('asset_type', 'resource')
       .neq('organization_id', excludeOrganizationId);
@@ -235,14 +191,55 @@ async function getSharedAssetRows(
             })
           : null,
       });
-      assetOrgMap.set(row.id, row.organization_id);
     }
   }
 
-  return {
-    rows: results,
-    assetOrgMap,
-};
+  return results;
+}
+
+// ---- Step 4: resolve each assignment's creator (the Sponsor who shared) ----
+async function getAssignmentCreators(
+  assignmentIds: string[]
+): Promise<Map<string, string>> {
+  const uniqueIds = Array.from(new Set(assignmentIds));
+  if (uniqueIds.length === 0) return new Map();
+
+  const { data, error } = await supabase
+    .from('assignments')
+    .select('id, created_by_user_id')
+    .in('id', uniqueIds);
+
+  if (error) {
+    throw new Error(`Failed to load assignment creators: ${error.message}`);
+  }
+
+  return new Map(
+    (data ?? []).map((row: any) => [row.id as string, row.created_by_user_id as string])
+  );
+}
+
+// ---- Step 5: resolve sharer profile display info ----
+async function getSharerProfiles(
+  userIds: string[]
+): Promise<Map<string, { full_name: string | null; email: string | null }>> {
+  const uniqueIds = Array.from(new Set(userIds));
+  if (uniqueIds.length === 0) return new Map();
+
+  const { data, error } = await supabase
+    .from('profiles')
+    .select('id, full_name, email')
+    .in('id', uniqueIds);
+
+  if (error) {
+    throw new Error(`Failed to load sharer profiles: ${error.message}`);
+  }
+
+  return new Map(
+    (data ?? []).map((row: any) => [
+      row.id as string,
+      { full_name: row.full_name as string | null, email: row.email as string | null },
+    ])
+  );
 }
 
 export async function listSharedAssetsForCollaborator({
@@ -251,56 +248,47 @@ export async function listSharedAssetsForCollaborator({
   filterType,
   search,
 }: ListSharedAssetsForCollaboratorInput): Promise<SharedAssetLibraryRow[]> {
-const promotionIds = await getMyPromotionIds(userId);
+  const myPromotions = await getMyPromotions(userId);
+  const promotionIds = myPromotions.map(p => p.id);
 
-const assetIds = await getAssetIdsForPromotions(promotionIds);
+  const assetPromotionPairs = await getAssetPromotionPairs(promotionIds);
+  const assetIds = Array.from(new Set(assetPromotionPairs.map(p => p.asset_id)));
 
-const { rows, assetOrgMap } = await getSharedAssetRows(
-  assetIds,
-  excludeOrganizationId,
-  filterType,
-  search
-);
-console.log('rows', rows);
-console.log('assetOrgMap', Array.from(assetOrgMap.entries()));
-const organizationNames = await getOwnerOrganizationNames(
-  Array.from(assetOrgMap.values())
-);
-console.log(
-  'organizationNames',
-  Array.from(organizationNames.entries())
-);
-return rows.map(row => ({
-  ...row,
-  organization_name:
-    organizationNames.get(assetOrgMap.get(row.asset_id) ?? '') ??
-    'Unknown Organization',
-}));
-}
-async function getOwnerOrganizationNames(
-  organizationIds: string[]
-): Promise<Map<string, string>> {
-  const uniqueIds = Array.from(new Set(organizationIds));
-console.log('uniqueIds', uniqueIds);
-  if (uniqueIds.length === 0) {
-    return new Map();
+  const rows = await getSharedAssetRows(assetIds, excludeOrganizationId, filterType, search);
+
+  // asset_id -> promotion_id (first match; an asset promoted via multiple
+  // promotions is an edge case not resolved here)
+  const assetToPromotion = new Map<string, string>();
+  for (const pair of assetPromotionPairs) {
+    if (!assetToPromotion.has(pair.asset_id)) {
+      assetToPromotion.set(pair.asset_id, pair.promotion_id);
+    }
   }
 
-  const { data, error } = await supabase
-    .from('organizations')
-    .select('id, name')
-    .in('id', uniqueIds);
-console.log('organization query', {
-  data,
-  error,
-});
-  if (error) {
-    throw new Error(
-      `Failed to load owner organization names: ${error.message}`
-    );
+  // promotion_id -> assignment_id
+  const promotionToAssignment = new Map<string, string | null>();
+  for (const p of myPromotions) {
+    promotionToAssignment.set(p.id, p.assignment_id);
   }
 
-  return new Map(
-    (data ?? []).map((row: any) => [row.id as string, row.name as string])
+  const assignmentIds = Array.from(
+    new Set(myPromotions.map(p => p.assignment_id).filter((id): id is string => !!id))
   );
+  const assignmentCreators = await getAssignmentCreators(assignmentIds);
+
+  const sharerUserIds = Array.from(new Set(Array.from(assignmentCreators.values())));
+  const sharerProfiles = await getSharerProfiles(sharerUserIds);
+
+  return rows.map(row => {
+    const promotionId = assetToPromotion.get(row.asset_id);
+    const assignmentId = promotionId ? promotionToAssignment.get(promotionId) : null;
+    const creatorUserId = assignmentId ? assignmentCreators.get(assignmentId) : null;
+    const profile = creatorUserId ? sharerProfiles.get(creatorUserId) : null;
+
+    return {
+      ...row,
+      shared_by_name: profile?.full_name || profile?.email || 'Unknown User',
+      shared_by_email: profile?.email ?? null,
+    };
+  });
 }

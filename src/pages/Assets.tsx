@@ -91,7 +91,9 @@ interface UnifiedAssetRow {
 
   isShared: boolean;
 
-  organizationName: string | null;
+  sharedByName: string | null;
+
+  sharedByEmail: string | null;
 }
 function getEffectiveTab(row: AssetLibraryRow): AssetLibraryTab {
   if (row.asset_type === 'campaign_element') return 'campaign_element';
@@ -332,10 +334,22 @@ setSharedRows(sharedData);
   </p>
 
   {row.isShared && (
-    <p className="text-[9px] font-black uppercase text-red-500 tracking-widest mt-0.5">
-      Shared by {row.organizationName}
+  <div className="mt-0.5">
+    <p className="text-[9px] font-black uppercase text-red-500 tracking-widest">
+      Shared by
     </p>
-  )}   
+
+    <p className="text-[10px] text-zinc-300">
+      {row.sharedByName}
+    </p>
+
+    {row.sharedByEmail && (
+      <p className="text-[9px] text-zinc-500">
+        {row.sharedByEmail}
+      </p>
+    )}
+  </div>
+)}
 
   <div className="flex items-center gap-2 mt-0.5">
     {row.platform && (
@@ -400,7 +414,9 @@ function fromMyRow(row: AssetLibraryRow): UnifiedAssetRow {
 
     isShared: false,
 
-    organizationName: null,
+    sharedByName: null,
+
+    sharedByEmail: null,
   };
 }
 
@@ -428,6 +444,8 @@ function fromSharedRow(
 
     isShared: true,
 
-    organizationName: row.organization_name,
+    sharedByName: row.shared_by_name,
+
+    sharedByEmail: row.shared_by_email,
   };
 }
