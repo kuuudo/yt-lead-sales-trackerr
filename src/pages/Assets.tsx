@@ -35,21 +35,6 @@
  * markup itself unchanged — this pass only added search, kept deliberately
  * separate from the Assignment Picker's card-grid rework happening in the
  * same pass, since the two changes don't depend on each other.
- *
- * UPDATE (Workspace Model pass — My / Shared / Assigned): added the
- * "Assigned" ownership filter. ARCHITECTURE LOCK: Workspace still has
- * exactly two real Asset sources — My and Shared. `All = My + Shared`,
- * unchanged. Assigned is NOT a third source: it is
- * `My.filter(row.isAssigned)`, annotated via a third, independent
- * Promise.all fetch (getAssignedAssetSummaryForOwner — a thin
- * asset_id -> collaboratorCount lookup, no asset rows, no re-query of
- * `assets`). Do not turn Assigned into a unioned list — that would
- * reintroduce the exact duplicate-row problem the My/Shared split was
- * designed to avoid (an assigned asset is by definition already in My,
- * per the CreateAssignment AssetPicker My-only boundary). All four tabs
- * (All / My / Shared / Assigned) are always shown to every user,
- * regardless of whether they have any Sponsor or Collaborator activity —
- * empty tabs are just an empty state, not conditionally hidden UI.
  */
 
 import React, { useEffect, useMemo, useState } from 'react';
@@ -66,8 +51,6 @@ import {
 import type {
   SharedAssetLibraryRow,
 } from '../services/asset/listSharedAssetsForCollaborator';
-import { getAssignedAssetSummaryForOwner } from '../services/asset/getAssignedAssetSummaryForOwner';
-import type { AssignedAssetSummary } from '../services/asset/getAssignedAssetSummaryForOwner';
 import { resolveThumbnail, resolveAssetThumbnail, resolveElementThumbnail, getElementTypeLabel, RESOURCE_TYPE_LABELS, type ResourceType, type CampaignElementType } from '../lib/videoFormatters';
 import { ImportAssetModal } from '../components/ImportAssetModal';
 import type { AssetResource } from '../services/asset/createAssetResource';
@@ -77,13 +60,12 @@ export default function Assets() {
   const { organizationId } = useOrganization();
   const [rows, setRows] = useState<AssetLibraryRow[]>([]);
   const [sharedRows, setSharedRows] = useState<SharedAssetLibraryRow[]>([]);
-  const [assignedSummary, setAssignedSummary] = useState<AssignedAssetSummary[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [showImportModal, setShowImportModal] = useState(false);
   const [search, setSearch] = useState('');
 type AssetLibraryTab = 'all' | ResourceType | 'campaign_element';
-type OwnershipFilter = 'all' | 'mine' | 'shared' | 'assigned';
+type OwnershipFilter = 'all' | 'mine' | 'shared';
 const [activeTab, setActiveTab] = useState<AssetLibraryTab>('all');
 const [ownershipFilter, setOwnershipFilter] =
   useState<OwnershipFilter>('all');
@@ -112,15 +94,6 @@ interface UnifiedAssetRow {
   sharedByName: string | null;
 
   sharedByEmail: string | null;
-
-  // Assigned annotation — only ever set on My-sourced rows (fromMyRow).
-  // Shared-sourced rows (fromSharedRow) are always isAssigned: false —
-  // a Collaborator viewing an asset shared TO them did not assign it
-  // themselves; those are independent facts about the same asset_id,
-  // not something to merge together here.
-  isAssigned: boolean;
-
-  assignedCollaboratorCount: number | null;
 }
 function getEffectiveTab(row: AssetLibraryRow): AssetLibraryTab {
   if (row.asset_type === 'campaign_element') return 'campaign_element';
@@ -129,20 +102,8 @@ function getEffectiveTab(row: AssetLibraryRow): AssetLibraryTab {
 
   return 'other';
 }
-// asset_id -> collaboratorCount, built once per fetch so fromMyRow can do
-// an O(1) lookup instead of each row re-scanning the summary array.
-const assignedSummaryMap = useMemo(() => {
-  const map = new Map<string, number>();
-
-  for (const s of assignedSummary) {
-    map.set(s.assetId, s.collaboratorCount);
-  }
-
-  return map;
-}, [assignedSummary]);
-
 const unifiedRows = useMemo<UnifiedAssetRow[]>(() => {
-  const mine = rows.map(row => fromMyRow(row, assignedSummaryMap));
+  const mine = rows.map(fromMyRow);
 
   const shared = sharedRows.map(fromSharedRow);
 
@@ -150,16 +111,11 @@ const unifiedRows = useMemo<UnifiedAssetRow[]>(() => {
 
   if (ownershipFilter === 'shared') return shared;
 
-  // Assigned = My.filter(isAssigned) — NOT a third source, NOT a union.
-  // Every row here already exists in `mine`; this only narrows it.
-  if (ownershipFilter === 'assigned') return mine.filter(row => row.isAssigned);
-
   return [...mine, ...shared];
 }, [
   rows,
   sharedRows,
   ownershipFilter,
-  assignedSummaryMap,
 ]);
 
 // 計算每個 Tab 有幾個
@@ -211,7 +167,7 @@ const filteredRows = useMemo(() => {
     setLoading(true);
     setError(null);
     try {
-      const [myData, sharedData, assignedData] = await Promise.all([
+      const [myData, sharedData] = await Promise.all([
   listAssetsByOrganization({
     organizationId,
   }),
@@ -222,17 +178,11 @@ const filteredRows = useMemo(() => {
         excludeOrganizationId: organizationId,
       })
     : Promise.resolve([]),
-
-  user
-    ? getAssignedAssetSummaryForOwner(user.id)
-    : Promise.resolve([]),
 ]);
 
 setRows(myData);
 
 setSharedRows(sharedData);
-
-setAssignedSummary(assignedData);
     } catch (err: any) {
       setError(err.message || 'Could not load your Asset Library.');
     } finally {
@@ -305,17 +255,6 @@ setAssignedSummary(assignedData);
     }`}
   >
     Shared
-  </button>
-
-  <button
-    onClick={() => setOwnershipFilter('assigned')}
-    className={`text-[10px] font-black uppercase tracking-widest px-3 py-1.5 rounded-lg transition-all ${
-      ownershipFilter === 'assigned'
-        ? 'bg-red-600 text-white'
-        : 'bg-zinc-900 text-zinc-500 hover:text-white'
-    }`}
-  >
-    Assigned
   </button>
 </div>
 <div className="flex items-center gap-2 flex-wrap">
@@ -413,23 +352,6 @@ setAssignedSummary(assignedData);
   </div>
 )}
 
-  {/* Assigned badge — count only, never names. Same asset can be
-      referenced by multiple Assignments / shared to multiple
-      Collaborators, so a name list doesn't belong on the card;
-      full breakdown is Asset Detail's job. */}
-  {row.isAssigned && (
-    <div className="mt-0.5">
-      <p className="text-[9px] font-black uppercase text-blue-400 tracking-widest">
-        Assigned
-      </p>
-
-      <p className="text-[10px] text-zinc-300">
-        {row.assignedCollaboratorCount}{' '}
-        {row.assignedCollaboratorCount === 1 ? 'User' : 'Users'}
-      </p>
-    </div>
-  )}
-
   <div className="flex items-center gap-2 mt-0.5">
     {row.platform && (
       <span className="text-[9px] font-black uppercase text-zinc-600 tracking-widest">
@@ -463,12 +385,7 @@ setAssignedSummary(assignedData);
 }
 
 
-function fromMyRow(
-  row: AssetLibraryRow,
-  assignedSummaryMap: Map<string, number>
-): UnifiedAssetRow {
-  const collaboratorCount = assignedSummaryMap.get(row.id) ?? null;
-
+function fromMyRow(row: AssetLibraryRow): UnifiedAssetRow {
   return {
     key: row.id,
     linkId: row.id,
@@ -501,14 +418,6 @@ function fromMyRow(
     sharedByName: null,
 
     sharedByEmail: null,
-
-    // Presence in assignedSummaryMap means at least one of my Assignments
-    // references this asset (via assignment_assets), regardless of
-    // collaboratorCount — an assignment with zero invited collaborators
-    // yet is still "assigned", just assigned to 0 people.
-    isAssigned: collaboratorCount !== null,
-
-    assignedCollaboratorCount: collaboratorCount,
   };
 }
 
@@ -539,16 +448,5 @@ function fromSharedRow(
     sharedByName: row.shared_by_name,
 
     sharedByEmail: row.shared_by_email,
-
-    // A Shared row represents an asset shared TO me — Assigned describes
-    // assets I've shared OUT as the Sponsor. These are independent facts
-    // even when (rare, but possible) the same person is Sponsor on one
-    // Assignment and Collaborator on another for a *different* asset_id
-    // that happens to render on the same page. Never true for a Shared
-    // row itself, since Shared rows are always org-external assets I do
-    // not own.
-    isAssigned: false,
-
-    assignedCollaboratorCount: null,
   };
 }
