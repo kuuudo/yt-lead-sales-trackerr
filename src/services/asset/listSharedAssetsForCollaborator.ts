@@ -281,7 +281,7 @@ async function getOwnerOrganizationNames(
   organizationIds: string[]
 ): Promise<Map<string, string>> {
   const uniqueIds = Array.from(new Set(organizationIds));
-
+console.log('uniqueIds', uniqueIds);
   if (uniqueIds.length === 0) {
     return new Map();
   }
@@ -290,7 +290,10 @@ async function getOwnerOrganizationNames(
     .from('organizations')
     .select('id, name')
     .in('id', uniqueIds);
-
+console.log('organization query', {
+  data,
+  error,
+});
   if (error) {
     throw new Error(
       `Failed to load owner organization names: ${error.message}`
