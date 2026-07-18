@@ -250,11 +250,13 @@ export async function listSharedAssetsForCollaborator({
   search,
 }: ListSharedAssetsForCollaboratorInput): Promise<SharedAssetLibraryRow[]> {
   const myPromotions = await getMyPromotions(userId);
+  console.log("myPromotions", myPromotions);
   const promotionIds = myPromotions.map(p => p.id);
 
   const assetPromotionPairs = await getAssetPromotionPairs(promotionIds);
+  console.log("assetPromotionPairs", assetPromotionPairs);
   const assetIds = Array.from(new Set(assetPromotionPairs.map(p => p.asset_id)));
-
+  console.log("assetIds", assetIds);
   const rows = await getSharedAssetRows(assetIds, excludeOrganizationId, filterType, search);
 
   // asset_id -> promotion_id (first match; an asset promoted via multiple
