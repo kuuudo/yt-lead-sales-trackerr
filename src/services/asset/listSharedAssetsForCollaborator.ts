@@ -130,7 +130,16 @@ async function getSharedAssetRows(
   if (wantsVideo) {
     const { data: videoAssetRows, error: videoErr, status } = await supabase
       .from('assets')
-      .select('id')
+      .select(`
+    id,
+    videos(
+        asset_id,
+        video_title,
+        thumbnail_url,
+        platform
+    )
+`)
+
       .in('id', assetIds)
       .eq('asset_type', 'video')
       .neq('organization_id', excludeOrganizationId);
@@ -140,6 +149,7 @@ console.log("video status", status);
 console.log("videoAssetRows", videoAssetRows);
 console.log("videoErr", videoErr);
 console.log(videoAssetRows);
+console.log(JSON.stringify(videoAssetRows, null, 2));
     if (videoErr) {
       throw new Error(`Failed to load shared video assets: ${videoErr.message}`);
     }
