@@ -139,6 +139,7 @@ console.log("videoErr", videoErr);
 console.log("video status", status);
 console.log("videoAssetRows", videoAssetRows);
 console.log("videoErr", videoErr);
+console.log(videoAssetRows);
     if (videoErr) {
       throw new Error(`Failed to load shared video assets: ${videoErr.message}`);
     }
