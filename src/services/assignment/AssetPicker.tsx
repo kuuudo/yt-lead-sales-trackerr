@@ -33,34 +33,32 @@
  * anti-re-share boundary and should not be made without reopening this
  * discussion explicitly.
  *
- * UPDATE (UX consistency pass, mirrors PromotedAssetPicker): replaced the
- * old All/Video/Resource filter row with:
- *   - An ownership filter: All / My / Assigned — deliberately NO "Shared"
- *     option, per the architecture lock above. "Assigned" behaves exactly
- *     as it does in Assets.tsx: not a third data source, just a filter
- *     over My Assets rows that already have an assignment_assets +
- *     assignment_collaborators trail (getAssignedAssetSummaryForOwner()).
- *   - A single category dropdown ("All Types ▼"), same granularity and
- *     duplicated-on-purpose logic as PromotedAssetPicker's dropdown (see
- *     that file's own comment on why this isn't extracted into a shared
- *     helper yet — same reasoning applies here).
+ * UPDATE (Full asset-set pass): the video/resource-only restriction below
+ * has been REMOVED. It was previously justified by a comment claiming
+ * Campaign Elements have their own dedicated "Authorized Assets" section
+ * elsewhere in CreateAssignment.tsx — that claim was carried forward
+ * across several passes without being re-verified against the current
+ * component, and turned out to be treated as a locked architectural fact
+ * when it was really just an unverified comment. Per explicit product
+ * direction: AssetPicker is no longer a "Library Asset picker" with its
+ * own narrower scope — it is a selectable version of the full Asset
+ * Library, with exactly ONE restriction (Shared Assets, see the
+ * ARCHITECTURE LOCK above, which is unrelated and still holds). There is
+ * no second, hidden restriction on Campaign Elements. All / My / Assigned
+ * now cover every owned asset, campaign_element included, matching
+ * Assets.tsx exactly.
  *
- * NOT included in this dropdown: "Campaign Assets" — Campaign Elements
- * are still out of scope for THIS picker specifically (separate from the
- * Shared-Assets exclusion above): they have their own dedicated
- * Authorized Assets section elsewhere in CreateAssignment.tsx, and
- * showing them here too would let the same asset be selected in two
- * different places in the same form. This is the original, pre-existing
- * reason this component filtered to video/resource, and it still holds
- * even though PromotedAssetPicker's own campaign_element exclusion was
- * separately lifted — the two exclusions had different causes and only
- * one of them (Shared Assets) was ever about this task.
+ * NOT verified here (no visibility into the current CreateAssignment.tsx):
+ * whether a separate Authorized Assets section for Campaign Elements
+ * still exists in that form. If it does, the same asset may now be
+ * selectable in two places in one flow — that's a CreateAssignment.tsx
+ * question, not something this file can check or resolve on its own.
  *
  * NOT changed by this pass: the external contract
  * (onSelectionChange(ids: string[]), initialSelectedAssetIds) and the
- * inline, non-modal interaction model (live selection reporting on every
- * toggle, no Confirm/Cancel footer) — both are unrelated to the ownership
- * rule and CreateAssignment.tsx does not need to change for this pass.
+ * inline, non-modal interaction model — both are unrelated to the
+ * ownership rule and CreateAssignment.tsx does not need to change for
+ * this pass.
  * ─────────────────────────────────────────────────────────────────────────
  */
 
@@ -71,7 +69,14 @@ import { listAssetsByOrganization } from '../../services/asset/listAssetsByOrgan
 import type { AssetLibraryRow } from '../../services/asset/listAssetsByOrganization';
 import { getAssignedAssetSummaryForOwner } from '../../services/asset/getAssignedAssetSummaryForOwner';
 import type { AssignedAssetSummary } from '../../services/asset/getAssignedAssetSummaryForOwner';
-import { resolveAssetThumbnail, RESOURCE_TYPE_LABELS, type ResourceType } from '../../lib/videoFormatters';
+import {
+  resolveAssetThumbnail,
+  resolveElementThumbnail,
+  getElementTypeLabel,
+  RESOURCE_TYPE_LABELS,
+  type ResourceType,
+  type CampaignElementType,
+} from '../../lib/videoFormatters';
 
 export interface AssetPickerProps {
   organizationId: string;
@@ -82,28 +87,35 @@ export interface AssetPickerProps {
 }
 
 type OwnershipFilter = 'all' | 'mine' | 'assigned';
-// Same granularity as PromotedAssetPicker's dropdown, minus 'campaign_element'
-// (excluded — see header note above, different reason than the Shared exclusion).
-type CategoryFilter = 'all' | ResourceType | 'other';
+// Same granularity as Assets.tsx / PromotedAssetPicker's dropdown,
+// campaign_element INCLUDED — see UPDATE note above.
+type CategoryFilter = 'all' | ResourceType | 'campaign_element' | 'other';
 
 // Duplicated intentionally, not extracted — same reasoning as
-// PromotedAssetPicker.tsx. Mirrors Assets.tsx's actual (not idealized)
-// categorization: resource_type-less rows, INCLUDING video, fall into
-// 'other'.
-function getEffectiveCategory(row: { resourceType: ResourceType | null }): ResourceType | 'other' {
+// PromotedAssetPicker.tsx / Assets.tsx. Mirrors Assets.tsx's actual
+// (not idealized) tabCounts logic: campaign_element branch first, then
+// resourceType, then 'other' — video rows fall into 'other' since
+// resource_type is always null for them, matching Assets.tsx's real
+// runtime behavior, not its unused getEffectiveTab() helper.
+function getEffectiveCategory(row: {
+  assetType: UnifiedAssetRow['assetType'];
+  resourceType: ResourceType | null;
+}): ResourceType | 'campaign_element' | 'other' {
+  if (row.assetType === 'campaign_element') return 'campaign_element';
   return row.resourceType ?? 'other';
 }
 
-// Same normalization shape as PromotedAssetPicker's UnifiedAssetRow,
-// trimmed further: no isShared/sharedBy fields at all, since Shared rows
-// are never fetched here in the first place — there's nothing to unify.
+// Same normalization shape as PromotedAssetPicker's UnifiedAssetRow.
+// No isShared/sharedBy fields at all — Shared rows are never fetched
+// here, see ARCHITECTURE LOCK above.
 interface UnifiedAssetRow {
   key: string;
   assetId: string;
   title: string;
   thumbnail: string | null;
   resourceType: ResourceType | null;
-  assetType: 'video' | 'resource';
+  elementType: CampaignElementType | null;
+  assetType: 'video' | 'resource' | 'campaign_element';
   isAssigned: boolean;
   assignedCollaboratorCount: number | null;
 }
@@ -113,17 +125,21 @@ function fromMyRow(row: AssetLibraryRow, assignedMap: Map<string, number>): Unif
     key: row.id,
     assetId: row.id,
     title: row.video_title || 'Untitled',
-    thumbnail: row.resource_type
-      ? resolveAssetThumbnail({
-          thumbnail_url: row.thumbnail_url,
-          resource_type: row.resource_type,
-          platform: row.platform,
-        })
-      : row.thumbnail_url,
+    thumbnail:
+      row.asset_type === 'campaign_element'
+        ? resolveElementThumbnail((row.element_type ?? 'landing_page') as CampaignElementType)
+        : row.resource_type
+        ? resolveAssetThumbnail({
+            thumbnail_url: row.thumbnail_url,
+            resource_type: row.resource_type,
+            platform: row.platform,
+          })
+        : row.thumbnail_url,
     resourceType: (row.resource_type as ResourceType) ?? null,
-    // Narrowed to 'video' | 'resource' by the filter applied before this
-    // is called (campaign_element rows dropped first — see header note).
-    assetType: row.asset_type as 'video' | 'resource',
+    elementType: (row.element_type as CampaignElementType) ?? null,
+    // No filter applied anymore — My Assets now include campaign_element,
+    // matching Assets.tsx's full asset set. See UPDATE note above.
+    assetType: row.asset_type,
     isAssigned: assignedMap.has(row.id),
     assignedCollaboratorCount: assignedMap.get(row.id) ?? null,
   };
@@ -149,7 +165,10 @@ export function AssetPicker({
   const [selectedAssetsMap, setSelectedAssetsMap] = useState<Map<string, UnifiedAssetRow>>(
     () =>
       new Map(
-        initialSelectedAssetIds.map(id => [id, { assetId: id } as UnifiedAssetRow])
+        initialSelectedAssetIds.map(id => [
+          id,
+          { assetId: id, elementType: null } as UnifiedAssetRow,
+        ])
       )
   );
 
@@ -170,7 +189,9 @@ export function AssetPicker({
     ])
       .then(([myData, assignedData]) => {
         if (cancelled) return;
-        setRows(myData.filter(r => r.asset_type === 'video' || r.asset_type === 'resource'));
+        // No asset_type filter — My Assets now matches Assets.tsx's full
+        // set (video / resource / campaign_element). See UPDATE note above.
+        setRows(myData);
         setAssignedSummary(assignedData);
       })
       .catch(err => {
@@ -249,8 +270,9 @@ export function AssetPicker({
           />
         </div>
 
-        {/* Category dropdown — same pattern as PromotedAssetPicker, minus
-            Campaign Assets (see header note). */}
+        {/* Category dropdown — same pattern as PromotedAssetPicker,
+            Campaign Assets included per the corrected product rule
+            (see header UPDATE note). */}
         <select
           value={categoryFilter}
           onChange={e => setCategoryFilter(e.target.value as CategoryFilter)}
@@ -258,6 +280,9 @@ export function AssetPicker({
           className="bg-zinc-950 border border-zinc-800 rounded-lg px-3 py-2 text-[10px] font-black uppercase tracking-widest text-zinc-300"
         >
           <option value="all">All Types ({unifiedRows.length})</option>
+          <option value="campaign_element">
+            Campaign Assets ({categoryCounts['campaign_element'] ?? 0})
+          </option>
           {(Object.keys(RESOURCE_TYPE_LABELS) as ResourceType[]).map(rt => (
             <option key={rt} value={rt}>
               {RESOURCE_TYPE_LABELS[rt]} ({categoryCounts[rt] ?? 0})
@@ -324,7 +349,11 @@ export function AssetPicker({
               <div className="px-3 py-2">
                 <p className="text-xs font-bold text-white truncate">{row.title}</p>
                 <p className="text-[9px] font-black uppercase text-zinc-600 tracking-widest mt-0.5">
-                  {row.assetType === 'video' ? 'Video' : 'Resource'}
+                  {row.assetType === 'campaign_element'
+                    ? getElementTypeLabel((row.elementType ?? 'landing_page') as CampaignElementType)
+                    : row.assetType === 'video'
+                    ? 'Video'
+                    : 'Resource'}
                 </p>
                 {row.isAssigned && (
                   <p className="text-[9px] font-black uppercase text-blue-400 tracking-widest mt-0.5">
