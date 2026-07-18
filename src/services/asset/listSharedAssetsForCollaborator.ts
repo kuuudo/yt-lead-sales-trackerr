@@ -300,9 +300,4 @@ export async function listSharedAssetsForCollaborator({
       shared_by_email: profile?.email ?? null,
     };
   });
-}const test = await supabase
-  .from('videos')
-  .select('asset_id, video_title')
-  .eq('asset_id', '8f5b5c8e-69ea-45fd-9722-e9485c58a0b8');
-
-console.log("videos direct", test);
+}
