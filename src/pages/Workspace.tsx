@@ -57,7 +57,21 @@ export default function Workspace() {
     }
   }, [])
 
-  // ── 2. Show onboarding card on first interaction ───────────────────────────
+  // ─────────────────────────────────────────────────────────────────────────────
+// ONBOARDING (DISABLED)
+//
+// This effect automatically opens the "New Workspace" onboarding card on the
+// user's first interaction (pointerdown or keydown) after entering the
+// Workspace page.
+//
+// It is intentionally DISABLED because we only want the "New Workspace" modal
+// to open when the user explicitly clicks the "+ New" button.
+//
+// DO NOT remove this code.
+// DO NOT re-enable it unless the product decision is to restore automatic
+// onboarding. This is kept for future experimentation.
+// ─────────────────────────────────────────────────────────────────────────────
+  /*
   useEffect(() => {
     function trigger() {
       if (cardTriggered.current) return
@@ -75,7 +89,7 @@ export default function Workspace() {
       window.removeEventListener('keydown', trigger)
     }
   }, [])
-
+  */
   // ── 3. Create workspace handler ────────────────────────────────────────────
   const handleCreate = useCallback(async () => {
     if (creating) return
