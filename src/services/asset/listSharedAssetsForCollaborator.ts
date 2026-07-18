@@ -134,7 +134,8 @@ async function getSharedAssetRows(
       .in('id', assetIds)
       .eq('asset_type', 'video')
       .neq('organization_id', excludeOrganizationId);
-
+console.log("videoAssetRows", videoAssetRows);
+console.log("videoErr", videoErr);
     if (videoErr) {
       throw new Error(`Failed to load shared video assets: ${videoErr.message}`);
     }
@@ -164,7 +165,8 @@ async function getSharedAssetRows(
       .in('id', assetIds)
       .eq('asset_type', 'resource')
       .neq('organization_id', excludeOrganizationId);
-
+console.log("resourceAssetRows", resourceAssetRows);
+console.log("resourceErr", resourceErr);
     if (resourceErr) {
       throw new Error(`Failed to load shared resource assets: ${resourceErr.message}`);
     }
