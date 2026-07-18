@@ -23,14 +23,24 @@
  * follows). Assigned remains an ANNOTATION on My rows, never a third
  * asset source.
  *
- * SCOPE NOTE: this picker still only offers video/resource assets.
- * Campaign Elements are excluded — both from the data (My rows are
- * filtered to asset_type !== 'campaign_element' right after fetching)
- * and from the category dropdown below. Making Campaign Elements
- * selectable here is a campaign-element-architecture question
- * (can a campaign_element be a Promoted Asset at all?) that's explicitly
- * out of scope for this pass — not solved, not silently assumed either
- * way.
+ * UPDATE (Full asset-set pass): the earlier video/resource-only
+ * restriction on My Assets has been REMOVED per explicit product
+ * decision — "Track New Content → Select Asset" is now a true selectable
+ * version of the Asset Library, matching Assets.tsx's full asset set
+ * (video / resource / campaign_element). "All" now really means all.
+ * This was Claude's own filter added in an earlier pass, not a
+ * pre-existing restriction or a data bug in listAssetsByOrganization().
+ *
+ * What downstream code (Videos.tsx, and anything beyond it) does with a
+ * selected campaign_element is explicitly NOT solved here — this remains
+ * a UI selection screen only. Shared Assets still only support video/
+ * resource (see fromSharedRow below) — that asymmetry is inherited from
+ * listSharedAssetsForCollaborator.ts, not introduced by this picker.
+ *
+ * PromotedAssetRow (below) is a NEW, locally-scoped type distinct from
+ * LibraryAssetPickerRow — see its own doc comment for why the shared
+ * type from listLibraryAssetsForAssignmentPicker.ts was deliberately
+ * NOT widened.
  *
  * UPDATE (Category dropdown pass): replaced the old flat All/Video/
  * Resource filter row with a single dropdown using the same category
@@ -69,47 +79,76 @@
 import { useEffect, useMemo, useState } from 'react';
 import { Check, Loader2, Search, X } from 'lucide-react';
 import { useAuth } from '../lib/auth';
-import { type LibraryAssetPickerRow } from '../services/assignment/listLibraryAssetsForAssignmentPicker';
 import { listAssetsByOrganization } from '../services/asset/listAssetsByOrganization';
 import type { AssetLibraryRow } from '../services/asset/listAssetsByOrganization';
 import { listSharedAssetsForCollaborator } from '../services/asset/listSharedAssetsForCollaborator';
 import type { SharedAssetLibraryRow } from '../services/asset/listSharedAssetsForCollaborator';
 import { getAssignedAssetSummaryForOwner } from '../services/asset/getAssignedAssetSummaryForOwner';
 import type { AssignedAssetSummary } from '../services/asset/getAssignedAssetSummaryForOwner';
-import { resolveAssetThumbnail, RESOURCE_TYPE_LABELS, type ResourceType } from '../lib/videoFormatters';
+import {
+  resolveAssetThumbnail,
+  resolveElementThumbnail,
+  getElementTypeLabel,
+  RESOURCE_TYPE_LABELS,
+  type ResourceType,
+  type CampaignElementType,
+} from '../lib/videoFormatters';
+
+// Locally-scoped, NOT the same type as LibraryAssetPickerRow (from
+// listLibraryAssetsForAssignmentPicker.ts). That type is shared with
+// AssetPicker.tsx / Create Assignment, whose whole job is the anti-
+// re-share boundary (My Assets only, ever). Widening it to include
+// campaign_element there was never asked for and isn't done here —
+// this picker gets its own row type instead, so the widening stays
+// scoped to the one flow that actually changed.
+export interface PromotedAssetRow {
+  asset_id: string;
+  display_name: string;
+  asset_type: 'video' | 'resource' | 'campaign_element';
+  resource_type: ResourceType | null;
+  element_type: CampaignElementType | null;
+  thumbnail: string | null;
+}
 
 export interface PromotedAssetPickerProps {
   organizationId: string;
   /** Pre-select if the user is changing an existing choice. */
   initialSelectedAssetIds?: string[];
   onClose: () => void;
-  onSelect: (assets: LibraryAssetPickerRow[]) => void;
+  onSelect: (assets: PromotedAssetRow[]) => void;
 }
 
 type OwnershipFilter = 'all' | 'mine' | 'shared' | 'assigned';
-// Same category granularity as Assets.tsx's tabs, minus 'campaign_element'
-// (excluded — see SCOPE NOTE above). 'other' catches anything without a
-// resource_type, INCLUDING video rows — see the header note on why that's
-// a deliberate mirror of Assets.tsx's actual (not idealized) behavior.
-type CategoryFilter = 'all' | ResourceType | 'other';
+// Same category granularity as Assets.tsx's tabs, INCLUDING
+// 'campaign_element' now that the video/resource-only restriction is
+// removed. 'other' catches anything without a resource_type that isn't
+// campaign_element, INCLUDING video rows — see the header note on why
+// that's a deliberate mirror of Assets.tsx's actual (not idealized)
+// behavior.
+type CategoryFilter = 'all' | ResourceType | 'campaign_element' | 'other';
 
-// Duplicated intentionally, not extracted — see header note. If this
-// drifts from Assets.tsx's own inline version, that's a signal to
-// extract a shared helper then, not a bug in either file individually.
-function getEffectiveCategory(row: { resourceType: ResourceType | null }): ResourceType | 'other' {
+// Duplicated intentionally, not extracted — see header note. Mirrors
+// Assets.tsx's actual inline tabCounts logic exactly (campaign_element
+// branch first, then resourceType, then 'other'). If this drifts from
+// Assets.tsx's own version, that's a signal to extract a shared helper
+// then, not a bug in either file individually.
+function getEffectiveCategory(row: {
+  assetType: UnifiedAssetRow['assetType'];
+  resourceType: ResourceType | null;
+}): ResourceType | 'campaign_element' | 'other' {
+  if (row.assetType === 'campaign_element') return 'campaign_element';
   return row.resourceType ?? 'other';
 }
 
-// Same normalization shape as Assets.tsx's UnifiedAssetRow, trimmed to
-// the fields this picker actually renders/needs (no campaign_element /
-// elementType — see SCOPE NOTE above).
+// Same normalization shape as Assets.tsx's UnifiedAssetRow.
 interface UnifiedAssetRow {
   key: string;
   assetId: string;
   title: string;
   thumbnail: string | null;
   resourceType: ResourceType | null;
-  assetType: 'video' | 'resource';
+  elementType: CampaignElementType | null;
+  assetType: 'video' | 'resource' | 'campaign_element';
   isShared: boolean;
   isAssigned: boolean;
   assignedCollaboratorCount: number | null;
@@ -120,23 +159,31 @@ function fromMyRow(row: AssetLibraryRow, assignedMap: Map<string, number>): Unif
     key: row.id,
     assetId: row.id,
     title: row.video_title || 'Untitled',
-    thumbnail: row.resource_type
-      ? resolveAssetThumbnail({
-          thumbnail_url: row.thumbnail_url,
-          resource_type: row.resource_type,
-          platform: row.platform,
-        })
-      : row.thumbnail_url,
+    thumbnail:
+      row.asset_type === 'campaign_element'
+        ? resolveElementThumbnail((row.element_type ?? 'landing_page') as CampaignElementType)
+        : row.resource_type
+        ? resolveAssetThumbnail({
+            thumbnail_url: row.thumbnail_url,
+            resource_type: row.resource_type,
+            platform: row.platform,
+          })
+        : row.thumbnail_url,
     resourceType: (row.resource_type as ResourceType) ?? null,
-    // asset_type is narrowed to 'video' | 'resource' by the filter applied
-    // before fromMyRow is called (campaign_element rows are dropped first).
-    assetType: row.asset_type as 'video' | 'resource',
+    elementType: (row.element_type as CampaignElementType) ?? null,
+    // No filter applied anymore — My Assets now include campaign_element,
+    // matching Assets.tsx's full asset set (see header UPDATE note).
+    assetType: row.asset_type,
     isShared: false,
     isAssigned: assignedMap.has(row.id),
     assignedCollaboratorCount: assignedMap.get(row.id) ?? null,
   };
 }
 
+// Shared Assets remain video/resource only — listSharedAssetsForCollaborator.ts's
+// underlying query doesn't support campaign_element, unchanged by this pass.
+// This is an existing asymmetry between My and Shared, not something
+// introduced here.
 function fromSharedRow(row: SharedAssetLibraryRow): UnifiedAssetRow {
   return {
     key: row.asset_id,
@@ -144,6 +191,7 @@ function fromSharedRow(row: SharedAssetLibraryRow): UnifiedAssetRow {
     title: row.display_name,
     thumbnail: row.thumbnail,
     resourceType: row.resource_type,
+    elementType: null,
     assetType: row.asset_type,
     isShared: true,
     isAssigned: false,
@@ -151,12 +199,13 @@ function fromSharedRow(row: SharedAssetLibraryRow): UnifiedAssetRow {
   };
 }
 
-function toLibraryAssetPickerRow(row: UnifiedAssetRow): LibraryAssetPickerRow {
+function toPromotedAssetRow(row: UnifiedAssetRow): PromotedAssetRow {
   return {
     asset_id: row.assetId,
     display_name: row.title,
     asset_type: row.assetType,
     resource_type: row.resourceType,
+    element_type: row.elementType,
     thumbnail: row.thumbnail,
   };
 }
@@ -183,7 +232,13 @@ export function PromotedAssetPicker({
   // same pattern as AssetPicker.tsx, so selection survives filter/search
   // changes instead of being derived by filtering the currently-loaded set.
   const [selectedMap, setSelectedMap] = useState<Map<string, UnifiedAssetRow>>(
-    () => new Map(initialSelectedAssetIds.map(id => [id, { assetId: id } as UnifiedAssetRow]))
+    () =>
+      new Map(
+        initialSelectedAssetIds.map(id => [
+          id,
+          { assetId: id, elementType: null } as UnifiedAssetRow,
+        ])
+      )
   );
 
   useEffect(() => {
@@ -204,10 +259,11 @@ export function PromotedAssetPicker({
     ])
       .then(([myData, sharedData, assignedData]) => {
         if (cancelled) return;
-        // Scope lock: this picker only ever offers video/resource assets,
-        // same as before this pass. Campaign Elements have their own
-        // Authorized Assets flow and are not selectable here.
-        setRows(myData.filter(r => r.asset_type === 'video' || r.asset_type === 'resource'));
+        // No asset_type filter — My Assets now matches Assets.tsx's full
+        // set (video / resource / campaign_element). Removed per explicit
+        // product decision: this is purely a selection UI, downstream
+        // handling of a selected campaign_element is a separate concern.
+        setRows(myData);
         setSharedRows(sharedData);
         setAssignedSummary(assignedData);
       })
@@ -276,7 +332,7 @@ export function PromotedAssetPicker({
 
   const handleConfirm = () => {
     if (selectedRows.length > 0) {
-      onSelect(selectedRows.map(toLibraryAssetPickerRow));
+      onSelect(selectedRows.map(toPromotedAssetRow));
     }
   };
 
@@ -314,6 +370,9 @@ export function PromotedAssetPicker({
               className="bg-zinc-950 border border-zinc-800 rounded-lg px-3 py-2 text-[10px] font-black uppercase tracking-widest text-zinc-300"
             >
               <option value="all">All Types ({unifiedRows.length})</option>
+              <option value="campaign_element">
+                Campaign Assets ({categoryCounts['campaign_element'] ?? 0})
+              </option>
               {(Object.keys(RESOURCE_TYPE_LABELS) as ResourceType[]).map(rt => (
                 <option key={rt} value={rt}>
                   {RESOURCE_TYPE_LABELS[rt]} ({categoryCounts[rt] ?? 0})
@@ -381,7 +440,11 @@ export function PromotedAssetPicker({
                   <div className="px-3 py-2">
                     <p className="text-xs font-bold text-white truncate">{row.title}</p>
                     <p className="text-[9px] font-black uppercase text-zinc-600 tracking-widest mt-0.5">
-                      {row.assetType === 'video' ? 'Video' : 'Resource'}
+                      {row.assetType === 'campaign_element'
+                        ? getElementTypeLabel((row.elementType ?? 'landing_page') as CampaignElementType)
+                        : row.assetType === 'video'
+                        ? 'Video'
+                        : 'Resource'}
                     </p>
                     {row.isShared && (
                       <p className="text-[9px] font-black uppercase text-red-500 tracking-widest mt-0.5">
