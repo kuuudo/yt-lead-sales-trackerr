@@ -128,12 +128,15 @@ async function getSharedAssetRows(
   const wantsResource = !filterType || filterType === 'resource';
 
   if (wantsVideo) {
-    const { data: videoAssetRows, error: videoErr } = await supabase
+    const { data: videoAssetRows, error: videoErr, status } = await supabase
       .from('assets')
       .select('id, videos!inner(video_title, thumbnail_url, platform)')
       .in('id', assetIds)
       .eq('asset_type', 'video')
       .neq('organization_id', excludeOrganizationId);
+console.log("videoAssetRows", videoAssetRows);
+console.log("videoErr", videoErr);
+console.log("video status", status);
 console.log("videoAssetRows", videoAssetRows);
 console.log("videoErr", videoErr);
     if (videoErr) {
