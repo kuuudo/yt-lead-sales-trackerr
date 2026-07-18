@@ -54,7 +54,10 @@
  */
 
 import { supabase } from '../../lib/supabase';
-import { resolveAssetThumbnail } from '../../lib/videoFormatters';
+import {
+  resolveThumbnail,
+  resolveAssetThumbnail,
+} from '../../lib/videoFormatters';
 import type {
   AssetPickerFilterType,
   LibraryAssetPickerRow,
@@ -167,7 +170,12 @@ console.log(JSON.stringify(videoAssetRows, null, 2));
         display_name: title ?? 'Untitled video',
         asset_type: 'video',
         resource_type: null,
-        thumbnail: video?.thumbnail_url ?? null,
+        thumbnail: video
+          ? resolveThumbnail({
+              thumbnail_url: video.thumbnail_url,
+              platform: video.platform,
+            })
+          : null,
       });
     }
   }
