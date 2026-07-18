@@ -3,9 +3,9 @@
  *
  * "Select Asset to Promote" modal for the Import Content flow (Videos.tsx).
  *
- * Scope (per locked decision): this is UI only. Selecting an asset here
+ * Scope (per locked decision): this is UI only. Selecting assets here
  * does NOT persist anything — no relationship is written, no Redirect
- * Link is created, no Promotion is created. The selected asset lives in
+ * Link is created, no Promotion is created. The selection lives in
  * Videos.tsx's local React state only, exactly like the rest of the
  * "Track New Content" form before Generate Tracking Link is pressed.
  * Wiring the selection into a real video -> asset relationship is a
@@ -14,91 +14,91 @@
  * Option B (locked decision): NOT filtered by Campaign. Asset is
  * Organization Library scope; Campaign is Video -> Tracking scope.
  *
- * Single-select, not multi-select (only one Promoted Asset per piece of
- * content) — this is why it's a separate component from AssetPicker.tsx
- * rather than a shared one. That interaction model is UNCHANGED by this
- * pass.
- *
  * ─────────────────────────────────────────────────────────────────────────
- * UPDATE (Asset Visibility architecture pass): this picker previously
- * called listLibraryAssetsForAssignmentPicker() directly — a single,
- * My-Assets-only, org-scoped query. That made it the only surface in the
- * product that didn't follow the Asset Library visibility model, so a
- * Collaborator opening "Track New Content" could never select an asset
- * that had been shared with them.
+ * UPDATE (Asset Visibility architecture pass): mirrors Assets.tsx's
+ * canonical composition — My / Shared / Assigned fetched independently
+ * via Promise.all, never merged into one query, never deduped in the UI
+ * (see Assets.tsx / listSharedAssetsForCollaborator.ts /
+ * getAssignedAssetSummaryForOwner.ts for the architecture lock this
+ * follows). Assigned remains an ANNOTATION on My rows, never a third
+ * asset source.
  *
- * This pass makes PromotedAssetPicker mirror Assets.tsx's canonical
- * composition EXACTLY (see Assets.tsx / listSharedAssetsForCollaborator.ts /
- * getAssignedAssetSummaryForOwner.ts):
+ * SCOPE NOTE: this picker still only offers video/resource assets.
+ * Campaign Elements are excluded — both from the data (My rows are
+ * filtered to asset_type !== 'campaign_element' right after fetching)
+ * and from the category dropdown below. Making Campaign Elements
+ * selectable here is a campaign-element-architecture question
+ * (can a campaign_element be a Promoted Asset at all?) that's explicitly
+ * out of scope for this pass — not solved, not silently assumed either
+ * way.
  *
- *   - My Assets:        listAssetsByOrganization({ organizationId })
- *   - Shared Assets:     listSharedAssetsForCollaborator({ userId, excludeOrganizationId })
- *   - Assigned Summary:  getAssignedAssetSummaryForOwner(userId)  — an
- *       ANNOTATION on My Assets, never a third asset source, never
- *       applicable to Shared rows. Same architecture lock as Assets.tsx.
+ * UPDATE (Category dropdown pass): replaced the old flat All/Video/
+ * Resource filter row with a single dropdown using the same category
+ * granularity as Assets.tsx (RESOURCE_TYPE_LABELS entries). This
+ * duplicates Assets.tsx's category-matching logic on purpose, per
+ * explicit product decision — no shared helper extraction in this pass,
+ * since only two screens use it today. If a third screen needs this,
+ * extract then, not preemptively.
  *
- * All three are fetched independently via Promise.all — not merged into
- * one query, not deduped in the UI. Same UnifiedAssetRow normalization
- * shape as Assets.tsx, copied as-is.
+ * Deliberately mirrors Assets.tsx's ACTUAL runtime categorization, not
+ * its unused getEffectiveTab() helper: Assets.tsx's live filtering logic
+ * buckets a row by `resourceType ?? 'other'`, which means asset_type:
+ * 'video' rows (resource_type is always null for those) fall into
+ * "Other", not a dedicated "Video" bucket — getEffectiveTab() would
+ * special-case video into its own tab, but nothing in Assets.tsx actually
+ * calls it. Reproduced here as-is for behavioral consistency with the
+ * Asset Library, not fixed — flagged as a known quirk, not an oversight.
  *
- * SCOPE NOTE (deliberate, not inherited automatically from Assets.tsx):
- * this picker has only ever offered video/resource assets — Campaign
- * Elements have their own Authorized Assets flow elsewhere and were
- * explicitly excluded from listLibraryAssetsForAssignmentPicker.ts.
- * listAssetsByOrganization() returns all three asset_types, so "My"
- * results are filtered down to asset_type !== 'campaign_element'
- * immediately after fetching. This preserves this picker's existing
- * scope; it is not a byproduct of reusing the canonical query, it's a
- * conscious choice to keep it. Shared Assets are unaffected — the
- * underlying video/resource query in listSharedAssetsForCollaborator.ts
- * already only supports those two kinds.
+ * UPDATE (Multi-select pass): converted from single-select to
+ * multi-select. Prior to this pass the component was single-select BY
+ * ORIGINAL DESIGN (not a regression introduced by the architecture
+ * pass above) — its own former header comment said so explicitly
+ * ("only one Promoted Asset per piece of content"). This pass is a
+ * deliberate, confirmed product decision to change that, not a bugfix.
+ * onSelect's contract changes from a single row to an array — the
+ * Videos.tsx call site needs a matching update, not covered by this file.
  *
- * SEARCH/FILTER NOTE: listAssetsByOrganization has no server-side search
- * or asset-type filter param (unlike the old
- * listLibraryAssetsForAssignmentPicker call). Following Assets.tsx,
- * search and the Video/Resource filter are now applied client-side over
- * the unified, already-fetched rows, not sent as query params. Fetching
- * is now keyed on [organizationId, user] only — typing in the search box
- * or switching filters no longer triggers a refetch, only a re-filter.
- *
- * NOT changed: single-select interaction, card grid markup, onSelect's
- * contract (still receives a LibraryAssetPickerRow-shaped object — built
- * via a small adapter from UnifiedAssetRow at confirm time, since the
- * unified row is a superset of that shape).
+ * Selection is tracked as a Map<assetId, UnifiedAssetRow> (same pattern
+ * AssetPicker.tsx already uses for its own multi-select), so a selection
+ * survives switching the ownership/category filter or search — the
+ * previously-selected card doesn't need to still be in the currently
+ * filtered set to remain selected.
  * ─────────────────────────────────────────────────────────────────────────
  */
 
 import { useEffect, useMemo, useState } from 'react';
 import { Check, Loader2, Search, X } from 'lucide-react';
 import { useAuth } from '../lib/auth';
-import {
-  type AssetPickerFilterType,
-  type LibraryAssetPickerRow,
-} from '../services/assignment/listLibraryAssetsForAssignmentPicker';
+import { type LibraryAssetPickerRow } from '../services/assignment/listLibraryAssetsForAssignmentPicker';
 import { listAssetsByOrganization } from '../services/asset/listAssetsByOrganization';
 import type { AssetLibraryRow } from '../services/asset/listAssetsByOrganization';
 import { listSharedAssetsForCollaborator } from '../services/asset/listSharedAssetsForCollaborator';
 import type { SharedAssetLibraryRow } from '../services/asset/listSharedAssetsForCollaborator';
 import { getAssignedAssetSummaryForOwner } from '../services/asset/getAssignedAssetSummaryForOwner';
 import type { AssignedAssetSummary } from '../services/asset/getAssignedAssetSummaryForOwner';
-import { resolveAssetThumbnail, type ResourceType } from '../lib/videoFormatters';
+import { resolveAssetThumbnail, RESOURCE_TYPE_LABELS, type ResourceType } from '../lib/videoFormatters';
 
 export interface PromotedAssetPickerProps {
   organizationId: string;
   /** Pre-select if the user is changing an existing choice. */
-  initialSelectedAssetId?: string | null;
+  initialSelectedAssetIds?: string[];
   onClose: () => void;
-  onSelect: (asset: LibraryAssetPickerRow) => void;
+  onSelect: (assets: LibraryAssetPickerRow[]) => void;
 }
 
-type FilterOption = { label: string; value: AssetPickerFilterType | 'all' };
 type OwnershipFilter = 'all' | 'mine' | 'shared' | 'assigned';
+// Same category granularity as Assets.tsx's tabs, minus 'campaign_element'
+// (excluded — see SCOPE NOTE above). 'other' catches anything without a
+// resource_type, INCLUDING video rows — see the header note on why that's
+// a deliberate mirror of Assets.tsx's actual (not idealized) behavior.
+type CategoryFilter = 'all' | ResourceType | 'other';
 
-const FILTERS: FilterOption[] = [
-  { label: 'All', value: 'all' },
-  { label: 'Video', value: 'video' },
-  { label: 'Resource', value: 'resource' },
-];
+// Duplicated intentionally, not extracted — see header note. If this
+// drifts from Assets.tsx's own inline version, that's a signal to
+// extract a shared helper then, not a bug in either file individually.
+function getEffectiveCategory(row: { resourceType: ResourceType | null }): ResourceType | 'other' {
+  return row.resourceType ?? 'other';
+}
 
 // Same normalization shape as Assets.tsx's UnifiedAssetRow, trimmed to
 // the fields this picker actually renders/needs (no campaign_element /
@@ -163,7 +163,7 @@ function toLibraryAssetPickerRow(row: UnifiedAssetRow): LibraryAssetPickerRow {
 
 export function PromotedAssetPicker({
   organizationId,
-  initialSelectedAssetId = null,
+  initialSelectedAssetIds = [],
   onClose,
   onSelect,
 }: PromotedAssetPickerProps) {
@@ -176,9 +176,15 @@ export function PromotedAssetPicker({
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [ownershipFilter, setOwnershipFilter] = useState<OwnershipFilter>('all');
-  const [activeFilter, setActiveFilter] = useState<AssetPickerFilterType | 'all'>('all');
+  const [categoryFilter, setCategoryFilter] = useState<CategoryFilter>('all');
   const [search, setSearch] = useState('');
-  const [selectedAssetId, setSelectedAssetId] = useState<string | null>(initialSelectedAssetId);
+
+  // Multi-select: Map keyed by assetId, holding the full normalized row —
+  // same pattern as AssetPicker.tsx, so selection survives filter/search
+  // changes instead of being derived by filtering the currently-loaded set.
+  const [selectedMap, setSelectedMap] = useState<Map<string, UnifiedAssetRow>>(
+    () => new Map(initialSelectedAssetIds.map(id => [id, { assetId: id } as UnifiedAssetRow]))
+  );
 
   useEffect(() => {
     if (!organizationId) return;
@@ -232,24 +238,45 @@ export function PromotedAssetPicker({
     return [...mine, ...shared];
   }, [rows, sharedRows, assignedSummary, ownershipFilter]);
 
-  // Resource-type filter + search, both applied client-side now that
-  // fetching is no longer parameterized by them (see SEARCH/FILTER NOTE).
+  // Category counts for the dropdown — mirrors Assets.tsx's tabCounts,
+  // computed off the ownership-filtered set.
+  const categoryCounts = useMemo(() => {
+    const counts: Record<string, number> = {};
+    for (const row of unifiedRows) {
+      const cat = getEffectiveCategory(row);
+      counts[cat] = (counts[cat] ?? 0) + 1;
+    }
+    return counts;
+  }, [unifiedRows]);
+
+  // Category filter + search, both applied client-side (listAssetsByOrganization
+  // has no server-side search/category param, same as Assets.tsx's approach).
   const filteredRows = useMemo(() => {
     const searchLower = search.trim().toLowerCase();
     return unifiedRows.filter(row => {
-      if (activeFilter !== 'all' && row.assetType !== activeFilter) return false;
+      if (categoryFilter !== 'all' && getEffectiveCategory(row) !== categoryFilter) return false;
       if (searchLower && !row.title.toLowerCase().includes(searchLower)) return false;
       return true;
     });
-  }, [unifiedRows, activeFilter, search]);
+  }, [unifiedRows, categoryFilter, search]);
 
-  const selectedRow = filteredRows.find(r => r.assetId === selectedAssetId)
-    ?? unifiedRows.find(r => r.assetId === selectedAssetId)
-    ?? null;
+  function toggleAsset(row: UnifiedAssetRow) {
+    setSelectedMap(prev => {
+      const next = new Map(prev);
+      if (next.has(row.assetId)) {
+        next.delete(row.assetId);
+      } else {
+        next.set(row.assetId, row);
+      }
+      return next;
+    });
+  }
+
+  const selectedRows = Array.from(selectedMap.values());
 
   const handleConfirm = () => {
-    if (selectedRow) {
-      onSelect(toLibraryAssetPickerRow(selectedRow));
+    if (selectedRows.length > 0) {
+      onSelect(selectedRows.map(toLibraryAssetPickerRow));
     }
   };
 
@@ -257,23 +284,43 @@ export function PromotedAssetPicker({
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-sm px-4">
       <div className="bg-zinc-900 border border-zinc-700 rounded-2xl w-full max-w-2xl max-h-[85vh] flex flex-col">
         <div className="flex items-center justify-between px-6 py-4 border-b border-zinc-800">
-          <h2 className="text-sm font-bold uppercase tracking-widest text-zinc-200">Select Asset to Promote</h2>
+          <h2 className="text-sm font-bold uppercase tracking-widest text-zinc-200">Select Assets to Promote</h2>
           <button onClick={onClose} className="text-zinc-500 hover:text-white">
             <X size={16} />
           </button>
         </div>
 
         <div className="px-6 py-4 space-y-4 overflow-y-auto flex-1">
-          <div className="relative max-w-xs">
-            <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-zinc-600" />
-            <input
-              type="text"
-              value={search}
-              onChange={e => setSearch(e.target.value)}
-              placeholder="Search assets"
-              aria-label="Search assets"
-              className="w-full bg-zinc-950 border border-zinc-800 rounded-lg pl-9 pr-3 py-2 text-sm text-white placeholder:text-zinc-600"
-            />
+          <div className="flex flex-col sm:flex-row gap-3 sm:items-center sm:justify-between">
+            <div className="relative flex-1 max-w-xs">
+              <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-zinc-600" />
+              <input
+                type="text"
+                value={search}
+                onChange={e => setSearch(e.target.value)}
+                placeholder="Search assets"
+                aria-label="Search assets"
+                className="w-full bg-zinc-950 border border-zinc-800 rounded-lg pl-9 pr-3 py-2 text-sm text-white placeholder:text-zinc-600"
+              />
+            </div>
+
+            {/* Category dropdown — replaces the old All/Video/Resource
+                filter row. Same granularity as Assets.tsx's tabs, minus
+                Campaign Assets (see SCOPE NOTE above). */}
+            <select
+              value={categoryFilter}
+              onChange={e => setCategoryFilter(e.target.value as CategoryFilter)}
+              aria-label="Filter by category"
+              className="bg-zinc-950 border border-zinc-800 rounded-lg px-3 py-2 text-[10px] font-black uppercase tracking-widest text-zinc-300"
+            >
+              <option value="all">All Types ({unifiedRows.length})</option>
+              {(Object.keys(RESOURCE_TYPE_LABELS) as ResourceType[]).map(rt => (
+                <option key={rt} value={rt}>
+                  {RESOURCE_TYPE_LABELS[rt]} ({categoryCounts[rt] ?? 0})
+                </option>
+              ))}
+              <option value="other">Other ({categoryCounts['other'] ?? 0})</option>
+            </select>
           </div>
 
           {/* Ownership filter — same pattern/labels as Assets.tsx */}
@@ -295,25 +342,6 @@ export function PromotedAssetPicker({
             ))}
           </div>
 
-          {/* Resource-type filter — unchanged from before this pass */}
-          <div className="flex items-center gap-2 flex-wrap" role="group" aria-label="Filter by type">
-            {FILTERS.map(f => (
-              <button
-                key={f.value}
-                type="button"
-                aria-pressed={activeFilter === f.value}
-                onClick={() => setActiveFilter(f.value)}
-                className={`text-[10px] font-black uppercase tracking-widest px-3 py-1.5 rounded-lg transition-all ${
-                  activeFilter === f.value
-                    ? 'bg-red-600 text-white'
-                    : 'bg-zinc-950 text-zinc-500 hover:text-white'
-                }`}
-              >
-                {f.label}
-              </button>
-            ))}
-          </div>
-
           {loading && (
             <div className="flex items-center gap-2 text-zinc-500 text-sm">
               <Loader2 size={16} className="animate-spin" /> Loading assets…
@@ -330,15 +358,15 @@ export function PromotedAssetPicker({
 
           <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
             {filteredRows.map(row => {
-              const isSelected = row.assetId === selectedAssetId;
+              const isSelected = selectedMap.has(row.assetId);
               return (
                 <button
                   key={row.key}
                   type="button"
                   aria-pressed={isSelected}
-                  // Single-select: clicking a new card replaces the
-                  // previous selection, it doesn't add to it. Unchanged.
-                  onClick={() => setSelectedAssetId(isSelected ? null : row.assetId)}
+                  // Multi-select: clicking toggles this card in/out of the
+                  // selection, it doesn't replace the previous selection.
+                  onClick={() => toggleAsset(row)}
                   className={`relative flex flex-col text-left bg-zinc-950 border rounded-xl overflow-hidden transition-all ${
                     isSelected
                       ? 'border-red-600 ring-1 ring-red-600'
@@ -377,6 +405,12 @@ export function PromotedAssetPicker({
               );
             })}
           </div>
+
+          {selectedRows.length > 0 && (
+            <p className="text-[10px] font-black uppercase tracking-widest text-zinc-500">
+              {selectedRows.length} asset{selectedRows.length === 1 ? '' : 's'} selected
+            </p>
+          )}
         </div>
 
         <div className="flex items-center justify-end gap-2 px-6 py-4 border-t border-zinc-800">
@@ -390,7 +424,7 @@ export function PromotedAssetPicker({
           <button
             type="button"
             onClick={handleConfirm}
-            disabled={!selectedRow}
+            disabled={selectedRows.length === 0}
             className="bg-red-600 hover:bg-red-500 disabled:opacity-50 text-white text-xs font-bold uppercase tracking-wider px-4 py-2 rounded-lg"
           >
             Select
