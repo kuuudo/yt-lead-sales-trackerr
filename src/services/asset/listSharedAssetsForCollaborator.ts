@@ -130,7 +130,7 @@ async function getSharedAssetRows(
   if (wantsVideo) {
     const { data: videoAssetRows, error: videoErr, status } = await supabase
       .from('assets')
-      .select('id, videos!inner(video_title, thumbnail_url, platform)')
+      .select('id')
       .in('id', assetIds)
       .eq('asset_type', 'video')
       .neq('organization_id', excludeOrganizationId);
