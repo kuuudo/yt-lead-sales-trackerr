@@ -44,8 +44,7 @@ import { motion, AnimatePresence } from 'motion/react';
 import { Modal } from '../components/Modal';
 import { useOrganization } from '../lib/useOrganization';
 import { createVideo } from '../services/video/createVideo';
-import { PromotedAssetPicker } from '../components/PromotedAssetPicker';
-import type { LibraryAssetPickerRow } from '../services/assignment/listLibraryAssetsForAssignmentPicker';
+import { PromotedAssetPicker, type PromotedAssetRow } from '../components/PromotedAssetPicker';
 import { deleteVideo } from '../services/video/deleteVideo';
 
 type VideoStatus = Video['status'];
@@ -497,7 +496,7 @@ export default function Videos() {
   // never sent to createVideo() and nothing is persisted from it yet.
   // Wiring it into a real video -> asset relationship is separate, later work.
   const [showAssetPicker, setShowAssetPicker] = useState(false);
-  const [promotedAsset, setPromotedAsset] = useState<LibraryAssetPickerRow | null>(null);
+  const [promotedAssets, setPromotedAssets] = useState<PromotedAssetRow[]>([]);
 
   // Auto-open import modal when navigated here with ?openImport=true
   // (e.g. from VideoDetail "Import Analytics" button)
@@ -1227,11 +1226,11 @@ export default function Videos() {
                       </label>
                       {!formData.campaign_id ? (
                         <p className="text-[10px] text-zinc-600 italic">{t.videos.selectCampaignFirst}</p>
-                      ) : promotedAsset ? (
+                      ) : promotedAssets.length > 0 ? (
                         <div className="flex items-center justify-between p-3 rounded-xl border border-zinc-900 bg-zinc-900/30">
                           <span className="flex items-center gap-2 text-[10px] font-bold uppercase tracking-wide text-white truncate max-w-[220px]">
                             <Check size={14} className="text-emerald-500 shrink-0" />
-                            {promotedAsset.display_name}
+                            {promotedAssets.map(a => a.display_name).join(', ')}
                           </span>
                           <button
                             type="button"
@@ -1272,10 +1271,10 @@ export default function Videos() {
                 {showAssetPicker && organizationId && (
                   <PromotedAssetPicker
                     organizationId={organizationId}
-                    initialSelectedAssetId={promotedAsset?.asset_id ?? null}
+                    initialSelectedAssetIds={promotedAssets.map(a => a.asset_id)}
                     onClose={() => setShowAssetPicker(false)}
-                    onSelect={asset => {
-                      setPromotedAsset(asset);
+                    onSelect={assets => {
+                      setPromotedAssets(assets);
                       setShowAssetPicker(false);
                     }}
                   />
