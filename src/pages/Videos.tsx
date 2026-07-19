@@ -867,7 +867,7 @@ export default function Videos() {
         hasLeadMagnet: false,
         selectedLeadMagnets: [],
       });
-      setPromotedAsset(null);
+      setPromotedAssets(null);
       setUseOnlyPromoteAsset(false);
       setPreviousCampaignId('');
 
@@ -992,7 +992,7 @@ export default function Videos() {
                   hasLeadMagnet: false,
                   selectedLeadMagnets: []
                 });
-                setPromotedAsset(null);
+                setPromotedAssets(null);
                 setUseOnlyPromoteAsset(false);
                 setPreviousCampaignId('');
               }
