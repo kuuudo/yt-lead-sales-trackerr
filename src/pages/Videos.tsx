@@ -44,6 +44,7 @@ import { motion, AnimatePresence } from 'motion/react';
 import { Modal } from '../components/Modal';
 import { useOrganization } from '../lib/useOrganization';
 import { createVideo } from '../services/video/createVideo';
+import { generateAssetRedirectLinks } from '../services/asset/generateAssetRedirectLinks';
 import { PromotedAssetPicker, type PromotedAssetRow } from '../components/PromotedAssetPicker';
 import { deleteVideo } from '../services/video/deleteVideo';
 
@@ -820,6 +821,17 @@ export default function Videos() {
           organizationId: organizationId!,
           userId:         user.id,
         });
+          // ── Sibling pipeline: Asset Redirect generation ──────────────────
+          // Runs AFTER createVideo() succeeds, entirely independent of it.
+          // Asset-driven (each asset's own campaign), not video-campaign-driven.
+          // Promotion/Assignment are not involved. See generateAssetRedirectLinks.ts.
+          if (promotedAssets.length > 0) {
+            await generateAssetRedirectLinks({
+              videoId: savedVideo.id,
+              selectedAssets: promotedAssets,
+            });
+          }
+
 
         // UI: query links back and show the links modal (UI concern — stays here)
         if (generated.campaign) {

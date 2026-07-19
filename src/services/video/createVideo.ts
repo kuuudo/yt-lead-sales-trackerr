@@ -23,6 +23,14 @@
  *   - Querying redirect_links back for display (caller's job)
  *   - Mapping / backfill (caller's job — UnmappedVideos uses handleMapToExisting)
  *   - Edit / update flows (kept in Videos.tsx handleSave until updateVideo() is extracted)
+ *   - Asset Redirect generation (Promoted Assets). That is a sibling
+ *     pipeline — generateAssetRedirectLinks() — called by Videos.tsx
+ *     AFTER this function returns, not from inside it. This function's
+ *     scope stays "create a video" only. Do not add promotedAssets
+ *     handling here — see generateAssetRedirectLinks.ts for why Asset
+ *     Redirects are asset-driven (asset's own campaign) rather than
+ *     video-campaign-driven, which is a different data source than
+ *     anything this function has access to.
  *
  * Callers:
  *   - Videos.tsx → handleSave() (new video branch only)
@@ -33,6 +41,7 @@
 import { supabase } from '../../lib/supabase';
 import { createRedirectLink } from '../../lib/redirects';
 import { createAsset } from '../asset/createAsset';
+import { buildCampaignRedirectJobs } from '../redirect/buildCampaignRedirectJobs';
 import type { Video, Campaign } from '../../lib/supabase';
 
 // ---------------------------------------------------------------------------
@@ -139,27 +148,16 @@ export async function createVideo({
 
   // 3. Create redirect links — only if a campaign is present.
   if (campaign) {
-    const redirectJobs: Array<[string, string]> = [
-      ['landing_page', campaign.landing_page_url],
-    ];
-    if (campaign.newsletter_url)
-      redirectJobs.push(['newsletter', campaign.newsletter_url]);
-    if (campaign.sales_call_booking_url)
-      redirectJobs.push(['sales_call', campaign.sales_call_booking_url]);
-    if (campaign.consultation_booking_url)
-      redirectJobs.push(['consultation', campaign.consultation_booking_url]);
-    // checkout link intentionally omitted — owned by campaign via Installation.tsx
-    if (campaign.purchase_thankyou_url)
-      redirectJobs.push(['purchase_thankyou', campaign.purchase_thankyou_url]);
-    if (campaign.newsletter_thankyou_url)
-      redirectJobs.push(['newsletter_thankyou', campaign.newsletter_thankyou_url]);
+    // Shared with generateAssetRedirectLinks.ts's Video-asset branch —
+    // do not inline this list again. See buildCampaignRedirectJobs.ts.
+    const redirectJobs = buildCampaignRedirectJobs(campaign);
 
     await Promise.all(
       redirectJobs.map(([type, url]) =>
         createRedirectLink(
           savedVideo.id,
           savedVideo.campaign_id,
-          type as any,
+          type,
           url,
           appBaseUrl
         )
