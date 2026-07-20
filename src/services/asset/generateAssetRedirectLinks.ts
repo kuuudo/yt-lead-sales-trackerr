@@ -269,11 +269,14 @@ console.log('[DEBUG] STEP 2 — campaign lookup for campaign_id', videoRow.campa
     assetType: 'video',
     organizationId: videoRow.organization_id,
     campaignId: campaign.id,
-    redirectJobs: campaignJobs.map(([linkType, destinationUrl]) => ({
-      linkType,
-      destinationUrl,
-    })),
-  };
+    redirectJobs: [
+    {
+      linkType: 'landing_page',
+      destinationUrl: campaign.landing_page_url,
+    },
+  ],
+};
+
 }
 
 async function resolveAssetRedirectContext(assetId: string): Promise<AssetRedirectContext | null> {
@@ -298,6 +301,10 @@ export async function generateAssetRedirectLinks({
 }: GenerateAssetRedirectLinksOptions): Promise<void> {
   if (!selectedAssets || selectedAssets.length === 0) return;
 
+ // ADD HERE:
+  console.log('[DEBUG] selectedAssets received:', selectedAssets.map(a => a.asset_id));
+
+  
   const appBaseUrl = window.location.origin;
 
   await Promise.all(
