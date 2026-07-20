@@ -231,6 +231,9 @@ async function resolveVideoAssetContext(assetId: string): Promise<AssetRedirectC
     .select('campaign_id, organization_id')
     .eq('asset_id', assetId)
     .maybeSingle();
+    
+// ADD HERE:
+console.log('[DEBUG] STEP 1 — videos row for asset', assetId, { videoRow, videoErr });
 
   if (videoErr || !videoRow) {
     console.error('[generateAssetRedirectLinks] Failed to load videos row for asset:', assetId, videoErr?.message);
@@ -247,6 +250,9 @@ async function resolveVideoAssetContext(assetId: string): Promise<AssetRedirectC
     .select('*')
     .eq('id', videoRow.campaign_id)
     .maybeSingle();
+
+    // ADD HERE:
+console.log('[DEBUG] STEP 2 — campaign lookup for campaign_id', videoRow.campaign_id, { campaign, campaignErr });
 
   if (campaignErr || !campaign) {
     console.error('[generateAssetRedirectLinks] Failed to load campaign for video asset:', assetId, campaignErr?.message);
