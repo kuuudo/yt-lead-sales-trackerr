@@ -3,7 +3,14 @@ import { Link, useSearchParams } from 'react-router-dom';
 import { useLanguage } from '../lib/hooks';
 import { supabase, Video, Campaign, LeadMagnet } from '../lib/supabase';
 import { useAuth } from '../lib/auth';
-import { getVideoPromotionBadges, CATEGORY_LABEL, type VideoPromotionBadgeMap } from '../services/redirect/getPromotedAssetDisplay';
+import * as LucideIcons from 'lucide-react';
+import type { PromotedAssetCategory } from '../services/redirect/getPromotedAssetDisplay';
+import {
+  CATEGORY_LABEL,
+  CATEGORY_COLOR,
+  getVideoPromotionBadges,
+  type VideoPromotionBadgeMap,
+} from '../services/redirect/getPromotedAssetDisplay';
 import { Youtube, Plus, Link2, Copy, Check, ExternalLink, Calendar, Target, AlertCircle, Loader2, BarChart3, ChevronDown, X, Edit2, Trash2,
   Music2, Camera, Linkedin, Twitter, AtSign, LayoutGrid, List,
   // Phase 2.5 additions
@@ -1806,21 +1813,54 @@ export default function Videos() {
   );
 })()}
                 </div>
-                <div className="flex flex-wrap gap-4 items-center text-[10px] font-bold uppercase text-zinc-500">
-                  <div className="flex flex-wrap items-center gap-1.5 min-w-[120px]">
-                    <Target size={12} className="text-red-500" /> Goals: 
-                    <div className="flex gap-1">
-                      {v.video_goal.map(goal => (
-                        <span key={goal} className="text-zinc-300 bg-zinc-900 px-1.5 py-0.5 rounded border border-zinc-800 text-[8px]">
-                          {getObjectiveLabel(goal)}
-                        </span>
-                      ))}
-                    </div>
-                  </div>
-                  <div className="flex items-center gap-1.5">
-                    <Calendar size={12} className="text-zinc-600" /> Added: <span className="text-zinc-600">{new Date(v.created_at).toLocaleDateString()}</span>
-                  </div>
-                </div>
+               <div className="flex flex-wrap gap-4 items-center text-[10px] font-bold uppercase text-zinc-500">
+  
+  {/* === Asset Promotion Badges === */}
+  {(() => {
+    const badges = promotionBadges.get(v.id) || {};
+    const categories: PromotedAssetCategory[] = ['campaign', 'library', 'shared', 'assigned'];
+
+    return categories.map(cat => {
+      const count = badges[cat];
+      if (!count) return null;
+
+      const info = CATEGORY_LABEL[cat];
+      const colorClass = CATEGORY_COLOR[cat];
+
+      const Icon = LucideIcons[info.icon];   // Dynamic Lucide icon
+
+      return (
+        <div key={cat} className="flex items-center gap-1.5">
+          <Icon size={12} className={colorClass} />
+          <span>{info.label}</span>
+          {count > 1 && <span className="text-zinc-400">x{count}</span>}
+        </div>
+      );
+    });
+  })()}
+
+  {/* Goals */}
+  <div className="flex flex-wrap items-center gap-1.5 min-w-[120px]">
+    <Target size={12} className="text-red-500" /> 
+    Goals: 
+    <div className="flex gap-1">
+      {v.video_goal.map(goal => (
+        <span 
+          key={goal} 
+          className="text-zinc-300 bg-zinc-900 px-1.5 py-0.5 rounded border border-zinc-800 text-[8px]"
+        >
+          {getObjectiveLabel(goal)}
+        </span>
+      ))}
+    </div>
+  </div>
+
+  {/* Added Date */}
+  <div className="flex items-center gap-1.5">
+    <Calendar size={12} className="text-zinc-600" /> 
+    Added: <span className="text-zinc-600">{new Date(v.created_at).toLocaleDateString()}</span>
+  </div>
+</div>
               </div>
 
               <div className="flex gap-2 w-full md:w-auto">
