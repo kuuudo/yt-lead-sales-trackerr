@@ -3,6 +3,7 @@ import { Link, useSearchParams } from 'react-router-dom';
 import { useLanguage } from '../lib/hooks';
 import { supabase, Video, Campaign, LeadMagnet } from '../lib/supabase';
 import { useAuth } from '../lib/auth';
+import { getVideoPromotionBadges, CATEGORY_LABEL, type VideoPromotionBadgeMap } from '../services/redirect/getPromotedAssetDisplay';
 import { Youtube, Plus, Link2, Copy, Check, ExternalLink, Calendar, Target, AlertCircle, Loader2, BarChart3, ChevronDown, X, Edit2, Trash2,
   Music2, Camera, Linkedin, Twitter, AtSign, LayoutGrid, List,
   // Phase 2.5 additions
@@ -488,6 +489,8 @@ export default function Videos() {
   const { user } = useAuth();
   const { organizationId } = useOrganization();
   const [videos, setVideos] = useState<Video[]>([]);
+  const [promotionBadges, setPromotionBadges] =
+  useState<VideoPromotionBadgeMap>(new Map());
   const [campaigns, setCampaigns] = useState<Campaign[]>([]);
   const [allLeadMagnets, setAllLeadMagnets] = useState<LeadMagnet[]>([]);
   const [showAdd, setShowAdd] = useState(false);
@@ -659,7 +662,21 @@ export default function Videos() {
       if (vError) throw vError;
       if (cError) throw cError;
 
-      if (vData) setVideos(vData);
+      if (vData) {
+  setVideos(vData);
+
+  if (organizationId && user && vData.length > 0) {
+    getVideoPromotionBadges({
+      videoIds: vData.map(v => v.id),
+      viewerOrganizationId: organizationId,
+      viewerUserId: user.id,
+    })
+      .then(setPromotionBadges)
+      .catch((err: any) =>
+        console.error('[Videos] getVideoPromotionBadges failed:', err)
+      );
+  }
+}
       if (cData) {
         setCampaigns(cData);
         if (cData.length > 0) {

@@ -26,6 +26,8 @@ import { useParams, Link, useNavigate } from 'react-router-dom';
 import { useLanguage } from '../lib/hooks';
 import { supabase, Video, Campaign, LeadMagnet, Asset } from '../lib/supabase';
 import { useAuth } from '../lib/auth';
+import { useOrganization } from '../lib/useOrganization';
+import { getRedirectLinksDisplay, CATEGORY_LABEL, type RedirectLinkDisplayCard } from '../services/redirect/getPromotedAssetDisplay';
 import { getAsset } from '../services/asset/getAsset';
 import { addToLibrary } from '../services/asset/addToLibrary';
 import { deleteVideo } from '../services/video/deleteVideo';
@@ -313,7 +315,9 @@ export default function VideoDetail() {
   const [timeRange, setTimeRange] = useState<DateRange>('7days');
   const [availableCampaignLeadMagnets, setAvailableCampaignLeadMagnets] = useState<LeadMagnet[]>([]);
   const [copiedLinkToken, setCopiedLinkToken] = useState<string | null>(null);
-
+  const { organizationId } = useOrganization();
+  const [displayCards, setDisplayCards] = useState<RedirectLinkDisplayCard[]>([]);
+  const [expandedCardKey, setExpandedCardKey] = useState<string | null>(null);
   const [redirectLinks, setRedirectLinks]         = useState<any[]>([]);
   const [allLeadMagnetNames, setAllLeadMagnetNames] = useState<Record<string, string>>({});
 
@@ -460,6 +464,20 @@ export default function VideoDetail() {
         .order('created_at', { ascending: true });
       setRedirectLinks(linksData || []);
 
+      // ── Display cards for the redesigned Tracking Links UI ──
+if (organizationId && user) {
+  try {
+    const cards = await getRedirectLinksDisplay({
+      videoId: id!,
+      viewerOrganizationId: organizationId,
+      viewerUserId: user.id,
+    });
+
+    setDisplayCards(cards);
+  } catch (err) {
+    console.error('[VideoDetail] getRedirectLinksDisplay failed:', err);
+  }
+}
       // ── Events — direct + session-resolved (mirrors Analytics.tsx exactly) ──
       const campaignId  = vData.campaign_id;
       const videoIdVal  = vData.id as string;
@@ -779,6 +797,18 @@ export default function VideoDetail() {
         .order('created_at', { ascending: true });
       setRedirectLinks(linksData || []);
 
+      if (organizationId && user) {
+        getRedirectLinksDisplay({
+          videoId: video.id,
+          viewerOrganizationId: organizationId,
+          viewerUserId: user.id,
+        })
+          .then(setDisplayCards)
+          .catch(err =>
+            console.error('[VideoDetail] getRedirectLinksDisplay refresh failed:', err)
+          );
+      }
+
       setShowAddLink(false);
       setExtraLinkUrl('');
       setExtraLinkLeadMagnetId('');
@@ -796,6 +826,7 @@ export default function VideoDetail() {
       const { error } = await supabase.from('redirect_links').delete().eq('token', token);
       if (error) throw error;
       setRedirectLinks(prev => prev.filter(l => l.token !== token));
+      setDisplayCards(prev => prev.filter(c => c.token !== token));
     } catch (err: any) {
       showAlert('Error', err.message || 'Could not delete link.', 'danger');
     } finally {
@@ -1357,63 +1388,85 @@ export default function VideoDetail() {
         </AnimatePresence>
 
         {/* All Links List */}
-        <div className="space-y-2">
-          {sortedLinks.length === 0 ? (
-            <p className="text-[10px] text-zinc-600 font-bold uppercase tracking-widest text-center py-6">No tracking links found</p>
-          ) : (() => {
-            const VISIBLE_LINK_TYPES = ['landing_page', 'newsletter', 'consultation', 'sales_call', 'lead_magnet'];
-            const typeCounters: Record<string, number> = {};
-            return sortedLinks.filter(l => VISIBLE_LINK_TYPES.includes(l.link_type)).map(l => {
-              const key = l.link_type === 'lead_magnet' ? `lead_magnet_${l.lead_magnet_id}` : l.link_type;
-              typeCounters[key] = (typeCounters[key] || 0) + 1;
-              const dupIndex = typeCounters[key];
-              const isExtra = isExtraLink(l);
-              return (
-                <div
-                  key={l.token}
-                  className="flex items-center justify-between gap-3 bg-zinc-950 border border-zinc-800 rounded-xl p-3"
-                >
-                  <div className="flex-1 min-w-0">
-                    <p className="text-[10px] font-black uppercase text-zinc-400 mb-1">
-                      {getLinkLabel(l.link_type, l.lead_magnet_id, dupIndex)}
-                      {isExtra && (
-                        <span className="ml-2 text-[8px] text-amber-500 border border-amber-500/30 rounded px-1 py-0.5">UPDATED</span>
-                      )}
-                    </p>
-                    <p className="font-mono text-[11px] text-blue-400 truncate">
-                      {window.location.origin}/{l.token}
-                    </p>
-                  </div>
-                  <div className="flex items-center gap-2 shrink-0">
-                    <button
-                      onClick={() => {
-                        navigator.clipboard.writeText(`${window.location.origin}/${l.token}`);
-                        setCopiedLinkToken(l.token);
-                        setTimeout(() => setCopiedLinkToken(null), 2000);
-                      }}
-                      className="h-8 w-8 flex items-center justify-center rounded-lg border border-zinc-700 hover:bg-zinc-800 transition-all"
-                    >
-                      {copiedLinkToken === l.token ? (
-                        <Check size={14} className="text-green-500" />
-                      ) : (
-                        <Copy size={14} className="text-zinc-400" />
-                      )}
-                    </button>
-                    {isExtra && (
-                      <button
-                        onClick={() => handleDeleteExtraLink(l.token)}
-                        disabled={deletingLinkToken === l.token}
-                        className="h-8 w-8 flex items-center justify-center rounded-lg border border-zinc-800 hover:bg-zinc-900 hover:border-red-500/50 text-zinc-600 hover:text-red-500 transition-all disabled:opacity-40"
-                      >
-                        {deletingLinkToken === l.token ? <Loader2 size={14} className="animate-spin" /> : <Trash2 size={14} />}
-                      </button>
-                    )}
-                  </div>
+        {/* All Links List */}
+<div className="space-y-2">
+  {displayCards.length === 0 ? (
+    <p className="text-[10px] text-zinc-600 font-bold uppercase tracking-widest text-center py-6">No tracking links found</p>
+  ) : (
+    displayCards.map((card) => {
+      const isExpanded = expandedCardKey === card.key;
+      const hasMore = Object.keys(card.more).length > 0;
+      return (
+        <div key={card.key} className="bg-zinc-950 border border-zinc-800 rounded-xl p-3 space-y-2">
+          <div className="flex items-center justify-between gap-3">
+            <div className="flex-1 min-w-0">
+              <p className="text-[9px] font-black uppercase tracking-widest text-zinc-500">
+                {CATEGORY_LABEL[card.category]}
+              </p>
+              <p className="text-sm font-bold text-white truncate mt-0.5">
+                {card.title}
+                {card.subtitle && (
+                  <span className="ml-2 text-[10px] font-bold text-zinc-500 uppercase">{card.subtitle}</span>
+                )}
+              </p>
+            </div>
+          </div>
+
+          <div>
+            <p className="text-[9px] font-black uppercase tracking-widest text-zinc-500 mb-0.5">Redirect</p>
+            <div className="flex items-center justify-between gap-2">
+              <p className="font-mono text-[11px] text-blue-400 truncate">
+                {window.location.origin}/{card.token}
+              </p>
+              <button
+                onClick={() => {
+                  navigator.clipboard.writeText(`${window.location.origin}/${card.token}`);
+                  setCopiedLinkToken(card.token);
+                  setTimeout(() => setCopiedLinkToken(null), 2000);
+                }}
+                className="shrink-0 h-7 w-7 flex items-center justify-center rounded-lg border border-zinc-700 hover:bg-zinc-800 transition-all"
+              >
+                {copiedLinkToken === card.token ? <Check size={13} className="text-green-500" /> : <Copy size={13} className="text-zinc-400" />}
+              </button>
+            </div>
+          </div>
+
+          <div>
+            <p className="text-[9px] font-black uppercase tracking-widest text-zinc-500 mb-0.5">Destination</p>
+            <p className="font-mono text-[10px] text-zinc-400 break-all">{card.destinationUrl}</p>
+          </div>
+
+          {hasMore && (
+            <div>
+              <button
+                onClick={() => setExpandedCardKey(isExpanded ? null : card.key)}
+                className="text-[9px] font-black uppercase tracking-widest text-zinc-500 hover:text-white transition-all"
+              >
+                {isExpanded ? '▲ Less' : '▼ More'}
+              </button>
+              {isExpanded && (
+                <div className="mt-2 space-y-1.5 pt-2 border-t border-zinc-900">
+                  {card.more.owner && (
+                    <div><p className="text-[9px] font-black uppercase text-zinc-600">Owner</p><p className="text-xs text-zinc-300">{card.more.owner}</p></div>
+                  )}
+                  {card.more.sharedBy && (
+                    <div><p className="text-[9px] font-black uppercase text-zinc-600">Shared By</p><p className="text-xs text-zinc-300">{card.more.sharedBy}</p></div>
+                  )}
+                  {card.more.assignment && (
+                    <div><p className="text-[9px] font-black uppercase text-zinc-600">Assignment</p><p className="text-xs text-zinc-300">{card.more.assignment}</p></div>
+                  )}
+                  {card.more.created && (
+                    <div><p className="text-[9px] font-black uppercase text-zinc-600">Created</p><p className="text-xs text-zinc-300">{new Date(card.more.created).toLocaleDateString()}</p></div>
+                  )}
                 </div>
-              );
-            });
-          })()}
+              )}
+            </div>
+          )}
         </div>
+      );
+    })
+  )}
+</div>
       </section>
 
       {/* ── Asset Library (setup action — one-time, low frequency) ────────────────
