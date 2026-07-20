@@ -1831,9 +1831,11 @@ export default function Videos() {
                         type="button"
                         onClick={(e) => handleAddToLibraryInList(v, e)}
                         disabled={addingLibraryId === v.id}
-                        className="flex items-center gap-1 px-2 py-0.5 rounded-md text-[9px] font-black uppercase tracking-widest text-red-500 bg-red-500/10 hover:bg-red-500/20 transition-colors disabled:opacity-50"
+                        className="flex items-center gap-1 px-2 py-0.5 rounded-md text-[9px] font-black uppercase tracking-widest text-zinc-300 bg-zinc-900 hover:bg-zinc-800 border border-zinc-800 transition-colors disabled:opacity-50"
                       >
-                        {addingLibraryId === v.id ? <Loader2 size={10} className="animate-spin" /> : <BookmarkPlus size={10} />}
+                        {addingLibraryId === v.id && (
+                          <Loader2 size={10} className="animate-spin" />
+                        )}
                         + Asset
                       </button>
                       <div className="relative group/libtip">
@@ -1845,11 +1847,11 @@ export default function Videos() {
                         </div>
                       </div>
                     </div>
-                  ) : (
+                  ) : v.status !== 'no_data' ? (
                     <span className={`px-2 py-0.5 rounded-md text-[9px] font-black uppercase tracking-widest ${getStatusColor(v.status)}`}>
                       {v.status.replace('_', ' ')}
                     </span>
-                  )}
+                  ) : null}
                 </div>
                <div className="flex flex-wrap gap-4 items-center text-[10px] font-bold uppercase text-zinc-500">
   
