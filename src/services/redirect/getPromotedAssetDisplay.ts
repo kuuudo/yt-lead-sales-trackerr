@@ -30,11 +30,30 @@ export type PromotedAssetCategory = 'campaign' | 'library' | 'shared' | 'assigne
 
 export const CATEGORY_ORDER: PromotedAssetCategory[] = ['campaign', 'library', 'shared', 'assigned'];
 
-export const CATEGORY_LABEL: Record<PromotedAssetCategory, string> = {
-  campaign: '📁 Campaign',
-  library: '🟢 Library Asset',
-  shared: '🔵 Shared Asset',
-  assigned: '🟣 Assigned Asset',
+export const CATEGORY_LABEL: Record<PromotedAssetCategory, { icon: string; label: string }> = {
+  campaign: {
+    icon: 'Folder',
+    label: 'Campaign',
+  },
+  library: {
+    icon: 'Library',
+    label: 'Library Asset',
+  },
+  shared: {
+    icon: 'Share2',
+    label: 'Shared Asset',
+  },
+  assigned: {
+    icon: 'UserCheck',
+    label: 'Assigned Asset',
+  },
+};
+
+export const CATEGORY_COLOR: Record<PromotedAssetCategory, string> = {
+  campaign: 'text-amber-500',
+  library: 'text-emerald-500',
+  shared: 'text-blue-500',
+  assigned: 'text-purple-500',
 };
 
 const CAMPAIGN_LINK_TYPE_LABEL: Record<string, string> = {
