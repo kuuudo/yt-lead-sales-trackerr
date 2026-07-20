@@ -1786,9 +1786,25 @@ export default function Videos() {
                         </>
                     }
                   </Link>
-                  <span className={`px-2 py-0.5 rounded-md text-[9px] font-black uppercase tracking-widest ${getStatusColor(v.status)}`}>
-                    {v.status.replace('_', ' ')}
-                  </span>
+                  {(() => {
+  const badges = promotionBadges.get(v.id);
+  if (!badges) return null;
+  return (
+    <div className="flex items-center gap-1.5">
+      {(['library', 'shared', 'assigned'] as const)
+        .filter(cat => badges[cat])
+        .map(cat => (
+          <span
+            key={cat}
+            className="px-2 py-0.5 rounded-md text-[9px] font-black uppercase tracking-widest bg-zinc-900 border border-zinc-800"
+          >
+            {CATEGORY_LABEL[cat]}
+            {badges[cat]! > 1 ? ` ×${badges[cat]}` : ''}
+          </span>
+        ))}
+    </div>
+  );
+})()}
                 </div>
                 <div className="flex flex-wrap gap-4 items-center text-[10px] font-bold uppercase text-zinc-500">
                   <div className="flex flex-wrap items-center gap-1.5 min-w-[120px]">
