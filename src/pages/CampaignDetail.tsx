@@ -4,7 +4,7 @@ import { useLanguage } from '../lib/hooks';
 import { supabase, Campaign, LeadMagnet } from '../lib/supabase';
 import { useAuth } from '../lib/auth';
 import { 
-  ArrowLeft, Save, Trash2, Plus, 
+  ArrowLeft, Save, Trash2, Plus, ArchiveRestore,
   Loader2, AlertCircle, 
   CheckCircle2, Globe, Magnet, 
   Phone, DollarSign, MousePointer2,
@@ -69,6 +69,7 @@ export default function CampaignDetail() {
   
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
+  const [restoring, setRestoring] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState(false);
   const [missingAfterSave, setMissingAfterSave] = useState<string[]>([]);
@@ -147,6 +148,24 @@ export default function CampaignDetail() {
       setError(err.message || 'Failed to load campaign data');
     } finally {
       setLoading(false);
+    }
+  };
+
+  // Restore is only ever triggered by an explicit user click below.
+  const handleRestore = async () => {
+    if (!id) return;
+    setRestoring(true);
+    try {
+      const { error: restoreErr } = await supabase
+        .from('campaigns')
+        .update({ archived_at: null })
+        .eq('id', id);
+      if (restoreErr) throw restoreErr;
+      setFormData(prev => ({ ...prev, archived_at: null } as any));
+    } catch (err: any) {
+      setError(err.message || 'Failed to restore campaign');
+    } finally {
+      setRestoring(false);
     }
   };
 
@@ -271,7 +290,14 @@ export default function CampaignDetail() {
             <ArrowLeft size={18} />
           </Link>
           <div>
-            <h1 className="text-2xl font-black text-white">{formData.campaign_name || 'Campaign Detail'}</h1>
+            <h1 className="text-2xl font-black text-white flex items-center gap-2">
+              {formData.campaign_name || 'Campaign Detail'}
+              {(formData as any).archived_at && (
+                <span className="flex items-center gap-1 text-[9px] font-black uppercase tracking-widest text-amber-500 bg-amber-500/10 border border-amber-500/20 px-2 py-1 rounded-full">
+                  <ArchiveRestore size={10} /> Archived
+                </span>
+              )}
+            </h1>
             <p className="text-[10px] text-zinc-500 uppercase font-bold tracking-widest mt-1">Configure your conversion funnel intelligence</p>
           </div>
         </div>
@@ -289,6 +315,16 @@ export default function CampaignDetail() {
               </motion.div>
             )}
           </AnimatePresence>
+          {(formData as any).archived_at && (
+            <button
+              onClick={handleRestore}
+              disabled={restoring}
+              className="flex items-center gap-2 px-6 py-3 bg-zinc-900 border border-zinc-800 text-zinc-300 text-[11px] font-black uppercase rounded-xl hover:bg-zinc-800 transition-all disabled:opacity-50"
+            >
+              {restoring ? <Loader2 size={16} className="animate-spin" /> : <ArchiveRestore size={16} />}
+              {restoring ? 'Restoring...' : 'Restore Campaign'}
+            </button>
+          )}
           <button 
             onClick={handleSave}
             disabled={saving}

@@ -3,7 +3,7 @@ import { useNavigate, useLocation } from 'react-router-dom';
 import { useLanguage } from '../lib/hooks';
 import { supabase, Campaign } from '../lib/supabase';
 import { useAuth } from '../lib/auth';
-import { Plus, Globe, ChevronRight, DollarSign, Phone, Mail as MailIcon, Briefcase, Save, Loader2, Link2, Magnet, Trash2, AlertTriangle, CreditCard, X } from 'lucide-react';
+import { Plus, Globe, ChevronRight, DollarSign, Phone, Mail as MailIcon, Briefcase, Save, Loader2, Link2, Magnet, Archive, ArchiveRestore, AlertTriangle, CreditCard, X } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { Modal } from '../components/Modal';
 import { useOrganization } from '../lib/useOrganization'
@@ -18,7 +18,14 @@ export default function Campaigns() {
   const [showAdd, setShowAdd] = useState(false);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
-  const [deletingId, setDeletingId] = useState<string | null>(null);
+  const [archivingId, setArchivingId] = useState<string | null>(null);
+
+  // Archived campaigns modal state
+  const [showArchived, setShowArchived] = useState(false);
+  const [archivedCampaigns, setArchivedCampaigns] = useState<Campaign[]>([]);
+  const [archivedLoading, setArchivedLoading] = useState(false);
+  const [selectedArchiveIds, setSelectedArchiveIds] = useState<string[]>([]);
+  const [restoring, setRestoring] = useState(false);
 
   const [modalConfig, setModalConfig] = useState<{
     isOpen: boolean;
@@ -81,6 +88,7 @@ export default function Campaigns() {
         .select('*')
         .eq('organization_id', organizationId) 
         .eq('is_system', false)
+        .is('archived_at', null)
         .order('created_at', { ascending: false });
       if (error) throw error;
       if (data) setCampaigns(data);
@@ -138,22 +146,79 @@ export default function Campaigns() {
     }
   };
 
-  const handleDelete = (campaign: Campaign) => {
+  // Archive is only ever triggered by an explicit user click on the Archive
+  // button below — there is no automatic/time-based archiving anywhere.
+  const handleArchive = (campaign: Campaign) => {
     showAlert(
-      'Delete Campaign',
-      `Are you sure you want to delete "${campaign.campaign_name}"? This cannot be undone.`,
-      'danger',
+      'Archive campaign?',
+      `Archived campaigns will be hidden from your active list. You can restore "${campaign.campaign_name}" anytime.`,
+      'info',
       async () => {
-        setDeletingId(campaign.id);
-        const { error } = await supabase.from('campaigns').delete().eq('id', campaign.id);
-        setDeletingId(null);
+        setArchivingId(campaign.id);
+        const { error } = await supabase
+          .from('campaigns')
+          .update({ archived_at: new Date().toISOString() })
+          .eq('id', campaign.id);
+        setArchivingId(null);
         if (error) {
-          showAlert('Delete Failed', error.message, 'danger');
+          showAlert('Archive Failed', error.message, 'danger');
         } else {
           setCampaigns(campaigns.filter(c => c.id !== campaign.id));
         }
       }
     );
+  };
+
+  const fetchArchivedCampaigns = async () => {
+    if (!organizationId) return;
+    setArchivedLoading(true);
+    try {
+      const { data, error } = await supabase
+        .from('campaigns')
+        .select('*')
+        .eq('organization_id', organizationId)
+        .eq('is_system', false)
+        .not('archived_at', 'is', null)
+        .order('archived_at', { ascending: false });
+      if (error) throw error;
+      setArchivedCampaigns(data || []);
+    } catch (err: any) {
+      showAlert('Fetch Error', `Failed to fetch archived campaigns: ${err.message}`, 'danger');
+    } finally {
+      setArchivedLoading(false);
+    }
+  };
+
+  const openArchivedModal = () => {
+    setSelectedArchiveIds([]);
+    setShowArchived(true);
+    fetchArchivedCampaigns();
+  };
+
+  const toggleArchiveSelection = (id: string) => {
+    setSelectedArchiveIds(prev =>
+      prev.includes(id) ? prev.filter(x => x !== id) : [...prev, id]
+    );
+  };
+
+  const handleRestoreSelected = async () => {
+    if (selectedArchiveIds.length === 0) return;
+    setRestoring(true);
+    try {
+      const { error } = await supabase
+        .from('campaigns')
+        .update({ archived_at: null })
+        .in('id', selectedArchiveIds);
+      if (error) throw error;
+      setArchivedCampaigns(prev => prev.filter(c => !selectedArchiveIds.includes(c.id)));
+      setSelectedArchiveIds([]);
+      // Restored campaigns belong back in the active list
+      fetchCampaigns();
+    } catch (err: any) {
+      showAlert('Restore Failed', err.message, 'danger');
+    } finally {
+      setRestoring(false);
+    }
   };
 
   const inputClass = "w-full bg-zinc-950 border border-zinc-800 rounded-xl p-3 text-[11px] font-mono text-zinc-400 outline-none focus:border-red-600 transition-all placeholder:text-zinc-700";
@@ -186,15 +251,23 @@ export default function Campaigns() {
           </h1>
           <p className="text-zinc-500 text-[10px] uppercase tracking-widest mt-1">Configure your revenue engine</p>
         </div>
-        <button
-          onClick={() => {
-            localStorage.setItem('campaign_form_return', location.pathname);
-            setShowAdd(!showAdd);
-          }}
-          className="flex items-center gap-2 bg-white hover:bg-zinc-200 text-zinc-950 px-5 py-2.5 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all"
-        >
-          {showAdd ? <><X size={14} /> Close</> : <><Plus size={16} /> {t.campaigns.create}</>}
-        </button>
+        <div className="flex items-center gap-3">
+          <button
+            onClick={openArchivedModal}
+            className="flex items-center gap-2 bg-zinc-900 hover:bg-zinc-800 border border-zinc-800 text-zinc-300 px-5 py-2.5 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all"
+          >
+            <Archive size={14} /> Archived
+          </button>
+          <button
+            onClick={() => {
+              localStorage.setItem('campaign_form_return', location.pathname);
+              setShowAdd(!showAdd);
+            }}
+            className="flex items-center gap-2 bg-white hover:bg-zinc-200 text-zinc-950 px-5 py-2.5 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all"
+          >
+            {showAdd ? <><X size={14} /> Close</> : <><Plus size={16} /> {t.campaigns.create}</>}
+          </button>
+        </div>
       </header>
 
       <AnimatePresence>
@@ -463,12 +536,12 @@ export default function Campaigns() {
               className="bento-card group hover:border-zinc-700 transition-all p-6 cursor-pointer relative"
               onClick={() => navigate(`/campaigns/${c.id}`)}
             >
-              {/* Delete button */}
+              {/* Archive button */}
               <button
-                onClick={e => { e.stopPropagation(); handleDelete(c); }}
-                className="absolute top-4 right-4 w-7 h-7 rounded-lg bg-zinc-900 border border-zinc-800 flex items-center justify-center text-zinc-600 hover:text-red-500 hover:border-red-500/30 transition-all opacity-0 group-hover:opacity-100"
+                onClick={e => { e.stopPropagation(); handleArchive(c); }}
+                className="absolute top-4 right-4 w-7 h-7 rounded-lg bg-zinc-900 border border-zinc-800 flex items-center justify-center text-zinc-600 hover:text-white hover:border-zinc-600 transition-all opacity-0 group-hover:opacity-100"
               >
-                {deletingId === c.id ? <Loader2 size={12} className="animate-spin" /> : <Trash2 size={12} />}
+                {archivingId === c.id ? <Loader2 size={12} className="animate-spin" /> : <Archive size={12} />}
               </button>
 
               <div className="flex justify-between items-start mb-4 pr-8">
@@ -517,6 +590,78 @@ export default function Campaigns() {
           ))
         )}
       </section>
+
+      {/* Archived campaigns modal */}
+      <AnimatePresence>
+        {showArchived && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="fixed inset-0 z-50 bg-black/70 flex items-center justify-center p-4"
+            onClick={() => setShowArchived(false)}
+          >
+            <motion.div
+              initial={{ opacity: 0, scale: 0.96 }}
+              animate={{ opacity: 1, scale: 1 }}
+              exit={{ opacity: 0, scale: 0.96 }}
+              className="bento-card w-full max-w-md max-h-[80vh] flex flex-col p-6"
+              onClick={e => e.stopPropagation()}
+            >
+              <div className="flex justify-between items-center mb-4">
+                <h2 className="text-lg font-bold text-white flex items-center gap-2">
+                  <Archive size={16} className="text-zinc-500" /> Archived Campaigns
+                </h2>
+                <button
+                  onClick={() => setShowArchived(false)}
+                  className="w-7 h-7 rounded-lg bg-zinc-900 border border-zinc-800 flex items-center justify-center text-zinc-500 hover:text-white transition-all"
+                >
+                  <X size={14} />
+                </button>
+              </div>
+
+              <div className="flex-1 overflow-y-auto space-y-1 -mx-2 px-2">
+                {archivedLoading ? (
+                  Array.from({ length: 3 }).map((_, i) => (
+                    <div key={i} className="h-11 rounded-xl bg-zinc-900/50 animate-pulse" />
+                  ))
+                ) : archivedCampaigns.length === 0 ? (
+                  <p className="text-zinc-600 text-xs font-bold uppercase tracking-widest text-center py-10">
+                    No archived campaigns
+                  </p>
+                ) : (
+                  archivedCampaigns.map(c => (
+                    <div
+                      key={c.id}
+                      className="flex items-center gap-3 p-2.5 rounded-xl hover:bg-zinc-900 transition-all cursor-pointer group"
+                      onClick={() => navigate(`/campaigns/${c.id}`)}
+                    >
+                      <input
+                        type="checkbox"
+                        checked={selectedArchiveIds.includes(c.id)}
+                        onClick={e => e.stopPropagation()}
+                        onChange={() => toggleArchiveSelection(c.id)}
+                        className="w-4 h-4 rounded accent-white shrink-0"
+                      />
+                      <span className="text-sm text-zinc-200 flex-1 truncate">{c.campaign_name}</span>
+                      <ChevronRight size={14} className="text-zinc-600 shrink-0 opacity-0 group-hover:opacity-100 transition-all" />
+                    </div>
+                  ))
+                )}
+              </div>
+
+              <button
+                disabled={selectedArchiveIds.length === 0 || restoring}
+                onClick={handleRestoreSelected}
+                className="mt-4 w-full flex items-center justify-center gap-2 bg-white hover:bg-zinc-200 disabled:opacity-40 disabled:cursor-not-allowed text-zinc-950 px-5 py-3 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all"
+              >
+                {restoring ? <Loader2 size={14} className="animate-spin" /> : <ArchiveRestore size={14} />}
+                Restore Selected{selectedArchiveIds.length > 0 ? ` (${selectedArchiveIds.length})` : ''}
+              </button>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
 
       <Modal
         isOpen={modalConfig.isOpen}
