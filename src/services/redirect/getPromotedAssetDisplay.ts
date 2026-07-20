@@ -56,7 +56,7 @@ function platformLabel(platform: string | null): string | null {
 }
 
 // ---------------------------------------------------------------------------
-// Shared categorization rule
+// Shared categorization rules
 // ---------------------------------------------------------------------------
 
 function categorizeAsset({
