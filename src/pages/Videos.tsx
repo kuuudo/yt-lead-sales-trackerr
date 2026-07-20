@@ -15,8 +15,9 @@ import { Youtube, Plus, Link2, Copy, Check, ExternalLink, Calendar, Target, Aler
   Music2, Camera, Linkedin, Twitter, AtSign, LayoutGrid, List,
   // Phase 2.5 additions
   Upload, FileText, CheckCircle2, AlertTriangle, ArrowRight, RefreshCw,
-  HelpCircle,
+  HelpCircle, BookmarkPlus,
 } from 'lucide-react';
+import { addToLibrary } from '../services/asset/addToLibrary';
 import {
   type Platform,
   PLATFORM_CONFIG,
@@ -498,6 +499,11 @@ export default function Videos() {
   const [videos, setVideos] = useState<Video[]>([]);
   const [promotionBadges, setPromotionBadges] =
   useState<VideoPromotionBadgeMap>(new Map());
+  // Asset Library status per row (keyed by asset_id) — powers the "+ Asset"
+  // action badge that replaces the NO DATA status badge when the video's
+  // asset hasn't been added to the library yet. See handleAddToLibraryInList.
+  const [libraryStatus, setLibraryStatus] = useState<Map<string, boolean>>(new Map());
+  const [addingLibraryId, setAddingLibraryId] = useState<string | null>(null);
   const [campaigns, setCampaigns] = useState<Campaign[]>([]);
   const [allLeadMagnets, setAllLeadMagnets] = useState<LeadMagnet[]>([]);
   const [showAdd, setShowAdd] = useState(false);
@@ -682,6 +688,15 @@ export default function Videos() {
       .catch((err: any) =>
         console.error('[Videos] getVideoPromotionBadges failed:', err)
       );
+
+    // NEW: batch-load Asset Library status for the "no data" badge swap
+    const assetIds = [...new Set(vData.map(v => v.asset_id).filter(Boolean))];
+    if (assetIds.length > 0) {
+      supabase.from('assets').select('id, added_to_library_at').in('id', assetIds)
+        .then(({ data }) => {
+          if (data) setLibraryStatus(new Map(data.map(a => [a.id, !!a.added_to_library_at])));
+        });
+    }
   }
 }
       if (cData) {
@@ -928,6 +943,23 @@ export default function Videos() {
       case 'installed': return 'text-blue-500 bg-blue-500/10';
       case 'missing': return 'text-orange-500 bg-orange-500/10';
       default: return 'text-zinc-500 bg-zinc-500/10';
+    }
+  };
+
+  // Mirrors VideoDetail.tsx's handleAddToLibrary, scoped to a single row
+  // in the list so multiple rows can each track their own loading state.
+  const handleAddToLibraryInList = async (v: Video, e: React.MouseEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    if (!v.asset_id) return;
+    setAddingLibraryId(v.id);
+    try {
+      await addToLibrary(v.asset_id);
+      setLibraryStatus(prev => new Map(prev).set(v.asset_id!, true));
+    } catch (err: any) {
+      showAlert('Error', err.message || 'Could not add to library.', 'danger');
+    } finally {
+      setAddingLibraryId(null);
     }
   };
 
@@ -1793,9 +1825,31 @@ export default function Videos() {
                         </>
                     }
                   </Link>
-                  <span className={`px-2 py-0.5 rounded-md text-[9px] font-black uppercase tracking-widest ${getStatusColor(v.status)}`}>
-                    {v.status.replace('_', ' ')}
-                  </span>
+                  {v.status === 'no_data' && v.asset_id && !libraryStatus.get(v.asset_id) ? (
+                    <div className="flex items-center gap-1">
+                      <button
+                        type="button"
+                        onClick={(e) => handleAddToLibraryInList(v, e)}
+                        disabled={addingLibraryId === v.id}
+                        className="flex items-center gap-1 px-2 py-0.5 rounded-md text-[9px] font-black uppercase tracking-widest text-red-500 bg-red-500/10 hover:bg-red-500/20 transition-colors disabled:opacity-50"
+                      >
+                        {addingLibraryId === v.id ? <Loader2 size={10} className="animate-spin" /> : <BookmarkPlus size={10} />}
+                        + Asset
+                      </button>
+                      <div className="relative group/libtip">
+                        <HelpCircle size={12} className="text-zinc-600 hover:text-zinc-400 cursor-help transition-colors" />
+                        <div className="hidden group-hover/libtip:block absolute left-0 top-5 z-20 w-56 p-3 rounded-xl border border-zinc-800 bg-zinc-900 shadow-2xl">
+                          <p className="text-[10px] leading-relaxed text-zinc-400 normal-case font-medium">
+                            Add this content to your Asset Library. Once it's been added, it becomes reusable, shareable, and trackable across your campaigns and promotions.
+                          </p>
+                        </div>
+                      </div>
+                    </div>
+                  ) : (
+                    <span className={`px-2 py-0.5 rounded-md text-[9px] font-black uppercase tracking-widest ${getStatusColor(v.status)}`}>
+                      {v.status.replace('_', ' ')}
+                    </span>
+                  )}
                 </div>
                <div className="flex flex-wrap gap-4 items-center text-[10px] font-bold uppercase text-zinc-500">
   
