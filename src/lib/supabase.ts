@@ -43,8 +43,12 @@ export type Video = {
   asset_id: string;
   // Soft-delete marker (Migration 008). NULL = not deleted. Set instead of
   // hard-deleting a Video whose Asset has been added to the Library.
-  // Not yet used by any query in this phase — deleteVideo() is a later phase.
+  // Internal system lifecycle state — not exposed in the UI.
   deleted_at: string | null;
+  // Archive marker. NULL = active. User-controlled organizational state,
+  // set only via an explicit Archive action in the UI. Independent of
+  // deleted_at — archiving never touches deleted_at and vice versa.
+  archived_at: string | null;
 };
 
 // Asset is Content Identity — intentionally minimal. It never stores title,

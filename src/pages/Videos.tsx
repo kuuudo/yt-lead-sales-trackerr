@@ -11,7 +11,7 @@ import {
   getVideoPromotionBadges,
   type VideoPromotionBadgeMap,
 } from '../services/redirect/getPromotedAssetDisplay';
-import { Youtube, Plus, Link2, Copy, Check, ExternalLink, Calendar, Target, AlertCircle, Loader2, BarChart3, ChevronDown, X, Edit2, Trash2,
+import { Youtube, Plus, Link2, Copy, Check, ExternalLink, Calendar, Target, AlertCircle, Loader2, BarChart3, ChevronDown, X, Edit2, Archive, ArchiveRestore,
   Music2, Camera, Linkedin, Twitter, AtSign, LayoutGrid, List,
   // Phase 2.5 additions
   Upload, FileText, CheckCircle2, AlertTriangle, ArrowRight, RefreshCw,
@@ -55,7 +55,6 @@ import { useOrganization } from '../lib/useOrganization';
 import { createVideo } from '../services/video/createVideo';
 import { generateAssetRedirectLinks } from '../services/asset/generateAssetRedirectLinks';
 import { PromotedAssetPicker, type PromotedAssetRow } from '../components/PromotedAssetPicker';
-import { deleteVideo } from '../services/video/deleteVideo';
 
 type VideoStatus = Video['status'];
 
@@ -534,7 +533,14 @@ export default function Videos() {
   const [showLinksModal, setShowLinksModal] = useState(false);
   const [copiedLink, setCopiedLink] = useState<string | null>(null);
   const [editingVideoId, setEditingVideoId] = useState<string | null>(null);
-  const [deletingVideoId, setDeletingVideoId] = useState<string | null>(null);
+  const [archivingVideoId, setArchivingVideoId] = useState<string | null>(null);
+
+  // Archived videos modal state
+  const [showArchivedVideos, setShowArchivedVideos] = useState(false);
+  const [archivedVideos, setArchivedVideos] = useState<Video[]>([]);
+  const [archivedVideosLoading, setArchivedVideosLoading] = useState(false);
+  const [selectedArchivedVideoIds, setSelectedArchivedVideoIds] = useState<string[]>([]);
+  const [restoringVideos, setRestoringVideos] = useState(false);
 
   const [viewMode, setViewMode] = useState<'card' | 'list'>(() => {
     return (localStorage.getItem('videos_view_mode') as 'card' | 'list') ?? 'card';
@@ -580,8 +586,8 @@ export default function Videos() {
     setModalConfig({ isOpen: true, title, message, variant, onConfirm: undefined });
   };
 
-  const showConfirm = (title: string, message: string, onConfirm: () => void) => {
-    setModalConfig({ isOpen: true, title, message, variant: 'danger', onConfirm });
+  const showConfirm = (title: string, message: string, onConfirm: () => void, variant: 'info' | 'danger' | 'success' = 'danger') => {
+    setModalConfig({ isOpen: true, title, message, variant, onConfirm });
   };
 
   const [availableLeadMagnets, setAvailableLeadMagnets] = useState<LeadMagnet[]>([]);
@@ -663,6 +669,7 @@ export default function Videos() {
         .select('*')
         .eq('organization_id', organizationId)
         .is('deleted_at', null)
+        .is('archived_at', null)
         .order('created_at', { ascending: false });
 
       console.log('Supabase Videos Response:', { data: vData, error: vError });
@@ -965,6 +972,84 @@ export default function Videos() {
 
   const getObjectiveLabel = (obj: 'newsletter' | 'calls' | 'consult' | 'sales' | 'viral') => {
     return (t.videos.objectives as any)[obj] || obj;
+  };
+
+  // Archive is only ever triggered by an explicit user click on the Archive
+  // button below — there is no automatic/time-based archiving anywhere.
+  // This is fully independent of deleted_at / deleteVideo(), which remain
+  // untouched internal system logic.
+  const handleArchiveVideo = (v: Video) => {
+    showConfirm(
+      'Archive Video?',
+      'Archived videos will be hidden from your active content library. You can restore them anytime.',
+      async () => {
+        setArchivingVideoId(v.id);
+        try {
+          const { error } = await supabase
+            .from('videos')
+            .update({ archived_at: new Date().toISOString() })
+            .eq('id', v.id);
+          if (error) throw error;
+          setVideos(prev => prev.filter(vid => vid.id !== v.id));
+        } catch (err: any) {
+          showAlert('Archive Failed', err.message || 'Could not archive the video.', 'danger');
+        } finally {
+          setArchivingVideoId(null);
+        }
+      },
+      'info'
+    );
+  };
+
+  const fetchArchivedVideos = async () => {
+    if (!organizationId) return;
+    setArchivedVideosLoading(true);
+    try {
+      const { data, error } = await supabase
+        .from('videos')
+        .select('*')
+        .eq('organization_id', organizationId)
+        .is('deleted_at', null)
+        .not('archived_at', 'is', null)
+        .order('archived_at', { ascending: false });
+      if (error) throw error;
+      setArchivedVideos(data || []);
+    } catch (err: any) {
+      showAlert('Fetch Error', `Failed to fetch archived videos: ${err.message}`, 'danger');
+    } finally {
+      setArchivedVideosLoading(false);
+    }
+  };
+
+  const openArchivedVideosModal = () => {
+    setSelectedArchivedVideoIds([]);
+    setShowArchivedVideos(true);
+    fetchArchivedVideos();
+  };
+
+  const toggleArchivedVideoSelection = (id: string) => {
+    setSelectedArchivedVideoIds(prev =>
+      prev.includes(id) ? prev.filter(x => x !== id) : [...prev, id]
+    );
+  };
+
+  const handleRestoreSelectedVideos = async () => {
+    if (selectedArchivedVideoIds.length === 0) return;
+    setRestoringVideos(true);
+    try {
+      const { error } = await supabase
+        .from('videos')
+        .update({ archived_at: null })
+        .in('id', selectedArchivedVideoIds);
+      if (error) throw error;
+      setArchivedVideos(prev => prev.filter(v => !selectedArchivedVideoIds.includes(v.id)));
+      setSelectedArchivedVideoIds([]);
+      fetchData();
+    } catch (err: any) {
+      showAlert('Restore Failed', err.message, 'danger');
+    } finally {
+      setRestoringVideos(false);
+    }
   };
 
   const filteredVideos = React.useMemo(() => {
@@ -1525,6 +1610,14 @@ export default function Videos() {
               <List size={15} />
             </button>
           </div>
+
+          <button
+            onClick={openArchivedVideosModal}
+            title="Archived Videos"
+            className="h-11 flex items-center gap-2 px-4 bg-zinc-950 border border-zinc-800 rounded-xl text-[10px] font-black uppercase tracking-widest text-zinc-500 hover:text-white hover:bg-zinc-900 transition-all"
+          >
+            <Archive size={15} /> Archived
+          </button>
         </div>
       </section>
 
@@ -1955,50 +2048,16 @@ export default function Videos() {
                   <Edit2 size={16} />
                 </button>
                 <button 
-                  onClick={async (e) => {
+                  onClick={(e) => {
                     e.preventDefault();
                     e.stopPropagation();
-                    
-                    showConfirm(
-                      'Confirm Deletion',
-                      // This list doesn't have each row's Library status
-                      // loaded (that would mean joining to `assets` here,
-                      // out of scope for this pass), so the copy covers
-                      // both outcomes instead of predicting one. The exact
-                      // result is confirmed in the success message below.
-                      'Are you sure you want to delete this video? If it\'s in your Asset Library, its record will be archived instead of removed; otherwise it will be permanently deleted and cannot be undone.',
-                      async () => {
-                        setDeletingVideoId(v.id);
-
-                        try {
-                          const result = await deleteVideo(v.id);
-                          const message =
-                            result.mode === 'soft'
-                              ? 'This video has been removed. Since it was in your Asset Library, its record has been archived rather than permanently deleted.'
-                              : 'The video has been successfully removed from your list.';
-                          showAlert(result.mode === 'soft' ? 'Video Archived' : 'Video Deleted', message, 'success');
-                          setVideos(prev => prev.filter(vid => vid.id !== v.id));
-                        } catch (err: any) {
-                          if (err?.code === 'ASSET_IN_USE') {
-                            showAlert(
-                              'Delete Failed',
-                              'This video is still referenced elsewhere (assignments, campaigns, or redirect links) and cannot be deleted.',
-                              'danger',
-                            );
-                          } else {
-                            showAlert('Unexpected Error', `An error occurred during deletion: ${err?.message || 'Unknown error'}`, 'danger');
-                          }
-                        } finally {
-                          setDeletingVideoId(null);
-                        }
-                      }
-                    );
+                    handleArchiveVideo(v);
                   }}
-                  disabled={deletingVideoId === v.id}
-                  className="h-10 px-4 rounded-xl border border-zinc-800 hover:bg-zinc-900 transition-all text-zinc-500 hover:text-red-500 disabled:opacity-50 disabled:cursor-not-allowed"
-                  title="Delete"
+                  disabled={archivingVideoId === v.id}
+                  className="h-10 px-4 rounded-xl border border-zinc-800 hover:bg-zinc-900 transition-all text-zinc-500 hover:text-white disabled:opacity-50 disabled:cursor-not-allowed"
+                  title="Archive"
                 >
-                  {deletingVideoId === v.id ? <Loader2 size={16} className="animate-spin" /> : <Trash2 size={16} />}
+                  {archivingVideoId === v.id ? <Loader2 size={16} className="animate-spin" /> : <Archive size={16} />}
                 </button>
               </div>
             </motion.div>
@@ -2078,6 +2137,81 @@ export default function Videos() {
           </motion.div>
         </div>
       )}
+
+      {/* Archived videos modal */}
+      <AnimatePresence>
+        {showArchivedVideos && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="fixed inset-0 z-50 bg-black/70 flex items-center justify-center p-4"
+            onClick={() => setShowArchivedVideos(false)}
+          >
+            <motion.div
+              initial={{ opacity: 0, scale: 0.96 }}
+              animate={{ opacity: 1, scale: 1 }}
+              exit={{ opacity: 0, scale: 0.96 }}
+              className="bg-zinc-950 border border-zinc-800 rounded-2xl w-full max-w-md max-h-[80vh] flex flex-col p-6"
+              onClick={e => e.stopPropagation()}
+            >
+              <div className="flex justify-between items-center mb-4">
+                <h2 className="text-lg font-bold text-white flex items-center gap-2">
+                  <Archive size={16} className="text-zinc-500" /> Archived Videos
+                </h2>
+                <button
+                  onClick={() => setShowArchivedVideos(false)}
+                  className="w-7 h-7 rounded-lg bg-zinc-900 border border-zinc-800 flex items-center justify-center text-zinc-500 hover:text-white transition-all"
+                >
+                  <X size={14} />
+                </button>
+              </div>
+
+              <div className="flex-1 overflow-y-auto space-y-1 -mx-2 px-2">
+                {archivedVideosLoading ? (
+                  Array.from({ length: 3 }).map((_, i) => (
+                    <div key={i} className="h-11 rounded-xl bg-zinc-900/50 animate-pulse" />
+                  ))
+                ) : archivedVideos.length === 0 ? (
+                  <p className="text-zinc-600 text-xs font-bold uppercase tracking-widest text-center py-10">
+                    No archived videos
+                  </p>
+                ) : (
+                  archivedVideos.map(v => (
+                    <div
+                      key={v.id}
+                      className="flex items-center gap-3 p-2.5 rounded-xl hover:bg-zinc-900 transition-all group"
+                    >
+                      <input
+                        type="checkbox"
+                        checked={selectedArchivedVideoIds.includes(v.id)}
+                        onChange={() => toggleArchivedVideoSelection(v.id)}
+                        className="w-4 h-4 rounded accent-white shrink-0"
+                      />
+                      <Link
+                        to={`/videos/${v.id}`}
+                        onClick={() => setShowArchivedVideos(false)}
+                        className="text-sm text-zinc-200 flex-1 truncate hover:text-white"
+                      >
+                        {v.video_title}
+                      </Link>
+                    </div>
+                  ))
+                )}
+              </div>
+
+              <button
+                disabled={selectedArchivedVideoIds.length === 0 || restoringVideos}
+                onClick={handleRestoreSelectedVideos}
+                className="mt-4 w-full flex items-center justify-center gap-2 bg-white hover:bg-zinc-200 disabled:opacity-40 disabled:cursor-not-allowed text-zinc-950 px-5 py-3 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all"
+              >
+                {restoringVideos ? <Loader2 size={14} className="animate-spin" /> : <ArchiveRestore size={14} />}
+                Restore Selected{selectedArchivedVideoIds.length > 0 ? ` (${selectedArchivedVideoIds.length})` : ''}
+              </button>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
 
       <Modal
         isOpen={modalConfig.isOpen}
