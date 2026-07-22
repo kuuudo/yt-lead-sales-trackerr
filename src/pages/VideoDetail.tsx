@@ -627,7 +627,7 @@ console.log('[DEBUG] getRedirectLinksDisplay returned:', cards);
       setLoading(false);
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [id, user]);
+  }, [id, user, organizationId]);
 
   // ── Asset Library illustration — view-count effect ──────────────────────────
   // Fires once asset state settles. Only counts a "view" when the empty state
