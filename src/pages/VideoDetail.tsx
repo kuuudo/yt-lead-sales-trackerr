@@ -473,10 +473,15 @@ if (organizationId && user) {
       viewerUserId: user.id,
     });
 
+console.log('[DEBUG] getRedirectLinksDisplay returned:', cards);
+
+setDisplayCards(cards);
+
     setDisplayCards(cards);
-  } catch (err) {
-    console.error('[VideoDetail] getRedirectLinksDisplay failed:', err);
-  }
+ } catch (err) {
+  console.error('[VideoDetail] getRedirectLinksDisplay failed:', err);
+  console.log('[DEBUG] organizationId at call time:', organizationId, 'user:', user);
+}
 }
       // ── Events — direct + session-resolved (mirrors Analytics.tsx exactly) ──
       const campaignId  = vData.campaign_id;
