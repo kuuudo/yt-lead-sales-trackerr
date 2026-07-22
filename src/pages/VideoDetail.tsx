@@ -464,6 +464,15 @@ export default function VideoDetail() {
         .order('created_at', { ascending: true });
       setRedirectLinks(linksData || []);
 
+
+// ── Display cards for redesigned Tracking Links UI ──
+
+console.log('[DEBUG] before display cards:', {
+  organizationId,
+  user,
+  videoId: id
+});
+
       // ── Display cards for the redesigned Tracking Links UI ──
 if (organizationId && user) {
   try {
@@ -474,8 +483,6 @@ if (organizationId && user) {
     });
 
 console.log('[DEBUG] getRedirectLinksDisplay returned:', cards);
-
-setDisplayCards(cards);
 
     setDisplayCards(cards);
  } catch (err) {
