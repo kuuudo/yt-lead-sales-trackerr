@@ -39,7 +39,9 @@
 
 import React, { useEffect, useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
-import { Library, Loader2, Plus, Search } from 'lucide-react';
+import { Library, Loader2, Plus, Search, Archive, ArchiveRestore, X } from 'lucide-react';
+import { motion, AnimatePresence } from 'motion/react';
+import { Modal } from '../components/Modal';
 import { useAuth } from '../lib/auth';
 import { useOrganization } from '../lib/useOrganization';
 import { listAssetsByOrganization } from '../services/asset/listAssetsByOrganization';
@@ -50,6 +52,11 @@ import {
 import {
   getAssignedAssetSummaryForOwner,
 } from '../services/asset/getAssignedAssetSummaryForOwner';
+import {
+  getArchivedAssetIdsForUser,
+  archiveAssetForUser,
+  restoreAssetForUser,
+} from '../services/asset/assetArchive';
 
 import type {
   AssignedAssetSummary,
@@ -72,6 +79,37 @@ export default function Assets() {
   const [error, setError] = useState<string | null>(null);
   const [showImportModal, setShowImportModal] = useState(false);
   const [search, setSearch] = useState('');
+
+  // Personal archive state — Map<asset_id, archived_at>, scoped to the
+  // current user only (see services/asset/assetArchive.ts). Ali and
+  // WebMood each get their own Map; archiving never mutates the asset row
+  // itself, so it can never affect what another user sees.
+  const [archivedMap, setArchivedMap] = useState<Map<string, string>>(new Map());
+  const [archivingAssetId, setArchivingAssetId] = useState<string | null>(null);
+  const [showArchivedAssets, setShowArchivedAssets] = useState(false);
+  const [selectedArchivedAssetIds, setSelectedArchivedAssetIds] = useState<string[]>([]);
+  const [restoringAssets, setRestoringAssets] = useState(false);
+
+  const [modalConfig, setModalConfig] = useState<{
+    isOpen: boolean;
+    title: string;
+    message: string;
+    variant: 'info' | 'danger' | 'success';
+    onConfirm?: () => void;
+  }>({ isOpen: false, title: '', message: '', variant: 'info' });
+
+  const showAlert = (title: string, message: string, variant: 'info' | 'danger' | 'success' = 'info') => {
+    setModalConfig({ isOpen: true, title, message, variant, onConfirm: undefined });
+  };
+
+  const showConfirm = (
+    title: string,
+    message: string,
+    onConfirm: () => void,
+    variant: 'info' | 'danger' | 'success' = 'danger'
+  ) => {
+    setModalConfig({ isOpen: true, title, message, variant, onConfirm });
+  };
 type AssetLibraryTab = 'all' | ResourceType | 'campaign_element';
 type OwnershipFilter = 'all' | 'mine' | 'shared' | 'assigned';
 const [activeTab, setActiveTab] = useState<AssetLibraryTab>('all');
@@ -106,6 +144,9 @@ interface UnifiedAssetRow {
   isAssigned: boolean;
 
   assignedCollaboratorCount: number | null;
+
+  /** archived_at for the CURRENT user only — null means active. See assetArchive.ts. */
+  archivedAt: string | null;
 }
 function getEffectiveTab(row: AssetLibraryRow): AssetLibraryTab {
   if (row.asset_type === 'campaign_element') return 'campaign_element';
@@ -123,10 +164,10 @@ const unifiedRows = useMemo<UnifiedAssetRow[]>(() => {
   );
 
   const mine = rows.map(row =>
-    fromMyRow(row, assignedMap)
+    fromMyRow(row, assignedMap, archivedMap)
   );
 
-  const shared = sharedRows.map(fromSharedRow);
+  const shared = sharedRows.map(row => fromSharedRow(row, archivedMap));
 
   if (ownershipFilter === 'mine') {
     return mine;
@@ -145,14 +186,28 @@ const unifiedRows = useMemo<UnifiedAssetRow[]>(() => {
   rows,
   sharedRows,
   assignedSummary,
+  archivedMap,
   ownershipFilter,
 ]);
+
+// Archive is purely an organizational/visibility feature — it never
+// changes what data exists, only what's shown in the active list vs the
+// Archived modal below.
+const activeUnifiedRows = useMemo(
+  () => unifiedRows.filter(row => !row.archivedAt),
+  [unifiedRows]
+);
+
+const archivedUnifiedRows = useMemo(
+  () => unifiedRows.filter(row => !!row.archivedAt),
+  [unifiedRows]
+);
 
 // 計算每個 Tab 有幾個
 const tabCounts = useMemo(() => {
   const counts: Record<string, number> = {};
 
-  for (const row of unifiedRows) {
+  for (const row of activeUnifiedRows) {
     const rt =
   row.assetType === 'campaign_element'
     ? 'campaign_element'
@@ -161,14 +216,14 @@ const tabCounts = useMemo(() => {
   }
 
   return counts;
-}, [unifiedRows]);
+}, [activeUnifiedRows]);
 
 
 // 根據 tab 過濾
 const filteredRows = useMemo(() => {
   const searchLower = search.trim().toLowerCase();
 
-  return unifiedRows.filter(row => {
+  return activeUnifiedRows.filter(row => {
     const effectiveTab =
       row.assetType === 'campaign_element'
         ? 'campaign_element'
@@ -188,7 +243,7 @@ const filteredRows = useMemo(() => {
     return true;
   });
 }, [
-  unifiedRows,
+  activeUnifiedRows,
   activeTab,
   search,
 ]);
@@ -197,7 +252,7 @@ const filteredRows = useMemo(() => {
     setLoading(true);
     setError(null);
     try {
-      const [myData, sharedData, assignedData] = await Promise.all([
+      const [myData, sharedData, assignedData, archivedIds] = await Promise.all([
   listAssetsByOrganization({
     organizationId,
   }),
@@ -211,6 +266,9 @@ const filteredRows = useMemo(() => {
   user
     ? getAssignedAssetSummaryForOwner(user.id)
     : Promise.resolve([]),  
+  user
+    ? getArchivedAssetIdsForUser(user.id)
+    : Promise.resolve(new Map<string, string>()),
 ]);
 
 setRows(myData);
@@ -218,6 +276,8 @@ setRows(myData);
 setSharedRows(sharedData);
 
 setAssignedSummary(assignedData);
+
+setArchivedMap(archivedIds);
     } catch (err: any) {
       setError(err.message || 'Could not load your Asset Library.');
     } finally {
@@ -230,6 +290,62 @@ setAssignedSummary(assignedData);
     fetchAssets();
   }, [user, organizationId]);
 
+  // Archive is only ever triggered by an explicit user click on the
+  // Archive button below — there is no automatic/time-based archiving
+  // anywhere. This only ever writes a row scoped to (asset_id, the
+  // CURRENT user's id) — it can never affect another user's view of the
+  // same asset, never touches sharing, assignments, or ownership.
+  const handleArchiveAsset = (row: UnifiedAssetRow) => {
+    if (!user) return;
+    showConfirm(
+      'Archive Asset?',
+      'Archived assets will be hidden from your library. You can restore them anytime.',
+      async () => {
+        setArchivingAssetId(row.key);
+        try {
+          await archiveAssetForUser(row.key, user.id);
+          setArchivedMap(prev => new Map(prev).set(row.key, new Date().toISOString()));
+        } catch (err: any) {
+          showAlert('Archive Failed', err.message || 'Could not archive this asset.', 'danger');
+        } finally {
+          setArchivingAssetId(null);
+        }
+      },
+      'info'
+    );
+  };
+
+  const openArchivedAssetsModal = () => {
+    setSelectedArchivedAssetIds([]);
+    setShowArchivedAssets(true);
+  };
+
+  const toggleArchivedAssetSelection = (assetId: string) => {
+    setSelectedArchivedAssetIds(prev =>
+      prev.includes(assetId) ? prev.filter(x => x !== assetId) : [...prev, assetId]
+    );
+  };
+
+  const handleRestoreSelectedAssets = async () => {
+    if (!user || selectedArchivedAssetIds.length === 0) return;
+    setRestoringAssets(true);
+    try {
+      await Promise.all(
+        selectedArchivedAssetIds.map(assetId => restoreAssetForUser(assetId, user.id))
+      );
+      setArchivedMap(prev => {
+        const next = new Map(prev);
+        selectedArchivedAssetIds.forEach(assetId => next.delete(assetId));
+        return next;
+      });
+      setSelectedArchivedAssetIds([]);
+    } catch (err: any) {
+      showAlert('Restore Failed', err.message, 'danger');
+    } finally {
+      setRestoringAssets(false);
+    }
+  };
+
   return (
     <div className="space-y-8">
       <header>
@@ -239,12 +355,20 @@ setAssignedSummary(assignedData);
         <p className="text-zinc-500 text-[10px] uppercase tracking-widest mt-1">
           Content you own and can promote
         </p>
-        <button
-          onClick={() => setShowImportModal(true)}
-          className="mt-4 flex items-center gap-2 bg-red-600 hover:bg-red-500 text-white text-[10px] font-black uppercase tracking-widest px-4 py-2.5 rounded-xl transition-all"
-        >
-          <Plus size={14} /> Import Asset
-        </button>
+        <div className="mt-4 flex items-center gap-3">
+          <button
+            onClick={() => setShowImportModal(true)}
+            className="flex items-center gap-2 bg-red-600 hover:bg-red-500 text-white text-[10px] font-black uppercase tracking-widest px-4 py-2.5 rounded-xl transition-all"
+          >
+            <Plus size={14} /> Import Asset
+          </button>
+          <button
+            onClick={openArchivedAssetsModal}
+            className="flex items-center gap-2 bg-zinc-900 hover:bg-zinc-800 border border-zinc-800 text-zinc-300 text-[10px] font-black uppercase tracking-widest px-4 py-2.5 rounded-xl transition-all"
+          >
+            <Archive size={14} /> Archived{archivedUnifiedRows.length > 0 ? ` (${archivedUnifiedRows.length})` : ''}
+          </button>
+        </div>
       </header>
 
       <div className="relative max-w-xs">
@@ -311,7 +435,7 @@ setAssignedSummary(assignedData);
         : 'bg-zinc-900 text-zinc-500 hover:text-white'
     }`}
   >
-    All ({unifiedRows.length})
+    All ({activeUnifiedRows.length})
   </button>
 
   <button
@@ -359,8 +483,20 @@ setAssignedSummary(assignedData);
             <Link
               key={row.key}
               to={`/assets/${row.linkId}`}
-              className="flex items-center gap-4 p-4 bg-zinc-900 border border-zinc-800 rounded-xl hover:border-zinc-600 transition-all"
+              className="relative group flex items-center gap-4 p-4 pr-12 bg-zinc-900 border border-zinc-800 rounded-xl hover:border-zinc-600 transition-all"
             >
+              <button
+                onClick={(e) => {
+                  e.preventDefault();
+                  e.stopPropagation();
+                  handleArchiveAsset(row);
+                }}
+                disabled={archivingAssetId === row.key}
+                title="Archive"
+                className="absolute top-3 right-3 w-7 h-7 rounded-lg bg-zinc-950 border border-zinc-800 flex items-center justify-center text-zinc-600 hover:text-white transition-all opacity-0 group-hover:opacity-100 disabled:opacity-50"
+              >
+                {archivingAssetId === row.key ? <Loader2 size={12} className="animate-spin" /> : <Archive size={12} />}
+              </button>
               <div className="w-16 h-10 overflow-hidden rounded-lg border border-zinc-800 flex-shrink-0">
                 <img
   src={row.thumbnail ?? undefined}
@@ -432,6 +568,89 @@ setAssignedSummary(assignedData);
           }}
         />
       )}
+
+      {/* Archived assets modal — shows ONLY assets the CURRENT user has
+          personally archived. The same asset can be Active for one user
+          and Archived for another; this list never reflects anyone else's
+          state. */}
+      <AnimatePresence>
+        {showArchivedAssets && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="fixed inset-0 z-50 bg-black/70 flex items-center justify-center p-4"
+            onClick={() => setShowArchivedAssets(false)}
+          >
+            <motion.div
+              initial={{ opacity: 0, scale: 0.96 }}
+              animate={{ opacity: 1, scale: 1 }}
+              exit={{ opacity: 0, scale: 0.96 }}
+              className="bg-zinc-950 border border-zinc-800 rounded-2xl w-full max-w-md max-h-[80vh] flex flex-col p-6"
+              onClick={e => e.stopPropagation()}
+            >
+              <div className="flex justify-between items-center mb-4">
+                <h2 className="text-lg font-bold text-white flex items-center gap-2">
+                  <Archive size={16} className="text-zinc-500" /> Archived Assets
+                </h2>
+                <button
+                  onClick={() => setShowArchivedAssets(false)}
+                  className="w-7 h-7 rounded-lg bg-zinc-900 border border-zinc-800 flex items-center justify-center text-zinc-500 hover:text-white transition-all"
+                >
+                  <X size={14} />
+                </button>
+              </div>
+
+              <div className="flex-1 overflow-y-auto space-y-1 -mx-2 px-2">
+                {archivedUnifiedRows.length === 0 ? (
+                  <p className="text-zinc-600 text-xs font-bold uppercase tracking-widest text-center py-10">
+                    No archived assets
+                  </p>
+                ) : (
+                  archivedUnifiedRows.map(row => (
+                    <div
+                      key={row.key}
+                      className="flex items-center gap-3 p-2.5 rounded-xl hover:bg-zinc-900 transition-all"
+                    >
+                      <input
+                        type="checkbox"
+                        checked={selectedArchivedAssetIds.includes(row.key)}
+                        onChange={() => toggleArchivedAssetSelection(row.key)}
+                        className="w-4 h-4 rounded accent-white shrink-0"
+                      />
+                      <Link
+                        to={`/assets/${row.linkId}`}
+                        onClick={() => setShowArchivedAssets(false)}
+                        className="text-sm text-zinc-200 flex-1 truncate hover:text-white"
+                      >
+                        {row.title}
+                      </Link>
+                    </div>
+                  ))
+                )}
+              </div>
+
+              <button
+                disabled={selectedArchivedAssetIds.length === 0 || restoringAssets}
+                onClick={handleRestoreSelectedAssets}
+                className="mt-4 w-full flex items-center justify-center gap-2 bg-white hover:bg-zinc-200 disabled:opacity-40 disabled:cursor-not-allowed text-zinc-950 px-5 py-3 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all"
+              >
+                {restoringAssets ? <Loader2 size={14} className="animate-spin" /> : <ArchiveRestore size={14} />}
+                Restore Selected{selectedArchivedAssetIds.length > 0 ? ` (${selectedArchivedAssetIds.length})` : ''}
+              </button>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      <Modal
+        isOpen={modalConfig.isOpen}
+        onClose={() => setModalConfig({ ...modalConfig, isOpen: false })}
+        title={modalConfig.title}
+        message={modalConfig.message}
+        variant={modalConfig.variant}
+        onConfirm={modalConfig.onConfirm}
+      />
     </div>
   );
 }
@@ -439,7 +658,8 @@ setAssignedSummary(assignedData);
 
 function fromMyRow(
   row: AssetLibraryRow,
-  assignedMap: Map<string, number>
+  assignedMap: Map<string, number>,
+  archivedMap: Map<string, string>
 ): UnifiedAssetRow {
   return {
     key: row.id,
@@ -478,11 +698,14 @@ isAssigned: assignedMap.has(row.id),
 
 assignedCollaboratorCount:
   assignedMap.get(row.id) ?? null,
+
+archivedAt: archivedMap.get(row.id) ?? null,
   };
 }
 
 function fromSharedRow(
-  row: SharedAssetLibraryRow
+  row: SharedAssetLibraryRow,
+  archivedMap: Map<string, string>
 ): UnifiedAssetRow {
   return {
     key: row.asset_id,
@@ -512,5 +735,7 @@ function fromSharedRow(
 isAssigned: false,
 
 assignedCollaboratorCount: null,
+
+archivedAt: archivedMap.get(row.asset_id) ?? null,
   };
 }

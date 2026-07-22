@@ -65,12 +65,16 @@
 
 import React, { useEffect, useState } from 'react';
 import { useParams, Link } from 'react-router-dom';
-import { ArrowLeft, Loader2, ExternalLink, Video as VideoIcon } from 'lucide-react';
+import { ArrowLeft, Loader2, ExternalLink, Video as VideoIcon, ArchiveRestore } from 'lucide-react';
 import { useAuth } from '../lib/auth';
 import { getAssetDetail } from '../services/asset/getAssetDetail';
 import type { AssetDetail as AssetDetailData } from '../services/asset/getAssetDetail';
 import { getAssetSharingInfo } from '../services/asset/getAssetSharingInfo';
 import type { AssetSharingInfo } from '../services/asset/getAssetSharingInfo';
+import {
+  getAssetArchiveState,
+  restoreAssetForUser,
+} from '../services/asset/assetArchive';
 import { resolveAssetThumbnail, resolveElementThumbnail, getElementTypeLabel, RESOURCE_TYPE_LABELS, type ResourceType, type CampaignElementType } from '../lib/videoFormatters';
 
 export default function AssetDetail() {
@@ -86,6 +90,13 @@ export default function AssetDetail() {
   const [sharingInfo, setSharingInfo] = useState<AssetSharingInfo | null>(null);
   const [sharingError, setSharingError] = useState<string | null>(null);
 
+  // ---- Archive state — personal to the CURRENT user only (see
+  // services/asset/assetArchive.ts). Never affects sharing info above,
+  // never affects what any other user sees of this same asset.
+  const [archivedAt, setArchivedAt] = useState<string | null>(null);
+  const [restoring, setRestoring] = useState(false);
+  const [archiveActionError, setArchiveActionError] = useState<string | null>(null);
+
   useEffect(() => {
     if (!id) return;
 
@@ -94,18 +105,24 @@ export default function AssetDetail() {
       setError(null);
       setSharingError(null);
 
-      // Two independent, differently-scoped queries composed at the page
-      // level — same pattern as Assets.tsx's Promise.all([My, Shared,
-      // Assigned]). getAssetSharingInfo needs the viewer's id; if there's
-      // no authenticated user yet, skip that fetch rather than calling it
-      // with a bad id — the asset detail itself doesn't require a viewer.
-      const [assetResult, sharingResult] = await Promise.all([
+      // Three independent, differently-scoped queries composed at the
+      // page level — same pattern as Assets.tsx's Promise.all([My,
+      // Shared, Assigned]). Archive state needs the viewer's id, same as
+      // sharing info; skip it (not fail) when there's no authenticated
+      // user yet.
+      const [assetResult, sharingResult, archiveResult] = await Promise.all([
         getAssetDetail(id).then(
           data => ({ ok: true as const, data }),
           err => ({ ok: false as const, err })
         ),
         user
           ? getAssetSharingInfo(id, user.id).then(
+              data => ({ ok: true as const, data }),
+              err => ({ ok: false as const, err })
+            )
+          : Promise.resolve({ ok: true as const, data: null }),
+        user
+          ? getAssetArchiveState(id, user.id).then(
               data => ({ ok: true as const, data }),
               err => ({ ok: false as const, err })
             )
@@ -141,6 +158,14 @@ export default function AssetDetail() {
         // collaboratorCount/collaborators, no status field anywhere.
         
       }
+
+      // Archive state failure is logged but never blocks the page either
+      // — same treatment as sharing info above.
+      if (!archiveResult.ok) {
+        console.error('[AssetDetail] getAssetArchiveState failed:', archiveResult.err);
+      } else {
+        setArchivedAt(archiveResult.data);
+      }
     })();
   }, [id, user]);
 
@@ -157,6 +182,25 @@ export default function AssetDetail() {
   }
 
   const { asset, resource } = detail;
+
+  // Restore only ever acts on (asset.id, the CURRENT user's id) — it can
+  // never affect another user's view of this same asset, and never
+  // touches sharing, assignments, or ownership. Archiving itself is a
+  // list-page action (Assets.tsx); this page only shows the badge and
+  // lets the user undo it.
+  const handleRestore = async () => {
+    if (!user) return;
+    setArchiveActionError(null);
+    setRestoring(true);
+    try {
+      await restoreAssetForUser(asset.id, user.id);
+      setArchivedAt(null);
+    } catch (err: any) {
+      setArchiveActionError(err.message || 'Could not restore this asset.');
+    } finally {
+      setRestoring(false);
+    }
+  };
 
   // Thumbnail source, branched by origin — campaign_element has no
   // thumbnail_url column at all, it's purely element_type -> static image
@@ -195,8 +239,13 @@ export default function AssetDetail() {
           title / campaign_element display_name), never a type/category
           value. Type is a separate field below, not folded into this. */}
       <div>
-        <h1 className="text-2xl font-bold text-white">
+        <h1 className="text-2xl font-bold text-white flex items-center gap-2">
           {resource?.title || 'Untitled Asset'}
+          {archivedAt && (
+            <span className="flex items-center gap-1 text-[9px] font-black uppercase tracking-widest text-amber-500 bg-amber-500/10 border border-amber-500/20 px-2 py-1 rounded-full">
+              <ArchiveRestore size={10} /> Archived
+            </span>
+          )}
         </h1>
         {resource?.deletedAt && (
           <span className="inline-block mt-2 text-[9px] font-black uppercase text-red-600 tracking-widest">
@@ -225,6 +274,20 @@ export default function AssetDetail() {
             >
               <VideoIcon size={12} /> Open Video Detail
             </Link>
+          )}
+
+          {archivedAt && (
+            <button
+              onClick={handleRestore}
+              disabled={restoring}
+              className="w-full flex items-center justify-center gap-2 text-[10px] font-black uppercase tracking-widest text-zinc-300 bg-zinc-900 hover:bg-zinc-800 border border-zinc-800 rounded-xl px-4 py-3 transition-all disabled:opacity-50"
+            >
+              {restoring ? <Loader2 size={12} className="animate-spin" /> : <ArchiveRestore size={12} />}
+              {restoring ? 'Restoring...' : 'Restore from Archive'}
+            </button>
+          )}
+          {archiveActionError && (
+            <p className="text-[10px] text-red-500">{archiveActionError}</p>
           )}
         </div>
 
