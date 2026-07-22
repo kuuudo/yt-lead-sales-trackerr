@@ -1427,7 +1427,7 @@ if (organizationId && user) {
           <div className="flex items-center justify-between gap-3">
             <div className="flex-1 min-w-0">
               <p className="text-[9px] font-black uppercase tracking-widest text-zinc-500">
-                {CATEGORY_LABEL[card.category]}
+                {CATEGORY_LABEL[card.category].label}
               </p>
               <p className="text-sm font-bold text-white truncate mt-0.5">
                 {card.title}
