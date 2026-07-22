@@ -30,11 +30,10 @@ import { useOrganization } from '../lib/useOrganization';
 import { getRedirectLinksDisplay, CATEGORY_LABEL, type RedirectLinkDisplayCard } from '../services/redirect/getPromotedAssetDisplay';
 import { getAsset } from '../services/asset/getAsset';
 import { addToLibrary } from '../services/asset/addToLibrary';
-import { deleteVideo } from '../services/video/deleteVideo';
 import {
   ArrowLeft, Youtube, DollarSign, Users, Activity,
   TrendingUp, MousePointer2, Phone, Briefcase,
-  ExternalLink, BarChart3, Clock, Edit2, Trash2, Save, X, Loader2, Check, Link2, Plus, Copy,
+  ExternalLink, BarChart3, Clock, Edit2, Archive, ArchiveRestore, Save, X, Loader2, Check, Link2, Plus, Copy,
   BookmarkPlus, ArrowRight, ChevronRight
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
@@ -311,7 +310,8 @@ export default function VideoDetail() {
   // ── UI state ─────────────────────────────────────────────────────────────────
   const [showEdit, setShowEdit]   = useState(false);
   const [saving, setSaving]       = useState(false);
-  const [deleting, setDeleting]   = useState(false);
+  const [archiving, setArchiving]   = useState(false);
+  const [restoring, setRestoring]   = useState(false);
   const [timeRange, setTimeRange] = useState<DateRange>('7days');
   const [availableCampaignLeadMagnets, setAvailableCampaignLeadMagnets] = useState<LeadMagnet[]>([]);
   const [copiedLinkToken, setCopiedLinkToken] = useState<string | null>(null);
@@ -354,8 +354,8 @@ export default function VideoDetail() {
     onConfirm?: () => void,
   ) => setModalConfig({ isOpen: true, title, message, variant, onConfirm });
 
-  const showConfirm = (title: string, message: string, onConfirm: () => void) =>
-    setModalConfig({ isOpen: true, title, message, variant: 'danger', onConfirm });
+  const showConfirm = (title: string, message: string, onConfirm: () => void, variant: 'info' | 'danger' | 'success' = 'danger') =>
+    setModalConfig({ isOpen: true, title, message, variant, onConfirm });
 
   // ── Fetch ────────────────────────────────────────────────────────────────────
 
@@ -847,41 +847,49 @@ if (organizationId && user) {
     }
   };
 
-  const handleDelete = async () => {
-    // We already have `asset` loaded on this page, so we know in advance
-    // which mode deleteVideo() will take — no extra fetch needed, just using
-    // data this component already has.
-    const confirmMessage = asset?.added_to_library_at
-      ? 'This video is in your Asset Library. Deleting it here will archive its record (soft delete) — the Asset and its history are kept, they just won\'t appear as an active video anymore.'
-      : 'Are you sure you want to permanently delete this video? This action cannot be undone.';
-
+  // Archive is only ever triggered by an explicit user click below — there
+  // is no automatic/time-based archiving anywhere. This is fully
+  // independent of deleted_at / deleteVideo(), which remain untouched
+  // internal system logic (still used elsewhere for the asset-linked
+  // soft-delete path; simply no longer exposed as a user-facing action here).
+  const handleArchive = () => {
     showConfirm(
-      'Delete Video',
-      confirmMessage,
+      'Archive Video?',
+      'Archived videos will be hidden from your active content library. You can restore them anytime.',
       async () => {
-        setDeleting(true);
+        setArchiving(true);
         try {
-          const result = await deleteVideo(id!);
-          const message =
-            result.mode === 'soft'
-              ? 'This video has been removed. Since it was in your Asset Library, its record has been archived rather than permanently deleted.'
-              : 'The video has been removed. You will be redirected back to the videos list.';
-          showAlert('Deleted Successfully', message, 'success', () => navigate('/videos'));
+          const { error } = await supabase
+            .from('videos')
+            .update({ archived_at: new Date().toISOString() })
+            .eq('id', id!);
+          if (error) throw error;
+          showAlert('Video Archived', 'This video has been moved to your archive. You can restore it anytime.', 'success', () => navigate('/videos'));
         } catch (err: any) {
-          if (err?.code === 'ASSET_IN_USE') {
-            showAlert(
-              'Delete Failed',
-              'This video is still referenced elsewhere (assignments, campaigns, or redirect links) and cannot be deleted.',
-              'danger',
-            );
-          } else {
-            showAlert('Delete Failed', `Could not delete the video. Error: ${err.message}`, 'danger');
-          }
+          showAlert('Archive Failed', `Could not archive the video. Error: ${err.message}`, 'danger');
         } finally {
-          setDeleting(false);
+          setArchiving(false);
         }
       },
+      'info',
     );
+  };
+
+  const handleRestore = async () => {
+    if (!id) return;
+    setRestoring(true);
+    try {
+      const { error } = await supabase
+        .from('videos')
+        .update({ archived_at: null })
+        .eq('id', id);
+      if (error) throw error;
+      setVideo(prev => (prev ? ({ ...prev, archived_at: null } as any) : prev));
+    } catch (err: any) {
+      showAlert('Restore Failed', err.message || 'Could not restore the video.', 'danger');
+    } finally {
+      setRestoring(false);
+    }
   };
 
   const handleUpdate = async () => {
@@ -987,7 +995,14 @@ if (organizationId && user) {
               <img src={video.thumbnail_url} className="w-full h-full object-cover" />
             </div>
             <div>
-              <h1 className="text-xl font-black text-white leading-tight">{video.video_title}</h1>
+              <h1 className="text-xl font-black text-white leading-tight flex items-center gap-2">
+                {video.video_title}
+                {(video as any).archived_at && (
+                  <span className="flex items-center gap-1 text-[9px] font-black uppercase tracking-widest text-amber-500 bg-amber-500/10 border border-amber-500/20 px-2 py-1 rounded-full">
+                    <ArchiveRestore size={10} /> Archived
+                  </span>
+                )}
+              </h1>
               <div className="flex items-center gap-3 mt-1">
                 <span className="text-[9px] font-black uppercase text-red-600 tracking-widest">{campaign?.campaign_name}</span>
                 <span className="w-1 h-1 bg-zinc-800 rounded-full" />
@@ -1011,6 +1026,17 @@ if (organizationId && user) {
         </div>
 
         <div className="flex gap-2">
+          {(video as any).archived_at && (
+            <button
+              onClick={handleRestore}
+              disabled={restoring}
+              className="flex items-center gap-2 px-4 py-3 bg-zinc-900 border border-zinc-800 rounded-xl text-zinc-300 text-[10px] font-black uppercase tracking-widest hover:bg-zinc-800 transition-all disabled:opacity-50"
+              title="Restore Video"
+            >
+              {restoring ? <Loader2 size={16} className="animate-spin" /> : <ArchiveRestore size={16} />}
+              {restoring ? 'Restoring...' : 'Restore'}
+            </button>
+          )}
           <button
             onClick={() => setShowEdit(true)}
             className="p-3 bg-zinc-900 border border-zinc-800 rounded-xl text-zinc-500 hover:text-white transition-all"
@@ -1019,12 +1045,12 @@ if (organizationId && user) {
             <Edit2 size={20} />
           </button>
           <button
-            onClick={handleDelete}
-            disabled={deleting}
-            className="p-3 bg-zinc-900 border border-zinc-800 rounded-xl text-zinc-500 hover:text-red-500 transition-all disabled:opacity-50"
-            title="Delete Video"
+            onClick={handleArchive}
+            disabled={archiving}
+            className="p-3 bg-zinc-900 border border-zinc-800 rounded-xl text-zinc-500 hover:text-white transition-all disabled:opacity-50"
+            title="Archive Video"
           >
-            {deleting ? <Loader2 size={20} className="animate-spin" /> : <Trash2 size={20} />}
+            {archiving ? <Loader2 size={20} className="animate-spin" /> : <Archive size={20} />}
           </button>
           <a
             href={`https://youtube.com/watch?v=${video.youtube_video_id}`}
