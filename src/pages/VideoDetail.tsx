@@ -362,11 +362,11 @@ export default function VideoDetail() {
   // Single effect: re-runs when id OR user changes. Guard ensures both are
   // present before fetching. This prevents the duplicate-fetch race condition
   // that occurred with two separate effects (one on [id], one on [user]).
-  useEffect(() => {
-    if (!id || !user) return;
-    fetchData();
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [id, user]);
+useEffect(() => {
+  if (!id || !user || !organizationId) return;
+  fetchData();
+// eslint-disable-next-line react-hooks/exhaustive-deps
+}, [id, user, organizationId]);
 
   const fetchData = useCallback(async () => {
     console.log('[VideoDetail] fetchData START — id:', id, 'user:', (user as any)?.id ?? 'null');
