@@ -316,6 +316,7 @@ export default function VideoDetail() {
   const [availableCampaignLeadMagnets, setAvailableCampaignLeadMagnets] = useState<LeadMagnet[]>([]);
   const [copiedLinkToken, setCopiedLinkToken] = useState<string | null>(null);
   const { organizationId } = useOrganization();
+  console.log('[VideoDetail] useOrganization:', organizationId);
   const [displayCards, setDisplayCards] = useState<RedirectLinkDisplayCard[]>([]);
   const [expandedCardKey, setExpandedCardKey] = useState<string | null>(null);
   const [redirectLinks, setRedirectLinks]         = useState<any[]>([]);
@@ -628,7 +629,7 @@ console.log('[DEBUG] getRedirectLinksDisplay returned:', cards);
       setLoading(false);
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [id, user]);
+  }, [id, user, organizationId]);
 
   // ── Asset Library illustration — view-count effect ──────────────────────────
   // Fires once asset state settles. Only counts a "view" when the empty state
