@@ -3,11 +3,9 @@ import { Link, useSearchParams } from 'react-router-dom';
 import { useLanguage } from '../lib/hooks';
 import { supabase, Video, Campaign, LeadMagnet } from '../lib/supabase';
 import { useAuth } from '../lib/auth';
-import * as LucideIcons from 'lucide-react';
 import type { PromotedAssetCategory } from '../services/redirect/getPromotedAssetDisplay';
 import {
   CATEGORY_LABEL,
-  CATEGORY_COLOR,
   getRedirectLinksDisplay,
   getVideoPromotionBadges,
   type RedirectLinksDisplayGroups,
@@ -1920,25 +1918,22 @@ export default function Videos() {
   {/* === Asset Promotion Badges === */}
   {(() => {
     const badges = promotionBadges.get(v.id) || {};
-    const categories: PromotedAssetCategory[] = ['campaign', 'library', 'shared', 'assigned'];
+    const categories: PromotedAssetCategory[] = ['library', 'shared', 'assigned'];
 
     return categories.map(cat => {
-      const count = badges[cat];
-      if (!count) return null;
+  const count = badges[cat];
+  if (!count) return null;
 
-      const info = CATEGORY_LABEL[cat];
-      const colorClass = CATEGORY_COLOR[cat];
+  const info = CATEGORY_LABEL[cat];
 
-      const Icon = LucideIcons[info.icon];   // Dynamic Lucide icon
-
-      return (
-        <div key={cat} className="flex items-center gap-1.5">
-          <Icon size={12} className={colorClass} />
-          <span>{info.label}</span>
-          {count > 1 && <span className="text-zinc-400">x{count}</span>}
-        </div>
-      );
-    });
+  return (
+    <div key={cat} className="flex items-center gap-1.5">
+      <span>{info.icon}</span>
+      <span>{info.label}</span>
+      {count > 1 && <span className="text-zinc-400">x{count}</span>}
+    </div>
+  );
+});
   })()}
 
   {/* Goals */}
