@@ -319,8 +319,14 @@ export default function Marketplace() {
                 <div>
                   <h3 className="font-bold text-white">{p.assignment?.title ?? p.campaign?.campaign_name ?? 'Promotion'}</h3>
                   <p className="text-zinc-500 text-xs mt-1">
-                    Created {new Date(p.created_at).toLocaleDateString()}
-                  </p>
+  Created {new Date(p.created_at).toLocaleDateString()}
+</p>
+
+{p.owner && (
+  <p className="text-orange-400 text-xs mt-1">
+    Assigned by {p.owner.full_name ?? 'Unknown'}
+  </p>
+)}
                 </div>
                 {p.status !== 'draft' && (
                   <span className="text-[10px] font-bold uppercase tracking-widest text-zinc-500">

@@ -39,6 +39,11 @@ export interface PromotionSummary {
   campaign: {
     campaign_name: string | null;
   } | null;
+
+  owner: {
+    full_name: string | null;
+    email: string | null;
+  } | null;
 }
 
 /** Assignments this Organization created (the "creating org" side of the Hub). */
@@ -116,7 +121,11 @@ export async function listMyPromotions(userId: string): Promise<PromotionSummary
   status,
   created_at,
   assignment:assignments(title),
-  campaign:campaigns(campaign_name)
+  campaign:campaigns(campaign_name),
+  owner:profiles!promotions_owner_user_id_fkey(
+    full_name,
+    email
+  )
 `);
 
   query = myCollaboratorIds.length > 0
