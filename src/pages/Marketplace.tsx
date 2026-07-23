@@ -301,9 +301,10 @@ export default function Marketplace() {
           <div className="space-y-3">
             {promotions.length === 0 && <EmptyState label="No promotions yet" />}
             {promotions.map(p => (
-              <div
+              <button
                 key={p.id}
-                className="flex items-center justify-between bg-zinc-900 border border-zinc-800 rounded-xl p-5"
+                onClick={() => navigate(`/marketplace/promotions/${p.id}`)}
+                className="w-full flex items-center justify-between text-left bg-zinc-900 border border-zinc-800 rounded-xl p-5 hover:border-zinc-700 transition-colors"
               >
                 <div>
                   <h3 className="font-bold text-white">{p.campaign?.campaign_name ?? 'Campaign'}</h3>
@@ -314,7 +315,7 @@ export default function Marketplace() {
                 <span className="text-[10px] font-bold uppercase tracking-widest text-zinc-500">
                   {p.status}
                 </span>
-              </div>
+              </button>
             ))}
           </div>
         )}
