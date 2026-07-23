@@ -54,6 +54,12 @@ export const CATEGORY_LABEL: Record<PromotedAssetCategory, { icon: string; label
   assigned: { icon: '🟣', label: 'Assigned Asset' },
 };
 
+export const CATEGORY_COLOR: Record<PromotedAssetCategory, string> = {
+  library: 'text-green-500',
+  shared: 'text-blue-500',
+  assigned: 'text-purple-500',
+};
+
 const CAMPAIGN_LINK_ICON: Record<string, string> = {
   landing_page: '🏠',
   newsletter: '📧',
