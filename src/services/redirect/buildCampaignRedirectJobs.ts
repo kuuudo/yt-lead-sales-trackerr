@@ -14,8 +14,13 @@
  * it here once.
  *
  * Deliberately excludes:
- *   - checkout: owned by campaign via Installation.tsx, not generated here
- *     (unchanged from createVideo.ts's original behavior)
+ *   - checkout: owned by campaign via Installation.tsx, not generated here.
+ *     Checkout attribution uses the existing tracked checkout URL system —
+ *     do not change this.
+ *   - thank-you links (purchase_thankyou, newsletter_thankyou,
+ *     sales_call_thankyou, consultation_thankyou): these are pixel-tracked
+ *     confirmation endpoints, not promotional links. A creator never
+ *     shares a "thank you for subscribing" URL — do not add these back.
  *   - lead magnets: a separate, per-selected-lead-magnet job list, kept
  *     out of this function in createVideo.ts today and intentionally not
  *     folded in here — asset redirect generation does not carry lead
@@ -43,12 +48,13 @@ export function buildCampaignRedirectJobs(
     redirectJobs.push(['consultation', campaign.consultation_booking_url]);
   }
   // checkout link intentionally omitted — owned by campaign via Installation.tsx
-  if (campaign.purchase_thankyou_url) {
-    redirectJobs.push(['purchase_thankyou', campaign.purchase_thankyou_url]);
-  }
-  if (campaign.newsletter_thankyou_url) {
-    redirectJobs.push(['newsletter_thankyou', campaign.newsletter_thankyou_url]);
-  }
+  //
+  // Thank-you links (purchase_thankyou, newsletter_thankyou,
+  // sales_call_thankyou, consultation_thankyou) are deliberately NOT
+  // generated here. They are tracked confirmation endpoints for pixel
+  // events, not promotional links a creator ever shares — pasting a
+  // "newsletter-thanks" URL into a YouTube description makes no sense.
+  // Do not add them back without re-opening this decision.
 
   return redirectJobs;
 }

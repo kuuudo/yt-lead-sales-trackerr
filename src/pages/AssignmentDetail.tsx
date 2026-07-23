@@ -1,9 +1,13 @@
 import React, { useEffect, useState } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import { Loader2, AlertCircle, CheckCircle2, Rocket, ArrowLeft } from 'lucide-react';
+import { Loader2, AlertCircle, CheckCircle2, Rocket, ArrowLeft, ArchiveRestore } from 'lucide-react';
 import { supabase } from '../lib/supabase';
 import { getAssignmentDetail, type AssignmentDetailData, type CampaignGroup } from '../services/assignment/getAssignmentDetail';
 import { acceptInvitation } from '../services/assignment/acceptInvitation';
+import {
+  getAssignmentArchiveState,
+  restoreAssignmentForUser,
+} from '../services/assignment/assignmentArchive';
 import { getElementTypeLabel, resolveThumbnail, resolveElementThumbnail } from '../lib/videoFormatters';
 
 export default function AssignmentDetail() {
@@ -19,6 +23,15 @@ export default function AssignmentDetail() {
   const [selectedCampaignId, setSelectedCampaignId] = useState<string | null>(null);
   const [selectedAssetIds, setSelectedAssetIds] = useState<Set<string>>(new Set());
 
+  // Archive state — personal to the CURRENT user only (see
+  // services/assignment/assignmentArchive.ts). Never affects the
+  // assignment's status, collaborators, invitations, or promotions, and
+  // never affects what the other party (Sponsor/Marketer) sees.
+  const [userId, setUserId] = useState<string | null>(null);
+  const [archivedAt, setArchivedAt] = useState<string | null>(null);
+  const [restoring, setRestoring] = useState(false);
+  const [archiveActionError, setArchiveActionError] = useState<string | null>(null);
+
   const load = async () => {
     if (!assignmentId) return;
     setLoading(true);
@@ -26,6 +39,7 @@ export default function AssignmentDetail() {
     try {
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) throw new Error('Not signed in');
+      setUserId(user.id);
 
       const { data: profile } = await supabase
         .from('profiles')
@@ -33,8 +47,19 @@ export default function AssignmentDetail() {
         .eq('id', user.id)
         .single();
 
-      const detail = await getAssignmentDetail(assignmentId, user.id, profile?.email ?? '');
+      // Archive state fetch is independent of the main assignment detail
+      // fetch and never blocks the page — mirrors AssetDetail.tsx's
+      // treatment of sharing/archive info.
+      const [detail, archiveState] = await Promise.all([
+        getAssignmentDetail(assignmentId, user.id, profile?.email ?? ''),
+        getAssignmentArchiveState(assignmentId, user.id).catch(err => {
+          console.error('[AssignmentDetail] getAssignmentArchiveState failed:', err);
+          return null;
+        }),
+      ]);
+
       setData(detail);
+      setArchivedAt(archiveState);
       if (detail.campaignGroups.length > 0 && !selectedCampaignId) {
         setSelectedCampaignId(detail.campaignGroups[0].campaign_id);
       }
@@ -56,6 +81,25 @@ export default function AssignmentDetail() {
       setError(e.message ?? 'Failed to accept invitation');
     } finally {
       setAccepting(false);
+    }
+  };
+
+  // Restore only ever acts on (assignmentId, the CURRENT user's id) — it
+  // can never affect the other party's view of this same assignment, and
+  // never touches assignment status, collaborators, invitations, or
+  // promotions. Archiving itself is a list-page action (Marketplace.tsx);
+  // this page only shows the badge and lets the user undo it.
+  const handleRestore = async () => {
+    if (!assignmentId || !userId) return;
+    setArchiveActionError(null);
+    setRestoring(true);
+    try {
+      await restoreAssignmentForUser(assignmentId, userId);
+      setArchivedAt(null);
+    } catch (e: any) {
+      setArchiveActionError(e.message || 'Could not restore this assignment.');
+    } finally {
+      setRestoring(false);
     }
   };
 
@@ -129,9 +173,32 @@ export default function AssignmentDetail() {
         <span className="text-[10px] font-bold uppercase tracking-widest text-zinc-500">
           {assignment.status}
         </span>
-        <h1 className="text-2xl font-bold mt-1 mb-2">{assignment.title}</h1>
+        <h1 className="text-2xl font-bold mt-1 mb-2 flex items-center gap-2">
+          {assignment.title}
+          {archivedAt && (
+            <span className="flex items-center gap-1 text-[9px] font-black uppercase tracking-widest text-amber-500 bg-amber-500/10 border border-amber-500/20 px-2 py-1 rounded-full">
+              <ArchiveRestore size={10} /> Archived
+            </span>
+          )}
+        </h1>
         {assignment.description && (
           <p className="text-zinc-400 text-sm mb-6">{assignment.description}</p>
+        )}
+
+        {archivedAt && (
+          <div className="mb-6">
+            <button
+              onClick={handleRestore}
+              disabled={restoring}
+              className="flex items-center gap-2 bg-zinc-900 hover:bg-zinc-800 border border-zinc-800 text-zinc-300 text-xs font-bold uppercase tracking-wider px-4 py-2 rounded-lg disabled:opacity-50"
+            >
+              {restoring ? <Loader2 className="animate-spin" size={14} /> : <ArchiveRestore size={14} />}
+              {restoring ? 'Restoring...' : 'Restore Assignment'}
+            </button>
+            {archiveActionError && (
+              <p className="text-[10px] text-red-500 mt-2">{archiveActionError}</p>
+            )}
+          </div>
         )}
 
         {error && (

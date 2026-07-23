@@ -1,23 +1,31 @@
 /**
  * src/services/redirect/getPromotedAssetDisplay.ts
  *
- * UI-only. Does not touch redirect generation, analytics, or
- * createPromotion.ts — purely resolves existing redirect_links rows into
- * display-ready shapes for two call sites:
+ * UI-only. Does not touch redirect generation logic (beyond reading its
+ * output), analytics, or createPromotion.ts.
  *
  *   getRedirectLinksDisplay()  — VideoDetail.tsx's Tracking Links section
+ *                                 AND Videos.tsx's "Video Saved" modal
+ *                                 (same grouped shape, both call sites)
  *   getVideoPromotionBadges()  — Videos.tsx's video list badges
  *
- * Both share one categorization rule (categorizeAsset). Source of truth
- * for "does this video promote this asset" remains redirect_links
- * (video_id, asset_id) — nothing here is stored, everything is derived.
+ * Output shape is GROUPED, not a flat card list:
+ *   { campaignLinks: [...], assets: [...] }
+ * "Campaign Links" = the video's own campaign redirects (asset_id null),
+ * one row per link_type. "Assets" = one row per promoted asset (My /
+ * Shared / Assigned), asset type shown as an expand-only field rather
+ * than a separate section — creators care "what do I paste," not "which
+ * internal bucket is this asset in."
+ *
+ * Thank-you and checkout link_types are filtered out of DISPLAY here
+ * regardless of what's already in redirect_links — createVideo.ts (via
+ * buildCampaignRedirectJobs) no longer generates them going forward, but
+ * existing rows from before that change must not resurface in the UI.
  *
  * Reuses existing services rather than re-querying tables directly:
  *   - getAssetDetail()               → title + platform/resource/element subtitle
  *   - getAssetSharingInfo()          → Shared By + Assignment name (Shared category)
  *   - getAssignedAssetSummaryForOwner() → which of the viewer's own assets are assigned out
- *
- * Category ordering is fixed everywhere: campaign, library, shared, assigned.
  */
 
 import { supabase } from '../../lib/supabase';
@@ -26,46 +34,39 @@ import { getAssetSharingInfo } from '../asset/getAssetSharingInfo';
 import { getAssignedAssetSummaryForOwner } from '../asset/getAssignedAssetSummaryForOwner';
 import { getElementTypeLabel, type CampaignElementType } from '../../lib/videoFormatters';
 
-export type PromotedAssetCategory = 'campaign' | 'library' | 'shared' | 'assigned';
+export type PromotedAssetCategory = 'library' | 'shared' | 'assigned';
 
-export const CATEGORY_ORDER: PromotedAssetCategory[] = ['campaign', 'library', 'shared', 'assigned'];
+// Link types that must NEVER appear in this UI — pixel-tracked
+// confirmation endpoints and the campaign-level checkout, not things a
+// creator ever pastes into a video description. Applies regardless of
+// whether older rows in redirect_links still have these types.
+const EXCLUDED_LINK_TYPES = new Set([
+  'purchase_thankyou',
+  'newsletter_thankyou',
+  'sales_call_thankyou',
+  'consultation_thankyou',
+  'checkout',
+]);
 
 export const CATEGORY_LABEL: Record<PromotedAssetCategory, { icon: string; label: string }> = {
-  campaign: {
-    icon: 'Folder',
-    label: 'Campaign',
-  },
-  library: {
-    icon: 'Library',
-    label: 'Library Asset',
-  },
-  shared: {
-    icon: 'Share2',
-    label: 'Shared Asset',
-  },
-  assigned: {
-    icon: 'UserCheck',
-    label: 'Assigned Asset',
-  },
+  library: { icon: '🟢', label: 'My Asset' },
+  shared: { icon: '🔵', label: 'Shared Asset' },
+  assigned: { icon: '🟣', label: 'Assigned Asset' },
 };
 
-export const CATEGORY_COLOR: Record<PromotedAssetCategory, string> = {
-  campaign: 'text-amber-500',
-  library: 'text-emerald-500',
-  shared: 'text-blue-500',
-  assigned: 'text-purple-500',
+const CAMPAIGN_LINK_ICON: Record<string, string> = {
+  landing_page: '🏠',
+  newsletter: '📧',
+  consultation: '💼',
+  sales_call: '📞',
+  lead_magnet: '🎁',
 };
 
-const CAMPAIGN_LINK_TYPE_LABEL: Record<string, string> = {
+const CAMPAIGN_LINK_LABEL: Record<string, string> = {
   landing_page: 'Landing Page',
   newsletter: 'Newsletter',
-  newsletter_thankyou: 'Newsletter Thank You',
-  checkout: 'Checkout',
-  purchase_thankyou: 'Purchase Thank You',
-  sales_call: 'Sales Call',
-  sales_call_thankyou: 'Sales Call Thank You',
   consultation: 'Consultation',
-  consultation_thankyou: 'Consultation Thank You',
+  sales_call: 'Sales Call',
   lead_magnet: 'Lead Magnet',
 };
 
@@ -86,20 +87,27 @@ function categorizeAsset({
   assetOrganizationId: string | null;
   viewerOrganizationId: string;
   isAssignedOut: boolean;
-}): 'library' | 'shared' | 'assigned' {
+}): PromotedAssetCategory {
   if (assetOrganizationId !== viewerOrganizationId) return 'shared';
   return isAssignedOut ? 'assigned' : 'library';
 }
 
 // ---------------------------------------------------------------------------
-// getRedirectLinksDisplay —2 VideoDetail.tsx
+// getRedirectLinksDisplay — VideoDetail.tsx + Videos.tsx "Video Saved" modal
 // ---------------------------------------------------------------------------
 
-export interface RedirectLinkDisplayCard {
-  key: string; // redirect token — always unique
+export interface CampaignLinkRow {
+  key: string; // token
+  icon: string;
+  label: string;
+  token: string;
+  destinationUrl: string;
+}
+
+export interface AssetLinkRow {
+  key: string; // token
   category: PromotedAssetCategory;
   title: string;
-  /** Small source hint: platform (YouTube/TikTok/...), element type, or campaign link type. */
   subtitle: string | null;
   token: string;
   destinationUrl: string;
@@ -108,7 +116,13 @@ export interface RedirectLinkDisplayCard {
     assignment?: string;
     sharedBy?: string;
     created?: string;
+    usedByVideoCount: number;
   };
+}
+
+export interface RedirectLinksDisplayGroups {
+  campaignLinks: CampaignLinkRow[];
+  assets: AssetLinkRow[];
 }
 
 export interface GetRedirectLinksDisplayInput {
@@ -121,7 +135,7 @@ export async function getRedirectLinksDisplay({
   videoId,
   viewerOrganizationId,
   viewerUserId,
-}: GetRedirectLinksDisplayInput): Promise<RedirectLinkDisplayCard[]> {
+}: GetRedirectLinksDisplayInput): Promise<RedirectLinksDisplayGroups> {
   // Own org's name is always readable under RLS — no cross-org concern here.
   const { data: orgRow } = await supabase
     .from('organizations')
@@ -140,32 +154,16 @@ export async function getRedirectLinksDisplay({
     throw new Error(`Failed to load redirect links: ${linkErr.message}`);
   }
 
-  const rows = linkRows ?? [];
+  const rows = (linkRows ?? []).filter(r => !EXCLUDED_LINK_TYPES.has(r.link_type));
   const campaignRows = rows.filter(r => !r.asset_id);
   const assetRows = rows.filter(r => r.asset_id);
 
-  // ---- Campaign name lookup (only for the video's own, asset_id-null rows) ----
-  const campaignIds = Array.from(new Set(campaignRows.map(r => r.campaign_id)));
-  const campaignNames = new Map<string, string>();
-  if (campaignIds.length > 0) {
-    const { data: campaigns } = await supabase
-      .from('campaigns')
-      .select('id, campaign_name')
-      .in('id', campaignIds);
-    (campaigns ?? []).forEach((c: any) => campaignNames.set(c.id, c.campaign_name));
-  }
-
-  const campaignCards: RedirectLinkDisplayCard[] = campaignRows.map(r => ({
+  const campaignLinks: CampaignLinkRow[] = campaignRows.map(r => ({
     key: r.token,
-    category: 'campaign',
-    title: campaignNames.get(r.campaign_id) ?? 'Untitled Campaign',
-    subtitle: CAMPAIGN_LINK_TYPE_LABEL[r.link_type] ?? r.link_type,
+    icon: CAMPAIGN_LINK_ICON[r.link_type] ?? '🔗',
+    label: CAMPAIGN_LINK_LABEL[r.link_type] ?? r.link_type,
     token: r.token,
     destinationUrl: r.destination_url,
-    more: {
-      owner: viewerOrganizationName,
-      created: r.created_at,
-    },
   }));
 
   // ---- Asset-driven rows: resolve per distinct asset_id ----
@@ -173,6 +171,23 @@ export async function getRedirectLinksDisplay({
 
   const assignedSummary = await getAssignedAssetSummaryForOwner(viewerUserId);
   const assignedOutIds = new Set(assignedSummary.map(s => s.assetId));
+
+  // "Used by N videos" — distinct video_id count per asset_id, across ALL
+  // of this asset's redirect_links, not just this video's. Same source
+  // of truth (redirect_links) as everything else here, no new table.
+  const usedByCountByAssetId = new Map<string, number>();
+  if (assetIds.length > 0) {
+    const { data: usageRows } = await supabase
+      .from('redirect_links')
+      .select('asset_id, video_id')
+      .in('asset_id', assetIds);
+    const videoSetByAsset = new Map<string, Set<string>>();
+    (usageRows ?? []).forEach((row: any) => {
+      if (!videoSetByAsset.has(row.asset_id)) videoSetByAsset.set(row.asset_id, new Set());
+      videoSetByAsset.get(row.asset_id)!.add(row.video_id);
+    });
+    videoSetByAsset.forEach((videoSet, assetId) => usedByCountByAssetId.set(assetId, videoSet.size));
+  }
 
   // Assignment name lookup, scoped to the viewer's own created Assignments —
   // only needed for the 'assigned' category (own asset, assigned out).
@@ -211,8 +226,6 @@ export async function getRedirectLinksDisplay({
       const isOwnOrg = (asset as any).organization_id === viewerOrganizationId;
 
       if (isOwnOrg && assignedOutIds.has(assetId)) {
-        // Find which of the viewer's own Assignments reference this asset —
-        // display-only, first match is enough.
         const { data: aaRows } = await supabase
           .from('assignment_assets')
           .select('assignment_id')
@@ -226,7 +239,6 @@ export async function getRedirectLinksDisplay({
       }
 
       if (!isOwnOrg) {
-        // Shared category — reuse getAssetSharingInfo for Shared By + Assignment name.
         const sharingInfo = await getAssetSharingInfo(assetId, viewerUserId);
         const first = sharingInfo.assignments[0];
         if (first) {
@@ -237,7 +249,7 @@ export async function getRedirectLinksDisplay({
     })
   );
 
-  const assetCards: RedirectLinkDisplayCard[] = assetRows.map(r => {
+  const assetLinkRows: AssetLinkRow[] = assetRows.map(r => {
     const assetId = r.asset_id as string;
     const ctx = assetContextById.get(assetId);
     const category = categorizeAsset({
@@ -246,7 +258,10 @@ export async function getRedirectLinksDisplay({
       isAssignedOut: assignedOutIds.has(assetId),
     });
 
-    const more: RedirectLinkDisplayCard['more'] = { created: ctx?.createdAt ?? undefined };
+    const more: AssetLinkRow['more'] = {
+      created: ctx?.createdAt ?? undefined,
+      usedByVideoCount: usedByCountByAssetId.get(assetId) ?? 0,
+    };
     if (category === 'library') {
       more.owner = viewerOrganizationName;
     } else if (category === 'assigned') {
@@ -254,9 +269,7 @@ export async function getRedirectLinksDisplay({
       const assignmentName = assignmentNameByAssetId.get(assetId);
       if (assignmentName) more.assignment = assignmentName;
     } else if (category === 'shared') {
-      // No cross-org "owner" — RLS blocks org name lookup for other orgs
-      // (same constraint documented in listSharedAssetsForCollaborator.ts).
-      // Shared By is the actually-available, actually-correct identity.
+      // No cross-org "owner" — RLS blocks org name lookup for other orgs.
       const sharedBy = sharedByNameByAssetId.get(assetId);
       if (sharedBy) more.sharedBy = sharedBy;
       const assignmentName = sharedAssignmentNameByAssetId.get(assetId);
@@ -274,22 +287,21 @@ export async function getRedirectLinksDisplay({
     };
   });
 
-  const allCards = [...campaignCards, ...assetCards];
-
-  // Fixed category order everywhere: campaign, library, shared, assigned.
-  // Stable within each category (original created_at order preserved).
-  return allCards
-    .map((card, index) => ({ card, index }))
+  // Stable, predictable order: library, shared, assigned.
+  const CATEGORY_SORT: PromotedAssetCategory[] = ['library', 'shared', 'assigned'];
+  const assets = assetLinkRows
+    .map((row, index) => ({ row, index }))
     .sort((a, b) => {
-      const catDiff = CATEGORY_ORDER.indexOf(a.card.category) - CATEGORY_ORDER.indexOf(b.card.category);
-      if (catDiff !== 0) return catDiff;
-      return a.index - b.index;
+      const diff = CATEGORY_SORT.indexOf(a.row.category) - CATEGORY_SORT.indexOf(b.row.category);
+      return diff !== 0 ? diff : a.index - b.index;
     })
-    .map(({ card }) => card);
+    .map(({ row }) => row);
+
+  return { campaignLinks, assets };
 }
 
 // ---------------------------------------------------------------------------
-// getVideoPromotionBadges — Videos.tsx list badges
+// getVideoPromotionBadges — Videos.tsx list badges (unchanged from before)
 // ---------------------------------------------------------------------------
 
 export interface GetVideoPromotionBadgesInput {
@@ -298,8 +310,7 @@ export interface GetVideoPromotionBadgesInput {
   viewerUserId: string;
 }
 
-/** videoId -> counts per category (campaign excluded — badges are asset-only). */
-export type VideoPromotionBadgeMap = Map<string, Partial<Record<'library' | 'shared' | 'assigned', number>>>;
+export type VideoPromotionBadgeMap = Map<string, Partial<Record<PromotedAssetCategory, number>>>;
 
 export async function getVideoPromotionBadges({
   videoIds,
