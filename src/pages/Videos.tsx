@@ -8,7 +8,9 @@ import type { PromotedAssetCategory } from '../services/redirect/getPromotedAsse
 import {
   CATEGORY_LABEL,
   CATEGORY_COLOR,
+  getRedirectLinksDisplay,
   getVideoPromotionBadges,
+  type RedirectLinksDisplayGroups,
   type VideoPromotionBadgeMap,
 } from '../services/redirect/getPromotedAssetDisplay';
 import { Youtube, Plus, Link2, Copy, Check, ExternalLink, Calendar, Target, AlertCircle, Loader2, BarChart3, ChevronDown, X, Edit2, Archive, ArchiveRestore,
@@ -527,9 +529,7 @@ export default function Videos() {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [copied, setCopied] = useState<string | null>(null);
-  const [savedLinks, setSavedLinks] = useState<
-    { token: string; link_type: string; label: string; lead_magnet_id?: string }[]
-  >([]);
+  const [savedDisplayGroups, setSavedDisplayGroups] = useState<RedirectLinksDisplayGroups>({ campaignLinks: [], assets: [] });
   const [showLinksModal, setShowLinksModal] = useState(false);
   const [copiedLink, setCopiedLink] = useState<string | null>(null);
   const [editingVideoId, setEditingVideoId] = useState<string | null>(null);
@@ -829,20 +829,13 @@ export default function Videos() {
             )
           );
 
-          const { data: allLinks } = await supabase
-            .from('redirect_links')
-            .select('token, link_type, destination_url, lead_magnet_id')
-            .eq('video_id', savedVideo.id);
-
-          let lmNames: Record<string, string> = {};
-          if (generated.video.selected_lead_magnet_ids && generated.video.selected_lead_magnet_ids.length > 0) {
-            const { data: lmData } = await supabase
-              .from('lead_magnets').select('id, lead_magnet_name')
-              .in('id', generated.video.selected_lead_magnet_ids);
-            if (lmData) lmData.forEach((lm: any) => { lmNames[lm.id] = lm.lead_magnet_name; });
-          }
-          if (allLinks) {
-            setSavedLinks(allLinks.map((l: any) => ({ ...l, label: getLinkLabel(l.link_type, lmNames, l.lead_magnet_id) })));
+          if (organizationId && user) {
+            const groups = await getRedirectLinksDisplay({
+              videoId: savedVideo.id,
+              viewerOrganizationId: organizationId,
+              viewerUserId: user.id,
+            });
+            setSavedDisplayGroups(groups);
             setShowLinksModal(true);
           }
           setVideos(videos.map(v => v.id === editingVideoId ? savedVideo : v));
@@ -881,20 +874,13 @@ export default function Videos() {
 
         // UI: query links back and show the links modal (UI concern — stays here)
         if (generated.campaign) {
-          const { data: allLinks } = await supabase
-            .from('redirect_links')
-            .select('token, link_type, destination_url, lead_magnet_id')
-            .eq('video_id', savedVideo.id);
-
-          let lmNames: Record<string, string> = {};
-          if (generated.video.selected_lead_magnet_ids && generated.video.selected_lead_magnet_ids.length > 0) {
-            const { data: lmData } = await supabase
-              .from('lead_magnets').select('id, lead_magnet_name')
-              .in('id', generated.video.selected_lead_magnet_ids);
-            if (lmData) lmData.forEach((lm: any) => { lmNames[lm.id] = lm.lead_magnet_name; });
-          }
-          if (allLinks) {
-            setSavedLinks(allLinks.map((l: any) => ({ ...l, label: getLinkLabel(l.link_type, lmNames, l.lead_magnet_id) })));
+          if (organizationId && user) {
+            const groups = await getRedirectLinksDisplay({
+              videoId: savedVideo.id,
+              viewerOrganizationId: organizationId,
+              viewerUserId: user.id,
+            });
+            setSavedDisplayGroups(groups);
             setShowLinksModal(true);
           }
         }
@@ -924,24 +910,7 @@ export default function Videos() {
     }
   };
 
-  const getLinkLabel = (linkType: string, lmNames: Record<string, string> = {}, leadMagnetId?: string) => {
-    if (linkType === 'lead_magnet' && leadMagnetId && lmNames[leadMagnetId]) {
-      return `📦 ${lmNames[leadMagnetId]}`;
-    }
-    const labels: Record<string, string> = {
-      landing_page: '🏠 Landing Page',
-      newsletter: '📧 Newsletter',
-      newsletter_thankyou: '✅ Newsletter Thank You',
-      checkout: '🛒 Checkout',
-      purchase_thankyou: '✅ Purchase Thank You',
-      sales_call: '📞 Sales Call',
-      sales_call_thankyou: '✅ Sales Call Thank You',
-      consultation: '💼 Consultation',
-      consultation_thankyou: '✅ Consultation Thank You',
-      lead_magnet: '📦 Lead Magnet',
-    };
-    return labels[linkType] || linkType;
-  };
+
 
   const getStatusColor = (status: VideoStatus) => {
     switch (status) {
@@ -2090,42 +2059,67 @@ export default function Videos() {
               Copy these links and paste into your YouTube description — other links, go to Video Info to see the rest
             </p>
 
-            <div className="space-y-2 max-h-80 overflow-y-auto custom-scrollbar">
-              {(() => {
-                const PRIORITY_ORDER = ['landing_page', 'newsletter', 'consultation', 'sales_call', 'lead_magnet'];
-                const priorityLinks = PRIORITY_ORDER.flatMap(type =>
-                  savedLinks.filter(l => l.link_type === type)
-                );
-                return priorityLinks.map((l) => (
-                  <div
-                    key={l.token}
-                    className="flex items-center justify-between gap-3 bg-zinc-950 border border-zinc-800 rounded-xl p-3"
-                  >
-                    <div className="flex-1 min-w-0">
-                      <p className="text-[10px] font-black uppercase text-zinc-400 mb-1">
-                        {l.label}
-                      </p>
-                      <p className="font-mono text-[11px] text-blue-400 truncate">
-                        {window.location.origin}/{l.token}
-                      </p>
-                    </div>
-                    <button
-                      onClick={() => {
-                        navigator.clipboard.writeText(`${window.location.origin}/${l.token}`);
-                        setCopiedLink(l.token);
-                        setTimeout(() => setCopiedLink(null), 2000);
-                      }}
-                      className="shrink-0 h-8 w-8 flex items-center justify-center rounded-lg border border-zinc-700 hover:bg-zinc-800 transition-all"
-                    >
-                      {copiedLink === l.token ? (
-                        <Check size={14} className="text-green-500" />
-                      ) : (
-                        <Copy size={14} className="text-zinc-400" />
-                      )}
-                    </button>
+            <div className="space-y-4 max-h-80 overflow-y-auto custom-scrollbar">
+              {savedDisplayGroups.campaignLinks.length > 0 && (
+                <div>
+                  <p className="text-[9px] font-black uppercase tracking-widest text-zinc-500 mb-2">Campaign Links</p>
+                  <div className="space-y-2">
+                    {savedDisplayGroups.campaignLinks.map((link) => (
+                      <div key={link.key} className="flex items-center justify-between gap-3 bg-zinc-950 border border-zinc-800 rounded-xl p-3">
+                        <div className="flex-1 min-w-0">
+                          <p className="text-[10px] font-black uppercase text-zinc-400 mb-1">{link.icon} {link.label}</p>
+                          <p className="font-mono text-[11px] text-blue-400 truncate">{window.location.origin}/{link.token}</p>
+                        </div>
+                        <button
+                          onClick={() => {
+                            navigator.clipboard.writeText(`${window.location.origin}/${link.token}`);
+                            setCopiedLink(link.token);
+                            setTimeout(() => setCopiedLink(null), 2000);
+                          }}
+                          className="shrink-0 h-8 w-8 flex items-center justify-center rounded-lg border border-zinc-700 hover:bg-zinc-800 transition-all"
+                        >
+                          {copiedLink === link.token ? <Check size={14} className="text-green-500" /> : <Copy size={14} className="text-zinc-400" />}
+                        </button>
+                      </div>
+                    ))}
                   </div>
-                ));
-              })()}
+                </div>
+              )}
+
+              {savedDisplayGroups.assets.length > 0 && (
+                <div>
+                  <p className="text-[9px] font-black uppercase tracking-widest text-zinc-500 mb-2">Assets</p>
+                  {(['library', 'shared', 'assigned'] as const).map((cat) => {
+                    const rowsForCategory = savedDisplayGroups.assets.filter(a => a.category === cat);
+                    if (rowsForCategory.length === 0) return null;
+                    return (
+                      <div key={cat} className="mb-2">
+                        <p className="text-[9px] font-bold text-zinc-600 mb-1">{CATEGORY_LABEL[cat].label}s</p>
+                        <div className="space-y-2">
+                          {rowsForCategory.map((asset) => (
+                            <div key={asset.key} className="flex items-center justify-between gap-3 bg-zinc-950 border border-zinc-800 rounded-xl p-3">
+                              <div className="flex-1 min-w-0">
+                                <p className="text-[10px] font-black uppercase text-zinc-400 mb-1">{CATEGORY_LABEL[asset.category].icon} {asset.title}</p>
+                                <p className="font-mono text-[11px] text-blue-400 truncate">{window.location.origin}/{asset.token}</p>
+                              </div>
+                              <button
+                                onClick={() => {
+                                  navigator.clipboard.writeText(`${window.location.origin}/${asset.token}`);
+                                  setCopiedLink(asset.token);
+                                  setTimeout(() => setCopiedLink(null), 2000);
+                                }}
+                                className="shrink-0 h-8 w-8 flex items-center justify-center rounded-lg border border-zinc-700 hover:bg-zinc-800 transition-all"
+                              >
+                                {copiedLink === asset.token ? <Check size={14} className="text-green-500" /> : <Copy size={14} className="text-zinc-400" />}
+                              </button>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
             </div>
 
             <button
