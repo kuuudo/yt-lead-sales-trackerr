@@ -127,7 +127,14 @@ export default function PromotionDetail() {
         <p className="text-[10px] font-black uppercase tracking-widest text-zinc-500 mb-1">
           Promotion Detail
         </p>
-        <h1 className="text-2xl font-bold text-white capitalize">{promotion.status}</h1>
+        <h1 className="text-2xl font-bold text-white">
+          {assignment?.title ?? 'Promotion'}
+        </h1>
+        {promotion.status !== 'draft' && (
+          <span className="inline-block mt-2 text-[9px] font-black uppercase text-zinc-500 tracking-widest">
+            {promotion.status}
+          </span>
+        )}
       </div>
 
       <div className="flex flex-col md:flex-row gap-6">

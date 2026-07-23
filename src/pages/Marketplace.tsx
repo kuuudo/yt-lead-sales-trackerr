@@ -9,6 +9,7 @@ import {
   listMyCollaborations,
   listMyInvitations,
   listMyPromotions,
+  listPromotedAssignmentIdsForUser,
   type AssignmentSummary,
   type InvitationSummary,
   type PromotionSummary,
@@ -96,17 +97,26 @@ export default function Marketplace() {
 
         setUserId(user.id);
 
-        const [orgAssignments, myCollabs, myInvites, myPromos, archivedIds] = await Promise.all([
+        const [orgAssignments, myCollabs, myInvites, myPromos, archivedIds, promotedAssignmentIds] = await Promise.all([
           membership?.organization_id ? listOrgAssignments(membership.organization_id) : Promise.resolve([]),
           listMyCollaborations(user.id),
           profile?.email ? listMyInvitations(profile.email) : Promise.resolve([]),
           listMyPromotions(user.id),
           getArchivedAssignmentIdsForUser(user.id),
+          listPromotedAssignmentIdsForUser(user.id),
         ]);
 
         // De-dupe in case the current user is both the org creator and a collaborator.
         const byId = new Map<string, AssignmentSummary>();
         [...orgAssignments, ...myCollabs].forEach(a => byId.set(a.id, a));
+
+        // Once the CURRENT user already has a promotion tied to an
+        // Assignment (as Sponsor or as the specific Collaborator who
+        // started it), that Assignment moves to My Promotions and drops
+        // out of the active Assignments list — for this user only. A
+        // different collaborator on the same Assignment who hasn't
+        // promoted yet is unaffected; see listPromotedAssignmentIdsForUser.
+        promotedAssignmentIds.forEach(id => byId.delete(id));
 
         setAssignments(Array.from(byId.values()));
         setInvitations(myInvites);
@@ -312,9 +322,11 @@ export default function Marketplace() {
                     Created {new Date(p.created_at).toLocaleDateString()}
                   </p>
                 </div>
-                <span className="text-[10px] font-bold uppercase tracking-widest text-zinc-500">
-                  {p.status}
-                </span>
+                {p.status !== 'draft' && (
+                  <span className="text-[10px] font-bold uppercase tracking-widest text-zinc-500">
+                    {p.status}
+                  </span>
+                )}
               </button>
             ))}
           </div>
