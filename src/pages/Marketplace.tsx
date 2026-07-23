@@ -19,6 +19,11 @@ import {
   archiveAssignmentForUser,
   restoreAssignmentForUser,
 } from '../services/assignment/assignmentArchive';
+import {
+  getArchivedPromotionIdsForUser,
+  archivePromotionForUser,
+  restorePromotionForUser,
+} from '../services/promotion/promotionArchive';
 
 type Tab = 'assignments' | 'invitations' | 'promotions';
 
@@ -52,6 +57,16 @@ export default function Marketplace() {
   const [showArchivedModal, setShowArchivedModal] = useState(false);
   const [selectedArchivedIds, setSelectedArchivedIds] = useState<string[]>([]);
   const [restoring, setRestoring] = useState(false);
+
+  // Personal archive state for PROMOTIONS — Map<promotion_id, archived_at>,
+  // completely separate from the Assignment archive state above. Ali and
+  // WebMood each get their own Map; archiving never mutates the promotion
+  // row itself, so it can never affect what the other party sees.
+  const [archivedPromotionMap, setArchivedPromotionMap] = useState<Map<string, string>>(new Map());
+  const [archivingPromotionId, setArchivingPromotionId] = useState<string | null>(null);
+  const [showArchivedPromotionsModal, setShowArchivedPromotionsModal] = useState(false);
+  const [selectedArchivedPromotionIds, setSelectedArchivedPromotionIds] = useState<string[]>([]);
+  const [restoringPromotions, setRestoringPromotions] = useState(false);
 
   const [modalConfig, setModalConfig] = useState<{
     isOpen: boolean;
@@ -97,13 +112,14 @@ export default function Marketplace() {
 
         setUserId(user.id);
 
-        const [orgAssignments, myCollabs, myInvites, myPromos, archivedIds, promotedAssignmentIds] = await Promise.all([
+        const [orgAssignments, myCollabs, myInvites, myPromos, archivedIds, promotedAssignmentIds, archivedPromotionIds] = await Promise.all([
           membership?.organization_id ? listOrgAssignments(membership.organization_id) : Promise.resolve([]),
           listMyCollaborations(user.id),
           profile?.email ? listMyInvitations(profile.email) : Promise.resolve([]),
           listMyPromotions(user.id),
           getArchivedAssignmentIdsForUser(user.id),
           listPromotedAssignmentIdsForUser(user.id),
+          getArchivedPromotionIdsForUser(user.id),
         ]);
 
         // De-dupe in case the current user is both the org creator and a collaborator.
@@ -122,6 +138,7 @@ export default function Marketplace() {
         setInvitations(myInvites);
         setPromotions(myPromos);
         setArchivedMap(archivedIds);
+        setArchivedPromotionMap(archivedPromotionIds);
       } catch (e: any) {
         setError(e.message ?? 'Failed to load Collaboration Hub');
       } finally {
@@ -191,6 +208,66 @@ export default function Marketplace() {
   const activeAssignments = assignments.filter(a => !archivedMap.has(a.id));
   const archivedAssignments = assignments.filter(a => archivedMap.has(a.id));
 
+  // Archive is only ever triggered by an explicit user click below — there
+  // is no automatic/time-based archiving anywhere. This only ever writes
+  // a row scoped to (promotion_id, the CURRENT user's id) — it can never
+  // affect the other party's view of the same promotion, and never
+  // touches promotion status, promotion_assets, or assignment/collaborator
+  // relationships.
+  const handleArchivePromotion = (promotion: PromotionSummary) => {
+    if (!userId) return;
+    showConfirm(
+      'Archive Promotion?',
+      'Archived promotions will be hidden from your active list. You can restore them anytime.',
+      async () => {
+        setArchivingPromotionId(promotion.id);
+        try {
+          await archivePromotionForUser(promotion.id, userId);
+          setArchivedPromotionMap(prev => new Map(prev).set(promotion.id, new Date().toISOString()));
+        } catch (err: any) {
+          showAlert('Archive Failed', err.message || 'Could not archive this promotion.', 'danger');
+        } finally {
+          setArchivingPromotionId(null);
+        }
+      },
+      'info'
+    );
+  };
+
+  const openArchivedPromotionsModal = () => {
+    setSelectedArchivedPromotionIds([]);
+    setShowArchivedPromotionsModal(true);
+  };
+
+  const toggleArchivedPromotionSelection = (promotionId: string) => {
+    setSelectedArchivedPromotionIds(prev =>
+      prev.includes(promotionId) ? prev.filter(x => x !== promotionId) : [...prev, promotionId]
+    );
+  };
+
+  const handleRestoreSelectedPromotions = async () => {
+    if (!userId || selectedArchivedPromotionIds.length === 0) return;
+    setRestoringPromotions(true);
+    try {
+      await Promise.all(
+        selectedArchivedPromotionIds.map(promotionId => restorePromotionForUser(promotionId, userId))
+      );
+      setArchivedPromotionMap(prev => {
+        const next = new Map(prev);
+        selectedArchivedPromotionIds.forEach(id => next.delete(id));
+        return next;
+      });
+      setSelectedArchivedPromotionIds([]);
+    } catch (err: any) {
+      showAlert('Restore Failed', err.message, 'danger');
+    } finally {
+      setRestoringPromotions(false);
+    }
+  };
+
+  const activePromotions = promotions.filter(p => !archivedPromotionMap.has(p.id));
+  const archivedPromotions = promotions.filter(p => archivedPromotionMap.has(p.id));
+
   return (
     <div className="min-h-screen bg-zinc-950 text-zinc-100">
       <div className="max-w-5xl mx-auto px-6 py-10">
@@ -226,6 +303,15 @@ export default function Marketplace() {
             >
               <Archive size={14} />
               Archived{archivedAssignments.length > 0 ? ` (${archivedAssignments.length})` : ''}
+            </button>
+          )}
+          {tab === 'promotions' && (
+            <button
+              onClick={openArchivedPromotionsModal}
+              className="flex items-center gap-2 bg-zinc-900 hover:bg-zinc-800 border border-zinc-800 text-zinc-300 text-xs font-bold uppercase tracking-wider px-4 py-2 rounded-lg"
+            >
+              <Archive size={14} />
+              Archived{archivedPromotions.length > 0 ? ` (${archivedPromotions.length})` : ''}
             </button>
           )}
           <button
@@ -309,13 +395,24 @@ export default function Marketplace() {
 
         {!loading && !error && tab === 'promotions' && (
           <div className="space-y-3">
-            {promotions.length === 0 && <EmptyState label="No promotions yet" />}
-            {promotions.map(p => (
-              <button
+            {activePromotions.length === 0 && <EmptyState label="No promotions yet" />}
+            {activePromotions.map(p => (
+              <div
                 key={p.id}
                 onClick={() => navigate(`/marketplace/promotions/${p.id}`)}
-                className="w-full flex items-center justify-between text-left bg-zinc-900 border border-zinc-800 rounded-xl p-5 hover:border-zinc-700 transition-colors"
+                className="relative group w-full flex items-center justify-between text-left bg-zinc-900 border border-zinc-800 rounded-xl p-5 pr-14 hover:border-zinc-700 transition-colors cursor-pointer"
               >
+                <button
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    handleArchivePromotion(p);
+                  }}
+                  disabled={archivingPromotionId === p.id}
+                  title="Archive"
+                  className="absolute top-1/2 -translate-y-1/2 right-4 w-7 h-7 rounded-lg bg-zinc-950 border border-zinc-800 flex items-center justify-center text-zinc-600 hover:text-white transition-all opacity-0 group-hover:opacity-100 disabled:opacity-50"
+                >
+                  {archivingPromotionId === p.id ? <Loader2 size={12} className="animate-spin" /> : <Archive size={12} />}
+                </button>
                 <div>
                   <h3 className="font-bold text-white">{p.assignment?.title ?? p.campaign?.campaign_name ?? 'Promotion'}</h3>
                   <p className="text-zinc-500 text-xs mt-1">
@@ -333,7 +430,7 @@ export default function Marketplace() {
                     {p.status}
                   </span>
                 )}
-              </button>
+              </div>
             ))}
           </div>
         )}
@@ -410,6 +507,83 @@ export default function Marketplace() {
               >
                 {restoring ? <Loader2 size={14} className="animate-spin" /> : <ArchiveRestore size={14} />}
                 Restore Selected{selectedArchivedIds.length > 0 ? ` (${selectedArchivedIds.length})` : ''}
+              </button>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* Archived promotions modal — shows ONLY promotions the CURRENT
+          user has personally archived. The same promotion can be Active
+          for one party (e.g. the Collaborator) and Archived for the
+          other (e.g. the Sponsor); this list never reflects anyone
+          else's state. */}
+      <AnimatePresence>
+        {showArchivedPromotionsModal && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="fixed inset-0 z-50 bg-black/70 flex items-center justify-center p-4"
+            onClick={() => setShowArchivedPromotionsModal(false)}
+          >
+            <motion.div
+              initial={{ opacity: 0, scale: 0.96 }}
+              animate={{ opacity: 1, scale: 1 }}
+              exit={{ opacity: 0, scale: 0.96 }}
+              className="bg-zinc-950 border border-zinc-800 rounded-2xl w-full max-w-md max-h-[80vh] flex flex-col p-6"
+              onClick={e => e.stopPropagation()}
+            >
+              <div className="flex justify-between items-center mb-4">
+                <h2 className="text-lg font-bold text-white flex items-center gap-2">
+                  <Archive size={16} className="text-zinc-500" /> Archived Promotions
+                </h2>
+                <button
+                  onClick={() => setShowArchivedPromotionsModal(false)}
+                  className="w-7 h-7 rounded-lg bg-zinc-900 border border-zinc-800 flex items-center justify-center text-zinc-500 hover:text-white transition-all"
+                >
+                  <X size={14} />
+                </button>
+              </div>
+
+              <div className="flex-1 overflow-y-auto space-y-1 -mx-2 px-2">
+                {archivedPromotions.length === 0 ? (
+                  <p className="text-zinc-600 text-xs font-bold uppercase tracking-widest text-center py-10">
+                    No archived promotions
+                  </p>
+                ) : (
+                  archivedPromotions.map(p => (
+                    <div
+                      key={p.id}
+                      className="flex items-center gap-3 p-2.5 rounded-xl hover:bg-zinc-900 transition-all"
+                    >
+                      <input
+                        type="checkbox"
+                        checked={selectedArchivedPromotionIds.includes(p.id)}
+                        onChange={() => toggleArchivedPromotionSelection(p.id)}
+                        className="w-4 h-4 rounded accent-white shrink-0"
+                      />
+                      <button
+                        onClick={() => {
+                          setShowArchivedPromotionsModal(false);
+                          navigate(`/marketplace/promotions/${p.id}`);
+                        }}
+                        className="text-sm text-zinc-200 flex-1 truncate text-left hover:text-white"
+                      >
+                        {p.assignment?.title ?? p.campaign?.campaign_name ?? 'Promotion'}
+                      </button>
+                    </div>
+                  ))
+                )}
+              </div>
+
+              <button
+                disabled={selectedArchivedPromotionIds.length === 0 || restoringPromotions}
+                onClick={handleRestoreSelectedPromotions}
+                className="mt-4 w-full flex items-center justify-center gap-2 bg-white hover:bg-zinc-200 disabled:opacity-40 disabled:cursor-not-allowed text-zinc-950 px-5 py-3 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all"
+              >
+                {restoringPromotions ? <Loader2 size={14} className="animate-spin" /> : <ArchiveRestore size={14} />}
+                Restore Selected{selectedArchivedPromotionIds.length > 0 ? ` (${selectedArchivedPromotionIds.length})` : ''}
               </button>
             </motion.div>
           </motion.div>

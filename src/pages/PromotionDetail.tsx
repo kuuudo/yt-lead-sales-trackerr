@@ -31,11 +31,16 @@
 
 import React, { useEffect, useState } from 'react';
 import { useParams, Link } from 'react-router-dom';
-import { ArrowLeft, Loader2 } from 'lucide-react';
+import { ArrowLeft, Loader2, ArchiveRestore } from 'lucide-react';
+import { useAuth } from '../lib/auth';
 import {
   getPromotionDetail,
   type PromotionDetailData,
 } from '../services/promotion/getPromotionDetail';
+import {
+  getPromotionArchiveState,
+  restorePromotionForUser,
+} from '../services/promotion/promotionArchive';
 import {
   resolveAssetThumbnail,
   resolveElementThumbnail,
@@ -76,9 +81,19 @@ function resolveTypeLabel(resource: AssetResourceView | null): string {
 
 export default function PromotionDetail() {
   const { id } = useParams<{ id: string }>();
+  const { user } = useAuth();
   const [detail, setDetail] = useState<PromotionDetailData | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+
+  // Archive state — personal to the CURRENT user only (see
+  // services/promotion/promotionArchive.ts). Never affects promotion
+  // status, promotion_assets, or the other party's view of this same
+  // promotion. Archiving itself is a list-page action (Marketplace.tsx);
+  // this page only shows the badge and lets the user undo it.
+  const [archivedAt, setArchivedAt] = useState<string | null>(null);
+  const [restoring, setRestoring] = useState(false);
+  const [archiveActionError, setArchiveActionError] = useState<string | null>(null);
 
   useEffect(() => {
     if (!id) return;
@@ -97,8 +112,34 @@ export default function PromotionDetail() {
       } finally {
         setLoading(false);
       }
+
+      // Independent, non-blocking fetch — same treatment as
+      // AssetDetail.tsx's/AssignmentDetail.tsx's archive state: failure
+      // here never blocks the rest of the page from rendering.
+      if (user) {
+        try {
+          const state = await getPromotionArchiveState(id, user.id);
+          setArchivedAt(state);
+        } catch (err) {
+          console.error('[PromotionDetail] getPromotionArchiveState failed:', err);
+        }
+      }
     })();
-  }, [id]);
+  }, [id, user]);
+
+  const handleRestore = async () => {
+    if (!id || !user) return;
+    setArchiveActionError(null);
+    setRestoring(true);
+    try {
+      await restorePromotionForUser(id, user.id);
+      setArchivedAt(null);
+    } catch (err: any) {
+      setArchiveActionError(err.message || 'Could not restore this promotion.');
+    } finally {
+      setRestoring(false);
+    }
+  };
 
   if (loading) {
     return (
@@ -127,13 +168,34 @@ export default function PromotionDetail() {
         <p className="text-[10px] font-black uppercase tracking-widest text-zinc-500 mb-1">
           Promotion Detail
         </p>
-        <h1 className="text-2xl font-bold text-white">
+        <h1 className="text-2xl font-bold text-white flex items-center gap-2">
           {assignment?.title ?? 'Promotion'}
+          {archivedAt && (
+            <span className="flex items-center gap-1 text-[9px] font-black uppercase tracking-widest text-amber-500 bg-amber-500/10 border border-amber-500/20 px-2 py-1 rounded-full">
+              <ArchiveRestore size={10} /> Archived
+            </span>
+          )}
         </h1>
         {promotion.status !== 'draft' && (
           <span className="inline-block mt-2 text-[9px] font-black uppercase text-zinc-500 tracking-widest">
             {promotion.status}
           </span>
+        )}
+
+        {archivedAt && (
+          <div className="mt-4">
+            <button
+              onClick={handleRestore}
+              disabled={restoring}
+              className="flex items-center gap-2 bg-zinc-900 hover:bg-zinc-800 border border-zinc-800 text-zinc-300 text-xs font-bold uppercase tracking-wider px-4 py-2 rounded-lg disabled:opacity-50"
+            >
+              {restoring ? <Loader2 className="animate-spin" size={14} /> : <ArchiveRestore size={14} />}
+              {restoring ? 'Restoring...' : 'Restore Promotion'}
+            </button>
+            {archiveActionError && (
+              <p className="text-[10px] text-red-500 mt-2">{archiveActionError}</p>
+            )}
+          </div>
         )}
       </div>
 
