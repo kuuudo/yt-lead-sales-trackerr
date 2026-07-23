@@ -46,7 +46,7 @@ export default function Marketplace() {
   // Personal archive state — Map<assignment_id, archived_at>, scoped to
   // the current user only. Ali and WebMood each get their own Map;
   // archiving never mutates the assignment row itself, so it can never
-  // affect what the other party sees.
+  // affect what the other party sees..
   const [archivedMap, setArchivedMap] = useState<Map<string, string>>(new Map());
   const [archivingId, setArchivingId] = useState<string | null>(null);
   const [showArchivedModal, setShowArchivedModal] = useState(false);
