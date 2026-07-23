@@ -27,7 +27,7 @@ import { useLanguage } from '../lib/hooks';
 import { supabase, Video, Campaign, LeadMagnet, Asset } from '../lib/supabase';
 import { useAuth } from '../lib/auth';
 import { useOrganization } from '../lib/useOrganization';
-import { getRedirectLinksDisplay, CATEGORY_LABEL, type RedirectLinkDisplayCard } from '../services/redirect/getPromotedAssetDisplay';
+import { getRedirectLinksDisplay, CATEGORY_LABEL, type RedirectLinksDisplayGroups } from '../services/redirect/getPromotedAssetDisplay';
 import { getAsset } from '../services/asset/getAsset';
 import { addToLibrary } from '../services/asset/addToLibrary';
 import {
@@ -316,7 +316,7 @@ export default function VideoDetail() {
   const [availableCampaignLeadMagnets, setAvailableCampaignLeadMagnets] = useState<LeadMagnet[]>([]);
   const [copiedLinkToken, setCopiedLinkToken] = useState<string | null>(null);
   const { organizationId } = useOrganization();
-  const [displayCards, setDisplayCards] = useState<RedirectLinkDisplayCard[]>([]);
+  const [displayGroups, setDisplayGroups] = useState<RedirectLinksDisplayGroups>({ campaignLinks: [], assets: [] });
   const [expandedCardKey, setExpandedCardKey] = useState<string | null>(null);
   const [redirectLinks, setRedirectLinks]         = useState<any[]>([]);
   const [allLeadMagnetNames, setAllLeadMagnetNames] = useState<Record<string, string>>({});
@@ -473,7 +473,7 @@ if (organizationId && user) {
       viewerUserId: user.id,
     });
 
-    setDisplayCards(cards);
+    setDisplayGroups(cards);
   } catch (err) {
     console.error('[VideoDetail] getRedirectLinksDisplay failed:', err);
   }
@@ -803,7 +803,7 @@ if (organizationId && user) {
           viewerOrganizationId: organizationId,
           viewerUserId: user.id,
         })
-          .then(setDisplayCards)
+          .then(setDisplayGroups)
           .catch(err =>
             console.error('[VideoDetail] getRedirectLinksDisplay refresh failed:', err)
           );
@@ -826,7 +826,11 @@ if (organizationId && user) {
       const { error } = await supabase.from('redirect_links').delete().eq('token', token);
       if (error) throw error;
       setRedirectLinks(prev => prev.filter(l => l.token !== token));
-      setDisplayCards(prev => prev.filter(c => c.token !== token));
+      if (organizationId && user) {
+  getRedirectLinksDisplay({ videoId: video!.id, viewerOrganizationId: organizationId, viewerUserId: user.id })
+    .then(setDisplayGroups)
+    .catch(err => console.error('[VideoDetail] getRedirectLinksDisplay refresh failed:', err));
+}
     } catch (err: any) {
       showAlert('Error', err.message || 'Could not delete link.', 'danger');
     } finally {
@@ -1413,86 +1417,120 @@ if (organizationId && user) {
           )}
         </AnimatePresence>
 
-        {/* All Links List */}
-        {/* All Links List */}
-<div className="space-y-2">
-  {displayCards.length === 0 ? (
-    <p className="text-[10px] text-zinc-600 font-bold uppercase tracking-widest text-center py-6">No tracking links found</p>
-  ) : (
-    displayCards.map((card) => {
-      const isExpanded = expandedCardKey === card.key;
-      const hasMore = Object.keys(card.more).length > 0;
-      return (
-        <div key={card.key} className="bg-zinc-950 border border-zinc-800 rounded-xl p-3 space-y-2">
-          <div className="flex items-center justify-between gap-3">
-            <div className="flex-1 min-w-0">
-              <p className="text-[9px] font-black uppercase tracking-widest text-zinc-500">
-                {CATEGORY_LABEL[card.category].label}
-              </p>
-              <p className="text-sm font-bold text-white truncate mt-0.5">
-                {card.title}
-                {card.subtitle && (
-                  <span className="ml-2 text-[10px] font-bold text-zinc-500 uppercase">{card.subtitle}</span>
-                )}
-              </p>
-            </div>
-          </div>
-
-          <div>
-            <p className="text-[9px] font-black uppercase tracking-widest text-zinc-500 mb-0.5">Redirect</p>
-            <div className="flex items-center justify-between gap-2">
-              <p className="font-mono text-[11px] text-blue-400 truncate">
-                {window.location.origin}/{card.token}
-              </p>
+{displayGroups.campaignLinks.length === 0 && displayGroups.assets.length === 0 ? (
+  <p className="text-[10px] text-zinc-600 font-bold uppercase tracking-widest text-center py-6">No tracking links found</p>
+) : (
+  <div className="space-y-4">
+    {displayGroups.campaignLinks.length > 0 && (
+      <div>
+        <p className="text-[9px] font-black uppercase tracking-widest text-zinc-500 mb-2">Campaign Links</p>
+        <div className="space-y-1.5">
+          {displayGroups.campaignLinks.map((link) => (
+            <div key={link.key} className="flex items-center justify-between gap-3 bg-zinc-950 border border-zinc-800 rounded-lg px-3 py-2">
+              <div className="flex items-center gap-2 min-w-0">
+                <span>{link.icon}</span>
+                <span className="text-xs font-bold text-white shrink-0">{link.label}</span>
+                <span className="font-mono text-[11px] text-blue-400 truncate">{window.location.origin}/{link.token}</span>
+              </div>
               <button
                 onClick={() => {
-                  navigator.clipboard.writeText(`${window.location.origin}/${card.token}`);
-                  setCopiedLinkToken(card.token);
+                  navigator.clipboard.writeText(`${window.location.origin}/${link.token}`);
+                  setCopiedLinkToken(link.token);
                   setTimeout(() => setCopiedLinkToken(null), 2000);
                 }}
                 className="shrink-0 h-7 w-7 flex items-center justify-center rounded-lg border border-zinc-700 hover:bg-zinc-800 transition-all"
               >
-                {copiedLinkToken === card.token ? <Check size={13} className="text-green-500" /> : <Copy size={13} className="text-zinc-400" />}
+                {copiedLinkToken === link.token ? <Check size={13} className="text-green-500" /> : <Copy size={13} className="text-zinc-400" />}
               </button>
             </div>
-          </div>
-
-          <div>
-            <p className="text-[9px] font-black uppercase tracking-widest text-zinc-500 mb-0.5">Destination</p>
-            <p className="font-mono text-[10px] text-zinc-400 break-all">{card.destinationUrl}</p>
-          </div>
-
-          {hasMore && (
-            <div>
-              <button
-                onClick={() => setExpandedCardKey(isExpanded ? null : card.key)}
-                className="text-[9px] font-black uppercase tracking-widest text-zinc-500 hover:text-white transition-all"
-              >
-                {isExpanded ? '▲ Less' : '▼ More'}
-              </button>
-              {isExpanded && (
-                <div className="mt-2 space-y-1.5 pt-2 border-t border-zinc-900">
-                  {card.more.owner && (
-                    <div><p className="text-[9px] font-black uppercase text-zinc-600">Owner</p><p className="text-xs text-zinc-300">{card.more.owner}</p></div>
-                  )}
-                  {card.more.sharedBy && (
-                    <div><p className="text-[9px] font-black uppercase text-zinc-600">Shared By</p><p className="text-xs text-zinc-300">{card.more.sharedBy}</p></div>
-                  )}
-                  {card.more.assignment && (
-                    <div><p className="text-[9px] font-black uppercase text-zinc-600">Assignment</p><p className="text-xs text-zinc-300">{card.more.assignment}</p></div>
-                  )}
-                  {card.more.created && (
-                    <div><p className="text-[9px] font-black uppercase text-zinc-600">Created</p><p className="text-xs text-zinc-300">{new Date(card.more.created).toLocaleDateString()}</p></div>
-                  )}
-                </div>
-              )}
-            </div>
-          )}
+          ))}
         </div>
-      );
-    })
-  )}
-</div>
+      </div>
+    )}
+
+    {displayGroups.assets.length > 0 && (
+      <div>
+        <p className="text-[9px] font-black uppercase tracking-widest text-zinc-500 mb-2">Assets</p>
+        {(['library', 'shared', 'assigned'] as const).map((cat) => {
+          const rowsForCategory = displayGroups.assets.filter(a => a.category === cat);
+          if (rowsForCategory.length === 0) return null;
+          return (
+            <div key={cat} className="mb-3">
+              <p className="text-[9px] font-bold text-zinc-600 mb-1">{CATEGORY_LABEL[cat].label}s</p>
+              <div className="space-y-1.5">
+                {rowsForCategory.map((asset) => {
+                  const isExpanded = expandedCardKey === asset.key;
+                  return (
+                    <div key={asset.key} className="bg-zinc-950 border border-zinc-800 rounded-lg px-3 py-2">
+                      <div className="flex items-center justify-between gap-3">
+                        <div className="flex items-center gap-2 min-w-0 flex-1">
+                          <span>{CATEGORY_LABEL[asset.category].icon}</span>
+                          <div className="min-w-0">
+                            <p className="text-xs font-bold text-white truncate">
+                              {asset.title}
+                              {asset.subtitle && (
+                                <span className="ml-2 text-[10px] font-bold text-zinc-500 uppercase">{asset.subtitle}</span>
+                              )}
+                            </p>
+                            <p className="font-mono text-[11px] text-blue-400 truncate">{window.location.origin}/{asset.token}</p>
+                          </div>
+                        </div>
+                        <button
+                          onClick={() => {
+                            navigator.clipboard.writeText(`${window.location.origin}/${asset.token}`);
+                            setCopiedLinkToken(asset.token);
+                            setTimeout(() => setCopiedLinkToken(null), 2000);
+                          }}
+                          className="shrink-0 h-7 w-7 flex items-center justify-center rounded-lg border border-zinc-700 hover:bg-zinc-800 transition-all"
+                        >
+                          {copiedLinkToken === asset.token ? <Check size={13} className="text-green-500" /> : <Copy size={13} className="text-zinc-400" />}
+                        </button>
+                      </div>
+                      <button
+                        onClick={() => setExpandedCardKey(isExpanded ? null : asset.key)}
+                        className="mt-1.5 text-[9px] font-black uppercase tracking-widest text-zinc-500 hover:text-white transition-all"
+                      >
+                        {isExpanded ? '▲ Less' : '▼ More'}
+                      </button>
+                      {isExpanded && (
+                        <div className="mt-2 space-y-1.5 pt-2 border-t border-zinc-900">
+                          <div>
+                            <p className="text-[9px] font-black uppercase text-zinc-600">Destination</p>
+                            <p className="font-mono text-[10px] text-zinc-400 break-all">{asset.destinationUrl}</p>
+                          </div>
+                          <div>
+                            <p className="text-[9px] font-black uppercase text-zinc-600">Asset Type</p>
+                            <p className="text-xs text-zinc-300">{CATEGORY_LABEL[asset.category].label}</p>
+                          </div>
+                          {asset.more.owner && (
+                            <div><p className="text-[9px] font-black uppercase text-zinc-600">Owner</p><p className="text-xs text-zinc-300">{asset.more.owner}</p></div>
+                          )}
+                          {asset.more.sharedBy && (
+                            <div><p className="text-[9px] font-black uppercase text-zinc-600">Shared By</p><p className="text-xs text-zinc-300">{asset.more.sharedBy}</p></div>
+                          )}
+                          {asset.more.assignment && (
+                            <div><p className="text-[9px] font-black uppercase text-zinc-600">Assignment</p><p className="text-xs text-zinc-300">{asset.more.assignment}</p></div>
+                          )}
+                          {asset.more.created && (
+                            <div><p className="text-[9px] font-black uppercase text-zinc-600">Created</p><p className="text-xs text-zinc-300">{new Date(asset.more.created).toLocaleDateString()}</p></div>
+                          )}
+                          <div>
+                            <p className="text-[9px] font-black uppercase text-zinc-600">Used By</p>
+                            <p className="text-xs text-zinc-300">{asset.more.usedByVideoCount} {asset.more.usedByVideoCount === 1 ? 'video' : 'videos'}</p>
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          );
+        })}
+      </div>
+    )}
+  </div>
+)}
       </section>
 
       {/* ── Asset Library (setup action — one-time, low frequency) ────────────────
