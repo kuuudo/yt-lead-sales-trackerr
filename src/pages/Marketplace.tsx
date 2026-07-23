@@ -317,7 +317,7 @@ export default function Marketplace() {
                 className="w-full flex items-center justify-between text-left bg-zinc-900 border border-zinc-800 rounded-xl p-5 hover:border-zinc-700 transition-colors"
               >
                 <div>
-                  <h3 className="font-bold text-white">{p.campaign?.campaign_name ?? 'Campaign'}</h3>
+                  <h3 className="font-bold text-white">{p.assignment?.title ?? p.campaign?.campaign_name ?? 'Promotion'}</h3>
                   <p className="text-zinc-500 text-xs mt-1">
                     Created {new Date(p.created_at).toLocaleDateString()}
                   </p>

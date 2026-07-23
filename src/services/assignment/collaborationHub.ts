@@ -31,7 +31,14 @@ export interface PromotionSummary {
   campaign_id: string;
   status: string;
   created_at: string;
-  campaign: { campaign_name: string | null } | null;
+
+  assignment: {
+    title: string;
+  } | null;
+
+  campaign: {
+    campaign_name: string | null;
+  } | null;
 }
 
 /** Assignments this Organization created (the "creating org" side of the Hub). */
@@ -103,7 +110,14 @@ export async function listMyPromotions(userId: string): Promise<PromotionSummary
 
   let query = supabase
     .from('promotions')
-    .select('id, campaign_id, status, created_at, campaign:campaigns(campaign_name)');
+    .select(`
+  id,
+  campaign_id,
+  status,
+  created_at,
+  assignment:assignments(title),
+  campaign:campaigns(campaign_name)
+`);
 
   query = myCollaboratorIds.length > 0
     ? query.or(`owner_user_id.eq.${userId},assignment_collaborator_id.in.(${myCollaboratorIds.join(',')})`)
