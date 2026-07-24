@@ -83,18 +83,29 @@ export interface ListSharedAssetsForCollaboratorInput {
   search?: string;
 }
 
-// ---- Step 1a: resolve MY assignment_collaborators.id rows ----
-//
-// Bridge step: promotions.assignment_collaborator_id points at
-// assignment_collaborators.id, not directly at a user_id, so this has to
-// be resolved first. Same convention as Step 4/5's
-// getAssignmentCreators/getSharerProfiles split below — small,
-// independently-debuggable steps, not one nested query.
+/**
+ * assignment_collaborators.id[] belonging to this user — the bridge
+ * between a user and promotions.assignment_collaborator_id (which points
+ * to assignment_collaborators.id, not directly to a user_id). Small,
+ * independently-debuggable step, reused by getMyPromotions below.
+ *
+ * PHASE 2B FIX: filtered to status = 'active' only. Remove Collaborator
+ * (Phase 2A) flips assignment_collaborators.status to 'removed' but
+ * deliberately never deletes the row, any promotions, or promotion_assets
+ * — historical data stays intact. Without this filter, a removed
+ * collaborator's id was still returned here, so getMyPromotions still
+ * found their old promotions and Shared Assets kept showing previously
+ * promoted assets after removal. This is the ONLY change needed to make
+ * Shared Assets respect removal — no promotion/promotion_assets row is
+ * touched, access is blocked purely by this read-time filter, per the
+ * locked "authorization blocks access, history is not deleted" rule.
+ */
 async function getMyAssignmentCollaboratorIds(userId: string): Promise<string[]> {
   const { data, error } = await supabase
     .from('assignment_collaborators')
     .select('id')
-    .eq('user_id', userId);
+    .eq('user_id', userId)
+    .eq('status', 'active');
 
   if (error) {
     throw new Error(`Failed to load assignment collaborator ids for user: ${error.message}`);

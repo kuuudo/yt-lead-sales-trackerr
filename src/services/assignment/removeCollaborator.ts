@@ -2,17 +2,17 @@
  * src/services/assignment/removeCollaborator.ts
  *
  * Wraps the remove_assignment_collaborator RPC (Phase 2A). Server-side
- * (SECURITY DEFINER) enforces that the caller is a member of the
- * Assignment's organization — same organization_members boundary
- * create_promotion already uses. This function does not repeat that
- * check, it just surfaces the result, same convention as
- * acceptInvitation.ts.
+ * (SECURITY DEFINER) enforces that the caller is the Assignment's
+ * creator (assignments.created_by_user_id = auth.uid()) — the LOCKED
+ * authorization rule, corrected in Phase 2B from an earlier
+ * organization_members check. This function does not repeat that check,
+ * it just surfaces the result, same convention as acceptInvitation.ts.
  *
  * This is a PERMISSION action, not an Archive action — it flips
  * assignment_collaborators.status from 'active' to 'removed'. It does
  * not delete the assignment, assets, promotions, promotion_assets, or
  * assignment_assets, and it never touches any *_user_states archive
- * table. Every existing RLS policy keyed on
+ * table. Every existing RLS policy / read-time filter keyed on
  * assignment_collaborators.status = 'active' revokes access on its own,
  * on the next read — no cleanup call needed here.
  */
