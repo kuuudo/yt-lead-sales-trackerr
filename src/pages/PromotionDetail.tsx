@@ -48,7 +48,7 @@
 
 import React, { useEffect, useState } from 'react';
 import { useParams, Link } from 'react-router-dom';
-import { ArrowLeft, Loader2, ArchiveRestore, UserX } from 'lucide-react';
+import { ArrowLeft, Loader2, ArchiveRestore, UserX, UserCheck } from 'lucide-react';
 import { useAuth } from '../lib/auth';
 import {
   getPromotionDetail,
@@ -59,6 +59,7 @@ import {
   restorePromotionForUser,
 } from '../services/promotion/promotionArchive';
 import { removeCollaborator } from '../services/assignment/removeCollaborator';
+import { restoreCollaborator } from '../services/assignment/restoreCollaborator';
 import {
   resolveAssetThumbnail,
   resolveElementThumbnail,
@@ -118,6 +119,7 @@ export default function PromotionDetail() {
   // client-side once detail has loaded — no extra network call needed.
   const [isSponsor, setIsSponsor] = useState(false);
   const [removingCollaborator, setRemovingCollaborator] = useState(false);
+  const [restoringCollaborator, setRestoringCollaborator] = useState(false);
   const [collaboratorActionError, setCollaboratorActionError] = useState<string | null>(null);
 
   useEffect(() => {
@@ -199,6 +201,28 @@ export default function PromotionDetail() {
       setCollaboratorActionError(err.message || 'Could not remove this collaborator.');
     } finally {
       setRemovingCollaborator(false);
+    }
+  };
+
+  // Mirror-image of handleRemoveCollaborator above — same authorization
+  // boundary server-side (assignments.created_by_user_id), same local
+  // state update on success so the badge/button flip back without a
+  // full reload. Does not touch promotions/promotion_assets/assignment_assets.
+  const handleRestoreCollaborator = async () => {
+    if (!detail?.collaborator) return;
+    setCollaboratorActionError(null);
+    setRestoringCollaborator(true);
+    try {
+      await restoreCollaborator(detail.collaborator.id);
+      setDetail((prev: PromotionDetailData | null) =>
+        prev && prev.collaborator
+          ? { ...prev, collaborator: { ...prev.collaborator, status: 'active' } }
+          : prev
+      );
+    } catch (err: any) {
+      setCollaboratorActionError(err.message || 'Could not restore this collaborator.');
+    } finally {
+      setRestoringCollaborator(false);
     }
   };
 
@@ -354,7 +378,12 @@ export default function PromotionDetail() {
                     <p className="text-sm text-white">{collaborator.name}</p>
                     {collaborator.email && <p className="text-xs text-zinc-500">{collaborator.email}</p>}
                     {isSponsor && promotion.assignment_collaborator_id && (
-                      <div className="mt-2">
+                      <div className="mt-2 space-y-2">
+                        {collaborator.status !== 'active' && (
+                          <span className="block text-[10px] font-bold uppercase tracking-widest text-red-500">
+                            {collaborator.status}
+                          </span>
+                        )}
                         {collaborator.status === 'active' ? (
                           <button
                             onClick={handleRemoveCollaborator}
@@ -365,9 +394,14 @@ export default function PromotionDetail() {
                             Remove Collaborator
                           </button>
                         ) : (
-                          <span className="text-[10px] font-bold uppercase tracking-widest text-red-500">
-                            {collaborator.status}
-                          </span>
+                          <button
+                            onClick={handleRestoreCollaborator}
+                            disabled={restoringCollaborator}
+                            className="flex items-center gap-1.5 bg-zinc-800 hover:bg-green-600 disabled:opacity-50 text-zinc-300 hover:text-white text-[10px] font-bold uppercase tracking-wider px-3 py-1.5 rounded-lg transition-colors"
+                          >
+                            {restoringCollaborator ? <Loader2 size={12} className="animate-spin" /> : <UserCheck size={12} />}
+                            Restore Collaborator
+                          </button>
                         )}
                         {collaboratorActionError && (
                           <p className="text-[10px] text-red-500 mt-2">{collaboratorActionError}</p>
