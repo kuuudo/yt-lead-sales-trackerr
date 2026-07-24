@@ -1,13 +1,14 @@
 import React, { useEffect, useState } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import { Loader2, AlertCircle, CheckCircle2, Rocket, ArrowLeft, ArchiveRestore } from 'lucide-react';
+import { Loader2, AlertCircle, CheckCircle2, Rocket, ArrowLeft, UserX, Users } from 'lucide-react';
 import { supabase } from '../lib/supabase';
 import { getAssignmentDetail, type AssignmentDetailData, type CampaignGroup } from '../services/assignment/getAssignmentDetail';
 import { acceptInvitation } from '../services/assignment/acceptInvitation';
 import {
-  getAssignmentArchiveState,
-  restoreAssignmentForUser,
-} from '../services/assignment/assignmentArchive';
+  listAssignmentCollaborators,
+  type AssignmentCollaboratorRow,
+} from '../services/assignment/listAssignmentCollaborators';
+import { removeCollaborator } from '../services/assignment/removeCollaborator';
 import { getElementTypeLabel, resolveThumbnail, resolveElementThumbnail } from '../lib/videoFormatters';
 
 export default function AssignmentDetail() {
@@ -23,14 +24,14 @@ export default function AssignmentDetail() {
   const [selectedCampaignId, setSelectedCampaignId] = useState<string | null>(null);
   const [selectedAssetIds, setSelectedAssetIds] = useState<Set<string>>(new Set());
 
-  // Archive state — personal to the CURRENT user only (see
-  // services/assignment/assignmentArchive.ts). Never affects the
-  // assignment's status, collaborators, invitations, or promotions, and
-  // never affects what the other party (Sponsor/Marketer) sees.
-  const [userId, setUserId] = useState<string | null>(null);
-  const [archivedAt, setArchivedAt] = useState<string | null>(null);
-  const [restoring, setRestoring] = useState(false);
-  const [archiveActionError, setArchiveActionError] = useState<string | null>(null);
+  // Phase 2A — Sponsor-only collaborator roster. isSponsor is
+  // organization-membership based (same boundary create_promotion uses
+  // for its org-owner path), not assignments.created_by_user_id — any
+  // member of the Assignment's organization can manage its collaborators.
+  const [isSponsor, setIsSponsor] = useState(false);
+  const [collaborators, setCollaborators] = useState<AssignmentCollaboratorRow[]>([]);
+  const [collaboratorsLoading, setCollaboratorsLoading] = useState(false);
+  const [removingId, setRemovingId] = useState<string | null>(null);
 
   const load = async () => {
     if (!assignmentId) return;
@@ -39,7 +40,6 @@ export default function AssignmentDetail() {
     try {
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) throw new Error('Not signed in');
-      setUserId(user.id);
 
       const { data: profile } = await supabase
         .from('profiles')
@@ -47,21 +47,35 @@ export default function AssignmentDetail() {
         .eq('id', user.id)
         .single();
 
-      // Archive state fetch is independent of the main assignment detail
-      // fetch and never blocks the page — mirrors AssetDetail.tsx's
-      // treatment of sharing/archive info.
-      const [detail, archiveState] = await Promise.all([
-        getAssignmentDetail(assignmentId, user.id, profile?.email ?? ''),
-        getAssignmentArchiveState(assignmentId, user.id).catch(err => {
-          console.error('[AssignmentDetail] getAssignmentArchiveState failed:', err);
-          return null;
-        }),
-      ]);
-
+      const detail = await getAssignmentDetail(assignmentId, user.id, profile?.email ?? '');
       setData(detail);
-      setArchivedAt(archiveState);
       if (detail.campaignGroups.length > 0 && !selectedCampaignId) {
         setSelectedCampaignId(detail.campaignGroups[0].campaign_id);
+      }
+
+      // Sponsor-only roster fetch — independent of the main detail load,
+      // never blocks it. Matches organization_members check used by
+      // create_promotion's org-owner path.
+      const { data: membership } = await supabase
+        .from('organization_members')
+        .select('organization_id')
+        .eq('user_id', user.id)
+        .eq('organization_id', detail.assignment.organization_id)
+        .maybeSingle();
+
+      const sponsor = !!membership;
+      setIsSponsor(sponsor);
+
+      if (sponsor) {
+        setCollaboratorsLoading(true);
+        try {
+          const roster = await listAssignmentCollaborators(assignmentId);
+          setCollaborators(roster);
+        } catch (err) {
+          console.error('[AssignmentDetail] listAssignmentCollaborators failed:', err);
+        } finally {
+          setCollaboratorsLoading(false);
+        }
       }
     } catch (e: any) {
       setError(e.message ?? 'Failed to load assignment');
@@ -84,22 +98,27 @@ export default function AssignmentDetail() {
     }
   };
 
-  // Restore only ever acts on (assignmentId, the CURRENT user's id) — it
-  // can never affect the other party's view of this same assignment, and
-  // never touches assignment status, collaborators, invitations, or
-  // promotions. Archiving itself is a list-page action (Marketplace.tsx);
-  // this page only shows the badge and lets the user undo it.
-  const handleRestore = async () => {
-    if (!assignmentId || !userId) return;
-    setArchiveActionError(null);
-    setRestoring(true);
+  // Remove is only ever triggered by an explicit Sponsor click below —
+  // this is a PERMISSION action (assignment_collaborators.status:
+  // 'active' -> 'removed'), not an Archive action. It does not delete
+  // the assignment, assets, promotions, promotion_assets, or
+  // assignment_assets. Every RLS policy keyed on
+  // assignment_collaborators.status = 'active' revokes the collaborator's
+  // access on its own, on the next read.
+  const handleRemove = async (collaborator: AssignmentCollaboratorRow) => {
+    if (!window.confirm(`Remove ${collaborator.name} from this Assignment? They will immediately lose access to its Assets.`)) {
+      return;
+    }
+    setRemovingId(collaborator.id);
     try {
-      await restoreAssignmentForUser(assignmentId, userId);
-      setArchivedAt(null);
+      await removeCollaborator(collaborator.id);
+      setCollaborators(prev =>
+        prev.map(c => (c.id === collaborator.id ? { ...c, status: 'removed' } : c))
+      );
     } catch (e: any) {
-      setArchiveActionError(e.message || 'Could not restore this assignment.');
+      setError(e.message ?? 'Failed to remove collaborator');
     } finally {
-      setRestoring(false);
+      setRemovingId(null);
     }
   };
 
@@ -173,32 +192,9 @@ export default function AssignmentDetail() {
         <span className="text-[10px] font-bold uppercase tracking-widest text-zinc-500">
           {assignment.status}
         </span>
-        <h1 className="text-2xl font-bold mt-1 mb-2 flex items-center gap-2">
-          {assignment.title}
-          {archivedAt && (
-            <span className="flex items-center gap-1 text-[9px] font-black uppercase tracking-widest text-amber-500 bg-amber-500/10 border border-amber-500/20 px-2 py-1 rounded-full">
-              <ArchiveRestore size={10} /> Archived
-            </span>
-          )}
-        </h1>
+        <h1 className="text-2xl font-bold mt-1 mb-2">{assignment.title}</h1>
         {assignment.description && (
           <p className="text-zinc-400 text-sm mb-6">{assignment.description}</p>
-        )}
-
-        {archivedAt && (
-          <div className="mb-6">
-            <button
-              onClick={handleRestore}
-              disabled={restoring}
-              className="flex items-center gap-2 bg-zinc-900 hover:bg-zinc-800 border border-zinc-800 text-zinc-300 text-xs font-bold uppercase tracking-wider px-4 py-2 rounded-lg disabled:opacity-50"
-            >
-              {restoring ? <Loader2 className="animate-spin" size={14} /> : <ArchiveRestore size={14} />}
-              {restoring ? 'Restoring...' : 'Restore Assignment'}
-            </button>
-            {archiveActionError && (
-              <p className="text-[10px] text-red-500 mt-2">{archiveActionError}</p>
-            )}
-          </div>
         )}
 
         {error && (
@@ -224,6 +220,56 @@ export default function AssignmentDetail() {
         {!canAct && !myInvitation && (
           <div className="text-zinc-500 text-sm border border-dashed border-zinc-800 rounded-xl p-6">
             You don't have an active collaboration on this Assignment.
+          </div>
+        )}
+
+        {isSponsor && (
+          <div className="mb-6">
+            <label className="flex items-center gap-2 text-[10px] font-bold uppercase tracking-widest text-zinc-500 mb-2">
+              <Users size={12} /> Collaborators
+            </label>
+            {collaboratorsLoading ? (
+              <div className="flex items-center gap-2 text-zinc-500 text-sm">
+                <Loader2 className="animate-spin" size={14} /> Loading collaborators…
+              </div>
+            ) : collaborators.length === 0 ? (
+              <div className="text-zinc-600 text-sm border border-dashed border-zinc-800 rounded-lg p-4">
+                No one has joined this Assignment yet.
+              </div>
+            ) : (
+              <div className="space-y-2">
+                {collaborators.map(c => (
+                  <div
+                    key={c.id}
+                    className="flex items-center justify-between bg-zinc-900 border border-zinc-800 rounded-lg p-3"
+                  >
+                    <div>
+                      <p className="text-sm text-zinc-200">{c.name}</p>
+                      {c.email && <p className="text-xs text-zinc-500">{c.email}</p>}
+                    </div>
+                    <div className="flex items-center gap-3">
+                      <span
+                        className={`text-[10px] font-bold uppercase tracking-widest ${
+                          c.status === 'active' ? 'text-zinc-500' : 'text-red-500'
+                        }`}
+                      >
+                        {c.status}
+                      </span>
+                      {c.status === 'active' && (
+                        <button
+                          onClick={() => handleRemove(c)}
+                          disabled={removingId === c.id}
+                          className="flex items-center gap-1.5 bg-zinc-800 hover:bg-red-600 disabled:opacity-50 text-zinc-300 hover:text-white text-[10px] font-bold uppercase tracking-wider px-3 py-1.5 rounded-lg transition-colors"
+                        >
+                          {removingId === c.id ? <Loader2 size={12} className="animate-spin" /> : <UserX size={12} />}
+                          Remove
+                        </button>
+                      )}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
           </div>
         )}
 
