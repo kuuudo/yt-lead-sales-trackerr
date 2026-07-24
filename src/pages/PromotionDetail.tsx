@@ -216,6 +216,19 @@ export default function PromotionDetail() {
 
   const { promotion, assignment, sponsor, collaborator, assets } = detail;
 
+  // Historical-view gate. This is a UI/read-layer distinction only — it
+  // does not grant or revoke any actual access. If the viewer IS the
+  // collaborator on this promotion and their status is no longer
+  // 'active', show a minimal historical record (Assignment link,
+  // Sponsor, collaboration status, date) instead of the full
+  // active-collaboration layout — no Promoted Assets list, no action
+  // buttons. Assets remain inaccessible regardless of this flag: that's
+  // still enforced by the existing per-asset RLS (getAssetDetail already
+  // fails gracefully per-asset today), this only changes what this page
+  // chooses to render on top of that.
+  const isRemovedSelf =
+    !!user && !!collaborator && collaborator.user_id === user.id && collaborator.status !== 'active';
+
   return (
     <div className="space-y-6 max-w-4xl">
       <Link
@@ -260,118 +273,163 @@ export default function PromotionDetail() {
         )}
       </div>
 
-      <div className="flex flex-col md:flex-row gap-6">
-        {/* Left column — Assignment / Sponsor / Collaborator / Created Date */}
-        <div className="md:w-2/5">
-          <section className="bg-zinc-900 border border-zinc-800 rounded-xl p-6 space-y-5">
-            <div>
-              <p className="text-[10px] font-black uppercase tracking-widest text-zinc-500 mb-1">Assignment</p>
-              {assignment ? (
-                <Link
-                  to={`/marketplace/assignments/${assignment.id}`}
-                  className="text-sm text-blue-400 hover:text-blue-300"
-                >
-                  {assignment.title}
-                </Link>
-              ) : (
-                <p className="text-sm text-zinc-500">No linked assignment.</p>
-              )}
-            </div>
+      {isRemovedSelf ? (
+        // Minimal historical record — no Promoted Assets list, no
+        // action buttons. Assets stay inaccessible via the existing
+        // per-asset RLS regardless; this branch just stops the page from
+        // attempting to render them at all for a removed collaborator's
+        // own view.
+        <section className="bg-zinc-900 border border-zinc-800 rounded-xl p-6 space-y-5 max-w-md">
+          <div>
+            <p className="text-[10px] font-black uppercase tracking-widest text-zinc-500 mb-1">Assignment</p>
+            {assignment ? (
+              <p className="text-sm text-white">{assignment.title}</p>
+            ) : (
+              <p className="text-sm text-zinc-500">No linked assignment.</p>
+            )}
+          </div>
 
-            <div>
-              <p className="text-[10px] font-black uppercase tracking-widest text-zinc-500 mb-1">Sponsor</p>
-              {sponsor ? (
-                <div>
-                  <p className="text-sm text-white">{sponsor.name}</p>
-                  {sponsor.email && <p className="text-xs text-zinc-500">{sponsor.email}</p>}
-                </div>
-              ) : (
-                <p className="text-sm text-zinc-500">Unknown.</p>
-              )}
-            </div>
+          <div>
+            <p className="text-[10px] font-black uppercase tracking-widest text-zinc-500 mb-1">Sponsor</p>
+            {sponsor ? (
+              <p className="text-sm text-white">{sponsor.name}</p>
+            ) : (
+              <p className="text-sm text-zinc-500">Unknown.</p>
+            )}
+          </div>
 
-            <div>
-              <p className="text-[10px] font-black uppercase tracking-widest text-zinc-500 mb-1">Collaborator</p>
-              {collaborator ? (
-                <div>
-                  <p className="text-sm text-white">{collaborator.name}</p>
-                  {collaborator.email && <p className="text-xs text-zinc-500">{collaborator.email}</p>}
-                  {isSponsor && promotion.assignment_collaborator_id && (
-                    <div className="mt-2">
-                      {collaborator.status === 'active' ? (
-                        <button
-                          onClick={handleRemoveCollaborator}
-                          disabled={removingCollaborator}
-                          className="flex items-center gap-1.5 bg-zinc-800 hover:bg-red-600 disabled:opacity-50 text-zinc-300 hover:text-white text-[10px] font-bold uppercase tracking-wider px-3 py-1.5 rounded-lg transition-colors"
-                        >
-                          {removingCollaborator ? <Loader2 size={12} className="animate-spin" /> : <UserX size={12} />}
-                          Remove Collaborator
-                        </button>
-                      ) : (
-                        <span className="text-[10px] font-bold uppercase tracking-widest text-red-500">
-                          {collaborator.status}
-                        </span>
-                      )}
-                      {collaboratorActionError && (
-                        <p className="text-[10px] text-red-500 mt-2">{collaboratorActionError}</p>
-                      )}
-                    </div>
-                  )}
-                </div>
-              ) : (
-                <p className="text-sm text-zinc-500">Unknown.</p>
-              )}
-            </div>
+          <div>
+            <p className="text-[10px] font-black uppercase tracking-widest text-zinc-500 mb-1">Collaboration status</p>
+            <span className="text-[10px] font-bold uppercase tracking-widest text-red-500">
+              {collaborator!.status}
+            </span>
+          </div>
 
-            <div>
-              <p className="text-[10px] font-black uppercase tracking-widest text-zinc-500 mb-1">Created Date</p>
-              <p className="text-sm text-white">
-                {new Date(promotion.created_at).toLocaleDateString(undefined, {
-                  year: 'numeric',
-                  month: 'long',
-                  day: 'numeric',
-                })}
-              </p>
-            </div>
-          </section>
-        </div>
-
-        {/* Right column — Promoted Assets */}
-        <div className="md:w-3/5">
-          <p className="text-[10px] font-black uppercase tracking-widest text-zinc-500 mb-3">
-            Promoted Assets
-          </p>
-          {assets.length === 0 ? (
-            <p className="text-sm text-zinc-500">No assets in this promotion.</p>
-          ) : (
-            <div className="space-y-2">
-              {assets.map(a => {
-                const thumbnailSrc = resolveThumbnailSrc(a.resource);
-                const title = a.resource?.title || 'Untitled Asset';
-                return (
-                  <Link
-                    key={a.promotionAssetId}
-                    to={`/assets/${a.assetId}`}
-                    className="flex items-center gap-3 bg-zinc-900 border border-zinc-800 rounded-lg p-3 hover:border-zinc-600 transition-all"
-                  >
-                    <div className="w-14 h-9 overflow-hidden rounded bg-zinc-950 border border-zinc-800 flex items-center justify-center shrink-0">
-                      {thumbnailSrc && (
-                        <img src={thumbnailSrc} className="max-w-full max-h-full object-contain" />
-                      )}
-                    </div>
-                    <div className="min-w-0">
-                      <p className="text-sm text-zinc-200 truncate">{title}</p>
-                      <p className="text-[9px] font-black uppercase text-zinc-600 tracking-widest mt-0.5">
-                        {resolveTypeLabel(a.resource)}
-                      </p>
-                    </div>
-                  </Link>
-                );
+          <div>
+            <p className="text-[10px] font-black uppercase tracking-widest text-zinc-500 mb-1">Created Date</p>
+            <p className="text-sm text-white">
+              {new Date(promotion.created_at).toLocaleDateString(undefined, {
+                year: 'numeric',
+                month: 'long',
+                day: 'numeric',
               })}
-            </div>
-          )}
+            </p>
+          </div>
+        </section>
+      ) : (
+        <div className="flex flex-col md:flex-row gap-6">
+          {/* Left column — Assignment / Sponsor / Collaborator / Created Date */}
+          <div className="md:w-2/5">
+            <section className="bg-zinc-900 border border-zinc-800 rounded-xl p-6 space-y-5">
+              <div>
+                <p className="text-[10px] font-black uppercase tracking-widest text-zinc-500 mb-1">Assignment</p>
+                {assignment ? (
+                  <Link
+                    to={`/marketplace/assignments/${assignment.id}`}
+                    className="text-sm text-blue-400 hover:text-blue-300"
+                  >
+                    {assignment.title}
+                  </Link>
+                ) : (
+                  <p className="text-sm text-zinc-500">No linked assignment.</p>
+                )}
+              </div>
+
+              <div>
+                <p className="text-[10px] font-black uppercase tracking-widest text-zinc-500 mb-1">Sponsor</p>
+                {sponsor ? (
+                  <div>
+                    <p className="text-sm text-white">{sponsor.name}</p>
+                    {sponsor.email && <p className="text-xs text-zinc-500">{sponsor.email}</p>}
+                  </div>
+                ) : (
+                  <p className="text-sm text-zinc-500">Unknown.</p>
+                )}
+              </div>
+
+              <div>
+                <p className="text-[10px] font-black uppercase tracking-widest text-zinc-500 mb-1">Collaborator</p>
+                {collaborator ? (
+                  <div>
+                    <p className="text-sm text-white">{collaborator.name}</p>
+                    {collaborator.email && <p className="text-xs text-zinc-500">{collaborator.email}</p>}
+                    {isSponsor && promotion.assignment_collaborator_id && (
+                      <div className="mt-2">
+                        {collaborator.status === 'active' ? (
+                          <button
+                            onClick={handleRemoveCollaborator}
+                            disabled={removingCollaborator}
+                            className="flex items-center gap-1.5 bg-zinc-800 hover:bg-red-600 disabled:opacity-50 text-zinc-300 hover:text-white text-[10px] font-bold uppercase tracking-wider px-3 py-1.5 rounded-lg transition-colors"
+                          >
+                            {removingCollaborator ? <Loader2 size={12} className="animate-spin" /> : <UserX size={12} />}
+                            Remove Collaborator
+                          </button>
+                        ) : (
+                          <span className="text-[10px] font-bold uppercase tracking-widest text-red-500">
+                            {collaborator.status}
+                          </span>
+                        )}
+                        {collaboratorActionError && (
+                          <p className="text-[10px] text-red-500 mt-2">{collaboratorActionError}</p>
+                        )}
+                      </div>
+                    )}
+                  </div>
+                ) : (
+                  <p className="text-sm text-zinc-500">Unknown.</p>
+                )}
+              </div>
+
+              <div>
+                <p className="text-[10px] font-black uppercase tracking-widest text-zinc-500 mb-1">Created Date</p>
+                <p className="text-sm text-white">
+                  {new Date(promotion.created_at).toLocaleDateString(undefined, {
+                    year: 'numeric',
+                    month: 'long',
+                    day: 'numeric',
+                  })}
+                </p>
+              </div>
+            </section>
+          </div>
+
+          {/* Right column — Promoted Assets */}
+          <div className="md:w-3/5">
+            <p className="text-[10px] font-black uppercase tracking-widest text-zinc-500 mb-3">
+              Promoted Assets
+            </p>
+            {assets.length === 0 ? (
+              <p className="text-sm text-zinc-500">No assets in this promotion.</p>
+            ) : (
+              <div className="space-y-2">
+                {assets.map(a => {
+                  const thumbnailSrc = resolveThumbnailSrc(a.resource);
+                  const title = a.resource?.title || 'Untitled Asset';
+                  return (
+                    <Link
+                      key={a.promotionAssetId}
+                      to={`/assets/${a.assetId}`}
+                      className="flex items-center gap-3 bg-zinc-900 border border-zinc-800 rounded-lg p-3 hover:border-zinc-600 transition-all"
+                    >
+                      <div className="w-14 h-9 overflow-hidden rounded bg-zinc-950 border border-zinc-800 flex items-center justify-center shrink-0">
+                        {thumbnailSrc && (
+                          <img src={thumbnailSrc} className="max-w-full max-h-full object-contain" />
+                        )}
+                      </div>
+                      <div className="min-w-0">
+                        <p className="text-sm text-zinc-200 truncate">{title}</p>
+                        <p className="text-[9px] font-black uppercase text-zinc-600 tracking-widest mt-0.5">
+                          {resolveTypeLabel(a.resource)}
+                        </p>
+                      </div>
+                    </Link>
+                  );
+                })}
+              </div>
+            )}
+          </div>
         </div>
-      </div>
+      )}
     </div>
   );
 }

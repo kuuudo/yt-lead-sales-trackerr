@@ -77,6 +77,7 @@ export interface PromotionDetailData {
   } | null;
   collaborator: {
     id: string;
+    user_id: string;
     status: string;
     name: string;
     email: string | null;
@@ -159,6 +160,7 @@ export async function getPromotionDetail(promotionId: string): Promise<Promotion
       if (collabProfile) {
         collaborator = {
           id: collabRow.id,
+          user_id: collabRow.user_id,
           status: collabRow.status,
           name: collabProfile.full_name || collabProfile.email || 'Unknown User',
           email: collabProfile.email ?? null,
