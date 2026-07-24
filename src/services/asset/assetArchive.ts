@@ -76,7 +76,7 @@ export async function getArchivedAssetIdsForUser(
 /**
  * Archive state for a single asset, for the given user. Returns null when
  * the asset is not archived by this user (including when no
- * asset_user_states row exists at all yet).
+ * asset_user_states row exists at all yet)..
  */
 export async function getAssetArchiveState(
   assetId: string,

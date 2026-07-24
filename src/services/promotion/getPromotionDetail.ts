@@ -39,6 +39,15 @@
  * NOT responsible for: promotion creation, assignment lifecycle,
  * invitations, tracking/redirect/analytics, archive state. None of those
  * are read or written here.
+ *
+ * PHASE 2A EXTENSION: `promotion.organization_id` and
+ * `promotion.assignment_collaborator_id`, plus `collaborator.id` and
+ * `collaborator.status`, are now exposed so PromotionDetail.tsx can
+ * render a Sponsor-only Remove Collaborator action (organization_id for
+ * the isSponsor org-membership check, assignment_collaborator_id +
+ * collaborator.id as the RPC's target row, collaborator.status to gate
+ * the button). This module still only reads — it does not call
+ * removeCollaborator() or the RPC itself, and still writes nothing.
  */
 
 import { supabase } from '../../lib/supabase';
@@ -51,6 +60,8 @@ export interface PromotionDetailData {
     status: string;
     created_at: string;
     assignment_id: string | null;
+    organization_id: string;
+    assignment_collaborator_id: string | null;
   };
   assignment: {
     id: string;
@@ -61,6 +72,8 @@ export interface PromotionDetailData {
     email: string | null;
   } | null;
   collaborator: {
+    id: string;
+    status: string;
     name: string;
     email: string | null;
   } | null;
@@ -81,7 +94,7 @@ export interface PromotionDetailData {
 export async function getPromotionDetail(promotionId: string): Promise<PromotionDetailData | null> {
   const { data: promotion, error: promotionErr } = await supabase
     .from('promotions')
-    .select('id, status, created_at, assignment_id, owner_user_id, assignment_collaborator_id')
+    .select('id, status, created_at, assignment_id, owner_user_id, organization_id, assignment_collaborator_id')
     .eq('id', promotionId)
     .maybeSingle();
 
@@ -124,7 +137,7 @@ export async function getPromotionDetail(promotionId: string): Promise<Promotion
   if (promotion.assignment_collaborator_id) {
     const { data: collabRow, error: collabErr } = await supabase
       .from('assignment_collaborators')
-      .select('user_id')
+      .select('id, user_id, status')
       .eq('id', promotion.assignment_collaborator_id)
       .maybeSingle();
 
@@ -141,6 +154,8 @@ export async function getPromotionDetail(promotionId: string): Promise<Promotion
 
       if (collabProfile) {
         collaborator = {
+          id: collabRow.id,
+          status: collabRow.status,
           name: collabProfile.full_name || collabProfile.email || 'Unknown User',
           email: collabProfile.email ?? null,
         };
@@ -173,6 +188,8 @@ export async function getPromotionDetail(promotionId: string): Promise<Promotion
       status: promotion.status,
       created_at: promotion.created_at,
       assignment_id: promotion.assignment_id,
+      organization_id: promotion.organization_id,
+      assignment_collaborator_id: promotion.assignment_collaborator_id,
     },
     assignment: assignmentRow ? { id: assignmentRow.id, title: assignmentRow.title } : null,
     sponsor: sponsorProfile

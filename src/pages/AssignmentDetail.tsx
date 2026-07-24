@@ -1,14 +1,9 @@
 import React, { useEffect, useState } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import { Loader2, AlertCircle, CheckCircle2, Rocket, ArrowLeft, UserX, Users } from 'lucide-react';
+import { Loader2, AlertCircle, CheckCircle2, Rocket, ArrowLeft } from 'lucide-react';
 import { supabase } from '../lib/supabase';
 import { getAssignmentDetail, type AssignmentDetailData, type CampaignGroup } from '../services/assignment/getAssignmentDetail';
 import { acceptInvitation } from '../services/assignment/acceptInvitation';
-import {
-  listAssignmentCollaborators,
-  type AssignmentCollaboratorRow,
-} from '../services/assignment/listAssignmentCollaborators';
-import { removeCollaborator } from '../services/assignment/removeCollaborator';
 import { getElementTypeLabel, resolveThumbnail, resolveElementThumbnail } from '../lib/videoFormatters';
 
 export default function AssignmentDetail() {
@@ -23,15 +18,6 @@ export default function AssignmentDetail() {
 
   const [selectedCampaignId, setSelectedCampaignId] = useState<string | null>(null);
   const [selectedAssetIds, setSelectedAssetIds] = useState<Set<string>>(new Set());
-
-  // Phase 2A — Sponsor-only collaborator roster. isSponsor is
-  // organization-membership based (same boundary create_promotion uses
-  // for its org-owner path), not assignments.created_by_user_id — any
-  // member of the Assignment's organization can manage its collaborators.
-  const [isSponsor, setIsSponsor] = useState(false);
-  const [collaborators, setCollaborators] = useState<AssignmentCollaboratorRow[]>([]);
-  const [collaboratorsLoading, setCollaboratorsLoading] = useState(false);
-  const [removingId, setRemovingId] = useState<string | null>(null);
 
   const load = async () => {
     if (!assignmentId) return;
@@ -52,31 +38,6 @@ export default function AssignmentDetail() {
       if (detail.campaignGroups.length > 0 && !selectedCampaignId) {
         setSelectedCampaignId(detail.campaignGroups[0].campaign_id);
       }
-
-      // Sponsor-only roster fetch — independent of the main detail load,
-      // never blocks it. Matches organization_members check used by
-      // create_promotion's org-owner path.
-      const { data: membership } = await supabase
-        .from('organization_members')
-        .select('organization_id')
-        .eq('user_id', user.id)
-        .eq('organization_id', detail.assignment.organization_id)
-        .maybeSingle();
-
-      const sponsor = !!membership;
-      setIsSponsor(sponsor);
-
-      if (sponsor) {
-        setCollaboratorsLoading(true);
-        try {
-          const roster = await listAssignmentCollaborators(assignmentId);
-          setCollaborators(roster);
-        } catch (err) {
-          console.error('[AssignmentDetail] listAssignmentCollaborators failed:', err);
-        } finally {
-          setCollaboratorsLoading(false);
-        }
-      }
     } catch (e: any) {
       setError(e.message ?? 'Failed to load assignment');
     } finally {
@@ -95,30 +56,6 @@ export default function AssignmentDetail() {
       setError(e.message ?? 'Failed to accept invitation');
     } finally {
       setAccepting(false);
-    }
-  };
-
-  // Remove is only ever triggered by an explicit Sponsor click below —
-  // this is a PERMISSION action (assignment_collaborators.status:
-  // 'active' -> 'removed'), not an Archive action. It does not delete
-  // the assignment, assets, promotions, promotion_assets, or
-  // assignment_assets. Every RLS policy keyed on
-  // assignment_collaborators.status = 'active' revokes the collaborator's
-  // access on its own, on the next read.
-  const handleRemove = async (collaborator: AssignmentCollaboratorRow) => {
-    if (!window.confirm(`Remove ${collaborator.name} from this Assignment? They will immediately lose access to its Assets.`)) {
-      return;
-    }
-    setRemovingId(collaborator.id);
-    try {
-      await removeCollaborator(collaborator.id);
-      setCollaborators(prev =>
-        prev.map(c => (c.id === collaborator.id ? { ...c, status: 'removed' } : c))
-      );
-    } catch (e: any) {
-      setError(e.message ?? 'Failed to remove collaborator');
-    } finally {
-      setRemovingId(null);
     }
   };
 
@@ -220,56 +157,6 @@ export default function AssignmentDetail() {
         {!canAct && !myInvitation && (
           <div className="text-zinc-500 text-sm border border-dashed border-zinc-800 rounded-xl p-6">
             You don't have an active collaboration on this Assignment.
-          </div>
-        )}
-
-        {isSponsor && (
-          <div className="mb-6">
-            <label className="flex items-center gap-2 text-[10px] font-bold uppercase tracking-widest text-zinc-500 mb-2">
-              <Users size={12} /> Collaborators
-            </label>
-            {collaboratorsLoading ? (
-              <div className="flex items-center gap-2 text-zinc-500 text-sm">
-                <Loader2 className="animate-spin" size={14} /> Loading collaborators…
-              </div>
-            ) : collaborators.length === 0 ? (
-              <div className="text-zinc-600 text-sm border border-dashed border-zinc-800 rounded-lg p-4">
-                No one has joined this Assignment yet.
-              </div>
-            ) : (
-              <div className="space-y-2">
-                {collaborators.map(c => (
-                  <div
-                    key={c.id}
-                    className="flex items-center justify-between bg-zinc-900 border border-zinc-800 rounded-lg p-3"
-                  >
-                    <div>
-                      <p className="text-sm text-zinc-200">{c.name}</p>
-                      {c.email && <p className="text-xs text-zinc-500">{c.email}</p>}
-                    </div>
-                    <div className="flex items-center gap-3">
-                      <span
-                        className={`text-[10px] font-bold uppercase tracking-widest ${
-                          c.status === 'active' ? 'text-zinc-500' : 'text-red-500'
-                        }`}
-                      >
-                        {c.status}
-                      </span>
-                      {c.status === 'active' && (
-                        <button
-                          onClick={() => handleRemove(c)}
-                          disabled={removingId === c.id}
-                          className="flex items-center gap-1.5 bg-zinc-800 hover:bg-red-600 disabled:opacity-50 text-zinc-300 hover:text-white text-[10px] font-bold uppercase tracking-wider px-3 py-1.5 rounded-lg transition-colors"
-                        >
-                          {removingId === c.id ? <Loader2 size={12} className="animate-spin" /> : <UserX size={12} />}
-                          Remove
-                        </button>
-                      )}
-                    </div>
-                  </div>
-                ))}
-              </div>
-            )}
           </div>
         )}
 

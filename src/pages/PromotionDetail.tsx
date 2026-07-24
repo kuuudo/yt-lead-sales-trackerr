@@ -27,12 +27,26 @@
  * asset's `resource` (an AssetResourceView, same shape AssetDetail.tsx
  * already renders) — so this page can never drift into a different
  * display format for the same asset kind.
+ *
+ * PHASE 2A — Remove Collaborator (relocated here from AssignmentDetail.tsx
+ * per product lock: Assignment is the onboarding/permission container,
+ * Promotion is the long-term operating object). isSponsor is an
+ * organization-membership check against promotion.organization_id — same
+ * boundary create_promotion's RPC and remove_assignment_collaborator's RPC
+ * both already use, not assignment.created_by_user_id and not
+ * promotion.owner_user_id (a narrower owner-only check would hide the
+ * button from an org member the RPC would still authorize). The Remove
+ * button calls the existing removeCollaborator.ts wrapper unchanged and,
+ * on success, only updates local component state
+ * (collaborator.status = 'removed') — no promotion/asset/assignment
+ * mutation happens here.
  */
 
 import React, { useEffect, useState } from 'react';
 import { useParams, Link } from 'react-router-dom';
-import { ArrowLeft, Loader2, ArchiveRestore } from 'lucide-react';
+import { ArrowLeft, Loader2, ArchiveRestore, UserX } from 'lucide-react';
 import { useAuth } from '../lib/auth';
+import { supabase } from '../lib/supabase';
 import {
   getPromotionDetail,
   type PromotionDetailData,
@@ -41,6 +55,7 @@ import {
   getPromotionArchiveState,
   restorePromotionForUser,
 } from '../services/promotion/promotionArchive';
+import { removeCollaborator } from '../services/assignment/removeCollaborator';
 import {
   resolveAssetThumbnail,
   resolveElementThumbnail,
@@ -95,6 +110,14 @@ export default function PromotionDetail() {
   const [restoring, setRestoring] = useState(false);
   const [archiveActionError, setArchiveActionError] = useState<string | null>(null);
 
+  // Phase 2A — Sponsor-only Remove Collaborator. isSponsor is
+  // organization-membership based (same boundary create_promotion and
+  // remove_assignment_collaborator's RPC both already use), resolved
+  // against promotion.organization_id once detail has loaded.
+  const [isSponsor, setIsSponsor] = useState(false);
+  const [removingCollaborator, setRemovingCollaborator] = useState(false);
+  const [collaboratorActionError, setCollaboratorActionError] = useState<string | null>(null);
+
   useEffect(() => {
     if (!id) return;
     (async () => {
@@ -106,6 +129,23 @@ export default function PromotionDetail() {
           setError('Promotion not found.');
         } else {
           setDetail(data);
+
+          // Sponsor check — independent of the main load, never blocks
+          // it. Same organization_members boundary create_promotion's
+          // and remove_assignment_collaborator's RPCs already use.
+          if (user) {
+            try {
+              const { data: membership } = await supabase
+                .from('organization_members')
+                .select('organization_id')
+                .eq('user_id', user.id)
+                .eq('organization_id', data.promotion.organization_id)
+                .maybeSingle();
+              setIsSponsor(!!membership);
+            } catch (err) {
+              console.error('[PromotionDetail] organization_members check failed:', err);
+            }
+          }
         }
       } catch (err: any) {
         setError(err.message || 'Could not load this promotion.');
@@ -138,6 +178,34 @@ export default function PromotionDetail() {
       setArchiveActionError(err.message || 'Could not restore this promotion.');
     } finally {
       setRestoring(false);
+    }
+  };
+
+  // Remove is only ever triggered by an explicit Sponsor click below —
+  // this is a PERMISSION action (assignment_collaborators.status:
+  // 'active' -> 'removed'), not an Archive action. It does not delete
+  // the promotion, assets, or assignment, and does not change
+  // promotion.status. Calls the existing removeCollaborator.ts wrapper
+  // unchanged; on success, only local component state is updated so the
+  // button disables without a full reload.
+  const handleRemoveCollaborator = async () => {
+    if (!detail?.collaborator) return;
+    if (!window.confirm(`Remove ${detail.collaborator.name} from this Assignment? They will immediately lose access to its Assets.`)) {
+      return;
+    }
+    setCollaboratorActionError(null);
+    setRemovingCollaborator(true);
+    try {
+      await removeCollaborator(detail.collaborator.id);
+      setDetail((prev: PromotionDetailData | null) =>
+        prev && prev.collaborator
+          ? { ...prev, collaborator: { ...prev.collaborator, status: 'removed' } }
+          : prev
+      );
+    } catch (err: any) {
+      setCollaboratorActionError(err.message || 'Could not remove this collaborator.');
+    } finally {
+      setRemovingCollaborator(false);
     }
   };
 
@@ -235,6 +303,27 @@ export default function PromotionDetail() {
                 <div>
                   <p className="text-sm text-white">{collaborator.name}</p>
                   {collaborator.email && <p className="text-xs text-zinc-500">{collaborator.email}</p>}
+                  {isSponsor && promotion.assignment_collaborator_id && (
+                    <div className="mt-2">
+                      {collaborator.status === 'active' ? (
+                        <button
+                          onClick={handleRemoveCollaborator}
+                          disabled={removingCollaborator}
+                          className="flex items-center gap-1.5 bg-zinc-800 hover:bg-red-600 disabled:opacity-50 text-zinc-300 hover:text-white text-[10px] font-bold uppercase tracking-wider px-3 py-1.5 rounded-lg transition-colors"
+                        >
+                          {removingCollaborator ? <Loader2 size={12} className="animate-spin" /> : <UserX size={12} />}
+                          Remove Collaborator
+                        </button>
+                      ) : (
+                        <span className="text-[10px] font-bold uppercase tracking-widest text-red-500">
+                          {collaborator.status}
+                        </span>
+                      )}
+                      {collaboratorActionError && (
+                        <p className="text-[10px] text-red-500 mt-2">{collaboratorActionError}</p>
+                      )}
+                    </div>
+                  )}
                 </div>
               ) : (
                 <p className="text-sm text-zinc-500">Unknown.</p>
