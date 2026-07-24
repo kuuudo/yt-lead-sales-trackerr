@@ -25,24 +25,29 @@
  * visibility just to render a workspace name, the product decision is
  * to show WHO shared the asset (a person), not WHICH organization owns
  * it. "Who shared this" = the Assignment's creator (assignments.
- * created_by_user_id) — NOT promotions.owner_user_id. owner_user_id is
- * the Marketer's own id (the person calling create_promotion), so using
- * it here would incorrectly label the Marketer as the sharer of their
- * own shared asset. The Assignment creator is the Sponsor who actually
- * granted access, which is the correct "shared by" identity per the
- * Assignment = Authorization architecture lock.
+ * created_by_user_id) — NOT promotions.owner_user_id. Confirmed against
+ * production data: owner_user_id is always the organization's owner
+ * (organizations.owner_id, set unconditionally by create_promotion),
+ * never the collaborator who actually called START PROMOTING — so using
+ * it here would show the org owner as "sharer" on every promotion
+ * regardless of who actually granted access. The Assignment creator is
+ * the correct "shared by" identity per the Assignment = Authorization
+ * architecture lock.
  *
  * Current implementation:
  *
- * owner_user_id is used only to resolve MY promotion ids (Step 1) —
- * because create_promotion() guarantees promotions.owner_user_id is the
- * calling collaborator. This is unrelated to whose name gets displayed;
- * see Step 4/5 for the sharer identity resolution.
+ * Step 1 resolves MY promotion ids via
+ * assignment_collaborators.user_id -> assignment_collaborators.id ->
+ * promotions.assignment_collaborator_id (see getMyAssignmentCollaboratorIds
+ * / getMyPromotions below). This is unrelated to whose name gets
+ * displayed as "shared by" — see Step 4/5 for that resolution.
  *
- * If Promotion ownership semantics ever change (co-marketers, delegated
- * promotions, etc.), Step 1 should be migrated to resolve promotion ids
- * via assignment_collaborators.user_id -> promotions.assignment_collaborator_id
- * instead of owner_user_id.
+ * FIXED (confirmed against production data): promotions.owner_user_id is
+ * NOT a valid way to find a collaborator's own promotions — it is always
+ * the organization owner, regardless of who actually called START
+ * PROMOTING. Step 1 previously filtered on it and could never match a
+ * real collaborator, which meant Shared Assets silently never populated
+ * for anyone. Do not reintroduce an owner_user_id filter into Step 1.
  *
  * Deliberately implemented as small, independently-debuggable queries
  * rather than one nested embedded query, for the same debuggability
@@ -77,17 +82,57 @@ export interface ListSharedAssetsForCollaboratorInput {
   search?: string;
 }
 
+// ---- Step 1a: resolve MY assignment_collaborators.id rows ----
+//
+// Bridge step: promotions.assignment_collaborator_id points at
+// assignment_collaborators.id, not directly at a user_id, so this has to
+// be resolved first. Same convention as Step 4/5's
+// getAssignmentCreators/getSharerProfiles split below — small,
+// independently-debuggable steps, not one nested query.
+async function getMyAssignmentCollaboratorIds(userId: string): Promise<string[]> {
+  const { data, error } = await supabase
+    .from('assignment_collaborators')
+    .select('id')
+    .eq('user_id', userId);
+
+  if (error) {
+    throw new Error(`Failed to load assignment collaborator ids for user: ${error.message}`);
+  }
+
+  return (data ?? []).map((row: any) => row.id as string);
+}
+
 // ---- Step 1: resolve my Promotion IDs, keeping each promotion's assignment_id ----
 //
-// TODO: owner_user_id is an implementation convenience for finding MY
-// promotions (see file header). Not related to sharer identity.
+// FIXED: previously filtered on promotions.owner_user_id, which is
+// ALWAYS the organization owner (confirmed directly against production
+// data — create_promotion sets it unconditionally from
+// organizations.owner_id, regardless of which path created the
+// Promotion). It is never the collaborator who actually called START
+// PROMOTING. Filtering on it here meant a collaborator's own promotions
+// could never be found by this function — Step 2 (promotion_assets) and
+// everything downstream never ran, so promoted Assets silently never
+// appeared in Shared Assets.
+//
+// Correct resolution: promotions.assignment_collaborator_id ->
+// assignment_collaborators.id, scoped to rows where
+// assignment_collaborators.user_id = this user (Step 1a above). This is
+// the same relationship the file header already documented as the
+// eventual fix ("If Promotion ownership semantics ever change... Step 1
+// should be migrated to resolve promotion ids via
+// assignment_collaborators.user_id -> promotions.assignment_collaborator_id
+// instead of owner_user_id") — that condition already holds today, this
+// isn't a hypothetical anymore.
 async function getMyPromotions(
   userId: string
 ): Promise<{ id: string; assignment_id: string | null }[]> {
+  const myCollaboratorIds = await getMyAssignmentCollaboratorIds(userId);
+  if (myCollaboratorIds.length === 0) return [];
+
   const { data, error } = await supabase
     .from('promotions')
     .select('id, assignment_id')
-    .eq('owner_user_id', userId);
+    .in('assignment_collaborator_id', myCollaboratorIds);
 
   if (error) {
     throw new Error(`Failed to load promotions for user: ${error.message}`);
