@@ -24,6 +24,7 @@
  */
 
 import { supabase } from '../../lib/supabase';
+import { resolveAssetCampaign } from '../asset/resolveAssetCampaign';
 
 export interface CreateAssignmentInput {
   organizationId: string;
@@ -49,6 +50,25 @@ export async function createAssignment({
   }
   if (assetIds.length === 0) {
     throw new Error('At least one Asset must be selected');
+  }
+  // --------------------------------------------------
+  // Rule A:
+  //
+  // Only Assets with Campaign provenance
+  // can enter an Assignment.
+  //
+  // Assignment references Assets only.
+  // It does not own a Campaign.
+  // --------------------------------------------------
+
+  for (const assetId of assetIds) {
+    const resolved = await resolveAssetCampaign(assetId);
+
+    if (!resolved.campaignId) {
+      throw new Error(
+        `Selected asset cannot be assigned because it is not connected to a campaign. Please select a campaign asset.`
+      );
+    }
   }
 
   const { data: assignment, error: assignmentErr } = await supabase
