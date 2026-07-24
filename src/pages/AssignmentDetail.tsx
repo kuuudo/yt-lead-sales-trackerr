@@ -69,8 +69,21 @@ export default function AssignmentDetail() {
   };
 
   const handleStartPromoting = async () => {
-    if (!data || !selectedCampaignId || selectedAssetIds.size === 0) return;
-    setStarting(true);
+  if (!data || !selectedCampaignId || selectedAssetIds.size === 0) return;
+
+  const { data: { user } } = await supabase.auth.getUser();
+
+  console.log("CURRENT USER", user?.id);
+
+  console.log("MY COLLABORATOR ID", data.myCollaboratorId);
+
+  console.log("ASSIGNMENT ID", data.assignment.id);
+
+  console.log("SELECTED ASSET IDS", Array.from(selectedAssetIds));
+
+  console.log("CAMPAIGN ID", selectedCampaignId);
+
+  setStarting(true);
     setError(null);
     try {
       const { data: promotionId, error: rpcError } = await supabase.rpc('create_promotion', {
