@@ -420,8 +420,8 @@ export default function Marketplace() {
 </p>
 
 {p.owner && (
-  <p className="text-orange-400 text-xs mt-1">
-    Assigned by {p.owner.full_name ?? 'Unknown'}
+  <p className={`text-xs mt-1 ${p.assignment_collaborator && p.assignment_collaborator.status !== 'active' ? 'text-red-500' : 'text-orange-400'}`}>
+    {p.assignment_collaborator && p.assignment_collaborator.status !== 'active' ? 'Removed by' : 'Assigned by'} {p.owner.full_name ?? 'Unknown'}
   </p>
 )}
                 </div>

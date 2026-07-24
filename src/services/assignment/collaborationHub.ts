@@ -44,6 +44,18 @@ export interface PromotionSummary {
     full_name: string | null;
     email: string | null;
   } | null;
+
+  /**
+   * Present only when this promotion was started via an Assignment
+   * (assignment_collaborator_id is set). Null for a direct org-owner
+   * promotion with no Assignment involved. Exposes ONLY status — no
+   * new query, no new authorization surface — so Marketplace.tsx can
+   * label a historical promotion "Removed by {owner}" instead of
+   * "Assigned by {owner}" without needing to open Promotion Detail.
+   */
+  assignment_collaborator: {
+    status: string;
+  } | null;
 }
 
 /** Assignments this Organization created (the "creating org" side of the Hub). */
@@ -125,6 +137,9 @@ export async function listMyPromotions(userId: string): Promise<PromotionSummary
   owner:profiles!promotions_owner_user_id_fkey(
     full_name,
     email
+  ),
+  assignment_collaborator:assignment_collaborators(
+    status
   )
 `);
 
