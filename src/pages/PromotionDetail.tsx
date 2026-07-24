@@ -30,12 +30,16 @@
  *
  * PHASE 2A — Remove Collaborator (relocated here from AssignmentDetail.tsx
  * per product lock: Assignment is the onboarding/permission container,
- * Promotion is the long-term operating object). isSponsor is an
- * organization-membership check against promotion.organization_id — same
- * boundary create_promotion's RPC and remove_assignment_collaborator's RPC
- * both already use, not assignment.created_by_user_id and not
- * promotion.owner_user_id (a narrower owner-only check would hide the
- * button from an org member the RPC would still authorize). The Remove
+ * Promotion is the long-term operating object). isSponsor (LOCKED) is a
+ * direct comparison against assignment.created_by_user_id — the
+ * Assignment's creator is the sole party who may remove a collaborator.
+ * This is not organization membership and not promotion.owner_user_id
+ * (which always resolves to the organization's single owner account,
+ * never "whoever created this promotion" — confirmed against
+ * create_promotion's implementation, so it carries no signal about who
+ * manages this Assignment's collaborators). An earlier version of this
+ * check used organization_members; that was a deliberate MVP shortcut,
+ * not the locked rule, and has been replaced outright. The Remove
  * button calls the existing removeCollaborator.ts wrapper unchanged and,
  * on success, only updates local component state
  * (collaborator.status = 'removed') — no promotion/asset/assignment
@@ -46,7 +50,6 @@ import React, { useEffect, useState } from 'react';
 import { useParams, Link } from 'react-router-dom';
 import { ArrowLeft, Loader2, ArchiveRestore, UserX } from 'lucide-react';
 import { useAuth } from '../lib/auth';
-import { supabase } from '../lib/supabase';
 import {
   getPromotionDetail,
   type PromotionDetailData,
@@ -110,10 +113,9 @@ export default function PromotionDetail() {
   const [restoring, setRestoring] = useState(false);
   const [archiveActionError, setArchiveActionError] = useState<string | null>(null);
 
-  // Phase 2A — Sponsor-only Remove Collaborator. isSponsor is
-  // organization-membership based (same boundary create_promotion and
-  // remove_assignment_collaborator's RPC both already use), resolved
-  // against promotion.organization_id once detail has loaded.
+  // Phase 2A — Sponsor-only Remove Collaborator. isSponsor (LOCKED) is
+  // a direct comparison against assignment.created_by_user_id, resolved
+  // client-side once detail has loaded — no extra network call needed.
   const [isSponsor, setIsSponsor] = useState(false);
   const [removingCollaborator, setRemovingCollaborator] = useState(false);
   const [collaboratorActionError, setCollaboratorActionError] = useState<string | null>(null);
@@ -130,22 +132,13 @@ export default function PromotionDetail() {
         } else {
           setDetail(data);
 
-          // Sponsor check — independent of the main load, never blocks
-          // it. Same organization_members boundary create_promotion's
-          // and remove_assignment_collaborator's RPCs already use.
-          if (user) {
-            try {
-              const { data: membership } = await supabase
-                .from('organization_members')
-                .select('organization_id')
-                .eq('user_id', user.id)
-                .eq('organization_id', data.promotion.organization_id)
-                .maybeSingle();
-              setIsSponsor(!!membership);
-            } catch (err) {
-              console.error('[PromotionDetail] organization_members check failed:', err);
-            }
-          }
+          // Sponsor check (LOCKED): the Assignment's creator only, not
+          // organization membership. No network call needed — the
+          // comparison runs against data already fetched by
+          // getPromotionDetail(). Superseded: an earlier version of this
+          // check queried organization_members; that boundary is not the
+          // locked product rule and has been replaced, not extended.
+          setIsSponsor(!!user && !!data.assignment && user.id === data.assignment.created_by_user_id);
         }
       } catch (err: any) {
         setError(err.message || 'Could not load this promotion.');

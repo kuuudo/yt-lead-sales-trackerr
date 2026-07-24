@@ -42,12 +42,15 @@
  *
  * PHASE 2A EXTENSION: `promotion.organization_id` and
  * `promotion.assignment_collaborator_id`, plus `collaborator.id` and
- * `collaborator.status`, are now exposed so PromotionDetail.tsx can
- * render a Sponsor-only Remove Collaborator action (organization_id for
- * the isSponsor org-membership check, assignment_collaborator_id +
- * collaborator.id as the RPC's target row, collaborator.status to gate
- * the button). This module still only reads — it does not call
- * removeCollaborator() or the RPC itself, and still writes nothing.
+ * `collaborator.status`, are exposed so PromotionDetail.tsx can render a
+ * Sponsor-only Remove Collaborator action. `assignment.created_by_user_id`
+ * is also exposed — this is the LOCKED authorization boundary for who may
+ * remove a collaborator (the Assignment's creator only, not organization
+ * membership; `promotion.organization_id` is not used for this check —
+ * it predates the locked rule and is left in place only because other
+ * code may still read it, not because it gates Remove Collaborator).
+ * This module still only reads — it does not call removeCollaborator()
+ * or the RPC itself, and still writes nothing.
  */
 
 import { supabase } from '../../lib/supabase';
@@ -66,6 +69,7 @@ export interface PromotionDetailData {
   assignment: {
     id: string;
     title: string;
+    created_by_user_id: string;
   } | null;
   sponsor: {
     name: string;
@@ -111,7 +115,7 @@ export async function getPromotionDetail(promotionId: string): Promise<Promotion
     promotion.assignment_id
       ? supabase
           .from('assignments')
-          .select('id, title')
+          .select('id, title, created_by_user_id')
           .eq('id', promotion.assignment_id)
           .maybeSingle()
       : Promise.resolve({ data: null, error: null }),
@@ -191,7 +195,9 @@ export async function getPromotionDetail(promotionId: string): Promise<Promotion
       organization_id: promotion.organization_id,
       assignment_collaborator_id: promotion.assignment_collaborator_id,
     },
-    assignment: assignmentRow ? { id: assignmentRow.id, title: assignmentRow.title } : null,
+    assignment: assignmentRow
+      ? { id: assignmentRow.id, title: assignmentRow.title, created_by_user_id: assignmentRow.created_by_user_id }
+      : null,
     sponsor: sponsorProfile
       ? { name: sponsorProfile.full_name || sponsorProfile.email || 'Unknown User', email: sponsorProfile.email ?? null }
       : null,
