@@ -62,6 +62,7 @@ import { supabase } from '../../lib/supabase';
 import {
   resolveThumbnail,
   resolveAssetThumbnail,
+  resolveElementThumbnail,
 } from '../../lib/videoFormatters';
 import type {
   AssetPickerFilterType,
@@ -261,6 +262,62 @@ console.log("resourceErr", resourceErr);
             })
           : null,
       });
+    }
+  }
+
+  // ---- Campaign Element branch ----
+  // MISSING PATH, now added: assets -> campaign_element_assets, same
+  // shape as the video/resource branches above. Was silently dropped
+  // before this fix — promotion_assets correctly referenced these
+  // asset_ids, but no query here ever resolved their display metadata,
+  // so they never reached `results` and never appeared in Shared Assets.
+  //
+  // AssetPickerFilterType (video | resource) doesn't include this kind —
+  // that type lives in listLibraryAssetsForAssignmentPicker.ts and is out
+  // of scope for this fix. Only fetched when no explicit filter is
+  // requested, matching this function's existing "no filter = everything"
+  // behavior for the other two branches.
+  const wantsCampaignElement = !filterType;
+
+  if (wantsCampaignElement) {
+    const { data: elementAssetRows, error: elementErr } = await supabase
+      .from('assets')
+      .select('id, campaign_element_assets(display_name, element_type)')
+      .in('id', assetIds)
+      .eq('asset_type', 'campaign_element')
+      .neq('organization_id', excludeOrganizationId);
+
+    if (elementErr) {
+      throw new Error(`Failed to load shared campaign element assets: ${elementErr.message}`);
+    }
+
+    for (const row of (elementAssetRows ?? []) as any[]) {
+      // asset_id is unique on campaign_element_assets (per
+      // listAssetsByOrganization.ts's own note), so this is normally
+      // object-shaped — defensively handled the same way as the
+      // resource branch above, in case that ever changes.
+      const element = Array.isArray(row.campaign_element_assets)
+        ? row.campaign_element_assets[0]
+        : row.campaign_element_assets;
+      const title: string | null = element?.display_name ?? null;
+
+      if (searchLower && !(title ?? '').toLowerCase().includes(searchLower)) {
+        continue;
+      }
+
+      // Cast required: LibraryAssetPickerRow.asset_type is typed as
+      // 'video' | 'resource' only (defined in
+      // listLibraryAssetsForAssignmentPicker.ts, out of scope here).
+      // 'campaign_element' is a valid runtime asset_type but not part of
+      // that shared type's literal union — widening that type is a
+      // separate change, not part of this surgical fix.
+      results.push({
+        asset_id: row.id,
+        display_name: title ?? 'Untitled asset',
+        asset_type: 'campaign_element',
+        resource_type: null,
+        thumbnail: element ? resolveElementThumbnail(element.element_type) : null,
+      } as LibraryAssetPickerRow);
     }
   }
 
