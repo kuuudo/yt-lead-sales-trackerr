@@ -48,7 +48,7 @@
 
 import React, { useEffect, useState } from 'react';
 import { useParams, Link } from 'react-router-dom';
-import { ArrowLeft, Loader2, ArchiveRestore, UserX, UserCheck } from 'lucide-react';
+import { ArrowLeft, Loader2, ArchiveRestore, UserX, UserCheck, ShieldOff, ShieldCheck } from 'lucide-react';
 import { useAuth } from '../lib/auth';
 import {
   getPromotionDetail,
@@ -60,6 +60,7 @@ import {
 } from '../services/promotion/promotionArchive';
 import { removeCollaborator } from '../services/assignment/removeCollaborator';
 import { restoreCollaborator } from '../services/assignment/restoreCollaborator';
+import { revokeAssetAccess, restoreAssetAccess } from '../services/assignment/assignmentAssetAccess';
 import {
   resolveAssetThumbnail,
   resolveElementThumbnail,
@@ -121,6 +122,12 @@ export default function PromotionDetail() {
   const [removingCollaborator, setRemovingCollaborator] = useState(false);
   const [restoringCollaborator, setRestoringCollaborator] = useState(false);
   const [collaboratorActionError, setCollaboratorActionError] = useState<string | null>(null);
+
+  // Phase 2C — per-asset revoke/restore. Tracked by assetId (not a
+  // single boolean) since multiple rows in the Assigned Assets list can
+  // each be independently in-flight.
+  const [assetActionId, setAssetActionId] = useState<string | null>(null);
+  const [assetActionError, setAssetActionError] = useState<string | null>(null);
 
   useEffect(() => {
     if (!id) return;
@@ -226,6 +233,57 @@ export default function PromotionDetail() {
     }
   };
 
+  // Phase 2C — Revoke/Restore Access for one asset. Terminology locked
+  // as "Revoke Access" / "Restore Access", never "remove asset" — the
+  // asset itself, assignment_assets, promotion_assets, and the
+  // `assets` (promoted) list above are never touched by either handler,
+  // only `assignedAssets[].isRevoked` in local state.
+  const handleRevokeAssetAccess = async (assetId: string) => {
+    if (!detail?.collaborator) return;
+    setAssetActionError(null);
+    setAssetActionId(assetId);
+    try {
+      await revokeAssetAccess(detail.collaborator.id, assetId);
+      setDetail((prev: PromotionDetailData | null) =>
+        prev
+          ? {
+              ...prev,
+              assignedAssets: prev.assignedAssets.map(a =>
+                a.assetId === assetId ? { ...a, isRevoked: true } : a
+              ),
+            }
+          : prev
+      );
+    } catch (err: any) {
+      setAssetActionError(err.message || 'Could not revoke access to this asset.');
+    } finally {
+      setAssetActionId(null);
+    }
+  };
+
+  const handleRestoreAssetAccess = async (assetId: string) => {
+    if (!detail?.collaborator) return;
+    setAssetActionError(null);
+    setAssetActionId(assetId);
+    try {
+      await restoreAssetAccess(detail.collaborator.id, assetId);
+      setDetail((prev: PromotionDetailData | null) =>
+        prev
+          ? {
+              ...prev,
+              assignedAssets: prev.assignedAssets.map(a =>
+                a.assetId === assetId ? { ...a, isRevoked: false } : a
+              ),
+            }
+          : prev
+      );
+    } catch (err: any) {
+      setAssetActionError(err.message || 'Could not restore access to this asset.');
+    } finally {
+      setAssetActionId(null);
+    }
+  };
+
   if (loading) {
     return (
       <div className="flex items-center gap-2 text-zinc-500 text-sm">
@@ -238,7 +296,7 @@ export default function PromotionDetail() {
     return <div className="text-red-500 text-sm">{error || 'Promotion not found.'}</div>;
   }
 
-  const { promotion, assignment, sponsor, collaborator, assets } = detail;
+  const { promotion, assignment, sponsor, collaborator, assets, assignedAssets } = detail;
 
   // Historical-view gate. This is a UI/read-layer distinction only — it
   // does not grant or revoke any actual access. If the viewer IS the
@@ -462,6 +520,69 @@ export default function PromotionDetail() {
               </div>
             )}
           </div>
+        </div>
+      )}
+
+      {/* Phase 2C — Access Management. Deliberately a SEPARATE section
+          from "Promoted Assets" above, not merged into it — see file
+          header PHASE 2C EXTENSION note. This is the full assigned-asset
+          list (assignment_assets), not the promoted subset
+          (promotion_assets). Sponsor-only, same isSponsor gate as
+          Remove/Restore Collaborator. */}
+      {!isRemovedSelf && isSponsor && collaborator && assignedAssets.length > 0 && (
+        <div>
+          <p className="text-[10px] font-black uppercase tracking-widest text-zinc-500 mb-3">
+            Access Management — Assigned Assets
+          </p>
+          <div className="space-y-2 max-w-2xl">
+            {assignedAssets.map(a => {
+              const thumbnailSrc = resolveThumbnailSrc(a.resource);
+              const title = a.resource?.title || 'Untitled Asset';
+              const isBusy = assetActionId === a.assetId;
+              return (
+                <div
+                  key={a.assetId}
+                  className={`flex items-center gap-3 border rounded-lg p-3 transition-all ${
+                    a.isRevoked ? 'bg-zinc-950 border-red-900/40' : 'bg-zinc-900 border-zinc-800'
+                  }`}
+                >
+                  <div className="w-14 h-9 overflow-hidden rounded bg-zinc-950 border border-zinc-800 flex items-center justify-center shrink-0">
+                    {thumbnailSrc && (
+                      <img src={thumbnailSrc} className="max-w-full max-h-full object-contain" />
+                    )}
+                  </div>
+                  <div className="min-w-0 flex-1">
+                    <p className="text-sm text-zinc-200 truncate">{title}</p>
+                    <p className={`text-[9px] font-black uppercase tracking-widest mt-0.5 ${a.isRevoked ? 'text-red-500' : 'text-zinc-600'}`}>
+                      {a.isRevoked ? 'Revoked' : 'Active'}
+                    </p>
+                  </div>
+                  {a.isRevoked ? (
+                    <button
+                      onClick={() => handleRestoreAssetAccess(a.assetId)}
+                      disabled={isBusy}
+                      className="flex items-center gap-1.5 bg-zinc-800 hover:bg-green-600 disabled:opacity-50 text-zinc-300 hover:text-white text-[10px] font-bold uppercase tracking-wider px-3 py-1.5 rounded-lg transition-colors shrink-0"
+                    >
+                      {isBusy ? <Loader2 size={12} className="animate-spin" /> : <ShieldCheck size={12} />}
+                      Restore Access
+                    </button>
+                  ) : (
+                    <button
+                      onClick={() => handleRevokeAssetAccess(a.assetId)}
+                      disabled={isBusy}
+                      className="flex items-center gap-1.5 bg-zinc-800 hover:bg-red-600 disabled:opacity-50 text-zinc-300 hover:text-white text-[10px] font-bold uppercase tracking-wider px-3 py-1.5 rounded-lg transition-colors shrink-0"
+                    >
+                      {isBusy ? <Loader2 size={12} className="animate-spin" /> : <ShieldOff size={12} />}
+                      Revoke Access
+                    </button>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+          {assetActionError && (
+            <p className="text-[10px] text-red-500 mt-2">{assetActionError}</p>
+          )}
         </div>
       )}
     </div>

@@ -51,11 +51,31 @@
  * code may still read it, not because it gates Remove Collaborator).
  * This module still only reads — it does not call removeCollaborator()
  * or the RPC itself, and still writes nothing.
+ *
+ * PHASE 2C EXTENSION: added `assignedAssets`, a SEPARATE concept from
+ * `assets` — do not merge them, do not repurpose one for the other:
+ *
+ *   `assets`         = promotion_assets  = "what this collaborator
+ *                       actually promoted" (unchanged from before,
+ *                       byte-for-byte same query/shape as always)
+ *   `assignedAssets` = assignment_assets + assignment_asset_access_states
+ *                     = "what this collaborator is currently allowed to
+ *                       promote" (new)
+ *
+ * These are genuinely different sets — an asset can be assigned but
+ * never promoted (shows in assignedAssets only), or in principle
+ * promoted-then-later-revoked (shows in both, with assignedAssets
+ * marking it revoked). Collapsing them into one list would make future
+ * analytics ambiguous about which concept a given row represents — kept
+ * deliberately separate per the locked decision. Still only reads —
+ * this module does not call revokeAssetAccess()/restoreAssetAccess() or
+ * either RPC itself.
  */
 
 import { supabase } from '../../lib/supabase';
 import { getAssetDetail } from '../asset/getAssetDetail';
 import type { AssetResourceView } from '../asset/getAssetDetail';
+import { getAssetAccessStatesForCollaborator } from '../assignment/assignmentAssetAccess';
 
 export interface PromotionDetailData {
   promotion: {
@@ -88,11 +108,29 @@ export interface PromotionDetailData {
    * AssetDetail.tsx already renders from, so display logic (thumbnail /
    * type resolution) can be lifted from that page as-is rather than
    * reinvented here.
+   *
+   * MEANING (unchanged): "what this collaborator actually promoted."
+   * Do not confuse with `assignedAssets` below — see PHASE 2C EXTENSION
+   * note in the file header.
    */
   assets: {
     promotionAssetId: string;
     assetId: string;
     resource: AssetResourceView | null;
+  }[];
+  /**
+   * MEANING (new, Phase 2C): "what this collaborator is currently
+   * allowed to promote" — the full assignment_assets list for
+   * promotion.assignment_id, cross-referenced against
+   * assignment_asset_access_states for promotion.assignment_collaborator_id.
+   * Includes assets that were never promoted (e.g. Consultation in the
+   * locked example). isRevoked is per-collaborator, per-asset — never
+   * assignment-wide.
+   */
+  assignedAssets: {
+    assetId: string;
+    resource: AssetResourceView | null;
+    isRevoked: boolean;
   }[];
 }
 
@@ -112,6 +150,7 @@ export async function getPromotionDetail(promotionId: string): Promise<Promotion
     { data: assignmentRow, error: assignmentErr },
     { data: sponsorProfile, error: sponsorErr },
     { data: promotionAssetRows, error: assetsErr },
+    { data: assignmentAssetRows, error: assignmentAssetsErr },
   ] = await Promise.all([
     promotion.assignment_id
       ? supabase
@@ -129,11 +168,24 @@ export async function getPromotionDetail(promotionId: string): Promise<Promotion
       .from('promotion_assets')
       .select('id, asset_id')
       .eq('promotion_id', promotionId),
+    // Phase 2C — full authorized asset list for this Assignment, NOT
+    // scoped to what was promoted. Only fetched when there's an
+    // assignment_id to scope to (a direct org-owner promotion with no
+    // Assignment has nothing to show here — assignedAssets stays empty
+    // for that case, same "no Assignment involved" treatment already
+    // used for `assignment: null`).
+    promotion.assignment_id
+      ? supabase
+          .from('assignment_assets')
+          .select('asset_id')
+          .eq('assignment_id', promotion.assignment_id)
+      : Promise.resolve({ data: [], error: null }),
   ]);
 
   if (assignmentErr) throw new Error(`Failed to load assignment: ${assignmentErr.message}`);
   if (sponsorErr) throw new Error(`Failed to load sponsor profile: ${sponsorErr.message}`);
   if (assetsErr) throw new Error(`Failed to load promoted assets: ${assetsErr.message}`);
+  if (assignmentAssetsErr) throw new Error(`Failed to load assigned assets: ${assignmentAssetsErr.message}`);
 
   // Collaborator: assignment_collaborator_id -> assignment_collaborators.user_id -> profiles.
   // Two small steps, same convention as listSharedAssetsForCollaborator.ts's
@@ -188,6 +240,30 @@ export async function getPromotionDetail(promotionId: string): Promise<Promotion
     })
   );
 
+  // Reuse getAssetDetail() per assigned asset — same reuse rationale as
+  // the promoted-assets block above. Access state only needs fetching
+  // when there's an assignment_collaborator_id to scope it to (a direct
+  // org-owner promotion has no collaborator, so nothing can be revoked
+  // from it — assignedAssets falls back to "everything active").
+  const accessStateMap = promotion.assignment_collaborator_id
+    ? await getAssetAccessStatesForCollaborator(promotion.assignment_collaborator_id)
+    : new Map<string, string>();
+
+  const assignedAssets = await Promise.all(
+    (assignmentAssetRows ?? []).map(async (row: any) => {
+      const detail = await getAssetDetail(row.asset_id).catch(err => {
+        console.error('[getPromotionDetail] getAssetDetail failed for assigned asset', row.asset_id, err);
+        return null;
+      });
+
+      return {
+        assetId: row.asset_id as string,
+        resource: detail?.resource ?? null,
+        isRevoked: accessStateMap.has(row.asset_id as string),
+      };
+    })
+  );
+
   return {
     promotion: {
       id: promotion.id,
@@ -205,5 +281,6 @@ export async function getPromotionDetail(promotionId: string): Promise<Promotion
       : null,
     collaborator,
     assets,
+    assignedAssets,
   };
 }

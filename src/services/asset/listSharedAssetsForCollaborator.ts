@@ -64,6 +64,7 @@ import {
   resolveAssetThumbnail,
   resolveElementThumbnail,
 } from '../../lib/videoFormatters';
+import { getAssetAccessStatesForCollaborator } from '../assignment/assignmentAssetAccess';
 import type {
   AssetPickerFilterType,
   LibraryAssetPickerRow,
@@ -137,20 +138,20 @@ async function getMyAssignmentCollaboratorIds(userId: string): Promise<string[]>
 // isn't a hypothetical anymore.
 async function getMyPromotions(
   userId: string
-): Promise<{ id: string; assignment_id: string | null }[]> {
+): Promise<{ id: string; assignment_id: string | null; assignment_collaborator_id: string | null }[]> {
   const myCollaboratorIds = await getMyAssignmentCollaboratorIds(userId);
   if (myCollaboratorIds.length === 0) return [];
 
   const { data, error } = await supabase
     .from('promotions')
-    .select('id, assignment_id')
+    .select('id, assignment_id, assignment_collaborator_id')
     .in('assignment_collaborator_id', myCollaboratorIds);
 
   if (error) {
     throw new Error(`Failed to load promotions for user: ${error.message}`);
   }
 
-  return (data ?? []) as { id: string; assignment_id: string | null }[];
+  return (data ?? []) as { id: string; assignment_id: string | null; assignment_collaborator_id: string | null }[];
 }
 
 // ---- Step 2: resolve asset_ids per promotion, keeping the promotion_id link ----
@@ -380,6 +381,34 @@ async function getSharerProfiles(
   );
 }
 
+// ---- Step 2a (Phase 2C): resolve revoked (collaborator, asset) keys ----
+//
+// Reuses getAssetAccessStatesForCollaborator from assignmentAssetAccess.ts
+// rather than writing a new query here — same "reuse, don't duplicate
+// resolvers" discipline as getAssetDetail() reuse in getPromotionDetail.ts.
+// Called once per distinct assignment_collaborator_id involved (small N,
+// same acceptable N+1 tradeoff already used elsewhere in this codebase
+// for per-item resolution). Keys are "collaboratorId:assetId" since a
+// user's Shared Assets can in principle span multiple distinct
+// collaborator relationships (different Assignments, possibly different
+// orgs), and revocation is scoped per-collaborator, never per-user.
+async function getRevokedAssetKeys(collaboratorIds: string[]): Promise<Set<string>> {
+  const uniqueIds = Array.from(new Set(collaboratorIds));
+  if (uniqueIds.length === 0) return new Set();
+
+  const perCollaborator = await Promise.all(
+    uniqueIds.map(async (id) => ({ id, revokedMap: await getAssetAccessStatesForCollaborator(id) }))
+  );
+
+  const revoked = new Set<string>();
+  for (const { id, revokedMap } of perCollaborator) {
+    for (const assetId of revokedMap.keys()) {
+      revoked.add(`${id}:${assetId}`);
+    }
+  }
+  return revoked;
+}
+
 export async function listSharedAssetsForCollaborator({
   userId,
   excludeOrganizationId,
@@ -392,7 +421,37 @@ export async function listSharedAssetsForCollaborator({
 
   const assetPromotionPairs = await getAssetPromotionPairs(promotionIds);
   console.log("assetPromotionPairs", assetPromotionPairs);
-  const assetIds = Array.from(new Set(assetPromotionPairs.map(p => p.asset_id)));
+
+  // promotion_id -> assignment_collaborator_id (needed to know WHICH
+  // collaborator's access state governs each promoted asset)
+  const promotionToCollaborator = new Map<string, string | null>();
+  for (const p of myPromotions) {
+    promotionToCollaborator.set(p.id, p.assignment_collaborator_id);
+  }
+
+  // asset_id -> assignment_collaborator_id (first match; same "first
+  // match" tolerance already used for assetToPromotion below)
+  const assetToCollaborator = new Map<string, string>();
+  for (const pair of assetPromotionPairs) {
+    if (!assetToCollaborator.has(pair.asset_id)) {
+      const collaboratorId = promotionToCollaborator.get(pair.promotion_id);
+      if (collaboratorId) assetToCollaborator.set(pair.asset_id, collaboratorId);
+    }
+  }
+
+  // Phase 2C: an asset revoked for THIS SPECIFIC collaborator must
+  // disappear from Shared Assets, symmetric with what Remove Collaborator
+  // already does — same "hide through a read-time filter, never delete
+  // promotion_assets/promotions" discipline. Filtered BEFORE resolving
+  // display metadata, so a revoked asset never even reaches
+  // getSharedAssetRows — cheaper, and it never enters the `rows` array
+  // to leak through downstream.
+  const revokedKeys = await getRevokedAssetKeys(Array.from(new Set(assetToCollaborator.values())));
+  const allAssetIds = Array.from(new Set(assetPromotionPairs.map(p => p.asset_id)));
+  const assetIds = allAssetIds.filter(assetId => {
+    const collaboratorId = assetToCollaborator.get(assetId);
+    return !(collaboratorId && revokedKeys.has(`${collaboratorId}:${assetId}`));
+  });
   console.log("assetIds", assetIds);
   const rows = await getSharedAssetRows(assetIds, excludeOrganizationId, filterType, search);
 
