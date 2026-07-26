@@ -19,14 +19,38 @@ export interface ResolvedAssetType {
 }
 
 export async function resolveAssetType(assetId: string): Promise<ResolvedAssetType> {
+
+  console.log(
+    'resolveAssetType auth',
+    await supabase.auth.getUser()
+  );
+
+  console.log(
+    'resolveAssetType assetId',
+    assetId
+  );
+
   const { data: asset, error } = await supabase
     .from('assets')
     .select('id, asset_type, organization_id')
     .eq('id', assetId)
     .maybeSingle();
 
-  if (error) throw new Error(`resolveAssetType lookup failed for ${assetId}: ${error.message}`);
-  if (!asset) throw new Error(`Asset ${assetId} not found`);
+  console.log(
+    'resolveAssetType result',
+    asset,
+    error
+  );
+
+  if (error) {
+    throw new Error(
+      `resolveAssetType lookup failed for ${assetId}: ${error.message}`
+    );
+  }
+
+  if (!asset) {
+    throw new Error(`Asset ${assetId} not found`);
+  }
 
   return {
     assetId: asset.id,
