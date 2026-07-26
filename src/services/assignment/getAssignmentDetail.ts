@@ -2,14 +2,36 @@
  * src/services/assignment/getAssignmentDetail.ts
  * ...(existing header comments unchanged)...
  *
- * UPDATE (System Campaign fallback): Assignment Assets with no
- * campaign_assets row are Assets imported directly via Assets.tsx — they
- * have no Marketing Campaign provenance, not because anything is wrong,
- * but because they were never published from a Campaign. These are
- * grouped under the organization's ONLY PROMOTE ASSET System Campaign so
- * the existing campaign_id-based Promotion flow continues to work
- * unchanged. Campaign Element / Content Library assets are unaffected —
- * they still resolve via campaign_assets exactly as before.
+ * UPDATE (START PROMOTING door — broadened provenance resolution):
+ * campaignGroups is no longer built from a single campaign_assets query.
+ * Assets have 3 legitimate provenance sources (campaign_element_assets,
+ * videos.campaign_id, or a formal campaign_assets row), and Resource
+ * Assets intentionally have none of these natively. The door now asks,
+ * per asset:
+ *
+ *   1. resolvePromotionCampaign(assetId) — read-only. Checks
+ *      campaign_assets first (strongest, authoritative relationship),
+ *      then falls back to the asset's own type-specific source of truth
+ *      (videos.campaign_id for video assets, campaign_element_assets
+ *      .campaign_id for campaign_element assets). Returns null for
+ *      resource assets with no existing campaign_assets row — that's
+ *      expected, not an error.
+ *
+ *   2. If null AND the asset is a resource asset —
+ *      ensureResourcePromotionCampaign(assetId) is called. This is the
+ *      only write path here: it finds (or requires) the organization's
+ *      'ONLY PROMOTE ASSET' system campaign and inserts a campaign_assets
+ *      row linking the resource asset to it, idempotently, then returns
+ *      that campaign_id.
+ *
+ *   3. If still null (non-resource asset with no provenance anywhere) —
+ *      the asset stays visible in `assignmentAssets` but is excluded
+ *      from `campaignGroups`, i.e. not promotable. Same graceful
+ *      degradation as before.
+ *
+ * This does NOT change asset creation, asset schema, createVideo.ts, or
+ * addToLibrary.ts. Those remain untouched — this file only widens what
+ * START PROMOTING is able to recognize as a valid promotion campaign.
  */
 
 import { supabase } from '../../lib/supabase';
@@ -19,6 +41,8 @@ import {
   type CampaignElementType,
   type ResourceType,
 } from '../../lib/videoFormatters';
+import { resolvePromotionCampaign } from '../asset/resolvePromotionCampaign';
+import { ensureResourcePromotionCampaign } from '../asset/ensureResourcePromotionCampaign';
 
 export interface AssignmentAssetOption {
   asset_id: string;
@@ -49,8 +73,6 @@ export interface AssignmentDetailData {
   assignmentAssets: AssignmentAssetOption[];
   campaignGroups: CampaignGroup[];
 }
-
-const SYSTEM_CAMPAIGN_NAME = 'ONLY PROMOTE ASSET';
 
 export async function getAssignmentDetail(
   assignmentId: string,
@@ -103,12 +125,13 @@ export async function getAssignmentDetail(
   let campaignGroups: CampaignGroup[] = [];
 
   if (assetIds.length > 0) {
+    // These three queries remain — they're display-data lookups only
+    // (title, thumbnail, element type, etc.), used by toAssetOption().
+    // They are NOT used to decide campaign grouping anymore.
     const [
       { data: videoRows, error: videoErr },
       { data: elementRows, error: elementErr },
       { data: resourceRows, error: resourceErr },
-      { data: campaignAssetRows, error: caErr },
-      { data: systemCampaignRow, error: systemCampaignErr },
     ] = await Promise.all([
       supabase
         .from('videos')
@@ -122,25 +145,11 @@ export async function getAssignmentDetail(
         .from('asset_resources')
         .select('asset_id, title, thumbnail_url, platform, resource_type')
         .in('asset_id', assetIds),
-      supabase
-        .from('campaign_assets')
-        .select('campaign_id, asset_id, campaigns(campaign_name)')
-        .in('asset_id', assetIds),
-      // The org's System Campaign — the fallback home for imported Assets
-      // that have no Marketing Campaign provenance (no campaign_assets row).
-      supabase
-        .from('campaigns')
-        .select('id, campaign_name')
-        .eq('organization_id', assignment.organization_id)
-        .eq('campaign_name', SYSTEM_CAMPAIGN_NAME)
-        .maybeSingle(),
     ]);
 
     if (videoErr) throw new Error(`Failed to load asset display info: ${videoErr.message}`);
     if (elementErr) throw new Error(`Failed to load campaign element display info: ${elementErr.message}`);
     if (resourceErr) throw new Error(`Failed to load resource display info: ${resourceErr.message}`);
-    if (caErr) throw new Error(`Failed to load campaign groupings: ${caErr.message}`);
-    if (systemCampaignErr) throw new Error(`Failed to load System Campaign: ${systemCampaignErr.message}`);
 
     const videoByAsset = new Map((videoRows ?? []).map(v => [v.asset_id, v]));
     const elementByAsset = new Map((elementRows ?? []).map(e => [e.asset_id, e]));
@@ -193,43 +202,52 @@ export async function getAssignmentDetail(
     // Campaign provenance.
     assignmentAssets = assetIds.map(toAssetOption);
 
-    // "Select Assets to Promote" — Campaign-backed assets grouped by their
-    // real Campaign, exactly as before.
+    // "Select Assets to Promote" — the broadened door. Each asset resolves
+    // its own promotion campaign via its own type's source of truth;
+    // resource assets get an idempotent system-campaign link created on
+    // demand instead of being permanently excluded.
     const groupMap = new Map<string, CampaignGroup>();
-    for (const row of campaignAssetRows ?? []) {
-      const campaignId = row.campaign_id as string;
+    const campaignNameCache = new Map<string, string | null>();
+
+    const getCampaignName = async (campaignId: string): Promise<string | null> => {
+      if (campaignNameCache.has(campaignId)) return campaignNameCache.get(campaignId)!;
+      const { data, error } = await supabase
+        .from('campaigns')
+        .select('campaign_name')
+        .eq('id', campaignId)
+        .maybeSingle();
+      const name = error ? null : data?.campaign_name ?? null;
+      campaignNameCache.set(campaignId, name);
+      return name;
+    };
+
+    const addToGroup = async (campaignId: string, assetOption: AssignmentAssetOption) => {
       if (!groupMap.has(campaignId)) {
         groupMap.set(campaignId, {
           campaign_id: campaignId,
-          campaign_name: (row as any).campaigns?.campaign_name ?? null,
+          campaign_name: await getCampaignName(campaignId),
           assets: [],
         });
       }
-      groupMap.get(campaignId)!.assets.push(toAssetOption(row.asset_id));
-    }
+      groupMap.get(campaignId)!.assets.push(assetOption);
+    };
 
-    // Imported Assets (Assets.tsx) — valid Assignment Assets with no
-    // Marketing Campaign provenance. Grouped under the org's System
-    // Campaign so they still resolve to a normal campaign_id for the
-    // existing create_promotion flow. Campaign Element / Content Library
-    // assets never reach this branch — they're already in groupMap above.
-    if (systemCampaignRow) {
-      const assetIdsWithCampaign = new Set((campaignAssetRows ?? []).map(r => r.asset_id));
-      const importedAssetIds = assetIds.filter(id => !assetIdsWithCampaign.has(id));
+    for (const assetId of assetIds) {
+      const assetOption = toAssetOption(assetId);
+      const resolved = await resolvePromotionCampaign(assetId);
 
-      if (importedAssetIds.length > 0) {
-        const systemCampaignId = systemCampaignRow.id;
-        if (!groupMap.has(systemCampaignId)) {
-          groupMap.set(systemCampaignId, {
-            campaign_id: systemCampaignId,
-            campaign_name: systemCampaignRow.campaign_name,
-            assets: [],
-          });
-        }
-        for (const importedAssetId of importedAssetIds) {
-          groupMap.get(systemCampaignId)!.assets.push(toAssetOption(importedAssetId));
-        }
+      if (resolved) {
+        await addToGroup(resolved.campaignId, assetOption);
+        continue;
       }
+
+      if (assetOption.kind === 'resource') {
+        const campaignId = await ensureResourcePromotionCampaign(assetId);
+        await addToGroup(campaignId, assetOption);
+      }
+      // else: no provenance anywhere and not a resource asset — stays
+      // visible in assignmentAssets but excluded from campaignGroups
+      // (not promotable), same graceful degradation as before.
     }
 
     campaignGroups = Array.from(groupMap.values());
