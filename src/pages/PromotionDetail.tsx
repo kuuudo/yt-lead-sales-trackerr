@@ -528,8 +528,16 @@ export default function PromotionDetail() {
           header PHASE 2C EXTENSION note. This is the full assigned-asset
           list (assignment_assets), not the promoted subset
           (promotion_assets). Sponsor-only, same isSponsor gate as
-          Remove/Restore Collaborator. */}
-      {!isRemovedSelf && isSponsor && collaborator && assignedAssets.length > 0 && (
+          Remove/Restore Collaborator.
+          UI FIX: also requires collaborator.status === 'active'. Layer 1
+          removal already blocks the collaborator completely — showing
+          per-asset Revoke/Restore controls for an already-removed
+          collaborator is misleading (Layer 2 state becomes irrelevant
+          once Layer 1 access is gone). This is a display condition only;
+          assignment_asset_access_states rows themselves are untouched
+          either way — restoring the collaborator later reveals whatever
+          access state was already there. */}
+      {!isRemovedSelf && isSponsor && collaborator && collaborator.status === 'active' && assignedAssets.length > 0 && (
         <div>
           <p className="text-[10px] font-black uppercase tracking-widest text-zinc-500 mb-3">
             Access Management — Assigned Assets
