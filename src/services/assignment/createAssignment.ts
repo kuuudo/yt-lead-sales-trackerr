@@ -21,10 +21,35 @@
  * NOT responsible for:
  *   - Sending invitations (see inviteCollaborator.ts — called separately,
  *     once an assignmentId exists)..
+ *
+ * UPDATE (Gate 1 / Gate 2 provenance alignment): Rule A previously used
+ * resolveAssetCampaign() alone, which rejected any asset with no existing
+ * campaign relationship — including Resource Assets, which intentionally
+ * have no native campaign provenance (see asset_resources). This meant a
+ * valid, promotable Resource Asset could never even enter an Assignment,
+ * even though getAssignmentDetail.ts (Gate 2, at START PROMOTING time)
+ * already knows how to give Resource Assets a campaign home via
+ * ensureResourcePromotionCampaign().
+ *
+ * Gate 1 now shares the exact same resolver functions as Gate 2:
+ *   1. resolvePromotionCampaign(assetId) — read-only, checks
+ *      campaign_assets, then the asset's own type-specific source of
+ *      truth (videos.campaign_id / campaign_element_assets.campaign_id).
+ *   2. If that returns null AND the asset is a Resource Asset —
+ *      ensureResourcePromotionCampaign(assetId) is called, which
+ *      idempotently links it to the organization's 'ONLY PROMOTE ASSET'
+ *      system campaign and returns that campaign_id.
+ *   3. If still null (non-resource asset with no provenance anywhere) —
+ *      reject, same as before.
+ *
+ * This does not change asset creation, asset schema, createVideo.ts, or
+ * addToLibrary.ts — only what Gate 1 is willing to accept.
  */
 
 import { supabase } from '../../lib/supabase';
-import { resolveAssetCampaign } from '../asset/resolveAssetCampaign';
+import { resolvePromotionCampaign } from '../asset/resolvePromotionCampaign';
+import { resolveAssetType } from '../asset/resolveAssetType';
+import { ensureResourcePromotionCampaign } from '../asset/ensureResourcePromotionCampaign';
 
 export interface CreateAssignmentInput {
   organizationId: string;
@@ -54,21 +79,34 @@ export async function createAssignment({
   // --------------------------------------------------
   // Rule A:
   //
-  // Only Assets with Campaign provenance
-  // can enter an Assignment.
+  // Only Assets that can resolve to a promotion Campaign — either
+  // already, or via the Resource Asset system-campaign fallback — can
+  // enter an Assignment.
   //
   // Assignment references Assets only.
   // It does not own a Campaign.
   // --------------------------------------------------
 
   for (const assetId of assetIds) {
-    const resolved = await resolveAssetCampaign(assetId);
+    const resolved = await resolvePromotionCampaign(assetId);
 
-    if (!resolved.campaignId) {
-      throw new Error(
-        `Selected asset cannot be assigned because it is not connected to a campaign. Please select a campaign asset.`
-      );
+    if (resolved) {
+      continue;
     }
+
+    // No existing provenance anywhere — the only asset type allowed to
+    // recover from this is a Resource Asset, which gets a system-campaign
+    // home created on demand (idempotent — safe if called again later).
+    const { assetType } = await resolveAssetType(assetId);
+
+    if (assetType === 'resource') {
+      await ensureResourcePromotionCampaign(assetId);
+      continue;
+    }
+
+    throw new Error(
+      `Selected asset cannot be assigned because it is not connected to a campaign. Please select a campaign asset.`
+    );
   }
 
   const { data: assignment, error: assignmentErr } = await supabase
