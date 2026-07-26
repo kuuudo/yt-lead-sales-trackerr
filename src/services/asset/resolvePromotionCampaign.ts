@@ -15,6 +15,14 @@
  *                              not an error — see
  *                              ensureResourcePromotionCampaign.ts)
  *
+ * UPDATE (graceful failure): resolveAssetType() now returns null instead
+ * of throwing when the assets row is unavailable (not found, or not
+ * RLS-visible to the current viewer). This function propagates that as
+ * null too — "cannot resolve a promotion campaign" is the correct answer
+ * either way, and this function must never throw for that reason. Only
+ * genuine query errors from campaign_assets/videos/campaign_element_assets
+ * still throw, same as before.
+ *
  * No writes. No inserts. No side effects.
  */
 
@@ -32,8 +40,14 @@ export async function resolvePromotionCampaign(assetId: string): Promise<Resolve
   if (caErr) throw new Error(`campaign_assets lookup failed: ${caErr.message}`);
   if (caRow?.campaign_id) return { campaignId: caRow.campaign_id };
 
-  const { assetType } = await resolveAssetType(assetId);
-  return resolveByAssetType(assetId, assetType);
+  const resolvedType = await resolveAssetType(assetId);
+  if (!resolvedType) {
+    // Could not determine asset type (missing, or not RLS-visible).
+    // Not this function's job to escalate — just report "no campaign found".
+    return null;
+  }
+
+  return resolveByAssetType(assetId, resolvedType.assetType);
 }
 
 async function resolveByAssetType(

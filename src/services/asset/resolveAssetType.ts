@@ -6,6 +6,17 @@
  * Shared by resolvePromotionCampaign.ts and ensureResourcePromotionCampaign.ts.
  *
  * READ ONLY.
+ *
+ * UPDATE (graceful failure): Previously threw `Asset ${assetId} not
+ * found` whenever the assets row was unavailable — whether because the
+ * asset genuinely doesn't exist, or because the current viewer's RLS
+ * policies don't grant visibility into it. That distinction doesn't
+ * matter to this function's callers, but the *hard failure* mattered a
+ * lot: getAssignmentDetail.ts is a display page, and a promotion-eligibility
+ * lookup failing should never crash the whole page. It now returns null
+ * instead of throwing. Callers are responsible for deciding what "unknown
+ * asset type" means in their context — reject (createAssignment.ts) or
+ * degrade gracefully and keep rendering (getAssignmentDetail.ts).
  */
 
 import { supabase } from '../../lib/supabase';
@@ -18,75 +29,22 @@ export interface ResolvedAssetType {
   organizationId: string;
 }
 
-export async function resolveAssetType(assetId: string): Promise<ResolvedAssetType> {
-
-  console.log(
-    'resolveAssetType auth',
-    await supabase.auth.getUser()
-  );
-
-  console.log(
-    'resolveAssetType assetId',
-    assetId
-  );
-
-
-  // TEMP DEBUG: check current logged-in user
-  const user = await supabase.auth.getUser();
-
-  console.log(
-    'CURRENT USER',
-    user.data.user?.id
-  );
-
-
-  // TEMP DEBUG: can this user see assignment_assets?
-  const { data: aa, error: aaError } = await supabase
-    .from('assignment_assets')
-    .select('*')
-    .eq('asset_id', assetId);
-
-  console.log(
-    'assignment_assets visible',
-    aa,
-    aaError
-  );
-
-
-  // TEMP DEBUG: can this user see assignment_collaborators?
-  const { data: ac, error: acError } = await supabase
-    .from('assignment_collaborators')
-    .select('*');
-
-  console.log(
-    'assignment_collaborators visible',
-    ac,
-    acError
-  );
-
-
+export async function resolveAssetType(assetId: string): Promise<ResolvedAssetType | null> {
   const { data: asset, error } = await supabase
     .from('assets')
     .select('id, asset_type, organization_id')
     .eq('id', assetId)
     .maybeSingle();
 
-
-  console.log(
-    'resolveAssetType result',
-    asset,
-    error
-  );
-
-
   if (error) {
-    throw new Error(
-      `resolveAssetType lookup failed for ${assetId}: ${error.message}`
-    );
+    console.warn(`[resolveAssetType] lookup failed for ${assetId}: ${error.message}`);
+    return null;
   }
-
   if (!asset) {
-    throw new Error(`Asset ${assetId} not found`);
+    // Either the asset doesn't exist, or the current viewer's RLS
+    // policies don't grant visibility into it. Either way, this is not
+    // this function's job to distinguish or escalate.
+    return null;
   }
 
   return {
