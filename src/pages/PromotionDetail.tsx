@@ -311,6 +311,14 @@ export default function PromotionDetail() {
   const isRemovedSelf =
     !!user && !!collaborator && collaborator.user_id === user.id && collaborator.status !== 'active';
 
+  // Read-only counterpart to Sponsor's Access Management. True when the
+  // viewer IS the collaborator on this promotion (not the Sponsor) and
+  // still active — same identity check as isRemovedSelf above, opposite
+  // status. Gates a display-only "Assigned Assets" list further down:
+  // status only, no Revoke/Restore buttons, no write access of any kind.
+  const isCollaboratorViewer =
+    !!user && !!collaborator && collaborator.user_id === user.id && collaborator.status === 'active';
+
   return (
     <div className="space-y-6 max-w-4xl">
       <Link
@@ -591,6 +599,53 @@ export default function PromotionDetail() {
           {assetActionError && (
             <p className="text-[10px] text-red-500 mt-2">{assetActionError}</p>
           )}
+        </div>
+      )}
+
+      {/* Phase 2C follow-up — read-only counterpart to Access Management
+          above, for the collaborator themselves. Reuses the exact same
+          assignedAssets data the Sponsor's section reads — no new query,
+          no new data model. Status only: no Revoke Access / Restore
+          Access buttons, no click handlers, no way to write anything.
+          Mutually exclusive with the Sponsor block above in practice
+          (isCollaboratorViewer and isSponsor can't both be true for the
+          same person), but each has its own independent gate rather than
+          being an else-branch of the other, since a third viewer type
+          (neither Sponsor nor this collaborator) should see neither. */}
+      {!isRemovedSelf && isCollaboratorViewer && assignedAssets.length > 0 && (
+        <div>
+          <p className="text-[10px] font-black uppercase tracking-widest text-zinc-500 mb-3">
+            Assigned Assets
+          </p>
+          <div className="space-y-2 max-w-2xl">
+            {assignedAssets.map(a => {
+              const thumbnailSrc = resolveThumbnailSrc(a.resource);
+              const title = a.resource?.title || 'Untitled Asset';
+              return (
+                <div
+                  key={a.assetId}
+                  className={`flex items-center gap-3 border rounded-lg p-3 ${
+                    a.isRevoked ? 'bg-zinc-950 border-red-900/40' : 'bg-zinc-900 border-zinc-800'
+                  }`}
+                >
+                  <div className="w-14 h-9 overflow-hidden rounded bg-zinc-950 border border-zinc-800 flex items-center justify-center shrink-0">
+                    {thumbnailSrc && (
+                      <img src={thumbnailSrc} className="max-w-full max-h-full object-contain" />
+                    )}
+                  </div>
+                  <div className="min-w-0 flex-1">
+                    <p className="text-sm text-zinc-200 truncate">{title}</p>
+                    <p className="text-[9px] font-black uppercase text-zinc-600 tracking-widest mt-0.5">
+                      {resolveTypeLabel(a.resource)}
+                    </p>
+                  </div>
+                  <span className={`text-[10px] font-bold uppercase tracking-widest shrink-0 ${a.isRevoked ? 'text-red-500' : 'text-zinc-500'}`}>
+                    {a.isRevoked ? 'Revoked' : 'Active'}
+                  </span>
+                </div>
+              );
+            })}
+          </div>
         </div>
       )}
     </div>
