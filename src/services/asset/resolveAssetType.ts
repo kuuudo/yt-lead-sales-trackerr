@@ -30,17 +30,54 @@ export async function resolveAssetType(assetId: string): Promise<ResolvedAssetTy
     assetId
   );
 
+
+  // TEMP DEBUG: check current logged-in user
+  const user = await supabase.auth.getUser();
+
+  console.log(
+    'CURRENT USER',
+    user.data.user?.id
+  );
+
+
+  // TEMP DEBUG: can this user see assignment_assets?
+  const { data: aa, error: aaError } = await supabase
+    .from('assignment_assets')
+    .select('*')
+    .eq('asset_id', assetId);
+
+  console.log(
+    'assignment_assets visible',
+    aa,
+    aaError
+  );
+
+
+  // TEMP DEBUG: can this user see assignment_collaborators?
+  const { data: ac, error: acError } = await supabase
+    .from('assignment_collaborators')
+    .select('*');
+
+  console.log(
+    'assignment_collaborators visible',
+    ac,
+    acError
+  );
+
+
   const { data: asset, error } = await supabase
     .from('assets')
     .select('id, asset_type, organization_id')
     .eq('id', assetId)
     .maybeSingle();
 
+
   console.log(
     'resolveAssetType result',
     asset,
     error
   );
+
 
   if (error) {
     throw new Error(
