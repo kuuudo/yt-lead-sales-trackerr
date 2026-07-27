@@ -307,11 +307,28 @@ console.log(
     assignmentErr
   }
 );
-const { data: promotionAssets, error: promotionAssetErr } = await supabase
-  .from('promotion_assets')
-  .select('*')
-  .eq('asset_id', assetId);
+console.log(
+  '[DEBUG] PROMOTION ASSETS FULL',
+  JSON.stringify(promotionAssets, null, 2)
+);
 
+const promotionId = promotionAssets?.[0]?.promotion_id;
+
+
+const { data: promotion, error: promotionErr } = await supabase
+  .from('promotions')
+  .select('*')
+  .eq('id', promotionId)
+  .maybeSingle();
+
+
+console.log(
+  '[DEBUG] PROMOTION ROW',
+  {
+    promotion,
+    promotionErr
+  }
+);
 
 console.log(
   '[DEBUG] PROMOTION ASSETS',
