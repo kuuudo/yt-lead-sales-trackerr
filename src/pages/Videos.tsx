@@ -55,7 +55,16 @@ import { useOrganization } from '../lib/useOrganization';
 import { createVideo } from '../services/video/createVideo';
 import { generateAssetRedirectLinks } from '../services/asset/generateAssetRedirectLinks';
 import { PromotedAssetPicker, type PromotedAssetRow } from '../components/PromotedAssetPicker';
+import {
+  resolvePromotionContextForAsset,
+  toPromotionContext,
+  type PromotionContextOption,
+} from '../services/asset/resolvePromotionContextForAsset';
 
+import type { PromotionContext } from '../services/asset/resolvePromotionContextForAsset';
+
+import { categorizeAsset } from '../services/redirect/getPromotedAssetDisplay';
+import { resolveAssetType } from '../services/asset/resolveAssetType';
 type VideoStatus = Video['status'];
 
 interface MultiSelectProps {
@@ -511,6 +520,15 @@ export default function Videos() {
   // Promoted Asset (optional) — UI-only per locked scope: this selection is
   // never sent to createVideo() and nothing is persisted from it yet.
   // Wiring it into a real video -> asset relationship is separate, later work.
+  const [promotionContextByAssetId, setPromotionContextByAssetId] =
+  useState<Map<string, PromotionContextOption[]>>(new Map());
+const [chosenPromotionByAssetId, setChosenPromotionByAssetId] =
+  useState<Map<string, PromotionContext>>(new Map());
+const [resolvingPromotionContext, setResolvingPromotionContext] = useState(false);
+const hasBlockingPromotionIssue = Array.from(promotionContextByAssetId.entries()).some(
+    ([assetId, options]) =>
+      options.length === 0 || (options.length > 1 && !chosenPromotionByAssetId.has(assetId))
+  );
   const [showAssetPicker, setShowAssetPicker] = useState(false);
   const [promotedAssets, setPromotedAssets] = useState<PromotedAssetRow[]>([]);
 
@@ -863,11 +881,23 @@ export default function Videos() {
           // Asset-driven (each asset's own campaign), not video-campaign-driven.
           // Promotion/Assignment are not involved. See generateAssetRedirectLinks.ts.
           if (promotedAssets.length > 0) {
-            await generateAssetRedirectLinks({
-              videoId: savedVideo.id,
-              selectedAssets: promotedAssets,
-            });
-          }
+  const assetsWithContext = promotedAssets.map(asset => {
+    const options = promotionContextByAssetId.get(asset.asset_id);
+    if (!options) return { asset_id: asset.asset_id };
+
+    const promotionContext: PromotionContext | undefined =
+      options.length === 1
+        ? toPromotionContext(options[0])
+        : chosenPromotionByAssetId.get(asset.asset_id);
+
+    return { asset_id: asset.asset_id, promotionContext };
+  });
+
+  await generateAssetRedirectLinks({
+    videoId: savedVideo.id,
+    selectedAssets: assetsWithContext,
+  });
+}
 
 
         // UI: query links back and show the links modal (UI concern — stays here)
@@ -898,6 +928,8 @@ export default function Videos() {
         selectedLeadMagnets: [],
       });
       setPromotedAssets(null);
+      setPromotionContextByAssetId(new Map());
+      setChosenPromotionByAssetId(new Map());
       setUseOnlyPromoteAsset(false);
       setPreviousCampaignId('');
 
@@ -1393,13 +1425,87 @@ export default function Videos() {
                     organizationId={organizationId}
                     initialSelectedAssetIds={promotedAssets.map(a => a.asset_id)}
                     onClose={() => setShowAssetPicker(false)}
-                    onSelect={assets => {
-                      setPromotedAssets(assets);
-                      setShowAssetPicker(false);
-                    }}
+                    onSelect={async assets => {
+  setPromotedAssets(assets);
+  setShowAssetPicker(false);
+
+  if (!organizationId || !user) return;
+  setResolvingPromotionContext(true);
+  try {
+    const entries = await Promise.all(
+      assets.map(async (asset) => {
+        const typeInfo = await resolveAssetType(asset.asset_id);
+        const isShared =
+          !!typeInfo &&
+          categorizeAsset({
+            assetOrganizationId: typeInfo.organizationId,
+            viewerOrganizationId: organizationId,
+            isAssignedOut: false,
+          }) === 'shared';
+        if (!isShared) return [asset.asset_id, null] as const;
+
+        const options = await resolvePromotionContextForAsset(asset.asset_id, user.id);
+        return [asset.asset_id, options] as const;
+      })
+    );
+
+    const next = new Map(promotionContextByAssetId);
+    for (const [assetId, options] of entries) {
+      if (options === null) next.delete(assetId);
+      else next.set(assetId, options);
+    }
+    setPromotionContextByAssetId(next);
+  } finally {
+    setResolvingPromotionContext(false);
+  }
+}}
                   />
                 )}
+{promotionContextByAssetId.size > 0 && (
+  <div className="bg-zinc-950 border border-zinc-800 rounded-xl p-4 space-y-4">
+    <p className="label-caps !text-zinc-500">Confirm Promotion Context</p>
+    {Array.from(promotionContextByAssetId.entries()).map(([assetId, options]) => {
+      const asset = promotedAssets.find(a => a.asset_id === assetId);
+      if (!asset) return null;
 
+      if (options.length === 0) {
+        return (
+          <p key={assetId} className="text-xs text-red-500">
+            "{asset.display_name}" is a shared asset with no active Promotion.
+            Ask the assignment sponsor to start one before tracking this asset.
+          </p>
+        );
+      }
+
+      if (options.length === 1) return null;
+
+      const chosen = chosenPromotionByAssetId.get(assetId);
+      return (
+        <div key={assetId} className="space-y-2">
+          <p className="text-xs text-zinc-300">
+            "{asset.display_name}" is used in multiple collaborations. Select which Promotion to track:
+          </p>
+          {options.map(opt => (
+            <button
+              key={opt.promotionId}
+              type="button"
+              onClick={() =>
+                setChosenPromotionByAssetId(new Map(chosenPromotionByAssetId).set(assetId, toPromotionContext(opt)))
+              }
+              className={`w-full text-left text-xs px-3 py-2 rounded-lg border ${
+                chosen?.promotionId === opt.promotionId
+                  ? 'border-red-600 bg-red-950/30 text-white'
+                  : 'border-zinc-800 text-zinc-400 hover:border-zinc-600'
+              }`}
+            >
+              {opt.assignmentTitle} — shared by {opt.sharedByName}
+            </button>
+          ))}
+        </div>
+      );
+    })}
+  </div>
+)}
                 <div className="flex flex-col">
                   {generated ? (
                     <div className="flex-1 space-y-4">
@@ -1431,7 +1537,7 @@ export default function Videos() {
                       </div>
                       <button 
                         onClick={handleSave}
-                        disabled={saving}
+                        disabled={saving || hasBlockingPromotionIssue}
                         className="mt-auto w-full bg-red-600 text-white h-12 rounded-xl text-[10px] font-black uppercase tracking-widest flex items-center justify-center gap-2"
                       >
                         {saving ? <Loader2 className="animate-spin" size={16} /> : (editingVideoId ? 'Update Video' : 'Save To My List')}

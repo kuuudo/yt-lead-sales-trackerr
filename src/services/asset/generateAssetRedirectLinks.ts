@@ -6,8 +6,18 @@
  * createVideo() returns a savedVideo.
  *
  * Architecture locks (do not revisit without reopening review):
- *   - Promotion is NOT involved. No promotion_id is ever written here.
- *   - Assignment is NOT involved.
+ * Architecture locks (do not revisit without reopening review):
+ *
+ *   - Promotion is NOT resolved here.
+ *   - Shared asset promotion context is resolved upstream
+ *     before this function runs.
+ *   - This file only passes through an already-known promotion_id.
+ *   - Assignment is not used for redirect creation.
+ *   - createVideo() remains responsible only for creating a Video —
+ *     Promoted Asset handling does not move into it.
+ *   - Asset Redirect generation is ASSET-DRIVEN, not video-campaign-driven.
+ *     Campaign on an Asset Redirect is the Asset's own provenance,
+ *     never the new video's selected campaign.
  *   - createVideo() remains responsible only for creating a Video —
  *     Promoted Asset handling does not move into it.
  *   - Asset Redirect generation is ASSET-DRIVEN, not video-campaign-driven.
@@ -34,14 +44,29 @@ import { createRedirectLink } from '../../lib/redirects';
 import type { RedirectLinkType } from '../../lib/redirects';
 import { buildCampaignRedirectJobs } from '../redirect/buildCampaignRedirectJobs';
 import type { Campaign } from '../../lib/supabase';
+import type { PromotionContext } from './resolvePromotionContextForAsset';
 
 // ---------------------------------------------------------------------------
 // Types
 // ---------------------------------------------------------------------------
 
-/** Minimal shape needed from the Picker's selection — matches PromotedAssetRow. */
+/**
+ * Shape received from Picker selection.
+ *
+ * Shared assets may include a resolved promotionContext.
+ * My / Assigned assets intentionally do not.
+ */
 export interface SelectedPromotedAsset {
   asset_id: string;
+
+  /**
+   * Only exists for Shared assets.
+   * Resolved before generateAssetRedirectLinks runs.
+   *
+   * My / Assigned assets:
+   * undefined
+   */
+  promotionContext?: PromotionContext;
 }
 
 export interface GenerateAssetRedirectLinksOptions {
@@ -340,7 +365,10 @@ export async function generateAssetRedirectLinks({
                        // asset_id, so without this, two assets producing
                        // the same link_type under one video would
                        // incorrectly collapse onto one redirect row.
-            { assetId: context.assetId } // promotionId intentionally omitted — Promotion is not involved
+            {
+  assetId: context.assetId,
+  promotionId: selected.promotionContext?.promotionId ?? null,
+}
           )
         )
       );
