@@ -6,18 +6,13 @@
  * createVideo() returns a savedVideo.
  *
  * Architecture locks (do not revisit without reopening review):
- * Architecture locks (do not revisit without reopening review):
  *
  *   - Promotion is NOT resolved here.
- *   - Shared asset promotion context is resolved upstream
- *     before this function runs.
- *   - This file only passes through an already-known promotion_id.
+ *   - Shared asset promotion context is resolved upstream (see
+ *     resolvePromotionContextForAsset.ts / Videos.tsx) before this
+ *     function ever runs. This file only passes through an
+ *     already-known promotion_id — it never guesses one.
  *   - Assignment is not used for redirect creation.
- *   - createVideo() remains responsible only for creating a Video —
- *     Promoted Asset handling does not move into it.
- *   - Asset Redirect generation is ASSET-DRIVEN, not video-campaign-driven.
- *     Campaign on an Asset Redirect is the Asset's own provenance,
- *     never the new video's selected campaign.
  *   - createVideo() remains responsible only for creating a Video —
  *     Promoted Asset handling does not move into it.
  *   - Asset Redirect generation is ASSET-DRIVEN, not video-campaign-driven.
@@ -32,19 +27,38 @@
  *   - No new tables. redirect_links (video_id + asset_id together on one
  *     row) already represents "this Content promotes this Asset" for MVP.
  *
+ * CROSS-ORG PROVENANCE (video branch only, for now): a Shared asset's
+ * provenance campaign can live in a different organization than the
+ * viewer's — direct `campaigns` reads are correctly blocked by RLS in
+ * that case (returns { data: null, error: null }, not a query error).
+ * resolveVideoAssetContext() falls back to
+ * resolveAuthorizedProvenanceCampaign() ONLY when that RLS-silent-empty
+ * signature is seen AND an explicit promotionId is already known for
+ * this asset. That helper re-verifies the exact same authorization
+ * (promotion_assets membership + promotion ownership/collaboration)
+ * server-side via a SECURITY DEFINER function before reading the one
+ * campaign row — campaigns RLS itself is untouched. My/Assigned assets
+ * never hit this path; their direct read already succeeds.
+ *
+ * The resource and campaign_element branches have not been confirmed to
+ * hit the same RLS wall yet (no debug evidence either way) — they are
+ * deliberately left on the direct-read-only path until diagnosed the
+ * same way. Do not assume and patch them without that evidence.
+ *
  * One lookup per selected asset_id is required here because the Picker
  * (PromotedAssetPicker / listLibraryAssetsForAssignmentPicker /
  * listSharedAssetsForCollaborator) only returns lightweight UI rows
  * (asset_id, asset_type, display_name, thumbnail) — never enough on its
  * own to generate a redirect link.
  */
-import { resolveAuthorizedProvenanceCampaign } from './resolveAuthorizedProvenanceCampaign';
+
 import { supabase } from '../../lib/supabase';
 import { createRedirectLink } from '../../lib/redirects';
 import type { RedirectLinkType } from '../../lib/redirects';
 import { buildCampaignRedirectJobs } from '../redirect/buildCampaignRedirectJobs';
 import type { Campaign } from '../../lib/supabase';
 import type { PromotionContext } from './resolvePromotionContextForAsset';
+import { resolveAuthorizedProvenanceCampaign } from './resolveAuthorizedProvenanceCampaign';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -250,117 +264,38 @@ async function resolveCampaignElementContext(assetId: string): Promise<AssetRedi
 }
 
 // ---- Type 3: Video-as-Asset ----
-async function resolveVideoAssetContext(assetId: string): Promise<AssetRedirectContext | null> {
-  const {
-  data: {
-    user
-  }
-} = await supabase.auth.getUser();
-
-console.log(
-  '[DEBUG] CURRENT USER',
-  {
-    userId: user?.id,
-    email: user?.email
-  }
-);
 async function resolveVideoAssetContext(
   assetId: string,
   promotionId: string | null
 ): Promise<AssetRedirectContext | null> {
   const { data: videoRow, error: videoErr } = await supabase
     .from('videos')
-    .select('campaign_id, organization_id, asset_id')
+    .select('campaign_id, organization_id')
     .eq('asset_id', assetId)
     .maybeSingle();
 
-
-console.log(
-  '[DEBUG] VIDEO ASSET ROW',
-  {
-    assetId,
-    videoRow,
-    videoErr
-  }
-);
-    
-// ADD HERE:
-console.log('[DEBUG] STEP 1 — videos row for asset', assetId, { videoRow, videoErr });
-console.log(
-  '[DEBUG] video asset provenance:',
-  {
-    assetId,
-    videoCampaignId: videoRow?.campaign_id
-  }
-);
   if (videoErr || !videoRow) {
     console.error('[generateAssetRedirectLinks] Failed to load videos row for asset:', assetId, videoErr?.message);
     return null;
   }
 
-const { data: promotionAssets, error: promotionAssetErr } = await supabase
-  .from('promotion_assets')
-  .select('*')
-  .eq('asset_id', assetId);
-
-
-console.log(
-  '[DEBUG] PROMOTION ASSETS FULL',
-  JSON.stringify(promotionAssets, null, 2)
-);
-
-
-const promotionId = promotionAssets?.[0]?.promotion_id;
-
-
-const { data: promotion, error: promotionErr } = await supabase
-  .from('promotions')
-  .select('*')
-  .eq('id', promotionId)
-  .maybeSingle();
-
-
-console.log(
-  '[DEBUG] PROMOTION ROW',
-  {
-    promotion,
-    promotionErr
-  }
-);
-
-
-console.log(
-  '[DEBUG] PROMOTION ASSETS',
-  {
-    assetId,
-    promotionAssets,
-    promotionAssetErr
-  }
-);
   if (!videoRow.campaign_id) {
     console.error('[generateAssetRedirectLinks] Video asset has no campaign_id, skipping:', assetId);
     return null;
   }
 
-console.log(
-  '[DEBUG] current user before campaign lookup',
-  {
-    campaignId: videoRow?.campaign_id
-  }
-);
-
-  const { data: campaign, error: campaignErr } = await supabase
   let { data: campaign, error: campaignErr } = await supabase
     .from('campaigns')
     .select('*')
     .eq('id', videoRow.campaign_id)
     .maybeSingle();
 
-  // RLS 靜默擋掉的特徵：data:null 但 error:null（不是查詢語法錯，也不是
-  // 那筆 campaign 真的不存在）。只有在這個情況、而且我們已經有明確的
-  // promotionId（上游 resolvePromotionContextForAsset.ts 解析過，不是
-  // 這裡猜的）時，才走授權旁路。My/Assigned asset 不會走到這裡，因為
-  // 它們本來就讀得到，campaign 不會是 null。
+  // RLS-silent-empty signature: data:null, error:null — not a query
+  // error, not a missing row, just "you're not allowed to read this
+  // cross-org campaign directly." Only fall back to the authorized
+  // provenance resolver when we ALSO already have an explicit
+  // promotionId (resolved upstream, never guessed here). My/Assigned
+  // assets never hit this branch — their direct read already succeeds.
   if (!campaign && !campaignErr && promotionId) {
     campaign = await resolveAuthorizedProvenanceCampaign(assetId, promotionId, videoRow.campaign_id);
   }
@@ -381,13 +316,12 @@ console.log(
     organizationId: videoRow.organization_id,
     campaignId: campaign.id,
     redirectJobs: [
-    {
-      linkType: 'landing_page',
-      destinationUrl: campaign.landing_page_url,
-    },
-  ],
-};
-
+      {
+        linkType: 'landing_page',
+        destinationUrl: campaign.landing_page_url,
+      },
+    ],
+  };
 }
 
 async function resolveAssetRedirectContext(
@@ -409,32 +343,19 @@ async function resolveAssetRedirectContext(
 // Entry point
 // ---------------------------------------------------------------------------
 
-export async function generateAssetRedirectLinks({ 
+export async function generateAssetRedirectLinks({
   videoId,
   selectedAssets,
 }: GenerateAssetRedirectLinksOptions): Promise<void> {
-
-    console.log(
-    '[DEBUG] generateAssetRedirectLinks input:',
-    {
-      videoId,
-      selectedAssets
-    }
-  );
-
   if (!selectedAssets || selectedAssets.length === 0) return;
 
- // ADD HERE:
-  console.log('[DEBUG] selectedAssets received:', selectedAssets.map(a => a.asset_id));
-
-  
   const appBaseUrl = window.location.origin;
 
   await Promise.all(
     selectedAssets.map(async (selected) => {
       const context = await resolveAssetRedirectContext(
         selected.asset_id,
-        selected.promotionContext?.promotionId ?? null   // 明確帶入，不猜、不用 promotionAssets[0]
+        selected.promotionContext?.promotionId ?? null // explicit, resolved upstream — never guessed here
       );
 
       if (!context || !context.campaignId) {
@@ -462,14 +383,14 @@ export async function generateAssetRedirectLinks({
             appBaseUrl,
             undefined, // leadMagnetId — not applicable to asset redirects
             true,      // allowDuplicate — required: the existing duplicate
-                       // check only scopes by (video_id, link_type), not。
+                       // check only scopes by (video_id, link_type), not
                        // asset_id, so without this, two assets producing
                        // the same link_type under one video would
                        // incorrectly collapse onto one redirect row.
             {
-  assetId: context.assetId,
-  promotionId: selected.promotionContext?.promotionId ?? null,
-}
+              assetId: context.assetId,
+              promotionId: selected.promotionContext?.promotionId ?? null,
+            }
           )
         )
       );
