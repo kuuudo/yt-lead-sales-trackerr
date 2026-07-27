@@ -259,7 +259,13 @@ async function resolveVideoAssetContext(assetId: string): Promise<AssetRedirectC
     
 // ADD HERE:
 console.log('[DEBUG] STEP 1 — videos row for asset', assetId, { videoRow, videoErr });
-
+console.log(
+  '[DEBUG] video asset provenance:',
+  {
+    assetId,
+    videoCampaignId: videoRow?.campaign_id
+  }
+);
   if (videoErr || !videoRow) {
     console.error('[generateAssetRedirectLinks] Failed to load videos row for asset:', assetId, videoErr?.message);
     return null;
@@ -269,6 +275,13 @@ console.log('[DEBUG] STEP 1 — videos row for asset', assetId, { videoRow, vide
     console.error('[generateAssetRedirectLinks] Video asset has no campaign_id, skipping:', assetId);
     return null;
   }
+  
+console.log(
+  '[DEBUG] current user before campaign lookup',
+  {
+    campaignId: videoRow?.campaign_id
+  }
+);
 
   const { data: campaign, error: campaignErr } = await supabase
     .from('campaigns')
@@ -332,7 +345,7 @@ export async function generateAssetRedirectLinks({
       selectedAssets
     }
   );
-  
+
   if (!selectedAssets || selectedAssets.length === 0) return;
 
  // ADD HERE:
