@@ -250,7 +250,6 @@ async function resolveCampaignElementContext(assetId: string): Promise<AssetRedi
 }
 
 // ---- Type 3: Video-as-Asset ----
-<<<<<<< HEAD
 async function resolveVideoAssetContext(assetId: string): Promise<AssetRedirectContext | null> {
   const {
   data: {
@@ -265,19 +264,16 @@ console.log(
     email: user?.email
   }
 );
-=======
 async function resolveVideoAssetContext(
   assetId: string,
   promotionId: string | null
 ): Promise<AssetRedirectContext | null> {
->>>>>>> fix-track-new-content
   const { data: videoRow, error: videoErr } = await supabase
     .from('videos')
     .select('campaign_id, organization_id, asset_id')
     .eq('asset_id', assetId)
     .maybeSingle();
 
-<<<<<<< HEAD
 
 console.log(
   '[DEBUG] VIDEO ASSET ROW',
@@ -297,8 +293,6 @@ console.log(
     videoCampaignId: videoRow?.campaign_id
   }
 );
-=======
->>>>>>> fix-track-new-content
   if (videoErr || !videoRow) {
     console.error('[generateAssetRedirectLinks] Failed to load videos row for asset:', assetId, videoErr?.message);
     return null;
@@ -348,7 +342,6 @@ console.log(
     return null;
   }
 
-<<<<<<< HEAD
 console.log(
   '[DEBUG] current user before campaign lookup',
   {
@@ -357,9 +350,7 @@ console.log(
 );
 
   const { data: campaign, error: campaignErr } = await supabase
-=======
   let { data: campaign, error: campaignErr } = await supabase
->>>>>>> fix-track-new-content
     .from('campaigns')
     .select('*')
     .eq('id', videoRow.campaign_id)
