@@ -445,7 +445,7 @@ export async function generateAssetRedirectLinks({
             appBaseUrl,
             undefined, // leadMagnetId — not applicable to asset redirects
             true,      // allowDuplicate — required: the existing duplicate
-                       // check only scopes by (video_id, link_type), not
+                       // check only scopes by (video_id, link_type), not。
                        // asset_id, so without this, two assets producing
                        // the same link_type under one video would
                        // incorrectly collapse onto one redirect row.
