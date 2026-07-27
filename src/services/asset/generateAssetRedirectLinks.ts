@@ -320,10 +320,19 @@ async function resolveAssetRedirectContext(assetId: string): Promise<AssetRedire
 // Entry point
 // ---------------------------------------------------------------------------
 
-export async function generateAssetRedirectLinks({
+export async function generateAssetRedirectLinks({ 
   videoId,
   selectedAssets,
 }: GenerateAssetRedirectLinksOptions): Promise<void> {
+
+    console.log(
+    '[DEBUG] generateAssetRedirectLinks input:',
+    {
+      videoId,
+      selectedAssets
+    }
+  );
+  
   if (!selectedAssets || selectedAssets.length === 0) return;
 
  // ADD HERE:

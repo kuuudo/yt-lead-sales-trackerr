@@ -892,7 +892,10 @@ const hasBlockingPromotionIssue = Array.from(promotionContextByAssetId.entries()
 
     return { asset_id: asset.asset_id, promotionContext };
   });
-
+console.log(
+  "DEBUG assetsWithContext",
+  assetsWithContext
+);
   await generateAssetRedirectLinks({
     videoId: savedVideo.id,
     selectedAssets: assetsWithContext,
