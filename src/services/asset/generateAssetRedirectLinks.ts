@@ -293,24 +293,18 @@ console.log(
     console.error('[generateAssetRedirectLinks] Failed to load videos row for asset:', assetId, videoErr?.message);
     return null;
   }
-const { data: assignments, error: assignmentErr } = await supabase
-  .from('assignments')
+
+const { data: promotionAssets, error: promotionAssetErr } = await supabase
+  .from('promotion_assets')
   .select('*')
   .eq('asset_id', assetId);
 
 
 console.log(
-  '[DEBUG] ASSIGNMENTS FOR ASSET',
-  {
-    assetId,
-    assignments,
-    assignmentErr
-  }
-);
-console.log(
   '[DEBUG] PROMOTION ASSETS FULL',
   JSON.stringify(promotionAssets, null, 2)
 );
+
 
 const promotionId = promotionAssets?.[0]?.promotion_id;
 
@@ -329,6 +323,7 @@ console.log(
     promotionErr
   }
 );
+
 
 console.log(
   '[DEBUG] PROMOTION ASSETS',
@@ -368,10 +363,7 @@ console.log('[DEBUG] STEP 2 — campaign lookup for campaign_id', videoRow.campa
   // asset's own campaign (provenance), never the newly created video's
   // selected campaign (attribution). Do not swap this input.
   const campaignJobs = buildCampaignRedirectJobs(campaign as Campaign);
-console.log(
-  '[DEBUG] getAssetSharingInfo result',
-  result
-);
+
   return {
     assetId,
     assetType: 'video',
