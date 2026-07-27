@@ -38,7 +38,7 @@
  * (asset_id, asset_type, display_name, thumbnail) — never enough on its
  * own to generate a redirect link.
  */
-
+import { resolveAuthorizedProvenanceCampaign } from './resolveAuthorizedProvenanceCampaign';
 import { supabase } from '../../lib/supabase';
 import { createRedirectLink } from '../../lib/redirects';
 import type { RedirectLinkType } from '../../lib/redirects';
@@ -250,6 +250,7 @@ async function resolveCampaignElementContext(assetId: string): Promise<AssetRedi
 }
 
 // ---- Type 3: Video-as-Asset ----
+<<<<<<< HEAD
 async function resolveVideoAssetContext(assetId: string): Promise<AssetRedirectContext | null> {
   const {
   data: {
@@ -264,12 +265,19 @@ console.log(
     email: user?.email
   }
 );
+=======
+async function resolveVideoAssetContext(
+  assetId: string,
+  promotionId: string | null
+): Promise<AssetRedirectContext | null> {
+>>>>>>> fix-track-new-content
   const { data: videoRow, error: videoErr } = await supabase
     .from('videos')
     .select('campaign_id, organization_id, asset_id')
     .eq('asset_id', assetId)
     .maybeSingle();
 
+<<<<<<< HEAD
 
 console.log(
   '[DEBUG] VIDEO ASSET ROW',
@@ -289,6 +297,8 @@ console.log(
     videoCampaignId: videoRow?.campaign_id
   }
 );
+=======
+>>>>>>> fix-track-new-content
   if (videoErr || !videoRow) {
     console.error('[generateAssetRedirectLinks] Failed to load videos row for asset:', assetId, videoErr?.message);
     return null;
@@ -338,6 +348,7 @@ console.log(
     return null;
   }
 
+<<<<<<< HEAD
 console.log(
   '[DEBUG] current user before campaign lookup',
   {
@@ -346,13 +357,22 @@ console.log(
 );
 
   const { data: campaign, error: campaignErr } = await supabase
+=======
+  let { data: campaign, error: campaignErr } = await supabase
+>>>>>>> fix-track-new-content
     .from('campaigns')
     .select('*')
     .eq('id', videoRow.campaign_id)
     .maybeSingle();
 
-    // ADD HERE:
-console.log('[DEBUG] STEP 2 — campaign lookup for campaign_id', videoRow.campaign_id, { campaign, campaignErr });
+  // RLS 靜默擋掉的特徵：data:null 但 error:null（不是查詢語法錯，也不是
+  // 那筆 campaign 真的不存在）。只有在這個情況、而且我們已經有明確的
+  // promotionId（上游 resolvePromotionContextForAsset.ts 解析過，不是
+  // 這裡猜的）時，才走授權旁路。My/Assigned asset 不會走到這裡，因為
+  // 它們本來就讀得到，campaign 不會是 null。
+  if (!campaign && !campaignErr && promotionId) {
+    campaign = await resolveAuthorizedProvenanceCampaign(assetId, promotionId, videoRow.campaign_id);
+  }
 
   if (campaignErr || !campaign) {
     console.error('[generateAssetRedirectLinks] Failed to load campaign for video asset:', assetId, campaignErr?.message);
@@ -379,13 +399,16 @@ console.log('[DEBUG] STEP 2 — campaign lookup for campaign_id', videoRow.campa
 
 }
 
-async function resolveAssetRedirectContext(assetId: string): Promise<AssetRedirectContext | null> {
+async function resolveAssetRedirectContext(
+  assetId: string,
+  promotionId: string | null
+): Promise<AssetRedirectContext | null> {
   const assetType = await getAssetType(assetId);
   if (!assetType) return null;
 
   if (assetType === 'resource') return resolveResourceContext(assetId);
   if (assetType === 'campaign_element') return resolveCampaignElementContext(assetId);
-  if (assetType === 'video') return resolveVideoAssetContext(assetId);
+  if (assetType === 'video') return resolveVideoAssetContext(assetId, promotionId);
 
   console.error('[generateAssetRedirectLinks] Unknown asset_type, skipping:', assetId, assetType);
   return null;
@@ -418,7 +441,10 @@ export async function generateAssetRedirectLinks({
 
   await Promise.all(
     selectedAssets.map(async (selected) => {
-      const context = await resolveAssetRedirectContext(selected.asset_id);
+      const context = await resolveAssetRedirectContext(
+        selected.asset_id,
+        selected.promotionContext?.promotionId ?? null   // 明確帶入，不猜、不用 promotionAssets[0]
+      );
 
       if (!context || !context.campaignId) {
         console.error(
