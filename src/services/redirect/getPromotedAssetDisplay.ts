@@ -85,7 +85,7 @@ function platformLabel(platform: string | null): string | null {
 // Shared categorization rule
 // ---------------------------------------------------------------------------
 
-function categorizeAsset({
+export function categorizeAsset({
   assetOrganizationId,
   viewerOrganizationId,
   isAssignedOut,
