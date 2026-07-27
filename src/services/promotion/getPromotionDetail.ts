@@ -191,35 +191,45 @@ export async function getPromotionDetail(promotionId: string): Promise<Promotion
   // Two small steps, same convention as listSharedAssetsForCollaborator.ts's
   // getAssignmentCreators/getSharerProfiles split.
   let collaborator: PromotionDetailData['collaborator'] = null;
-  if (promotion.assignment_collaborator_id) {
-    const { data: collabRow, error: collabErr } = await supabase
-      .from('assignment_collaborators')
-      .select('id, user_id, status')
-      .eq('id', promotion.assignment_collaborator_id)
+
+if (promotion.assignment_collaborator_id) {
+  const { data: collabRow, error: collabErr } = await supabase
+    .from('assignment_collaborators')
+    .select('id, user_id, status')
+    .eq('id', promotion.assignment_collaborator_id)
+    .maybeSingle();
+
+  if (collabErr) {
+    throw new Error(`Failed to load collaborator: ${collabErr.message}`);
+  }
+
+  if (collabRow?.user_id) {
+    const { data: collabProfile, error: collabProfileErr } = await supabase
+      .from('profiles')
+      .select('full_name, email')
+      .eq('id', collabRow.user_id)
       .maybeSingle();
 
-    if (collabErr) throw new Error(`Failed to load collaborator: ${collabErr.message}`);
-
-    if (collabRow?.user_id) {
-      const { data: collabProfile, error: collabProfileErr } = await supabase
-        .from('profiles')
-        .select('full_name, email')
-        .eq('id', collabRow.user_id)
-        .maybeSingle();
-
-      if (collabProfileErr) throw new Error(`Failed to load collaborator profile: ${collabProfileErr.message}`);
-
-      if (collabProfile) {
-        collaborator = {
-          id: collabRow.id,
-          user_id: collabRow.user_id,
-          status: collabRow.status,
-          name: collabProfile.full_name || collabProfile.email || 'Unknown User',
-          email: collabProfile.email ?? null,
-        };
-      }
+    // Do NOT destroy collaborator identity if profile lookup fails.
+    // Profile is display only.
+    if (collabProfileErr) {
+      console.warn(
+        `[getPromotionDetail] collaborator profile lookup failed: ${collabProfileErr.message}`
+      );
     }
+
+    collaborator = {
+      id: collabRow.id,
+      user_id: collabRow.user_id,
+      status: collabRow.status,
+      name:
+        collabProfile?.full_name ||
+        collabProfile?.email ||
+        'Unknown User',
+      email: collabProfile?.email ?? null,
+    };
   }
+}
 
   // Reuse getAssetDetail() per promoted asset — see file header. Failures
   // for an individual asset don't fail the whole page; they just render
