@@ -251,11 +251,34 @@ async function resolveCampaignElementContext(assetId: string): Promise<AssetRedi
 
 // ---- Type 3: Video-as-Asset ----
 async function resolveVideoAssetContext(assetId: string): Promise<AssetRedirectContext | null> {
+  const {
+  data: {
+    user
+  }
+} = await supabase.auth.getUser();
+
+console.log(
+  '[DEBUG] CURRENT USER',
+  {
+    userId: user?.id,
+    email: user?.email
+  }
+);
   const { data: videoRow, error: videoErr } = await supabase
     .from('videos')
-    .select('campaign_id, organization_id')
+    .select('campaign_id, organization_id, asset_id')
     .eq('asset_id', assetId)
     .maybeSingle();
+
+
+console.log(
+  '[DEBUG] VIDEO ASSET ROW',
+  {
+    assetId,
+    videoRow,
+    videoErr
+  }
+);
     
 // ADD HERE:
 console.log('[DEBUG] STEP 1 — videos row for asset', assetId, { videoRow, videoErr });
@@ -270,12 +293,39 @@ console.log(
     console.error('[generateAssetRedirectLinks] Failed to load videos row for asset:', assetId, videoErr?.message);
     return null;
   }
+const { data: assignments, error: assignmentErr } = await supabase
+  .from('assignments')
+  .select('*')
+  .eq('asset_id', assetId);
 
+
+console.log(
+  '[DEBUG] ASSIGNMENTS FOR ASSET',
+  {
+    assetId,
+    assignments,
+    assignmentErr
+  }
+);
+const { data: promotionAssets, error: promotionAssetErr } = await supabase
+  .from('promotion_assets')
+  .select('*')
+  .eq('asset_id', assetId);
+
+
+console.log(
+  '[DEBUG] PROMOTION ASSETS',
+  {
+    assetId,
+    promotionAssets,
+    promotionAssetErr
+  }
+);
   if (!videoRow.campaign_id) {
     console.error('[generateAssetRedirectLinks] Video asset has no campaign_id, skipping:', assetId);
     return null;
   }
-  
+
 console.log(
   '[DEBUG] current user before campaign lookup',
   {
@@ -301,7 +351,10 @@ console.log('[DEBUG] STEP 2 — campaign lookup for campaign_id', videoRow.campa
   // asset's own campaign (provenance), never the newly created video's
   // selected campaign (attribution). Do not swap this input.
   const campaignJobs = buildCampaignRedirectJobs(campaign as Campaign);
-
+console.log(
+  '[DEBUG] getAssetSharingInfo result',
+  result
+);
   return {
     assetId,
     assetType: 'video',
