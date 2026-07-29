@@ -330,7 +330,16 @@ console.log('[DEBUG video asset final context]', {
   landing_page_url: campaign.landing_page_url,
   campaign,
 });
-  return {
+  if (!campaign.landing_page_url) {
+  console.error('[generateAssetRedirectLinks] Campaign has no landing page URL', {
+    assetId,
+    campaignId: campaign.id,
+  });
+
+  return null;
+}
+
+return {
     assetId,
     assetType: 'video',
     organizationId: videoRow.organization_id,
@@ -341,8 +350,7 @@ console.log('[DEBUG video asset final context]', {
         destinationUrl: campaign.landing_page_url,
       },
     ],
-  };
-}
+};
 
 async function resolveAssetRedirectContext(
   assetId: string,
