@@ -402,7 +402,22 @@ console.log('[DEBUG resolved asset context]', {
       await Promise.all(
   context.redirectJobs.map((job) => {
 
+console.log('[DEBUG destination check]', {
+  assetId: context.assetId,
+  campaignId: context.campaignId,
+  destinationUrl: job.destinationUrl,
+  promotionId: selected.promotionContext?.promotionId ?? null,
+});
+
 console.log('[DEBUG BEFORE createRedirectLink]', {
+  videoId,
+  assetId: context.assetId,
+  assetType: context.assetType,
+  campaignId: context.campaignId,
+  linkType: job.linkType,
+  destinationUrl: job.destinationUrl,
+  promotionId: selected.promotionContext?.promotionId ?? null,
+});
   videoId,
   assetId: context.assetId,
   assetType: context.assetType,
