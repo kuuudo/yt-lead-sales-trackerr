@@ -117,8 +117,18 @@ export default function Campaigns() {
 };
 
   const submitCampaign = async () => {
-    if (!user) return;
-    setSaving(true);
+  if (!user) return;
+
+  if (!formData.landing_page_url.trim()) {
+    showAlert(
+      'Missing Landing Page',
+      'Campaign requires a Landing Page URL.',
+      'danger'
+    );
+    return;
+  }
+
+  setSaving(true);
     try {
       const { data, error } = await supabase
         .from('campaigns')
