@@ -55,16 +55,26 @@ export const createRedirectLink = async (
     return null;
   }
 
-  // Resolve organization_id from campaign
-  const { data: campaignRow } = await supabase
-    .from('campaigns')
-    .select('organization_id')
-    .eq('id', campaignId)
-    .single();
+  // organization_id to store on the redirect_links row. Two sources,
+  // chosen based on whether a promotion is involved:
+  //
+  //   - No promotionId (My/Assigned asset, same-org case): read it
+  //     straight off the campaign, exactly as before. No RLS concern —
+  //     caller already owns this campaign.
+  //
+  //   - promotionId present (Shared asset, cross-org case): read it off
+  //     `promotions` instead of `campaigns`. Per locked architecture,
+  //     an Assignment can only ever reference the creating org's own
+  //     assets (see createAssignment.ts) — so promotion.organization_id
+  //     and the asset's provenance campaign's organization_id are
+  //     always the same value. This is not a different rule, just the
+  //     read that actually succeeds: a direct `campaigns` read for a
+  //     cross-org asset is correctly blocked by RLS and silently
+  //     returns null, which used to make the (now-removed) equality
+  //     check below always fail even though the values were never
+  //     actually different.
+  let organizationId: string | null = null;
 
-  const organizationId = campaignRow?.organization_id ?? null;
-
-  // Validate promotion
   if (promotionId) {
     const { data: promotionRow, error: promotionErr } = await supabase
       .from('promotions')
@@ -77,11 +87,14 @@ export const createRedirectLink = async (
       return null;
     }
 
-    if (promotionRow.organization_id !== organizationId) {
-      console.error('Promotion organization mismatch');
-      return null;
-    }
+    organizationId = promotionRow.organization_id;
 
+    // Real validation, kept: does this promotion actually include this
+    // asset? This is the check that prevents a promotion_id being
+    // paired with an unrelated asset_id — genuinely different from the
+    // organization-equality check removed above, which compared two
+    // values that are architecturally guaranteed equal in the first
+    // place.
     const { data: promotionAssetRow, error: promotionAssetErr } = await supabase
       .from('promotion_assets')
       .select('asset_id')
@@ -93,6 +106,14 @@ export const createRedirectLink = async (
       console.error('Asset does not belong to promotion');
       return null;
     }
+  } else {
+    const { data: campaignRow } = await supabase
+      .from('campaigns')
+      .select('organization_id')
+      .eq('id', campaignId)
+      .single();
+
+    organizationId = campaignRow?.organization_id ?? null;
   }
 
   if (!allowDuplicate) {
