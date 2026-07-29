@@ -411,6 +411,9 @@ export async function generateAssetRedirectLinks({
         assetId: context.assetId,
         promotionId: selected.promotionContext?.promotionId ?? null,
       }
-    );
+       );
   })
-);
+      );
+    })   // closes selectedAssets.map(...)
+  );     // closes Promise.all(...)
+}        // closes generateAssetRedirectLinks()
