@@ -393,6 +393,14 @@ console.log('[DEBUG resolved asset context]', {
   context,
 });
 
+console.log('[DEBUG context validation]', {
+  assetId: selected.asset_id,
+  promotionId: selected.promotionContext?.promotionId ?? null,
+  context,
+  hasContext: !!context,
+  campaignId: context?.campaignId,
+});
+
       if (!context || !context.campaignId) {
         console.error(
           '[generateAssetRedirectLinks] Skipping asset — no usable redirect context:',
