@@ -284,11 +284,26 @@ async function resolveVideoAssetContext(
     return null;
   }
 
-  let { data: campaign, error: campaignErr } = await supabase
+  // BEFORE the database query happens
+console.log('[DEBUG campaign lookup]', {
+  assetId,
+  videoCampaignId: videoRow.campaign_id,
+  currentUser: (await supabase.auth.getUser()).data.user?.id
+});
+
+
+let { data: campaign, error: campaignErr } = await supabase
     .from('campaigns')
     .select('*')
     .eq('id', videoRow.campaign_id)
     .maybeSingle();
+
+
+// AFTER the database query finishes
+console.log('[DEBUG campaign result]', {
+  campaign,
+  campaignErr
+});
 
   // RLS-silent-empty signature: data:null, error:null — not a query
   // error, not a missing row, just "you're not allowed to read this
