@@ -130,31 +130,44 @@ function resolveResourceLinkType(resourceType: string | null): RedirectLinkType 
 }
 
 // ---------------------------------------------------------------------------
-// System Campaign lookup (Resource asset provenance)
+// Resource asset provenance lookup
 // ---------------------------------------------------------------------------
 
 /**
- * Resource assets have no campaign_id anywhere in the schema — confirmed
- * via information_schema (no column on asset_resources, no campaign_assets
- * row for any resource-type asset in the sample data). Their business
- * origin is "imported directly into the library," which IS the System
- * Campaign (is_system = true, unique per org). This is provenance, not a
- * technical fallback to satisfy createRedirectLink()'s campaignId param.
+ * Resource assets do not store campaign_id directly.
+ * Their provenance comes from campaign_assets.
+ *
+ * This campaign is the asset's original campaign ownership,
+ * not the campaign selected by the new video.
  */
-async function getSystemCampaignId(organizationId: string): Promise<string | null> {
+// ---------------------------------------------------------------------------
+// Resource asset provenance lookup
+// ---------------------------------------------------------------------------
+
+async function resolveResourceProvenanceCampaign(
+  assetId: string,
+  organizationId: string
+): Promise<string | null> {
   const { data, error } = await supabase
-    .from('campaigns')
-    .select('id')
-    .eq('organization_id', organizationId)
-    .eq('is_system', true)
+    .from('campaign_assets')
+    .select('campaign_id')
+    .eq('asset_id', assetId)
     .maybeSingle();
 
   if (error) {
-    console.error('[generateAssetRedirectLinks] Failed to load System Campaign for org:', organizationId, error.message);
+    console.error(
+      '[generateAssetRedirectLinks] resource provenance lookup failed',
+      {
+        assetId,
+        organizationId,
+        error: error.message,
+      }
+    );
+
     return null;
   }
 
-  return data?.id ?? null;
+  return data?.campaign_id ?? null;
 }
 
 // ---------------------------------------------------------------------------
@@ -194,7 +207,16 @@ async function resolveResourceContext(assetId: string): Promise<AssetRedirectCon
     return null;
   }
 
-  const campaignId = await getSystemCampaignId(data.organization_id);
+  const campaignId = await resolveResourceProvenanceCampaign(
+  assetId,
+  data.organization_id
+);
+
+console.log('[DEBUG resource provenance]', {
+  assetId,
+  organizationId: data.organization_id,
+  campaignId,
+});
 
   return {
     assetId,
