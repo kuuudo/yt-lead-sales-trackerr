@@ -351,6 +351,7 @@ return {
       },
     ],
 };
+} // <-- CLOSE resolveVideoAssetContext HERE
 
 async function resolveAssetRedirectContext(
   assetId: string,
