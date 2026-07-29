@@ -324,7 +324,12 @@ console.log('[DEBUG campaign result]', {
   // asset's own campaign (provenance), never the newly created video's
   // selected campaign (attribution). Do not swap this input.
   const campaignJobs = buildCampaignRedirectJobs(campaign as Campaign);
-
+console.log('[DEBUG video asset final context]', {
+  assetId,
+  campaignId: campaign.id,
+  landing_page_url: campaign.landing_page_url,
+  campaign,
+});
   return {
     assetId,
     assetType: 'video',
@@ -369,9 +374,15 @@ export async function generateAssetRedirectLinks({
   await Promise.all(
     selectedAssets.map(async (selected) => {
       const context = await resolveAssetRedirectContext(
-        selected.asset_id,
-        selected.promotionContext?.promotionId ?? null // explicit, resolved upstream — never guessed here
-      );
+  selected.asset_id,
+  selected.promotionContext?.promotionId ?? null
+);
+
+console.log('[DEBUG resolved asset context]', {
+  assetId: selected.asset_id,
+  promotionId: selected.promotionContext?.promotionId ?? null,
+  context,
+});
 
       if (!context || !context.campaignId) {
         console.error(
@@ -391,13 +402,15 @@ export async function generateAssetRedirectLinks({
       await Promise.all(
   context.redirectJobs.map((job) => {
 
-    console.log('[DEBUG BEFORE createRedirectLink]', {
-      assetId: context.assetId,
-      assetType: context.assetType,
-      campaignId: context.campaignId,
-      promotionId: selected.promotionContext?.promotionId ?? null,
-      promotionContext: selected.promotionContext,
-    });
+console.log('[DEBUG BEFORE createRedirectLink]', {
+  videoId,
+  assetId: context.assetId,
+  assetType: context.assetType,
+  campaignId: context.campaignId,
+  linkType: job.linkType,
+  destinationUrl: job.destinationUrl,
+  promotionId: selected.promotionContext?.promotionId ?? null,
+});
 
     return createRedirectLink(
       videoId,
