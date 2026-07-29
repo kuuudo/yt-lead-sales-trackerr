@@ -389,26 +389,28 @@ export async function generateAssetRedirectLinks({
       });
 
       await Promise.all(
-        context.redirectJobs.map((job) =>
-          createRedirectLink(
-            videoId,
-            context.campaignId!,
-            job.linkType,
-            job.destinationUrl,
-            appBaseUrl,
-            undefined, // leadMagnetId — not applicable to asset redirects
-            true,      // allowDuplicate — required: the existing duplicate
-                       // check only scopes by (video_id, link_type), not
-                       // asset_id, so without this, two assets producing
-                       // the same link_type under one video would
-                       // incorrectly collapse onto one redirect row.
-            {
-              assetId: context.assetId,
-              promotionId: selected.promotionContext?.promotionId ?? null,
-            }
-          )
-        )
-      );
-    })
-  );
-}
+  context.redirectJobs.map((job) => {
+
+    console.log('[DEBUG BEFORE createRedirectLink]', {
+      assetId: context.assetId,
+      assetType: context.assetType,
+      campaignId: context.campaignId,
+      promotionId: selected.promotionContext?.promotionId ?? null,
+      promotionContext: selected.promotionContext,
+    });
+
+    return createRedirectLink(
+      videoId,
+      context.campaignId!,
+      job.linkType,
+      job.destinationUrl,
+      appBaseUrl,
+      undefined, // leadMagnetId — not applicable to asset redirects
+      true,
+      {
+        assetId: context.assetId,
+        promotionId: selected.promotionContext?.promotionId ?? null,
+      }
+    );
+  })
+);
