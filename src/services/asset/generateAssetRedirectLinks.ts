@@ -418,16 +418,8 @@ console.log('[DEBUG BEFORE createRedirectLink]', {
   destinationUrl: job.destinationUrl,
   promotionId: selected.promotionContext?.promotionId ?? null,
 });
-  videoId,
-  assetId: context.assetId,
-  assetType: context.assetType,
-  campaignId: context.campaignId,
-  linkType: job.linkType,
-  destinationUrl: job.destinationUrl,
-  promotionId: selected.promotionContext?.promotionId ?? null,
-});
 
-    return createRedirectLink(
+return createRedirectLink(
       videoId,
       context.campaignId!,
       job.linkType,
