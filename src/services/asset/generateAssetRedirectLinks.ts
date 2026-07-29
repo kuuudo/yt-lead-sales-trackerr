@@ -223,12 +223,7 @@ console.log('[DEBUG resource provenance]', {
     assetType: 'resource',
     organizationId: data.organization_id,
     campaignId,
-    redirectJobs: [
-      {
-        linkType: resolveResourceLinkType(data.resource_type),
-        destinationUrl: data.url,
-      },
-    ],
+    redirectJobs,
   };
 }
 
@@ -352,14 +347,21 @@ console.log('[DEBUG video asset final context]', {
   landing_page_url: campaign.landing_page_url,
   campaign,
 });
-  if (!campaign.landing_page_url) {
-  console.error('[generateAssetRedirectLinks] Campaign has no landing page URL', {
-    assetId,
-    campaignId: campaign.id,
-  });
+  const redirectJobs: RedirectJob[] = [];
 
-  return null;
-}
+   if (campaign.landing_page_url) {
+     redirectJobs.push({
+       linkType: 'landing_page',
+       destinationUrl: campaign.landing_page_url,
+     });
+   } else if (!campaign.is_system) {
+     console.error('[generateAssetRedirectLinks] Campaign has no landing page URL', {
+       assetId,
+       campaignId: campaign.id,
+     });
+
+     return null;
+   }
 
 return {
     assetId,
