@@ -27,11 +27,11 @@
  *   - No new tables. redirect_links (video_id + asset_id together on one
  *     row) already represents "this Content promotes this Asset" for MVP.
  *
- * CROSS-ORG PROVENANCE (video branch only, for now): a Shared asset's
- * provenance campaign can live in a different organization than the
- * viewer's — direct `campaigns` reads are correctly blocked by RLS in
- * that case (returns { data: null, error: null }, not a query error).
- * resolveVideoAssetContext() falls back to
+ * CROSS-ORG PROVENANCE: a Shared asset's provenance campaign can live in
+ * a different organization than the viewer's — direct `campaigns` reads
+ * are correctly blocked by RLS in that case (returns { data: null,
+ * error: null }, not a query error). Both resolveVideoAssetContext() and
+ * resolveCampaignElementContext() fall back to
  * resolveAuthorizedProvenanceCampaign() ONLY when that RLS-silent-empty
  * signature is seen AND an explicit promotionId is already known for
  * this asset. That helper re-verifies the exact same authorization
@@ -40,10 +40,10 @@
  * campaign row — campaigns RLS itself is untouched. My/Assigned assets
  * never hit this path; their direct read already succeeds.
  *
- * The resource and campaign_element branches have not been confirmed to
- * hit the same RLS wall yet (no debug evidence either way) — they are
- * deliberately left on the direct-read-only path until diagnosed the
- * same way. Do not assume and patch them without that evidence.
+ * The resource branch has not been confirmed to hit the same RLS wall
+ * yet (no debug evidence either way) — it is deliberately left on the
+ * direct-read-only path until diagnosed the same way. Do not assume and
+ * patch it without that evidence.
  *
  * One lookup per selected asset_id is required here because the Picker
  * (PromotedAssetPicker / listLibraryAssetsForAssignmentPicker /
@@ -140,10 +140,6 @@ function resolveResourceLinkType(resourceType: string | null): RedirectLinkType 
  * This campaign is the asset's original campaign ownership,
  * not the campaign selected by the new video.
  */
-// ---------------------------------------------------------------------------
-// Resource asset provenance lookup
-// ---------------------------------------------------------------------------
-
 async function resolveResourceProvenanceCampaign(
   assetId: string,
   organizationId: string
@@ -208,27 +204,35 @@ async function resolveResourceContext(assetId: string): Promise<AssetRedirectCon
   }
 
   const campaignId = await resolveResourceProvenanceCampaign(
-  assetId,
-  data.organization_id
-);
+    assetId,
+    data.organization_id
+  );
 
-console.log('[DEBUG resource provenance]', {
-  assetId,
-  organizationId: data.organization_id,
-  campaignId,
-});
+  console.log('[DEBUG resource provenance]', {
+    assetId,
+    organizationId: data.organization_id,
+    campaignId,
+  });
 
   return {
     assetId,
     assetType: 'resource',
     organizationId: data.organization_id,
     campaignId,
-    redirectJobs,
+    redirectJobs: [
+      {
+        linkType: resolveResourceLinkType(data.resource_type),
+        destinationUrl: data.url,
+      },
+    ],
   };
 }
 
 // ---- Type 2: Campaign Element ----
-async function resolveCampaignElementContext(assetId: string): Promise<AssetRedirectContext | null> {
+async function resolveCampaignElementContext(
+  assetId: string,
+  promotionId: string | null
+): Promise<AssetRedirectContext | null> {
   const { data: elementRow, error: elementErr } = await supabase
     .from('campaign_element_assets')
     .select('campaign_id, element_type, source_field')
@@ -240,11 +244,23 @@ async function resolveCampaignElementContext(assetId: string): Promise<AssetRedi
     return null;
   }
 
-  const { data: campaign, error: campaignErr } = await supabase
+  let { data: campaign, error: campaignErr } = await supabase
     .from('campaigns')
     .select('*')
     .eq('id', elementRow.campaign_id)
     .maybeSingle();
+
+  // RLS-silent-empty signature: data:null, error:null — not a query
+  // error, just "you're not allowed to read this cross-org campaign
+  // directly." Same fallback pattern as the video branch. Only used
+  // when we already have an explicit promotionId (resolved upstream).
+  if (!campaign && !campaignErr && promotionId) {
+    campaign = await resolveAuthorizedProvenanceCampaign(
+      assetId,
+      promotionId,
+      elementRow.campaign_id
+    );
+  }
 
   if (campaignErr || !campaign) {
     console.error('[generateAssetRedirectLinks] Failed to load campaign for element asset:', assetId, campaignErr?.message);
@@ -302,25 +318,23 @@ async function resolveVideoAssetContext(
   }
 
   // BEFORE the database query happens
-console.log('[DEBUG campaign lookup]', {
-  assetId,
-  videoCampaignId: videoRow.campaign_id,
-  currentUser: (await supabase.auth.getUser()).data.user?.id
-});
+  console.log('[DEBUG campaign lookup]', {
+    assetId,
+    videoCampaignId: videoRow.campaign_id,
+    currentUser: (await supabase.auth.getUser()).data.user?.id
+  });
 
-
-let { data: campaign, error: campaignErr } = await supabase
+  let { data: campaign, error: campaignErr } = await supabase
     .from('campaigns')
     .select('*')
     .eq('id', videoRow.campaign_id)
     .maybeSingle();
 
-
-// AFTER the database query finishes
-console.log('[DEBUG campaign result]', {
-  campaign,
-  campaignErr
-});
+  // AFTER the database query finishes
+  console.log('[DEBUG campaign result]', {
+    campaign,
+    campaignErr
+  });
 
   // RLS-silent-empty signature: data:null, error:null — not a query
   // error, not a missing row, just "you're not allowed to read this
@@ -340,41 +354,41 @@ console.log('[DEBUG campaign result]', {
   // Reuses the exact same field list createVideo() uses — but for THIS
   // asset's own campaign (provenance), never the newly created video's
   // selected campaign (attribution). Do not swap this input.
+  // NOTE: campaignJobs is currently unused — buildCampaignRedirectJobs()
+  // migration is deliberately out of scope for this fix (see file header
+  // and tracked as separate technical debt). Do not wire it in here.
   const campaignJobs = buildCampaignRedirectJobs(campaign as Campaign);
-console.log('[DEBUG video asset final context]', {
-  assetId,
-  campaignId: campaign.id,
-  landing_page_url: campaign.landing_page_url,
-  campaign,
-});
+
+  console.log('[DEBUG video asset final context]', {
+    assetId,
+    campaignId: campaign.id,
+    landing_page_url: campaign.landing_page_url,
+    campaign,
+  });
+
   const redirectJobs: RedirectJob[] = [];
 
-   if (campaign.landing_page_url) {
-     redirectJobs.push({
-       linkType: 'landing_page',
-       destinationUrl: campaign.landing_page_url,
-     });
-   } else if (!campaign.is_system) {
-     console.error('[generateAssetRedirectLinks] Campaign has no landing page URL', {
-       assetId,
-       campaignId: campaign.id,
-     });
+  if (campaign.landing_page_url) {
+    redirectJobs.push({
+      linkType: 'landing_page',
+      destinationUrl: campaign.landing_page_url,
+    });
+  } else if (!campaign.is_system) {
+    console.error('[generateAssetRedirectLinks] Campaign has no landing page URL', {
+      assetId,
+      campaignId: campaign.id,
+    });
 
-     return null;
-   }
+    return null;
+  }
 
-return {
+  return {
     assetId,
     assetType: 'video',
     organizationId: videoRow.organization_id,
     campaignId: campaign.id,
-    redirectJobs: [
-      {
-        linkType: 'landing_page',
-        destinationUrl: campaign.landing_page_url,
-      },
-    ],
-};
+    redirectJobs,
+  };
 } // <-- CLOSE resolveVideoAssetContext HERE
 
 async function resolveAssetRedirectContext(
@@ -385,7 +399,9 @@ async function resolveAssetRedirectContext(
   if (!assetType) return null;
 
   if (assetType === 'resource') return resolveResourceContext(assetId);
-  if (assetType === 'campaign_element') return resolveCampaignElementContext(assetId);
+  if (assetType === 'campaign_element') {
+    return resolveCampaignElementContext(assetId, promotionId);
+  }
   if (assetType === 'video') return resolveVideoAssetContext(assetId, promotionId);
 
   console.error('[generateAssetRedirectLinks] Unknown asset_type, skipping:', assetId, assetType);
@@ -407,23 +423,23 @@ export async function generateAssetRedirectLinks({
   await Promise.all(
     selectedAssets.map(async (selected) => {
       const context = await resolveAssetRedirectContext(
-  selected.asset_id,
-  selected.promotionContext?.promotionId ?? null
-);
+        selected.asset_id,
+        selected.promotionContext?.promotionId ?? null
+      );
 
-console.log('[DEBUG resolved asset context]', {
-  assetId: selected.asset_id,
-  promotionId: selected.promotionContext?.promotionId ?? null,
-  context,
-});
+      console.log('[DEBUG resolved asset context]', {
+        assetId: selected.asset_id,
+        promotionId: selected.promotionContext?.promotionId ?? null,
+        context,
+      });
 
-console.log('[DEBUG context validation]', {
-  assetId: selected.asset_id,
-  promotionId: selected.promotionContext?.promotionId ?? null,
-  context,
-  hasContext: !!context,
-  campaignId: context?.campaignId,
-});
+      console.log('[DEBUG context validation]', {
+        assetId: selected.asset_id,
+        promotionId: selected.promotionContext?.promotionId ?? null,
+        context,
+        hasContext: !!context,
+        campaignId: context?.campaignId,
+      });
 
       if (!context || !context.campaignId) {
         console.error(
@@ -441,39 +457,38 @@ console.log('[DEBUG context validation]', {
       });
 
       await Promise.all(
-  context.redirectJobs.map((job) => {
+        context.redirectJobs.map((job) => {
+          console.log('[DEBUG destination check]', {
+            assetId: context.assetId,
+            campaignId: context.campaignId,
+            destinationUrl: job.destinationUrl,
+            promotionId: selected.promotionContext?.promotionId ?? null,
+          });
 
-console.log('[DEBUG destination check]', {
-  assetId: context.assetId,
-  campaignId: context.campaignId,
-  destinationUrl: job.destinationUrl,
-  promotionId: selected.promotionContext?.promotionId ?? null,
-});
+          console.log('[DEBUG BEFORE createRedirectLink]', {
+            videoId,
+            assetId: context.assetId,
+            assetType: context.assetType,
+            campaignId: context.campaignId,
+            linkType: job.linkType,
+            destinationUrl: job.destinationUrl,
+            promotionId: selected.promotionContext?.promotionId ?? null,
+          });
 
-console.log('[DEBUG BEFORE createRedirectLink]', {
-  videoId,
-  assetId: context.assetId,
-  assetType: context.assetType,
-  campaignId: context.campaignId,
-  linkType: job.linkType,
-  destinationUrl: job.destinationUrl,
-  promotionId: selected.promotionContext?.promotionId ?? null,
-});
-
-return createRedirectLink(
-      videoId,
-      context.campaignId!,
-      job.linkType,
-      job.destinationUrl,
-      appBaseUrl,
-      undefined, // leadMagnetId — not applicable to asset redirects
-      true,
-      {
-        assetId: context.assetId,
-        promotionId: selected.promotionContext?.promotionId ?? null,
-      }
-       );
-  })
+          return createRedirectLink(
+            videoId,
+            context.campaignId!,
+            job.linkType,
+            job.destinationUrl,
+            appBaseUrl,
+            undefined, // leadMagnetId — not applicable to asset redirects
+            true,
+            {
+              assetId: context.assetId,
+              promotionId: selected.promotionContext?.promotionId ?? null,
+            }
+          );
+        })
       );
     })   // closes selectedAssets.map(...)
   );     // closes Promise.all(...)
