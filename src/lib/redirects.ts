@@ -50,6 +50,15 @@ export const createRedirectLink = async (
   const promotionId = options?.promotionId ?? null;
   const assetId = options?.assetId ?? null;
 
+  console.log('[DEBUG redirect input]', {
+    videoId,
+    campaignId,
+    linkType,
+    destinationUrl,
+    promotionId,
+    assetId,
+  });
+
   if (promotionId && !assetId) {
     console.error('createRedirectLink: promotionId requires assetId');
     return null;
