@@ -170,10 +170,15 @@ export default function CampaignDetail() {
   };
 
   const handleSave = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!user || !id) return;
+  e.preventDefault();
+  if (!user || !id) return;
 
-    setSaving(true);
+  if (!formData.landing_page_url?.trim()) {
+    setError('Campaign requires a Landing Page URL.');
+    return;
+  }
+
+  setSaving(true);
     setError(null);
     setSuccess(false);
     setMissingAfterSave([]);
