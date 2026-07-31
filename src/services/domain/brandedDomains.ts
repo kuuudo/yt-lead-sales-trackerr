@@ -163,3 +163,46 @@ export const deleteDomain = async (domainId: string): Promise<boolean> => {
 
   return true;
 };
+
+export interface VerifyDomainResult {
+  status: 'verified' | 'pending';
+  matched: boolean;
+  alreadyVerified?: boolean;
+}
+
+/**
+ * Triggers a live DNS TXT lookup for this domain's verification record.
+ * On match, the API endpoint itself flips status to 'verified' — this
+ * function just relays the result so the UI can react (refresh the list,
+ * show "not verified yet" messaging, etc).
+ */
+export const verifyDomain = async (domainId: string): Promise<VerifyDomainResult | null> => {
+  const { data: sessionData } = await supabase.auth.getSession();
+  const accessToken = sessionData.session?.access_token;
+
+  if (!accessToken) {
+    console.error('[brandedDomains] verifyDomain: no active session');
+    return null;
+  }
+
+  try {
+    const response = await fetch('/api/verify-domain', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${accessToken}`,
+      },
+      body: JSON.stringify({ domainId }),
+    });
+
+    if (!response.ok) {
+      console.error('[brandedDomains] verifyDomain request failed:', response.status);
+      return null;
+    }
+
+    return await response.json();
+  } catch (err) {
+    console.error('[brandedDomains] verifyDomain threw:', err);
+    return null;
+  }
+};

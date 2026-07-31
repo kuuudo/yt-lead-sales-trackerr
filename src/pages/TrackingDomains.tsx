@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { Globe, Plus, Star, Trash2, Ban, Loader2, Copy, Check } from 'lucide-react';
+import { Globe, Plus, Star, Trash2, Ban, Loader2, Copy, Check, ShieldCheck } from 'lucide-react';
 import { useOrganization } from '../lib/useOrganization';
 import {
   listBrandedDomains,
@@ -7,6 +7,7 @@ import {
   setDefaultDomain,
   disableDomain,
   deleteDomain,
+  verifyDomain,
   type BrandedTrackingDomain,
 } from '../services/domain/brandedDomains';
 
@@ -20,6 +21,8 @@ export default function TrackingDomains() {
   const [pendingToken, setPendingToken] = useState<{ hostname: string; token: string } | null>(null);
   const [copied, setCopied] = useState(false);
   const [actionError, setActionError] = useState<string | null>(null);
+  const [verifyingId, setVerifyingId] = useState<string | null>(null);
+  const [verifyMessage, setVerifyMessage] = useState<{ id: string; text: string } | null>(null);
 
   const refresh = async () => {
     if (!organizationId) return;
@@ -77,6 +80,30 @@ export default function TrackingDomains() {
     await refresh();
   };
 
+const handleVerify = async (domainId: string) => {
+  setVerifyingId(domainId);
+  setVerifyMessage(null);
+
+  const result = await verifyDomain(domainId);
+
+  if (!result) {
+    setVerifyMessage({
+      id: domainId,
+      text: 'Verification check failed — try again.',
+    });
+  } else if (result.status === 'verified') {
+    setVerifyMessage(null);
+  } else {
+    setVerifyMessage({
+      id: domainId,
+      text: 'TXT record not found yet. DNS changes can take time to propagate.',
+    });
+  }
+
+  setVerifyingId(null);
+  await refresh();
+};
+  
   const copyToken = async (token: string) => {
     await navigator.clipboard.writeText(token);
     setCopied(true);
@@ -153,10 +180,11 @@ export default function TrackingDomains() {
         <div className="space-y-2">
           {domains.map((d) => (
             <div
-              key={d.id}
-              className="flex items-center justify-between bg-zinc-900/50 border border-zinc-800 rounded-lg px-4 py-3"
-            >
-              <div className="flex items-center gap-3">
+               key={d.id}
+               className="bg-zinc-900/50 border border-zinc-800 rounded-lg px-4 py-3"
+             >
+               <div className="flex items-center justify-between">
+                 <div className="flex items-center gap-3">
                 <span className="text-sm text-zinc-100 font-medium">{d.hostname}</span>
                 <span
                   className={`text-[9px] font-bold uppercase tracking-widest px-2 py-0.5 rounded ${
@@ -177,15 +205,33 @@ export default function TrackingDomains() {
               </div>
 
               <div className="flex items-center gap-3">
-                {d.status === 'verified' && !d.is_default && (
-                  <button
-                    onClick={() => handleSetDefault(d.id)}
-                    title="Set as default"
-                    className="text-zinc-500 hover:text-violet-400 transition-colors"
-                  >
-                    <Star size={14} />
-                  </button>
-                )}
+  {d.status === 'pending' && (
+    <button
+      onClick={() => handleVerify(d.id)}
+      disabled={verifyingId === d.id}
+      title="Check DNS verification"
+      className="flex items-center gap-1.5 text-zinc-500 hover:text-green-500 transition-colors disabled:opacity-50"
+    >
+      {verifyingId === d.id ? (
+        <Loader2 className="animate-spin" size={14} />
+      ) : (
+        <ShieldCheck size={14} />
+      )}
+      <span className="text-[9px] font-bold uppercase tracking-widest">
+        Verify
+      </span>
+    </button>
+  )}
+
+  {d.status === 'verified' && !d.is_default && (
+    <button
+      onClick={() => handleSetDefault(d.id)}
+      title="Set as default"
+      className="text-zinc-500 hover:text-violet-400 transition-colors"
+    >
+      <Star size={14} />
+    </button>
+  )}
                 {d.is_default && (
                   <button
                     onClick={() => handleDisable(d.id)}
@@ -201,9 +247,16 @@ export default function TrackingDomains() {
                   className="text-zinc-500 hover:text-red-500 transition-colors"
                 >
                   <Trash2 size={14} />
-                </button>
+               </button>
               </div>
             </div>
+
+            {verifyMessage?.id === d.id && (
+              <p className="text-zinc-500 text-[10px] mt-2">
+                {verifyMessage.text}
+              </p>
+            )}
+          </div>
           ))}
         </div>
       )}
