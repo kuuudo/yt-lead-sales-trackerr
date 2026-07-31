@@ -5,6 +5,17 @@ import { setAttribution, syncSession, getFirstTouchVideoId, getFirstTouchCampaig
 import { supabase } from '../lib/supabase';
 import { Loader2, AlertCircle } from 'lucide-react';
 
+// Hosts that always serve the token-resolution flow without a
+// verified_tracking_hostnames check.
+const PLATFORM_HOSTS = ['vstrk.com', 'www.vstrk.com', 'localhost', '127.0.0.1'];
+
+const isPlatformHost = (hostname: string): boolean => {
+  if (PLATFORM_HOSTS.includes(hostname)) return true;
+  // Vercel preview deployments, e.g. yt-lead-sales-trackerr-git-foo.vercel.app
+  if (hostname.endsWith('.vercel.app')) return true;
+  return false;
+};
+
 export default function Track() {
   const { token } = useParams<{ token: string }>();
   const [error, setError] = useState(false);
@@ -20,6 +31,33 @@ export default function Track() {
 
     const handleRedirect = async () => {
       try {
+        // ── Step 0: verified-hostname guard (custom domains only) ─────────
+        const currentHost = window.location.hostname;
+
+        if (!isPlatformHost(currentHost)) {
+          console.log('[Track] ⓪ non-platform host, checking verified_tracking_hostnames:', currentHost);
+
+          const { data: domainRow, error: domainErr } = await supabase
+            .from('verified_tracking_hostnames')
+            .select('hostname')
+            .eq('hostname', currentHost)
+            .maybeSingle();
+
+          if (domainErr) {
+            console.error('[Track] ✗ verified_tracking_hostnames lookup failed:', domainErr.message);
+            setError(true);
+            return;
+          }
+
+          if (!domainRow) {
+            console.error('[Track] ✗ hostname not verified — refusing to resolve token:', currentHost);
+            setError(true);
+            return;
+          }
+
+          console.log('[Track] ⓪ hostname verified, continuing:', currentHost);
+        }
+
         // ── Step 1: resolve link + attribution rows ──────────────────────────
         console.log('[Track] ② starting Promise.all — resolveRedirectToken + attr fetch');
 
