@@ -3,52 +3,93 @@ import { createClient } from '@supabase/supabase-js';
 import { resolveTxt } from 'dns/promises';
 import { createHash } from 'crypto';
 
-const SUPABASE_URL = process.env.VITE_SUPABASE_URL || process.env.SUPABASE_URL;
-const SUPABASE_ANON_KEY = process.env.VITE_SUPABASE_ANON_KEY || process.env.SUPABASE_ANON_KEY;
+const supabase = createClient(
+  process.env.SUPABASE_URL!,
+  process.env.SUPABASE_SERVICE_KEY!
+);
 
-export default async function handler(req: VercelRequest, res: VercelResponse) {
+export const config = {
+  api: { bodyParser: true },
+};
+
+export default async function handler(
+  req: VercelRequest,
+  res: VercelResponse
+) {
   if (req.method !== 'POST') {
-    return res.status(405).json({ error: 'Method not allowed' });
+    return res.status(405).json({
+      error: 'Method not allowed',
+    });
   }
 
   const authHeader = req.headers.authorization;
   if (!authHeader?.startsWith('Bearer ')) {
-    return res.status(401).json({ error: 'Missing authorization' });
+    return res.status(401).json({
+      error: 'Missing authorization',
+    });
   }
   const accessToken = authHeader.slice('Bearer '.length);
 
-  const { domainId } = req.body ?? {};
+  const { domainId } = req.body;
+
+  console.log('VERIFY DOMAIN BODY', { domainId });
+
   if (!domainId) {
-    return res.status(400).json({ error: 'domainId is required' });
+    return res.status(400).json({
+      error: 'domainId is required',
+    });
   }
 
-  if (!SUPABASE_URL || !SUPABASE_ANON_KEY) {
-    console.error('[verify-domain] missing Supabase env vars');
-    return res.status(500).json({ error: 'Server misconfigured' });
+  // Service role key bypasses RLS entirely — unlike a per-request anon
+  // client, this module-scope client has no automatic org-boundary
+  // enforcement. Because this endpoint acts on behalf of a specific
+  // logged-in user (not a public pixel or a Stripe-signed webhook), the
+  // ownership check RLS would normally provide has to happen manually
+  // here: resolve the caller's user_id from their JWT, then confirm they
+  // belong to the organization that owns this domain, before touching
+  // anything.
+  const { data: userData, error: userErr } = await supabase.auth.getUser(accessToken);
+
+  if (userErr || !userData?.user) {
+    return res.status(401).json({
+      error: 'Invalid session',
+    });
   }
 
-  // Bound to the caller's own JWT — RLS applies exactly as it would for
-  // any authenticated client action. No service-role key used here, so
-  // a caller can only ever verify a domain that belongs to their own org
-  // (RLS on branded_tracking_domains already enforces this on SELECT/UPDATE).
-  const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
-    global: { headers: { Authorization: `Bearer ${accessToken}` } },
-  });
+  const userId = userData.user.id;
 
   const { data: domain, error: fetchErr } = await supabase
     .from('branded_tracking_domains')
-    .select('id, hostname, status, verification_token_hash')
+    .select('id, organization_id, hostname, status, verification_token_hash')
     .eq('id', domainId)
     .maybeSingle();
 
   if (fetchErr || !domain) {
-    // RLS makes this null for domains outside the caller's org —
-    // indistinguishable from "not found", which is the correct response.
-    return res.status(404).json({ error: 'Domain not found' });
+    return res.status(404).json({
+      error: 'Domain not found',
+    });
+  }
+
+  const { data: membership } = await supabase
+    .from('organization_members')
+    .select('organization_id')
+    .eq('user_id', userId)
+    .eq('organization_id', domain.organization_id)
+    .maybeSingle();
+
+  // Same response as a genuinely missing row — don't leak whether a
+  // domain ID exists for an org the caller isn't a member of.
+  if (!membership) {
+    return res.status(404).json({
+      error: 'Domain not found',
+    });
   }
 
   if (domain.status === 'verified') {
-    return res.status(200).json({ status: 'verified', alreadyVerified: true });
+    return res.status(200).json({
+      status: 'verified',
+      alreadyVerified: true,
+    });
   }
 
   const recordName = `_vstrk-verify.${domain.hostname}`;
@@ -57,32 +98,60 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   try {
     txtRecords = await resolveTxt(recordName);
   } catch {
-    // NXDOMAIN or no TXT record published yet — not an error condition,
-    // just "not verified yet". User hasn't finished DNS setup.
-    return res.status(200).json({ status: 'pending', matched: false });
+    // NXDOMAIN or no TXT record published yet — not an error, just
+    // "not verified yet". User hasn't finished DNS setup.
+    return res.status(200).json({
+      status: 'pending',
+      matched: false,
+    });
   }
 
-  // TXT records can be split into multiple quoted chunks by DNS providers —
-  // join each record's chunks before comparing.
+  // TXT records can be split into multiple quoted chunks by some DNS
+  // providers — join each record's chunks before comparing.
   const flatValues = txtRecords.map((chunks) => chunks.join(''));
   const matched = flatValues.some(
     (value) =>
       createHash('sha256').update(value.trim()).digest('hex') === domain.verification_token_hash
   );
 
+  console.log('VERIFY DOMAIN DNS CHECK', {
+    domainId,
+    hostname: domain.hostname,
+    matched,
+  });
+
   if (!matched) {
-    return res.status(200).json({ status: 'pending', matched: false });
+    return res.status(200).json({
+      status: 'pending',
+      matched: false,
+    });
   }
 
   const { error: updateErr } = await supabase
     .from('branded_tracking_domains')
-    .update({ status: 'verified', verified_at: new Date().toISOString() })
+    .update({
+      status: 'verified',
+      verified_at: new Date().toISOString(),
+    })
     .eq('id', domainId);
 
   if (updateErr) {
-    console.error('[verify-domain] failed to persist verified status:', updateErr.message);
-    return res.status(500).json({ error: 'Verification succeeded but failed to save status' });
+    console.error(
+      'Failed to persist verified status:',
+      updateErr
+    );
+
+    return res.status(500).json({
+      error: 'Database update failed',
+    });
   }
 
-  return res.status(200).json({ status: 'verified', matched: true });
+  console.log(
+    `✅ Domain verified — hostname: ${domain.hostname}`
+  );
+
+  return res.status(200).json({
+    status: 'verified',
+    matched: true,
+  });
 }
