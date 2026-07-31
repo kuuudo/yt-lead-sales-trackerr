@@ -125,6 +125,26 @@ export const createRedirectLink = async (
     organizationId = campaignRow?.organization_id ?? null;
   }
 
+let trackingHostname: string | null = null;
+let resolvedBaseUrl = appBaseUrl;
+
+if (organizationId) {
+  const { data: domainRow, error: domainErr } = await supabase
+    .from('branded_tracking_domains')
+    .select('hostname')
+    .eq('organization_id', organizationId)
+    .eq('status', 'verified')
+    .eq('is_default', true)
+    .maybeSingle();
+
+  if (domainErr) {
+    console.error('[createRedirectLink] branded domain lookup failed:', domainErr.message);
+  } else if (domainRow?.hostname) {
+    trackingHostname = domainRow.hostname;
+    resolvedBaseUrl = `https://${domainRow.hostname}`;
+  }
+}
+
   if (!allowDuplicate) {
     let existingQuery = supabase
       .from('redirect_links')
@@ -143,7 +163,7 @@ export const createRedirectLink = async (
     const { data: existing } = await existingQuery.single();
 
     if (existing?.token) {
-      return `${appBaseUrl}/${existing.token}`;
+      return `${resolvedBaseUrl}/${existing.token}`;
     }
   }
 
@@ -167,6 +187,7 @@ export const createRedirectLink = async (
       link_type: linkType,
       destination_url: destinationUrl,
       organization_id: organizationId,
+      tracking_hostname: trackingHostname,
       ...(leadMagnetId ? { lead_magnet_id: leadMagnetId } : {}),
       ...(promotionId ? { promotion_id: promotionId } : {}),
       ...(assetId ? { asset_id: assetId } : {}),
@@ -177,7 +198,7 @@ export const createRedirectLink = async (
     return null;
   }
 
-  return `${appBaseUrl}/${token}`;
+  return `${resolvedBaseUrl}/${token}`;
 };
 
 export const resolveRedirectToken = async (

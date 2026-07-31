@@ -37,6 +37,7 @@ import Members from './pages/operator/Members';
 import MemberDetail from './pages/operator/MemberDetail';
 import InviteMember from './pages/operator/InviteMember';
 import AcceptInvitation from './pages/operator/AcceptInvitation';
+import TrackingDomains from './pages/TrackingDomains';
 function Navigation() {
   const { lang, toggleLanguage, t } = useLanguage();
   const { user, signOut } = useAuth();
@@ -152,6 +153,7 @@ function MainContent() {
         <Route path="/analytics/indepth" element={<InDepthAnalytics />} />
         <Route path="/installation" element={<PageWrapper><Installation /></PageWrapper>} />
         <Route path="/settings" element={<PageWrapper><Settings /></PageWrapper>} />
+        <Route path="/settings/tracking-domains" element={<PageWrapper><TrackingDomains /></PageWrapper>} />
         <Route path="/track/:token" element={<Track />} />
         <Route path="/:token" element={<Track />} />
         <Route path="*" element={<Navigate to="/dashboard" replace />} />
