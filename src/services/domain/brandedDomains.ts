@@ -206,3 +206,34 @@ export const verifyDomain = async (domainId: string): Promise<VerifyDomainResult
     return null;
   }
 };
+
+export interface VerifiedDomainOption {
+  id: string;
+  hostname: string;
+}
+
+/**
+ * Minimal read for the "+ Track New Content" domain dropdown — only
+ * verified domains are selectable there. Deliberately separate from
+ * listBrandedDomains(): that one powers the Tracking Domains management
+ * page and must keep returning every status (pending/verified/failed)
+ * with the full row shape. This one is scoped to exactly what the
+ * dropdown needs, nothing more.
+ */
+export const listVerifiedBrandedDomains = async (
+  organizationId: string
+): Promise<VerifiedDomainOption[]> => {
+  const { data, error } = await supabase
+    .from('branded_tracking_domains')
+    .select('id, hostname')
+    .eq('organization_id', organizationId)
+    .eq('status', 'verified')
+    .order('hostname', { ascending: true });
+
+  if (error) {
+    console.error('[brandedDomains] listVerifiedBrandedDomains failed:', error.message);
+    return [];
+  }
+
+  return data ?? [];
+};
