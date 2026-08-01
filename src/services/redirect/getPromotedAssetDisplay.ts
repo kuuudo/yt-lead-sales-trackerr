@@ -108,7 +108,6 @@ export interface CampaignLinkRow {
   label: string;
   token: string;
   destinationUrl: string;
-  trackingHostname: string | null;
 }
 
 export interface AssetLinkRow {
@@ -118,7 +117,6 @@ export interface AssetLinkRow {
   subtitle: string | null;
   token: string;
   destinationUrl: string;
-  trackingHostname: string | null;
   more: {
     owner?: string;
     assignment?: string;
@@ -126,17 +124,6 @@ export interface AssetLinkRow {
     created?: string;
     usedByVideoCount: number;
   };
-}
-
-// Single source of truth for "what URL do I show/copy for this token" —
-// both call sites (Videos.tsx, VideoDetail.tsx) should use this instead
-// of hardcoding window.location.origin, so the custom-domain fallback
-// logic lives in exactly one place.
-export function buildTrackingLinkUrl(token: string, trackingHostname: string | null): string {
-  if (trackingHostname) {
-    return `https://${trackingHostname}/${token}`;
-  }
-  return `${window.location.origin}/${token}`;
 }
 
 export interface RedirectLinksDisplayGroups {
@@ -165,7 +152,7 @@ export async function getRedirectLinksDisplay({
 
   const { data: linkRows, error: linkErr } = await supabase
     .from('redirect_links')
-    .select('token, link_type, destination_url, asset_id, campaign_id, created_at, tracking_hostname')
+    .select('token, link_type, destination_url, asset_id, campaign_id, created_at')
     .eq('video_id', videoId)
     .order('created_at', { ascending: true });
 
@@ -183,7 +170,6 @@ export async function getRedirectLinksDisplay({
     label: CAMPAIGN_LINK_LABEL[r.link_type] ?? r.link_type,
     token: r.token,
     destinationUrl: r.destination_url,
-    trackingHostname: r.tracking_hostname ?? null,
   }));
 
   // ---- Asset-driven rows: resolve per distinct asset_id ----
@@ -303,7 +289,6 @@ export async function getRedirectLinksDisplay({
       subtitle: ctx?.subtitle ?? null,
       token: r.token,
       destinationUrl: r.destination_url,
-      trackingHostname: r.tracking_hostname ?? null,
       more,
     };
   });
