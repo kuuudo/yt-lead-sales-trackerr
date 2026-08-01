@@ -2,7 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { Loader2, AlertCircle, CheckCircle2, Rocket, ArrowLeft } from 'lucide-react';
 import { supabase } from '../lib/supabase';
-import { getAssignmentDetail, type AssignmentDetailData, type CampaignGroup } from '../services/assignment/getAssignmentDetail';
+import { getAssignmentDetail, type AssignmentDetailData } from '../services/assignment/getAssignmentDetail';
 import { acceptInvitation } from '../services/assignment/acceptInvitation';
 import { getElementTypeLabel, resolveThumbnail, resolveElementThumbnail } from '../lib/videoFormatters';
 
@@ -16,7 +16,6 @@ export default function AssignmentDetail() {
   const [accepting, setAccepting] = useState(false);
   const [starting, setStarting] = useState(false);
 
-  const [selectedCampaignId, setSelectedCampaignId] = useState<string | null>(null);
   const [selectedAssetIds, setSelectedAssetIds] = useState<Set<string>>(new Set());
 
   const load = async () => {
@@ -35,9 +34,6 @@ export default function AssignmentDetail() {
 
       const detail = await getAssignmentDetail(assignmentId, user.id, profile?.email ?? '');
       setData(detail);
-      if (detail.campaignGroups.length > 0 && !selectedCampaignId) {
-        setSelectedCampaignId(detail.campaignGroups[0].campaign_id);
-      }
     } catch (e: any) {
       setError(e.message ?? 'Failed to load assignment');
     } finally {
@@ -69,7 +65,7 @@ export default function AssignmentDetail() {
   };
 
   const handleStartPromoting = async () => {
-  if (!data || !selectedCampaignId || selectedAssetIds.size === 0) return;
+  if (!data || !promotionCampaignId || selectedAssetIds.size === 0) return;
 
   const { data: { user } } = await supabase.auth.getUser();
 
@@ -81,14 +77,14 @@ export default function AssignmentDetail() {
 
   console.log("SELECTED ASSET IDS", Array.from(selectedAssetIds));
 
-  console.log("CAMPAIGN ID", selectedCampaignId);
+  console.log("CAMPAIGN ID", promotionCampaignId);
 
   setStarting(true);
     setError(null);
     try {
       const { data: promotionId, error: rpcError } = await supabase.rpc('create_promotion', {
         p_organization_id: data.assignment.organization_id,
-        p_campaign_id: selectedCampaignId,
+        p_campaign_id: promotionCampaignId,
         p_asset_ids: Array.from(selectedAssetIds),
         p_assignment_collaborator_id: data.myCollaboratorId,
       });
@@ -125,8 +121,16 @@ export default function AssignmentDetail() {
   if (!data) return null;
 
   const { assignment, myInvitation, myCollaboratorId, assignmentAssets, campaignGroups } = data;
-  const activeGroup: CampaignGroup | undefined = campaignGroups.find(g => g.campaign_id === selectedCampaignId);
   const canAct = myCollaboratorId !== null;
+
+  // MVP: Collaborators never choose a Campaign. We deterministically use
+  // the first campaign group as the required promotion.campaign_id.
+  //
+  // TODO (Future Analytics):
+  // promotion.campaign_id 目前僅作為建立 Promotion 的必要欄位，不應作為
+  // Campaign Analytics 的唯一依據；Analytics 應依據
+  // promotion_assets → asset → campaign 進行歸屬。
+  const promotionCampaignId = campaignGroups[0]?.campaign_id ?? null;
 
   return (
     <div className="min-h-screen bg-zinc-950 text-zinc-100">
@@ -204,26 +208,7 @@ export default function AssignmentDetail() {
     {canAct && (
       <>
         <label className="block text-[10px] font-bold uppercase tracking-widest text-zinc-500 mb-2">
-          Campaign
-        </label>
-
-        <select
-          value={selectedCampaignId ?? ''}
-          onChange={e => {
-            setSelectedCampaignId(e.target.value);
-            setSelectedAssetIds(new Set());
-          }}
-          className="w-full bg-zinc-900 border border-zinc-800 rounded-lg px-4 py-2 text-sm mb-6"
-        >
-          {campaignGroups.map(g => (
-            <option key={g.campaign_id} value={g.campaign_id}>
-              {g.campaign_name ?? g.campaign_id}
-            </option>
-          ))}
-        </select>
-
-        <label className="block text-[10px] font-bold uppercase tracking-widest text-zinc-500 mb-2">
-          Select Assets to promote from this Campaign
+          Select Assets to Promote
         </label>
 
         <div className="space-y-2 mb-6">
