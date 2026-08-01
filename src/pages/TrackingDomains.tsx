@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { Globe, Plus, Star, Trash2, Ban, Loader2, Copy, Check, ShieldCheck } from 'lucide-react';
+import { Globe, Plus, Star, Trash2, Ban, Loader2, Copy, Check, ShieldCheck, CircleHelp } from 'lucide-react';
 import { useOrganization } from '../lib/useOrganization';
 import {
   listBrandedDomains,
@@ -224,14 +224,32 @@ const handleVerify = async (domainId: string) => {
   )}
 
   {d.status === 'verified' && !d.is_default && (
+  <div className="flex items-center gap-2">
     <button
       onClick={() => handleSetDefault(d.id)}
-      title="Set as default"
-      className="text-zinc-500 hover:text-violet-400 transition-colors"
+      className="flex items-center gap-1.5 px-2 py-1 rounded-md border border-zinc-700 text-zinc-300 hover:border-violet-500 hover:text-violet-400 transition-colors"
     >
       <Star size={14} />
+      <span className="text-[10px] font-bold uppercase tracking-widest">
+        Set Default
+      </span>
     </button>
-  )}
+
+    <button
+      title={`Set this as your default tracking domain.
+
+New tracking links will use this domain instead of vstrk.com.
+
+Example:
+vstrk.com/abc123
+↓
+${d.hostname}/abc123`}
+      className="text-zinc-500 hover:text-zinc-300 transition-colors"
+    >
+      <CircleHelp size={14} />
+    </button>
+  </div>
+)}
                 {d.is_default && (
                   <button
                     onClick={() => handleDisable(d.id)}
