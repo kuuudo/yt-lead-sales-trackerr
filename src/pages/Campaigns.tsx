@@ -280,6 +280,42 @@ export default function Campaigns() {
         </div>
       </header>
 
+{/* Custom Tracking Domains */}
+<motion.div
+  whileHover={{ y: -2 }}
+  onClick={() => navigate('/settings/tracking-domains')}
+  className="bento-card border-zinc-800 bg-zinc-900/20 p-6 cursor-pointer group hover:border-zinc-700 transition-all"
+>
+  <div className="flex items-start justify-between">
+    <div className="flex items-start gap-4">
+      <div className="w-12 h-12 rounded-xl bg-zinc-900 border border-zinc-800 flex items-center justify-center">
+        <Globe className="text-red-600" size={22} />
+      </div>
+
+      <div>
+        <h2 className="text-lg font-bold text-white">
+          Custom Tracking Domains
+        </h2>
+
+        <p className="mt-1 text-sm text-zinc-400">
+          Use your own branded domain for tracking links.
+        </p>
+      </div>
+    </div>
+
+    <div className="flex items-center gap-2 text-zinc-400 group-hover:text-white transition-colors">
+      <span className="text-[11px] font-bold uppercase tracking-widest">
+        Manage Domains
+      </span>
+
+      <ChevronRight
+        size={16}
+        className="group-hover:translate-x-1 transition-transform"
+      />
+    </div>
+  </div>
+</motion.div>
+
       <AnimatePresence>
         {showAdd && (
           <motion.section
