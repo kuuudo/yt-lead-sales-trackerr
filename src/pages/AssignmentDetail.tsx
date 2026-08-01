@@ -173,110 +173,126 @@ export default function AssignmentDetail() {
           </div>
         )}
 
-        {assignmentAssets.length === 0 && (
-          <div className="text-zinc-500 text-sm border border-dashed border-zinc-800 rounded-xl p-6">
-            This Assignment doesn't contain any Assets yet.
-          </div>
-        )}
-
-{!canAct && (
+       {assignmentAssets.length > 0 && (
   <>
-    <label className="block text-[10px] font-bold uppercase tracking-widest text-zinc-500 mb-2">
-      Assignment Assets
-    </label>
+    {!canAct && (
+      <>
+        <label className="block text-[10px] font-bold uppercase tracking-widest text-zinc-500 mb-2">
+          Assignment Assets
+        </label>
 
-    <div className="bg-zinc-900 border border-zinc-800 rounded-lg p-4 mb-6">
-      <div className="flex items-center gap-3">
-        <div className="w-10 h-10 rounded-lg bg-zinc-800 flex items-center justify-center text-xl">
-          📦
+        <div className="bg-zinc-900 border border-zinc-800 rounded-lg p-4 mb-6">
+          <div className="flex items-center gap-3">
+            <div className="w-10 h-10 rounded-lg bg-zinc-800 flex items-center justify-center text-xl">
+              📦
+            </div>
+
+            <div>
+              <div className="text-white font-medium">
+                {assignmentAssets.length} Asset{assignmentAssets.length !== 1 ? 's' : ''}
+              </div>
+
+              <div className="text-xs text-zinc-500">
+                Accept this assignment to start promoting.
+              </div>
+            </div>
+          </div>
+        </div>
+      </>
+    )}
+
+    {canAct && (
+      <>
+        <label className="block text-[10px] font-bold uppercase tracking-widest text-zinc-500 mb-2">
+          Campaign
+        </label>
+
+        <select
+          value={selectedCampaignId ?? ''}
+          onChange={e => {
+            setSelectedCampaignId(e.target.value);
+            setSelectedAssetIds(new Set());
+          }}
+          className="w-full bg-zinc-900 border border-zinc-800 rounded-lg px-4 py-2 text-sm mb-6"
+        >
+          {campaignGroups.map(g => (
+            <option key={g.campaign_id} value={g.campaign_id}>
+              {g.campaign_name ?? g.campaign_id}
+            </option>
+          ))}
+        </select>
+
+        <label className="block text-[10px] font-bold uppercase tracking-widest text-zinc-500 mb-2">
+          Select Assets to promote from this Campaign
+        </label>
+
+        <div className="space-y-2 mb-6">
+          {assignmentAssets.map(asset => (
+            <label
+              key={asset.asset_id}
+              className="flex items-center gap-3 bg-zinc-900 border border-zinc-800 rounded-lg p-3 cursor-pointer hover:border-zinc-700"
+            >
+              <input
+                type="checkbox"
+                checked={selectedAssetIds.has(asset.asset_id)}
+                onChange={() => toggleAsset(asset.asset_id)}
+                className="accent-red-600"
+              />
+
+              <img
+                src={
+                  asset.kind === 'campaign_element'
+                    ? resolveElementThumbnail(asset.element_type ?? '')
+                    : resolveThumbnail(asset)
+                }
+                alt=""
+                className="w-16 h-9 object-cover rounded bg-zinc-950 shrink-0"
+              />
+
+              <span className="text-sm text-zinc-200">
+                {asset.kind === 'campaign_element' ? (
+                  <>
+                    <span style={{ color: 'rgba(255, 69, 0, 0.7)' }}>
+                      {asset.element_type
+                        ? getElementTypeLabel(asset.element_type)
+                        : 'Asset'}
+                    </span>
+
+                    <span className="text-zinc-600 mx-1">•</span>
+
+                    {asset.display_name}
+                  </>
+                ) : (
+                  asset.video_title ?? asset.asset_id
+                )}
+              </span>
+            </label>
+          ))}
         </div>
 
-        <div>
-          <div className="text-white font-medium">
-            {assignmentAssets.length} Asset{assignmentAssets.length !== 1 ? 's' : ''}
-          </div>
+        <button
+          onClick={handleStartPromoting}
+          disabled={starting || selectedAssetIds.size === 0}
+          className="flex items-center gap-2 bg-red-600 hover:bg-red-500 disabled:opacity-40 text-white text-xs font-bold uppercase tracking-wider px-5 py-3 rounded-lg"
+        >
+          {starting ? (
+            <Loader2 className="animate-spin" size={14} />
+          ) : (
+            <Rocket size={14} />
+          )}
 
-          <div className="text-xs text-zinc-500">
-            Accept this assignment to start promoting.
-          </div>
-        </div>
+          Start Promoting
+        </button>
+      </>
+    )}
+
+    {canAct && campaignGroups.length === 0 && (
+      <div className="text-zinc-500 text-sm border border-dashed border-zinc-800 rounded-xl p-6">
+        None of this Assignment's Assets have Campaign provenance, so there's nothing available to promote yet.
       </div>
-    </div>
+    )}
   </>
 )}
-
-            {canAct && assignmentAssets.length > 0 && (
-              <>
-                <label className="block text-[10px] font-bold uppercase tracking-widest text-zinc-500 mb-2">
-                  Campaign
-                </label>
-                <select
-                  value={selectedCampaignId ?? ''}
-                  onChange={e => { setSelectedCampaignId(e.target.value); setSelectedAssetIds(new Set()); }}
-                  className="w-full bg-zinc-900 border border-zinc-800 rounded-lg px-4 py-2 text-sm mb-6"
-                >
-                  {campaignGroups.map(g => (
-                    <option key={g.campaign_id} value={g.campaign_id}>
-                      {g.campaign_name ?? g.campaign_id}
-                    </option>
-                  ))}
-                </select>
-
-                <label className="block text-[10px] font-bold uppercase tracking-widest text-zinc-500 mb-2">
-                  Select Assets to promote from this Campaign
-                </label>
-                <div className="space-y-2 mb-6">
-                  {assignmentAssets.map(asset => (
-                    <label
-                      key={asset.asset_id}
-                      className="flex items-center gap-3 bg-zinc-900 border border-zinc-800 rounded-lg p-3 cursor-pointer hover:border-zinc-700"
-                    >
-                      <input
-                        type="checkbox"
-                        checked={selectedAssetIds.has(asset.asset_id)}
-                        onChange={() => toggleAsset(asset.asset_id)}
-                        className="accent-red-600"
-                      />
-                      <img
-                        src={asset.kind === 'campaign_element' ? resolveElementThumbnail(asset.element_type ?? '') : resolveThumbnail(asset)}
-                        alt=""
-                        className="w-16 h-9 object-cover rounded bg-zinc-950 shrink-0"
-                      />
-                      <span className="text-sm text-zinc-200">
-                        {asset.kind === 'campaign_element' ? (
-                          <>
-                            <span style={{ color: 'rgba(255, 69, 0, 0.7)' }}>
-                              {asset.element_type ? getElementTypeLabel(asset.element_type) : 'Asset'}
-                            </span>
-                            <span className="text-zinc-600 mx-1">•</span>
-                            {asset.display_name}
-                          </>
-                        ) : (
-                          asset.video_title ?? asset.asset_id
-                        )}
-                      </span>
-                    </label>
-                  ))}
-                </div>
-
-                <button
-                  onClick={handleStartPromoting}
-                  disabled={starting || selectedAssetIds.size === 0}
-                  className="flex items-center gap-2 bg-red-600 hover:bg-red-500 disabled:opacity-40 text-white text-xs font-bold uppercase tracking-wider px-5 py-3 rounded-lg"
-                >
-                  {starting ? <Loader2 className="animate-spin" size={14} /> : <Rocket size={14} />}
-                  Start Promoting
-                </button>
-              </>
-            )}
-
-            {canAct && campaignGroups.length === 0 && (
-              <div className="text-zinc-500 text-sm border border-dashed border-zinc-800 rounded-xl p-6">
-                None of this Assignment's Assets have Campaign provenance, so there's nothing available to promote yet.
-              </div>
-            )}
-          </>
-        )}
       </div>
     </div>
   );
