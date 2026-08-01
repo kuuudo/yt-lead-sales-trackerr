@@ -8,6 +8,7 @@ import {
   CATEGORY_LABEL,
   getRedirectLinksDisplay,
   getVideoPromotionBadges,
+  buildTrackingLinkUrl,
   type RedirectLinksDisplayGroups,
   type VideoPromotionBadgeMap,
 } from '../services/redirect/getPromotedAssetDisplay';
@@ -1419,7 +1420,7 @@ console.log(
                     {promotedAssets.length > 0 && verifiedDomains.length > 0 && (
                       <div className="space-y-2">
                         <label className="label-caps">
-                          Tracking Domain <span className="normal-case text-zinc-600">(optional)</span>
+                          Tracking Domain <span className="normal-case text-zinc-600">(select domain)</span>
                         </label>
                         <select
                           value={selectedTrackingDomainId ?? ''}
@@ -2202,11 +2203,11 @@ console.log(
                       <div key={link.key} className="flex items-center justify-between gap-3 bg-zinc-950 border border-zinc-800 rounded-xl p-3">
                         <div className="flex-1 min-w-0">
                           <p className="text-[10px] font-black uppercase text-zinc-400 mb-1">{link.icon} {link.label}</p>
-                          <p className="font-mono text-[11px] text-blue-400 truncate">{window.location.origin}/{link.token}</p>
+                          <p className="font-mono text-[11px] text-blue-400 truncate">{buildTrackingLinkUrl(link.token, link.trackingHostname)}</p>
                         </div>
                         <button
                           onClick={() => {
-                            navigator.clipboard.writeText(`${window.location.origin}/${link.token}`);
+                            navigator.clipboard.writeText(buildTrackingLinkUrl(link.token, link.trackingHostname));
                             setCopiedLink(link.token);
                             setTimeout(() => setCopiedLink(null), 2000);
                           }}
@@ -2234,11 +2235,11 @@ console.log(
                             <div key={asset.key} className="flex items-center justify-between gap-3 bg-zinc-950 border border-zinc-800 rounded-xl p-3">
                               <div className="flex-1 min-w-0">
                                 <p className="text-[10px] font-black uppercase text-zinc-400 mb-1">{CATEGORY_LABEL[asset.category].icon} {asset.title}</p>
-                                <p className="font-mono text-[11px] text-blue-400 truncate">{window.location.origin}/{asset.token}</p>
+                                <p className="font-mono text-[11px] text-blue-400 truncate">{buildTrackingLinkUrl(asset.token, asset.trackingHostname)}</p>
                               </div>
                               <button
                                 onClick={() => {
-                                  navigator.clipboard.writeText(`${window.location.origin}/${asset.token}`);
+                                  navigator.clipboard.writeText(buildTrackingLinkUrl(asset.token, asset.trackingHostname));
                                   setCopiedLink(asset.token);
                                   setTimeout(() => setCopiedLink(null), 2000);
                                 }}
