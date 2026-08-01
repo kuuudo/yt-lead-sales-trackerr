@@ -86,6 +86,7 @@ export interface SelectedPromotedAsset {
 export interface GenerateAssetRedirectLinksOptions {
   videoId: string;
   selectedAssets: SelectedPromotedAsset[];
+  trackingDomainId?: string | null;
 }
 
 interface RedirectJob {
@@ -415,6 +416,7 @@ async function resolveAssetRedirectContext(
 export async function generateAssetRedirectLinks({
   videoId,
   selectedAssets,
+  trackingDomainId,
 }: GenerateAssetRedirectLinksOptions): Promise<void> {
   if (!selectedAssets || selectedAssets.length === 0) return;
 
@@ -486,6 +488,7 @@ export async function generateAssetRedirectLinks({
             {
               assetId: context.assetId,
               promotionId: selected.promotionContext?.promotionId ?? null,
+              trackingDomainId: trackingDomainId ?? null,
             }
           );
         })
