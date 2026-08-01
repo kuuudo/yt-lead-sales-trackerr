@@ -179,38 +179,31 @@ export default function AssignmentDetail() {
           </div>
         )}
 
-        {assignmentAssets.length > 0 && (
-          <>
-            <label className="block text-[10px] font-bold uppercase tracking-widest text-zinc-500 mb-2">
-              Assets in this Assignment
-            </label>
-            <div className="space-y-2 mb-6">
-              {assignmentAssets.map(asset => (
-                <div
-                  key={asset.asset_id}
-                  className="flex items-center gap-3 bg-zinc-900 border border-zinc-800 rounded-lg p-3"
-                >
-                  <img
-                    src={asset.kind === 'campaign_element' ? resolveElementThumbnail(asset.element_type ?? '') : resolveThumbnail(asset)}
-                    alt=""
-                    className="w-16 h-9 object-cover rounded bg-zinc-950 shrink-0"
-                  />
-                  <span className="text-sm text-zinc-200">
-                    {asset.kind === 'campaign_element' ? (
-                      <>
-                        <span style={{ color: 'rgba(255, 69, 0, 0.7)' }}>
-                          {asset.element_type ? getElementTypeLabel(asset.element_type) : 'Asset'}
-                        </span>
-                        <span className="text-zinc-600 mx-1">•</span>
-                        {asset.display_name}
-                      </>
-                    ) : (
-                      asset.video_title ?? asset.asset_id
-                    )}
-                  </span>
-                </div>
-              ))}
-            </div>
+{!canAct && (
+  <>
+    <label className="block text-[10px] font-bold uppercase tracking-widest text-zinc-500 mb-2">
+      Assignment Assets
+    </label>
+
+    <div className="bg-zinc-900 border border-zinc-800 rounded-lg p-4 mb-6">
+      <div className="flex items-center gap-3">
+        <div className="w-10 h-10 rounded-lg bg-zinc-800 flex items-center justify-center text-xl">
+          📦
+        </div>
+
+        <div>
+          <div className="text-white font-medium">
+            {assignmentAssets.length} Asset{assignmentAssets.length !== 1 ? 's' : ''}
+          </div>
+
+          <div className="text-xs text-zinc-500">
+            Accept this assignment to start promoting.
+          </div>
+        </div>
+      </div>
+    </div>
+  </>
+)}
 
             {canAct && assignmentAssets.length > 0 && (
               <>
