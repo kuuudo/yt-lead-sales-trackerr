@@ -55,6 +55,7 @@ import { useOrganization } from '../lib/useOrganization';
 import { createVideo } from '../services/video/createVideo';
 import { generateAssetRedirectLinks } from '../services/asset/generateAssetRedirectLinks';
 import { PromotedAssetPicker, type PromotedAssetRow } from '../components/PromotedAssetPicker';
+import { listVerifiedBrandedDomains, type VerifiedDomainOption } from '../services/domain/brandedDomains';
 import {
   resolvePromotionContextForAsset,
   toPromotionContext,
@@ -531,9 +532,16 @@ const hasBlockingPromotionIssue = Array.from(promotionContextByAssetId.entries()
   );
   const [showAssetPicker, setShowAssetPicker] = useState(false);
   const [promotedAssets, setPromotedAssets] = useState<PromotedAssetRow[]>([]);
+  const [verifiedDomains, setVerifiedDomains] = useState<VerifiedDomainOption[]>([]);
+  const [selectedTrackingDomainId, setSelectedTrackingDomainId] = useState<string | null>(null);
 
   // Auto-open import modal when navigated here with ?openImport=true
   // (e.g. from VideoDetail "Import Analytics" button)
+  useEffect(() => {
+    if (!organizationId) return;
+    listVerifiedBrandedDomains(organizationId).then(setVerifiedDomains);
+  }, [organizationId]);
+
   const [searchParams, setSearchParams] = useSearchParams();
   useEffect(() => {
     if (searchParams.get('openImport') === 'true') {
@@ -899,6 +907,7 @@ console.log(
   await generateAssetRedirectLinks({
     videoId: savedVideo.id,
     selectedAssets: assetsWithContext,
+    trackingDomainId: selectedTrackingDomainId,
   });
 }
 
@@ -933,6 +942,7 @@ console.log(
       setPromotedAssets(null);
       setPromotionContextByAssetId(new Map());
       setChosenPromotionByAssetId(new Map());
+      setSelectedTrackingDomainId(null);
       setUseOnlyPromoteAsset(false);
       setPreviousCampaignId('');
 
@@ -1405,6 +1415,26 @@ console.log(
                         </button>
                       )}
                     </div>
+
+                    {promotedAssets.length > 0 && verifiedDomains.length > 0 && (
+                      <div className="space-y-2">
+                        <label className="label-caps">
+                          Tracking Domain <span className="normal-case text-zinc-600">(optional)</span>
+                        </label>
+                        <select
+                          value={selectedTrackingDomainId ?? ''}
+                          onChange={(e) => setSelectedTrackingDomainId(e.target.value || null)}
+                          className="w-full bg-zinc-950 border border-zinc-800 rounded-xl px-4 py-3 text-xs text-zinc-100 focus:outline-none focus:border-red-600"
+                        >
+                          <option value="">vstrk.com</option>
+                          {verifiedDomains.map((d) => (
+                            <option key={d.id} value={d.id}>
+                              {d.hostname}
+                            </option>
+                          ))}
+                        </select>
+                      </div>
+                    )}
 
                     <button 
                       onClick={handleGenerate}
