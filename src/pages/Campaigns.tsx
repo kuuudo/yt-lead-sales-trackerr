@@ -289,7 +289,7 @@ export default function Campaigns() {
   <div className="flex items-start justify-between">
     <div className="flex items-start gap-4">
       <div className="w-12 h-12 rounded-xl bg-zinc-900 border border-zinc-800 flex items-center justify-center">
-        <Globe className="text-red-600" size={22} />
+        <Globe className="text-sky-400" size={22} />
       </div>
 
       <div>
