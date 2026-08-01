@@ -68,7 +68,7 @@ export interface AssignmentDetailData {
     status: string;
     organization_id: string;
     created_by_user_id: string;
-    sponsor_email: string | null;
+    sponsor_name: string | null;
   };
   myInvitation: { id: string; status: string } | null;
   myCollaboratorId: string | null;
@@ -93,11 +93,14 @@ export async function getAssignmentDetail(
 
   const { data: sponsorProfile } = await supabase
     .from('profiles')
-    .select('email')
+    .select('email, full_name')
     .eq('id', assignment.created_by_user_id)
     .maybeSingle();
 
-  const sponsorEmail = sponsorProfile?.email ?? null;
+  const sponsorName =
+  sponsorProfile?.full_name?.trim() ||
+  sponsorProfile?.email ||
+  null;
 
   const [
     { data: invitation, error: invitationErr },
@@ -264,7 +267,7 @@ export async function getAssignmentDetail(
   }
 
   return {
-    assignment: { ...assignment, sponsor_email: sponsorEmail },
+    assignment: { ...assignment, sponsor_name: sponsorName },
     myInvitation: invitation ?? null,
     myCollaboratorId: collaborator?.id ?? null,
     assignmentAssets,

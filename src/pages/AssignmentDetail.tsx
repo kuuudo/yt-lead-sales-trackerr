@@ -147,10 +147,10 @@ export default function AssignmentDetail() {
           {assignment.status}
         </span>
         <h1 className="text-2xl font-bold mt-1 mb-2">{assignment.title}</h1>
-        {assignment.sponsor_email && (
+        {assignment.sponsor_name && (
           <div className="text-xs text-zinc-500 mb-2">
             <div className="uppercase tracking-widest font-bold text-[10px] text-zinc-600">Assigned by</div>
-            <div>{assignment.sponsor_email}</div>
+            <div>{assignment.sponsor_name}</div>
           </div>
         )}
         {assignment.description && (
