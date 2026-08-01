@@ -67,6 +67,8 @@ export interface AssignmentDetailData {
     description: string | null;
     status: string;
     organization_id: string;
+    created_by_user_id: string;
+    sponsor_email: string | null;
   };
   myInvitation: { id: string; status: string } | null;
   myCollaboratorId: string | null;
@@ -81,13 +83,21 @@ export async function getAssignmentDetail(
 ): Promise<AssignmentDetailData> {
   const { data: assignment, error: assignmentErr } = await supabase
     .from('assignments')
-    .select('id, title, description, status, organization_id')
+    .select('id, title, description, status, organization_id, created_by_user_id')
     .eq('id', assignmentId)
     .single();
 
   if (assignmentErr || !assignment) {
     throw new Error(assignmentErr?.message ?? 'Assignment not found');
   }
+
+  const { data: sponsorProfile } = await supabase
+    .from('profiles')
+    .select('email')
+    .eq('id', assignment.created_by_user_id)
+    .maybeSingle();
+
+  const sponsorEmail = sponsorProfile?.email ?? null;
 
   const [
     { data: invitation, error: invitationErr },
@@ -254,7 +264,7 @@ export async function getAssignmentDetail(
   }
 
   return {
-    assignment,
+    assignment: { ...assignment, sponsor_email: sponsorEmail },
     myInvitation: invitation ?? null,
     myCollaboratorId: collaborator?.id ?? null,
     assignmentAssets,
