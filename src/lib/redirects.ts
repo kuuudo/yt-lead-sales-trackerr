@@ -35,6 +35,7 @@ export interface RedirectLink {
 export interface CreateRedirectLinkOptions {
   promotionId?: string | null;
   assetId?: string | null;
+  trackingDomainId?: string | null;
 }
 
 export const createRedirectLink = async (
@@ -49,6 +50,7 @@ export const createRedirectLink = async (
 ): Promise<string | null> => {
   const promotionId = options?.promotionId ?? null;
   const assetId = options?.assetId ?? null;
+  const trackingDomainId = options?.trackingDomainId ?? null;
 
   console.log('[DEBUG redirect input]', {
     videoId,
@@ -57,6 +59,7 @@ export const createRedirectLink = async (
     destinationUrl,
     promotionId,
     assetId,
+    trackingDomainId,
   });
 
   if (promotionId && !assetId) {
@@ -128,7 +131,21 @@ export const createRedirectLink = async (
 let trackingHostname: string | null = null;
 let resolvedBaseUrl = appBaseUrl;
 
-if (organizationId) {
+if (trackingDomainId) {
+  const { data: chosenDomainRow, error: chosenDomainErr } = await supabase
+    .from('branded_tracking_domains')
+    .select('hostname')
+    .eq('id', trackingDomainId)
+    .eq('status', 'verified')
+    .maybeSingle();
+
+  if (chosenDomainErr) {
+    console.error('[createRedirectLink] chosen domain lookup failed:', chosenDomainErr.message);
+  } else if (chosenDomainRow?.hostname) {
+    trackingHostname = chosenDomainRow.hostname;
+    resolvedBaseUrl = `https://${chosenDomainRow.hostname}`;
+  }
+} else if (organizationId) {
   const { data: domainRow, error: domainErr } = await supabase
     .from('branded_tracking_domains')
     .select('hostname')
