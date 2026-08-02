@@ -15,7 +15,7 @@ import { Youtube, Plus, Link2, Copy, Check, ExternalLink, Calendar, Target, Aler
   Music2, Camera, Linkedin, Twitter, AtSign, LayoutGrid, List,
   // Phase 2.5 additions
   Upload, FileText, CheckCircle2, AlertTriangle, ArrowRight, RefreshCw,
-  HelpCircle, BookmarkPlus,
+  HelpCircle, BookmarkPlus, Info,
 } from 'lucide-react';
 import { addToLibrary } from '../services/asset/addToLibrary';
 import {
@@ -1438,25 +1438,41 @@ console.log(
                       )}
                     </div>
 
-                    {verifiedDomains.length > 0 && (
-                      <div className="space-y-2">
+                   <div className="space-y-2">
+                      <div className="flex items-center gap-1.5">
                         <label className="label-caps">
                           Tracking Domain <span className="normal-case text-zinc-600">(optional)</span>
                         </label>
-                        <select
-                          value={selectedTrackingDomainId ?? ''}
-                          onChange={(e) => setSelectedTrackingDomainId(e.target.value || null)}
-                          className="w-full bg-zinc-950 border border-zinc-800 rounded-xl px-4 py-3 text-xs text-zinc-100 focus:outline-none focus:border-red-600"
-                        >
-                          <option value="">vstrk.com</option>
-                          {verifiedDomains.map((d) => (
-                            <option key={d.id} value={d.id}>
-                              {d.hostname}
-                            </option>
-                          ))}
-                        </select>
+                        {verifiedDomains.length === 0 && (
+                          <div className="relative group/tip">
+                            <Info size={13} className="text-zinc-600 hover:text-zinc-400 cursor-help transition-colors" />
+                            <div className="hidden group-hover/tip:block absolute left-0 top-5 z-20 w-64 p-3 rounded-xl border border-zinc-800 bg-zinc-900 shadow-2xl">
+                              <p className="text-[10px] leading-relaxed text-zinc-400 normal-case font-medium">
+                                Use your own branded domain (e.g. go.company.com) instead of vstrk.com for more professional tracking links.
+                              </p>
+                              <Link
+                                to="/settings/tracking-domains"
+                                className="mt-2 inline-block text-[10px] font-black uppercase tracking-widest text-red-500 hover:text-red-400"
+                              >
+                                Set up a tracking domain →
+                              </Link>
+                            </div>
+                          </div>
+                        )}
                       </div>
-                    )}
+                      <select
+                        value={selectedTrackingDomainId ?? ''}
+                        onChange={(e) => setSelectedTrackingDomainId(e.target.value || null)}
+                        className="w-full bg-zinc-950 border border-zinc-800 rounded-xl px-4 py-3 text-xs text-zinc-100 focus:outline-none focus:border-red-600"
+                      >
+                        <option value="">vstrk.com</option>
+                        {verifiedDomains.map((d) => (
+                          <option key={d.id} value={d.id}>
+                            {d.hostname}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
 
                     <button 
                       onClick={handleGenerate}
