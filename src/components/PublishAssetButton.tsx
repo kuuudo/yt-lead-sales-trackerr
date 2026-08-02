@@ -42,10 +42,15 @@ export function PublishAssetButton({
   }
 
   const handlePublish = async () => {
-    setSubmitting(true);
-    setError(null);
-    try {
-      const { assetId } = await publishCampaignElementAsAsset({
+  setSubmitting(true);
+  setError(null);
+
+  try {
+    if (beforePublish) {
+      await beforePublish();
+    }
+
+    const { assetId } = await publishCampaignElementAsAsset({
         campaignId,
         elementType,
         sourceField,
