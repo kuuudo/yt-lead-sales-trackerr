@@ -281,6 +281,15 @@ async function resolveCampaignElementContext(
     return null;
   }
 
+console.log('[DEBUG campaign element context]', {
+  assetId,
+  campaignId: campaign.id,
+  organizationId: campaign.organization_id,
+  elementType: elementRow.element_type,
+  sourceField: elementRow.source_field,
+  destinationUrl,
+});
+
   return {
     assetId,
     assetType: 'campaign_element',
@@ -416,10 +425,19 @@ export async function generateAssetRedirectLinks({
       );
 
       console.log('[DEBUG resolved asset context]', {
-        assetId: selected.asset_id,
-        promotionId: selected.promotionContext?.promotionId ?? null,
-        context,
-      });
+  assetId: selected.asset_id,
+  promotionId: selected.promotionContext?.promotionId ?? null,
+
+  context,
+
+  contextIsNull: context === null,
+
+  campaignId: context?.campaignId ?? null,
+
+  redirectJobCount: context?.redirectJobs.length ?? 0,
+
+  assetType: context?.assetType ?? null,
+});
 
       console.log('[DEBUG context validation]', {
         assetId: selected.asset_id,
@@ -429,13 +447,43 @@ export async function generateAssetRedirectLinks({
         campaignId: context?.campaignId,
       });
 
-      if (!context || !context.campaignId) {
-        console.error(
-          '[generateAssetRedirectLinks] Skipping asset — no usable redirect context:',
-          selected.asset_id
-        );
-        return;
-      }
+      if (!context) {
+  console.error(
+    '[DEBUG FAIL] resolveAssetRedirectContext returned null',
+    {
+      assetId: selected.asset_id,
+      promotionId: selected.promotionContext?.promotionId ?? null,
+    }
+  );
+
+  return;
+}
+
+if (!context.campaignId) {
+  console.error(
+    '[DEBUG FAIL] context has no campaignId',
+    {
+      assetId: selected.asset_id,
+      assetType: context.assetType,
+      context,
+    }
+  );
+
+  return;
+}
+
+if (context.redirectJobs.length === 0) {
+  console.error(
+    '[DEBUG FAIL] context has zero redirect jobs',
+    {
+      assetId: selected.asset_id,
+      assetType: context.assetType,
+      context,
+    }
+  );
+
+  return;
+}
 
       console.log('[generateAssetRedirectLinks] Generating redirects', {
         assetId: context.assetId,
