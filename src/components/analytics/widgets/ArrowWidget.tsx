@@ -19,14 +19,17 @@
  */
 
 import React, { useState, useCallback, useRef, useEffect } from 'react'
+import { RotateCcw, RotateCw } from 'lucide-react'
 import type { Widget } from '../store/useWorkspaceStore'
 
 interface Props {
   widget: Widget
   onUpdate: (patch: Partial<Widget>) => void
+  /** Whether this widget's selection box is currently shown by the parent (WidgetFrame). */
+  selected?: boolean
 }
 
-export default function ArrowWidget({ widget, onUpdate }: Props) {
+export default function ArrowWidget({ widget, onUpdate, selected = false }: Props) {
   const config = widget.config
 
   const color    = (config.color    as string) ?? '#FACC15'
@@ -119,6 +122,32 @@ export default function ArrowWidget({ widget, onUpdate }: Props) {
         </svg>
       </div>
 
+      {/* Quick rotate buttons — shown whenever the widget is selected, no hover required */}
+      {selected && (
+        <div
+          style={panelStyles.rotateQuickGroup}
+          onMouseDown={(e) => e.stopPropagation()}
+          onDoubleClick={(e) => e.stopPropagation()}
+        >
+          <button
+            style={panelStyles.rotateQuickBtn}
+            onClick={(e) => { e.stopPropagation(); rotate(-15) }}
+            title="Rotate −15°"
+            aria-label="Rotate counter-clockwise 15 degrees"
+          >
+            <RotateCcw size={13} />
+          </button>
+          <button
+            style={panelStyles.rotateQuickBtn}
+            onClick={(e) => { e.stopPropagation(); rotate(15) }}
+            title="Rotate +15°"
+            aria-label="Rotate clockwise 15 degrees"
+          >
+            <RotateCw size={13} />
+          </button>
+        </div>
+      )}
+
       {/* Config panel */}
       {showPanel && (
         <div
@@ -185,6 +214,29 @@ export default function ArrowWidget({ widget, onUpdate }: Props) {
 }
 
 const panelStyles: Record<string, React.CSSProperties> = {
+  rotateQuickGroup: {
+    position: 'absolute',
+    top: 4,
+    right: 4,
+    display: 'flex',
+    gap: 4,
+    zIndex: 40,
+    pointerEvents: 'auto',
+  },
+  rotateQuickBtn: {
+    width: 24,
+    height: 24,
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    background: '#1a1a1a',
+    border: '1px solid #2a2a2a',
+    borderRadius: 5,
+    color: '#ccc',
+    cursor: 'pointer',
+    padding: 0,
+    boxShadow: '0 2px 8px rgba(0,0,0,0.4)',
+  },
   panel: {
     position: 'absolute',
     top: '50%',
