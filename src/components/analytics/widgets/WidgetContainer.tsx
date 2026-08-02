@@ -227,6 +227,7 @@ export default function WidgetContainer({
             widget={widget}
             analyticsResult={analyticsResult}
             onUpdate={handleWidgetUpdate}
+            selected={selected}
           />
         ) : (
           <div style={styles.unknown}>Unknown widget type: {widget.type}</div>

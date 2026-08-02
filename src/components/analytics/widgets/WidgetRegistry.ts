@@ -39,6 +39,7 @@ export const WIDGET_REGISTRY: Record<
     widget: Widget
     analyticsResult?: AnalyticsResult | null
     onUpdate: (patch: Partial<Widget>) => void
+    selected?: boolean
   }>
 > = {
   note:       NoteWidget,
