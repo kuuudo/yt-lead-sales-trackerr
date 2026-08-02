@@ -27,7 +27,7 @@ import { useLanguage } from '../lib/hooks';
 import { supabase, Video, Campaign, LeadMagnet, Asset } from '../lib/supabase';
 import { useAuth } from '../lib/auth';
 import { useOrganization } from '../lib/useOrganization';
-import { getRedirectLinksDisplay, CATEGORY_LABEL, type RedirectLinksDisplayGroups } from '../services/redirect/getPromotedAssetDisplay';
+import { getRedirectLinksDisplay, CATEGORY_LABEL, buildTrackingLinkUrl, type RedirectLinksDisplayGroups } from '../services/redirect/getPromotedAssetDisplay';
 import { getAsset } from '../services/asset/getAsset';
 import { addToLibrary } from '../services/asset/addToLibrary';
 import {
@@ -1430,11 +1430,11 @@ if (organizationId && user) {
               <div className="flex items-center gap-2 min-w-0">
                 <span>{link.icon}</span>
                 <span className="text-xs font-bold text-white shrink-0">{link.label}</span>
-                <span className="font-mono text-[11px] text-blue-400 truncate">{window.location.origin}/{link.token}</span>
+                <span className="font-mono text-[11px] text-blue-400 truncate">{buildTrackingLinkUrl(link.token, link.trackingHostname)}</span>
               </div>
               <button
                 onClick={() => {
-                  navigator.clipboard.writeText(`${window.location.origin}/${link.token}`);
+                  navigator.clipboard.writeText(buildTrackingLinkUrl(link.token, link.trackingHostname));
                   setCopiedLinkToken(link.token);
                   setTimeout(() => setCopiedLinkToken(null), 2000);
                 }}
@@ -1472,12 +1472,12 @@ if (organizationId && user) {
                                 <span className="ml-2 text-[10px] font-bold text-zinc-500 uppercase">{asset.subtitle}</span>
                               )}
                             </p>
-                            <p className="font-mono text-[11px] text-blue-400 truncate">{window.location.origin}/{asset.token}</p>
+                            <p className="font-mono text-[11px] text-blue-400 truncate">{buildTrackingLinkUrl(asset.token, asset.trackingHostname)}</p>
                           </div>
                         </div>
                         <button
                           onClick={() => {
-                            navigator.clipboard.writeText(`${window.location.origin}/${asset.token}`);
+                            navigator.clipboard.writeText(buildTrackingLinkUrl(asset.token, asset.trackingHostname));
                             setCopiedLinkToken(asset.token);
                             setTimeout(() => setCopiedLinkToken(null), 2000);
                           }}
