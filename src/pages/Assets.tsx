@@ -67,6 +67,7 @@ import type {
 import { resolveThumbnail, resolveAssetThumbnail, resolveElementThumbnail, getElementTypeLabel, RESOURCE_TYPE_LABELS, type ResourceType, type CampaignElementType } from '../lib/videoFormatters';
 import { ImportAssetModal } from '../components/ImportAssetModal';
 import type { AssetResource } from '../services/asset/createAssetResource';
+import { assetsPageCache, updateCachedArchivedMap } from '../lib/assetsPageCache';
 
 export default function Assets() {
   const { user } = useAuth();
@@ -278,6 +279,16 @@ setSharedRows(sharedData);
 setAssignedSummary(assignedData);
 
 setArchivedMap(archivedIds);
+
+if (user) {
+  assetsPageCache.set(`${organizationId}:${user.id}`, {
+    rows: myData,
+    sharedRows: sharedData,
+    assignedSummary: assignedData,
+    archivedMap: archivedIds,
+  });
+  console.log('[Assets] Cache updated');
+}
     } catch (err: any) {
       setError(err.message || 'Could not load your Asset Library.');
     } finally {
@@ -287,8 +298,21 @@ setArchivedMap(archivedIds);
 
   useEffect(() => {
     if (!user || !organizationId) return;
+
+    const cacheKey = `${organizationId}:${user.id}`;
+    const cached = assetsPageCache.get(cacheKey);
+    if (cached) {
+      console.log('[Assets] Cache hit', new Date(cached.cachedAt).toLocaleTimeString());
+      setRows(cached.data.rows);
+      setSharedRows(cached.data.sharedRows);
+      setAssignedSummary(cached.data.assignedSummary);
+      setArchivedMap(cached.data.archivedMap);
+      setLoading(false);
+      return;
+    }
+    console.log('[Assets] Cache miss — fetching from Supabase');
     fetchAssets();
-  }, [user, organizationId]);
+  }, [user?.id, organizationId]);
 
   // Archive is only ever triggered by an explicit user click on the
   // Archive button below — there is no automatic/time-based archiving
@@ -305,6 +329,7 @@ setArchivedMap(archivedIds);
         try {
           await archiveAssetForUser(row.key, user.id);
           setArchivedMap(prev => new Map(prev).set(row.key, new Date().toISOString()));
+          updateCachedArchivedMap(`${organizationId}:${user.id}`, prev => new Map(prev).set(row.key, new Date().toISOString()));
         } catch (err: any) {
           showAlert('Archive Failed', err.message || 'Could not archive this asset.', 'danger');
         } finally {
@@ -338,6 +363,13 @@ setArchivedMap(archivedIds);
         selectedArchivedAssetIds.forEach(assetId => next.delete(assetId));
         return next;
       });
+      if (organizationId) {
+        updateCachedArchivedMap(`${organizationId}:${user.id}`, prev => {
+          const next = new Map(prev);
+          selectedArchivedAssetIds.forEach(assetId => next.delete(assetId));
+          return next;
+        });
+      }
       setSelectedArchivedAssetIds([]);
     } catch (err: any) {
       showAlert('Restore Failed', err.message, 'danger');
