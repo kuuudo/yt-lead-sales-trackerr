@@ -406,6 +406,13 @@ export default function CampaignDetail() {
                       currentUrl={formData.landing_page_url}
                       defaultDisplayName={`${formData.campaign_name || 'Campaign'} - Landing Page`}
                       published={publishedElements['landing_page_url']}
+                      beforePublish={async () => {
+                        await saveCampaign({
+                          campaignId: id!,
+                          formData,
+                          leadMagnets,
+                         });
+                      }}
                       onPublished={el => setPublishedElements(prev => ({ ...prev, [el.source_field]: el }))}
                     />
                   </div>
@@ -488,6 +495,13 @@ export default function CampaignDetail() {
                     currentUrl={formData.newsletter_url}
                     defaultDisplayName={`${formData.campaign_name || 'Campaign'} - Newsletter`}
                     published={publishedElements['newsletter_url']}
+                    beforePublish={async () => {
+                      await saveCampaign({
+                        campaignId: id!,
+                        formData,
+                        leadMagnets,
+                      });
+                    }}
                     onPublished={el => setPublishedElements(prev => ({ ...prev, [el.source_field]: el }))}
                   />
                 </div>
@@ -537,6 +551,13 @@ export default function CampaignDetail() {
                       currentUrl={formData.sales_call_booking_url}
                       defaultDisplayName={`${formData.campaign_name || 'Campaign'} - Sales Call`}
                       published={publishedElements['sales_call_booking_url']}
+                      beforePublish={async () => {
+                        await saveCampaign({
+                          campaignId: id!,
+                          formData,
+                          leadMagnets,
+                        });
+                      }}
                       onPublished={el => setPublishedElements(prev => ({ ...prev, [el.source_field]: el }))}
                     />
                   </div>
@@ -600,8 +621,15 @@ export default function CampaignDetail() {
                       currentUrl={formData.consultation_booking_url}
                       defaultDisplayName={`${formData.campaign_name || 'Campaign'} - Consultation`}
                       published={publishedElements['consultation_booking_url']}
+                      beforePublish={async () => {
+                        await saveCampaign({
+                        campaignId: id!,
+                        formData,
+                        leadMagnets,
+                        });
+                      }}
                       onPublished={el => setPublishedElements(prev => ({ ...prev, [el.source_field]: el }))}
-                    />
+                      />
                   </div>
                 </div>
                 {((formData as any).consultation_delivery ?? 'external_platform') === 'own_website' && (
