@@ -272,6 +272,12 @@ async function resolveCampaignElementContext(
   // this element represents (e.g. 'consultation_booking_url').
   const destinationUrl = (campaign as any)[elementRow.source_field];
 
+console.log('[DEBUG campaign element]', {
+  sourceField: elementRow.source_field,
+  destinationUrl,
+  campaign,
+});
+
   if (!destinationUrl) {
     console.error(
       '[generateAssetRedirectLinks] Campaign field empty for element asset:',
