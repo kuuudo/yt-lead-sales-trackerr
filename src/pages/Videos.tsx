@@ -683,6 +683,7 @@ const hasBlockingPromotionIssue = Array.from(promotionContextByAssetId.entries()
     if (user && organizationId) {
       const cached = videosPageCache.get(organizationId);
       if (cached) {
+        console.log('[Videos] Cache hit', new Date(cached.cachedAt).toLocaleTimeString());
         setVideos(cached.data.videos);
         setCampaigns(cached.data.campaigns);
         setAllLeadMagnets(cached.data.allLeadMagnets);
@@ -692,6 +693,7 @@ const hasBlockingPromotionIssue = Array.from(promotionContextByAssetId.entries()
         }
         return;
       }
+      console.log('[Videos] Cache miss — fetching from Supabase');
       fetchData();
     }
   }, [user?.id, organizationId]);
@@ -758,9 +760,11 @@ const hasBlockingPromotionIssue = Array.from(promotionContextByAssetId.entries()
          if (lmData) setAllLeadMagnets(lmData);
           if (organizationId) {
             videosPageCache.set(organizationId, { videos: vData || [], campaigns: cData, allLeadMagnets: lmData || [] });
+            console.log('[Videos] Cache updated');
           }
         } else if (organizationId) {
           videosPageCache.set(organizationId, { videos: vData || [], campaigns: cData, allLeadMagnets: [] });
+          console.log('[Videos] Cache updated');
         }
       }
     } catch (err: any) {

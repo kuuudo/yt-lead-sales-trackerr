@@ -26,6 +26,7 @@ import {
 import { motion, AnimatePresence } from 'motion/react';
 import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 import { useOrganization } from '../lib/useOrganization'
+import { analyticsPageCache } from '../lib/analyticsPageCache';
 
 type DateRange = '7days' | '28days' | '30days' | '3months' | '6months' | '12months';
 
@@ -136,7 +137,22 @@ export default function Analytics() {
   }, [warning]);
 
    useEffect(() => {
-    if (user && organizationId) fetchData();
+    if (user && organizationId) {
+      const cached = analyticsPageCache.get(organizationId);
+      if (cached) {
+        console.log('[Analytics] Cache hit', new Date(cached.cachedAt).toLocaleTimeString());
+        setCampaigns(cached.data.campaigns);
+        setVideos(cached.data.videos);
+        setLeadMagnets(cached.data.leadMagnets);
+        setEvents(cached.data.events);
+        setStripePurchases(cached.data.stripePurchases);
+        setPixelPurchases(cached.data.pixelPurchases);
+        setLoading(false);
+        return;
+      }
+      console.log('[Analytics] Cache miss — fetching from Supabase');
+      fetchData();
+    }
   }, [user?.id, organizationId]);
 
   const fetchData = async () => {
@@ -157,7 +173,16 @@ export default function Analytics() {
       setVideos(vData || []);
       setLeadMagnets(lmData || []);
 
-      if (!vData || vData.length === 0) return;
+      if (!vData || vData.length === 0) {
+        if (organizationId) {
+          analyticsPageCache.set(organizationId, {
+            campaigns: cData || [], videos: vData || [], leadMagnets: lmData || [],
+            events: [], stripePurchases: [], pixelPurchases: [],
+          });
+          console.log('[Analytics] Cache updated (no videos)');
+        }
+        return;
+      }
 
       const videoIds    = vData.map((v: any) => v.id);
       const campaignIds = vData.map((v: any) => v.campaign_id).filter(Boolean);
@@ -296,6 +321,14 @@ export default function Analytics() {
       setEvents(allEvents);
       setStripePurchases(enrichedStripe);
       setPixelPurchases(enrichedPixel);
+
+      if (organizationId) {
+        analyticsPageCache.set(organizationId, {
+          campaigns: cData || [], videos: vData || [], leadMagnets: lmData || [],
+          events: allEvents, stripePurchases: enrichedStripe, pixelPurchases: enrichedPixel,
+        });
+        console.log('[Analytics] Cache updated');
+      }
     } catch (err) {
       console.error('Error fetching analytics data:', err);
     } finally {
