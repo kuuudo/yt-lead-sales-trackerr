@@ -135,9 +135,9 @@ export default function Analytics() {
     }
   }, [warning]);
 
-  useEffect(() => {
+   useEffect(() => {
     if (user && organizationId) fetchData();
-  }, [user, organizationId]);
+  }, [user?.id, organizationId]);
 
   const fetchData = async () => {
     setLoading(true);

@@ -354,7 +354,7 @@ export default function InDepthAnalyticsWidget({ widget, onUpdate }: Props) {
 
     fetchData()
     return () => { cancelled = true }
-  }, [user, organizationId])
+  }, [user?.id, organizationId])
 
   // ── Engine input (verbatim from InDepthAnalytics.tsx) ────────────────────
   const engineInput = useMemo((): AnalyticsEngineInput => ({

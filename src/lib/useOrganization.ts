@@ -1,19 +1,20 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useMemo } from 'react'
 import { supabase } from './supabase'
 import { useAuth } from './auth'
 
 export function useOrganization() {
   const { user } = useAuth()
+  const userId = user?.id ?? null
   const [organizationId, setOrganizationId] = useState<string | null>(null)
   const [loading, setLoading] = useState(true)
 
   useEffect(() => {
-    if (!user) return
+    if (!userId) return
 
     supabase
       .from('organization_members')
       .select('organization_id')
-      .eq('user_id', user.id)
+      .eq('user_id', userId)
       .eq('role', 'owner')
       .maybeSingle()
       .then((result) => {
@@ -25,7 +26,7 @@ export function useOrganization() {
 
         setLoading(false)
       })
-  }, [user])
+  }, [userId])
 
-  return { organizationId, loading }
+  return useMemo(() => ({ organizationId, loading }), [organizationId, loading])
 }

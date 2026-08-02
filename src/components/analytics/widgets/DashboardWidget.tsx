@@ -275,7 +275,7 @@ export default function DashboardWidget({ widget, onUpdate }: Props) {
 
     fetchData()
     return () => { cancelled = true }
-  }, [user, organizationId])
+  }, [user?.id, organizationId])
 
   // ── Engine — sortConfig now driven by sortKey from config ───────────────────
 

@@ -323,7 +323,7 @@ export default function Dashboard() {
 
   useEffect(() => {
     if (user && organizationId) fetchData();
-  }, [user, organizationId]);
+  }, [user?.id, organizationId]);
 
   // ── Data fetching ───────────────────────────────────────────────────────────
   const fetchData = async () => {

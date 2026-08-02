@@ -681,7 +681,7 @@ const hasBlockingPromotionIssue = Array.from(promotionContextByAssetId.entries()
     if (user && organizationId) {
       fetchData();
     }
-  }, [user, organizationId]);
+  }, [user?.id, organizationId]);
 
   const fetchData = async () => {
     setLoading(true);

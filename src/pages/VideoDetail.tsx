@@ -366,7 +366,7 @@ export default function VideoDetail() {
     if (!id || !user || !organizationId) return;
     fetchData();
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [id, user, organizationId]);
+  }, [id, user?.id, organizationId]);
 
   const fetchData = useCallback(async () => {
     console.log('[VideoDetail] fetchData START — id:', id, 'user:', (user as any)?.id ?? 'null');

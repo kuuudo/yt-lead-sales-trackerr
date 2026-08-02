@@ -218,7 +218,7 @@ export default function InDepthAnalyticsTest() {
 
   useEffect(() => {
     if (user) fetchData();
-  }, [user]);
+  }, [user?.id]);
 
 
   // ── Data fetching (unchanged) ────────────────────────────────────────────
