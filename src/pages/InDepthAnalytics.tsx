@@ -23,6 +23,7 @@
 // was added or modified. Engine inputs/outputs are identical.
 // ─────────────────────────────────────────────────────────────────────────────
 
+import { inDepthAnalyticsPageCache } from '../lib/inDepthAnalyticsPageCache';
 import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { supabase, Campaign, Video, LeadMagnet } from '../lib/supabase';
@@ -217,7 +218,22 @@ export default function InDepthAnalyticsTest() {
   }, []);
 
   useEffect(() => {
-    if (user) fetchData();
+    if (user) {
+      const cached = inDepthAnalyticsPageCache.get(user.id);
+      if (cached) {
+        console.log('[InDepthAnalytics] Cache hit', new Date(cached.cachedAt).toLocaleTimeString());
+        setCampaigns(cached.data.campaigns);
+        setVideos(cached.data.videos);
+        setLeadMagnets(cached.data.leadMagnets);
+        setRawEvents(cached.data.rawEvents);
+        setStripePurchases(cached.data.stripePurchases);
+        setPixelPurchases(cached.data.pixelPurchases);
+        setLoading(false);
+        return;
+      }
+      console.log('[InDepthAnalytics] Cache miss — fetching from Supabase');
+      fetchData();
+    }
   }, [user?.id]);
 
 
@@ -233,7 +249,16 @@ export default function InDepthAnalyticsTest() {
       setVideos(vData || []);
       setLeadMagnets(lmData || []);
 
-      if (!vData || vData.length === 0) return;
+      if (!vData || vData.length === 0) {
+        if (user?.id) {
+          inDepthAnalyticsPageCache.set(user.id, {
+            campaigns: cData || [], videos: vData || [], leadMagnets: lmData || [],
+            rawEvents: [], stripePurchases: [], pixelPurchases: [],
+          });
+          console.log('[InDepthAnalytics] Cache updated (no videos)');
+        }
+        return;
+      }
 
       const videoIds    = vData.map((v: any) => v.id);
       const campaignIds = vData.map((v: any) => v.campaign_id).filter(Boolean);
@@ -293,6 +318,14 @@ export default function InDepthAnalyticsTest() {
       setRawEvents(allEvents);
       setStripePurchases(enrichedStripe);
       setPixelPurchases(enrichedPixel);
+
+      if (user?.id) {
+        inDepthAnalyticsPageCache.set(user.id, {
+          campaigns: cData || [], videos: vData || [], leadMagnets: lmData || [],
+          rawEvents: allEvents, stripePurchases: enrichedStripe, pixelPurchases: enrichedPixel,
+        });
+        console.log('[InDepthAnalytics] Cache updated');
+      }
     } catch (err) {
       console.error('[InDepthAnalytics] fetchData error:', err);
     } finally {
