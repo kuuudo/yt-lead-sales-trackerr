@@ -24,7 +24,7 @@ import React, { useState, useEffect, useMemo } from 'react'
 import { useAuth }         from '../../../lib/auth'
 import { useOrganization } from '../../../lib/useOrganization'
 import { supabase }        from '../../../lib/supabase'
-import { dashboardWidgetPageCache } from '../lib/dashboardWidgetPageCache'
+import { dashboardWidgetPageCache } from '../../../lib/dashboardWidgetPageCache'
 import {
   getAnalyticsEngine,
   buildStripeFromPurchaseTypeTable,
