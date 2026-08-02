@@ -1438,7 +1438,7 @@ console.log(
                       )}
                     </div>
 
-                    {promotedAssets.length > 0 && verifiedDomains.length > 0 && (
+                    {verifiedDomains.length > 0 && (
                       <div className="space-y-2">
                         <label className="label-caps">
                           Tracking Domain <span className="normal-case text-zinc-600">(optional)</span>
