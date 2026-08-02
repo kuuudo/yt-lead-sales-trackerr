@@ -52,6 +52,8 @@ import {
 import { motion, AnimatePresence } from 'motion/react';
 import { Modal } from '../components/Modal';
 import { useOrganization } from '../lib/useOrganization';
+import { useOrganization } from '../lib/useOrganization';
+import { videosPageCache } from '../lib/videosPageCache';
 import { createVideo } from '../services/video/createVideo';
 import { generateAssetRedirectLinks } from '../services/asset/generateAssetRedirectLinks';
 import { PromotedAssetPicker, type PromotedAssetRow } from '../components/PromotedAssetPicker';
@@ -679,6 +681,17 @@ const hasBlockingPromotionIssue = Array.from(promotionContextByAssetId.entries()
 
   useEffect(() => {
     if (user && organizationId) {
+      const cached = videosPageCache.get(organizationId);
+      if (cached) {
+        setVideos(cached.data.videos);
+        setCampaigns(cached.data.campaigns);
+        setAllLeadMagnets(cached.data.allLeadMagnets);
+        setLoading(false);
+        if (cached.data.campaigns.length > 0) {
+          setFormData(prev => ({ ...prev, campaign_id: prev.campaign_id || cached.data.campaigns[0].id }));
+        }
+        return;
+      }
       fetchData();
     }
   }, [user?.id, organizationId]);
@@ -742,7 +755,12 @@ const hasBlockingPromotionIssue = Array.from(promotionContextByAssetId.entries()
             .in('campaign_id', campaignIds);
           
           if (lmError) console.error('Error fetching all lead magnets:', lmError);
-          if (lmData) setAllLeadMagnets(lmData);
+         if (lmData) setAllLeadMagnets(lmData);
+          if (organizationId) {
+            videosPageCache.set(organizationId, { videos: vData || [], campaigns: cData, allLeadMagnets: lmData || [] });
+          }
+        } else if (organizationId) {
+          videosPageCache.set(organizationId, { videos: vData || [], campaigns: cData, allLeadMagnets: [] });
         }
       }
     } catch (err: any) {
