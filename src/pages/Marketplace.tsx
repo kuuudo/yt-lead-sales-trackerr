@@ -89,6 +89,47 @@ export default function Marketplace() {
     setModalConfig({ isOpen: true, title, message, variant, onConfirm });
   };
 
+  // ── Assignments tab loader — same queries + de-dupe logic as before, just moved ──
+  const loadAssignments = async (organizationId: string | null, userId: string) => {
+    const [orgAssignments, myCollabs, archivedIds, promotedAssignmentIds] = await Promise.all([
+      organizationId ? listOrgAssignments(organizationId) : Promise.resolve([]),
+      listMyCollaborations(userId),
+      getArchivedAssignmentIdsForUser(userId),
+      listPromotedAssignmentIdsForUser(userId),
+    ]);
+
+    // De-dupe in case the current user is both the org creator and a collaborator.
+    const byId = new Map<string, AssignmentSummary>();
+    [...orgAssignments, ...myCollabs].forEach(a => byId.set(a.id, a));
+
+    // Once the CURRENT user already has a promotion tied to an
+    // Assignment (as Sponsor or as the specific Collaborator who
+    // started it), that Assignment moves to My Promotions and drops
+    // out of the active Assignments list — for this user only. A
+    // different collaborator on the same Assignment who hasn't
+    // promoted yet is unaffected; see listPromotedAssignmentIdsForUser.
+    promotedAssignmentIds.forEach(id => byId.delete(id));
+
+    setAssignments(Array.from(byId.values()));
+    setArchivedMap(archivedIds);
+  };
+
+  // ── Invitations tab loader ──────────────────────────────────────────────
+  const loadInvitations = async (email: string | null) => {
+    const myInvites = email ? await listMyInvitations(email) : [];
+    setInvitations(myInvites);
+  };
+
+  // ── Promotions tab loader ───────────────────────────────────────────────
+  const loadPromotions = async (userId: string) => {
+    const [myPromos, archivedPromotionIds] = await Promise.all([
+      listMyPromotions(userId),
+      getArchivedPromotionIdsForUser(userId),
+    ]);
+    setPromotions(myPromos);
+    setArchivedPromotionMap(archivedPromotionIds);
+  };
+
   useEffect(() => {
     const load = async () => {
       setLoading(true);
@@ -112,33 +153,13 @@ export default function Marketplace() {
 
         setUserId(user.id);
 
-        const [orgAssignments, myCollabs, myInvites, myPromos, archivedIds, promotedAssignmentIds, archivedPromotionIds] = await Promise.all([
-          membership?.organization_id ? listOrgAssignments(membership.organization_id) : Promise.resolve([]),
-          listMyCollaborations(user.id),
-          profile?.email ? listMyInvitations(profile.email) : Promise.resolve([]),
-          listMyPromotions(user.id),
-          getArchivedAssignmentIdsForUser(user.id),
-          listPromotedAssignmentIdsForUser(user.id),
-          getArchivedPromotionIdsForUser(user.id),
+        // Phase 1: still all three, still eager, still parallel — identical
+        // net behavior to before, just organized into named functions.
+        await Promise.all([
+          loadAssignments(membership?.organization_id ?? null, user.id),
+          loadInvitations(profile?.email ?? null),
+          loadPromotions(user.id),
         ]);
-
-        // De-dupe in case the current user is both the org creator and a collaborator.
-        const byId = new Map<string, AssignmentSummary>();
-        [...orgAssignments, ...myCollabs].forEach(a => byId.set(a.id, a));
-
-        // Once the CURRENT user already has a promotion tied to an
-        // Assignment (as Sponsor or as the specific Collaborator who
-        // started it), that Assignment moves to My Promotions and drops
-        // out of the active Assignments list — for this user only. A
-        // different collaborator on the same Assignment who hasn't
-        // promoted yet is unaffected; see listPromotedAssignmentIdsForUser.
-        promotedAssignmentIds.forEach(id => byId.delete(id));
-
-        setAssignments(Array.from(byId.values()));
-        setInvitations(myInvites);
-        setPromotions(myPromos);
-        setArchivedMap(archivedIds);
-        setArchivedPromotionMap(archivedPromotionIds);
       } catch (e: any) {
         setError(e.message ?? 'Failed to load Collaboration Hub');
       } finally {
