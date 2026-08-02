@@ -59,6 +59,7 @@ import { buildCampaignRedirectJobs } from '../redirect/buildCampaignRedirectJobs
 import type { Campaign } from '../../lib/supabase';
 import type { PromotionContext } from './resolvePromotionContextForAsset';
 import { resolveAuthorizedProvenanceCampaign } from './resolveAuthorizedProvenanceCampaign';
+import { ensureResourcePromotionCampaign } from './ensureResourcePromotionCampaign';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -209,17 +210,39 @@ async function resolveResourceContext(assetId: string): Promise<AssetRedirectCon
     data.organization_id
   );
 
+   // Lazy provenance: a Resource Asset intentionally has no campaign at
+   // Import time (see resolvePromotionCampaign.ts — "resource -> null ...
+   // this is expected, not an error"). The moment a Resource Asset is
+   // actually selected for +Track New Content, it is entering the
+   // tracking/promotion system for the first time, so THIS is the correct
+   // point to attach it to the org's 'ONLY PROMOTE ASSET' system campaign
+   // — not at Import. Same helper Gate 1 (createAssignment.ts) and Gate 2
+   // (getAssignmentDetail.ts) already use; idempotent, safe to call even
+   // if a row already exists.
+   const resolvedCampaignId = campaignId ?? await (async () => {
+     try {
+       return await ensureResourcePromotionCampaign(assetId);
+     } catch (ensureErr) {
+       console.error(
+         '[generateAssetRedirectLinks] Failed to establish provenance campaign for resource asset:',
+         assetId,
+         ensureErr
+       );
+       return null;
+     }
+   })();
+
   console.log('[DEBUG resource provenance]', {
     assetId,
     organizationId: data.organization_id,
-    campaignId,
+    campaignId: resolvedCampaignId,
   });
 
   return {
     assetId,
     assetType: 'resource',
     organizationId: data.organization_id,
-    campaignId,
+    campaignId: resolvedCampaignId,
     redirectJobs: [
       {
         linkType: resolveResourceLinkType(data.resource_type),
