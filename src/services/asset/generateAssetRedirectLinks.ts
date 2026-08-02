@@ -352,36 +352,22 @@ async function resolveVideoAssetContext(
     return null;
   }
 
-  // Reuses the exact same field list createVideo() uses — but for THIS
-  // asset's own campaign (provenance), never the newly created video's
-  // selected campaign (attribution). Do not swap this input.
-  // NOTE: campaignJobs is currently unused — buildCampaignRedirectJobs()
-  // migration is deliberately out of scope for this fix (see file header
-  // and tracked as separate technical debt). Do not wire it in here.
-  const campaignJobs = buildCampaignRedirectJobs(campaign as Campaign);
-
-  console.log('[DEBUG video asset final context]', {
-    assetId,
-    campaignId: campaign.id,
-    landing_page_url: campaign.landing_page_url,
-    campaign,
-  });
-
-  const redirectJobs: RedirectJob[] = [];
-
-  if (campaign.landing_page_url) {
-    redirectJobs.push({
-      linkType: 'landing_page',
-      destinationUrl: campaign.landing_page_url,
-    });
-  } else if (!campaign.is_system) {
-    console.error('[generateAssetRedirectLinks] Campaign has no landing page URL', {
-      assetId,
-      campaignId: campaign.id,
-    });
-
-    return null;
-  }
+  Product rule: an Asset redirect resolves to the Asset itself.
+   // A Video Asset IS its content (YouTube/TikTok/LinkedIn/etc.) — the
+   // campaign above is consulted only for provenance/attribution
+   // (campaignId, below), never for the destination. This mirrors
+   // Resource Asset's use of asset_resources.url as its own destination.
+   if (!videoRow.platform_url) {
+     console.error('[generateAssetRedirectLinks] Video asset has no platform_url, skipping:', assetId);
+     return null;
+   }
+ 
+   const redirectJobs: RedirectJob[] = [
+     {
+       linkType: 'landing_page',
+       destinationUrl: videoRow.platform_url,
+     },
+   ];
 
   return {
     assetId,
