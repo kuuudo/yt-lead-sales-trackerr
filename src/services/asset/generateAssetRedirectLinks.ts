@@ -352,7 +352,7 @@ async function resolveVideoAssetContext(
     return null;
   }
 
-  Product rule: an Asset redirect resolves to the Asset itself.
+    //Product rule: an Asset redirect resolves to the Asset itself.
    // A Video Asset IS its content (YouTube/TikTok/LinkedIn/etc.) — the
    // campaign above is consulted only for provenance/attribution
    // (campaignId, below), never for the destination. This mirrors
