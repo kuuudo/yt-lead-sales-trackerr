@@ -24,7 +24,7 @@ import React, { useState, useEffect, useMemo } from 'react'
 import { useAuth }         from '../../../lib/auth'
 import { useOrganization } from '../../../lib/useOrganization'
 import { supabase }        from '../../../lib/supabase'
-
+import { dashboardWidgetPageCache } from '../lib/dashboardWidgetPageCache'
 import {
   getAnalyticsEngine,
   buildStripeFromPurchaseTypeTable,
@@ -178,6 +178,20 @@ export default function DashboardWidget({ widget, onUpdate }: Props) {
   // ── Fetch — identical to Dashboard.fetchData ────────────────────────────────
   useEffect(() => {
     if (!user || !organizationId) return
+
+    const cached = dashboardWidgetPageCache.get(organizationId)
+    if (cached) {
+      console.log('[DashboardWidget] Cache hit', new Date(cached.cachedAt).toLocaleTimeString())
+      setVideos(cached.data.videos)
+      setCampaigns(cached.data.campaigns)
+      setRawEvents(cached.data.rawEvents)
+      setStripePurchases(cached.data.stripePurchases)
+      setPixelPurchases(cached.data.pixelPurchases)
+      setLoading(false)
+      return
+    }
+    console.log('[DashboardWidget] Cache miss — fetching from Supabase')
+
     let cancelled = false
 
     const fetchData = async () => {
@@ -199,6 +213,13 @@ export default function DashboardWidget({ widget, onUpdate }: Props) {
 
         if (vRes.data.length === 0) {
           setLoading(false)
+          if (!cancelled) {
+            dashboardWidgetPageCache.set(organizationId, {
+              videos: vRes.data, campaigns: cRes.data,
+              rawEvents: [], stripePurchases: [], pixelPurchases: [],
+            })
+            console.log('[DashboardWidget] Cache updated (no videos)')
+          }
           return
         }
 
@@ -265,6 +286,12 @@ export default function DashboardWidget({ widget, onUpdate }: Props) {
         setRawEvents(allEvents)
         setStripePurchases(enrichedStripe)
         setPixelPurchases(enrichedPixel)
+
+        dashboardWidgetPageCache.set(organizationId, {
+          videos: vRes.data, campaigns: cRes.data,
+          rawEvents: allEvents, stripePurchases: enrichedStripe, pixelPurchases: enrichedPixel,
+        })
+        console.log('[DashboardWidget] Cache updated')
       } catch (err: any) {
         if (!cancelled) setError(err?.message ?? 'Failed to load data')
         console.error('[DashboardWidget] Fetch error:', err)

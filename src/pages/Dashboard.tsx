@@ -21,6 +21,7 @@
 // ─────────────────────────────────────────────────────────────────────────────
 
 import { useOrganization } from '../lib/useOrganization';
+import { dashboardPageCache } from '../lib/dashboardPageCache';
 import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import { supabase, Video, Campaign } from '../lib/supabase';
 import { useAuth } from '../lib/auth';
@@ -322,7 +323,21 @@ export default function Dashboard() {
   };
 
   useEffect(() => {
-    if (user && organizationId) fetchData();
+    if (user && organizationId) {
+      const cached = dashboardPageCache.get(organizationId);
+      if (cached) {
+        console.log('[Dashboard] Cache hit', new Date(cached.cachedAt).toLocaleTimeString());
+        setVideos(cached.data.videos);
+        setCampaigns(cached.data.campaigns);
+        setRawEvents(cached.data.rawEvents);
+        setStripePurchases(cached.data.stripePurchases);
+        setPixelPurchases(cached.data.pixelPurchases);
+        setLoading(false);
+        return;
+      }
+      console.log('[Dashboard] Cache miss — fetching from Supabase');
+      fetchData();
+    }
   }, [user?.id, organizationId]);
 
   // ── Data fetching ───────────────────────────────────────────────────────────
@@ -341,7 +356,16 @@ export default function Dashboard() {
       setVideos(vRes.data);
       setCampaigns(cRes.data);
 
-      if (vRes.data.length === 0) return;
+      if (vRes.data.length === 0) {
+        if (organizationId) {
+          dashboardPageCache.set(organizationId, {
+            videos: vRes.data, campaigns: cRes.data,
+            rawEvents: [], stripePurchases: [], pixelPurchases: [],
+          });
+          console.log('[Dashboard] Cache updated (no videos)');
+        }
+        return;
+      }
 
       const videoIds    = vRes.data.map((v: any) => v.id);
       const campaignIds = vRes.data.map((v: any) => v.campaign_id).filter(Boolean);
@@ -401,6 +425,14 @@ export default function Dashboard() {
       setRawEvents(allEvents);
       setStripePurchases(enrichedStripe);
       setPixelPurchases(enrichedPixel);
+
+      if (organizationId) {
+        dashboardPageCache.set(organizationId, {
+          videos: vRes.data, campaigns: cRes.data,
+          rawEvents: allEvents, stripePurchases: enrichedStripe, pixelPurchases: enrichedPixel,
+        });
+        console.log('[Dashboard] Cache updated');
+      }
     } catch (err: any) {
       console.error('[Dashboard] Fetch Error:', err);
       showAlert('Dashboard Error', `Failed to load dashboard data: ${err.message}`, 'danger');
