@@ -1444,21 +1444,21 @@ console.log(
                           Tracking Domain
                         </label>
                         {verifiedDomains.length === 0 && (
-                          <div className="relative group/tip">
+                          <div className="relative group/tip py-2">
   <Info
     size={13}
     className="text-zinc-600 hover:text-zinc-400 cursor-help transition-colors"
   />
 
-  <div className="hidden group-hover/tip:block absolute left-0 top-4 z-20 w-64 pt-2">
+  <div className="hidden group-hover/tip:block absolute left-0 top-6 z-20 w-64">
     <div className="p-3 rounded-xl border border-zinc-800 bg-zinc-900 shadow-2xl">
       <p className="text-[10px] leading-relaxed text-zinc-400 normal-case font-medium">
-        Create branded tracking links using your own domain (e.g. go.company.com) instead of vstrk.com.
+        Create branded tracking links using your own domain (e.g. go.company.com) instead of vstrk.com. You can set this up in Campaign or click the link below.
       </p>
 
       <Link
         to="/settings/tracking-domains"
-        className="mt-2 inline-block text-[10px] font-black uppercase tracking-widest text-blue-400 hover:text-blue-300"
+        className="mt-2 inline-block text-[10px] font-black uppercase tracking-widest text-red-500 hover:text-red-400"
       >
         Set up a tracking domain →
       </Link>
