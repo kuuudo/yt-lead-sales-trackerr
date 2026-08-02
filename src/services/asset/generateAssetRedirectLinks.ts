@@ -304,7 +304,7 @@ async function resolveVideoAssetContext(
 ): Promise<AssetRedirectContext | null> {
   const { data: videoRow, error: videoErr } = await supabase
     .from('videos')
-    .select('campaign_id, organization_id')
+    .select('campaign_id, organization_id, platform_url')
     .eq('asset_id', assetId)
     .maybeSingle();
 

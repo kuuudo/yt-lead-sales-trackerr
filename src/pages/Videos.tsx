@@ -1453,7 +1453,7 @@ console.log(
   <div className="hidden group-hover/tip:block absolute left-0 top-6 z-20 w-64">
     <div className="p-3 rounded-xl border border-zinc-800 bg-zinc-900 shadow-2xl">
       <p className="text-[10px] leading-relaxed text-zinc-400 normal-case font-medium">
-        Create branded tracking links using your own domain (e.g. go.company.com) instead of vstrk.com. You can set this up in Campaign or click the link below.
+        Create branded tracking links using your own domain (e.g. go.company.com) instead of vstrk.com. You can set this up in Campaigns or below.
       </p>
 
       <Link
