@@ -49,7 +49,7 @@ import { useNavigate }    from 'react-router-dom'
 import { useAuth }        from '../../../lib/auth'
 import { useOrganization } from '../../../lib/useOrganization'
 import { supabase }       from '../../../lib/supabase'
-import { inDepthAnalyticsWidgetPageCache } from '../lib/inDepthAnalyticsWidgetPageCache'
+import { inDepthAnalyticsWidgetPageCache } from '../../../lib/inDepthAnalyticsWidgetPageCache'
 import {
   getAnalyticsEngine,
   buildStripeFromPurchaseTypeTable,
