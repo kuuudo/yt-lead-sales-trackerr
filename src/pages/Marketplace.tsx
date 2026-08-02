@@ -24,6 +24,9 @@ import {
   archivePromotionForUser,
   restorePromotionForUser,
 } from '../services/promotion/promotionArchive';
+import { marketplaceAssignmentsPageCache } from '../lib/marketplaceAssignmentsPageCache';
+import { marketplacePromotionsPageCache } from '../lib/marketplacePromotionsPageCache';
+import { marketplaceInvitationsPageCache } from '../lib/marketplaceInvitationsPageCache';
 
 type Tab = 'assignments' | 'invitations' | 'promotions';
 
@@ -35,10 +38,14 @@ const TABS: { key: Tab; label: string; icon: typeof Briefcase }[] = [
 
 export default function Marketplace() {
   const navigate = useNavigate();
-  const [tab, setTab] = useState<Tab>('assignments');
+  const [tab, setTab] = useState<Tab>('promotions');
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
+  // Captured once at bootstrap, reused by loadAssignments/loadInvitations
+  // when the user opens those tabs (so we don't repeat the getUser/profile/
+  // membership lookup for every tab switch).
+  
   const [assignments, setAssignments] = useState<AssignmentSummary[]>([]);
   const [invitations, setInvitations] = useState<InvitationSummary[]>([]);
   const [promotions, setPromotions] = useState<PromotionSummary[]>([]);
@@ -47,6 +54,8 @@ export default function Marketplace() {
   // are scoped to (assignment_id, this user's id) only. See
   // services/assignment/assignmentArchive.ts.
   const [userId, setUserId] = useState<string | null>(null);
+  const [orgId, setOrgId] = useState<string | null>(null);
+  const [profileEmail, setProfileEmail] = useState<string | null>(null);
 
   // Personal archive state — Map<assignment_id, archived_at>, scoped to
   // the current user only. Ali and WebMood each get their own Map;
@@ -131,44 +140,71 @@ export default function Marketplace() {
   };
 
   useEffect(() => {
-    const load = async () => {
-      setLoading(true);
-      setError(null);
-      try {
-        const { data: { user } } = await supabase.auth.getUser();
-        if (!user) throw new Error('Not signed in');
+  const bootstrap = async () => {
+    setLoading(true);
+    setError(null);
 
-        const { data: profile } = await supabase
-          .from('profiles')
-          .select('email')
-          .eq('id', user.id)
-          .single();
+    try {
+      const { data: { user } } = await supabase.auth.getUser();
 
-        const { data: membership } = await supabase
-          .from('organization_members')
-          .select('organization_id')
-          .eq('user_id', user.id)
-          .limit(1)
-          .maybeSingle();
+      if (!user) throw new Error('Not signed in');
 
-        setUserId(user.id);
 
-        // Phase 1: still all three, still eager, still parallel — identical
-        // net behavior to before, just organized into named functions.
-        await Promise.all([
-          loadAssignments(membership?.organization_id ?? null, user.id),
-          loadInvitations(profile?.email ?? null),
-          loadPromotions(user.id),
-        ]);
-      } catch (e: any) {
-        setError(e.message ?? 'Failed to load Collaboration Hub');
-      } finally {
-        setLoading(false);
-      }
-    };
+      const { data: profile } = await supabase
+        .from('profiles')
+        .select('email')
+        .eq('id', user.id)
+        .single();
 
-    load();
-  }, []);
+
+      const { data: membership } = await supabase
+        .from('organization_members')
+        .select('organization_id')
+        .eq('user_id', user.id)
+        .limit(1)
+        .maybeSingle();
+
+
+      setUserId(user.id);
+
+      setOrgId(membership?.organization_id ?? null);
+
+      setProfileEmail(profile?.email ?? null);
+
+
+      // ONLY load default tab
+      await loadPromotions(user.id);
+
+
+    } catch (e: any) {
+      setError(e.message ?? 'Failed to load Collaboration Hub');
+
+    } finally {
+      setLoading(false);
+    }
+  };
+
+
+  bootstrap();
+
+}, []);
+
+useEffect(() => {
+
+  if (!userId) return;
+
+
+  if (tab === 'assignments') {
+    loadAssignments(orgId, userId);
+  }
+
+
+  if (tab === 'invitations') {
+    loadInvitations(profileEmail);
+  }
+
+
+}, [tab, userId, orgId, profileEmail]);
 
   // Archive is only ever triggered by an explicit user click below — there
   // is no automatic/time-based archiving anywhere. This only ever writes
