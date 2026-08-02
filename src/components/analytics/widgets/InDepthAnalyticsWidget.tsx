@@ -49,7 +49,7 @@ import { useNavigate }    from 'react-router-dom'
 import { useAuth }        from '../../../lib/auth'
 import { useOrganization } from '../../../lib/useOrganization'
 import { supabase }       from '../../../lib/supabase'
-
+import { inDepthAnalyticsWidgetPageCache } from '../lib/inDepthAnalyticsWidgetPageCache'
 import {
   getAnalyticsEngine,
   buildStripeFromPurchaseTypeTable,
@@ -258,6 +258,21 @@ export default function InDepthAnalyticsWidget({ widget, onUpdate }: Props) {
   // ── Fetch — identical to InDepthAnalytics.fetchData, org-scoped ──────────
   useEffect(() => {
     if (!user || !organizationId) return
+
+    const cached = inDepthAnalyticsWidgetPageCache.get(organizationId)
+    if (cached) {
+      console.log('[InDepthAnalyticsWidget] Cache hit', new Date(cached.cachedAt).toLocaleTimeString())
+      setVideos(cached.data.videos)
+      setCampaigns(cached.data.campaigns)
+      setLeadMagnets(cached.data.leadMagnets)
+      setRawEvents(cached.data.rawEvents)
+      setStripePurchases(cached.data.stripePurchases)
+      setPixelPurchases(cached.data.pixelPurchases)
+      setLoading(false)
+      return
+    }
+    console.log('[InDepthAnalyticsWidget] Cache miss — fetching from Supabase')
+
     let cancelled = false
 
     const fetchData = async () => {
@@ -279,7 +294,17 @@ export default function InDepthAnalyticsWidget({ widget, onUpdate }: Props) {
         setCampaigns(cData)
         setLeadMagnets(lmData)
 
-        if (vData.length === 0) { setLoading(false); return }
+        if (vData.length === 0) {
+          setLoading(false)
+          if (!cancelled) {
+            inDepthAnalyticsWidgetPageCache.set(organizationId, {
+              videos: vData, campaigns: cData, leadMagnets: lmData,
+              rawEvents: [], stripePurchases: [], pixelPurchases: [],
+            })
+            console.log('[InDepthAnalyticsWidget] Cache updated (no videos)')
+          }
+          return
+        }
 
         const videoIds    = vData.map((v: any) => v.id)
         const campaignIds = vData.map((v: any) => v.campaign_id).filter(Boolean)
@@ -344,6 +369,12 @@ export default function InDepthAnalyticsWidget({ widget, onUpdate }: Props) {
         setRawEvents(allEvents)
         setStripePurchases(enrichedStripe)
         setPixelPurchases(enrichedPixel)
+
+        inDepthAnalyticsWidgetPageCache.set(organizationId, {
+          videos: vData, campaigns: cData, leadMagnets: lmData,
+          rawEvents: allEvents, stripePurchases: enrichedStripe, pixelPurchases: enrichedPixel,
+        })
+        console.log('[InDepthAnalyticsWidget] Cache updated')
       } catch (err: any) {
         if (!cancelled) setError(err?.message ?? 'Failed to load data')
         console.error('[InDepthAnalyticsWidget] Fetch error:', err)
