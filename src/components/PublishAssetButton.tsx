@@ -13,6 +13,7 @@ interface PublishAssetButtonProps {
   /** Already-published row for this sourceField, if any — pass from the parent's publishedElements map. */
   published?: PublishedElement | null;
   onPublished: (element: PublishedElement) => void;
+  beforePublish?: () => Promise<void>;
 }
 
 export function PublishAssetButton({
@@ -23,6 +24,7 @@ export function PublishAssetButton({
   defaultDisplayName,
   published,
   onPublished,
+  beforePublish,
 }: PublishAssetButtonProps) {
   const [open, setOpen] = useState(false);
   const [displayName, setDisplayName] = useState(defaultDisplayName);
