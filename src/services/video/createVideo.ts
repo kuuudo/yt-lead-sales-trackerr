@@ -84,6 +84,7 @@ export interface CreateVideoOptions {
   campaign: Campaign | undefined;
   organizationId: string;
   userId: string;
+  trackingDomainId?: string | null;
 }
 
 export interface CreateVideoResult {
@@ -99,6 +100,7 @@ export async function createVideo({
   campaign,
   organizationId,
   userId,
+  trackingDomainId,
 }: CreateVideoOptions): Promise<CreateVideoResult> {
   // 1. Create the Asset first (Design Lock §1, Option A: every Video must
   //    have a corresponding Asset). No compensation target exists for this
@@ -159,7 +161,10 @@ export async function createVideo({
           savedVideo.campaign_id,
           type,
           url,
-          appBaseUrl
+          appBaseUrl,
+          undefined,
+          undefined,
+          { trackingDomainId: trackingDomainId ?? null }
         )
       )
     );
@@ -180,7 +185,9 @@ export async function createVideo({
               'lead_magnet' as any,
               lm.lead_magnet_url,
               appBaseUrl,
-              lm.id
+              lm.id,
+              undefined,
+              { trackingDomainId: trackingDomainId ?? null }
             )
           )
         );

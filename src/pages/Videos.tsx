@@ -906,6 +906,7 @@ const hasBlockingPromotionIssue = Array.from(promotionContextByAssetId.entries()
           campaign:       generated.campaign,
           organizationId: organizationId!,
           userId:         user.id,
+          trackingDomainId: selectedTrackingDomainId,
         });
           // ── Sibling pipeline: Asset Redirect generation ──────────────────
           // Runs AFTER createVideo() succeeds, entirely independent of it.
