@@ -2,7 +2,7 @@ import type { VercelRequest, VercelResponse } from '@vercel/node';
 import { createClient } from '@supabase/supabase-js';
 import { resolveTxt } from 'dns/promises';
 import { createHash } from 'crypto';
-import { attachDomainToVercel } from './_lib/vercelDomains';
+import { attachDomainToVercel } from './_lib/vercelDomains.js';
 
 const supabase = createClient(
   process.env.SUPABASE_URL!,
