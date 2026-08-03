@@ -34,6 +34,64 @@ export default function TrackingDomains() {
   const verifyingRef = React.useRef<string | null>(null);
   const CONNECTING_DELAY_MS = 1500;
 
+  // Tab-open auto-poll: after a manual Verify leaves a domain still
+  // pending, silently recheck every POLL_INTERVAL_MS without requiring
+  // another click. Capped at MAX_POLL_ATTEMPTS so a domain left pending
+  // for hours doesn't poll forever — after the cap, it just falls back
+  // to the existing manual Verify button. Nothing here talks to a job
+  // queue or cron; it's plain setInterval, cleared on unmount, on
+  // success, on delete, or once verification reaches its final state.
+  const pollTimersRef = React.useRef<Record<string, ReturnType<typeof setInterval>>>({});
+  const pollAttemptsRef = React.useRef<Record<string, number>>({});
+  const [autoPollingIds, setAutoPollingIds] = useState<Set<string>>(new Set());
+  const POLL_INTERVAL_MS = 10000;
+  const MAX_POLL_ATTEMPTS = 18; // ~3 minutes of silent background rechecking
+
+  const stopAutoPoll = (domainId: string) => {
+    const timer = pollTimersRef.current[domainId];
+    if (timer) {
+      clearInterval(timer);
+      delete pollTimersRef.current[domainId];
+    }
+    delete pollAttemptsRef.current[domainId];
+    setAutoPollingIds((prev) => {
+      if (!prev.has(domainId)) return prev;
+      const next = new Set(prev);
+      next.delete(domainId);
+      return next;
+    });
+  };
+
+  const startAutoPoll = (domainId: string) => {
+    if (pollTimersRef.current[domainId]) return; // already polling this one
+    pollAttemptsRef.current[domainId] = 0;
+    setAutoPollingIds((prev) => new Set(prev).add(domainId));
+
+    pollTimersRef.current[domainId] = setInterval(async () => {
+      pollAttemptsRef.current[domainId] = (pollAttemptsRef.current[domainId] || 0) + 1;
+      if (pollAttemptsRef.current[domainId] > MAX_POLL_ATTEMPTS) {
+        stopAutoPoll(domainId);
+        return;
+      }
+
+      // Silent — deliberately does not touch verifyingId/verifyStage/
+      // verifyMessage, so it never flickers the manual "Checking DNS…"
+      // / "Connecting your domain…" UI. Only acts on a confirmed success.
+      const result = await verifyDomain(domainId);
+      if (result?.status === 'verified') {
+        stopAutoPoll(domainId);
+        await refresh();
+      }
+    }, POLL_INTERVAL_MS);
+  };
+
+  useEffect(() => {
+    return () => {
+      Object.keys(pollTimersRef.current).forEach(stopAutoPoll);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   const refresh = async () => {
     if (!organizationId) return;
     setLoading(true);
@@ -84,6 +142,7 @@ export default function TrackingDomains() {
     );
     if (!confirmed) return;
 
+    stopAutoPoll(domainId);
     const ok = await deleteDomain(domainId);
     if (!ok) setActionError('Failed to delete domain.');
     await refresh();
@@ -115,6 +174,7 @@ const handleVerify = async (domainId: string) => {
       id: domainId,
       text: result.error || 'TXT record not found yet. DNS changes can take time to propagate.',
     });
+    startAutoPoll(domainId);
   }
 
   setVerifyingId(null);
@@ -178,8 +238,10 @@ const handleVerify = async (domainId: string) => {
       ) : domains.length === 0 ? (
         <p className="text-zinc-600 text-sm text-center py-12">No custom domains yet.</p>
       ) : (
-        <div className="space-y-2">
-          {domains.map((d) => (
+        <div className="space-y-3">
+          {(() => {
+            const hasAnyDefault = domains.some((dom) => dom.is_default);
+            return domains.map((d) => (
             <div
                key={d.id}
                className="bg-zinc-900/50 border border-zinc-800 rounded-lg px-4 py-3"
@@ -228,7 +290,11 @@ const handleVerify = async (domainId: string) => {
   <div className="flex items-center gap-2">
     <button
       onClick={() => handleSetDefault(d.id)}
-      className="flex items-center gap-1.5 px-2 py-1 rounded-md border border-zinc-700 text-zinc-300 hover:border-violet-500 hover:text-violet-400 transition-colors"
+      className={
+        hasAnyDefault
+          ? 'flex items-center gap-1.5 px-2 py-1 rounded-md border border-zinc-700 text-zinc-300 hover:border-violet-500 hover:text-violet-400 transition-colors'
+          : 'flex items-center gap-1.5 px-3 py-1.5 rounded-md bg-violet-600 hover:bg-violet-500 text-white transition-colors'
+      }
     >
       <Star size={14} />
       <span className="text-[10px] font-bold uppercase tracking-widest">
@@ -270,6 +336,12 @@ ${d.hostname}/abc123`}
               </div>
             </div>
 
+            {d.status === 'verified' && !d.is_default && !hasAnyDefault && (
+              <p className="text-violet-400/80 text-[10px] mt-2">
+                This domain is verified and ready — set it as default to start using it on new links.
+              </p>
+            )}
+
             {d.status === 'pending' && d.verification_token && (
               <div className="mt-3 bg-zinc-950 border border-zinc-800 rounded-md p-4 space-y-4">
                 <p className="text-zinc-400 text-xs">
@@ -285,13 +357,13 @@ ${d.hostname}/abc123`}
                   <div className="text-[10px] text-zinc-500 mb-1 font-mono">
                     Host: <span className="text-zinc-300">_vstrk-verify.{d.hostname}</span>
                   </div>
-                  <div className="flex items-center gap-2">
-                    <code className="flex-1 bg-zinc-900 border border-zinc-800 rounded px-2 py-1 text-[11px] text-zinc-300 font-mono truncate">
+                  <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2">
+                    <code className="flex-1 bg-zinc-900 border border-zinc-800 rounded px-2 py-1.5 text-[11px] text-zinc-300 font-mono truncate">
                       {d.verification_token}
                     </code>
                     <button
                       onClick={() => copyValue(`${d.id}:txt`, d.verification_token!)}
-                      className="text-zinc-500 hover:text-white transition-colors flex-shrink-0"
+                      className="flex items-center justify-center gap-1.5 px-3 py-2 sm:py-1 rounded-md border border-zinc-800 text-zinc-400 hover:text-white hover:border-zinc-700 transition-colors flex-shrink-0"
                       title="Copy TXT value"
                     >
                       {copiedKey === `${d.id}:txt` ? (
@@ -299,6 +371,9 @@ ${d.hostname}/abc123`}
                       ) : (
                         <Copy size={14} />
                       )}
+                      <span className="text-[10px] font-bold uppercase tracking-widest">
+                        {copiedKey === `${d.id}:txt` ? 'Copied' : 'Copy'}
+                      </span>
                     </button>
                   </div>
                 </div>
@@ -311,13 +386,13 @@ ${d.hostname}/abc123`}
                   <div className="text-[10px] text-zinc-500 mb-1 font-mono">
                     Host: <span className="text-zinc-300">{d.hostname}</span>
                   </div>
-                  <div className="flex items-center gap-2">
-                    <code className="flex-1 bg-zinc-900 border border-zinc-800 rounded px-2 py-1 text-[11px] text-zinc-300 font-mono truncate">
+                  <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2">
+                    <code className="flex-1 bg-zinc-900 border border-zinc-800 rounded px-2 py-1.5 text-[11px] text-zinc-300 font-mono truncate">
                       {CNAME_TARGET}
                     </code>
                     <button
                       onClick={() => copyValue(`${d.id}:cname`, CNAME_TARGET)}
-                      className="text-zinc-500 hover:text-white transition-colors flex-shrink-0"
+                      className="flex items-center justify-center gap-1.5 px-3 py-2 sm:py-1 rounded-md border border-zinc-800 text-zinc-400 hover:text-white hover:border-zinc-700 transition-colors flex-shrink-0"
                       title="Copy CNAME value"
                     >
                       {copiedKey === `${d.id}:cname` ? (
@@ -325,6 +400,9 @@ ${d.hostname}/abc123`}
                       ) : (
                         <Copy size={14} />
                       )}
+                      <span className="text-[10px] font-bold uppercase tracking-widest">
+                        {copiedKey === `${d.id}:cname` ? 'Copied' : 'Copy'}
+                      </span>
                     </button>
                   </div>
                 </div>
@@ -344,13 +422,20 @@ ${d.hostname}/abc123`}
               </div>
             )}
 
+            {verifyingId !== d.id && autoPollingIds.has(d.id) && (
+              <p className="text-zinc-600 text-[10px] mt-2">
+                We'll keep checking automatically for a few minutes — no need to click Verify again.
+              </p>
+            )}
+
             {verifyMessage?.id === d.id && (
               <p className="text-zinc-500 text-[10px] mt-2">
                 {verifyMessage.text}
               </p>
             )}
           </div>
-          ))}
+          ));
+          })()}
         </div>
       )}
     </div>
