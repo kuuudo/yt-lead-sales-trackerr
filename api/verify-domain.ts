@@ -2,7 +2,7 @@ import type { VercelRequest, VercelResponse } from '@vercel/node';
 import { createClient } from '@supabase/supabase-js';
 import { resolveTxt } from 'dns/promises';
 import { createHash } from 'crypto';
-import { attachDomainToVercel } from '../src/lib/vercelDomains';
+import { attachDomainToVercel } from './_lib/vercelDomains';
 
 const supabase = createClient(
   process.env.SUPABASE_URL!,
@@ -128,27 +128,28 @@ export default async function handler(
     });
   }
 
-// DNS ownership confirmed. Per the locked MVP design, "verified" means
-   // BOTH DNS ownership AND Vercel attachment succeeded — no separate
-   // vercel_status column. If attach fails, return an error and do NOT
-   // write status: 'verified'. The TXT record is still in place, so the
-   // user can just press Verify again — DNS re-check is cheap, and
-   // attachDomainToVercel is idempotent on retry.
-   const attachResult = await attachDomainToVercel(domain.hostname);
+  // DNS ownership is confirmed at this point. Per the locked MVP design,
+  // "verified" means BOTH DNS ownership AND Vercel attachment succeeded —
+  // there is no separate vercel_status column. If attach fails, we return
+  // an error and do NOT write status: 'verified'. The DNS TXT record is
+  // still in place, so the user can simply press Verify again — the DNS
+  // check above is cheap and will pass immediately on retry, and this
+  // call to Vercel is naturally idempotent (see attachDomainToVercel).
+  const attachResult = await attachDomainToVercel(domain.hostname);
 
-   if (!attachResult.ok) {
-     console.error('VERIFY DOMAIN VERCEL ATTACH FAILED', {
-       domainId,
-       hostname: domain.hostname,
-       error: attachResult.error,
-     });
+  if (!attachResult.ok) {
+    console.error('VERIFY DOMAIN VERCEL ATTACH FAILED', {
+      domainId,
+      hostname: domain.hostname,
+      error: attachResult.error,
+    });
 
-     return res.status(200).json({
-       status: 'pending',
-       matched: true,
-       error: `DNS verified, but Vercel attachment failed: ${attachResult.error}. Please try Verify again.`,
-     });
-   }
+    return res.status(200).json({
+      status: 'pending',
+      matched: true,
+      error: `DNS verified, but Vercel attachment failed: ${attachResult.error}. Please try Verify again.`,
+    });
+  }
 
   const { error: updateErr } = await supabase
     .from('branded_tracking_domains')
@@ -170,11 +171,9 @@ export default async function handler(
   }
 
   console.log(
-  `✅ Domain verified and attached to Vercel — hostname: ${domain.hostname}`,
-  {
-    alreadyAttached: attachResult.alreadyAttached,
-  }
-);
+    `✅ Domain verified and attached to Vercel — hostname: ${domain.hostname}`,
+    { alreadyAttached: attachResult.alreadyAttached }
+  );
 
   return res.status(200).json({
     status: 'verified',
