@@ -240,6 +240,19 @@ const handleVerify = async (domainId: string) => {
   // API round-trip just to fetch a display string.
   const CNAME_TARGET = 'cname.vercel-dns.com';
 
+  // Best-effort "subdomain only" label for display, e.g.
+  // "lucky.kaksidigitals.com" -> "lucky". Assumes a standard two-label
+  // root (name.tld) — for a domain on a multi-part public suffix like
+  // "shop.co.uk" this would incorrectly treat "co.uk" as the root and
+  // return "shop" when more of the label should be kept. Not a problem
+  // for .com/.io/etc. roots, but worth knowing if domains ever expand
+  // beyond that. This is display-only; verify-domain.ts always resolves
+  // against the full hostname regardless of what's shown here.
+  const shortLabel = (hostname: string): string => {
+    const parts = hostname.split('.');
+    return parts.length > 2 ? parts.slice(0, -2).join('.') : hostname;
+  };
+
   return (
     <div className="max-w-3xl">
       <div className="flex items-center gap-3 mb-8">
@@ -435,11 +448,11 @@ ${d.hostname}/abc123`}
                             <tr>
                               <td className="text-zinc-500 py-1 pr-2 align-top">Name</td>
                               <td className="py-1 pr-2 truncate">
-                                <code className="bg-zinc-100 rounded px-2 py-0.5">_vstrk-verify.{d.hostname}</code>
+                                <code className="bg-zinc-100 rounded px-2 py-0.5">_vstrk-verify.{shortLabel(d.hostname)}</code>
                               </td>
                               <td className="py-1 text-right">
                                 <button
-                                  onClick={() => copyValue(`${d.id}:txtname`, `_vstrk-verify.${d.hostname}`)}
+                                  onClick={() => copyValue(`${d.id}:txtname`, `_vstrk-verify.${shortLabel(d.hostname)}`)}
                                   className="text-zinc-400 hover:text-zinc-700 transition-colors"
                                   title="Copy name"
                                 >
@@ -490,11 +503,11 @@ ${d.hostname}/abc123`}
                             <tr>
                               <td className="text-zinc-500 py-1 pr-2 align-top">Name</td>
                               <td className="py-1 pr-2 truncate">
-                                <code className="bg-zinc-100 rounded px-2 py-0.5">{d.hostname}</code>
+                                <code className="bg-zinc-100 rounded px-2 py-0.5">{shortLabel(d.hostname)}</code>
                               </td>
                               <td className="py-1 text-right">
                                 <button
-                                  onClick={() => copyValue(`${d.id}:cnamename`, d.hostname)}
+                                  onClick={() => copyValue(`${d.id}:cnamename`, shortLabel(d.hostname))}
                                   className="text-zinc-400 hover:text-zinc-700 transition-colors"
                                   title="Copy name"
                                 >
@@ -529,6 +542,10 @@ ${d.hostname}/abc123`}
                         </table>
                       </div>
                     </div>
+
+                    <p className="text-zinc-400 text-[11px]">
+                      Most DNS providers only need the short name shown above. If yours asks for the full hostname instead, use <code className="bg-zinc-100 rounded px-1">_vstrk-verify.{d.hostname}</code> and <code className="bg-zinc-100 rounded px-1">{d.hostname}</code>.
+                    </p>
 
                     {d.status === 'pending' ? (
                       <div className="flex gap-3">
