@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { Globe, Plus, Star, Trash2, Ban, Loader2, Copy, Check, ShieldCheck, CircleHelp } from 'lucide-react';
+import { Globe, Plus, Star, Trash2, Ban, Loader2, Copy, Check, ShieldCheck, CircleHelp, ChevronDown, ChevronRight } from 'lucide-react';
 import { useOrganization } from '../lib/useOrganization';
 import {
   listBrandedDomains,
@@ -46,6 +46,50 @@ export default function TrackingDomains() {
   const [autoPollingIds, setAutoPollingIds] = useState<Set<string>>(new Set());
   const POLL_INTERVAL_MS = 10000;
   const MAX_POLL_ATTEMPTS = 18; // ~3 minutes of silent background rechecking
+
+  // DNS section is collapsible for every domain, not just pending ones —
+  // the instructions never fully disappear, they just tuck away. Default
+  // state depends on status the FIRST time a domain is seen (pending =
+  // open, verified/failed = closed), and flips closed automatically the
+  // moment a domain transitions into verified. After that, the user's
+  // manual toggle is the only thing that changes it — this effect never
+  // re-collapses something the user deliberately reopened.
+  const [expandedIds, setExpandedIds] = useState<Set<string>>(new Set());
+  const prevStatusRef = React.useRef<Record<string, string>>({});
+
+  useEffect(() => {
+    setExpandedIds((prev) => {
+      const next = new Set(prev);
+      let changed = false;
+      domains.forEach((d) => {
+        const prevStatus = prevStatusRef.current[d.id];
+        if (prevStatus === undefined) {
+          // First time seeing this domain this session.
+          if (d.status === 'pending') {
+            next.add(d.id);
+            changed = true;
+          }
+        } else if (prevStatus !== 'verified' && d.status === 'verified') {
+          // Just verified — auto-collapse once.
+          if (next.has(d.id)) {
+            next.delete(d.id);
+            changed = true;
+          }
+        }
+        prevStatusRef.current[d.id] = d.status;
+      });
+      return changed ? next : prev;
+    });
+  }, [domains]);
+
+  const toggleExpanded = (domainId: string) => {
+    setExpandedIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(domainId)) next.delete(domainId);
+      else next.add(domainId);
+      return next;
+    });
+  };
 
   const stopAutoPoll = (domainId: string) => {
     const timer = pollTimersRef.current[domainId];
@@ -342,74 +386,176 @@ ${d.hostname}/abc123`}
               </p>
             )}
 
-            {d.status === 'pending' && d.verification_token && (
-              <div className="mt-3 bg-zinc-950 border border-zinc-800 rounded-md p-4 space-y-4">
-                <p className="text-zinc-400 text-xs">
-                  Add these 2 records at your DNS provider to verify and connect{' '}
-                  <span className="text-white font-bold">{d.hostname}</span>:
-                </p>
+            {d.verification_token && (
+              <div className="mt-3">
+                <button
+                  onClick={() => toggleExpanded(d.id)}
+                  className="flex items-center gap-1.5 text-zinc-400 hover:text-zinc-200 transition-colors text-[11px] font-medium"
+                >
+                  {expandedIds.has(d.id) ? (
+                    <ChevronDown size={14} />
+                  ) : (
+                    <ChevronRight size={14} />
+                  )}
+                  {d.status === 'verified' ? 'View DNS configuration' : 'DNS setup instructions'}
+                </button>
 
-                {/* TXT — ownership */}
-                <div>
-                  <p className="text-[9px] font-bold uppercase tracking-widest text-zinc-500 mb-1.5">
-                    1. Verify ownership
-                  </p>
-                  <div className="text-[10px] text-zinc-500 mb-1 font-mono">
-                    Host: <span className="text-zinc-300">_vstrk-verify.{d.hostname}</span>
-                  </div>
-                  <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2">
-                    <code className="flex-1 bg-zinc-900 border border-zinc-800 rounded px-2 py-1.5 text-[11px] text-zinc-300 font-mono truncate">
-                      {d.verification_token}
-                    </code>
-                    <button
-                      onClick={() => copyValue(`${d.id}:txt`, d.verification_token!)}
-                      className="flex items-center justify-center gap-1.5 px-3 py-2 sm:py-1 rounded-md border border-zinc-800 text-zinc-400 hover:text-white hover:border-zinc-700 transition-colors flex-shrink-0"
-                      title="Copy TXT value"
-                    >
-                      {copiedKey === `${d.id}:txt` ? (
-                        <Check size={14} className="text-green-500" />
-                      ) : (
-                        <Copy size={14} />
-                      )}
-                      <span className="text-[10px] font-bold uppercase tracking-widest">
-                        {copiedKey === `${d.id}:txt` ? 'Copied' : 'Copy'}
-                      </span>
-                    </button>
-                  </div>
-                </div>
+                {expandedIds.has(d.id) && (
+                  <div className="mt-2 bg-white border border-zinc-200 rounded-lg p-5 space-y-4 text-zinc-800">
+                    <div className="flex gap-3">
+                      <span className="w-5 h-5 rounded-full bg-zinc-100 text-zinc-500 text-[11px] font-medium flex items-center justify-center flex-shrink-0">1</span>
+                      <div>
+                        <p className="text-[13px] font-medium mb-0.5">Open your DNS provider</p>
+                        <p className="text-[12px] text-zinc-500">Sign in where you manage this domain — for example Cloudflare, GoDaddy, Namecheap, or Porkbun.</p>
+                      </div>
+                    </div>
 
-                {/* CNAME — routing */}
-                <div>
-                  <p className="text-[9px] font-bold uppercase tracking-widest text-zinc-500 mb-1.5">
-                    2. Point traffic to your tracking domain
-                  </p>
-                  <div className="text-[10px] text-zinc-500 mb-1 font-mono">
-                    Host: <span className="text-zinc-300">{d.hostname}</span>
-                  </div>
-                  <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2">
-                    <code className="flex-1 bg-zinc-900 border border-zinc-800 rounded px-2 py-1.5 text-[11px] text-zinc-300 font-mono truncate">
-                      {CNAME_TARGET}
-                    </code>
-                    <button
-                      onClick={() => copyValue(`${d.id}:cname`, CNAME_TARGET)}
-                      className="flex items-center justify-center gap-1.5 px-3 py-2 sm:py-1 rounded-md border border-zinc-800 text-zinc-400 hover:text-white hover:border-zinc-700 transition-colors flex-shrink-0"
-                      title="Copy CNAME value"
-                    >
-                      {copiedKey === `${d.id}:cname` ? (
-                        <Check size={14} className="text-green-500" />
-                      ) : (
-                        <Copy size={14} />
-                      )}
-                      <span className="text-[10px] font-bold uppercase tracking-widest">
-                        {copiedKey === `${d.id}:cname` ? 'Copied' : 'Copy'}
-                      </span>
-                    </button>
-                  </div>
-                </div>
+                    <div className="flex gap-3">
+                      <span className="w-5 h-5 rounded-full bg-zinc-100 text-zinc-500 text-[11px] font-medium flex items-center justify-center flex-shrink-0">2</span>
+                      <p className="text-[13px] font-medium">Go to DNS, or DNS records</p>
+                    </div>
 
-                <p className="text-zinc-600 text-[10px]">
-                  DNS changes can take a few minutes to a few hours to take effect. This box stays here until verification succeeds — come back anytime to copy these values again.
-                </p>
+                    <div className="flex gap-3">
+                      <span className="w-5 h-5 rounded-full bg-zinc-100 text-zinc-500 text-[11px] font-medium flex items-center justify-center flex-shrink-0">3</span>
+                      <p className="text-[13px] font-medium">Click "Add record"</p>
+                    </div>
+
+                    <div className="flex gap-3">
+                      <span className="w-5 h-5 rounded-full bg-zinc-100 text-zinc-500 text-[11px] font-medium flex items-center justify-center flex-shrink-0">4</span>
+                      <div className="flex-1 min-w-0">
+                        <p className="text-[13px] font-medium mb-2">Create the TXT record</p>
+                        <table className="w-full text-[12px] border-collapse">
+                          <tbody>
+                            <tr>
+                              <td className="text-zinc-500 py-1 pr-2 w-14 align-top">Type</td>
+                              <td className="py-1" colSpan={2}>
+                                <code className="bg-zinc-100 rounded px-2 py-0.5">TXT</code>
+                              </td>
+                            </tr>
+                            <tr>
+                              <td className="text-zinc-500 py-1 pr-2 align-top">Name</td>
+                              <td className="py-1 pr-2 truncate">
+                                <code className="bg-zinc-100 rounded px-2 py-0.5">_vstrk-verify.{d.hostname}</code>
+                              </td>
+                              <td className="py-1 text-right">
+                                <button
+                                  onClick={() => copyValue(`${d.id}:txtname`, `_vstrk-verify.${d.hostname}`)}
+                                  className="text-zinc-400 hover:text-zinc-700 transition-colors"
+                                  title="Copy name"
+                                >
+                                  {copiedKey === `${d.id}:txtname` ? (
+                                    <Check size={13} className="text-green-600" />
+                                  ) : (
+                                    <Copy size={13} />
+                                  )}
+                                </button>
+                              </td>
+                            </tr>
+                            <tr>
+                              <td className="text-zinc-500 py-1 pr-2 align-top">Value</td>
+                              <td className="py-1 pr-2 truncate">
+                                <code className="bg-zinc-100 rounded px-2 py-0.5">{d.verification_token}</code>
+                              </td>
+                              <td className="py-1 text-right">
+                                <button
+                                  onClick={() => copyValue(`${d.id}:txt`, d.verification_token!)}
+                                  className="text-zinc-400 hover:text-zinc-700 transition-colors"
+                                  title="Copy value"
+                                >
+                                  {copiedKey === `${d.id}:txt` ? (
+                                    <Check size={13} className="text-green-600" />
+                                  ) : (
+                                    <Copy size={13} />
+                                  )}
+                                </button>
+                              </td>
+                            </tr>
+                          </tbody>
+                        </table>
+                      </div>
+                    </div>
+
+                    <div className="flex gap-3">
+                      <span className="w-5 h-5 rounded-full bg-zinc-100 text-zinc-500 text-[11px] font-medium flex items-center justify-center flex-shrink-0">5</span>
+                      <div className="flex-1 min-w-0">
+                        <p className="text-[13px] font-medium mb-2">Create the CNAME record</p>
+                        <table className="w-full text-[12px] border-collapse">
+                          <tbody>
+                            <tr>
+                              <td className="text-zinc-500 py-1 pr-2 w-14 align-top">Type</td>
+                              <td className="py-1" colSpan={2}>
+                                <code className="bg-zinc-100 rounded px-2 py-0.5">CNAME</code>
+                              </td>
+                            </tr>
+                            <tr>
+                              <td className="text-zinc-500 py-1 pr-2 align-top">Name</td>
+                              <td className="py-1 pr-2 truncate">
+                                <code className="bg-zinc-100 rounded px-2 py-0.5">{d.hostname}</code>
+                              </td>
+                              <td className="py-1 text-right">
+                                <button
+                                  onClick={() => copyValue(`${d.id}:cnamename`, d.hostname)}
+                                  className="text-zinc-400 hover:text-zinc-700 transition-colors"
+                                  title="Copy name"
+                                >
+                                  {copiedKey === `${d.id}:cnamename` ? (
+                                    <Check size={13} className="text-green-600" />
+                                  ) : (
+                                    <Copy size={13} />
+                                  )}
+                                </button>
+                              </td>
+                            </tr>
+                            <tr>
+                              <td className="text-zinc-500 py-1 pr-2 align-top">Target</td>
+                              <td className="py-1 pr-2 truncate">
+                                <code className="bg-zinc-100 rounded px-2 py-0.5">{CNAME_TARGET}</code>
+                              </td>
+                              <td className="py-1 text-right">
+                                <button
+                                  onClick={() => copyValue(`${d.id}:cname`, CNAME_TARGET)}
+                                  className="text-zinc-400 hover:text-zinc-700 transition-colors"
+                                  title="Copy target"
+                                >
+                                  {copiedKey === `${d.id}:cname` ? (
+                                    <Check size={13} className="text-green-600" />
+                                  ) : (
+                                    <Copy size={13} />
+                                  )}
+                                </button>
+                              </td>
+                            </tr>
+                          </tbody>
+                        </table>
+                      </div>
+                    </div>
+
+                    {d.status === 'pending' ? (
+                      <div className="flex gap-3">
+                        <span className="w-5 h-5 rounded-full bg-zinc-100 text-zinc-500 text-[11px] font-medium flex items-center justify-center flex-shrink-0">6</span>
+                        <div className="flex-1">
+                          <p className="text-[13px] font-medium mb-2">Wait a few minutes, then verify</p>
+                          <button
+                            onClick={() => handleVerify(d.id)}
+                            disabled={verifyingId === d.id}
+                            className="w-full flex items-center justify-center gap-2 px-3 py-2 rounded-md bg-red-600 hover:bg-red-500 disabled:bg-zinc-300 disabled:text-zinc-500 text-white text-[11px] font-bold uppercase tracking-widest transition-colors"
+                          >
+                            {verifyingId === d.id ? (
+                              <Loader2 className="animate-spin" size={14} />
+                            ) : (
+                              <ShieldCheck size={14} />
+                            )}
+                            Verify domain
+                          </button>
+                        </div>
+                      </div>
+                    ) : (
+                      <p className="text-zinc-400 text-[11px] pt-1 border-t border-zinc-100">
+                        These records are already verified. You shouldn't need to touch them again unless your DNS provider resets them.
+                      </p>
+                    )}
+                  </div>
+                )}
               </div>
             )}
 
