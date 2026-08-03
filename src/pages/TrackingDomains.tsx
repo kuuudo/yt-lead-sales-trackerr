@@ -25,6 +25,14 @@ export default function TrackingDomains() {
   const [actionError, setActionError] = useState<string | null>(null);
   const [verifyingId, setVerifyingId] = useState<string | null>(null);
   const [verifyMessage, setVerifyMessage] = useState<{ id: string; text: string } | null>(null);
+  // 'checking' shows immediately on click. Flips to 'connecting' only if
+  // the request is still pending after CONNECTING_DELAY_MS — if the
+  // response comes back before that, verifyingRef is already cleared and
+  // the timer callback is a no-op. No artificial minimum display time
+  // for either stage.
+  const [verifyStage, setVerifyStage] = useState<'checking' | 'connecting' | null>(null);
+  const verifyingRef = React.useRef<string | null>(null);
+  const CONNECTING_DELAY_MS = 1500;
 
   const refresh = async () => {
     if (!organizationId) return;
@@ -84,8 +92,16 @@ export default function TrackingDomains() {
 const handleVerify = async (domainId: string) => {
   setVerifyingId(domainId);
   setVerifyMessage(null);
+  setVerifyStage('checking');
+  verifyingRef.current = domainId;
+
+  const stageTimer = setTimeout(() => {
+    if (verifyingRef.current === domainId) setVerifyStage('connecting');
+  }, CONNECTING_DELAY_MS);
 
   const result = await verifyDomain(domainId);
+  clearTimeout(stageTimer);
+  verifyingRef.current = null;
 
   if (!result) {
     setVerifyMessage({
@@ -97,11 +113,12 @@ const handleVerify = async (domainId: string) => {
   } else {
     setVerifyMessage({
       id: domainId,
-      text: 'TXT record not found yet. DNS changes can take time to propagate.',
+      text: result.error || 'TXT record not found yet. DNS changes can take time to propagate.',
     });
   }
 
   setVerifyingId(null);
+  setVerifyStage(null);
   await refresh();
 };
   
@@ -315,6 +332,15 @@ ${d.hostname}/abc123`}
                 <p className="text-zinc-600 text-[10px]">
                   DNS changes can take a few minutes to a few hours to take effect. This box stays here until verification succeeds — come back anytime to copy these values again.
                 </p>
+              </div>
+            )}
+
+            {verifyingId === d.id && verifyStage && (
+              <div className="flex items-center gap-2 mt-2">
+                <Loader2 className="animate-spin text-zinc-500" size={12} />
+                <span className="text-zinc-500 text-[10px]">
+                  {verifyStage === 'checking' ? 'Checking DNS…' : 'Connecting your domain…'}
+                </span>
               </div>
             )}
 

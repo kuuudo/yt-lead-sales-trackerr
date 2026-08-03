@@ -180,6 +180,10 @@ export interface VerifyDomainResult {
   status: 'verified' | 'pending';
   matched: boolean;
   alreadyVerified?: boolean;
+  // Present when DNS ownership passed but the Vercel attach step failed.
+  // verify-domain.ts already returns this — this is a type-only addition,
+  // not a backend change.
+  error?: string;
 }
 
 /**
