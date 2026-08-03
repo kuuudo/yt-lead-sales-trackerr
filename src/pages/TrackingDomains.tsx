@@ -18,8 +18,10 @@ export default function TrackingDomains() {
   const [loading, setLoading] = useState(true);
   const [newHostname, setNewHostname] = useState('');
   const [adding, setAdding] = useState(false);
-  const [pendingToken, setPendingToken] = useState<{ hostname: string; token: string } | null>(null);
-  const [copied, setCopied] = useState(false);
+  // Tracks which specific field was just copied, e.g. "abc123:txt" or
+  // "abc123:cname" — scoped per domain+field since each pending domain
+  // now renders its own persistent TXT/CNAME block.
+  const [copiedKey, setCopiedKey] = useState<string | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
   const [verifyingId, setVerifyingId] = useState<string | null>(null);
   const [verifyMessage, setVerifyMessage] = useState<{ id: string; text: string } | null>(null);
@@ -50,7 +52,6 @@ export default function TrackingDomains() {
       return;
     }
 
-    setPendingToken({ hostname: result.domain.hostname, token: result.verificationToken });
     setNewHostname('');
     setAdding(false);
     await refresh();
@@ -104,11 +105,19 @@ const handleVerify = async (domainId: string) => {
   await refresh();
 };
   
-  const copyToken = async (token: string) => {
-    await navigator.clipboard.writeText(token);
-    setCopied(true);
-    setTimeout(() => setCopied(false), 2000);
+  const copyValue = async (key: string, value: string) => {
+    await navigator.clipboard.writeText(value);
+    setCopiedKey(key);
+    setTimeout(() => setCopiedKey((k) => (k === key ? null : k)), 2000);
   };
+
+  // Vercel's static, general-purpose CNAME target. Not project-specific —
+  // the dashboard shows a per-project dynamic value (e.g.
+  // 67b3aa673c5fb184.vercel-dns-017.com) but that value isn't exposed via
+  // the REST API on domain add, and Vercel confirms the static value
+  // continues to work indefinitely. Using it here avoids a second Vercel
+  // API round-trip just to fetch a display string.
+  const CNAME_TARGET = 'cname.vercel-dns.com';
 
   return (
     <div className="max-w-3xl">
@@ -141,31 +150,6 @@ const handleVerify = async (domainId: string) => {
 
         {actionError && (
           <p className="text-red-500 text-xs mt-3">{actionError}</p>
-        )}
-
-        {pendingToken && (
-          <div className="mt-4 bg-zinc-950 border border-zinc-800 rounded-md p-4">
-            <p className="text-zinc-400 text-xs mb-2">
-              Add this TXT record for <span className="text-white font-bold">{pendingToken.hostname}</span> to verify ownership:
-            </p>
-            <div className="text-[10px] text-zinc-500 mb-1 font-mono">
-              Host: <span className="text-zinc-300">_vstrk-verify.{pendingToken.hostname}</span>
-            </div>
-            <div className="flex items-center gap-2">
-              <code className="flex-1 bg-zinc-900 border border-zinc-800 rounded px-2 py-1 text-[11px] text-zinc-300 font-mono truncate">
-                {pendingToken.token}
-              </code>
-              <button
-                onClick={() => copyToken(pendingToken.token)}
-                className="text-zinc-500 hover:text-white transition-colors"
-              >
-                {copied ? <Check size={14} className="text-green-500" /> : <Copy size={14} />}
-              </button>
-            </div>
-            <p className="text-zinc-600 text-[10px] mt-3">
-              Verification isn't available yet — this domain will remain pending until DNS verification ships.
-            </p>
-          </div>
         )}
       </div>
 
@@ -268,6 +252,71 @@ ${d.hostname}/abc123`}
                </button>
               </div>
             </div>
+
+            {d.status === 'pending' && d.verification_token && (
+              <div className="mt-3 bg-zinc-950 border border-zinc-800 rounded-md p-4 space-y-4">
+                <p className="text-zinc-400 text-xs">
+                  Add these 2 records at your DNS provider to verify and connect{' '}
+                  <span className="text-white font-bold">{d.hostname}</span>:
+                </p>
+
+                {/* TXT — ownership */}
+                <div>
+                  <p className="text-[9px] font-bold uppercase tracking-widest text-zinc-500 mb-1.5">
+                    1. Verify ownership
+                  </p>
+                  <div className="text-[10px] text-zinc-500 mb-1 font-mono">
+                    Host: <span className="text-zinc-300">_vstrk-verify.{d.hostname}</span>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <code className="flex-1 bg-zinc-900 border border-zinc-800 rounded px-2 py-1 text-[11px] text-zinc-300 font-mono truncate">
+                      {d.verification_token}
+                    </code>
+                    <button
+                      onClick={() => copyValue(`${d.id}:txt`, d.verification_token!)}
+                      className="text-zinc-500 hover:text-white transition-colors flex-shrink-0"
+                      title="Copy TXT value"
+                    >
+                      {copiedKey === `${d.id}:txt` ? (
+                        <Check size={14} className="text-green-500" />
+                      ) : (
+                        <Copy size={14} />
+                      )}
+                    </button>
+                  </div>
+                </div>
+
+                {/* CNAME — routing */}
+                <div>
+                  <p className="text-[9px] font-bold uppercase tracking-widest text-zinc-500 mb-1.5">
+                    2. Point traffic to your tracking domain
+                  </p>
+                  <div className="text-[10px] text-zinc-500 mb-1 font-mono">
+                    Host: <span className="text-zinc-300">{d.hostname}</span>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <code className="flex-1 bg-zinc-900 border border-zinc-800 rounded px-2 py-1 text-[11px] text-zinc-300 font-mono truncate">
+                      {CNAME_TARGET}
+                    </code>
+                    <button
+                      onClick={() => copyValue(`${d.id}:cname`, CNAME_TARGET)}
+                      className="text-zinc-500 hover:text-white transition-colors flex-shrink-0"
+                      title="Copy CNAME value"
+                    >
+                      {copiedKey === `${d.id}:cname` ? (
+                        <Check size={14} className="text-green-500" />
+                      ) : (
+                        <Copy size={14} />
+                      )}
+                    </button>
+                  </div>
+                </div>
+
+                <p className="text-zinc-600 text-[10px]">
+                  DNS changes can take a few minutes to a few hours to take effect. This box stays here until verification succeeds — come back anytime to copy these values again.
+                </p>
+              </div>
+            )}
 
             {verifyMessage?.id === d.id && (
               <p className="text-zinc-500 text-[10px] mt-2">

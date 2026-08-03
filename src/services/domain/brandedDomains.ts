@@ -8,6 +8,12 @@ export interface BrandedTrackingDomain {
   is_default: boolean;
   verified_at: string | null;
   created_at: string;
+  // Plaintext verification token, display-only. Set once at creation,
+  // never changes. Not used for any security comparison — verify-domain.ts
+  // still compares against verification_token_hash server-side. This
+  // exists purely so the DNS card can be rebuilt after a page refresh
+  // instead of relying on ephemeral component state.
+  verification_token: string | null;
 }
 
 // SHA-256 hash of the verification token, hex-encoded. Uses the browser's
@@ -32,7 +38,9 @@ export const listBrandedDomains = async (
 ): Promise<BrandedTrackingDomain[]> => {
   const { data, error } = await supabase
     .from('branded_tracking_domains')
-    .select('id, organization_id, hostname, status, is_default, verified_at, created_at')
+    .select(
+      'id, organization_id, hostname, status, is_default, verified_at, created_at, verification_token'
+    )
     .eq('organization_id', organizationId)
     .order('created_at', { ascending: false });
 
@@ -45,13 +53,14 @@ export const listBrandedDomains = async (
 };
 
 /**
- * Adds a new domain in `pending` status and returns the plaintext
- * verification token — shown to the user exactly once, here, at creation
- * time. It is never stored and never retrievable again; only its hash is
- * persisted. If the user navigates away before adding the DNS record,
- * they must remove this row and add the domain again (Milestone 1 does
- * not include a "regenerate token" action — small enough to add later
- * without touching this function's contract).
+ * Adds a new domain in `pending` status. The verification token is now
+ * persisted in plaintext (verification_token column) precisely so it can
+ * be redisplayed indefinitely — the TXT/CNAME card must survive page
+ * refreshes and multi-day gaps while a domain is pending. The token is
+ * not a secret in the credential sense: possessing it doesn't let anyone
+ * claim a domain they don't control, since it only matters once actually
+ * published in that domain's own DNS. The hash column and verify-domain.ts's
+ * comparison logic are untouched — this is additive, not a security change.
  */
 export const addBrandedDomain = async (
   organizationId: string,
@@ -75,8 +84,11 @@ export const addBrandedDomain = async (
       status: 'pending',
       is_default: false,
       verification_token_hash,
+      verification_token: verificationToken,
     })
-    .select('id, organization_id, hostname, status, is_default, verified_at, created_at')
+    .select(
+      'id, organization_id, hostname, status, is_default, verified_at, created_at, verification_token'
+    )
     .single();
 
   if (error || !data) {
