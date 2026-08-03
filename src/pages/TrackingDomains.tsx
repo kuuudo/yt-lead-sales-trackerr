@@ -1,5 +1,8 @@
 import React, { useEffect, useState } from 'react';
-import { Globe, Plus, Star, Trash2, Ban, Loader2, Copy, Check, ShieldCheck, CircleHelp, ChevronDown, ChevronRight } from 'lucide-react';
+import { Globe, Plus, Trash2, Ban, Loader2, Copy, Check, ShieldCheck, ChevronDown, ChevronRight } from 'lucide-react';
+// Star and CircleHelp are no longer imported — they were only used by the
+// "Set Default" action, which is hidden (not deleted) below. Re-add both
+// to this import line if that block gets restored.
 import { useOrganization } from '../lib/useOrganization';
 import {
   listBrandedDomains,
@@ -264,6 +267,9 @@ const handleVerify = async (domainId: string) => {
 
       {/* Add domain */}
       <div className="bg-zinc-900/50 border border-zinc-800 rounded-lg p-5 mb-6">
+        <label className="text-[11px] font-bold uppercase tracking-widest text-zinc-400 mb-2 block">
+          Tracking domain
+        </label>
         <div className="flex gap-3">
           <input
             type="text"
@@ -282,6 +288,15 @@ const handleVerify = async (domainId: string) => {
           </button>
         </div>
 
+        <p className="text-zinc-500 text-[11px] mt-2">
+          Enter a subdomain of a domain you own — not the root domain itself, e.g.{' '}
+          <span className="text-zinc-400 font-mono">go.yourdomain.com</span> or{' '}
+          <span className="text-zinc-400 font-mono">shop.yourdomain.com</span>. It doesn't need to exist yet — we'll set it up together in the next step.
+        </p>
+        <p className="text-zinc-600 text-[11px] mt-1.5">
+          You can create multiple tracking domains from the same root domain. For example, <span className="font-mono">kaksidigitals.com</span> could use <span className="font-mono">go.kaksidigitals.com</span>, <span className="font-mono">shop.kaksidigitals.com</span>, and <span className="font-mono">track.kaksidigitals.com</span> — each tracked separately.
+        </p>
+
         {actionError && (
           <p className="text-red-500 text-xs mt-3">{actionError}</p>
         )}
@@ -296,9 +311,7 @@ const handleVerify = async (domainId: string) => {
         <p className="text-zinc-600 text-sm text-center py-12">No custom domains yet.</p>
       ) : (
         <div className="space-y-3">
-          {(() => {
-            const hasAnyDefault = domains.some((dom) => dom.is_default);
-            return domains.map((d) => (
+          {domains.map((d) => (
             <div
                key={d.id}
                className="bg-zinc-900/50 border border-zinc-800 rounded-lg px-4 py-3"
@@ -318,7 +331,7 @@ const handleVerify = async (domainId: string) => {
                   {d.status}
                 </span>
                 {d.is_default && (
-                  <span className="text-[9px] font-bold uppercase tracking-widest px-2 py-0.5 rounded bg-violet-500/10 text-violet-400">
+                  <span className="text-[9px] font-bold uppercase tracking-widest px-2 py-0.5 rounded bg-amber-500/10 text-amber-400">
                     Default
                   </span>
                 )}
@@ -343,37 +356,10 @@ const handleVerify = async (domainId: string) => {
     </button>
   )}
 
-  {d.status === 'verified' && !d.is_default && (
-  <div className="flex items-center gap-2">
-    <button
-      onClick={() => handleSetDefault(d.id)}
-      className={
-        hasAnyDefault
-          ? 'flex items-center gap-1.5 px-2 py-1 rounded-md border border-zinc-700 text-zinc-300 hover:border-violet-500 hover:text-violet-400 transition-colors'
-          : 'flex items-center gap-1.5 px-3 py-1.5 rounded-md bg-violet-600 hover:bg-violet-500 text-white transition-colors'
-      }
-    >
-      <Star size={14} />
-      <span className="text-[10px] font-bold uppercase tracking-widest">
-        Set Default
-      </span>
-    </button>
+  {/* "Set Default" is intentionally hidden in the UI for now — not deleted.
+      handleSetDefault above is left wired up so this can be re-enabled by
+      restoring this block, without touching any other logic. */}
 
-    <button
-      title={`Set this as your default tracking domain.
-
-New tracking links will use this domain instead of vstrk.com.
-
-Example:
-vstrk.com/abc123
-↓
-${d.hostname}/abc123`}
-      className="text-zinc-500 hover:text-zinc-300 transition-colors"
-    >
-      <CircleHelp size={14} />
-    </button>
-  </div>
-)}
                 {d.is_default && (
                   <button
                     onClick={() => handleDisable(d.id)}
@@ -392,12 +378,6 @@ ${d.hostname}/abc123`}
                </button>
               </div>
             </div>
-
-            {d.status === 'verified' && !d.is_default && !hasAnyDefault && (
-              <p className="text-violet-400/80 text-[10px] mt-2">
-                This domain is verified and ready — set it as default to start using it on new links.
-              </p>
-            )}
 
             {d.verification_token && (
               <div className="mt-3">
@@ -597,8 +577,7 @@ ${d.hostname}/abc123`}
               </p>
             )}
           </div>
-          ));
-          })()}
+          ))}
         </div>
       )}
     </div>
