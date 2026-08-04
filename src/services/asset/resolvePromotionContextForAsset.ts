@@ -46,16 +46,6 @@ export interface PromotionContextOption {
   assignmentId: string;
   assignmentTitle: string;
   sharedByName: string;
-  /**
-   * The Promotion's owning organization. Exposed as plain metadata —
-   * this file resolves it because it's already one hop away
-   * (promotions.organization_id), same query, no extra round trip.
-   * This file does NOT resolve domains itself; callers that need
-   * available tracking domains call listVerifiedBrandedDomains(
-   * organizationId) themselves. Keeps this resolver's only job as
-   * "asset -> promotion -> assignment -> org," nothing more.
-   */
-  organizationId: string;
 }
 
 /** The subset of a PromotionContextOption that gets stored/threaded through
@@ -117,7 +107,7 @@ export async function resolvePromotionContextForAsset(
   // ── Step 3: promotions started via one of these collaborator rows ────────
   const { data: promotionRows, error: promotionErr } = await supabase
     .from('promotions')
-    .select('id, assignment_collaborator_id, organization_id')
+    .select('id, assignment_collaborator_id')
     .in('assignment_collaborator_id', collaboratorIds);
 
   if (promotionErr) {
@@ -160,7 +150,6 @@ export async function resolvePromotionContextForAsset(
       assignmentId,
       assignmentTitle: info.assignmentTitle,
       sharedByName: info.sharedByName,
-      organizationId: promo.organization_id,
     });
   }
 

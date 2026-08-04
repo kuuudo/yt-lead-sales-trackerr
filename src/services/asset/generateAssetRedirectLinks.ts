@@ -82,24 +82,12 @@ export interface SelectedPromotedAsset {
    * undefined
    */
   promotionContext?: PromotionContext;
-
-  /**
-   * Chosen per asset, not per call — different assets in the same
-   * batch can legitimately belong to different promotions (different
-   * organizations), and therefore have different valid domain
-   * choices. Never a shared/global value across selectedAssets.
-   *
-   * REQUIRED (not optional): every caller must explicitly decide this
-   * per asset, even if the decision is "no branded domain" (null).
-   * Deliberately not string | undefined — callers should never be
-   * able to omit this field and drift into an implicit default.
-   */
-  trackingDomainId: string | null;
 }
 
 export interface GenerateAssetRedirectLinksOptions {
   videoId: string;
   selectedAssets: SelectedPromotedAsset[];
+  trackingDomainId?: string | null;
 }
 
 interface RedirectJob {
@@ -452,6 +440,7 @@ async function resolveAssetRedirectContext(
 export async function generateAssetRedirectLinks({
   videoId,
   selectedAssets,
+  trackingDomainId,
 }: GenerateAssetRedirectLinksOptions): Promise<void> {
   if (!selectedAssets || selectedAssets.length === 0) return;
 
@@ -562,7 +551,7 @@ if (context.redirectJobs.length === 0) {
             {
               assetId: context.assetId,
               promotionId: selected.promotionContext?.promotionId ?? null,
-              trackingDomainId: selected.trackingDomainId,
+              trackingDomainId: trackingDomainId ?? null,
             }
           );
         })
