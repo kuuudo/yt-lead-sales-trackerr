@@ -57,6 +57,13 @@ export interface CreateAssignmentInput {
   title: string;
   description?: string | null;
   assetIds: string[];
+  /**
+   * Assignment-level configuration, NOT Asset authorization — a
+   * completely separate concern from assetIds above. Optional; an
+   * empty/omitted array is a valid state (Assignment created with no
+   * Tracking Domains shared). See assignment_tracking_domains.
+   */
+  domainIds?: string[];
 }
 
 export interface CreateAssignmentResult {
@@ -69,6 +76,7 @@ export async function createAssignment({
   title,
   description = null,
   assetIds,
+  domainIds = [],
 }: CreateAssignmentInput): Promise<CreateAssignmentResult> {
   if (!title.trim()) {
     throw new Error('Assignment title is required');
@@ -136,6 +144,33 @@ export async function createAssignment({
     // delete outright — same pattern as createVideo.ts / createPromotion.ts.
     await supabase.from('assignments').delete().eq('id', assignment.id);
     throw new Error(`Failed to attach assets to Assignment: ${assetsErr.message}`);
+  }
+
+  // --------------------------------------------------
+  // Tracking Domains: Assignment configuration, NOT Asset authorization.
+  // Deliberately a separate insert into its own table
+  // (assignment_tracking_domains), not folded into assignment_assets
+  // above. Zero domains selected is valid — this block is skipped
+  // entirely in that case, same as how librarySelectedAssetIds being
+  // empty is a normal, expected state on the UI side.
+  // --------------------------------------------------
+
+  if (domainIds.length > 0) {
+    const { error: domainsErr } = await supabase
+      .from('assignment_tracking_domains')
+      .insert(
+        domainIds.map(domainId => ({
+          assignment_id: assignment.id,
+          branded_tracking_domain_id: domainId,
+        }))
+      );
+
+    if (domainsErr) {
+      // Same compensation reasoning as the assets insert above: no
+      // invitations/collaborators exist yet, safe to delete outright.
+      await supabase.from('assignments').delete().eq('id', assignment.id);
+      throw new Error(`Failed to attach tracking domains to Assignment: ${domainsErr.message}`);
+    }
   }
 
   return { assignmentId: assignment.id };
