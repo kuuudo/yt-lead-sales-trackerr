@@ -157,6 +157,26 @@ export default function AssignmentDetail() {
           <p className="text-zinc-400 text-sm mb-6">{assignment.description}</p>
         )}
 
+        {/* Read-only. No Add/Remove, no editing — this PR only surfaces
+            what was already selected at Create Assignment time.
+            assignment_tracking_domains is the source of truth; this
+            block does not touch redirect_links (unrelated, historical). */}
+        {data.trackingDomains.length > 0 && (
+          <div className="mb-6">
+            <div className="text-[10px] font-bold uppercase tracking-widest text-zinc-500 mb-2">
+              Tracking Domains
+            </div>
+            <div className="space-y-1.5">
+              {data.trackingDomains.map(domain => (
+                <div key={domain.id} className="flex items-center gap-2 text-sm text-zinc-300">
+                  <CheckCircle2 size={13} className="text-red-600 shrink-0" />
+                  {domain.hostname}
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
         {error && (
           <div className="text-red-500 text-sm border border-red-900 bg-red-950/30 rounded-lg p-4 mb-6">
             {error}

@@ -60,6 +60,21 @@ export interface CampaignGroup {
   assets: AssignmentAssetOption[];
 }
 
+/**
+ * One shared Tracking Domain, as currently listed in
+ * assignment_tracking_domains for this Assignment. Read-only display
+ * shape — no status/authorization fields, since this PR does not add
+ * any management action. hostname is reused directly from
+ * branded_tracking_domains via the join below, not re-fetched through
+ * listVerifiedBrandedDomains (which is org-scoped and answers a
+ * different question — "what could be shared," not "what was shared
+ * with this Assignment").
+ */
+export interface AssignmentTrackingDomain {
+  id: string;
+  hostname: string;
+}
+
 export interface AssignmentDetailData {
   assignment: {
     id: string;
@@ -74,6 +89,7 @@ export interface AssignmentDetailData {
   myCollaboratorId: string | null;
   assignmentAssets: AssignmentAssetOption[];
   campaignGroups: CampaignGroup[];
+  trackingDomains: AssignmentTrackingDomain[];
 }
 
 export async function getAssignmentDetail(
@@ -106,6 +122,7 @@ export async function getAssignmentDetail(
     { data: invitation, error: invitationErr },
     { data: collaborator, error: collaboratorErr },
     { data: assignmentAssetRows, error: assetsErr },
+    { data: trackingDomainRows, error: trackingDomainsErr },
   ] = await Promise.all([
     supabase
       .from('assignment_invitations')
@@ -126,11 +143,25 @@ export async function getAssignmentDetail(
       .from('assignment_assets')
       .select('asset_id')
       .eq('assignment_id', assignmentId),
+    // Read-only, this PR's actual addition. Reuses branded_tracking_domains
+    // via a nested select on the join, rather than a second round trip —
+    // same join-for-display-data pattern already used below for
+    // videos/campaign_element_assets/asset_resources.
+    supabase
+      .from('assignment_tracking_domains')
+      .select('branded_tracking_domain_id, branded_tracking_domains(id, hostname)')
+      .eq('assignment_id', assignmentId),
   ]);
 
   if (invitationErr) throw new Error(`Invitation query failed: ${invitationErr.message}`);
   if (collaboratorErr) throw new Error(`Collaborator query failed: ${collaboratorErr.message}`);
   if (assetsErr) throw new Error(`Assignment assets query failed: ${assetsErr.message}`);
+  if (trackingDomainsErr) throw new Error(`Tracking domains query failed: ${trackingDomainsErr.message}`);
+
+  const trackingDomains: AssignmentTrackingDomain[] = (trackingDomainRows ?? [])
+    .map((row: any) => row.branded_tracking_domains)
+    .filter((d: any): d is { id: string; hostname: string } => !!d)
+    .map((d: any) => ({ id: d.id, hostname: d.hostname }));
 
   const assetIds = (assignmentAssetRows ?? []).map(r => r.asset_id);
 
@@ -272,5 +303,6 @@ export async function getAssignmentDetail(
     myCollaboratorId: collaborator?.id ?? null,
     assignmentAssets,
     campaignGroups,
+    trackingDomains,
   };
 }
