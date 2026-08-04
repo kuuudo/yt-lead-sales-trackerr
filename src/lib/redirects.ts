@@ -30,6 +30,7 @@ export interface RedirectLink {
   organization_id: string | null;
   promotion_id: string | null;
   asset_id: string | null;
+  tracking_hostname: string | null;
 }
 
 export interface CreateRedirectLinkOptions {
@@ -245,6 +246,10 @@ export const logRedirectEvent = async (link: RedirectLink) => {
     value: null,
     organization_id: link.organization_id,
     promotion_id: link.promotion_id,
+    asset_id: link.asset_id,
+    redirect_link_id: link.id,
+    tracking_hostname: link.tracking_hostname,
+    link_type: link.link_type,
   });
 };
 
