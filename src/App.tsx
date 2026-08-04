@@ -32,6 +32,7 @@ import Marketplace from './pages/Marketplace';
 import AssignmentDetail from './pages/AssignmentDetail';
 import CreateAssignment from './pages/CreateAssignment';
 import PromotionDetail from './pages/PromotionDetail';
+import TrackingDomainDetail from './pages/TrackingDomainDetail';
 import Overview from './pages/operator/Overview';
 import Members from './pages/operator/Members';
 import MemberDetail from './pages/operator/MemberDetail';
@@ -166,6 +167,7 @@ function MainContent() {
         <Route path="/marketplace/assignments/new" element={<PageWrapper><CreateAssignment /></PageWrapper>} />
         <Route path="/marketplace/assignments/:assignmentId" element={<PageWrapper><AssignmentDetail /></PageWrapper>} />
         <Route path="/marketplace/promotions/:id" element={<PageWrapper><PromotionDetail /></PageWrapper>} />
+        <Route path="/marketplace/tracking-domains/:domainId" element={<PageWrapper><TrackingDomainDetail /></PageWrapper>} />
         <Route path="/operator" element={<PageWrapper><Overview /></PageWrapper>} />
         <Route path="/operator/members" element={<PageWrapper><Members /></PageWrapper>} />
         <Route path="/operator/members/:id" element={<PageWrapper><MemberDetail /></PageWrapper>} />

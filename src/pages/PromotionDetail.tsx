@@ -48,7 +48,7 @@
 
 import React, { useEffect, useState } from 'react';
 import { useParams, Link } from 'react-router-dom';
-import { ArrowLeft, Loader2, ArchiveRestore, UserX, UserCheck, ShieldOff, ShieldCheck } from 'lucide-react';
+import { ArrowLeft, Loader2, ArchiveRestore, UserX, UserCheck, ShieldOff, ShieldCheck, Globe } from 'lucide-react';
 import { useAuth } from '../lib/auth';
 import {
   getPromotionDetail,
@@ -296,7 +296,7 @@ export default function PromotionDetail() {
     return <div className="text-red-500 text-sm">{error || 'Promotion not found.'}</div>;
   }
 
-  const { promotion, assignment, sponsor, collaborator, assets, assignedAssets } = detail;
+  const { promotion, assignment, sponsor, collaborator, assets, assignedAssets, trackingDomains } = detail;
 
   // Historical-view gate. This is a UI/read-layer distinction only — it
   // does not grant or revoke any actual access. If the viewer IS the
@@ -490,6 +490,32 @@ export default function PromotionDetail() {
                   })}
                 </p>
               </div>
+
+              {/* Read-only. Reads through promotion.assignment_id ->
+                  assignment_tracking_domains -> branded_tracking_domains.
+                  assignment_tracking_domains remains the sole source of
+                  truth — no promotion_tracking_domains table, no
+                  editing, no Add/Remove yet. Each item links to the
+                  TrackingDomainDetail scaffold. */}
+              {trackingDomains.length > 0 && (
+                <div>
+                  <p className="text-[10px] font-black uppercase tracking-widest text-zinc-500 mb-1">
+                    Tracking Domains
+                  </p>
+                  <div className="space-y-1.5">
+                    {trackingDomains.map(domain => (
+                      <Link
+                        key={domain.id}
+                        to={`/marketplace/tracking-domains/${domain.id}`}
+                        className="flex items-center gap-2 text-sm text-blue-400 hover:text-blue-300"
+                      >
+                        <Globe size={13} className="shrink-0" />
+                        {domain.hostname}
+                      </Link>
+                    ))}
+                  </div>
+                </div>
+              )}
             </section>
           </div>
 

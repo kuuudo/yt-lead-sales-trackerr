@@ -76,6 +76,7 @@ import { supabase } from '../../lib/supabase';
 import { getAssetDetail } from '../asset/getAssetDetail';
 import type { AssetResourceView } from '../asset/getAssetDetail';
 import { getAssetAccessStatesForCollaborator } from '../assignment/assignmentAssetAccess';
+import type { AssignmentTrackingDomain } from '../assignment/getAssignmentDetail';
 
 export interface PromotionDetailData {
   promotion: {
@@ -132,6 +133,17 @@ export interface PromotionDetailData {
     resource: AssetResourceView | null;
     isRevoked: boolean;
   }[];
+  /**
+   * Read-through, not owned here. assignment_tracking_domains remains
+   * the sole source of truth (see getAssignmentDetail.ts) — this is the
+   * exact same table, joined via promotion.assignment_id, NOT a new
+   * promotion_tracking_domains table. Empty array (not null) when the
+   * promotion has no linked assignment (direct org-owner promotion) or
+   * the assignment has no domains attached — same "no Assignment
+   * involved" treatment already used for `assignment: null` and
+   * `assignedAssets: []` above.
+   */
+  trackingDomains: AssignmentTrackingDomain[];
 }
 
 export async function getPromotionDetail(promotionId: string): Promise<PromotionDetailData | null> {
@@ -151,6 +163,7 @@ export async function getPromotionDetail(promotionId: string): Promise<Promotion
     { data: sponsorProfile, error: sponsorErr },
     { data: promotionAssetRows, error: assetsErr },
     { data: assignmentAssetRows, error: assignmentAssetsErr },
+    { data: trackingDomainRows, error: trackingDomainsErr },
   ] = await Promise.all([
     promotion.assignment_id
       ? supabase
@@ -180,12 +193,29 @@ export async function getPromotionDetail(promotionId: string): Promise<Promotion
           .select('asset_id')
           .eq('assignment_id', promotion.assignment_id)
       : Promise.resolve({ data: [], error: null }),
+    // Read-through, this file's actual addition for this PR.
+    // assignment_tracking_domains remains the sole source of truth —
+    // reused via the same nested-select join pattern already used in
+    // getAssignmentDetail.ts, scoped by promotion.assignment_id. No new
+    // table, no promotion_tracking_domains.
+    promotion.assignment_id
+      ? supabase
+          .from('assignment_tracking_domains')
+          .select('branded_tracking_domain_id, branded_tracking_domains(id, hostname)')
+          .eq('assignment_id', promotion.assignment_id)
+      : Promise.resolve({ data: [], error: null }),
   ]);
 
   if (assignmentErr) throw new Error(`Failed to load assignment: ${assignmentErr.message}`);
   if (sponsorErr) throw new Error(`Failed to load sponsor profile: ${sponsorErr.message}`);
   if (assetsErr) throw new Error(`Failed to load promoted assets: ${assetsErr.message}`);
   if (assignmentAssetsErr) throw new Error(`Failed to load assigned assets: ${assignmentAssetsErr.message}`);
+  if (trackingDomainsErr) throw new Error(`Failed to load tracking domains: ${trackingDomainsErr.message}`);
+
+  const trackingDomains: AssignmentTrackingDomain[] = (trackingDomainRows ?? [])
+    .map((row: any) => row.branded_tracking_domains)
+    .filter((d: any): d is { id: string; hostname: string } => !!d)
+    .map((d: any) => ({ id: d.id, hostname: d.hostname }));
 
   // Collaborator: assignment_collaborator_id -> assignment_collaborators.user_id -> profiles.
   // Two small steps, same convention as listSharedAssetsForCollaborator.ts's
@@ -292,5 +322,6 @@ if (promotion.assignment_collaborator_id) {
     collaborator,
     assets,
     assignedAssets,
+    trackingDomains,
   };
 }
