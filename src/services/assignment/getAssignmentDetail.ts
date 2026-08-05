@@ -75,6 +75,35 @@ export interface AssignmentTrackingDomain {
   hostname: string;
 }
 
+/**
+ * Standalone, reusable read: assignment_id -> assignment_tracking_domains
+ * -> branded_tracking_domains. This is the SAME query previously inlined
+ * separately in both getAssignmentDetail() below and getPromotionDetail.ts
+ * — extracted here (co-located with the type it returns) so both callers,
+ * plus Track New Content, share one implementation instead of three
+ * copies of the same join. assignment_tracking_domains remains the sole
+ * source of truth; this function does not create, cache, or snapshot
+ * anything — a plain read, callable from anywhere in the Assignment ->
+ * Promotion -> Track New Content chain.
+ */
+export async function listAssignmentTrackingDomains(
+  assignmentId: string
+): Promise<AssignmentTrackingDomain[]> {
+  const { data, error } = await supabase
+    .from('assignment_tracking_domains')
+    .select('branded_tracking_domain_id, branded_tracking_domains(id, hostname)')
+    .eq('assignment_id', assignmentId);
+
+  if (error) {
+    throw new Error(`Tracking domains query failed: ${error.message}`);
+  }
+
+  return (data ?? [])
+    .map((row: any) => row.branded_tracking_domains)
+    .filter((d: any): d is { id: string; hostname: string } => !!d)
+    .map((d: any) => ({ id: d.id, hostname: d.hostname }));
+}
+
 export interface AssignmentDetailData {
   assignment: {
     id: string;
@@ -122,7 +151,7 @@ export async function getAssignmentDetail(
     { data: invitation, error: invitationErr },
     { data: collaborator, error: collaboratorErr },
     { data: assignmentAssetRows, error: assetsErr },
-    { data: trackingDomainRows, error: trackingDomainsErr },
+    trackingDomains,
   ] = await Promise.all([
     supabase
       .from('assignment_invitations')
@@ -143,25 +172,13 @@ export async function getAssignmentDetail(
       .from('assignment_assets')
       .select('asset_id')
       .eq('assignment_id', assignmentId),
-    // Read-only, this PR's actual addition. Reuses branded_tracking_domains
-    // via a nested select on the join, rather than a second round trip —
-    // same join-for-display-data pattern already used below for
-    // videos/campaign_element_assets/asset_resources.
-    supabase
-      .from('assignment_tracking_domains')
-      .select('branded_tracking_domain_id, branded_tracking_domains(id, hostname)')
-      .eq('assignment_id', assignmentId),
+    // Shared implementation — see listAssignmentTrackingDomains() above.
+    listAssignmentTrackingDomains(assignmentId),
   ]);
 
   if (invitationErr) throw new Error(`Invitation query failed: ${invitationErr.message}`);
   if (collaboratorErr) throw new Error(`Collaborator query failed: ${collaboratorErr.message}`);
   if (assetsErr) throw new Error(`Assignment assets query failed: ${assetsErr.message}`);
-  if (trackingDomainsErr) throw new Error(`Tracking domains query failed: ${trackingDomainsErr.message}`);
-
-  const trackingDomains: AssignmentTrackingDomain[] = (trackingDomainRows ?? [])
-    .map((row: any) => row.branded_tracking_domains)
-    .filter((d: any): d is { id: string; hostname: string } => !!d)
-    .map((d: any) => ({ id: d.id, hostname: d.hostname }));
 
   const assetIds = (assignmentAssetRows ?? []).map(r => r.asset_id);
 

@@ -66,7 +66,7 @@ import {
 } from '../services/asset/resolvePromotionContextForAsset';
 
 import type { PromotionContext } from '../services/asset/resolvePromotionContextForAsset';
-
+import { listAssignmentTrackingDomains } from '../services/assignment/getAssignmentDetail';
 import { categorizeAsset } from '../services/redirect/getPromotedAssetDisplay';
 import { resolveAssetType } from '../services/asset/resolveAssetType';
 type VideoStatus = Video['status'];
@@ -537,14 +537,73 @@ const hasBlockingPromotionIssue = Array.from(promotionContextByAssetId.entries()
   const [promotedAssets, setPromotedAssets] = useState<PromotedAssetRow[]>([]);
   const [verifiedDomains, setVerifiedDomains] = useState<VerifiedDomainOption[]>([]);
   const [selectedTrackingDomainId, setSelectedTrackingDomainId] = useState<string | null>(null);
-
+  // Shared Domains, cached by assignmentId (not assetId) — multiple
+  // promoted assets can resolve to the same Assignment, so this avoids
+  // calling listAssignmentTrackingDomains() more than once per Assignment.
+  const [sharedDomainsByAssignmentId, setSharedDomainsByAssignmentId] =
+    useState<Map<string, VerifiedDomainOption[]>>(new Map());
+  // The actual per-asset choice — this is what ends up on
+  // SelectedPromotedAsset.trackingDomainId at generate time. Either a
+  // "Your Domains" id or a "Shared Domains" id; the field doesn't care
+  // which source it came from.
+  const [selectedAssetDomainByAssetId, setSelectedAssetDomainByAssetId] =
+    useState<Map<string, string | null>>(new Map());
   // Auto-open import modal when navigated here with ?openImport=true
   // (e.g. from VideoDetail "Import Analytics" button)
   useEffect(() => {
     if (!organizationId) return;
     listVerifiedBrandedDomains(organizationId).then(setVerifiedDomains);
   }, [organizationId]);
+// Resolves the assignmentId for each promoted asset that currently has
+  // one (same derivation the generate handler already does — see
+  // handleGenerate's assetsWithContext), then fetches Shared Domains for
+  // any newly-seen assignmentId, deduped by the cache above.
+  useEffect(() => {
+    const assignmentIdsToFetch = new Set<string>();
 
+    for (const asset of promotedAssets) {
+      const options = promotionContextByAssetId.get(asset.asset_id);
+      if (!options) continue;
+
+      const ctx =
+        options.length === 1
+          ? toPromotionContext(options[0])
+          : chosenPromotionByAssetId.get(asset.asset_id);
+
+      if (!ctx) continue;
+      if (!sharedDomainsByAssignmentId.has(ctx.assignmentId)) {
+        assignmentIdsToFetch.add(ctx.assignmentId);
+      }
+    }
+
+    if (assignmentIdsToFetch.size === 0) return;
+
+    Promise.all(
+      Array.from(assignmentIdsToFetch).map(id =>
+        listAssignmentTrackingDomains(id).then(domains => [id, domains] as const)
+      )
+    ).then(entries => {
+      setSharedDomainsByAssignmentId(prev => {
+        const next = new Map(prev);
+        for (const [id, domains] of entries) next.set(id, domains);
+        return next;
+      });
+    });
+  }, [promotedAssets, promotionContextByAssetId, chosenPromotionByAssetId, sharedDomainsByAssignmentId]);
+
+  // Small helper — resolves which assignmentId (if any) currently applies
+  // to a given promoted asset. Same logic as the effect above and the
+  // generate handler; pulled out so the render block below doesn't
+  // duplicate it a third time.
+  function resolvedAssignmentIdForAsset(assetId: string): string | null {
+    const options = promotionContextByAssetId.get(assetId);
+    if (!options) return null;
+    const ctx =
+      options.length === 1
+        ? toPromotionContext(options[0])
+        : chosenPromotionByAssetId.get(assetId);
+    return ctx?.assignmentId ?? null;
+  }
   const [searchParams, setSearchParams] = useSearchParams();
   useEffect(() => {
     if (searchParams.get('openImport') === 'true') {
@@ -913,16 +972,20 @@ const hasBlockingPromotionIssue = Array.from(promotionContextByAssetId.entries()
           // Asset-driven (each asset's own campaign), not video-campaign-driven.
           // Promotion/Assignment are not involved. See generateAssetRedirectLinks.ts.
           if (promotedAssets.length > 0) {
+  if (promotedAssets.length > 0) {
   const assetsWithContext = promotedAssets.map(asset => {
     const options = promotionContextByAssetId.get(asset.asset_id);
-    if (!options) return { asset_id: asset.asset_id };
-
-    const promotionContext: PromotionContext | undefined =
-      options.length === 1
+    const promotionContext: PromotionContext | undefined = !options
+      ? undefined
+      : options.length === 1
         ? toPromotionContext(options[0])
         : chosenPromotionByAssetId.get(asset.asset_id);
 
-    return { asset_id: asset.asset_id, promotionContext };
+    return {
+      asset_id: asset.asset_id,
+      promotionContext,
+      trackingDomainId: selectedAssetDomainByAssetId.get(asset.asset_id) ?? null,
+    };
   });
 console.log(
   "DEBUG assetsWithContext",
@@ -931,7 +994,6 @@ console.log(
   await generateAssetRedirectLinks({
     videoId: savedVideo.id,
     selectedAssets: assetsWithContext,
-    trackingDomainId: selectedTrackingDomainId,
   });
 }
 
@@ -966,6 +1028,7 @@ console.log(
       setPromotedAssets(null);
       setPromotionContextByAssetId(new Map());
       setChosenPromotionByAssetId(new Map());
+      setSelectedAssetDomainByAssetId(new Map());
       setSelectedTrackingDomainId(null);
       setUseOnlyPromoteAsset(false);
       setPreviousCampaignId('');
@@ -1416,18 +1479,63 @@ console.log(
                       {!formData.campaign_id ? (
                         <p className="text-[10px] text-zinc-600 italic">{t.videos.selectCampaignFirst}</p>
                       ) : promotedAssets.length > 0 ? (
-                        <div className="flex items-center justify-between p-3 rounded-xl border border-zinc-900 bg-zinc-900/30">
-                          <span className="flex items-center gap-2 text-[10px] font-bold uppercase tracking-wide text-white truncate max-w-[220px]">
-                            <Check size={14} className="text-emerald-500 shrink-0" />
-                            {promotedAssets.map(a => a.display_name).join(', ')}
-                          </span>
-                          <button
-                            type="button"
-                            onClick={() => setShowAssetPicker(true)}
-                            className="text-[10px] font-black uppercase tracking-widest text-zinc-500 hover:text-white shrink-0"
-                          >
-                            Change
-                          </button>
+                        <div className="space-y-3">
+                          <div className="flex items-center justify-between p-3 rounded-xl border border-zinc-900 bg-zinc-900/30">
+                            <span className="flex items-center gap-2 text-[10px] font-bold uppercase tracking-wide text-white truncate max-w-[220px]">
+                              <Check size={14} className="text-emerald-500 shrink-0" />
+                              {promotedAssets.map(a => a.display_name).join(', ')}
+                            </span>
+                            <button
+                              type="button"
+                              onClick={() => setShowAssetPicker(true)}
+                              className="text-[10px] font-black uppercase tracking-widest text-zinc-500 hover:text-white shrink-0"
+                            >
+                              Change
+                            </button>
+                          </div>
+
+                          {promotedAssets.map(asset => {
+                            const assignmentId = resolvedAssignmentIdForAsset(asset.asset_id);
+                            const sharedDomains = assignmentId
+                              ? sharedDomainsByAssignmentId.get(assignmentId) ?? []
+                              : [];
+                            const currentValue = selectedAssetDomainByAssetId.get(asset.asset_id) ?? '';
+
+                            if (verifiedDomains.length === 0 && sharedDomains.length === 0) return null;
+
+                            return (
+                              <div key={asset.asset_id} className="pl-1 space-y-1">
+                                <p className="text-[9px] font-black uppercase tracking-widest text-zinc-600 truncate">
+                                  {asset.display_name} — Tracking Domain
+                                </p>
+                                <select
+                                  value={currentValue}
+                                  onChange={e => {
+                                    const next = new Map(selectedAssetDomainByAssetId);
+                                    next.set(asset.asset_id, e.target.value || null);
+                                    setSelectedAssetDomainByAssetId(next);
+                                  }}
+                                  className="w-full bg-zinc-950 border border-zinc-800 rounded-xl px-4 py-2.5 text-xs text-zinc-100 focus:outline-none focus:border-red-600"
+                                >
+                                  <option value="">vstrk.com</option>
+                                  {verifiedDomains.length > 0 && (
+                                    <optgroup label="Your Domains">
+                                      {verifiedDomains.map(d => (
+                                        <option key={d.id} value={d.id}>{d.hostname}</option>
+                                      ))}
+                                    </optgroup>
+                                  )}
+                                  {sharedDomains.length > 0 && (
+                                    <optgroup label="Shared Domains">
+                                      {sharedDomains.map(d => (
+                                        <option key={d.id} value={d.id}>{d.hostname}</option>
+                                      ))}
+                                    </optgroup>
+                                  )}
+                                </select>
+                              </div>
+                            );
+                          })}
                         </div>
                       ) : (
                         <button
