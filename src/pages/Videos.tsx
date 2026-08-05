@@ -1025,7 +1025,7 @@ console.log(
         hasLeadMagnet: false,
         selectedLeadMagnets: [],
       });
-      setPromotedAssets(null);
+      setPromotedAssets([]);
       setPromotionContextByAssetId(new Map());
       setChosenPromotionByAssetId(new Map());
       setSelectedAssetDomainByAssetId(new Map());
@@ -1232,7 +1232,7 @@ console.log(
                   hasLeadMagnet: false,
                   selectedLeadMagnets: []
                 });
-                setPromotedAssets(null);
+                setPromotedAssets([]);
                 setUseOnlyPromoteAsset(false);
                 setPreviousCampaignId('');
               }
