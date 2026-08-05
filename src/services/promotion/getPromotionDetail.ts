@@ -77,6 +77,7 @@ import { getAssetDetail } from '../asset/getAssetDetail';
 import type { AssetResourceView } from '../asset/getAssetDetail';
 import { getAssetAccessStatesForCollaborator } from '../assignment/assignmentAssetAccess';
 import type { AssignmentTrackingDomain } from '../assignment/getAssignmentDetail';
+import { getTrackingDomainAccessStatesForCollaborator } from '../assignment/assignmentTrackingDomainAccess';
 
 export interface PromotionDetailData {
   promotion: {
@@ -142,8 +143,15 @@ export interface PromotionDetailData {
    * the assignment has no domains attached — same "no Assignment
    * involved" treatment already used for `assignment: null` and
    * `assignedAssets: []` above.
+   *
+   * isRevoked: per-collaborator, per-domain — see
+   * assignmentTrackingDomainAccess.ts. Same shape/rationale as
+   * assignedAssets[].isRevoked directly above. A direct org-owner
+   * promotion (no assignment_collaborator_id) has no collaborator to
+   * revoke anything from, so isRevoked is always false there — the
+   * owner's own access is never affected by this mechanism at all.
    */
-  trackingDomains: AssignmentTrackingDomain[];
+  trackingDomains: (AssignmentTrackingDomain & { isRevoked: boolean })[];
 }
 
 export async function getPromotionDetail(promotionId: string): Promise<PromotionDetailData | null> {
@@ -212,10 +220,24 @@ export async function getPromotionDetail(promotionId: string): Promise<Promotion
   if (assignmentAssetsErr) throw new Error(`Failed to load assigned assets: ${assignmentAssetsErr.message}`);
   if (trackingDomainsErr) throw new Error(`Failed to load tracking domains: ${trackingDomainsErr.message}`);
 
-  const trackingDomains: AssignmentTrackingDomain[] = (trackingDomainRows ?? [])
+  const rawTrackingDomains: AssignmentTrackingDomain[] = (trackingDomainRows ?? [])
     .map((row: any) => row.branded_tracking_domains)
     .filter((d: any): d is { id: string; hostname: string } => !!d)
     .map((d: any) => ({ id: d.id, hostname: d.hostname }));
+
+  // Same guard as accessStateMap below for assets: only meaningful when
+  // there's a collaborator to scope revocation to. A direct org-owner
+  // promotion has no collaborator, so nothing can be revoked from it —
+  // trackingDomains falls back to "everything active" (isRevoked: false
+  // for all), same treatment assignedAssets already uses.
+  const domainAccessStateMap = promotion.assignment_collaborator_id
+    ? await getTrackingDomainAccessStatesForCollaborator(promotion.assignment_collaborator_id)
+    : new Map<string, string>();
+
+  const trackingDomains = rawTrackingDomains.map(d => ({
+    ...d,
+    isRevoked: domainAccessStateMap.has(d.id),
+  }));
 
   // Collaborator: assignment_collaborator_id -> assignment_collaborators.user_id -> profiles.
   // Two small steps, same convention as listSharedAssetsForCollaborator.ts's
