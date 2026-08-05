@@ -971,7 +971,7 @@ const hasBlockingPromotionIssue = Array.from(promotionContextByAssetId.entries()
           // Runs AFTER createVideo() succeeds, entirely independent of it.
           // Asset-driven (each asset's own campaign), not video-campaign-driven.
           // Promotion/Assignment are not involved. See generateAssetRedirectLinks.ts.
-          if (promotedAssets.length > 0) {
+          
   if (promotedAssets.length > 0) {
   const assetsWithContext = promotedAssets.map(asset => {
     const options = promotionContextByAssetId.get(asset.asset_id);
