@@ -43,6 +43,7 @@ import {
 } from '../../lib/videoFormatters';
 import { resolvePromotionCampaign } from '../asset/resolvePromotionCampaign';
 import { ensureResourcePromotionCampaign } from '../asset/ensureResourcePromotionCampaign';
+import { getTrackingDomainAccessStatesForCollaborator } from './assignmentTrackingDomainAccess';
 
 export interface AssignmentAssetOption {
   asset_id: string;
@@ -102,6 +103,33 @@ export async function listAssignmentTrackingDomains(
     .map((row: any) => row.branded_tracking_domains)
     .filter((d: any): d is { id: string; hostname: string } => !!d)
     .map((d: any) => ({ id: d.id, hostname: d.hostname }));
+}
+
+/**
+ * PR4 — Track New Content's actual data source. Composes two already-
+ * existing reads rather than writing new query logic: the full
+ * Assignment-wide domain list (listAssignmentTrackingDomains, UNCHANGED
+ * above — Assignment Detail keeps using that one, unfiltered, since it
+ * never shows revoke status) minus whatever's currently revoked for
+ * THIS SPECIFIC collaborator (getTrackingDomainAccessStatesForCollaborator,
+ * from PR2's assignmentTrackingDomainAccess.ts).
+ *
+ * Revocation is per (assignment_collaborator_id, branded_tracking_domain_id)
+ * — never Assignment-wide. Revoking for one collaborator never affects
+ * the domain owner's own use of it, nor any other collaborator's; this
+ * function is the only place that filter is ever applied, and it's
+ * scoped by construction to exactly one collaborator's access states.
+ */
+export async function listAssignmentTrackingDomainsForCollaborator(
+  assignmentId: string,
+  assignmentCollaboratorId: string
+): Promise<AssignmentTrackingDomain[]> {
+  const [allDomains, accessStateMap] = await Promise.all([
+    listAssignmentTrackingDomains(assignmentId),
+    getTrackingDomainAccessStatesForCollaborator(assignmentCollaboratorId),
+  ]);
+
+  return allDomains.filter(d => !accessStateMap.has(d.id));
 }
 
 export interface AssignmentDetailData {

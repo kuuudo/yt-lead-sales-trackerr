@@ -66,7 +66,7 @@ import {
 } from '../services/asset/resolvePromotionContextForAsset';
 
 import type { PromotionContext } from '../services/asset/resolvePromotionContextForAsset';
-import { listAssignmentTrackingDomains } from '../services/assignment/getAssignmentDetail';
+import { listAssignmentTrackingDomainsForCollaborator } from '../services/assignment/getAssignmentDetail';
 import { categorizeAsset } from '../services/redirect/getPromotedAssetDisplay';
 import { resolveAssetType } from '../services/asset/resolveAssetType';
 type VideoStatus = Video['status'];
@@ -539,7 +539,7 @@ const hasBlockingPromotionIssue = Array.from(promotionContextByAssetId.entries()
   const [selectedTrackingDomainId, setSelectedTrackingDomainId] = useState<string | null>(null);
   // Shared Domains, cached by assignmentId (not assetId) — multiple
   // promoted assets can resolve to the same Assignment, so this avoids
-  // calling listAssignmentTrackingDomains() more than once per Assignment.
+  // calling listAssignmentTrackingDomainsForCollaborator() more than once per Assignment.
   const [sharedDomainsByAssignmentId, setSharedDomainsByAssignmentId] =
     useState<Map<string, VerifiedDomainOption[]>>(new Map());
   // The actual per-asset choice — this is what ends up on
@@ -559,7 +559,13 @@ const hasBlockingPromotionIssue = Array.from(promotionContextByAssetId.entries()
   // handleGenerate's assetsWithContext), then fetches Shared Domains for
   // any newly-seen assignmentId, deduped by the cache above.
   useEffect(() => {
-    const assignmentIdsToFetch = new Set<string>();
+    // PR4: each entry now also carries assignmentCollaboratorId, since
+    // the fetch call below needs it to filter out domains revoked for
+    // THIS viewer specifically. Cache key is still assignmentId only
+    // (unchanged) — a single logged-in viewer has exactly one
+    // assignmentCollaboratorId per assignmentId for the session, so
+    // keying by assignmentId alone remains correct.
+    const assignmentIdsToFetch: { assignmentId: string; assignmentCollaboratorId: string }[] = [];
 
     for (const asset of promotedAssets) {
       const options = promotionContextByAssetId.get(asset.asset_id);
@@ -572,15 +578,19 @@ const hasBlockingPromotionIssue = Array.from(promotionContextByAssetId.entries()
 
       if (!ctx) continue;
       if (!sharedDomainsByAssignmentId.has(ctx.assignmentId)) {
-        assignmentIdsToFetch.add(ctx.assignmentId);
+        assignmentIdsToFetch.push({
+          assignmentId: ctx.assignmentId,
+          assignmentCollaboratorId: ctx.assignmentCollaboratorId,
+        });
       }
     }
 
-    if (assignmentIdsToFetch.size === 0) return;
+    if (assignmentIdsToFetch.length === 0) return;
 
     Promise.all(
-      Array.from(assignmentIdsToFetch).map(id =>
-        listAssignmentTrackingDomains(id).then(domains => [id, domains] as const)
+      assignmentIdsToFetch.map(({ assignmentId, assignmentCollaboratorId }) =>
+        listAssignmentTrackingDomainsForCollaborator(assignmentId, assignmentCollaboratorId)
+          .then(domains => [assignmentId, domains] as const)
       )
     ).then(entries => {
       setSharedDomainsByAssignmentId(prev => {

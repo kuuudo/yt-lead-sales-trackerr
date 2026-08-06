@@ -46,19 +46,33 @@ export interface PromotionContextOption {
   assignmentId: string;
   assignmentTitle: string;
   sharedByName: string;
+  /**
+   * Already fetched in Step 3 below (promo.assignment_collaborator_id)
+   * — this is metadata exposure, not a new query. Needed by
+   * listAssignmentTrackingDomainsForCollaborator() so Track New Content
+   * can filter out domains revoked for THIS viewer specifically.
+   */
+  assignmentCollaboratorId: string;
 }
 
 /** The subset of a PromotionContextOption that gets stored/threaded through
  *  once a choice is made (auto-resolved or user-picked) — display-only
  *  fields (assignmentTitle, sharedByName) are dropped at that point since
- *  nothing downstream of selection needs them. */
+ *  nothing downstream of selection needs them. assignmentCollaboratorId
+ *  is kept, unlike the display-only fields, because Track New Content's
+ *  domain filtering needs it after selection, not just during it. */
 export interface PromotionContext {
   promotionId: string;
   assignmentId: string;
+  assignmentCollaboratorId: string;
 }
 
 export function toPromotionContext(option: PromotionContextOption): PromotionContext {
-  return { promotionId: option.promotionId, assignmentId: option.assignmentId };
+  return {
+    promotionId: option.promotionId,
+    assignmentId: option.assignmentId,
+    assignmentCollaboratorId: option.assignmentCollaboratorId,
+  };
 }
 
 export async function resolvePromotionContextForAsset(
@@ -148,6 +162,7 @@ export async function resolvePromotionContextForAsset(
     results.push({
       promotionId: promo.id,
       assignmentId,
+      assignmentCollaboratorId: promo.assignment_collaborator_id,
       assignmentTitle: info.assignmentTitle,
       sharedByName: info.sharedByName,
     });
