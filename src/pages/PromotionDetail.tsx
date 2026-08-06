@@ -61,6 +61,7 @@ import {
 import { removeCollaborator } from '../services/assignment/removeCollaborator';
 import { restoreCollaborator } from '../services/assignment/restoreCollaborator';
 import { revokeAssetAccess, restoreAssetAccess } from '../services/assignment/assignmentAssetAccess';
+import { revokeTrackingDomainAccess, restoreTrackingDomainAccess } from '../services/assignment/assignmentTrackingDomainAccess';
 import {
   resolveAssetThumbnail,
   resolveElementThumbnail,
@@ -128,6 +129,10 @@ export default function PromotionDetail() {
   // each be independently in-flight.
   const [assetActionId, setAssetActionId] = useState<string | null>(null);
   const [assetActionError, setAssetActionError] = useState<string | null>(null);
+
+  // Same pattern, for Tracking Domains — tracked by branded_tracking_domain_id.
+  const [domainActionId, setDomainActionId] = useState<string | null>(null);
+  const [domainActionError, setDomainActionError] = useState<string | null>(null);
 
   useEffect(() => {
     if (!id) return;
@@ -281,6 +286,61 @@ export default function PromotionDetail() {
       setAssetActionError(err.message || 'Could not restore access to this asset.');
     } finally {
       setAssetActionId(null);
+    }
+  };
+
+  // Mirror-image of handleRevokeAssetAccess / handleRestoreAssetAccess
+  // above, same authorization boundary server-side
+  // (assignments.created_by_user_id), same optimistic local-state update
+  // on success — no full page reload needed for the badge/button to flip
+  // immediately. Terminology locked as "Revoke Access" / "Restore
+  // Access" — the domain itself (branded_tracking_domains),
+  // assignment_tracking_domains, and any existing redirect_links are
+  // never touched by either handler, only `trackingDomains[].isRevoked`
+  // in local state.
+  const handleRevokeDomainAccess = async (domainId: string) => {
+    if (!detail?.collaborator) return;
+    setDomainActionError(null);
+    setDomainActionId(domainId);
+    try {
+      await revokeTrackingDomainAccess(detail.collaborator.id, domainId);
+      setDetail((prev: PromotionDetailData | null) =>
+        prev
+          ? {
+              ...prev,
+              trackingDomains: prev.trackingDomains.map(d =>
+                d.id === domainId ? { ...d, isRevoked: true } : d
+              ),
+            }
+          : prev
+      );
+    } catch (err: any) {
+      setDomainActionError(err.message || 'Could not revoke access to this tracking domain.');
+    } finally {
+      setDomainActionId(null);
+    }
+  };
+
+  const handleRestoreDomainAccess = async (domainId: string) => {
+    if (!detail?.collaborator) return;
+    setDomainActionError(null);
+    setDomainActionId(domainId);
+    try {
+      await restoreTrackingDomainAccess(detail.collaborator.id, domainId);
+      setDetail((prev: PromotionDetailData | null) =>
+        prev
+          ? {
+              ...prev,
+              trackingDomains: prev.trackingDomains.map(d =>
+                d.id === domainId ? { ...d, isRevoked: false } : d
+              ),
+            }
+          : prev
+      );
+    } catch (err: any) {
+      setDomainActionError(err.message || 'Could not restore access to this tracking domain.');
+    } finally {
+      setDomainActionId(null);
     }
   };
 
@@ -491,31 +551,6 @@ export default function PromotionDetail() {
                 </p>
               </div>
 
-              {/* Read-only. Reads through promotion.assignment_id ->
-                  assignment_tracking_domains -> branded_tracking_domains.
-                  assignment_tracking_domains remains the sole source of
-                  truth — no promotion_tracking_domains table, no
-                  editing, no Add/Remove yet. Each item links to the
-                  TrackingDomainDetail scaffold. */}
-              {trackingDomains.length > 0 && (
-                <div>
-                  <p className="text-[10px] font-black uppercase tracking-widest text-zinc-500 mb-1">
-                    Tracking Domains
-                  </p>
-                  <div className="space-y-1.5">
-                    {trackingDomains.map(domain => (
-                      <Link
-                        key={domain.id}
-                        to={`/marketplace/tracking-domains/${domain.id}`}
-                        className="flex items-center gap-2 text-sm text-blue-400 hover:text-blue-300"
-                      >
-                        <Globe size={13} className="shrink-0" />
-                        {domain.hostname}
-                      </Link>
-                    ))}
-                  </div>
-                </div>
-              )}
             </section>
           </div>
 
@@ -671,6 +706,94 @@ export default function PromotionDetail() {
                 </div>
               );
             })}
+          </div>
+        </div>
+      )}
+
+      {/* Tracking Domains — Access Management. Same pattern as Access
+          Management — Assigned Assets above: Sponsor-only, same
+          isSponsor/isRemovedSelf/collaborator-active gate. Links via
+          TrackingDomainDetail are intentionally NOT included here —
+          this section's job is only Active/Revoked + Revoke/Restore,
+          same as the asset section doesn't link out either. */}
+      {!isRemovedSelf && isSponsor && collaborator && collaborator.status === 'active' && trackingDomains.length > 0 && (
+        <div>
+          <p className="text-[10px] font-black uppercase tracking-widest text-zinc-500 mb-3">
+            Access Management — Tracking Domains
+          </p>
+          <div className="space-y-2 max-w-2xl">
+            {trackingDomains.map(d => {
+              const isBusy = domainActionId === d.id;
+              return (
+                <div
+                  key={d.id}
+                  className={`flex items-center gap-3 border rounded-lg p-3 transition-all ${
+                    d.isRevoked ? 'bg-zinc-950 border-red-900/40' : 'bg-zinc-900 border-zinc-800'
+                  }`}
+                >
+                  <Globe size={16} className="text-zinc-500 shrink-0" />
+                  <div className="min-w-0 flex-1">
+                    <p className="text-sm text-zinc-200 truncate">{d.hostname}</p>
+                    <p className={`text-[9px] font-black uppercase tracking-widest mt-0.5 ${d.isRevoked ? 'text-red-500' : 'text-zinc-600'}`}>
+                      {d.isRevoked ? 'Revoked' : 'Active'}
+                    </p>
+                  </div>
+                  {d.isRevoked ? (
+                    <button
+                      onClick={() => handleRestoreDomainAccess(d.id)}
+                      disabled={isBusy}
+                      className="flex items-center gap-1.5 bg-zinc-800 hover:bg-green-600 disabled:opacity-50 text-zinc-300 hover:text-white text-[10px] font-bold uppercase tracking-wider px-3 py-1.5 rounded-lg transition-colors shrink-0"
+                    >
+                      {isBusy ? <Loader2 size={12} className="animate-spin" /> : <ShieldCheck size={12} />}
+                      Restore Access
+                    </button>
+                  ) : (
+                    <button
+                      onClick={() => handleRevokeDomainAccess(d.id)}
+                      disabled={isBusy}
+                      className="flex items-center gap-1.5 bg-zinc-800 hover:bg-red-600 disabled:opacity-50 text-zinc-300 hover:text-white text-[10px] font-bold uppercase tracking-wider px-3 py-1.5 rounded-lg transition-colors shrink-0"
+                    >
+                      {isBusy ? <Loader2 size={12} className="animate-spin" /> : <ShieldOff size={12} />}
+                      Revoke Access
+                    </button>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+          {domainActionError && (
+            <p className="text-[10px] text-red-500 mt-2">{domainActionError}</p>
+          )}
+        </div>
+      )}
+
+      {/* Read-only counterpart, for the collaborator themselves — same
+          gate and same "status only, no buttons" treatment as the
+          Assigned Assets read-only section above. Reuses the exact same
+          trackingDomains data the Sponsor's section reads — no new
+          query. */}
+      {!isRemovedSelf && isCollaboratorViewer && trackingDomains.length > 0 && (
+        <div>
+          <p className="text-[10px] font-black uppercase tracking-widest text-zinc-500 mb-3">
+            Tracking Domains
+          </p>
+          <div className="space-y-2 max-w-2xl">
+            {trackingDomains.map(d => (
+              <div
+                key={d.id}
+                className={`flex items-center gap-3 border rounded-lg p-3 ${
+                  d.isRevoked ? 'bg-zinc-950 border-red-900/40' : 'bg-zinc-900 border-zinc-800'
+                }`}
+              >
+                <Globe size={16} className="text-zinc-500 shrink-0" />
+                <div className="min-w-0 flex-1">
+                  <p className="text-sm text-zinc-200 truncate">{d.hostname}</p>
+                </div>
+                <span className={`text-[10px] font-bold uppercase tracking-widest shrink-0 ${d.isRevoked ? 'text-red-500' : 'text-zinc-500'}`}>
+                  {d.isRevoked ? 'Revoked' : 'Active'}
+                </span>
+              </div>
+            ))}
           </div>
         </div>
       )}
