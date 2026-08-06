@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { useParams } from 'react-router-dom';
 import { resolveRedirectToken, logRedirectEvent, buildRedirectUrl } from '../lib/redirects';
-import { setAttribution, syncSession, getFirstTouchVideoId, getFirstTouchCampaignId } from '../lib/tracker';
+import { setAttribution, syncSession, getFirstTouchVideoId, getFirstTouchCampaignId, getFirstTouchOrganizationId, getFirstTouchPromotionId, getFirstTouchAssetId, getFirstTouchTrackingHostname, getFirstTouchRedirectLinkId } from '../lib/tracker';
 import { supabase } from '../lib/supabase';
 import { Loader2, AlertCircle } from 'lucide-react';
 
@@ -115,7 +115,15 @@ export default function Track() {
         // ── Step 4: write attribution to localStorage (synchronous) ──────────
         if (videoId && campaignId) {
           try {
-            setAttribution(videoId, campaignId);
+            setAttribution({
+              video_id: videoId,
+              campaign_id: campaignId,
+              organization_id: (link as any).organization_id ?? null,
+              promotion_id: (link as any).promotion_id ?? null,
+              asset_id: (link as any).asset_id ?? null,
+              redirect_link_id: (link as any).id ?? null,
+              tracking_hostname: (link as any).tracking_hostname ?? null,
+            });
             console.log('[Track] ⑥ setAttribution() called — localStorage check:',
               'video_id =', localStorage.getItem('yt_tracker_video_id'),
               'campaign_id =', localStorage.getItem('yt_tracker_campaign_id'),
@@ -149,6 +157,11 @@ export default function Track() {
         // replace the original landing campaign in client_reference_id.
         const finalVideoId    = getFirstTouchVideoId();
         const finalCampaignId = getFirstTouchCampaignId();
+        const finalOrganizationId    = getFirstTouchOrganizationId();
+        const finalPromotionId       = getFirstTouchPromotionId();
+        const finalAssetId           = getFirstTouchAssetId();
+        const finalTrackingHostname  = getFirstTouchTrackingHostname();
+        const finalFirstTouchRedirectLinkId = getFirstTouchRedirectLinkId();
 
         if (!finalSessionId || !finalVideoId || !finalCampaignId) {
           console.warn('[Track] ⚠ one or more localStorage keys missing before redirect:',
@@ -176,6 +189,38 @@ try {
 
   if (finalCampaignId) {
     url.searchParams.set('vt_cid', finalCampaignId);
+  }
+
+  // ── PR C: first-touch attribution params ──────────────────────────────
+  // Same purpose as vt_sid/vt_vid/vt_cid above — let the destination
+  // domain persist these into ITS OWN localStorage. All five are
+  // First Touch values (the funnel's original attribution), NOT the
+  // current link's own values.
+  if (finalOrganizationId) {
+    url.searchParams.set('vt_oid', finalOrganizationId);
+  }
+
+  if (finalPromotionId) {
+    url.searchParams.set('vt_pid', finalPromotionId);
+  }
+
+  if (finalAssetId) {
+    url.searchParams.set('vt_aid', finalAssetId);
+  }
+
+  if (finalTrackingHostname) {
+    url.searchParams.set('vt_th', finalTrackingHostname);
+  }
+
+  if (finalFirstTouchRedirectLinkId) {
+    url.searchParams.set('vt_first_touch_redirect_link_id', finalFirstTouchRedirectLinkId);
+  }
+
+  // Current event's own redirect link — describes which link THIS click
+  // was, carries no attribution authority. Not to be confused with
+  // vt_first_touch_redirect_link_id above.
+  if ((link as any).id) {
+    url.searchParams.set('vt_rlid', (link as any).id);
   }
 
   // ── Composite client_reference_id for deterministic Stripe attribution ──

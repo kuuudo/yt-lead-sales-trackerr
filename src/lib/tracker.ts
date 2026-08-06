@@ -1,12 +1,38 @@
 import { supabase } from './supabase';
 
 const SESSION_KEY           = 'yt_tracker_session_id';
-const UTM_KEY               = 'yt_tracker_utm_params';
-const VIDEO_ID_KEY          = 'yt_tracker_video_id';
-const CAMPAIGN_ID_KEY       = 'yt_tracker_campaign_id';
+const UTM_KEY                = 'yt_tracker_utm_params';
+const VIDEO_ID_KEY           = 'yt_tracker_video_id';
+const CAMPAIGN_ID_KEY        = 'yt_tracker_campaign_id';
+const ORGANIZATION_ID_KEY    = 'yt_tracker_organization_id';
+const PROMOTION_ID_KEY       = 'yt_tracker_promotion_id';
+const ASSET_ID_KEY           = 'yt_tracker_asset_id';
+const REDIRECT_LINK_ID_KEY   = 'yt_tracker_redirect_link_id';
+const TRACKING_HOSTNAME_KEY  = 'yt_tracker_tracking_hostname';
 // First-touch keys: written once, never overwritten, survive the full browser session.
-const FT_VIDEO_ID_KEY       = 'yt_tracker_ft_video_id';
-const FT_CAMPAIGN_ID_KEY    = 'yt_tracker_ft_campaign_id';
+const FT_VIDEO_ID_KEY           = 'yt_tracker_ft_video_id';
+const FT_CAMPAIGN_ID_KEY        = 'yt_tracker_ft_campaign_id';
+const FT_ORGANIZATION_ID_KEY    = 'yt_tracker_ft_organization_id';
+const FT_PROMOTION_ID_KEY       = 'yt_tracker_ft_promotion_id';
+const FT_ASSET_ID_KEY           = 'yt_tracker_ft_asset_id';
+const FT_REDIRECT_LINK_ID_KEY   = 'yt_tracker_ft_redirect_link_id';
+const FT_TRACKING_HOSTNAME_KEY  = 'yt_tracker_ft_tracking_hostname';
+
+/**
+ * Attribution fields tracker.ts needs from a resolved redirect_links row.
+ * Deliberately NOT the full RedirectLink type — tracker.ts should not be
+ * coupled to the redirect_links schema (token, destination_url,
+ * created_at, etc. are irrelevant here and may change independently).
+ */
+export interface AttributionContext {
+  video_id: string | null;
+  campaign_id: string | null;
+  organization_id: string | null;
+  promotion_id: string | null;
+  asset_id: string | null;
+  redirect_link_id: string | null;
+  tracking_hostname: string | null;
+}
 
 export const VTRACK_BASE_URL  = 'https://www.vstrk.com';
 export const PIXEL_ENDPOINT   = `${VTRACK_BASE_URL}/api/pixel`;
@@ -51,31 +77,69 @@ export const getUtmParams = () => {
 /**
  * Store attribution globally.
  *
- * Current keys (VIDEO_ID_KEY / CAMPAIGN_ID_KEY) are always updated —
- * they reflect whatever campaign the user is currently interacting with.
+ * Current keys (VIDEO_ID_KEY / CAMPAIGN_ID_KEY / ORGANIZATION_ID_KEY /
+ * PROMOTION_ID_KEY / ASSET_ID_KEY / REDIRECT_LINK_ID_KEY /
+ * TRACKING_HOSTNAME_KEY) are always updated — they reflect whatever link
+ * the user just clicked.
  *
  * First-touch keys (FT_*) are written exactly once per browser and never
- * overwritten. They are what you should use for revenue attribution so that
- * a checkout redirect link can't silently replace the original landing campaign.
+ * overwritten. They are what you should use for revenue/funnel attribution
+ * so that a later redirect link (e.g. a checkout or newsletter link) can't
+ * silently replace the original landing attribution.
  */
-export const setAttribution = (videoId: string, campaignId: string) => {
+export const setAttribution = (attribution: AttributionContext) => {
+  const {
+    video_id: videoId,
+    campaign_id: campaignId,
+    organization_id: organizationId,
+    promotion_id: promotionId,
+    asset_id: assetId,
+    redirect_link_id: redirectLinkId,
+    tracking_hostname: trackingHostname,
+  } = attribution;
+
   // Always update current attribution
-  localStorage.setItem(VIDEO_ID_KEY, videoId);
-  localStorage.setItem(CAMPAIGN_ID_KEY, campaignId);
+  if (videoId)           localStorage.setItem(VIDEO_ID_KEY, videoId);
+  if (campaignId)         localStorage.setItem(CAMPAIGN_ID_KEY, campaignId);
+  if (organizationId)     localStorage.setItem(ORGANIZATION_ID_KEY, organizationId);
+  if (promotionId)        localStorage.setItem(PROMOTION_ID_KEY, promotionId);
+  if (assetId)             localStorage.setItem(ASSET_ID_KEY, assetId);
+  if (redirectLinkId)     localStorage.setItem(REDIRECT_LINK_ID_KEY, redirectLinkId);
+  if (trackingHostname)   localStorage.setItem(TRACKING_HOSTNAME_KEY, trackingHostname);
 
   // Only write first-touch if not already set
-  if (!localStorage.getItem(FT_VIDEO_ID_KEY)) {
+  if (videoId && !localStorage.getItem(FT_VIDEO_ID_KEY)) {
     localStorage.setItem(FT_VIDEO_ID_KEY, videoId);
   }
-  if (!localStorage.getItem(FT_CAMPAIGN_ID_KEY)) {
+  if (campaignId && !localStorage.getItem(FT_CAMPAIGN_ID_KEY)) {
     localStorage.setItem(FT_CAMPAIGN_ID_KEY, campaignId);
+  }
+  if (organizationId && !localStorage.getItem(FT_ORGANIZATION_ID_KEY)) {
+    localStorage.setItem(FT_ORGANIZATION_ID_KEY, organizationId);
+  }
+  if (promotionId && !localStorage.getItem(FT_PROMOTION_ID_KEY)) {
+    localStorage.setItem(FT_PROMOTION_ID_KEY, promotionId);
+  }
+  if (assetId && !localStorage.getItem(FT_ASSET_ID_KEY)) {
+    localStorage.setItem(FT_ASSET_ID_KEY, assetId);
+  }
+  if (redirectLinkId && !localStorage.getItem(FT_REDIRECT_LINK_ID_KEY)) {
+    localStorage.setItem(FT_REDIRECT_LINK_ID_KEY, redirectLinkId);
+  }
+  if (trackingHostname && !localStorage.getItem(FT_TRACKING_HOSTNAME_KEY)) {
+    localStorage.setItem(FT_TRACKING_HOSTNAME_KEY, trackingHostname);
   }
 
   console.debug('[tracker] setAttribution', {
-    current: { videoId, campaignId },
+    current: attribution,
     firstTouch: {
       videoId: localStorage.getItem(FT_VIDEO_ID_KEY),
       campaignId: localStorage.getItem(FT_CAMPAIGN_ID_KEY),
+      organizationId: localStorage.getItem(FT_ORGANIZATION_ID_KEY),
+      promotionId: localStorage.getItem(FT_PROMOTION_ID_KEY),
+      assetId: localStorage.getItem(FT_ASSET_ID_KEY),
+      redirectLinkId: localStorage.getItem(FT_REDIRECT_LINK_ID_KEY),
+      trackingHostname: localStorage.getItem(FT_TRACKING_HOSTNAME_KEY),
     },
   });
 };
@@ -86,6 +150,21 @@ export const getVideoId = (): string | null =>
 export const getCampaignId = (): string | null =>
   localStorage.getItem(CAMPAIGN_ID_KEY);
 
+export const getOrganizationId = (): string | null =>
+  localStorage.getItem(ORGANIZATION_ID_KEY);
+
+export const getPromotionId = (): string | null =>
+  localStorage.getItem(PROMOTION_ID_KEY);
+
+export const getAssetId = (): string | null =>
+  localStorage.getItem(ASSET_ID_KEY);
+
+export const getRedirectLinkId = (): string | null =>
+  localStorage.getItem(REDIRECT_LINK_ID_KEY);
+
+export const getTrackingHostname = (): string | null =>
+  localStorage.getItem(TRACKING_HOSTNAME_KEY);
+
 /** First-touch video — set on first landing, never overwritten. Use this for revenue attribution. */
 export const getFirstTouchVideoId = (): string | null =>
   localStorage.getItem(FT_VIDEO_ID_KEY) ?? localStorage.getItem(VIDEO_ID_KEY);
@@ -93,6 +172,32 @@ export const getFirstTouchVideoId = (): string | null =>
 /** First-touch campaign — set on first landing, never overwritten. Use this for revenue attribution. */
 export const getFirstTouchCampaignId = (): string | null =>
   localStorage.getItem(FT_CAMPAIGN_ID_KEY) ?? localStorage.getItem(CAMPAIGN_ID_KEY);
+
+/** First-touch organization — set on first landing, never overwritten. Use this for revenue attribution. */
+export const getFirstTouchOrganizationId = (): string | null =>
+  localStorage.getItem(FT_ORGANIZATION_ID_KEY) ?? localStorage.getItem(ORGANIZATION_ID_KEY);
+
+/** First-touch promotion — set on first landing, never overwritten. Use this for revenue attribution. */
+export const getFirstTouchPromotionId = (): string | null =>
+  localStorage.getItem(FT_PROMOTION_ID_KEY) ?? localStorage.getItem(PROMOTION_ID_KEY);
+
+/** First-touch asset — set on first landing, never overwritten. Use this for revenue attribution. */
+export const getFirstTouchAssetId = (): string | null =>
+  localStorage.getItem(FT_ASSET_ID_KEY) ?? localStorage.getItem(ASSET_ID_KEY);
+
+/**
+ * First-touch redirect link — the link that first brought this browser into
+ * the funnel. This is the ID the server (pixel.ts) queries redirect_links
+ * with to resolve the real Attribution Context. Not to be confused with
+ * getRedirectLinkId() above, which reflects the link for the CURRENT event
+ * only and carries no attribution authority.
+ */
+export const getFirstTouchRedirectLinkId = (): string | null =>
+  localStorage.getItem(FT_REDIRECT_LINK_ID_KEY) ?? localStorage.getItem(REDIRECT_LINK_ID_KEY);
+
+/** First-touch tracking hostname — set on first landing, never overwritten. Use this for revenue attribution. */
+export const getFirstTouchTrackingHostname = (): string | null =>
+  localStorage.getItem(FT_TRACKING_HOSTNAME_KEY) ?? localStorage.getItem(TRACKING_HOSTNAME_KEY);
 
 /**
  * SESSION SYNC

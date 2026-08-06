@@ -35,14 +35,18 @@ export default async function handler(
     event_type,
     amount,
     session_id,
+    first_touch_redirect_link_id,
+    redirect_link_id,
   } = req.body;
 console.log('PIXEL BODY', {
   session_id,
   video_id,
   campaign_id,
   token,
+  first_touch_redirect_link_id,
+  redirect_link_id,
 });
-  if (!token && !video_id && !campaign_id) {
+  if (!token && !video_id && !campaign_id && !first_touch_redirect_link_id) {
     return res.status(400).json({
       error: 'Missing token or video_id',
     });
@@ -54,11 +58,39 @@ console.log('PIXEL BODY', {
   }
   let resolvedCampaignId = campaign_id;
   let resolvedUserId: string | null = null;
+  let resolvedOrganizationId: string | null = null;
+  let resolvedPromotionId: string | null = null;
+  let resolvedAssetId: string | null = null;
+  let resolvedTrackingHostname: string | null = null;
 
   let campaign: any = null;
 
-  // Resolve token -> campaign/video
-  if (token) {
+  // ── PR C: First Touch Attribution — Database is the Authority ──────────
+  // first_touch_redirect_link_id is a carrier only. Browser-supplied
+  // video_id/campaign_id/organization_id/promotion_id/asset_id/
+  // tracking_hostname are NEVER trusted when this is present — only the
+  // redirect_links row itself is. redirect_link_id (below, separately) is
+  // NOT used here — it describes the current event only, it carries no
+  // attribution authority and must never be used to resolve attribution.
+  if (first_touch_redirect_link_id) {
+    const { data: ftLink } = await supabase
+      .from('redirect_links')
+      .select('video_id, campaign_id, organization_id, promotion_id, asset_id, tracking_hostname')
+      .eq('id', first_touch_redirect_link_id)
+      .maybeSingle();
+
+    if (ftLink) {
+      resolvedVideoId = ftLink.video_id;
+      resolvedCampaignId = ftLink.campaign_id;
+      resolvedOrganizationId = ftLink.organization_id;
+      resolvedPromotionId = ftLink.promotion_id;
+      resolvedAssetId = ftLink.asset_id;
+      resolvedTrackingHostname = ftLink.tracking_hostname;
+    } else {
+      console.warn('[pixel] first_touch_redirect_link_id provided but no matching redirect_links row:', first_touch_redirect_link_id);
+    }
+  } else if (token) {
+    // Existing backward-compatible path — unchanged.
     const { data: link } = await supabase
       .from('redirect_links')
       .select('video_id, campaign_id')
@@ -170,7 +202,8 @@ console.log('INSERT VALUES', {
   video_id: resolvedVideoId ?? null,
   campaign_id: resolvedCampaignId ?? null,
   user_id: resolvedUserId,
-  organization_id: campaign?.organization_id ?? null,
+  organization_id: resolvedOrganizationId ?? campaign?.organization_id ?? null,
+  promotion_id: resolvedPromotionId ?? null,
   amount: finalAmount,
   event_type: finalEventType,
   session_id: session_id ?? null,
@@ -185,7 +218,8 @@ const { error: purchaseError } =
       video_id: resolvedVideoId ?? null,
       campaign_id: resolvedCampaignId ?? null,
       user_id: resolvedUserId,
-      organization_id: campaign?.organization_id ?? null,
+      organization_id: resolvedOrganizationId ?? campaign?.organization_id ?? null,
+      promotion_id: resolvedPromotionId ?? null,
       amount: finalAmount,
       event_type: finalEventType,
       session_id: session_id ?? null,
@@ -232,7 +266,11 @@ const { error: purchaseError } =
           campaign_id:
             resolvedCampaignId,
           organization_id:
-            campaign?.organization_id ?? null,
+            resolvedOrganizationId ?? campaign?.organization_id ?? null,
+          promotion_id: resolvedPromotionId ?? null,
+          asset_id: resolvedAssetId ?? null,
+          tracking_hostname: resolvedTrackingHostname ?? null,
+          redirect_link_id: redirect_link_id ?? null,
           event_type: finalEventType,
           value: finalAmount,
         });

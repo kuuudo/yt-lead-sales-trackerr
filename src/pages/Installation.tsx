@@ -187,13 +187,46 @@ const generateAttributionPixel = (
     params.get('vt_cid') ||
     localStorage.getItem('yt_tracker_campaign_id') ||
     null;
+  const organizationId =
+    params.get('vt_oid') ||
+    localStorage.getItem('yt_tracker_organization_id') ||
+    null;
+  const promotionId =
+    params.get('vt_pid') ||
+    localStorage.getItem('yt_tracker_promotion_id') ||
+    null;
+  const assetId =
+    params.get('vt_aid') ||
+    localStorage.getItem('yt_tracker_asset_id') ||
+    null;
+  const trackingHostname =
+    params.get('vt_th') ||
+    localStorage.getItem('yt_tracker_tracking_hostname') ||
+    null;
+  const firstTouchRedirectLinkId =
+    params.get('vt_first_touch_redirect_link_id') ||
+    localStorage.getItem('yt_tracker_ft_redirect_link_id') ||
+    null;
+  const redirectLinkId = params.get('vt_rlid') || null;
   if (sessionId) localStorage.setItem('yt_tracker_session_id', sessionId);
   if (videoId) localStorage.setItem('yt_tracker_video_id', videoId);
   if (campaignId) localStorage.setItem('yt_tracker_campaign_id', campaignId);
+  if (organizationId) localStorage.setItem('yt_tracker_organization_id', organizationId);
+  if (promotionId) localStorage.setItem('yt_tracker_promotion_id', promotionId);
+  if (assetId) localStorage.setItem('yt_tracker_asset_id', assetId);
+  if (trackingHostname) localStorage.setItem('yt_tracker_tracking_hostname', trackingHostname);
+  if (firstTouchRedirectLinkId) localStorage.setItem('yt_tracker_ft_redirect_link_id', firstTouchRedirectLinkId);
+  if (redirectLinkId) localStorage.setItem('yt_tracker_redirect_link_id', redirectLinkId);
   const payload = {
     session_id: sessionId,
     video_id: videoId,
     campaign_id: campaignId,
+    organization_id: organizationId,
+    promotion_id: promotionId,
+    asset_id: assetId,
+    tracking_hostname: trackingHostname,
+    first_touch_redirect_link_id: firstTouchRedirectLinkId,
+    redirect_link_id: redirectLinkId,
     event_type: CONFIG.event_type,
     ...(CONFIG.event_type !== 'sales_call' && { amount: ${numericAmount} })
   };
@@ -763,17 +796,35 @@ const GLOBAL_TRACKING_SCRIPT = `<script>
   const sid = p.get('vt_sid');
   const vid = p.get('vt_vid');
   const cid = p.get('vt_cid');
+  const oid = p.get('vt_oid');
+  const pid = p.get('vt_pid');
+  const aid = p.get('vt_aid');
+  const th  = p.get('vt_th');
+  const ftRlid = p.get('vt_first_touch_redirect_link_id');
+  const rlid = p.get('vt_rlid');
 
   if (sid) localStorage.setItem('yt_tracker_session_id', sid);
   if (vid) localStorage.setItem('yt_tracker_video_id', vid);
   if (cid) localStorage.setItem('yt_tracker_campaign_id', cid);
+  if (oid) localStorage.setItem('yt_tracker_organization_id', oid);
+  if (pid) localStorage.setItem('yt_tracker_promotion_id', pid);
+  if (aid) localStorage.setItem('yt_tracker_asset_id', aid);
+  if (th)  localStorage.setItem('yt_tracker_tracking_hostname', th);
+  if (ftRlid) localStorage.setItem('yt_tracker_ft_redirect_link_id', ftRlid);
+  if (rlid) localStorage.setItem('yt_tracker_redirect_link_id', rlid);
 
-  if (sid || vid || cid) {
+  if (sid || vid || cid || oid || pid || aid || th || ftRlid || rlid) {
     const clean = new URL(window.location.href);
 
     clean.searchParams.delete('vt_sid');
     clean.searchParams.delete('vt_vid');
     clean.searchParams.delete('vt_cid');
+    clean.searchParams.delete('vt_oid');
+    clean.searchParams.delete('vt_pid');
+    clean.searchParams.delete('vt_aid');
+    clean.searchParams.delete('vt_th');
+    clean.searchParams.delete('vt_first_touch_redirect_link_id');
+    clean.searchParams.delete('vt_rlid');
 
     window.history.replaceState({}, '', clean.toString());
   }
