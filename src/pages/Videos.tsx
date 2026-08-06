@@ -1511,7 +1511,7 @@ console.log(
                               : [];
                             const currentValue = selectedAssetDomainByAssetId.get(asset.asset_id) ?? '';
 
-                            if (verifiedDomains.length === 0 && sharedDomains.length === 0) return null;
+                            
 
                             return (
                               <div key={asset.asset_id} className="pl-1 space-y-1">
