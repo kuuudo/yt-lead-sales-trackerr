@@ -835,7 +835,7 @@ export default function PromotionDetail() {
       {!isRemovedSelf && isSponsor && collaborator && collaborator.status === 'active' && (
         <div>
           <p className="text-[10px] font-black uppercase tracking-widest text-zinc-500 mb-3">
-            Assign Tracking Domain
+            Add a tracking domain (optional)
           </p>
           <div className="flex items-center gap-2 max-w-2xl">
             <select
