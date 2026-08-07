@@ -62,7 +62,11 @@ import { removeCollaborator } from '../services/assignment/removeCollaborator';
 import { restoreCollaborator } from '../services/assignment/restoreCollaborator';
 import { revokeAssetAccess, restoreAssetAccess } from '../services/assignment/assignmentAssetAccess';
 import { revokeTrackingDomainAccess, restoreTrackingDomainAccess } from '../services/assignment/assignmentTrackingDomainAccess';
+import { addAssignmentTrackingDomain } from '../services/assignment/getAssignmentDetail';
+import { listVerifiedBrandedDomains, type VerifiedDomainOption } from '../services/domain/brandedDomains';
 import { setAllowCollaboratorDomains } from '../services/promotion/promotionAssetDomainPolicy';
+import { addPromotionAsset } from '../services/promotion/addPromotionAsset';
+import { listAssetsByOrganization } from '../services/asset/listAssetsByOrganization';
 import {
   resolveAssetThumbnail,
   resolveElementThumbnail,
@@ -143,6 +147,24 @@ export default function PromotionDetail() {
   const [domainPolicyActionId, setDomainPolicyActionId] = useState<string | null>(null);
   const [domainPolicyError, setDomainPolicyError] = useState<string | null>(null);
 
+  // Sponsor Assign Tracking Domain — small, separate MVP addition.
+  // assignableDomains = the Sponsor org's own verified domains, loaded
+  // once the promotion (and its organization_id) is known. The dropdown
+  // itself filters out already-assigned ones at render time.
+  const [assignableDomains, setAssignableDomains] = useState<VerifiedDomainOption[]>([]);
+  // Add Asset — MVP. My Asset rows loaded on demand (network call);
+  // Assigned Asset rows come from detail.assignedAssets, already on the
+  // page, zero new query. Deliberately never calls
+  // listSharedAssetsForCollaborator — that's how Shared Asset stays
+  // excluded, same structural omission AssetPicker.tsx already relies on.
+  const [myAssetRows, setMyAssetRows] = useState<{ id: string; title: string }[]>([]);
+  const [selectedAssetToAdd, setSelectedAssetToAdd] = useState('');
+  const [addingAsset, setAddingAsset] = useState(false);
+  const [addAssetError, setAddAssetError] = useState<string | null>(null);
+  const [selectedDomainToAssign, setSelectedDomainToAssign] = useState('');
+  const [assigningDomain, setAssigningDomain] = useState(false);
+  const [assignDomainError, setAssignDomainError] = useState<string | null>(null);
+
   useEffect(() => {
     if (!id) return;
     (async () => {
@@ -182,6 +204,21 @@ export default function PromotionDetail() {
       }
     })();
   }, [id, user]);
+
+  // Sponsor Assign Tracking Domain — independent of the load effect
+  // above. Only fetches when the viewer is actually the Sponsor and the
+  // promotion's organization_id is known; a Collaborator never triggers
+  // this at all.
+  useEffect(() => {
+    if (!isSponsor || !detail) return;
+    listVerifiedBrandedDomains(detail.promotion.organization_id).then(setAssignableDomains);
+  }, [isSponsor, detail?.promotion.organization_id]);
+useEffect(() => {
+    if (!isSponsor || !detail) return;
+    listAssetsByOrganization({ organizationId: detail.promotion.organization_id }).then(rows =>
+      setMyAssetRows(rows.map(r => ({ id: r.id, title: r.video_title || 'Untitled Asset' })))
+    );
+  }, [isSponsor, detail?.promotion.organization_id]);
 
   const handleRestore = async () => {
     if (!id || !user) return;
@@ -381,6 +418,52 @@ export default function PromotionDetail() {
     }
   };
 
+  // Sponsor Assign Tracking Domain — direct insert via
+  // addAssignmentTrackingDomain, no RPC. Assignment-wide by nature of
+  // reusing assignment_tracking_domains (accepted tradeoff for this
+  // MVP) — optimistically appends to local trackingDomains state on
+  // success, same pattern as every other handler in this file.
+  const handleAssignDomain = async () => {
+    if (!detail?.assignment || !selectedDomainToAssign) return;
+    setAssignDomainError(null);
+    setAssigningDomain(true);
+    try {
+      await addAssignmentTrackingDomain(detail.assignment.id, selectedDomainToAssign);
+      const assignedDomain = assignableDomains.find(d => d.id === selectedDomainToAssign);
+      setDetail((prev: PromotionDetailData | null) =>
+        prev && assignedDomain
+          ? {
+              ...prev,
+              trackingDomains: [...prev.trackingDomains, { ...assignedDomain, isRevoked: false }],
+            }
+          : prev
+      );
+      setSelectedDomainToAssign('');
+    } catch (err: any) {
+      setAssignDomainError(err.message || 'Could not assign this tracking domain.');
+    } finally {
+      setAssigningDomain(false);
+    }
+  };
+// Add Asset — direct insert, no RPC. Authorization is entirely
+  // server-side (promotion_assets_insert_by_creator RLS). Deliberately
+  // does NOT touch assignment_assets — a My Asset can be added here even
+  // if it was never authorized into the Assignment.
+  const handleAddAsset = async () => {
+    if (!detail || !selectedAssetToAdd) return;
+    setAddAssetError(null);
+    setAddingAsset(true);
+    try {
+      await addPromotionAsset(detail.promotion.id, selectedAssetToAdd);
+      const data = await getPromotionDetail(detail.promotion.id);
+      if (data) setDetail(data);
+      setSelectedAssetToAdd('');
+    } catch (err: any) {
+      setAddAssetError(err.message || 'Could not add this asset to the promotion.');
+    } finally {
+      setAddingAsset(false);
+    }
+  };
   if (loading) {
     return (
       <div className="flex items-center gap-2 text-zinc-500 text-sm">
@@ -656,6 +739,51 @@ export default function PromotionDetail() {
             {domainPolicyError && (
               <p className="text-[10px] text-red-500 mt-2">{domainPolicyError}</p>
             )}
+
+            {/* Add Asset — MVP. Sponsor-only, same gate as the rest of
+                this section. Options = My Asset rows + detail.assignedAssets,
+                minus whatever's already in `assets` (already promoted).
+                Never includes Shared Asset. */}
+            {!isRemovedSelf && isSponsor && collaborator && collaborator.status === 'active' && (
+              <div className="mt-4 pt-4 border-t border-zinc-800">
+                <p className="text-[10px] font-black uppercase tracking-widest text-zinc-500 mb-2">
+                  Add Asset
+                </p>
+                <div className="flex items-center gap-2">
+                  <select
+                    value={selectedAssetToAdd}
+                    onChange={e => setSelectedAssetToAdd(e.target.value)}
+                    className="flex-1 bg-zinc-900 border border-zinc-800 rounded-lg px-3 py-2 text-sm text-zinc-200"
+                  >
+                    <option value="">Select an asset</option>
+                    {myAssetRows
+                      .filter(r => !assets.some(a => a.assetId === r.id))
+                      .map(r => (
+                        <option key={r.id} value={r.id}>{r.title}</option>
+                      ))}
+                    {assignedAssets
+                      .filter(a => !assets.some(x => x.assetId === a.assetId))
+                      .filter(a => !myAssetRows.some(r => r.id === a.assetId))
+                      .map(a => (
+                        <option key={a.assetId} value={a.assetId}>
+                          {a.resource?.title || 'Untitled Asset'}
+                        </option>
+                      ))}
+                  </select>
+                  <button
+                    onClick={handleAddAsset}
+                    disabled={!selectedAssetToAdd || addingAsset}
+                    className="flex items-center gap-1.5 bg-zinc-800 hover:bg-red-600 disabled:opacity-50 text-zinc-300 hover:text-white text-[10px] font-bold uppercase tracking-wider px-3 py-2 rounded-lg transition-colors shrink-0"
+                  >
+                    {addingAsset ? <Loader2 size={12} className="animate-spin" /> : null}
+                    Add
+                  </button>
+                </div>
+                {addAssetError && (
+                  <p className="text-[10px] text-red-500 mt-2">{addAssetError}</p>
+                )}
+              </div>
+            )}
           </div>
         </div>
       )}
@@ -775,6 +903,44 @@ export default function PromotionDetail() {
               );
             })}
           </div>
+        </div>
+      )}
+
+      {/* Sponsor Assign Tracking Domain — small, separate MVP addition.
+          Assignment-wide by nature (see addAssignmentTrackingDomain),
+          accepted tradeoff. Same Sponsor gate as the section below,
+          minus the trackingDomains.length > 0 check since this should
+          be usable even when nothing has been assigned yet. */}
+      {!isRemovedSelf && isSponsor && collaborator && collaborator.status === 'active' && (
+        <div>
+          <p className="text-[10px] font-black uppercase tracking-widest text-zinc-500 mb-3">
+            Add a new tracking domain (optional)
+          </p>
+          <div className="flex items-center gap-2 max-w-2xl">
+            <select
+              value={selectedDomainToAssign}
+              onChange={e => setSelectedDomainToAssign(e.target.value)}
+              className="flex-1 bg-zinc-900 border border-zinc-800 rounded-lg px-3 py-2 text-sm text-zinc-200"
+            >
+              <option value="">Select a tracking domain</option>
+              {assignableDomains
+                .filter(d => !trackingDomains.some(td => td.id === d.id))
+                .map(d => (
+                  <option key={d.id} value={d.id}>{d.hostname}</option>
+                ))}
+            </select>
+            <button
+              onClick={handleAssignDomain}
+              disabled={!selectedDomainToAssign || assigningDomain}
+              className="flex items-center gap-1.5 bg-zinc-800 hover:bg-red-600 disabled:opacity-50 text-zinc-300 hover:text-white text-[10px] font-bold uppercase tracking-wider px-3 py-2 rounded-lg transition-colors shrink-0"
+            >
+              {assigningDomain ? <Loader2 size={12} className="animate-spin" /> : <Globe size={12} />}
+              Assign
+            </button>
+          </div>
+          {assignDomainError && (
+            <p className="text-[10px] text-red-500 mt-2">{assignDomainError}</p>
+          )}
         </div>
       )}
 
