@@ -106,6 +106,28 @@ export async function listAssignmentTrackingDomains(
 }
 
 /**
+ * Sponsor assigns one of their own verified domains to this Assignment.
+ * Direct insert, no RPC — authorization is entirely handled by the
+ * existing assignment_tracking_domains_insert_by_creator RLS policy
+ * (assignments.created_by_user_id = auth.uid()), same policy already in
+ * place since the Create Assignment PR. This is Assignment-wide, not
+ * Promotion-only — inserting here makes the domain visible to every
+ * Promotion under this Assignment, an accepted tradeoff for this MVP.
+ */
+export async function addAssignmentTrackingDomain(
+  assignmentId: string,
+  brandedTrackingDomainId: string
+): Promise<void> {
+  const { error } = await supabase
+    .from('assignment_tracking_domains')
+    .insert({ assignment_id: assignmentId, branded_tracking_domain_id: brandedTrackingDomainId });
+
+  if (error) {
+    throw new Error(error.message ?? 'Failed to assign tracking domain');
+  }
+}
+
+/**
  * PR4 — Track New Content's actual data source. Composes two already-
  * existing reads rather than writing new query logic: the full
  * Assignment-wide domain list (listAssignmentTrackingDomains, UNCHANGED
