@@ -65,8 +65,6 @@ import { revokeTrackingDomainAccess, restoreTrackingDomainAccess } from '../serv
 import { addAssignmentTrackingDomain } from '../services/assignment/getAssignmentDetail';
 import { listVerifiedBrandedDomains, type VerifiedDomainOption } from '../services/domain/brandedDomains';
 import { setAllowCollaboratorDomains } from '../services/promotion/promotionAssetDomainPolicy';
-import { addPromotionAsset } from '../services/promotion/addPromotionAsset';
-import { listAssetsByOrganization } from '../services/asset/listAssetsByOrganization';
 import {
   resolveAssetThumbnail,
   resolveElementThumbnail,
@@ -152,15 +150,6 @@ export default function PromotionDetail() {
   // once the promotion (and its organization_id) is known. The dropdown
   // itself filters out already-assigned ones at render time.
   const [assignableDomains, setAssignableDomains] = useState<VerifiedDomainOption[]>([]);
-  // Add Asset — MVP. My Asset rows loaded on demand (network call);
-  // Assigned Asset rows come from detail.assignedAssets, already on the
-  // page, zero new query. Deliberately never calls
-  // listSharedAssetsForCollaborator — that's how Shared Asset stays
-  // excluded, same structural omission AssetPicker.tsx already relies on.
-  const [myAssetRows, setMyAssetRows] = useState<{ id: string; title: string }[]>([]);
-  const [selectedAssetToAdd, setSelectedAssetToAdd] = useState('');
-  const [addingAsset, setAddingAsset] = useState(false);
-  const [addAssetError, setAddAssetError] = useState<string | null>(null);
   const [selectedDomainToAssign, setSelectedDomainToAssign] = useState('');
   const [assigningDomain, setAssigningDomain] = useState(false);
   const [assignDomainError, setAssignDomainError] = useState<string | null>(null);
@@ -213,12 +202,7 @@ export default function PromotionDetail() {
     if (!isSponsor || !detail) return;
     listVerifiedBrandedDomains(detail.promotion.organization_id).then(setAssignableDomains);
   }, [isSponsor, detail?.promotion.organization_id]);
-useEffect(() => {
-    if (!isSponsor || !detail) return;
-    listAssetsByOrganization({ organizationId: detail.promotion.organization_id }).then(rows =>
-      setMyAssetRows(rows.map(r => ({ id: r.id, title: r.video_title || 'Untitled Asset' })))
-    );
-  }, [isSponsor, detail?.promotion.organization_id]);
+
 
   const handleRestore = async () => {
     if (!id || !user) return;
@@ -445,25 +429,7 @@ useEffect(() => {
       setAssigningDomain(false);
     }
   };
-// Add Asset — direct insert, no RPC. Authorization is entirely
-  // server-side (promotion_assets_insert_by_creator RLS). Deliberately
-  // does NOT touch assignment_assets — a My Asset can be added here even
-  // if it was never authorized into the Assignment.
-  const handleAddAsset = async () => {
-    if (!detail || !selectedAssetToAdd) return;
-    setAddAssetError(null);
-    setAddingAsset(true);
-    try {
-      await addPromotionAsset(detail.promotion.id, selectedAssetToAdd);
-      const data = await getPromotionDetail(detail.promotion.id);
-      if (data) setDetail(data);
-      setSelectedAssetToAdd('');
-    } catch (err: any) {
-      setAddAssetError(err.message || 'Could not add this asset to the promotion.');
-    } finally {
-      setAddingAsset(false);
-    }
-  };
+
   if (loading) {
     return (
       <div className="flex items-center gap-2 text-zinc-500 text-sm">
@@ -738,51 +704,6 @@ useEffect(() => {
             )}
             {domainPolicyError && (
               <p className="text-[10px] text-red-500 mt-2">{domainPolicyError}</p>
-            )}
-
-            {/* Add Asset — MVP. Sponsor-only, same gate as the rest of
-                this section. Options = My Asset rows + detail.assignedAssets,
-                minus whatever's already in `assets` (already promoted).
-                Never includes Shared Asset. */}
-            {!isRemovedSelf && isSponsor && collaborator && collaborator.status === 'active' && (
-              <div className="mt-4 pt-4 border-t border-zinc-800">
-                <p className="text-[10px] font-black uppercase tracking-widest text-zinc-500 mb-2">
-                  Add Asset
-                </p>
-                <div className="flex items-center gap-2">
-                  <select
-                    value={selectedAssetToAdd}
-                    onChange={e => setSelectedAssetToAdd(e.target.value)}
-                    className="flex-1 bg-zinc-900 border border-zinc-800 rounded-lg px-3 py-2 text-sm text-zinc-200"
-                  >
-                    <option value="">Select an asset</option>
-                    {myAssetRows
-                      .filter(r => !assets.some(a => a.assetId === r.id))
-                      .map(r => (
-                        <option key={r.id} value={r.id}>{r.title}</option>
-                      ))}
-                    {assignedAssets
-                      .filter(a => !assets.some(x => x.assetId === a.assetId))
-                      .filter(a => !myAssetRows.some(r => r.id === a.assetId))
-                      .map(a => (
-                        <option key={a.assetId} value={a.assetId}>
-                          {a.resource?.title || 'Untitled Asset'}
-                        </option>
-                      ))}
-                  </select>
-                  <button
-                    onClick={handleAddAsset}
-                    disabled={!selectedAssetToAdd || addingAsset}
-                    className="flex items-center gap-1.5 bg-zinc-800 hover:bg-red-600 disabled:opacity-50 text-zinc-300 hover:text-white text-[10px] font-bold uppercase tracking-wider px-3 py-2 rounded-lg transition-colors shrink-0"
-                  >
-                    {addingAsset ? <Loader2 size={12} className="animate-spin" /> : null}
-                    Add
-                  </button>
-                </div>
-                {addAssetError && (
-                  <p className="text-[10px] text-red-500 mt-2">{addAssetError}</p>
-                )}
-              </div>
             )}
           </div>
         </div>
