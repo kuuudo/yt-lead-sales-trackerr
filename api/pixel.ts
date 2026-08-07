@@ -66,7 +66,7 @@ console.log('PIXEL BODY', {
   let campaign: any = null;
 
   // ── PR C: First Touch Attribution — Database is the Authority ──────────
-  // first_touch_redirect_link_id is a carrier only. Browser-supplied
+  // first_touch_redirect_link_id is a carrier only. Browser-supplied.
   // video_id/campaign_id/organization_id/promotion_id/asset_id/
   // tracking_hostname are NEVER trusted when this is present — only the
   // redirect_links row itself is. redirect_link_id (below, separately) is
