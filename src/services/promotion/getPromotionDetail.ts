@@ -119,6 +119,16 @@ export interface PromotionDetailData {
     promotionAssetId: string;
     assetId: string;
     resource: AssetResourceView | null;
+    /**
+     * MVP — Promotion-level "Allow collaborator domains" policy, owned
+     * by promotion_assets.allow_collaborator_domains (see
+     * promotionAssetDomainPolicy.ts). NOT related to isRevoked below —
+     * that governs Sponsor-shared domains via a completely separate
+     * mechanism (assignment_tracking_domain_access_states). This field
+     * governs whether the Collaborator's OWN verified domains are
+     * offered at all, for this asset, in this Promotion only.
+     */
+    allowCollaboratorDomains: boolean;
   }[];
   /**
    * MEANING (new, Phase 2C): "what this collaborator is currently
@@ -187,7 +197,7 @@ export async function getPromotionDetail(promotionId: string): Promise<Promotion
       .maybeSingle(),
     supabase
       .from('promotion_assets')
-      .select('id, asset_id')
+      .select('id, asset_id, allow_collaborator_domains')
       .eq('promotion_id', promotionId),
     // Phase 2C — full authorized asset list for this Assignment, NOT
     // scoped to what was promoted. Only fetched when there's an
@@ -298,6 +308,7 @@ if (promotion.assignment_collaborator_id) {
         promotionAssetId: row.id as string,
         assetId: row.asset_id as string,
         resource: detail?.resource ?? null,
+        allowCollaboratorDomains: row.allow_collaborator_domains as boolean,
       };
     })
   );

@@ -62,6 +62,7 @@ import { removeCollaborator } from '../services/assignment/removeCollaborator';
 import { restoreCollaborator } from '../services/assignment/restoreCollaborator';
 import { revokeAssetAccess, restoreAssetAccess } from '../services/assignment/assignmentAssetAccess';
 import { revokeTrackingDomainAccess, restoreTrackingDomainAccess } from '../services/assignment/assignmentTrackingDomainAccess';
+import { setAllowCollaboratorDomains } from '../services/promotion/promotionAssetDomainPolicy';
 import {
   resolveAssetThumbnail,
   resolveElementThumbnail,
@@ -133,6 +134,14 @@ export default function PromotionDetail() {
   // Same pattern, for Tracking Domains — tracked by branded_tracking_domain_id.
   const [domainActionId, setDomainActionId] = useState<string | null>(null);
   const [domainActionError, setDomainActionError] = useState<string | null>(null);
+
+  // MVP — Promotion-level "Allow collaborator domains" policy.
+  // Deliberately separate state from domainActionId/domainActionError
+  // above (which govern the unrelated Sponsor-domain revoke/restore
+  // flow) — different data, different table, different mechanism,
+  // kept independent rather than sharing state.
+  const [domainPolicyActionId, setDomainPolicyActionId] = useState<string | null>(null);
+  const [domainPolicyError, setDomainPolicyError] = useState<string | null>(null);
 
   useEffect(() => {
     if (!id) return;
@@ -341,6 +350,34 @@ export default function PromotionDetail() {
       setDomainActionError(err.message || 'Could not restore access to this tracking domain.');
     } finally {
       setDomainActionId(null);
+    }
+  };
+
+  // MVP — Promotion-level "Allow collaborator domains" policy toggle.
+  // No RPC — direct RLS-guarded update via promotionAssetDomainPolicy.ts,
+  // same optimistic local-state pattern as every handler above.
+  // Independent of assignment_tracking_domain_access_states and both
+  // revoke/restore handlers — this only ever writes
+  // promotion_assets.allow_collaborator_domains for one row.
+  const handleToggleAllowCollaboratorDomains = async (promotionAssetId: string, next: boolean) => {
+    setDomainPolicyError(null);
+    setDomainPolicyActionId(promotionAssetId);
+    try {
+      await setAllowCollaboratorDomains(promotionAssetId, next);
+      setDetail((prev: PromotionDetailData | null) =>
+        prev
+          ? {
+              ...prev,
+              assets: prev.assets.map(a =>
+                a.promotionAssetId === promotionAssetId ? { ...a, allowCollaboratorDomains: next } : a
+              ),
+            }
+          : prev
+      );
+    } catch (err: any) {
+      setDomainPolicyError(err.message || 'Could not update this setting.');
+    } finally {
+      setDomainPolicyActionId(null);
     }
   };
 
@@ -566,27 +603,58 @@ export default function PromotionDetail() {
                 {assets.map(a => {
                   const thumbnailSrc = resolveThumbnailSrc(a.resource);
                   const title = a.resource?.title || 'Untitled Asset';
+                  const isPolicyBusy = domainPolicyActionId === a.promotionAssetId;
                   return (
-                    <Link
+                    <div
                       key={a.promotionAssetId}
-                      to={`/assets/${a.assetId}`}
-                      className="flex items-center gap-3 bg-zinc-900 border border-zinc-800 rounded-lg p-3 hover:border-zinc-600 transition-all"
+                      className="flex items-center gap-3 bg-zinc-900 border border-zinc-800 rounded-lg p-3"
                     >
-                      <div className="w-14 h-9 overflow-hidden rounded bg-zinc-950 border border-zinc-800 flex items-center justify-center shrink-0">
-                        {thumbnailSrc && (
-                          <img src={thumbnailSrc} className="max-w-full max-h-full object-contain" />
-                        )}
-                      </div>
-                      <div className="min-w-0">
-                        <p className="text-sm text-zinc-200 truncate">{title}</p>
-                        <p className="text-[9px] font-black uppercase text-zinc-600 tracking-widest mt-0.5">
-                          {resolveTypeLabel(a.resource)}
-                        </p>
-                      </div>
-                    </Link>
+                      <Link
+                        to={`/assets/${a.assetId}`}
+                        className="flex items-center gap-3 flex-1 min-w-0 hover:opacity-80 transition-opacity"
+                      >
+                        <div className="w-14 h-9 overflow-hidden rounded bg-zinc-950 border border-zinc-800 flex items-center justify-center shrink-0">
+                          {thumbnailSrc && (
+                            <img src={thumbnailSrc} className="max-w-full max-h-full object-contain" />
+                          )}
+                        </div>
+                        <div className="min-w-0">
+                          <p className="text-sm text-zinc-200 truncate">{title}</p>
+                          <p className="text-[9px] font-black uppercase text-zinc-600 tracking-widest mt-0.5">
+                            {resolveTypeLabel(a.resource)}
+                          </p>
+                        </div>
+                      </Link>
+
+                      {/* MVP — Promotion-level "Allow collaborator
+                          domains" policy. Sponsor-only, same gate as
+                          Access Management sections below. Un-nested
+                          from the Link above (a checkbox can't live
+                          inside an anchor) — this is the only
+                          structural change to this block; the Link's
+                          own content/target/styling is unchanged. */}
+                      {!isRemovedSelf && isSponsor && collaborator && collaborator.status === 'active' && (
+                        <label className="flex items-center gap-1.5 text-[9px] font-bold uppercase tracking-widest text-zinc-500 shrink-0 cursor-pointer select-none">
+                          <input
+                            type="checkbox"
+                            checked={a.allowCollaboratorDomains}
+                            disabled={isPolicyBusy}
+                            onChange={() =>
+                              handleToggleAllowCollaboratorDomains(a.promotionAssetId, !a.allowCollaboratorDomains)
+                            }
+                            className="accent-red-600"
+                          />
+                          {isPolicyBusy ? <Loader2 size={10} className="animate-spin" /> : null}
+                          Allow collaborator domains
+                        </label>
+                      )}
+                    </div>
                   );
                 })}
               </div>
+            )}
+            {domainPolicyError && (
+              <p className="text-[10px] text-red-500 mt-2">{domainPolicyError}</p>
             )}
           </div>
         </div>

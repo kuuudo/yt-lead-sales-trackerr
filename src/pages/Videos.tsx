@@ -67,6 +67,7 @@ import {
 
 import type { PromotionContext } from '../services/asset/resolvePromotionContextForAsset';
 import { listAssignmentTrackingDomainsForCollaborator } from '../services/assignment/getAssignmentDetail';
+import { getAllowCollaboratorDomainsMap } from '../services/promotion/promotionAssetDomainPolicy';
 import { categorizeAsset } from '../services/redirect/getPromotedAssetDisplay';
 import { resolveAssetType } from '../services/asset/resolveAssetType';
 type VideoStatus = Video['status'];
@@ -548,6 +549,15 @@ const hasBlockingPromotionIssue = Array.from(promotionContextByAssetId.entries()
   // which source it came from.
   const [selectedAssetDomainByAssetId, setSelectedAssetDomainByAssetId] =
     useState<Map<string, string | null>>(new Map());
+  // MVP — Promotion-level "Allow collaborator domains" policy, keyed by
+  // asset_id (not promotionAssetId — that's an internal detail this
+  // component doesn't need). Deliberately a SEPARATE effect/cache from
+  // sharedDomainsByAssignmentId below — different data source
+  // (promotion_assets, not assignment_tracking_domains), different key
+  // (promotionId, not assignmentId), kept independent so this addition
+  // cannot risk the already-working revoke/restore-aware effect.
+  const [allowCollaboratorDomainsByAssetId, setAllowCollaboratorDomainsByAssetId] =
+    useState<Map<string, boolean>>(new Map());
   // Auto-open import modal when navigated here with ?openImport=true
   // (e.g. from VideoDetail "Import Analytics" button)
   useEffect(() => {
@@ -600,6 +610,46 @@ const hasBlockingPromotionIssue = Array.from(promotionContextByAssetId.entries()
       });
     });
   }, [promotedAssets, promotionContextByAssetId, chosenPromotionByAssetId, sharedDomainsByAssignmentId]);
+
+  // MVP — independent effect, separate cache, separate data source.
+  // Fetches the "Allow collaborator domains" policy per Promotion (not
+  // per Assignment) the first time a promoted asset resolves to that
+  // promotionId, merges per-asset results into
+  // allowCollaboratorDomainsByAssetId. Does not touch, read, or depend
+  // on sharedDomainsByAssignmentId or the effect above in any way.
+  useEffect(() => {
+    const promotionIdsToFetch = new Set<string>();
+
+    for (const asset of promotedAssets) {
+      if (allowCollaboratorDomainsByAssetId.has(asset.asset_id)) continue;
+      const options = promotionContextByAssetId.get(asset.asset_id);
+      if (!options) continue;
+
+      const ctx =
+        options.length === 1
+          ? toPromotionContext(options[0])
+          : chosenPromotionByAssetId.get(asset.asset_id);
+
+      if (!ctx) continue;
+      promotionIdsToFetch.add(ctx.promotionId);
+    }
+
+    if (promotionIdsToFetch.size === 0) return;
+
+    Promise.all(
+      Array.from(promotionIdsToFetch).map(id =>
+        getAllowCollaboratorDomainsMap(id).then(map => map)
+      )
+    ).then(maps => {
+      setAllowCollaboratorDomainsByAssetId(prev => {
+        const next = new Map(prev);
+        for (const map of maps) {
+          for (const [assetId, allow] of map) next.set(assetId, allow);
+        }
+        return next;
+      });
+    });
+  }, [promotedAssets, promotionContextByAssetId, chosenPromotionByAssetId, allowCollaboratorDomainsByAssetId]);
 
   // Small helper — resolves which assignmentId (if any) currently applies
   // to a given promoted asset. Same logic as the effect above and the
@@ -1510,8 +1560,15 @@ console.log(
                               ? sharedDomainsByAssignmentId.get(assignmentId) ?? []
                               : [];
                             const currentValue = selectedAssetDomainByAssetId.get(asset.asset_id) ?? '';
+                            // MVP policy gate — defaults to true (matches the
+                            // DB default) both for My Assets, which never
+                            // resolve a promotionContext at all, and for the
+                            // brief window before the policy effect above has
+                            // resolved for a Shared/Assigned asset.
+                            const allowCollaboratorDomains =
+                              allowCollaboratorDomainsByAssetId.get(asset.asset_id) ?? true;
 
-                            
+                            if (verifiedDomains.length === 0 && sharedDomains.length === 0) return null;
 
                             return (
                               <div key={asset.asset_id} className="pl-1 space-y-1">
@@ -1528,7 +1585,7 @@ console.log(
                                   className="w-full bg-zinc-950 border border-zinc-800 rounded-xl px-4 py-2.5 text-xs text-zinc-100 focus:outline-none focus:border-red-600"
                                 >
                                   <option value="">vstrk.com</option>
-                                  {verifiedDomains.length > 0 && (
+                                  {allowCollaboratorDomains && verifiedDomains.length > 0 && (
                                     <optgroup label="Your Domains">
                                       {verifiedDomains.map(d => (
                                         <option key={d.id} value={d.id}>{d.hostname}</option>
