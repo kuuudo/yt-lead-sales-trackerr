@@ -116,6 +116,28 @@ export interface PromotedAssetPickerProps {
   initialSelectedAssetIds?: string[];
   onClose: () => void;
   onSelect: (assets: PromotedAssetRow[]) => void;
+  /**
+   * Default true (unchanged Videos.tsx behavior). When false, skips the
+   * listSharedAssetsForCollaborator fetch entirely and hides the Shared
+   * ownership tab — used by Promotion Detail's Add Asset, which must
+   * never surface Shared Assets (Ali cannot re-share someone else's
+   * asset into his own Promotion).
+   */
+  includeShared?: boolean;
+  /**
+   * When provided, used instead of getAssignedAssetSummaryForOwner to
+   * compute the "Assigned" tab/badges — lets a caller scope "assigned"
+   * to one specific Assignment (e.g. detail.assignedAssets from
+   * getPromotionDetail.ts) instead of the global "assigned to anyone,
+   * across any Assignment" default. Undefined = unchanged behavior.
+   */
+  assignedAssetIdsOverride?: string[];
+  /**
+   * Asset ids removed entirely from every list/tab — not just
+   * pre-selected, actually excluded from the pool. Used by Add Asset to
+   * hide assets already in the current Promotion.
+   */
+  excludeAssetIds?: string[];
 }
 
 type OwnershipFilter = 'all' | 'mine' | 'shared' | 'assigned';
@@ -154,7 +176,7 @@ interface UnifiedAssetRow {
   assignedCollaboratorCount: number | null;
 }
 
-function fromMyRow(row: AssetLibraryRow, assignedMap: Map<string, number>): UnifiedAssetRow {
+function fromMyRow(row: AssetLibraryRow, assignedMap: Map<string, number | null>): UnifiedAssetRow {
   return {
     key: row.id,
     assetId: row.id,
@@ -215,6 +237,9 @@ export function PromotedAssetPicker({
   initialSelectedAssetIds = [],
   onClose,
   onSelect,
+  includeShared = true,
+  assignedAssetIdsOverride,
+  excludeAssetIds = [],
 }: PromotedAssetPickerProps) {
   const { user } = useAuth();
 
@@ -249,13 +274,17 @@ export function PromotedAssetPicker({
 
     Promise.all([
       listAssetsByOrganization({ organizationId }),
-      user
+      includeShared && user
         ? listSharedAssetsForCollaborator({
             userId: user.id,
             excludeOrganizationId: organizationId,
           })
         : Promise.resolve([]),
-      user ? getAssignedAssetSummaryForOwner(user.id) : Promise.resolve([]),
+      assignedAssetIdsOverride
+        ? Promise.resolve([])
+        : user
+        ? getAssignedAssetSummaryForOwner(user.id)
+        : Promise.resolve([]),
     ])
       .then(([myData, sharedData, assignedData]) => {
         if (cancelled) return;
@@ -279,20 +308,27 @@ export function PromotedAssetPicker({
     return () => {
       cancelled = true;
     };
-  }, [organizationId, user]);
+  }, [organizationId, user, includeShared, assignedAssetIdsOverride]);
 
   // Same merge shape as Assets.tsx: Assigned is a filter over My rows,
   // never a concatenated third list.
   const unifiedRows = useMemo<UnifiedAssetRow[]>(() => {
-    const assignedMap = new Map(assignedSummary.map(s => [s.assetId, s.collaboratorCount]));
-    const mine = rows.map(row => fromMyRow(row, assignedMap));
-    const shared = sharedRows.map(fromSharedRow);
+    const assignedMap = assignedAssetIdsOverride
+      ? new Map(assignedAssetIdsOverride.map(id => [id, null as number | null]))
+      : new Map(assignedSummary.map(s => [s.assetId, s.collaboratorCount as number | null]));
+    const excludeSet = new Set(excludeAssetIds);
+    const mine = rows
+      .filter(row => !excludeSet.has(row.id))
+      .map(row => fromMyRow(row, assignedMap));
+    const shared = sharedRows
+      .filter(row => !excludeSet.has(row.asset_id))
+      .map(fromSharedRow);
 
     if (ownershipFilter === 'mine') return mine;
     if (ownershipFilter === 'shared') return shared;
     if (ownershipFilter === 'assigned') return mine.filter(r => r.isAssigned);
     return [...mine, ...shared];
-  }, [rows, sharedRows, assignedSummary, ownershipFilter]);
+  }, [rows, sharedRows, assignedSummary, assignedAssetIdsOverride, excludeAssetIds, ownershipFilter]);
 
   // Category counts for the dropdown — mirrors Assets.tsx's tabCounts,
   // computed off the ownership-filtered set.
@@ -384,7 +420,9 @@ export function PromotedAssetPicker({
 
           {/* Ownership filter — same pattern/labels as Assets.tsx */}
           <div className="flex items-center gap-2 flex-wrap" role="group" aria-label="Filter by ownership">
-            {(['all', 'mine', 'shared', 'assigned'] as OwnershipFilter[]).map(f => (
+            {(['all', 'mine', 'shared', 'assigned'] as OwnershipFilter[])
+              .filter(f => includeShared || f !== 'shared')
+              .map(f => (
               <button
                 key={f}
                 type="button"
@@ -453,8 +491,9 @@ export function PromotedAssetPicker({
                     )}
                     {row.isAssigned && (
                       <p className="text-[9px] font-black uppercase text-blue-400 tracking-widest mt-0.5">
-                        Assigned · {row.assignedCollaboratorCount}{' '}
-                        {row.assignedCollaboratorCount === 1 ? 'User' : 'Users'}
+                        {row.assignedCollaboratorCount === null
+                          ? 'Assigned'
+                          : `Assigned · ${row.assignedCollaboratorCount} ${row.assignedCollaboratorCount === 1 ? 'User' : 'Users'}`}
                       </p>
                     )}
                   </div>
