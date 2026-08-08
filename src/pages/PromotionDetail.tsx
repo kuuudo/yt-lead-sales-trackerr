@@ -436,12 +436,12 @@ export default function PromotionDetail() {
   };
 
   const handleAddAsset = async (selected: PromotedAssetRow[]) => {
-    if (!detail || selected.length === 0) return;
+    if (!detail || !detail.assignment || selected.length === 0) return;
     setAddAssetError(null);
     setAddingAsset(true);
     try {
       for (const asset of selected) {
-        await addPromotionAsset(detail.promotion.id, asset.asset_id);
+        await addPromotionAsset(detail.promotion.id, asset.asset_id, detail.assignment.id);
       }
       const data = await getPromotionDetail(detail.promotion.id);
       if (data) setDetail(data);
