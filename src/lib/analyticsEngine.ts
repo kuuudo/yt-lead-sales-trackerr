@@ -1548,29 +1548,22 @@ function matchDestinationUrlToCampaignField(
   return null;
 }
 
-// ── B2. resolveJourneyElementTypes ────────────────────────────────────────────
+// ── B2. resolveJourneyElementTypeEvidence (internal core) ────────────────────
 //
-// Evidence-based, multi-value journey classification (locked architecture §4,
-// design spec §8). Given a session, collects every element type the journey's
-// redirect-link-sourced events touched via:
-//
-//   Path A — redirect_links.asset_id → campaign_element_assets.element_type
-//   Path B — redirect_links.link_type, or (when link_type is absent)
-//            destination_url corroborated against campaign.*_url fields
-//
-// Returns a DEDUPLICATED SET, never collapsed to one value. No first-match,
-// last-match, or priority rule — a journey that touched both 'landing_page'
-// and 'consultation' returns both. Business rules that need a single value
-// for a specific downstream view are a metric-layer concern, not this
-// function's — see deriveLegacyRevenueBuckets() (Section F) for the one
-// approved exception, which is explicitly isolated from this function.
-export function resolveJourneyElementTypes(
+// Shared implementation behind resolveJourneyElementTypes() (below) and
+// buildPurchaseEvidenceGraph() (Section G). Identical traversal logic either
+// way; this version additionally records WHICH path resolved each item and
+// which specific redirect_link/session produced it, so the evidence graph
+// can show its work. resolveJourneyElementTypes() is a thin wrapper that
+// discards that provenance and returns the deduplicated value set — its
+// behavior is unchanged by this refactor.
+function resolveJourneyElementTypeEvidence(
   sessionId:              string | null,
   events:                 JourneyEvent[],
   redirectLinks:          RedirectLinkRow[],
   campaignElementAssets:  CampaignElementAssetRow[],
   campaigns:              CampaignUrlFields[],
-): string[] {
+): EvidenceItem<string>[] {
   if (!sessionId) return [];
 
   const sessionEvents = events.filter(e => e.session_id === sessionId && e.redirect_link_id);
@@ -1580,7 +1573,7 @@ export function resolveJourneyElementTypes(
   const campaignElementAssetByAsset  = new Map(campaignElementAssets.map(a => [a.asset_id, a]));
   const campaignById                 = new Map(campaigns.map(c => [c.id, c]));
 
-  const elementTypes = new Set<string>();
+  const items: EvidenceItem<string>[] = [];
 
   for (const evt of sessionEvents) {
     const link = evt.redirect_link_id ? redirectLinkById.get(evt.redirect_link_id) : undefined;
@@ -1590,14 +1583,22 @@ export function resolveJourneyElementTypes(
     if (link.asset_id) {
       const cea = campaignElementAssetByAsset.get(link.asset_id);
       if (cea?.element_type) {
-        elementTypes.add(cea.element_type);
+        items.push({
+          value:       cea.element_type,
+          confidence:  'session_linked',
+          source:      `events[session=${sessionId}].redirect_link_id=${link.id} → campaign_element_assets.element_type (Path A)`,
+        });
         continue; // this link is resolved; Path B is a fallback, not additive evidence for the same link
       }
     }
 
     // Path B — campaign-native redirect: link_type first
     if (link.link_type) {
-      elementTypes.add(link.link_type);
+      items.push({
+        value:       link.link_type,
+        confidence:  'session_linked',
+        source:      `events[session=${sessionId}].redirect_link_id=${link.id} → redirect_links.link_type (Path B)`,
+      });
       continue;
     }
 
@@ -1606,7 +1607,13 @@ export function resolveJourneyElementTypes(
       const campaign = campaignById.get(link.campaign_id);
       if (campaign) {
         const matched = matchDestinationUrlToCampaignField(link.destination_url, campaign);
-        if (matched) elementTypes.add(matched);
+        if (matched) {
+          items.push({
+            value:       matched,
+            confidence:  'session_linked',
+            source:      `events[session=${sessionId}].redirect_link_id=${link.id} → destination_url matched campaigns.${matched}_url (Path B fallback)`,
+          });
+        }
       }
     }
     // If neither path resolves for this specific link, it contributes no
@@ -1615,7 +1622,39 @@ export function resolveJourneyElementTypes(
     // be exactly the kind of guess this function must not make.
   }
 
-  return Array.from(elementTypes);
+  return items;
+}
+
+// ── B3. resolveJourneyElementTypes ────────────────────────────────────────────
+//
+// Evidence-based, multi-value journey classification (locked architecture §4,
+// design spec §8). Given a session, collects every element type the journey's
+// redirect-link-sourced events touched via Path A / Path B (see
+// resolveJourneyElementTypeEvidence above for the exact traversal).
+//
+// Returns a DEDUPLICATED SET, never collapsed to one value. No first-match,
+// last-match, or priority rule — a journey that touched both 'landing_page'
+// and 'consultation' returns both. Business rules that need a single value
+// for a specific downstream view are a metric-layer concern, not this
+// function's — see deriveLegacyRevenueBuckets() (Section F) for the one
+// approved exception, which is explicitly isolated from this function.
+//
+// NOTE ON SCOPE (confirmed, not a defect): this only sees evidence reachable
+// via exact session_id equality. Real multi-domain journeys can span more
+// than one session_id (confirmed against real test data — see the evidence
+// graph's per-purchase `meta.joinedSessionIds` and `unresolvedDimensions` in
+// Section G for how that boundary is made explicit rather than papered over).
+export function resolveJourneyElementTypes(
+  sessionId:              string | null,
+  events:                 JourneyEvent[],
+  redirectLinks:          RedirectLinkRow[],
+  campaignElementAssets:  CampaignElementAssetRow[],
+  campaigns:              CampaignUrlFields[],
+): string[] {
+  const items = resolveJourneyElementTypeEvidence(
+    sessionId, events, redirectLinks, campaignElementAssets, campaigns,
+  );
+  return Array.from(new Set(items.map(i => i.value)));
 }
 
 export interface ResolvedConversion {
@@ -1756,6 +1795,11 @@ export interface AnalyticsEngineInputV2 {
   assignmentCollaborators:  AssignmentCollaboratorRow[];
 }
 
+// AnalyticsResult is an OBSERVED-METRICS ROLLUP, not a credit-assignment
+// report. "byDimension.video['x']" means "revenue/clicks/etc. observed
+// through video x," never "video x caused/owns this revenue." For the
+// underlying per-purchase evidence this rollup is built from, see
+// buildPurchaseEvidenceGraph() (Section G).
 export interface AnalyticsResult {
   totals:       CanonicalMetricSet;
   byDimension:  Record<string, CanonicalMetricSet>;
@@ -1804,23 +1848,31 @@ const PIXEL_REVENUE_EVENT_TYPES = new Set(['purchase', 'consultation']);
 /**
  * resolveDimensionKeysForConversion
  *
- *   Direct mode (§2.3):     credit whatever identity field sits directly on
- *                           the conversion row itself (its own promotion_id /
- *                           asset_id / video_id / etc.) — exactly one key.
- *   Attributed mode (§2.4): reconstruct the journey via session_id and credit
- *                           EVERY distinct dimension key actually touched —
- *                           may be zero, one, or several keys. If the journey
- *                           can't be reconstructed (no session_id, or no
- *                           matching events), falls back to the conversion's
- *                           own direct identity rather than silently
- *                           dropping the revenue.
+ * IMPORTANT FRAMING: this is a ROLLUP-GROUPING function, not an attribution/
+ * credit-assignment function. It answers "which dimension buckets should this
+ * revenue be reported alongside," never "who caused this purchase" or "who
+ * owns this revenue." Locked direction: VSTRK's canonical layer does not
+ * force a single-owner credit answer for any purchase — see
+ * buildPurchaseEvidenceGraph() (Section G) for the actual per-purchase
+ * evidence model this rollup is built on top of.
  *
- * NOTE: in attributed mode with multiple credited keys, the same revenue is
- * summed into more than one dimension bucket by design (multi-touch
- * attribution) — `totals` is still incremented exactly once per conversion
- * regardless, so `totals.revenue` never double-counts even though the
- * per-dimension breakdown can sum to more than `totals.revenue`. This is a
- * property of journey attribution, not a bug, and callers comparing
+ *   Direct mode (§2.3):     group under whatever identity field sits directly
+ *                           on the conversion row itself (its own promotion_id
+ *                           / asset_id / video_id / etc.) — exactly one key.
+ *   Attributed mode (§2.4): reconstruct the journey via session_id and group
+ *                           under EVERY distinct dimension key actually
+ *                           observed — may be zero, one, or several keys. If
+ *                           the journey can't be reconstructed (no session_id,
+ *                           or no matching events), falls back to the
+ *                           conversion's own direct identity rather than
+ *                           silently dropping the revenue from the rollup.
+ *
+ * NOTE: in attributed mode with multiple grouped keys, the same revenue is
+ * summed into more than one dimension bucket by design — `totals` is still
+ * incremented exactly once per conversion regardless, so `totals.revenue`
+ * never double-counts even though the per-dimension breakdown can sum to more
+ * than `totals.revenue`. This reflects "revenue observed through multiple
+ * touchpoints," not multi-touch credit splitting, and callers comparing
  * byDimension sums against totals should be aware of it.
  */
 function resolveDimensionKeysForConversion(
@@ -2057,4 +2109,260 @@ export function aggregateLegacyRevenueBuckets(
     },
     { direct_offer_revenue: 0, consultation_revenue: 0 } as LegacyRevenueBuckets,
   );
+}
+
+
+// ═════════════════════════════════════════════════════════════════════════════
+// PHASE 5B · SECTION G — PURCHASE EVIDENCE GRAPH
+// ═════════════════════════════════════════════════════════════════════════════
+//
+// LOCKED DIRECTION (do not relitigate without an explicit decision):
+//
+//   VSTRK's canonical analytics layer does not answer "who gets 100% credit
+//   for this purchase." It answers "what do we actually know about the
+//   journey behind this purchase." Revenue attribution and journey evidence
+//   are different questions — this section only answers the second one.
+//
+// RULES THIS SECTION FOLLOWS, WITHOUT EXCEPTION:
+//   • Every dimension is a SET of observed values, never a single "winner."
+//   • If multiple events in the same reachable session show different
+//     values for the same dimension (e.g. two different campaign_ids),
+//     BOTH are kept as separate evidence items. No inference about which
+//     one is "correct."
+//   • `confidence` describes HOW a value was obtained — 'confirmed' (sits
+//     directly on the purchase row) vs 'session_linked' (reached by joining
+//     the purchase's session_id to a matching event) — it is NOT a ranking
+//     and does not imply one is more "real" or more attributable than the
+//     other.
+//   • A connection is only made if it is reachable through a real,
+//     persisted key already in this data model (session_id joins, or
+//     values sitting directly on the row). Nothing is connected because two
+//     things merely "look like" the same journey. If it can't be reached
+//     through a real join, it is UNKNOWN — reported explicitly via
+//     `meta.unresolvedDimensions`, never silently omitted, never guessed.
+//   • This is a lower-level, additional view alongside
+//     runCanonicalAnalyticsEngine() — not a replacement for it. The rollup
+//     answers "how much revenue was observed through dimension X across many
+//     purchases"; this answers "what do we know about ONE purchase."
+//
+// CONFIRMED SCOPE LIMITATION (real, not hypothetical — verified against
+// actual production rows during this audit): session_id is not always
+// stable across a full journey. A real test purchase showed THREE different
+// session_id values across landing_page → checkout, with the value that
+// ultimately lands on stripe_purchases.session_id only reaching the LAST of
+// them. This means `session_linked` evidence is honestly bounded by however
+// far that one session_id reaches — it will not surface earlier-session
+// evidence (e.g. an earlier landing_page visit under a different session_id)
+// even when a human reading the raw logs could tell it was the same visitor.
+// This graph does NOT attempt to stitch across session_id boundaries — doing
+// so would require either a schema/write-path change (e.g. persisting
+// vt_first_touch_redirect_link_id somewhere) or inventing a heuristic no one
+// has approved. Both are out of scope for this pass. The boundary is made
+// visible via `meta.joinedSessionIds` (exactly one value, always, under the
+// current schema) and `meta.unresolvedDimensions`, rather than hidden.
+
+export type EvidenceDimension =
+  | 'video'
+  | 'campaign'
+  | 'organization'
+  | 'promotion'
+  | 'asset'
+  | 'member'
+  | 'redirectLink'
+  | 'session'
+  | 'elementType'
+  | 'platform';
+
+export interface EvidenceItem<T> {
+  value:       T;
+  // How this value was obtained — NOT a credit/priority ranking.
+  confidence:  'confirmed' | 'session_linked';
+  // Exact, human-traceable path to where this value came from, e.g.
+  // "stripe_purchases.campaign_id" or
+  // "events[session=213613ee].redirect_link_id=551b73f5 → redirect_links.link_type (Path B)".
+  source:      string;
+}
+
+export interface PurchaseEvidenceGraph {
+  purchase: {
+    id:          string;
+    source:      ConversionSource;
+    amount:      number;
+    created_at:  string;
+  };
+  evidence: Record<EvidenceDimension, EvidenceItem<string>[]>;
+  meta: {
+    // Every session_id actually reachable from this purchase. Under the
+    // current schema this is always exactly [conversion.session_id] (or []
+    // if the purchase has no session_id) — never more, because nothing in
+    // this data model lets us reliably discover OTHER session_ids belonging
+    // to the same visitor. Kept as an array (not a single value) so that if
+    // a future schema change enables real cross-session stitching, this
+    // shape doesn't need to change — only how it's populated would.
+    joinedSessionIds:      string[];
+    // Dimensions with zero evidence items — i.e. genuinely unknown, not
+    // just "empty by coincidence." A consuming UI should treat this list as
+    // the authoritative "we don't know" set, distinct from a dimension that
+    // happens to have evidence: [] for some other reason (there currently
+    // is no other reason, but this keeps the contract explicit).
+    unresolvedDimensions:  EvidenceDimension[];
+  };
+}
+
+function dedupeEvidenceItems(items: EvidenceItem<string>[]): EvidenceItem<string>[] {
+  const seen = new Map<string, EvidenceItem<string>>();
+  for (const item of items) {
+    const key = `${item.confidence}::${item.value}`;
+    if (!seen.has(key)) seen.set(key, item);
+  }
+  return Array.from(seen.values());
+}
+
+/**
+ * buildPurchaseEvidenceGraph
+ *
+ * The general-purpose, per-purchase evidence builder. For ONE conversion,
+ * collects every dimension value we can actually observe — confirmed
+ * (directly on the purchase row) and session-linked (via matching events on
+ * the SAME session_id) — as explicit sets, never collapsed to a single
+ * "answer." Dimensions with nothing reachable are left as empty arrays and
+ * listed in `meta.unresolvedDimensions`.
+ *
+ * This does not compute revenue attribution, does not pick an owning
+ * promotion/asset/member, and does not attempt to reconstruct a journey
+ * beyond what the purchase's own session_id can reach. See the Section G
+ * header comment above for the full set of rules this follows.
+ */
+export function buildPurchaseEvidenceGraph(
+  conversion:               CanonicalConversionRow,
+  events:                   JourneyEvent[],
+  redirectLinks:            RedirectLinkRow[],
+  campaignElementAssets:    CampaignElementAssetRow[],
+  campaigns:                CampaignUrlFields[],
+  promotions:               PromotionRow[],
+  assignmentCollaborators:  AssignmentCollaboratorRow[],
+): PurchaseEvidenceGraph {
+  const video:        EvidenceItem<string>[] = [];
+  const campaign:      EvidenceItem<string>[] = [];
+  const organization:  EvidenceItem<string>[] = [];
+  const promotion:     EvidenceItem<string>[] = [];
+  const asset:         EvidenceItem<string>[] = [];
+  const redirectLink:  EvidenceItem<string>[] = [];
+  const session:       EvidenceItem<string>[] = [];
+  // platform: no field carrying platform exists anywhere in this function's
+  // inputs (not on JourneyEvent, CanonicalConversionRow, or RedirectLinkRow)
+  // — left permanently empty until a caller supplies platform-bearing data.
+  // Not invented, not inferred.
+  const platform:      EvidenceItem<string>[] = [];
+
+  const purchaseSourceLabel = `${conversion.source}_purchases`;
+
+  // ── Confirmed evidence: directly on the purchase row ──────────────────────
+  if (conversion.video_id) {
+    video.push({ value: conversion.video_id, confidence: 'confirmed', source: `${purchaseSourceLabel}.video_id` });
+  }
+  if (conversion.campaign_id) {
+    campaign.push({ value: conversion.campaign_id, confidence: 'confirmed', source: `${purchaseSourceLabel}.campaign_id` });
+  }
+  if (conversion.organization_id) {
+    organization.push({ value: conversion.organization_id, confidence: 'confirmed', source: `${purchaseSourceLabel}.organization_id` });
+  }
+  if (conversion.promotion_id) {
+    promotion.push({ value: conversion.promotion_id, confidence: 'confirmed', source: `${purchaseSourceLabel}.promotion_id` });
+  }
+  if (conversion.asset_id) {
+    // Note: as of this audit, neither stripe_purchases nor pixel_purchases
+    // actually has an asset_id column in the real schema — this branch only
+    // fires if a caller has independently populated it. Left in place
+    // rather than removed, since CanonicalConversionRow's contract allows
+    // callers to supply it if/when the schema changes; it's simply expected
+    // to be empty under the current write path.
+    asset.push({ value: conversion.asset_id, confidence: 'confirmed', source: `${purchaseSourceLabel}.asset_id` });
+  }
+  if (conversion.session_id) {
+    session.push({ value: conversion.session_id, confidence: 'confirmed', source: `${purchaseSourceLabel}.session_id` });
+  }
+
+  // ── Session-linked evidence: events sharing the purchase's session_id ────
+  const joinedSessionIds: string[] = conversion.session_id ? [conversion.session_id] : [];
+  const sessionEvents = conversion.session_id
+    ? events.filter(e => e.session_id === conversion.session_id)
+    : [];
+
+  for (const evt of sessionEvents) {
+    const evtSource = (field: string) => `events[session=${conversion.session_id}].${field}`;
+
+    if (evt.video_id) {
+      video.push({ value: evt.video_id, confidence: 'session_linked', source: evtSource('video_id') });
+    }
+    if (evt.campaign_id) {
+      campaign.push({ value: evt.campaign_id, confidence: 'session_linked', source: evtSource('campaign_id') });
+    }
+    if (evt.organization_id) {
+      organization.push({ value: evt.organization_id, confidence: 'session_linked', source: evtSource('organization_id') });
+    }
+    if (evt.promotion_id) {
+      promotion.push({ value: evt.promotion_id, confidence: 'session_linked', source: evtSource('promotion_id') });
+    }
+    if (evt.asset_id) {
+      asset.push({ value: evt.asset_id, confidence: 'session_linked', source: evtSource('asset_id') });
+    }
+    if (evt.redirect_link_id) {
+      redirectLink.push({ value: evt.redirect_link_id, confidence: 'session_linked', source: evtSource('redirect_link_id') });
+    }
+  }
+
+  // ── Journey element types: reuses the exact same Path A/B evidence core
+  //    as resolveJourneyElementTypes() (Section B) — not reimplemented.
+  const elementType = resolveJourneyElementTypeEvidence(
+    conversion.session_id, events, redirectLinks, campaignElementAssets, campaigns,
+  );
+
+  // ── Member evidence: derived from EVERY observed promotion value (both
+  //    confirmed and session-linked), not just one. resolveMember() is a
+  //    real, deterministic join (never a guess), so a member resolved from
+  //    a 'confirmed' promotion is itself 'confirmed'; from a
+  //    'session_linked' promotion, 'session_linked'.
+  const member: EvidenceItem<string>[] = [];
+  for (const promoItem of promotion) {
+    const memberUserId = resolveMember(promoItem.value, promotions, assignmentCollaborators);
+    if (memberUserId) {
+      member.push({
+        value:       memberUserId,
+        confidence:  promoItem.confidence,
+        source:      `promotions[${promoItem.value}].assignment_collaborator_id → assignment_collaborators.user_id (from ${promoItem.source})`,
+      });
+    }
+    // If resolveMember() returns null (no assignment_collaborator_id, or no
+    // matching collaborator row), NOTHING is pushed — per locked architecture
+    // §2.5, that promotion has no Member, and it must not silently become
+    // an owner_user_id fallback or any other guess.
+  }
+
+  const evidence: Record<EvidenceDimension, EvidenceItem<string>[]> = {
+    video:         dedupeEvidenceItems(video),
+    campaign:      dedupeEvidenceItems(campaign),
+    organization:  dedupeEvidenceItems(organization),
+    promotion:     dedupeEvidenceItems(promotion),
+    asset:         dedupeEvidenceItems(asset),
+    member:        dedupeEvidenceItems(member),
+    redirectLink:  dedupeEvidenceItems(redirectLink),
+    session:       dedupeEvidenceItems(session),
+    elementType:   dedupeEvidenceItems(elementType),
+    platform:      dedupeEvidenceItems(platform), // always [] under current inputs
+  };
+
+  const unresolvedDimensions = (Object.keys(evidence) as EvidenceDimension[])
+    .filter(dim => evidence[dim].length === 0);
+
+  return {
+    purchase: {
+      id:          conversion.id,
+      source:      conversion.source,
+      amount:      conversion.amount,
+      created_at:  conversion.created_at,
+    },
+    evidence,
+    meta: { joinedSessionIds, unresolvedDimensions },
+  };
 }
