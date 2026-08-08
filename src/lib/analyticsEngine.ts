@@ -1301,3 +1301,760 @@ export function handleSortToggle(
     direction: prev.key === clicked && prev.direction === 'desc' ? 'asc' : 'desc',
   };
 }
+
+
+// ═════════════════════════════════════════════════════════════════════════════
+// ── PHASE 5B — CANONICAL DIMENSION-AWARE ANALYTICS CORE ─────────────────────────
+// ═════════════════════════════════════════════════════════════════════════════
+//
+// Everything below this line is NEW (Phase 5B) and fully additive.
+//
+// SCOPE, EXPLICITLY:
+//   • Sections 1–6 above are UNCHANGED. getAnalyticsEngine(), processVideoMetrics(),
+//     buildStripeFromPurchaseTypeTable(), TABLE_COLUMNS, COLUMN_LABELS,
+//     formatCellValue, handleSortToggle all remain exactly as they were, so
+//     InDepthAnalytics.tsx / InDepthAnalyticsWidget.tsx keep compiling and
+//     rendering identically. This rebuild does NOT touch their fetch layer.
+//   • The canonical core below is the correct, evidence-based replacement
+//     model for future callers (Promotion / Member / Operator / Asset /
+//     Organization Analytics) that fetch the richer data it needs.
+//   • A deliberate, separate integration pass — not this one — will migrate
+//     InDepthAnalytics's fetchData() off `stripe_purchase_type` and onto this
+//     core. Until then, Section 5's `buildStripeFromPurchaseTypeTable` stays
+//     load-bearing for the existing UI, but nothing below this line
+//     references it, its input type, or its output shape.
+//
+// HARD RULE: nothing below this line imports, calls, or reasons about
+// `stripe_purchase_type`, `StripePurchaseTypeRow`, `buildStripeFromPurchaseTypeTable`,
+// `sessionLookup`, `resolvedVideoId`, or `resolvedCampaignId`. Financial source
+// of truth here is exclusively `stripe_purchases.amount` / `pixel_purchases.amount`,
+// supplied by the caller on `CanonicalConversionRow.amount`.
+
+
+// ═════════════════════════════════════════════════════════════════════════════
+// PHASE 5B · SECTION A — CANONICAL TYPES
+// ═════════════════════════════════════════════════════════════════════════════
+
+// ── A1. Dimension ───────────────────────────────────────────────────────────
+//
+// The seven groupings the canonical core can aggregate by. Aggregation logic
+// itself is dimension-agnostic (Section D) — this type only identifies which
+// resolver (Section C) to use.
+
+export type Dimension =
+  | 'video'
+  | 'campaign'
+  | 'asset'
+  | 'promotion'
+  | 'member'
+  | 'organization'
+  | 'platform';
+
+// ── A2. Asset provenance ──────────────────────────────────────────────────────
+//
+// Three distinct, non-interchangeable asset source types (locked architecture
+// §1). A Resource Asset legitimately has no campaign anywhere in its chain —
+// that is a valid state, never a gap to infer around.
+
+export type AssetType = 'campaign_element_asset' | 'video_asset' | 'resource_asset';
+
+export interface CampaignElementAssetRow {
+  asset_id:      string;
+  campaign_id:   string;
+  // 'landing_page' | 'sales_call' | 'consultation' | 'newsletter' | ... —
+  // kept as `string` rather than a closed union since the DB is the source
+  // of truth for which element types exist; the engine must not hardcode
+  // an exhaustive list it can silently fall out of sync with.
+  element_type:  string;
+}
+
+export interface VideoAssetRow {
+  asset_id:     string;
+  video_id:     string;
+  campaign_id:  string | null;
+}
+
+export interface ResourceAssetRow {
+  asset_id: string;
+  // Intentionally NO campaign_id field — Resource Assets have no campaign
+  // provenance anywhere in their chain (locked architecture §1).
+}
+
+export interface AssetProvenance {
+  assetType:  AssetType;
+  campaignId: string | null; // always null for resource_asset — not a gap
+}
+
+/**
+ * resolveAssetProvenance
+ *
+ * Determines which of the three asset source types a given asset_id belongs
+ * to, and its campaign (if any). Checks Campaign Element Asset and Video
+ * Asset first (both have real campaign provenance); Resource Asset last,
+ * where campaignId is legitimately null.
+ */
+export function resolveAssetProvenance(
+  assetId:               string,
+  campaignElementAssets: CampaignElementAssetRow[],
+  videoAssets:           VideoAssetRow[],
+  resourceAssets:        ResourceAssetRow[],
+): AssetProvenance | null {
+  const cea = campaignElementAssets.find(a => a.asset_id === assetId);
+  if (cea) return { assetType: 'campaign_element_asset', campaignId: cea.campaign_id };
+
+  const va = videoAssets.find(a => a.asset_id === assetId);
+  if (va) return { assetType: 'video_asset', campaignId: va.campaign_id };
+
+  const ra = resourceAssets.find(a => a.asset_id === assetId);
+  if (ra) return { assetType: 'resource_asset', campaignId: null };
+
+  return null;
+}
+
+// ── A3. Journey / event shape ─────────────────────────────────────────────────
+//
+// Full events row — a superset of the legacy `RawEvent` (Section 2a), which
+// only carried video_id/campaign_id/event_type/created_at. This is what
+// resolveJourneyElementTypes() and attributed-mode dimension resolution need.
+
+export interface JourneyEvent {
+  id:                string;
+  session_id:        string | null;
+  event_type:        string;
+  created_at:        string;
+  video_id:          string | null;
+  campaign_id:       string | null;
+  promotion_id:      string | null;
+  asset_id:          string | null;
+  redirect_link_id:  string | null;
+  organization_id:   string | null;
+}
+
+// ── A4. Redirect link ─────────────────────────────────────────────────────────
+
+export interface RedirectLinkRow {
+  id:               string;
+  campaign_id:      string | null;
+  asset_id:         string | null;
+  promotion_id:     string | null;
+  video_id:         string | null;
+  // Populated directly on many rows independent of asset_id (Path B evidence).
+  link_type:        string | null;
+  destination_url:  string | null;
+}
+
+// ── A5. Campaign URL fields ───────────────────────────────────────────────────
+//
+// Used only for Path B corroboration when `link_type` is absent. Indexed by
+// string key so new *_url fields don't require an engine change to match
+// against — see CAMPAIGN_URL_FIELD_TO_ELEMENT_TYPE below for the known set.
+
+export interface CampaignUrlFields {
+  id:                        string;
+  landing_page_url?:         string | null;
+  newsletter_url?:           string | null;
+  sales_call_booking_url?:   string | null;
+  consultation_booking_url?: string | null;
+  checkout_url?:             string | null;
+  [key: string]:             unknown;
+}
+
+// ── A6. Promotion / Member attribution shapes ─────────────────────────────────
+//
+// Member attribution has exactly one valid path (locked architecture §2.5):
+//   promotion_id → promotions.assignment_collaborator_id
+//                → assignment_collaborators.user_id
+// `owner_user_id` is a DIFFERENT concept (the promotion's creator/owner, who
+// may be operating directly with no collaborator at all) and must never be
+// used as a Member fallback.
+
+export interface PromotionRow {
+  id:                          string;
+  assignment_collaborator_id:  string | null;
+  owner_user_id:               string | null; // present on the type for completeness — never read by resolveMember()
+}
+
+export interface AssignmentCollaboratorRow {
+  id:       string;
+  user_id:  string;
+}
+
+// ── A7. Canonical conversion row (unified Stripe/Pixel) ──────────────────────
+//
+// `amount` is always the caller-supplied `stripe_purchases.amount` (for
+// source: 'stripe') or `pixel_purchases.amount` (for source: 'pixel') — never
+// derived, never matched against price fields.
+
+export type ConversionSource = 'stripe' | 'pixel';
+
+export interface CanonicalConversionRow {
+  id:               string;
+  source:           ConversionSource;
+  amount:           number;
+  session_id:       string | null;
+  promotion_id:     string | null;
+  asset_id:         string | null;
+  video_id:         string | null;
+  campaign_id:      string | null;
+  organization_id:  string | null;
+  created_at:        string;
+  // Only meaningful for source === 'pixel' — pixel_purchases.event_type
+  // ('purchase' | 'sales_call' | 'consultation' | 'newsletter' | ...).
+  // Stripe purchases are always realized transactions and carry no
+  // equivalent field; left undefined for source === 'stripe'.
+  pixelEventType?:  string | null;
+}
+
+
+// ═════════════════════════════════════════════════════════════════════════════
+// PHASE 5B · SECTION B — JOURNEY EVIDENCE RESOLVERS
+// ═════════════════════════════════════════════════════════════════════════════
+
+// ── B1. Campaign URL field → element type map ─────────────────────────────────
+//
+// Used only as Path B's last-resort corroboration step, when a redirect_link
+// has neither an asset_id (Path A) nor a populated link_type (Path B primary).
+
+const CAMPAIGN_URL_FIELD_TO_ELEMENT_TYPE: Record<string, string> = {
+  landing_page_url:          'landing_page',
+  newsletter_url:            'newsletter',
+  sales_call_booking_url:    'sales_call',
+  consultation_booking_url:  'consultation',
+  checkout_url:              'checkout',
+};
+
+/**
+ * Normalizes a URL for comparison: strips protocol, trailing slash, and
+ * query string. Deliberately conservative — this is a corroboration match,
+ * not a business rule, so it stays close to literal string equality rather
+ * than inferring anything about intent.
+ */
+function normalizeUrlForMatch(url: string): string {
+  return url.trim().toLowerCase().replace(/^https?:\/\//, '').replace(/\/+$/, '').split('?')[0];
+}
+
+function matchDestinationUrlToCampaignField(
+  destinationUrl: string,
+  campaign:       CampaignUrlFields,
+): string | null {
+  const normalizedDestination = normalizeUrlForMatch(destinationUrl);
+  for (const [field, elementType] of Object.entries(CAMPAIGN_URL_FIELD_TO_ELEMENT_TYPE)) {
+    const campaignUrl = campaign[field];
+    if (typeof campaignUrl === 'string' && campaignUrl.length > 0 &&
+        normalizeUrlForMatch(campaignUrl) === normalizedDestination) {
+      return elementType;
+    }
+  }
+  return null;
+}
+
+// ── B2. resolveJourneyElementTypes ────────────────────────────────────────────
+//
+// Evidence-based, multi-value journey classification (locked architecture §4,
+// design spec §8). Given a session, collects every element type the journey's
+// redirect-link-sourced events touched via:
+//
+//   Path A — redirect_links.asset_id → campaign_element_assets.element_type
+//   Path B — redirect_links.link_type, or (when link_type is absent)
+//            destination_url corroborated against campaign.*_url fields
+//
+// Returns a DEDUPLICATED SET, never collapsed to one value. No first-match,
+// last-match, or priority rule — a journey that touched both 'landing_page'
+// and 'consultation' returns both. Business rules that need a single value
+// for a specific downstream view are a metric-layer concern, not this
+// function's — see deriveLegacyRevenueBuckets() (Section F) for the one
+// approved exception, which is explicitly isolated from this function.
+export function resolveJourneyElementTypes(
+  sessionId:              string | null,
+  events:                 JourneyEvent[],
+  redirectLinks:          RedirectLinkRow[],
+  campaignElementAssets:  CampaignElementAssetRow[],
+  campaigns:              CampaignUrlFields[],
+): string[] {
+  if (!sessionId) return [];
+
+  const sessionEvents = events.filter(e => e.session_id === sessionId && e.redirect_link_id);
+  if (sessionEvents.length === 0) return [];
+
+  const redirectLinkById             = new Map(redirectLinks.map(r => [r.id, r]));
+  const campaignElementAssetByAsset  = new Map(campaignElementAssets.map(a => [a.asset_id, a]));
+  const campaignById                 = new Map(campaigns.map(c => [c.id, c]));
+
+  const elementTypes = new Set<string>();
+
+  for (const evt of sessionEvents) {
+    const link = evt.redirect_link_id ? redirectLinkById.get(evt.redirect_link_id) : undefined;
+    if (!link) continue;
+
+    // Path A — Campaign Element Asset
+    if (link.asset_id) {
+      const cea = campaignElementAssetByAsset.get(link.asset_id);
+      if (cea?.element_type) {
+        elementTypes.add(cea.element_type);
+        continue; // this link is resolved; Path B is a fallback, not additive evidence for the same link
+      }
+    }
+
+    // Path B — campaign-native redirect: link_type first
+    if (link.link_type) {
+      elementTypes.add(link.link_type);
+      continue;
+    }
+
+    // Path B — fallback: destination_url corroborated against campaign URL fields
+    if (link.destination_url && link.campaign_id) {
+      const campaign = campaignById.get(link.campaign_id);
+      if (campaign) {
+        const matched = matchDestinationUrlToCampaignField(link.destination_url, campaign);
+        if (matched) elementTypes.add(matched);
+      }
+    }
+    // If neither path resolves for this specific link, it contributes no
+    // evidence — NOT treated as an error, since not every redirect link is
+    // guaranteed to be classifiable, and inventing a placeholder here would
+    // be exactly the kind of guess this function must not make.
+  }
+
+  return Array.from(elementTypes);
+}
+
+export interface ResolvedConversion {
+  conversion:           CanonicalConversionRow;
+  journeyElementTypes:  string[];
+}
+
+/**
+ * resolveConversionJourneys
+ *
+ * Pure convenience wrapper: runs resolveJourneyElementTypes() for every
+ * conversion row's session_id. This is the "purchase row exposes Revenue,
+ * Journey Element Types, and Attribution independently" contract from design
+ * spec §8.4 — Revenue lives on `conversion.amount`, Journey Element Types on
+ * `journeyElementTypes`, Attribution is resolved separately (Section C/D).
+ */
+export function resolveConversionJourneys(
+  conversions:            CanonicalConversionRow[],
+  events:                 JourneyEvent[],
+  redirectLinks:          RedirectLinkRow[],
+  campaignElementAssets:  CampaignElementAssetRow[],
+  campaigns:              CampaignUrlFields[],
+): ResolvedConversion[] {
+  return conversions.map(conversion => ({
+    conversion,
+    journeyElementTypes: resolveJourneyElementTypes(
+      conversion.session_id, events, redirectLinks, campaignElementAssets, campaigns,
+    ),
+  }));
+}
+
+// ── B3. resolveMember ──────────────────────────────────────────────────────────
+//
+// The ONLY valid path to Member attribution (locked architecture §2.5).
+// When assignment_collaborator_id is null, that promotion has no Member —
+// it is Operator-direct, and this returns null rather than falling back to
+// owner_user_id.
+export function resolveMember(
+  promotionId:              string | null,
+  promotions:               PromotionRow[],
+  assignmentCollaborators:  AssignmentCollaboratorRow[],
+): string | null {
+  if (!promotionId) return null;
+
+  const promotion = promotions.find(p => p.id === promotionId);
+  if (!promotion || !promotion.assignment_collaborator_id) return null;
+
+  const collaborator = assignmentCollaborators.find(
+    c => c.id === promotion.assignment_collaborator_id,
+  );
+  return collaborator?.user_id ?? null;
+}
+
+
+// ═════════════════════════════════════════════════════════════════════════════
+// PHASE 5B · SECTION C — DIMENSION RESOLVER MAP
+// ═════════════════════════════════════════════════════════════════════════════
+//
+// Resolver-map pattern (design spec §4): each dimension is just "a function
+// that extracts a grouping key from a row." Aggregation (Section D) stays
+// dimension-agnostic and only branches on WHICH resolver to use — never on
+// metric-calculation logic itself. This is what lets one calculation
+// codepath serve InDepth / Promotion / Member / Operator / Asset Analytics.
+
+export interface DimensionResolverContext {
+  promotions:               PromotionRow[];
+  assignmentCollaborators:  AssignmentCollaboratorRow[];
+}
+
+// A row shape wide enough to cover both JourneyEvent and CanonicalConversionRow
+// — the only fields any dimension resolver actually reads.
+export interface DimensionSourceRow {
+  video_id?:         string | null;
+  campaign_id?:      string | null;
+  asset_id?:         string | null;
+  promotion_id?:     string | null;
+  organization_id?:  string | null;
+  platform?:         string | null;
+}
+
+export const DIMENSION_KEY_RESOLVERS: Record<
+  Dimension,
+  (row: DimensionSourceRow, ctx: DimensionResolverContext) => string | null
+> = {
+  video:        (row) => row.video_id ?? null,
+  campaign:     (row) => row.campaign_id ?? null,
+  asset:        (row) => row.asset_id ?? null,
+  promotion:    (row) => row.promotion_id ?? null,
+  organization: (row) => row.organization_id ?? null,
+  // Resolved via video/campaign platform data upstream by the caller — the
+  // caller is expected to have already denormalized `platform` onto the row
+  // it hands the engine (the engine does not fetch/join for it — see the
+  // pure-engine boundary rule).
+  platform:     (row) => row.platform ?? null,
+  member:       (row, ctx) => resolveMember(row.promotion_id ?? null, ctx.promotions, ctx.assignmentCollaborators),
+};
+
+
+// ═════════════════════════════════════════════════════════════════════════════
+// PHASE 5B · SECTION D — DIMENSION-AGNOSTIC AGGREGATION CORE
+// ═════════════════════════════════════════════════════════════════════════════
+
+export type AttributionMode = 'direct' | 'attributed';
+
+export interface CanonicalMetricSet {
+  clicks:           number;
+  uniqueVisitors:   number;
+  leads:            number;
+  calls:            number;
+  purchaseCount:    number;
+  revenue:          number;
+  rpc:              number;
+  revenuePerLead:   number;
+}
+
+export function emptyCanonicalMetricSet(): CanonicalMetricSet {
+  return {
+    clicks: 0, uniqueVisitors: 0, leads: 0, calls: 0,
+    purchaseCount: 0, revenue: 0, rpc: 0, revenuePerLead: 0,
+  };
+}
+
+export interface AnalyticsEngineInputV2 {
+  dimension:                Dimension;
+  dateRange:                DateRange;
+  customRange?:             CustomDateRange | null;
+  attributionMode:          AttributionMode;   // §2.3 Direct vs §2.4 Attributed (Journey)
+  revenueView:              RevenueView;       // reuses existing 'stripe' | 'pixel' | 'total'
+
+  events:                   JourneyEvent[];
+  conversions:              CanonicalConversionRow[]; // stripe + pixel, unified
+  redirectLinks:            RedirectLinkRow[];
+  campaignElementAssets:    CampaignElementAssetRow[];
+  videoAssets:              VideoAssetRow[];
+  resourceAssets:           ResourceAssetRow[];
+  campaigns:                CampaignUrlFields[];
+  promotions:               PromotionRow[];
+  assignmentCollaborators:  AssignmentCollaboratorRow[];
+}
+
+export interface AnalyticsResult {
+  totals:       CanonicalMetricSet;
+  byDimension:  Record<string, CanonicalMetricSet>;
+  meta: {
+    dimension:        Dimension;
+    dateRange:        DateRange;
+    customRange?:      CustomDateRange | null;
+    attributionMode:  AttributionMode;
+    revenueView:      RevenueView;
+  };
+}
+
+// Reuses the SAME click-type matching logic as the legacy engine
+// (CLICK_EVENT_MAP, Section 1a) — event-type mapping is orthogonal to
+// attribution and was explicitly retained, not reinvented.
+function isClickTypeEvent(eventType: string): boolean {
+  return Object.values(CLICK_EVENT_MAP).some(types => types.includes(eventType));
+}
+
+/**
+ * filterJourneyEventsByDate
+ *
+ * Same date-window logic as filterEventsByDate (Section 2d), reused via
+ * getDateBounds rather than re-derived, but operating on the wider
+ * JourneyEvent shape so callers don't lose session_id/promotion_id/asset_id/
+ * redirect_link_id fields through the narrower legacy RawEvent type.
+ */
+export function filterJourneyEventsByDate(
+  events:        JourneyEvent[],
+  range:         DateRange,
+  customRange?:  CustomDateRange | null,
+): JourneyEvent[] {
+  const { start, end } = getDateBounds(range, customRange);
+  return events.filter(e => {
+    const t = new Date(e.created_at);
+    return t >= start && t <= end;
+  });
+}
+
+// Pixel event_types that count toward revenue/purchaseCount — mirrors the
+// existing engine's pixel-mode definition (Section 2g: 'purchase' and
+// 'consultation' both contribute to revenue; 'sales_call' and 'newsletter'
+// do not). Kept identical rather than reinvented for the canonical core.
+const PIXEL_REVENUE_EVENT_TYPES = new Set(['purchase', 'consultation']);
+
+/**
+ * resolveDimensionKeysForConversion
+ *
+ *   Direct mode (§2.3):     credit whatever identity field sits directly on
+ *                           the conversion row itself (its own promotion_id /
+ *                           asset_id / video_id / etc.) — exactly one key.
+ *   Attributed mode (§2.4): reconstruct the journey via session_id and credit
+ *                           EVERY distinct dimension key actually touched —
+ *                           may be zero, one, or several keys. If the journey
+ *                           can't be reconstructed (no session_id, or no
+ *                           matching events), falls back to the conversion's
+ *                           own direct identity rather than silently
+ *                           dropping the revenue.
+ *
+ * NOTE: in attributed mode with multiple credited keys, the same revenue is
+ * summed into more than one dimension bucket by design (multi-touch
+ * attribution) — `totals` is still incremented exactly once per conversion
+ * regardless, so `totals.revenue` never double-counts even though the
+ * per-dimension breakdown can sum to more than `totals.revenue`. This is a
+ * property of journey attribution, not a bug, and callers comparing
+ * byDimension sums against totals should be aware of it.
+ */
+function resolveDimensionKeysForConversion(
+  conversion:  CanonicalConversionRow,
+  dimension:   Dimension,
+  mode:        AttributionMode,
+  events:      JourneyEvent[],
+  ctx:         DimensionResolverContext,
+): string[] {
+  const resolver = DIMENSION_KEY_RESOLVERS[dimension];
+
+  if (mode === 'direct') {
+    const key = resolver(conversion, ctx);
+    return key ? [key] : [];
+  }
+
+  if (!conversion.session_id) {
+    const key = resolver(conversion, ctx);
+    return key ? [key] : [];
+  }
+
+  const sessionEvents = events.filter(e => e.session_id === conversion.session_id);
+  const keys = new Set<string>();
+  for (const evt of sessionEvents) {
+    const key = resolver(evt, ctx);
+    if (key) keys.add(key);
+  }
+
+  if (keys.size === 0) {
+    const fallback = resolver(conversion, ctx);
+    if (fallback) keys.add(fallback);
+  }
+
+  return Array.from(keys);
+}
+
+/**
+ * runCanonicalAnalyticsEngine
+ *
+ * The dimension-agnostic aggregation core (design spec §5, §7). Pure — no
+ * Supabase access. Caller supplies already-fetched, bounded arrays.
+ *
+ * Metric sourcing mirrors design spec §3:
+ *   clicks / uniqueVisitors  → events, matched via CLICK_EVENT_MAP, Per-Event attribution
+ *   purchaseCount / revenue  → conversions, Direct or Attributed per caller's attributionMode
+ *   leads / calls            → pixel conversions' pixelEventType ('newsletter' / 'sales_call')
+ *   rpc / revenuePerLead     → derived
+ */
+export function runCanonicalAnalyticsEngine(input: AnalyticsEngineInputV2): AnalyticsResult {
+  const {
+    dimension, dateRange, customRange, attributionMode, revenueView,
+    events, conversions, promotions, assignmentCollaborators,
+  } = input;
+
+  const ctx: DimensionResolverContext = { promotions, assignmentCollaborators };
+  const resolver = DIMENSION_KEY_RESOLVERS[dimension];
+
+  // Step 1 — date-filter events
+  const dateFilteredEvents = filterJourneyEventsByDate(events, dateRange, customRange);
+
+  // Step 2 — date-filter conversions (same window)
+  const { start, end } = getDateBounds(dateRange, customRange);
+  const dateFilteredConversions = conversions.filter(c => {
+    const t = new Date(c.created_at);
+    return t >= start && t <= end;
+  });
+
+  // Step 3 — source isolation, mirrors existing RevenueView semantics
+  const sourceFilteredConversions = dateFilteredConversions.filter(c => {
+    if (revenueView === 'stripe') return c.source === 'stripe';
+    if (revenueView === 'pixel')  return c.source === 'pixel';
+    return true; // 'total'
+  });
+
+  const byDimension: Record<string, CanonicalMetricSet> = {};
+  const totals = emptyCanonicalMetricSet();
+
+  const ensureBucket = (key: string): CanonicalMetricSet => {
+    if (!byDimension[key]) byDimension[key] = emptyCanonicalMetricSet();
+    return byDimension[key];
+  };
+
+  // Step 4 — click metrics, Per-Event attribution (§2.2)
+  for (const evt of dateFilteredEvents) {
+    if (!isClickTypeEvent(evt.event_type)) continue; // page_view and non-click types excluded
+    totals.clicks += 1;
+    const key = resolver(evt, ctx);
+    if (key) ensureBucket(key).clicks += 1;
+  }
+
+  // Step 5 — unique visitors: distinct session_id among click-type events
+  const sessionsByKey = new Map<string, Set<string>>();
+  const sessionsTotal  = new Set<string>();
+  for (const evt of dateFilteredEvents) {
+    if (!isClickTypeEvent(evt.event_type) || !evt.session_id) continue;
+    sessionsTotal.add(evt.session_id);
+    const key = resolver(evt, ctx);
+    if (key) {
+      if (!sessionsByKey.has(key)) sessionsByKey.set(key, new Set());
+      sessionsByKey.get(key)!.add(evt.session_id);
+    }
+  }
+  totals.uniqueVisitors = sessionsTotal.size;
+  for (const [key, sessions] of sessionsByKey) ensureBucket(key).uniqueVisitors = sessions.size;
+
+  // Step 6 — conversions: purchases, revenue, leads, calls
+  for (const conv of sourceFilteredConversions) {
+    const isRevenueEligible =
+      conv.source === 'stripe' ||
+      (conv.source === 'pixel' && conv.pixelEventType != null && PIXEL_REVENUE_EVENT_TYPES.has(conv.pixelEventType));
+
+    if (isRevenueEligible) {
+      totals.purchaseCount += 1;
+      totals.revenue       += conv.amount;
+
+      const keys = resolveDimensionKeysForConversion(conv, dimension, attributionMode, dateFilteredEvents, ctx);
+      for (const key of keys) {
+        const bucket = ensureBucket(key);
+        bucket.purchaseCount += 1;
+        bucket.revenue       += conv.amount;
+      }
+    }
+
+    if (conv.source === 'pixel' && conv.pixelEventType === 'newsletter') {
+      totals.leads += 1;
+      const keys = resolveDimensionKeysForConversion(conv, dimension, attributionMode, dateFilteredEvents, ctx);
+      for (const key of keys) ensureBucket(key).leads += 1;
+    }
+
+    if (conv.source === 'pixel' && conv.pixelEventType === 'sales_call') {
+      totals.calls += 1;
+      const keys = resolveDimensionKeysForConversion(conv, dimension, attributionMode, dateFilteredEvents, ctx);
+      for (const key of keys) ensureBucket(key).calls += 1;
+    }
+  }
+
+  // Step 7 — derived metrics
+  const deriveRates = (m: CanonicalMetricSet) => {
+    m.rpc            = m.clicks > 0 ? Number((m.revenue / m.clicks).toFixed(2)) : 0;
+    m.revenuePerLead  = m.leads  > 0 ? Number((m.revenue / m.leads).toFixed(2))  : 0;
+  };
+  deriveRates(totals);
+  for (const key of Object.keys(byDimension)) deriveRates(byDimension[key]);
+
+  return {
+    totals,
+    byDimension,
+    meta: { dimension, dateRange, customRange: customRange ?? null, attributionMode, revenueView },
+  };
+}
+
+
+// ═════════════════════════════════════════════════════════════════════════════
+// PHASE 5B · SECTION F — LEGACY REVENUE BUCKET COMPATIBILITY ADAPTER
+// ═════════════════════════════════════════════════════════════════════════════
+//
+// ISOLATED ON PURPOSE. This is NOT part of the canonical model, is never read
+// by resolveJourneyElementTypes() or runCanonicalAnalyticsEngine(), and must
+// never feed back into them. It exists solely so a future integration pass
+// can project canonical journeyElementTypes evidence onto the two legacy
+// binary fields (direct_offer_revenue / consultation_revenue) that
+// InDepthAnalytics.tsx currently renders — without reintroducing
+// amount-matching or inventing a priority hierarchy.
+//
+// Canonical `journeyElementTypes` remains the source of truth regardless of
+// what this function returns. This function only ever produces an
+// ADDITIONAL, separate projection — it does not, and structurally cannot,
+// mutate or collapse the canonical set.
+//
+// APPROVED BUCKETING RULE (explicit, not invented):
+//   • journeyElementTypes contains 'consultation'
+//       → consultation_revenue += amount
+//   • journeyElementTypes contains 'landing_page' AND NOT 'consultation'
+//       → direct_offer_revenue += amount
+//     ('landing_page' is Offer evidence; VSTRK's campaign taxonomy treats
+//     landing_page → Offer directly. But when the same journey also shows
+//     explicit 'consultation' evidence, consultation is the more specific
+//     path and wins for THIS legacy field only — this is not a general
+//     canonical priority rule, it applies exclusively to this compatibility
+//     projection.)
+//   • 'sales_call' and 'newsletter' are their own conversion types and NEVER
+//     fall through to direct_offer_revenue, even when 'landing_page' also
+//     appears in the same journey.
+//   • 'checkout' is never itself evidence of anything — it's a payment step,
+//     not a business conversion type, and is ignored entirely by this
+//     predicate.
+//   • Any journey that matches none of the above (e.g. sales_call-only,
+//     newsletter-only, or no resolvable evidence at all) leaves BOTH legacy
+//     fields at 0 for that purchase. The purchase is still fully counted in
+//     canonical revenue/purchaseCount — only this legacy binary projection
+//     abstains, deliberately, rather than guess.
+
+export interface LegacyRevenueBuckets {
+  direct_offer_revenue:  number;
+  consultation_revenue:  number;
+}
+
+export function deriveLegacyRevenueBuckets(
+  journeyElementTypes:  string[],
+  amount:               number,
+): LegacyRevenueBuckets {
+  const buckets: LegacyRevenueBuckets = { direct_offer_revenue: 0, consultation_revenue: 0 };
+
+  const hasConsultation = journeyElementTypes.includes('consultation');
+  const hasLandingPage  = journeyElementTypes.includes('landing_page');
+
+  if (hasConsultation) {
+    buckets.consultation_revenue = amount;
+  } else if (hasLandingPage) {
+    buckets.direct_offer_revenue = amount;
+  }
+  // sales_call-only / newsletter-only / no-evidence journeys: both remain 0,
+  // intentionally not guessed.
+
+  return buckets;
+}
+
+/**
+ * aggregateLegacyRevenueBuckets
+ *
+ * Convenience summation across a set of ResolvedConversion rows (the output
+ * of resolveConversionJourneys()). Provided so a future integration pass has
+ * a single call to reach for, without re-deriving the reduction each time.
+ */
+export function aggregateLegacyRevenueBuckets(
+  resolved: ResolvedConversion[],
+): LegacyRevenueBuckets {
+  return resolved.reduce(
+    (acc, { conversion, journeyElementTypes }) => {
+      const b = deriveLegacyRevenueBuckets(journeyElementTypes, conversion.amount);
+      acc.direct_offer_revenue += b.direct_offer_revenue;
+      acc.consultation_revenue += b.consultation_revenue;
+      return acc;
+    },
+    { direct_offer_revenue: 0, consultation_revenue: 0 } as LegacyRevenueBuckets,
+  );
+}
