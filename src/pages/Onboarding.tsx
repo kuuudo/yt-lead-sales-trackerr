@@ -11,7 +11,7 @@
 // ─────────────────────────────────────────────────────────────────────────
 
 import React, { useState } from 'react';
-import WelcomeStep from './onboarding/WelcomeStep';
+import WelcomeStep from '../components/onboarding/WelcomeStep';
 
 type OnboardingStep = 'welcome'; // more steps join this union as they're built
 
