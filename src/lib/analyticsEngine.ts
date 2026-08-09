@@ -73,8 +73,16 @@ export const CLICK_EVENT_MAP: Record<string, string[]> = {
 };
 
 // ── 1b. Stripe revenue type ────────────────────────────────────────────────────
+//
+// 'multiple_contribution' added by the Phase 5B InDepthAnalytics integration
+// pass — the ONLY edit made to this legacy section. Purely additive to the
+// union; zero behavior change to existing 'offer'/'consultation' handling.
+// processVideoMetrics()'s two `if` blocks below are independent guards, not
+// an exhaustive switch — a row carrying this new literal simply matches
+// neither, exactly as any other unhandled value already would have. See
+// Phase 5B Section H for what sets this value and why.
 
-export type StripeRevenueType = 'offer' | 'consultation';
+export type StripeRevenueType = 'offer' | 'consultation' | 'multiple_contribution';
 export type StripeClassificationMap = Record<string, StripeRevenueType>;
 
 // ── 1c. Revenue mode ───────────────────────────────────────────────────────────
@@ -2365,4 +2373,147 @@ export function buildPurchaseEvidenceGraph(
     evidence,
     meta: { joinedSessionIds, unresolvedDimensions },
   };
+}
+
+
+// ═════════════════════════════════════════════════════════════════════════════
+// PHASE 5B · SECTION H — INDEPTHANALYTICS INTEGRATION HELPERS
+// ═════════════════════════════════════════════════════════════════════════════
+//
+// Bridges the canonical evidence layer (Sections B/G) to the legacy
+// InDepthAnalytics contract (StripePurchaseRow, PixelPurchaseRow) WITHOUT
+// reviving stripe_purchase_type and WITHOUT forcing a single-owner
+// attribution answer. Two separate concerns, kept separate:
+//
+//   1. deriveLegacyRevenueType() — decides which of the legacy UI's two
+//      dollar buckets (direct_offer_revenue / consultation_revenue) a
+//      purchase's amount lands in, reusing deriveLegacyRevenueBuckets()
+//      (Section F) unchanged. When neither bucket applies, the purchase is
+//      labeled 'multiple_contribution' — NOT 'unknown' — per locked product
+//      direction: VSTRK doesn't tell the entrepreneur "we don't know what
+//      happened," it tells them "this purchase's evidence didn't collapse
+//      into one of the two legacy categories; see the full journey."
+//
+//   2. describeContributionPattern() — a SEPARATE, purely informational
+//      signal answering "how many distinct touchpoints does this purchase's
+//      evidence graph actually show," independent of whether the legacy
+//      bucket resolved cleanly. A purchase can be 'single_contribution' in
+//      the legacy bucket sense (elementType resolved fine) while still being
+//      'multi_touchpoint' in this sense (many videos/assets preceded it) —
+//      these are different questions and this code never conflates them.
+//
+// KNOWN, DELIBERATE LIMITATION (not a bug, reported here so it's never a
+// silent surprise): TABLE_COLUMNS does not render the unconditional
+// `stripe_revenue` field — only direct_offer_revenue, consultation_revenue,
+// and total_revenue (their sum + EV). A 'multiple_contribution' purchase's
+// amount is NOT currently visible in the rendered Total Revenue column,
+// because there is no existing UI cell to route it to, and adding one is a
+// UI change explicitly out of scope for this pass. The amount is fully
+// present in the data (stripe_revenue, and in PurchaseEvidenceGraph) — it
+// simply isn't wired to a visible cell yet.
+
+/**
+ * deriveLegacyRevenueType
+ *
+ * Thin wrapper around deriveLegacyRevenueBuckets() (Section F, UNCHANGED —
+ * not reimplemented here) that additionally produces the legacy
+ * StripePurchaseRow.revenue_type label expected by processVideoMetrics().
+ */
+export function deriveLegacyRevenueType(
+  journeyElementTypes:  string[],
+  amount:               number,
+): { revenue_type: StripeRevenueType; buckets: LegacyRevenueBuckets } {
+  const buckets = deriveLegacyRevenueBuckets(journeyElementTypes, amount);
+
+  let revenue_type: StripeRevenueType;
+  if (buckets.consultation_revenue > 0) {
+    revenue_type = 'consultation';
+  } else if (buckets.direct_offer_revenue > 0) {
+    revenue_type = 'offer';
+  } else {
+    // Neither legacy bucket applies — no landing_page evidence, no
+    // consultation evidence (or both, non-collapsibly). Labeled per locked
+    // product direction, not treated as an error state.
+    revenue_type = 'multiple_contribution';
+  }
+
+  return { revenue_type, buckets };
+}
+
+// ── Contribution pattern (separate concern from revenue_type above) ──────────
+
+export type ContributionPattern = 'single_touchpoint' | 'multi_touchpoint';
+
+/**
+ * describeContributionPattern
+ *
+ * Counts distinct observed values across video/asset/campaign/redirectLink
+ * evidence (both confirmed and session_linked — this is deliberately NOT a
+ * confidence-weighted decision, just "how many distinct things did we see").
+ * More than one distinct value in ANY of those dimensions marks the journey
+ * as multi-touchpoint. This says nothing about causal credit and nothing
+ * about which legacy revenue bucket the purchase falls into — it's purely
+ * "how rich is the observable journey," for a future drill-down UI to key
+ * off of (e.g. the "$500 · Multiple Contribution · click for full journey"
+ * pattern).
+ */
+export function describeContributionPattern(graph: PurchaseEvidenceGraph): ContributionPattern {
+  const distinctCount = (items: EvidenceItem<string>[]): number =>
+    new Set(items.map(i => i.value)).size;
+
+  const touchpointDimensions: EvidenceDimension[] = ['video', 'asset', 'campaign', 'redirectLink'];
+  const isMultiTouchpoint = touchpointDimensions.some(
+    dim => distinctCount(graph.evidence[dim]) > 1,
+  );
+
+  return isMultiTouchpoint ? 'multi_touchpoint' : 'single_touchpoint';
+}
+
+/**
+ * buildLegacyStripePurchaseRow
+ *
+ * The single entry point a caller (InDepthAnalytics.tsx / Widget.tsx) needs
+ * for turning ONE real stripe_purchases row into everything the legacy
+ * engine requires, without touching stripe_purchase_type anywhere:
+ *
+ *   stripe_purchases row → CanonicalConversionRow → PurchaseEvidenceGraph
+ *     → elementType evidence → deriveLegacyRevenueType() → StripePurchaseRow
+ *
+ * Returns both the legacy row (for getAnalyticsEngine()) and the full
+ * evidence graph + contribution pattern (for the caller to hold onto for a
+ * future per-purchase drill-down — not rendered by this function, not
+ * required by the legacy engine, purely available).
+ */
+export function buildLegacyStripePurchaseRow(
+  conversion:               CanonicalConversionRow, // conversion.source must be 'stripe'
+  events:                   JourneyEvent[],
+  redirectLinks:            RedirectLinkRow[],
+  campaignElementAssets:    CampaignElementAssetRow[],
+  campaigns:                CampaignUrlFields[],
+  promotions:               PromotionRow[],
+  assignmentCollaborators:  AssignmentCollaboratorRow[],
+): {
+  row:                  StripePurchaseRow;
+  evidenceGraph:        PurchaseEvidenceGraph;
+  journeyElementTypes:  string[];
+  contributionPattern:  ContributionPattern;
+} {
+  const evidenceGraph = buildPurchaseEvidenceGraph(
+    conversion, events, redirectLinks, campaignElementAssets, campaigns,
+    promotions, assignmentCollaborators,
+  );
+
+  const journeyElementTypes = evidenceGraph.evidence.elementType.map(i => i.value);
+  const { revenue_type }    = deriveLegacyRevenueType(journeyElementTypes, conversion.amount);
+  const contributionPattern = describeContributionPattern(evidenceGraph);
+
+  const row: StripePurchaseRow = {
+    video_id:     conversion.video_id ?? '',
+    campaign_id:  conversion.campaign_id ?? '',
+    amount:       conversion.amount,
+    revenue_type,
+    session_id:   conversion.session_id ?? null,
+  };
+
+  return { row, evidenceGraph, journeyElementTypes, contributionPattern };
 }
