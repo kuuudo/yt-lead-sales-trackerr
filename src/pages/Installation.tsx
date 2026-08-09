@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { supabase } from '../lib/supabase';
 import { useAuth } from '../lib/auth';
+import { useOnboardingOverlay } from '../lib/onboarding-overlay';
 import { useNavigate, Link } from 'react-router-dom';
 import { generatePixelSnippet, WEBHOOK_ENDPOINT } from '../lib/tracker';
 import { motion, AnimatePresence } from 'motion/react';
@@ -1873,6 +1874,7 @@ const WhyStripeCard = ({ userId }: { userId: string }) => {
 
 export default function Installation() {
   const { user } = useAuth();
+  const { open: openOnboarding } = useOnboardingOverlay();
   const navigate = useNavigate();
   const [campaigns, setCampaigns] = useState<CampaignExtended[]>([]);
   const [stripeConfig, setStripeConfig] = useState<StripeConfig | null>(null);
@@ -1979,6 +1981,24 @@ export default function Installation() {
           </button>
         </div>
       </header>
+
+      {/* Getting Started */}
+      <div className="bg-zinc-900 border border-zinc-800 rounded-2xl p-6">
+        <p className="label-caps text-zinc-500 mb-3">Getting Started</p>
+        <h2 className="text-lg font-bold text-white mb-2">
+          Your Fox is waiting for you.
+        </h2>
+        <p className="text-sm text-zinc-500 mb-5 leading-relaxed">
+          We'll get your first campaign ready together — who you're selling
+          to, how they buy, and how VSTRK tracks it back here.
+        </p>
+        <button
+          onClick={openOnboarding}
+          className="inline-flex items-center gap-2 bg-red-600 hover:bg-red-500 text-white text-xs font-black uppercase tracking-widest rounded-xl px-6 h-11 transition-colors"
+        >
+          Continue Setup
+        </button>
+      </div>
 
       {/* Why Stripe */}
       <WhyStripeCard userId={user!.id} />

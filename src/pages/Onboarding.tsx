@@ -1,13 +1,16 @@
 // ─────────────────────────────────────────────────────────────────────────
-// Onboarding.tsx — top-level onboarding route
+// pages/Onboarding.tsx — /onboarding route
 // ─────────────────────────────────────────────────────────────────────────
-// THIS MILESTONE: Step 1 (Welcome) only. The step machine below is
-// intentionally minimal — it exists so WelcomeStep has somewhere real to
-// live and a real onContinue to call, without building Steps 2+ yet.
+// This is now the FALLBACK / direct-access path (e.g. a shared link, or
+// dev testing), not the primary product entry point. The primary entry
+// point is Setup → "Continue Setup" → OnboardingOverlay (see
+// components/onboarding/OnboardingOverlay.tsx), which shows the exact same
+// WelcomeStep inside a dimmed modal over whatever page the user was on.
 //
-// Wire this up in your router, e.g.:
-//   import Onboarding from './Onboarding';
-//   <Route path="/onboarding" element={<Onboarding />} />
+// This page renders identically to how the old Onboarding.tsx did —
+// full-screen, own dark background — just with that wrapper now living
+// here instead of inside WelcomeStep, since WelcomeStep needs to be
+// container-agnostic to also work inside the overlay.
 // ─────────────────────────────────────────────────────────────────────────
 
 import React, { useState } from 'react';
@@ -18,18 +21,16 @@ type OnboardingStep = 'welcome'; // more steps join this union as they're built
 export default function Onboarding() {
   const [step, setStep] = useState<OnboardingStep>('welcome');
 
-  if (step === 'welcome') {
-    return (
-      <WelcomeStep
-        onContinue={() => {
-          // TODO(step-2): replace with the campaign-name step once it's
-          // implemented. Left as a log rather than a fake UI placeholder so
-          // nothing unintended ships to production in this milestone.
-          console.log('[Onboarding] Step 1 complete → Step 2 (not yet implemented)');
-        }}
-      />
-    );
-  }
-
-  return null;
+  return (
+    <div className="min-h-screen w-full bg-[#14100c] flex items-center justify-center p-3 sm:p-6">
+      {step === 'welcome' && (
+        <WelcomeStep
+          onContinue={() => {
+            // TODO(step-2): replace once the campaign-name step exists.
+            console.log('[Onboarding] Step 1 complete → Step 2 (not yet implemented)');
+          }}
+        />
+      )}
+    </div>
+  );
 }

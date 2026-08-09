@@ -9,6 +9,8 @@ import { LayoutDashboard, Globe, BarChart3, Video, Library, Briefcase, Users, Lo
 import { motion, AnimatePresence } from 'motion/react';
 import { useTracker, useLanguage } from './lib/hooks';
 import { AuthProvider, useAuth } from './lib/auth';
+import { OnboardingOverlayProvider } from './lib/onboarding-overlay';
+import OnboardingOverlay from './components/onboarding/OnboardingOverlay';
 import Auth from './pages/Auth';
 import Dashboard from './pages/Dashboard';
 import Campaigns from './pages/Campaigns';
@@ -39,17 +41,10 @@ import MemberDetail from './pages/operator/MemberDetail';
 import InviteMember from './pages/operator/InviteMember';
 import AcceptInvitation from './pages/operator/AcceptInvitation';
 import TrackingDomains from './pages/TrackingDomains';
-import Onboarding from './pages/Onboarding';
 function Navigation() {
   const { lang, toggleLanguage, t } = useLanguage();
   const { user, signOut } = useAuth();
   const location = useLocation();
-
-  // The onboarding scene is deliberately full-bleed/immersive — the
-  // persistent app chrome would sit on top of it and break that.
-  if (location.pathname.startsWith('/onboarding')) {
-    return null;
-  }
 
   const links = [
     { to: '/dashboard', icon: LayoutDashboard, label: t.nav.dashboard },
@@ -149,9 +144,6 @@ function MainContent() {
   return (
     <AnimatePresence mode="wait">
       <Routes>
-        {/* No PageWrapper: onboarding is a full-bleed immersive scene, not a
-            padded dashboard page. */}
-        <Route path="/onboarding" element={<Onboarding />} />
         <Route path="/dashboard" element={<PageWrapper><Dashboard /></PageWrapper>} />
         <Route path="/campaigns" element={<PageWrapper><Campaigns /></PageWrapper>} />
         <Route path="/videos" element={<PageWrapper><Videos /></PageWrapper>} />
@@ -205,10 +197,13 @@ export default function App() {
   return (
     <Router>
       <AuthProvider>
-        <div className="min-h-screen bg-zinc-950 text-zinc-100 selection:bg-red-500/30 selection:text-white font-sans antialiased">
-          <Navigation />
-          <MainContent />
-        </div>
+        <OnboardingOverlayProvider>
+          <div className="min-h-screen bg-zinc-950 text-zinc-100 selection:bg-red-500/30 selection:text-white font-sans antialiased">
+            <Navigation />
+            <MainContent />
+            <OnboardingOverlay />
+          </div>
+        </OnboardingOverlayProvider>
       </AuthProvider>
     </Router>
   );
