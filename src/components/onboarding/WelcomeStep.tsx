@@ -100,16 +100,15 @@ export default function WelcomeStep({ onContinue, maxWidth = ARTWORK_W }: Welcom
           transition={{ duration: 0.45, delay: 0.6 }}
           className="text-[#4a4034]"
           style={{
-            fontSize: 'clamp(8.5px, 1.55cqw, 14px)',
-            lineHeight: 1.6,
-            maxWidth: '46ch',
+            fontSize: 'clamp(8px, 1.4cqw, 13px)',
+            lineHeight: 1.5,
+            maxWidth: '40ch',
             marginBottom: 'clamp(6px, 1.8cqw, 20px)',
           }}
         >
-          Your Fox is ready to guide you. VSTRK helps you follow the journey
-          from content and traffic to leads, checkouts, and revenue — across
-          the platforms your audience already uses. We'll get your first
-          campaign ready together, one question at a time.
+          Your Fox tracks the journey from content to leads, checkouts, and
+          revenue — across every platform you use. Let's set up your first
+          campaign together.
         </motion.p>
 
         <motion.button
