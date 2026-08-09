@@ -77,7 +77,7 @@ export default function WelcomeStep({ onContinue, maxWidth = ARTWORK_W }: Welcom
             marginBottom: 'clamp(4px, 1.2cqw, 10px)',
           }}
         >
-          Venus &middot; Tracking Center
+          
         </motion.p>
 
         <motion.h1
