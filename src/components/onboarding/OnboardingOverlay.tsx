@@ -17,8 +17,9 @@ import React, { useEffect, useState } from 'react';
 import { AnimatePresence, motion } from 'motion/react';
 import { useOnboardingOverlay } from '../../lib/onboarding-overlay';
 import WelcomeStep from './WelcomeStep';
+import OnboardingVideo from './OnboardingVideo';
 
-type OnboardingStep = 'welcome'; // more steps join this union as they're built
+type OnboardingStep = 'welcome' | 'video'; // more steps join this union as they're built
 
 export default function OnboardingOverlay() {
   const { isOpen, close } = useOnboardingOverlay();
@@ -60,12 +61,27 @@ export default function OnboardingOverlay() {
           {step === 'welcome' && (
             <WelcomeStep
               maxWidth={720}
-              onContinue={() => {
-                // TODO(step-2): advance to the campaign-name step once it
-                // exists, instead of just logging.
-                console.log('[Onboarding] Step 1 complete → Step 2 (not yet implemented)');
-              }}
+              onContinue={() => setStep('video')}
             />
+          )}
+
+          {step === 'video' && (
+            <div
+              className="relative w-full bg-white rounded-2xl overflow-hidden shadow-2xl"
+              style={{ maxWidth: 820, width: 'min(820px, 94vw)' }}
+              // Video frame handles its own clicks (skip / next step); stop
+              // clicks inside it from bubbling up to the scrim's close handler.
+              onClick={(e) => e.stopPropagation()}
+            >
+              <OnboardingVideo
+                onSkip={close}
+                onComplete={() => {
+                  // TODO(step-3): advance to the campaign-name step once it
+                  // exists, instead of closing the overlay.
+                  close();
+                }}
+              />
+            </div>
           )}
         </motion.div>
       )}
