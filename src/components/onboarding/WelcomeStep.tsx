@@ -32,15 +32,22 @@ const PANEL = {
 
 interface WelcomeStepProps {
   onContinue: () => void;
+  // Hard px cap on the frame's width. Full-page (pages/Onboarding.tsx)
+  // wants this large (near-fullscreen); the modal (OnboardingOverlay.tsx)
+  // wants it small, since a fullscreen modal doesn't read as a modal.
+  // The vw/vh terms below are untouched, so mobile sizing is unaffected
+  // either way — on small screens those terms are already the binding
+  // constraint, not this cap.
+  maxWidth?: number;
 }
 
-export default function WelcomeStep({ onContinue }: WelcomeStepProps) {
+export default function WelcomeStep({ onContinue, maxWidth = ARTWORK_W }: WelcomeStepProps) {
   return (
     <div
       className="relative w-full"
       style={{
-        maxWidth: ARTWORK_W,
-        width: `min(${ARTWORK_W}px, 96vw, calc(96vh * ${ARTWORK_W} / ${ARTWORK_H}))`,
+        maxWidth,
+        width: `min(${maxWidth}px, 96vw, calc(96vh * ${ARTWORK_W} / ${ARTWORK_H}))`,
         aspectRatio: `${ARTWORK_W} / ${ARTWORK_H}`,
         containerType: 'inline-size',
       }}

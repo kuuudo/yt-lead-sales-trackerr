@@ -59,6 +59,7 @@ export default function OnboardingOverlay() {
         >
           {step === 'welcome' && (
             <WelcomeStep
+              maxWidth={720}
               onContinue={() => {
                 // TODO(step-2): advance to the campaign-name step once it
                 // exists, instead of just logging.
