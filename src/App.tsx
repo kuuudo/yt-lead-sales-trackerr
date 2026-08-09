@@ -39,10 +39,17 @@ import MemberDetail from './pages/operator/MemberDetail';
 import InviteMember from './pages/operator/InviteMember';
 import AcceptInvitation from './pages/operator/AcceptInvitation';
 import TrackingDomains from './pages/TrackingDomains';
+import Onboarding from './pages/Onboarding';
 function Navigation() {
   const { lang, toggleLanguage, t } = useLanguage();
   const { user, signOut } = useAuth();
   const location = useLocation();
+
+  // The onboarding scene is deliberately full-bleed/immersive — the
+  // persistent app chrome would sit on top of it and break that.
+  if (location.pathname.startsWith('/onboarding')) {
+    return null;
+  }
 
   const links = [
     { to: '/dashboard', icon: LayoutDashboard, label: t.nav.dashboard },
@@ -142,6 +149,9 @@ function MainContent() {
   return (
     <AnimatePresence mode="wait">
       <Routes>
+        {/* No PageWrapper: onboarding is a full-bleed immersive scene, not a
+            padded dashboard page. */}
+        <Route path="/onboarding" element={<Onboarding />} />
         <Route path="/dashboard" element={<PageWrapper><Dashboard /></PageWrapper>} />
         <Route path="/campaigns" element={<PageWrapper><Campaigns /></PageWrapper>} />
         <Route path="/videos" element={<PageWrapper><Videos /></PageWrapper>} />
