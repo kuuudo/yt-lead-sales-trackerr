@@ -55,6 +55,7 @@ import { Modal } from '../components/Modal';
 import { useOrganization } from '../lib/useOrganization';
 import { useOrganization } from '../lib/useOrganization';
 import { videosPageCache } from '../lib/videosPageCache';
+import OnboardingVideoSection01 from '../components/onboarding/OnboardingVideo/OnboardingVideoSection01';
 import { createVideo } from '../services/video/createVideo';
 import { generateAssetRedirectLinks } from '../services/asset/generateAssetRedirectLinks';
 import { PromotedAssetPicker, type PromotedAssetRow } from '../components/PromotedAssetPicker';
@@ -521,7 +522,7 @@ export default function Videos() {
   const [allLeadMagnets, setAllLeadMagnets] = useState<LeadMagnet[]>([]);
   const [showAdd, setShowAdd] = useState(false);
   const [showImportWizard, setShowImportWizard] = useState(false);
-
+  const [showOnboarding, setShowOnboarding] = useState(false);
   // Promoted Asset (optional) — UI-only per locked scope: this selection is
   // never sent to createVideo() and nothing is persisted from it yet.
   // Wiring it into a real video -> asset relationship is separate, later work.
@@ -1267,8 +1268,15 @@ console.log(
       <header className="flex justify-between items-center">
         <div>
           <h1 className="text-3xl font-bold text-white flex items-center gap-3">
-            <Youtube className="text-red-600" size={28} /> {t.videos.title}
-          </h1>
+  <Youtube className="text-red-600" size={28} /> {t.videos.title}
+  <button
+    onClick={() => setShowOnboarding(true)}
+    className="w-8 h-8 rounded-full bg-zinc-800 border border-orange-500/60 text-orange-400 flex items-center justify-center hover:bg-zinc-700 hover:border-orange-400 transition-colors"
+    aria-label="Watch onboarding"
+  >
+    <HelpCircle size={16} />
+  </button>
+</h1>
           <p className="text-zinc-500 text-[10px] uppercase tracking-widest mt-1">Manage your tracked content</p>
         </div>
         <div className="flex items-center gap-3">
@@ -2570,8 +2578,25 @@ console.log(
         message={modalConfig.message}
         variant={modalConfig.variant}
         onConfirm={modalConfig.onConfirm}
+        
       />
-
+{showOnboarding && (
+  <div className="fixed inset-0 z-[20000] bg-white overflow-auto">
+    {/* 
+<button
+  onClick={() => setShowOnboarding(false)}
+  className="fixed top-4 right-4 z-[20001] w-10 h-10 rounded-full bg-zinc-900 text-white border border-zinc-700 flex items-center justify-center text-lg shadow-lg"
+  aria-label="Close video"
+>
+  ✕
+</button>
+*/}
+    <OnboardingVideoSection01
+      onSkip={() => setShowOnboarding(false)}
+      onComplete={() => setShowOnboarding(false)}
+    />
+  </div>
+)}
       {/* Phase 2.5: YouTube Analytics Import Overlay */}
       {showImportWizard && (
         <YouTubeImportPanel onClose={() => setShowImportWizard(false)} />
