@@ -731,7 +731,10 @@ function MarketplaceOnboarding({ onClose }: { onClose: () => void }) {
           alignItems: 'center',
           justifyContent: 'space-between',
           gap: 12,
-          padding: '12px 20px',
+          // Extra top padding so this bar (and the close button inside it)
+          // clears the app's fixed black nav bar instead of rendering
+          // underneath it.
+          padding: '60px 20px 12px 20px',
           borderBottom: '1px solid #e8e8ee',
           background: '#fafafa',
         }}
