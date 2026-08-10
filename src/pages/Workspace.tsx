@@ -205,6 +205,14 @@ export default function Workspace() {
 
 {showOnboarding && (
   <div style={styles.onboardingOverlay}>
+    <button
+      style={styles.closeVideoBtn}
+      onClick={() => setShowOnboarding(false)}
+      aria-label="Close video"
+    >
+      ✕
+    </button>
+
     <OnboardingVideoSection05
       onSkip={() => setShowOnboarding(false)}
       onComplete={() => setShowOnboarding(false)}
@@ -412,6 +420,24 @@ onboardingOverlay: {
   zIndex: 20000,
   background: '#ffffff',
   overflow: 'auto',
+},
+closeVideoBtn: {
+  position: 'fixed',
+  top: 18,
+  right: 18,
+  zIndex: 20001,
+  width: 40,
+  height: 40,
+  borderRadius: '50%',
+  background: '#16161f',
+  color: '#FFFFFF',
+  border: '1px solid rgba(255, 255, 255, 0.12)',
+  fontSize: 18,
+  cursor: 'pointer',
+  display: 'flex',
+  alignItems: 'center',
+  justifyContent: 'center',
+  boxShadow: '0 4px 12px rgba(0,0,0,0.25)',
 },
 }
 

@@ -24,6 +24,7 @@ import { Users, DollarSign, Target, Activity, ArrowRight } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import { supabase } from '../../lib/supabase';
 import { useOrganization } from '../../lib/useOrganization';
+import OnboardingVideoSection04 from '../../components/onboarding/OnboardingVideo/OnboardingVideoSection04';
 
 interface OperatorMember {
   id: string;
@@ -55,7 +56,7 @@ export default function Overview() {
   const { organizationId, loading: orgLoading } = useOrganization();
   const [members, setMembers] = useState<OperatorMember[]>([]);
   const [loading, setLoading] = useState(true);
-
+  const [showOnboarding, setShowOnboarding] = useState(false);
   useEffect(() => {
     if (!organizationId) return;
 
@@ -113,7 +114,16 @@ export default function Overview() {
   return (
     <div className="max-w-6xl mx-auto px-6 py-8 space-y-6">
       <div className="flex items-center justify-between mb-2">
-        <h1 className="label-caps !text-white text-lg">Operator Overview</h1>
+  <div className="flex items-center gap-3">
+    <h1 className="label-caps !text-white text-lg">Operator Overview</h1>
+    <button
+      onClick={() => setShowOnboarding(true)}
+      className="w-8 h-8 rounded-full bg-zinc-800 border border-zinc-600 text-white text-sm flex items-center justify-center hover:bg-zinc-700 transition-colors"
+      aria-label="Watch onboarding"
+    >
+      ▶
+    </button>
+  </div>
         <Link
           to="/operator/members"
           className="flex items-center gap-2 bg-zinc-900 border border-zinc-700 text-zinc-200 text-[10px] font-black uppercase tracking-widest px-4 py-2.5 rounded-xl hover:border-zinc-500 hover:text-white transition-all"
@@ -203,6 +213,21 @@ export default function Overview() {
           ))}
         </div>
       </section>
+      {showOnboarding && (
+  <div className="fixed inset-0 z-[20000] bg-white overflow-auto">
+    <button
+      onClick={() => setShowOnboarding(false)}
+      className="fixed top-4 right-4 z-[20001] w-10 h-10 rounded-full bg-zinc-900 text-white border border-zinc-700 flex items-center justify-center text-lg shadow-lg"
+      aria-label="Close video"
+    >
+      ✕
+    </button>
+    <OnboardingVideoSection04
+      onSkip={() => setShowOnboarding(false)}
+      onComplete={() => setShowOnboarding(false)}
+    />
+  </div>
+)}
     </div>
   );
 }
