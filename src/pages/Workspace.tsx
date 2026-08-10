@@ -32,6 +32,14 @@ export default function Workspace() {
   const [creating, setCreating] = useState(false)
   const [createError, setCreateError] = useState<string | null>(null)
   const [showOnboarding, setShowOnboarding] = useState(false)
+  const [isMobile, setIsMobile] = useState(false)
+
+useEffect(() => {
+  const check = () => setIsMobile(window.innerWidth < 768)
+  check()
+  window.addEventListener('resize', check)
+  return () => window.removeEventListener('resize', check)
+}, [])
   const saveSessionAsBoard = useWorkspaceStore((s) => s.saveSessionAsBoard)
 
   // Track whether the card has been triggered yet so the listener is removed
@@ -206,12 +214,26 @@ export default function Workspace() {
 {showOnboarding && (
   <div style={styles.onboardingOverlay}>
     <button
-      style={styles.closeVideoBtn}
-      onClick={() => setShowOnboarding(false)}
-      aria-label="Close video"
-    >
-      ✕
-    </button>
+  style={{
+    ...styles.closeVideoBtn,
+    ...(isMobile
+      ? {
+          top: 'auto',
+          left: 'auto',
+          bottom: 70,
+          right: 20,
+          transform: 'none',
+          width: 28,
+          height: 28,
+          fontSize: 13,
+        }
+      : {}),
+  }}
+  onClick={() => setShowOnboarding(false)}
+  aria-label="Close video"
+>
+  ✕
+</button>
 
     <OnboardingVideoSection05
       onSkip={() => setShowOnboarding(false)}
