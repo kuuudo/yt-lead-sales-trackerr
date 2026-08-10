@@ -716,7 +716,7 @@ function MarketplaceOnboarding({ onClose }: { onClose: () => void }) {
       style={{
         position: 'fixed',
         inset: 0,
-        zIndex: 20000,
+        zIndex: 2147483647,
         background: '#ffffff',
         display: 'flex',
         flexDirection: 'column',
