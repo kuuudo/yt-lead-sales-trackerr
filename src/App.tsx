@@ -3,9 +3,9 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import React from 'react';
+import React, { useState, useEffect } from 'react';
 import { BrowserRouter as Router, Routes, Route, Link, useLocation, Navigate } from 'react-router-dom';
-import { LayoutDashboard, Globe, BarChart3, Video, Library, Briefcase, Users, LogOut, Loader2, User as UserIcon, Code, Settings as SettingsIcon } from 'lucide-react';
+import { LayoutDashboard, Globe, BarChart3, Video, Library, Briefcase, Users, LogOut, Loader2, User as UserIcon, Code, Settings as SettingsIcon, Menu, X } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { useTracker, useLanguage } from './lib/hooks';
 import { AuthProvider, useAuth } from './lib/auth';
@@ -45,6 +45,7 @@ function Navigation() {
   const { lang, toggleLanguage, t } = useLanguage();
   const { user, signOut } = useAuth();
   const location = useLocation();
+  const [mobileOpen, setMobileOpen] = useState(false);
 
   const links = [
     { to: '/dashboard', icon: LayoutDashboard, label: t.nav.dashboard },
@@ -58,63 +59,207 @@ function Navigation() {
     { to: '/installation', icon: Code, label: t.nav.installation || 'Install' },
   ];
 
-  return (
-    <nav className="fixed top-0 left-0 right-0 z-50 bg-zinc-950/95 backdrop-blur-xl border-b border-zinc-900/50 h-14 flex items-center justify-between px-6">
-      <div className="flex items-center gap-10">
-        <Link to="/dashboard" className="text-sm font-black uppercase tracking-[0.2em] text-white flex items-center gap-2">
-          <div className="w-2 h-2 bg-red-600 rounded-sm shadow-[0_0_10px_rgba(220,38,38,0.5)]" />
-          VS-Track
-        </Link>
-        {user && (
-          <div className="hidden md:flex items-center gap-6">
-            {links.map(({ to, icon: Icon, label }) => {
-              const isActive = location.pathname === to;
-              return (
-                <Link
-                  key={to}
-                  to={to}
-                  className={`text-[10px] font-bold uppercase tracking-widest transition-all inline-flex items-center gap-2 ${
-                    isActive ? 'text-white' : 'text-zinc-500 hover:text-zinc-300'
-                  }`}
-                >
-                  {label}
-                </Link>
-              );
-            })}
-          </div>
-        )}
-      </div>
+  // Close the drawer whenever the route changes (e.g. after clicking a link).
+  useEffect(() => {
+    setMobileOpen(false);
+  }, [location.pathname]);
 
-      <div className="flex items-center gap-4">
-        <button
-          onClick={toggleLanguage}
-          className="flex items-center gap-2 px-3 py-1 rounded-md border border-zinc-800 bg-zinc-900/50 text-zinc-500 hover:text-zinc-300 transition-all text-[10px] font-bold uppercase tracking-widest"
-        >
-          <Globe size={11} />
-          {lang === 'en' ? 'EN' : '中文'}
-        </button>
-        {user && (
-          <div className="flex items-center gap-4 pl-4 border-l border-zinc-900">
-            <Link
-              to="/settings"
-              className={`w-8 h-8 rounded-full bg-zinc-900 border flex items-center justify-center transition-colors ${
-                location.pathname === '/settings'
-                  ? 'border-violet-500 text-violet-400'
-                  : 'border-zinc-800 text-zinc-500 hover:text-zinc-300 hover:border-zinc-700'
-              }`}
+  // Close on Escape while the drawer is open.
+  useEffect(() => {
+    if (!mobileOpen) return;
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') setMobileOpen(false);
+    };
+    window.addEventListener('keydown', onKeyDown);
+    return () => window.removeEventListener('keydown', onKeyDown);
+  }, [mobileOpen]);
+
+  // Prevent background scroll/overflow while the drawer is open on mobile.
+  useEffect(() => {
+    if (mobileOpen) {
+      const previousOverflow = document.body.style.overflow;
+      document.body.style.overflow = 'hidden';
+      return () => {
+        document.body.style.overflow = previousOverflow;
+      };
+    }
+  }, [mobileOpen]);
+
+  return (
+    <>
+      <nav className="fixed top-0 left-0 right-0 z-50 bg-zinc-950/95 backdrop-blur-xl border-b border-zinc-900/50 h-14 flex items-center justify-between px-4 md:px-6">
+        <div className="flex items-center gap-4 md:gap-10 min-w-0">
+          {user && (
+            <button
+              onClick={() => setMobileOpen(true)}
+              aria-label="Open navigation menu"
+              className="md:hidden -ml-1 w-8 h-8 flex items-center justify-center text-zinc-400 hover:text-white transition-colors shrink-0"
             >
-              <SettingsIcon size={14} />
-            </Link>
-            <button className="w-8 h-8 rounded-full bg-zinc-900 border border-zinc-800 flex items-center justify-center text-zinc-500">
+              <Menu size={20} />
+            </button>
+          )}
+          <Link to="/dashboard" className="text-sm font-black uppercase tracking-[0.2em] text-white flex items-center gap-2 shrink-0">
+            <div className="w-2 h-2 bg-red-600 rounded-sm shadow-[0_0_10px_rgba(220,38,38,0.5)]" />
+            VS-Track
+          </Link>
+          {user && (
+            <div className="hidden md:flex items-center gap-6">
+              {links.map(({ to, icon: Icon, label }) => {
+                const isActive = location.pathname === to;
+                return (
+                  <Link
+                    key={to}
+                    to={to}
+                    className={`text-[10px] font-bold uppercase tracking-widest transition-all inline-flex items-center gap-2 ${
+                      isActive ? 'text-white' : 'text-zinc-500 hover:text-zinc-300'
+                    }`}
+                  >
+                    {label}
+                  </Link>
+                );
+              })}
+            </div>
+          )}
+        </div>
+
+        <div className="flex items-center gap-4">
+          <button
+            onClick={toggleLanguage}
+            className="hidden md:flex items-center gap-2 px-3 py-1 rounded-md border border-zinc-800 bg-zinc-900/50 text-zinc-500 hover:text-zinc-300 transition-all text-[10px] font-bold uppercase tracking-widest"
+          >
+            <Globe size={11} />
+            {lang === 'en' ? 'EN' : '中文'}
+          </button>
+          {user && (
+            <div className="hidden md:flex items-center gap-4 pl-4 border-l border-zinc-900">
+              <Link
+                to="/settings"
+                className={`w-8 h-8 rounded-full bg-zinc-900 border flex items-center justify-center transition-colors ${
+                  location.pathname === '/settings'
+                    ? 'border-violet-500 text-violet-400'
+                    : 'border-zinc-800 text-zinc-500 hover:text-zinc-300 hover:border-zinc-700'
+                }`}
+              >
+                <SettingsIcon size={14} />
+              </Link>
+              <button className="w-8 h-8 rounded-full bg-zinc-900 border border-zinc-800 flex items-center justify-center text-zinc-500">
+                <UserIcon size={14} />
+              </button>
+              <button onClick={() => signOut()} className="text-zinc-600 hover:text-red-500 transition-colors">
+                <LogOut size={16} />
+              </button>
+            </div>
+          )}
+          {user && (
+            <button
+              className="md:hidden w-8 h-8 rounded-full bg-zinc-900 border border-zinc-800 flex items-center justify-center text-zinc-500 shrink-0"
+              aria-label="Account"
+            >
               <UserIcon size={14} />
             </button>
-            <button onClick={() => signOut()} className="text-zinc-600 hover:text-red-500 transition-colors">
-              <LogOut size={16} />
-            </button>
-          </div>
+          )}
+        </div>
+      </nav>
+
+      {/* Mobile navigation drawer */}
+      <AnimatePresence>
+        {mobileOpen && user && (
+          <React.Fragment key="mobile-nav">
+            <motion.div
+              key="mobile-nav-backdrop"
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              onClick={() => setMobileOpen(false)}
+              className="fixed inset-0 z-[60] bg-black/60 backdrop-blur-sm md:hidden"
+              aria-hidden="true"
+            />
+            <motion.div
+              key="mobile-nav-panel"
+              initial={{ x: '-100%' }}
+              animate={{ x: 0 }}
+              exit={{ x: '-100%' }}
+              transition={{ type: 'tween', duration: 0.2, ease: 'easeOut' }}
+              role="dialog"
+              aria-modal="true"
+              aria-label="Navigation menu"
+              className="fixed top-0 left-0 bottom-0 z-[70] w-72 max-w-[85vw] bg-zinc-950 border-r border-zinc-900/50 flex flex-col overflow-y-auto md:hidden"
+            >
+              <div className="flex items-center justify-between h-14 px-4 border-b border-zinc-900/50 shrink-0">
+                <Link
+                  to="/dashboard"
+                  onClick={() => setMobileOpen(false)}
+                  className="text-sm font-black uppercase tracking-[0.2em] text-white flex items-center gap-2"
+                >
+                  <div className="w-2 h-2 bg-red-600 rounded-sm shadow-[0_0_10px_rgba(220,38,38,0.5)]" />
+                  VS-Track
+                </Link>
+                <button
+                  onClick={() => setMobileOpen(false)}
+                  aria-label="Close navigation menu"
+                  className="w-8 h-8 flex items-center justify-center text-zinc-500 hover:text-white transition-colors"
+                >
+                  <X size={18} />
+                </button>
+              </div>
+
+              <div className="flex-1 flex flex-col gap-1 px-3 py-4">
+                {links.map(({ to, icon: Icon, label }) => {
+                  const isActive = location.pathname === to;
+                  return (
+                    <Link
+                      key={to}
+                      to={to}
+                      onClick={() => setMobileOpen(false)}
+                      className={`flex items-center gap-3 px-3 py-2.5 rounded-md text-[11px] font-bold uppercase tracking-widest transition-all ${
+                        isActive
+                          ? 'text-white bg-zinc-900 border border-zinc-800'
+                          : 'text-zinc-500 hover:text-zinc-300 hover:bg-zinc-900/50'
+                      }`}
+                    >
+                      <Icon size={15} className={isActive ? 'text-red-500' : ''} />
+                      {label}
+                    </Link>
+                  );
+                })}
+              </div>
+
+              <div className="px-3 py-4 border-t border-zinc-900/50 flex flex-col gap-1 shrink-0">
+                <button
+                  onClick={toggleLanguage}
+                  className="flex items-center gap-3 px-3 py-2.5 rounded-md text-[11px] font-bold uppercase tracking-widest text-zinc-500 hover:text-zinc-300 hover:bg-zinc-900/50 transition-all"
+                >
+                  <Globe size={15} />
+                  {lang === 'en' ? 'EN' : '中文'}
+                </button>
+                <Link
+                  to="/settings"
+                  onClick={() => setMobileOpen(false)}
+                  className={`flex items-center gap-3 px-3 py-2.5 rounded-md text-[11px] font-bold uppercase tracking-widest transition-all ${
+                    location.pathname === '/settings'
+                      ? 'text-violet-400 bg-zinc-900 border border-zinc-800'
+                      : 'text-zinc-500 hover:text-zinc-300 hover:bg-zinc-900/50'
+                  }`}
+                >
+                  <SettingsIcon size={15} />
+                  Settings
+                </Link>
+                <button
+                  onClick={() => {
+                    setMobileOpen(false);
+                    signOut();
+                  }}
+                  className="flex items-center gap-3 px-3 py-2.5 rounded-md text-[11px] font-bold uppercase tracking-widest text-zinc-600 hover:text-red-500 hover:bg-zinc-900/50 transition-all"
+                >
+                  <LogOut size={15} />
+                  Logout
+                </button>
+              </div>
+            </motion.div>
+          </React.Fragment>
         )}
-      </div>
-    </nav>
+      </AnimatePresence>
+    </>
   );
 }
 

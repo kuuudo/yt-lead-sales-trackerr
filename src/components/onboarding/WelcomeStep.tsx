@@ -106,7 +106,7 @@ export default function WelcomeStep({ onContinue, maxWidth = ARTWORK_W }: Welcom
             marginBottom: 'clamp(6px, 1.8cqw, 20px)',
           }}
         >
-          Your Fox tracks the journey from content to leads, checkouts, and
+          Venus tracks the journey from content to leads, checkouts, and
           revenue — across every platform you use. Let's set up your first
           campaign together.
         </motion.p>
