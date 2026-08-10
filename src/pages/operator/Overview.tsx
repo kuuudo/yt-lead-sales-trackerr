@@ -215,13 +215,15 @@ export default function Overview() {
       </section>
       {showOnboarding && (
   <div className="fixed inset-0 z-[20000] bg-white overflow-auto">
-    <button
-      onClick={() => setShowOnboarding(false)}
-      className="fixed top-4 right-4 z-[20001] w-10 h-10 rounded-full bg-zinc-900 text-white border border-zinc-700 flex items-center justify-center text-lg shadow-lg"
-      aria-label="Close video"
-    >
-      ✕
-    </button>
+    {/* 
+<button
+  onClick={() => setShowOnboarding(false)}
+  className="fixed top-4 right-4 z-[20001] w-10 h-10 rounded-full bg-zinc-900 text-white border border-zinc-700 flex items-center justify-center text-lg shadow-lg"
+  aria-label="Close video"
+>
+  ✕
+</button>
+*/}
     <OnboardingVideoSection04
       onSkip={() => setShowOnboarding(false)}
       onComplete={() => setShowOnboarding(false)}

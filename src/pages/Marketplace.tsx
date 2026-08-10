@@ -27,7 +27,7 @@ import {
 import { marketplaceAssignmentsPageCache } from '../lib/marketplaceAssignmentsPageCache';
 import { marketplacePromotionsPageCache } from '../lib/marketplacePromotionsPageCache';
 import { marketplaceInvitationsPageCache } from '../lib/marketplaceInvitationsPageCache';
-
+import OnboardingVideoSection03 from '../components/onboarding/OnboardingVideo/OnboardingVideoSection03';
 type Tab = 'assignments' | 'invitations' | 'promotions';
 
 const TABS: { key: Tab; label: string; icon: typeof Briefcase }[] = [
@@ -40,6 +40,7 @@ export default function Marketplace() {
   const navigate = useNavigate();
   const [tab, setTab] = useState<Tab>('promotions');
   const [loading, setLoading] = useState(true);
+  const [showOnboarding, setShowOnboarding] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   // Captured once at bootstrap, reused by loadAssignments/loadInvitations
@@ -328,10 +329,17 @@ useEffect(() => {
   return (
     <div className="min-h-screen bg-zinc-950 text-zinc-100">
       <div className="max-w-5xl mx-auto px-6 py-10">
-        <div className="flex items-center gap-2 mb-1">
-          <span className="w-2 h-2 rounded-full bg-red-600" />
-          <h1 className="text-2xl font-bold">Marketplace</h1>
-        </div>
+        <div className="flex items-center gap-3 mb-1">
+  <span className="w-2 h-2 rounded-full bg-red-600" />
+  <h1 className="text-2xl font-bold">Marketplace</h1>
+  <button
+    onClick={() => setShowOnboarding(true)}
+    className="w-8 h-8 rounded-full bg-zinc-800 border border-zinc-600 text-white text-sm flex items-center justify-center hover:bg-zinc-700 hover:border-zinc-500 transition-colors"
+    aria-label="Watch onboarding"
+  >
+    ▶
+  </button>
+</div>
         <p className="text-zinc-500 text-[11px] font-bold uppercase tracking-widest mb-8">
           Collaboration Hub
         </p>
@@ -655,6 +663,21 @@ useEffect(() => {
         variant={modalConfig.variant}
         onConfirm={modalConfig.onConfirm}
       />
+      {showOnboarding && (
+  <div className="fixed inset-0 z-[20000] bg-white overflow-auto">
+    <button
+      onClick={() => setShowOnboarding(false)}
+      className="fixed top-4 right-4 z-[20001] w-10 h-10 rounded-full bg-zinc-900 text-white border border-zinc-700 flex items-center justify-center text-lg shadow-lg hover:bg-zinc-800 transition-colors"
+      aria-label="Close video"
+    >
+      ✕
+    </button>
+    <OnboardingVideoSection03
+      onSkip={() => setShowOnboarding(false)}
+      onComplete={() => setShowOnboarding(false)}
+    />
+  </div>
+)}
     </div>
   );
 }
