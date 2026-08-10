@@ -20,6 +20,7 @@ import { useWorkspaceStore } from '../components/analytics/store/useWorkspaceSto
 import SessionCanvas from '../components/analytics/canvas/SessionCanvas'
 import WorkspaceToolbar from '../components/analytics/toolbar/WorkspaceToolbar'
 import type { User } from '@supabase/supabase-js'
+import OnboardingVideoSection05 from '../components/onboarding/OnboardingVideo/OnboardingVideoSection05'
 
 export default function Workspace() {
   const navigate = useNavigate()
@@ -30,7 +31,7 @@ export default function Workspace() {
   const [boardName, setBoardName] = useState('My Workspace')
   const [creating, setCreating] = useState(false)
   const [createError, setCreateError] = useState<string | null>(null)
-
+  const [showOnboarding, setShowOnboarding] = useState(false)
   const saveSessionAsBoard = useWorkspaceStore((s) => s.saveSessionAsBoard)
 
   // Track whether the card has been triggered yet so the listener is removed
@@ -147,6 +148,14 @@ export default function Workspace() {
       >
         + New
       </button>
+
+      <button
+        style={styles.videoBtn}
+        onClick={() => setShowOnboarding(true)}
+        aria-label="Watch onboarding"
+      >
+        ▶
+      </button>
       {/* ── Name-first onboarding card ── */}
       {showCard && (
         <>
@@ -193,6 +202,15 @@ export default function Workspace() {
           </div>
         </>
       )}
+
+{showOnboarding && (
+  <div style={styles.onboardingOverlay}>
+    <OnboardingVideoSection05
+      onSkip={() => setShowOnboarding(false)}
+      onComplete={() => setShowOnboarding(false)}
+    />
+  </div>
+)}
 
     </div>
   )
@@ -344,6 +362,7 @@ const styles: Record<string, React.CSSProperties> = {
   boxShadow: '0 4px 14px -2px rgba(0, 0, 0, 0.35)',
 },
 
+
 newWorkspaceBtn: {
   position: 'fixed',
   top: 118,   // adjust this number
@@ -366,6 +385,33 @@ newWorkspaceBtn: {
 
   transition: 'all 0.25s cubic-bezier(0.4, 0, 0.2, 1)',
   boxShadow: '0 4px 14px -2px rgba(0, 0, 0, 0.35)',
+},
+
+videoBtn: {
+  position: 'fixed',
+  bottom: 24,
+  left: 24,
+  zIndex: 10000,
+  width: 52,
+  height: 52,
+  borderRadius: '50%',
+  background: '#16161f',
+  color: '#FFFFFF',
+  border: '1px solid rgba(255, 255, 255, 0.08)',
+  fontSize: 20,
+  cursor: 'pointer',
+  display: 'flex',
+  alignItems: 'center',
+  justifyContent: 'center',
+  boxShadow: '0 4px 14px -2px rgba(0, 0, 0, 0.35)',
+},
+
+onboardingOverlay: {
+  position: 'fixed',
+  inset: 0,
+  zIndex: 20000,
+  background: '#ffffff',
+  overflow: 'auto',
 },
 }
 

@@ -1986,7 +1986,7 @@ export default function Installation() {
       <div className="bg-zinc-900 border border-zinc-800 rounded-2xl p-6">
         <p className="label-caps text-zinc-500 mb-3">Getting Started</p>
         <h2 className="text-lg font-bold text-white mb-2">
-          Your Fox is waiting for you.
+          🦊Your Fox is waiting for you.
         </h2>
         <p className="text-sm text-zinc-500 mb-5 leading-relaxed">
           We'll get your first campaign ready together — who you're selling
