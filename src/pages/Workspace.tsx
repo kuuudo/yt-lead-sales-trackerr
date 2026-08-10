@@ -423,8 +423,9 @@ onboardingOverlay: {
 },
 closeVideoBtn: {
   position: 'fixed',
-  top: 18,
-  right: 18,
+  top: '50%',
+  left: 24,
+  transform: 'translateY(-50%)',
   zIndex: 20001,
   width: 40,
   height: 40,
