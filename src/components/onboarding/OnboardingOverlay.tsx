@@ -74,12 +74,7 @@ export default function OnboardingOverlay() {
               onClick={(e) => e.stopPropagation()}
             >
               <OnboardingVideo
-                onSkip={close}
-                onComplete={() => {
-                  // TODO(step-3): advance to the campaign-name step once it
-                  // exists, instead of closing the overlay.
-                  close();
-                }}
+                onClose={close}
               />
             </div>
           )}
