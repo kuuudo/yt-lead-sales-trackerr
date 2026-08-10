@@ -731,10 +731,7 @@ function MarketplaceOnboarding({ onClose }: { onClose: () => void }) {
           alignItems: 'center',
           justifyContent: 'space-between',
           gap: 12,
-          // Extra top padding so this bar (and the close button inside it)
-          // clears the app's fixed black nav bar instead of rendering
-          // underneath it.
-          padding: '60px 20px 12px 20px',
+          padding: '12px 20px',
           borderBottom: '1px solid #e8e8ee',
           background: '#fafafa',
         }}
@@ -766,39 +763,27 @@ function MarketplaceOnboarding({ onClose }: { onClose: () => void }) {
           })}
         </div>
 
+        <button
+          type="button"
+          onClick={onClose}
+          style={{
+            width: 36,
+            height: 36,
+            borderRadius: '50%',
+            border: '1px solid #d9d9e3',
+            background: '#ffffff',
+            color: '#6b6b78',
+            fontSize: 16,
+            cursor: 'pointer',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+          }}
+          aria-label="Close"
+        >
+          ✕
+        </button>
       </div>
-
-      {/* Close button — fixed to the middle-left edge so it never overlaps
-          the top pills, the Skip video button (top-right), the Replay/Next
-          step buttons (bottom-right, shown when the video finishes), or
-          the Back/Next bar (bottom). Always visible, no conditional logic
-          needed. */}
-      <button
-        type="button"
-        onClick={onClose}
-        style={{
-          position: 'fixed',
-          left: 18,
-          top: '50%',
-          transform: 'translateY(-50%)',
-          zIndex: 20001,
-          width: 36,
-          height: 36,
-          borderRadius: '50%',
-          border: '1px solid #d9d9e3',
-          background: '#ffffff',
-          color: '#6b6b78',
-          fontSize: 16,
-          cursor: 'pointer',
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'center',
-          boxShadow: '0 4px 12px rgba(0,0,0,0.15)',
-        }}
-        aria-label="Close"
-      >
-        ✕
-      </button>
 
       {/* Current section */}
       <div style={{ flex: 1, overflow: 'auto', position: 'relative' }}>
