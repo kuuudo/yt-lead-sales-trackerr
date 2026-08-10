@@ -68,7 +68,7 @@ import { resolveThumbnail, resolveAssetThumbnail, resolveElementThumbnail, getEl
 import { ImportAssetModal } from '../components/ImportAssetModal';
 import type { AssetResource } from '../services/asset/createAssetResource';
 import { assetsPageCache, updateCachedArchivedMap } from '../lib/assetsPageCache';
-
+import OnboardingVideoSection02 from '../components/onboarding/OnboardingVideo/OnboardingVideoSection02';
 export default function Assets() {
   const { user } = useAuth();
   const { organizationId } = useOrganization();
@@ -77,6 +77,7 @@ export default function Assets() {
   const [assignedSummary, setAssignedSummary] =
   useState<AssignedAssetSummary[]>([]);
   const [loading, setLoading] = useState(true);
+  const [showOnboarding, setShowOnboarding] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [showImportModal, setShowImportModal] = useState(false);
   const [search, setSearch] = useState('');
@@ -382,8 +383,15 @@ if (user) {
     <div className="space-y-8">
       <header>
         <h1 className="text-3xl font-bold text-white flex items-center gap-3">
-          <Library className="text-red-600" size={28} /> Asset Library
-        </h1>
+  <Library className="text-red-600" size={28} /> Asset Library
+  <button
+    onClick={() => setShowOnboarding(true)}
+    className="w-8 h-8 rounded-full bg-zinc-800 border border-zinc-600 text-white text-sm flex items-center justify-center hover:bg-zinc-700 hover:border-zinc-500 transition-colors"
+    aria-label="Watch onboarding"
+  >
+    ▶
+  </button>
+</h1>
         <p className="text-zinc-500 text-[10px] uppercase tracking-widest mt-1">
           Content you own and can promote
         </p>
@@ -683,6 +691,23 @@ if (user) {
         variant={modalConfig.variant}
         onConfirm={modalConfig.onConfirm}
       />
+      {showOnboarding && (
+  <div className="fixed inset-0 z-[20000] bg-white overflow-auto">
+    {/* 
+<button
+  onClick={() => setShowOnboarding(false)}
+  className="fixed top-4 right-4 z-[20001] w-10 h-10 rounded-full bg-zinc-900 text-white border border-zinc-700 flex items-center justify-center text-lg shadow-lg"
+  aria-label="Close video"
+>
+  ✕
+</button>
+*/}
+    <OnboardingVideoSection02
+      onSkip={() => setShowOnboarding(false)}
+      onComplete={() => setShowOnboarding(false)}
+    />
+  </div>
+)}
     </div>
   );
 }
