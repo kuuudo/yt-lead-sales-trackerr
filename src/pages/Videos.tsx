@@ -1274,7 +1274,7 @@ console.log(
     className="w-8 h-8 rounded-full bg-zinc-800 border border-orange-500/60 text-orange-400 flex items-center justify-center hover:bg-zinc-700 hover:border-orange-400 transition-colors"
     aria-label="Watch onboarding"
   >
-    <HelpCircle size={16} />
+    🦊
   </button>
 </h1>
           <p className="text-zinc-500 text-[10px] uppercase tracking-widest mt-1">Manage your tracked content</p>
