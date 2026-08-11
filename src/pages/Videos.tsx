@@ -1271,7 +1271,7 @@ console.log(
   <Youtube className="text-red-600" size={28} /> {t.videos.title}
   <button
     onClick={() => setShowOnboarding(true)}
-    className="w-8 h-8 rounded-full bg-zinc-800 border border-orange-500/60 text-orange-400 flex items-center justify-center hover:bg-zinc-700 hover:border-orange-400 transition-colors"
+    className="w-8 h-8 rounded-full bg-zinc-800 border border-orange-500/60 text-orange-400 flex items-center justify-center hover:bg-zinc-700 hover:border-orange-400 transition-colors text-[14px]"
     aria-label="Watch onboarding"
   >
     🦊
