@@ -5,12 +5,13 @@
 
 import React, { useState, useEffect } from 'react';
 import { BrowserRouter as Router, Routes, Route, Link, useLocation, Navigate } from 'react-router-dom';
-import { LayoutDashboard, Globe, BarChart3, Video, Library, Briefcase, Users, LogOut, Loader2, User as UserIcon, Code, Settings as SettingsIcon, Menu, X } from 'lucide-react';
+import { LayoutDashboard, Globe, BarChart3, Video, Library, Briefcase, Users, LogOut, Loader2, User as UserIcon, Code, Settings as SettingsIcon, Menu, X, Star } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { useTracker, useLanguage } from './lib/hooks';
 import { AuthProvider, useAuth } from './lib/auth';
 import { OnboardingOverlayProvider } from './lib/onboarding-overlay';
 import OnboardingOverlay from './components/onboarding/OnboardingOverlay';
+import LeaveTestimonialModal from './components/testimonials/LeaveTestimonialModal';
 import Auth from './pages/Auth';
 import Dashboard from './pages/Dashboard';
 import Campaigns from './pages/Campaigns';
@@ -46,6 +47,7 @@ function Navigation() {
   const { user, signOut } = useAuth();
   const location = useLocation();
   const [mobileOpen, setMobileOpen] = useState(false);
+  const [testimonialModalOpen, setTestimonialModalOpen] = useState(false);
 
   const links = [
     { to: '/dashboard', icon: LayoutDashboard, label: t.nav.dashboard },
@@ -132,6 +134,13 @@ function Navigation() {
           </button>
           {user && (
             <div className="hidden md:flex items-center gap-4 pl-4 border-l border-zinc-900">
+              <button
+                onClick={() => setTestimonialModalOpen(true)}
+                className="flex items-center gap-1.5 px-3 py-1.5 rounded-md border border-zinc-800 bg-zinc-900/50 text-zinc-500 hover:text-white hover:border-zinc-700 transition-all text-[10px] font-bold uppercase tracking-widest"
+              >
+                <Star size={12} />
+                Leave a Testimonial
+              </button>
               <Link
                 to="/settings"
                 className={`w-8 h-8 rounded-full bg-zinc-900 border flex items-center justify-center transition-colors ${
@@ -226,6 +235,16 @@ function Navigation() {
 
               <div className="px-3 py-4 border-t border-zinc-900/50 flex flex-col gap-1 shrink-0">
                 <button
+                  onClick={() => {
+                    setMobileOpen(false);
+                    setTestimonialModalOpen(true);
+                  }}
+                  className="flex items-center gap-3 px-3 py-2.5 rounded-md text-[11px] font-bold uppercase tracking-widest text-zinc-500 hover:text-zinc-300 hover:bg-zinc-900/50 transition-all"
+                >
+                  <Star size={15} />
+                  Leave a Testimonial
+                </button>
+                <button
                   onClick={toggleLanguage}
                   className="flex items-center gap-3 px-3 py-2.5 rounded-md text-[11px] font-bold uppercase tracking-widest text-zinc-500 hover:text-zinc-300 hover:bg-zinc-900/50 transition-all"
                 >
@@ -259,6 +278,13 @@ function Navigation() {
           </React.Fragment>
         )}
       </AnimatePresence>
+
+      {user && (
+        <LeaveTestimonialModal
+          isOpen={testimonialModalOpen}
+          onClose={() => setTestimonialModalOpen(false)}
+        />
+      )}
     </>
   );
 }
