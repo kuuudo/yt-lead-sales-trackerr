@@ -213,6 +213,15 @@ export default function LeaveTestimonialModal({ isOpen, onClose }: LeaveTestimon
             </header>
 
             <form onSubmit={handleSubmit} className="space-y-5">
+              <div className="space-y-2">
+                <label className="label-caps">🎥 Record Video Testimonial (optional)</label>
+                <VideoRecorder
+                  onVideoReady={(blob) => setVideoBlob(blob)}
+                  onClear={() => setVideoBlob(null)}
+                  resetKey={videoResetKey}
+                />
+              </div>
+              
               <div className="space-y-1">
                 <label className="label-caps">Your Rating</label>
                 <TestimonialStars value={rating} onChange={setRating} size={30} />
@@ -305,16 +314,7 @@ export default function LeaveTestimonialModal({ isOpen, onClose }: LeaveTestimon
                   </div>
                 </div>
               </div>
-
-              <div className="space-y-2">
-                <label className="label-caps">🎥 Record Video Testimonial (optional)</label>
-                <VideoRecorder
-                  onVideoReady={(blob) => setVideoBlob(blob)}
-                  onClear={() => setVideoBlob(null)}
-                  resetKey={videoResetKey}
-                />
-              </div>
-
+        
               {error && (
                 <p className="text-red-500 text-[10px] font-bold uppercase">{error}</p>
               )}
