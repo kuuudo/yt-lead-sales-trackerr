@@ -11,7 +11,7 @@ import { useTracker, useLanguage } from './lib/hooks';
 import { AuthProvider, useAuth } from './lib/auth';
 import { OnboardingOverlayProvider } from './lib/onboarding-overlay';
 import OnboardingOverlay from './components/onboarding/OnboardingOverlay';
-import LeaveTestimonialModal from './components/testimonials/LeaveTestimonialModal';
+import LeaveTestimonialModal from './components/testimonial/LeaveTestimonialModal';
 import Auth from './pages/Auth';
 import Dashboard from './pages/Dashboard';
 import Campaigns from './pages/Campaigns';
