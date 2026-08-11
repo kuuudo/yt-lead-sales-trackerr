@@ -5,7 +5,7 @@
 
 import React, { useState, useEffect } from 'react';
 import { BrowserRouter as Router, Routes, Route, Link, useLocation, Navigate } from 'react-router-dom';
-import { LayoutDashboard, Globe, BarChart3, Video, Library, Briefcase, Users, LogOut, Loader2, User as UserIcon, Code, Settings as SettingsIcon, Menu, X, Star } from 'lucide-react';
+import { LayoutDashboard, Globe, BarChart3, Video, Library, Briefcase, Users, LogOut, Loader2, User as UserIcon, Code, Settings as SettingsIcon, Menu, X, Star, MessageSquareText } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { useTracker, useLanguage } from './lib/hooks';
 import { AuthProvider, useAuth } from './lib/auth';
@@ -247,6 +247,18 @@ function Navigation() {
                   <Star size={15} />
                   Leave a Testimonial
                 </button>
+                                <Link
+                  to="/testimonials"
+                  onClick={() => setMobileOpen(false)}
+                  className={`flex items-center gap-3 px-3 py-2.5 rounded-md text-[11px] font-bold uppercase tracking-widest transition-all ${
+                    location.pathname === '/testimonials'
+                      ? 'text-white bg-zinc-900 border border-zinc-800'
+                      : 'text-zinc-500 hover:text-zinc-300 hover:bg-zinc-900/50'
+                  }`}
+                >
+                  <MessageSquareText size={15} className={location.pathname === '/testimonials' ? 'text-red-500' : ''} />
+                  Testimonials
+                </Link>
                 <button
                   onClick={toggleLanguage}
                   className="flex items-center gap-3 px-3 py-2.5 rounded-md text-[11px] font-bold uppercase tracking-widest text-zinc-500 hover:text-zinc-300 hover:bg-zinc-900/50 transition-all"
