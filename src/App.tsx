@@ -42,6 +42,7 @@ import MemberDetail from './pages/operator/MemberDetail';
 import InviteMember from './pages/operator/InviteMember';
 import AcceptInvitation from './pages/operator/AcceptInvitation';
 import TrackingDomains from './pages/TrackingDomains';
+import AdminTestimonials from './pages/AdminTestimonials';
 function Navigation() {
   const { lang, toggleLanguage, t } = useLanguage();
   const { user, signOut } = useAuth();
@@ -346,6 +347,9 @@ function MainContent() {
         <Route path="/operator/members/:id" element={<PageWrapper><MemberDetail /></PageWrapper>} />
         <Route path="/operator/members/invite" element={<PageWrapper><InviteMember /></PageWrapper>} />
         <Route path="/invite/:token" element={<AcceptInvitation />} />
+        {/* Private admin moderation inbox — AdminTestimonials itself checks
+            user.email against ADMIN_EMAIL and blocks/redirects anyone else. */}
+        <Route path="/testimonialss" element={<PageWrapper><AdminTestimonials /></PageWrapper>} />
       </Routes>
     </AnimatePresence>
   );
