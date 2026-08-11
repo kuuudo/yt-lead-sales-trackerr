@@ -39,7 +39,7 @@ export type Video = {
   created_at: string;
   // Every Video has a corresponding Asset (Design Lock §1, Option A).
   // Column already exists in DB (Migration 003 backfilled it); type was
-  // just missing it until now.
+  // just missing it until now..
   asset_id: string;
   // Soft-delete marker (Migration 008). NULL = not deleted. Set instead of
   // hard-deleting a Video whose Asset has been added to the Library.
