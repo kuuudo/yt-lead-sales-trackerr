@@ -31,7 +31,8 @@ import { useAuth } from '../lib/auth';
 
 import {
   getAnalyticsEngine,
-  buildStripeFromPurchaseTypeTable,
+  buildStripeFromPurchases,
+  buildRedirectLinkLookup,
   buildPixelPurchases,
   flattenSessionEvents,
   mergeEventSources,
@@ -44,7 +45,7 @@ import {
   type RawEvent,
   type StripePurchaseRow,
   type PixelPurchaseRow,
-  type StripePurchaseTypeRow,
+  type StripePurchasesRawRow,
   type DateRange,
   type CustomDateRange,
   type RevenueView,
@@ -276,9 +277,11 @@ export default function InDepthAnalyticsTest() {
           .in('sessions.video_id', videoIds),
 
         (() => {
+          // 2026-08: stripe_purchases is now the source of truth for Stripe
+          // revenue/attribution (was stripe_purchase_type.payment_type).
           const q = supabase
-            .from('stripe_purchase_type')
-            .select('video_id, campaign_id, amount, stripe_session_id, payment_type');
+            .from('stripe_purchases')
+            .select('video_id, campaign_id, amount, session_id, redirect_link_id, redirect_link_token');
           if (campaignIds.length) {
             return q.or(
               `video_id.in.(${videoIds.join(',')}),campaign_id.in.(${campaignIds.join(',')})`,
@@ -298,21 +301,34 @@ export default function InDepthAnalyticsTest() {
       const sessionResolvedEvents = flattenSessionEvents(eViaSessionData.data as any[] || []);
       const allEvents = mergeEventSources(eDirectData.data || [], sessionResolvedEvents);
 
-      const stripeRaw: StripePurchaseTypeRow[] = (spData.data || []).map((r: any) => ({
-        video_id:          r.video_id,
-        campaign_id:       r.campaign_id,
-        amount:            r.amount,
-        stripe_session_id: r.stripe_session_id ?? null,
-        payment_type:      r.payment_type ?? null,
+      const stripeRaw: StripePurchasesRawRow[] = (spData.data || []).map((r: any) => ({
+        video_id:            r.video_id,
+        campaign_id:         r.campaign_id,
+        amount:              r.amount,
+        session_id:          r.session_id ?? null,
+        redirect_link_id:    r.redirect_link_id ?? null,
+        redirect_link_token: r.redirect_link_token ?? null,
       }));
       const pixelRaw = ppData.data || [];
 
+      // First-touch attribution: redirect_link_token → redirect_links.link_type.
+      // Rows with no redirect_link_token (pre-migration legacy purchases) are
+      // simply skipped here — buildStripeFromPurchases() handles the NULL case
+      // with a temporary pre-backfill fallback, not a lookup failure.
+      const redirectTokens = Array.from(
+        new Set(stripeRaw.map(r => r.redirect_link_token).filter((t): t is string => !!t)),
+      );
+      const { data: rlData } = redirectTokens.length
+        ? await supabase.from('redirect_links').select('token, link_type').in('token', redirectTokens)
+        : { data: [] as any[] };
+      const redirectLinkLookup = buildRedirectLinkLookup(rlData || []);
+
       const [stripeSessLookup, pixelSessLookup] = await Promise.all([
-        buildSessionLookup(stripeRaw.map(r => ({ ...r, session_id: r.stripe_session_id }))),
+        buildSessionLookup(stripeRaw),
         buildSessionLookup(pixelRaw),
       ]);
 
-      const enrichedStripe = buildStripeFromPurchaseTypeTable(stripeRaw, stripeSessLookup);
+      const enrichedStripe = buildStripeFromPurchases(stripeRaw, redirectLinkLookup, stripeSessLookup);
       const enrichedPixel  = buildPixelPurchases(pixelRaw, pixelSessLookup);
 
       setRawEvents(allEvents);

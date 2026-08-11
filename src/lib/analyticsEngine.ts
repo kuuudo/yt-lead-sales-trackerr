@@ -74,7 +74,15 @@ export const CLICK_EVENT_MAP: Record<string, string[]> = {
 
 // ── 1b. Stripe revenue type ────────────────────────────────────────────────────
 
-export type StripeRevenueType = 'offer' | 'consultation';
+// Expanded 2026-08 for redirect_link-based attribution (see Section 5).
+// 'sales_call' / 'newsletter' exist so the classification layer can represent
+// those funnel sources today; neither currently produces real Stripe revenue
+// (sales calls are free bookings, newsletter is free) — see
+// mapLinkTypeToRevenueType() and processVideoMetrics() STRIPE/TOTAL modes,
+// which only wire 'offer' and 'consultation' into direct_offer_revenue /
+// consultation_revenue. This is intentional future-proofing (e.g. a future
+// paid newsletter subscription), not a behavior change for existing data.
+export type StripeRevenueType = 'offer' | 'consultation' | 'sales_call' | 'newsletter';
 export type StripeClassificationMap = Record<string, StripeRevenueType>;
 
 // ── 1c. Revenue mode ───────────────────────────────────────────────────────────
@@ -197,13 +205,24 @@ export function emptyVideoMetrics(mode: RevenueMode = 'hybrid'): VideoMetrics {
 // ── 1f. Purchase row types ─────────────────────────────────────────────────────
 
 // stripe_purchases has NO payment_type column.
-// revenue_type is derived via StripeClassificationMap or from stripe_purchase_type.payment_type.
+// As of 2026-08, revenue_type is derived from the first-touch redirect link:
+//   stripe_purchases.redirect_link_token → redirect_links.token → redirect_links.link_type
+//   → mapLinkTypeToRevenueType() (Section 5)
+// stripe_purchase_type.payment_type is no longer the source for this — see
+// buildStripeFromPurchases() in Section 5, which supersedes
+// buildStripeFromPurchaseTypeTable() for InDepthAnalytics / InDepthAnalyticsWidget.
 export interface StripePurchaseRow {
   video_id:     string;
   campaign_id:  string;
   amount:       number;
   revenue_type: StripeRevenueType; // derived after fetch — NOT from DB column
   session_id?:  string | null;
+  // Additive traceability fields (optional — not required by any existing
+  // consumer). Populated by buildStripeFromPurchases(); undefined for rows
+  // built via the legacy buildStripeFromPurchaseTypeTable() path.
+  redirect_link_id?:    string | null;
+  redirect_link_token?: string | null;
+  link_type?:            string | null;
 }
 
 export interface PixelPurchaseRow {
@@ -934,6 +953,14 @@ export interface AnalyticsEngineDebug {
       totalStripeRevenue:     number;
       totalOfferRevenue:      number;
       totalConsultRevenue:    number;
+      // Additive (2026-08): visibility into the two new revenue_type values.
+      // Expected to be 0 today (sales calls / newsletter are free) — present
+      // for QA during the redirect_link migration and future paid-newsletter
+      // support. Not consumed by any KPI/chart.
+      salesCallRows?:          number;
+      newsletterRows?:         number;
+      totalSalesCallRevenue?:  number;
+      totalNewsletterRevenue?: number;
     };
     total: {
       directOfferRevenue:      number;
@@ -1087,9 +1114,13 @@ export function getAnalyticsEngine(input: AnalyticsEngineInput): AnalyticsEngine
   // Stripe breakdown
   const stripeOfferRows     = allStripe.filter(p => p.revenue_type === 'offer' && p.amount > 0);
   const stripeConsultRows   = allStripe.filter(p => p.revenue_type === 'consultation' && p.amount > 0);
+  const stripeSalesCallRows = allStripe.filter(p => p.revenue_type === 'sales_call' && p.amount > 0);
+  const stripeNewsletterRows = allStripe.filter(p => p.revenue_type === 'newsletter' && p.amount > 0);
   const totalStripeRevenue  = allStripe.filter(p => p.amount > 0).reduce((s, p) => s + p.amount, 0);
   const totalOfferRevenue   = stripeOfferRows.reduce((s, p) => s + p.amount, 0);
   const totalConsultRevenue = stripeConsultRows.reduce((s, p) => s + p.amount, 0);
+  const totalSalesCallRevenue  = stripeSalesCallRows.reduce((s, p) => s + p.amount, 0);
+  const totalNewsletterRevenue = stripeNewsletterRows.reduce((s, p) => s + p.amount, 0);
 
   // Total mode dedup count (cross-source only — mirrors STEP 4 in processVideoMetrics)
   const stripeSessionSet = new Set(allStripe.map(p => p.session_id).filter(Boolean) as string[]);
@@ -1127,6 +1158,10 @@ export function getAnalyticsEngine(input: AnalyticsEngineInput): AnalyticsEngine
         totalStripeRevenue,
         totalOfferRevenue,
         totalConsultRevenue,
+        salesCallRows:          stripeSalesCallRows.length,
+        newsletterRows:         stripeNewsletterRows.length,
+        totalSalesCallRevenue,
+        totalNewsletterRevenue,
       },
       total: {
         directOfferRevenue:    campaignTotals.direct_offer_revenue,
@@ -1176,7 +1211,14 @@ export interface StripePurchaseTypeRow {
 }
 
 /**
- * buildStripeFromPurchaseTypeTable
+ * buildStripeFromPurchaseTypeTable — ⚠️ SUPERSEDED (2026-08) for InDepthAnalytics
+ * / InDepthAnalyticsWidget. Those two callers now use buildStripeFromPurchases()
+ * below, which reads stripe_purchases directly and classifies purchase type via
+ * redirect_links.link_type instead of stripe_purchase_type.payment_type.
+ *
+ * Left in place, unmodified, in case other callers still depend on it. Not
+ * deleting stripe_purchase_type or this reader — that is a separate, later
+ * cleanup step.
  *
  * Converts raw stripe_purchase_type rows into StripePurchaseRow[].
  *
@@ -1207,6 +1249,145 @@ export function buildStripeFromPurchaseTypeTable(
         amount:      amt,
         revenue_type,
         session_id:  sessionId,
+      };
+    })
+    .filter((p): p is StripePurchaseRow => p !== null);
+}
+
+// ── 5b. Redirect-link-based Stripe attribution (2026-08 architecture) ─────────
+//
+// New source of truth for InDepthAnalytics / InDepthAnalyticsWidget:
+//
+//   stripe_purchases.amount               → Stripe Revenue (only real, non-zero
+//                                            purchase rows count — never an
+//                                            events/pixel value or projection)
+//   stripe_purchases.video_id/campaign_id → attribution (session_id fallback
+//                                            for legacy rows, same pattern as
+//                                            the old session-lookup helpers)
+//   stripe_purchases.redirect_link_token
+//         → redirect_links.token
+//         → redirect_links.link_type
+//         → mapLinkTypeToRevenueType()    → revenue_type
+//
+// stripe_purchases.token (the campaign-level checkout token) is NOT used here
+// and its existing meaning is untouched — this path only reads
+// redirect_link_token / redirect_link_id.
+
+export interface RedirectLinkRow {
+  token:     string;
+  link_type: string | null;
+}
+
+/**
+ * buildRedirectLinkLookup
+ *
+ * Builds a token → link_type map from raw redirect_links rows, for resolving
+ * stripe_purchases.redirect_link_token → redirect_links.link_type.
+ */
+export function buildRedirectLinkLookup(
+  raw: RedirectLinkRow[],
+): Record<string, string | null> {
+  const lookup: Record<string, string | null> = {};
+  for (const r of raw) {
+    if (r.token) lookup[r.token] = r.link_type ?? null;
+  }
+  return lookup;
+}
+
+/**
+ * mapLinkTypeToRevenueType
+ *
+ * Explicit link_type → revenue_type mapping. Intentionally NOT a 1:1 passthrough
+ * — redirect_links.link_type has a wider value space (funnel steps like
+ * 'checkout', lead-gen types like 'lead_magnet') than revenue_type represents.
+ *
+ *   'consultation' → 'consultation'
+ *   'sales_call'   → 'sales_call'   (booking is free today; see note below)
+ *   'newsletter'   → 'newsletter'   (free today; future-proofing for paid tiers)
+ *   'landing_page' → 'offer'        (direct offer funnel entry)
+ *   anything else (lead_magnet, checkout, unknown/null link_type, or the
+ *   temporary pre-backfill case where no redirect_link_token/link_type could
+ *   be resolved at all) → 'offer', as a conservative default.
+ *
+ * Note: mapping a purchase's revenue_type to 'sales_call' does NOT make it
+ * count as Stripe revenue on its own — only rows that exist in stripe_purchases
+ * with amount > 0 are Stripe revenue at all (enforced in buildStripeFromPurchases
+ * below and in processVideoMetrics). A sales-call *booking* with no Stripe
+ * purchase never reaches this function; that's tracked by the separate
+ * potential-revenue / EV calculation, untouched by this change.
+ */
+export function mapLinkTypeToRevenueType(
+  linkType: string | null | undefined,
+): StripeRevenueType {
+  switch (linkType) {
+    case 'consultation': return 'consultation';
+    case 'sales_call':   return 'sales_call';
+    case 'newsletter':   return 'newsletter';
+    case 'landing_page': return 'offer';
+    default:              return 'offer';
+  }
+}
+
+export interface StripePurchasesRawRow {
+  video_id:            string | null;
+  campaign_id:         string | null;
+  amount:              number | string | null; // Supabase may return numeric as string
+  session_id?:         string | null;
+  redirect_link_id?:   string | null;
+  redirect_link_token?: string | null;
+}
+
+/**
+ * buildStripeFromPurchases
+ *
+ * Converts raw stripe_purchases rows into StripePurchaseRow[], using
+ * redirect_link_token → redirect_links.link_type for classification instead
+ * of stripe_purchase_type.payment_type.
+ *
+ * Rules:
+ *   1. coerce amount via parseFloat(String(…))
+ *   2. Resolve missing video_id / campaign_id via session lookup (legacy
+ *      fallback — mirrors buildStripeFromPurchaseTypeTable)
+ *   3. Drop rows where amount <= 0 (only real Stripe purchases count as
+ *      Stripe revenue — never a projected/potential value)
+ *   4. redirect_link_token → redirectLinkLookup → link_type
+ *        - If redirect_link_token is null/missing (pre-backfill legacy row),
+ *          link_type is null. TEMPORARY pre-backfill fallback — see
+ *          mapLinkTypeToRevenueType(). This is not a new classification
+ *          source; it is a placeholder until historical backfill runs.
+ *   5. revenue_type = mapLinkTypeToRevenueType(link_type)
+ */
+export function buildStripeFromPurchases(
+  raw: StripePurchasesRawRow[],
+  redirectLinkLookup: Record<string, string | null>,
+  sessionLookup: Record<string, { video_id: string; campaign_id: string }>,
+): StripePurchaseRow[] {
+  return raw
+    .map((r): StripePurchaseRow | null => {
+      const sessionId = r.session_id ?? null;
+      const resolvedVideoId    = r.video_id    ?? (sessionLookup[sessionId ?? '']?.video_id    ?? '');
+      const resolvedCampaignId = r.campaign_id ?? (sessionLookup[sessionId ?? '']?.campaign_id ?? '');
+      const amt = parseFloat(String(r.amount ?? '0'));
+      if (amt <= 0) return null;
+
+      const redirectLinkToken = r.redirect_link_token ?? null;
+      // TEMPORARY pre-backfill fallback: legacy rows have no redirect_link_token
+      // yet, so link_type stays null and mapLinkTypeToRevenueType() falls back
+      // to 'offer'. This is not a reintroduction of stripe_purchase_type.
+      const linkType = redirectLinkToken
+        ? redirectLinkLookup[redirectLinkToken] ?? null
+        : null;
+      const revenue_type = mapLinkTypeToRevenueType(linkType);
+
+      return {
+        video_id:            resolvedVideoId,
+        campaign_id:         resolvedCampaignId,
+        amount:              amt,
+        revenue_type,
+        session_id:          sessionId,
+        redirect_link_id:    r.redirect_link_id ?? null,
+        redirect_link_token: redirectLinkToken,
+        link_type:           linkType,
       };
     })
     .filter((p): p is StripePurchaseRow => p !== null);
