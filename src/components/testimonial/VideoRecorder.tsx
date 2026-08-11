@@ -60,6 +60,15 @@ export default function VideoRecorder({ onVideoReady, onClear, resetKey }: Video
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [resetKey]);
 
+  // Attach the live stream only after the video element is mounted (state === 'live').
+// The element is conditionally rendered, so videoLiveRef is null during startRecording.
+useEffect(() => {
+  if (state !== 'live' || !streamRef.current || !videoLiveRef.current) return;
+  const video = videoLiveRef.current;
+  video.srcObject = streamRef.current;
+  video.play().catch(() => {});
+}, [state]);
+
   const stopRecording = useCallback(() => {
     stopTimer();
     recorderRef.current?.stop();
@@ -82,10 +91,6 @@ export default function VideoRecorder({ onVideoReady, onClear, resetKey }: Video
     try {
       const stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
       streamRef.current = stream;
-      if (videoLiveRef.current) {
-        videoLiveRef.current.srcObject = stream;
-        await videoLiveRef.current.play().catch(() => {});
-      }
 
       const mimeType = MediaRecorder.isTypeSupported('video/webm;codecs=vp9,opus')
         ? 'video/webm;codecs=vp9,opus'
@@ -217,7 +222,7 @@ export default function VideoRecorder({ onVideoReady, onClear, resetKey }: Video
       {state === 'live' && (
         <div className="flex flex-col items-center gap-3">
           <div className="relative w-full rounded-xl overflow-hidden bg-black aspect-video">
-            <video ref={videoLiveRef} muted playsInline className="w-full h-full object-cover" />
+            <video ref={videoLiveRef} autoPlay muted playsInline className="w-full h-full object-cover" />
             <div className="absolute top-3 left-3 flex items-center gap-1.5 bg-black/60 backdrop-blur px-2.5 py-1 rounded-full">
               <span className="w-2 h-2 rounded-full bg-red-500 animate-pulse" />
               <span className="text-white text-[10px] font-bold tabular-nums">{formatTime(seconds)}</span>
