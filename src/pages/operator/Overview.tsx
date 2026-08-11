@@ -121,7 +121,7 @@ export default function Overview() {
       className="w-8 h-8 rounded-full bg-zinc-800 border border-zinc-600 text-white text-sm flex items-center justify-center hover:bg-zinc-700 transition-colors"
       aria-label="Watch onboarding"
     >
-      ▶
+      🦊
     </button>
   </div>
         <Link

@@ -162,7 +162,7 @@ useEffect(() => {
         onClick={() => setShowOnboarding(true)}
         aria-label="Watch onboarding"
       >
-        ▶
+        🦊
       </button>
       {/* ── Name-first onboarding card ── */}
       {showCard && (

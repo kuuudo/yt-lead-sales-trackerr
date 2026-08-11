@@ -338,7 +338,7 @@ useEffect(() => {
     className="w-8 h-8 rounded-full bg-zinc-800 border border-zinc-600 text-white text-sm flex items-center justify-center hover:bg-zinc-700 hover:border-zinc-500 transition-colors"
     aria-label="Watch onboarding"
   >
-    ▶
+    🦊
   </button>
 </div>
         <p className="text-zinc-500 text-[11px] font-bold uppercase tracking-widest mb-8">
