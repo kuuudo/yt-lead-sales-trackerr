@@ -1,6 +1,42 @@
 import { supabase, Campaign, LeadMagnet } from '../../lib/supabase';
 import { syncCampaignRedirectLinks } from '../../lib/campaignRedirectEngine';
 
+const PRICING_FIELDS = [
+  'offer_price',
+  'consultation_fee',
+  'estimated_close_rate',
+  'base_offer_value',
+  'upsell_probability',
+  'average_upsell_value',
+] as const;
+
+function num(v: unknown): number {
+  const n = typeof v === 'number' ? v : parseFloat(String(v ?? 0));
+  return Number.isFinite(n) ? n : 0;
+}
+
+function pricingChanged(
+  formData: Partial<Campaign>,
+  current: {
+    offer_price: number;
+    consultation_fee: number;
+    estimated_close_rate: number;
+    base_offer_value: number;
+    upsell_probability: number;
+    average_upsell_value: number;
+  } | null
+): boolean {
+  if (!current) return true;
+  return (
+    num(formData.offer_price) !== num(current.offer_price) ||
+    num(formData.consultation_fee) !== num(current.consultation_fee) ||
+    num(formData.estimated_close_rate) !== num(current.estimated_close_rate) ||
+    num((formData as any).base_offer_value) !== num(current.base_offer_value) ||
+    num((formData as any).upsell_probability) !== num(current.upsell_probability) ||
+    num((formData as any).average_upsell_value) !== num(current.average_upsell_value)
+  );
+}
+
 interface SaveCampaignOptions {
   campaignId: string;
   formData: Partial<Campaign>;
@@ -12,6 +48,58 @@ export async function saveCampaign({
   formData,
   leadMagnets,
 }: SaveCampaignOptions) {
+
+    // ── Pricing versions: close old / open new only if the six pricing fields changed ──
+  const { data: currentVersion, error: currentVersionErr } = await supabase
+    .from('campaign_pricing_versions')
+    .select('id, version, offer_price, consultation_fee, estimated_close_rate, base_offer_value, upsell_probability, average_upsell_value')
+    .eq('campaign_id', campaignId)
+    .is('effective_to', null)
+    .maybeSingle();
+
+  if (currentVersionErr) throw currentVersionErr;
+
+  if (pricingChanged(formData, currentVersion)) {
+    const nowIso = new Date().toISOString();
+    const nextVersion = (currentVersion?.version ?? 0) + 1;
+
+    const newPricing = {
+      campaign_id: campaignId,
+      version: nextVersion,
+      effective_from: nowIso,
+      effective_to: null as string | null,
+      offer_price: num(formData.offer_price),
+      consultation_fee: num(formData.consultation_fee),
+      estimated_close_rate: num(formData.estimated_close_rate),
+      base_offer_value: num((formData as any).base_offer_value),
+      upsell_probability: num((formData as any).upsell_probability),
+      average_upsell_value: num((formData as any).average_upsell_value),
+    };
+
+    // Close current version first (unique index allows only one effective_to IS NULL)
+    if (currentVersion) {
+      const { error: closeErr } = await supabase
+        .from('campaign_pricing_versions')
+        .update({ effective_to: nowIso })
+        .eq('id', currentVersion.id);
+      if (closeErr) throw closeErr;
+    }
+
+    // Insert new current version; if this fails, re-open the old one
+    const { error: insertVersionErr } = await supabase
+      .from('campaign_pricing_versions')
+      .insert([newPricing]);
+
+    if (insertVersionErr) {
+      if (currentVersion) {
+        await supabase
+          .from('campaign_pricing_versions')
+          .update({ effective_to: null })
+          .eq('id', currentVersion.id);
+      }
+      throw insertVersionErr;
+    }
+  }
    
         const { error: updateErr } = await supabase
           .from('campaigns')

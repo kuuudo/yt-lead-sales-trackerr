@@ -166,10 +166,8 @@ const CopyButton = ({ text, label = 'Copy' }: { text: string; label?: string }) 
 const generateAttributionPixel = (
   campaignId: string,
   eventType: string,
-  amount: number | null
+  _amount?: number | null // kept for call-site compatibility; amount is resolved server-side
 ): string => {
-  const numericAmount = amount != null && amount > 0 ? amount : 0;
-
   return `<!-- VS-Track Pixel: ${eventType} -->
 <script>
 (function () {
@@ -228,8 +226,7 @@ const generateAttributionPixel = (
     tracking_hostname: trackingHostname,
     first_touch_redirect_link_id: firstTouchRedirectLinkId,
     redirect_link_id: redirectLinkId,
-    event_type: CONFIG.event_type,
-    ...(CONFIG.event_type !== 'sales_call' && { amount: ${numericAmount} })
+    event_type: CONFIG.event_type
   };
   console.debug('[VS-Track] firing pixel:', payload);
   fetch('https://www.vstrk.com/api/pixel', {
@@ -240,7 +237,6 @@ const generateAttributionPixel = (
 })();
 <\/script>`;
 };
-
 // ─────────────────────────────────────────────
 // PIXEL BLOCK
 // ─────────────────────────────────────────────

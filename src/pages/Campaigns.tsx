@@ -136,6 +136,27 @@ export default function Campaigns() {
         .select();
       if (error) throw new Error(`${error.message} — ${error.details}`);
       if (data) {
+
+                // Pricing version 1 for the new campaign (history starts now)
+        const nowIso = new Date().toISOString();
+        const { error: versionErr } = await supabase
+          .from('campaign_pricing_versions')
+          .insert([{
+            campaign_id: data[0].id,
+            version: 1,
+            effective_from: nowIso,
+            effective_to: null,
+            offer_price: formData.offer_price ?? 0,
+            consultation_fee: formData.consultation_fee ?? 0,
+            estimated_close_rate: formData.estimated_close_rate ?? 0,
+            base_offer_value: formData.base_offer_value ?? 0,
+            upsell_probability: formData.upsell_probability ?? 0,
+            average_upsell_value: formData.average_upsell_value ?? 0,
+          }]);
+        if (versionErr) {
+          // Campaign row exists; surface version failure so it can be fixed
+          throw new Error(`Campaign created but pricing version failed: ${versionErr.message}`);
+        }
         setCampaigns([data[0], ...campaigns]);
         setShowAdd(false);
         setFormData(emptyForm);

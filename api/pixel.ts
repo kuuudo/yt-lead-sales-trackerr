@@ -114,19 +114,13 @@ console.log('AFTER TOKEN RESOLUTION', {
   resolvedVideoId,
   resolvedCampaignId,
 });
-  // Load campaign config
+    // Load campaign (user/org) + active pricing version (source of truth for amount)
+  let pricingVersion: any = null;
+
   if (resolvedCampaignId) {
     const { data } = await supabase
       .from('campaigns')
-      .select(`
-        user_id,
-        organization_id,
-        offer_price,
-        estimated_close_rate,
-        base_offer_value,
-        upsell_probability,
-        average_upsell_value
-      `)
+      .select(`user_id, organization_id`)
       .eq('id', resolvedCampaignId)
       .single();
 
@@ -134,59 +128,86 @@ console.log('AFTER TOKEN RESOLUTION', {
 
     if (campaign) {
       resolvedUserId = campaign.user_id;
-        console.log("USER:", resolvedUserId);
-        console.log("ORG ID:", campaign.organization_id);
-        console.log("FULL CAMPAIGN:", campaign);
-
-      // fallback purchase value
-      if (!amount && campaign.offer_price) {
-        req.body.amount = campaign.offer_price;
-      }
     }
-    console.log('CAMPAIGN FOUND', {
-  campaignId: resolvedCampaignId,
-  organizationId: campaign?.organization_id,
-  userId: campaign?.user_id,
-});
+
+    // Active pricing version at event time (server now)
+    const eventTimeIso = new Date().toISOString();
+    const { data: versionRow } = await supabase
+      .from('campaign_pricing_versions')
+      .select(`
+        id,
+        offer_price,
+        consultation_fee,
+        estimated_close_rate,
+        base_offer_value,
+        upsell_probability,
+        average_upsell_value
+      `)
+      .eq('campaign_id', resolvedCampaignId)
+      .lte('effective_from', eventTimeIso)
+      .or(`effective_to.is.null,effective_to.gt.${eventTimeIso}`)
+      .order('effective_from', { ascending: false })
+      .limit(1)
+      .maybeSingle();
+
+    pricingVersion = versionRow;
+
+    // Fallback: current version if range query returns nothing
+    if (!pricingVersion) {
+      const { data: currentVer } = await supabase
+        .from('campaign_pricing_versions')
+        .select(`
+          id,
+          offer_price,
+          consultation_fee,
+          estimated_close_rate,
+          base_offer_value,
+          upsell_probability,
+          average_upsell_value
+        `)
+        .eq('campaign_id', resolvedCampaignId)
+        .is('effective_to', null)
+        .maybeSingle();
+      pricingVersion = currentVer;
+    }
   }
 
-  const finalEventType = event_type ?? 'unknown';
+    const finalEventType = event_type ?? 'unknown';
 
-  let finalAmount =
-    amount ??
-    req.body.amount ??
-    null;
+  // Amount is ALWAYS resolved server-side from the active pricing version.
+  // Client-supplied amount is ignored so installed pixels never need reinstall.
+  let finalAmount: number | null = 0;
+  let resolvedPricingVersionId: string | null = pricingVersion?.id ?? null;
 
-  // EV calculation for sales calls
-  if (
-  finalEventType === 'sales_call' &&
-  campaign
-) {
-
-  const closeRate =
-    (campaign.estimated_close_rate ?? 0) / 100;
-
-  const upsellProbability =
-    (campaign.upsell_probability ?? 0) / 100;
-
-  const baseOffer =
-    campaign.base_offer_value ?? 0;
-
-  const upsellValue =
-    campaign.average_upsell_value ?? 0;
-
-  finalAmount = Number(
-  (
-    (closeRate * baseOffer)
-    +
-    (
-      closeRate *
-      upsellProbability *
-      upsellValue
-    )
-  ).toFixed(2)
-);
-}
+  if (pricingVersion) {
+    if (finalEventType === 'purchase') {
+      finalAmount = Number(pricingVersion.offer_price ?? 0);
+    } else if (
+      finalEventType === 'consultation' ||
+      finalEventType === 'consultation_confirmed'
+    ) {
+      finalAmount = Number(pricingVersion.consultation_fee ?? 0);
+    } else if (finalEventType === 'sales_call') {
+      // Existing EV formula — do not change the math
+      const closeRate =
+        (Number(pricingVersion.estimated_close_rate ?? 0)) / 100;
+      const upsellProbability =
+        (Number(pricingVersion.upsell_probability ?? 0)) / 100;
+      const baseOffer = Number(pricingVersion.base_offer_value ?? 0);
+      const upsellValue = Number(pricingVersion.average_upsell_value ?? 0);
+      finalAmount = Number(
+        (
+          closeRate * baseOffer +
+          closeRate * upsellProbability * upsellValue
+        ).toFixed(2)
+      );
+    } else {
+      // newsletter, checkout_intent, etc.
+      finalAmount = 0;
+    }
+  } else {
+    finalAmount = 0;
+  }
 console.log('INSERTING PURCHASE', {
   campaign_id: resolvedCampaignId,
   video_id: resolvedVideoId,
@@ -221,6 +242,7 @@ const { error: purchaseError } =
       organization_id: resolvedOrganizationId ?? campaign?.organization_id ?? null,
       promotion_id: resolvedPromotionId ?? null,
       amount: finalAmount,
+      pricing_version_id: resolvedPricingVersionId,
       event_type: finalEventType,
       session_id: session_id ?? null,
     });
