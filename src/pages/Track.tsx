@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { useParams } from 'react-router-dom';
 import { resolveRedirectToken, logRedirectEvent, buildRedirectUrl } from '../lib/redirects';
-import { setAttribution, syncSession, getFirstTouchVideoId, getFirstTouchCampaignId, getFirstTouchOrganizationId, getFirstTouchPromotionId, getFirstTouchAssetId, getFirstTouchTrackingHostname, getFirstTouchRedirectLinkId } from '../lib/tracker';
+import { setAttribution, syncSession, getFirstTouchVideoId, getFirstTouchCampaignId, getFirstTouchOrganizationId, getFirstTouchPromotionId, getFirstTouchAssetId, getFirstTouchTrackingHostname, getFirstTouchRedirectLinkId, getFirstTouchRedirectLinkToken } from '../lib/tracker';
 import { supabase } from '../lib/supabase';
 import { Loader2, AlertCircle } from 'lucide-react';
 
@@ -122,6 +122,7 @@ export default function Track() {
               promotion_id: (link as any).promotion_id ?? null,
               asset_id: (link as any).asset_id ?? null,
               redirect_link_id: (link as any).id ?? null,
+              redirect_link_token: (link as any).token ?? null,
               tracking_hostname: (link as any).tracking_hostname ?? null,
             });
             console.log('[Track] ⑥ setAttribution() called — localStorage check:',
@@ -162,6 +163,7 @@ export default function Track() {
         const finalAssetId           = getFirstTouchAssetId();
         const finalTrackingHostname  = getFirstTouchTrackingHostname();
         const finalFirstTouchRedirectLinkId = getFirstTouchRedirectLinkId();
+        const finalFirstTouchRedirectLinkToken = getFirstTouchRedirectLinkToken();
 
         if (!finalSessionId || !finalVideoId || !finalCampaignId) {
           console.warn('[Track] ⚠ one or more localStorage keys missing before redirect:',
@@ -224,12 +226,20 @@ try {
   }
 
   // ── Composite client_reference_id for deterministic Stripe attribution ──
-  // Format: "{token}__{session_id}__{video_id}"
-  // video_id segment is empty string when not available (direct/cold traffic) — never "undefined".
-  // Webhook splits on '__' to recover all three values without any events table lookup.
-  // Only applied to Stripe Payment Links — other destinations are unaffected.
+  // Format: "{token}__{session_id}__{video_id}__{redirect_link_id}__{redirect_link_token}"
+  // The first three segments are UNCHANGED from the existing format — parts[0..2]
+  // keep their exact original meaning and position for backward compatibility.
+  // Segments 4 and 5 are NEW and additive: the first-touch redirect_links.id
+  // (UUID) and first-touch redirect_links.token (short string, e.g. '9vSr') —
+  // i.e. the ORIGINAL redirect link the customer clicked, not this checkout
+  // link's own token/id. Both are empty string when not available, never
+  // "undefined" — old purchases with only 3 segments parse parts[3]/parts[4]
+  // as undefined on the webhook side, which is handled there as null.
+  // Webhook splits on '__' to recover all five values without any events
+  // table lookup. Only applied to Stripe Payment Links — other destinations
+  // are unaffected.
   if (finalSessionId && link.destination_url?.includes('buy.stripe.com')) {
-    const composite = `${token}__${finalSessionId}__${finalVideoId ?? ''}`;
+    const composite = `${token}__${finalSessionId}__${finalVideoId ?? ''}__${finalFirstTouchRedirectLinkId ?? ''}__${finalFirstTouchRedirectLinkToken ?? ''}`;
     url.searchParams.set('client_reference_id', composite);
     console.log('[Track] ⑨ composite client_reference_id set:', composite);
   }

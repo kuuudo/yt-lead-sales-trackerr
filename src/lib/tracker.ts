@@ -8,6 +8,10 @@ const ORGANIZATION_ID_KEY    = 'yt_tracker_organization_id';
 const PROMOTION_ID_KEY       = 'yt_tracker_promotion_id';
 const ASSET_ID_KEY           = 'yt_tracker_asset_id';
 const REDIRECT_LINK_ID_KEY   = 'yt_tracker_redirect_link_id';
+// NEW: the short redirect_links.token string (e.g. '9vSr'), distinct from
+// REDIRECT_LINK_ID_KEY (the UUID). Added alongside the existing id key —
+// id is never replaced or renamed.
+const REDIRECT_LINK_TOKEN_KEY = 'yt_tracker_redirect_link_token';
 const TRACKING_HOSTNAME_KEY  = 'yt_tracker_tracking_hostname';
 // First-touch keys: written once, never overwritten, survive the full browser session.
 const FT_VIDEO_ID_KEY           = 'yt_tracker_ft_video_id';
@@ -16,6 +20,9 @@ const FT_ORGANIZATION_ID_KEY    = 'yt_tracker_ft_organization_id';
 const FT_PROMOTION_ID_KEY       = 'yt_tracker_ft_promotion_id';
 const FT_ASSET_ID_KEY           = 'yt_tracker_ft_asset_id';
 const FT_REDIRECT_LINK_ID_KEY   = 'yt_tracker_ft_redirect_link_id';
+// NEW: first-touch counterpart of REDIRECT_LINK_TOKEN_KEY. Same
+// write-once-never-overwritten semantics as every other FT_* key.
+const FT_REDIRECT_LINK_TOKEN_KEY = 'yt_tracker_ft_redirect_link_token';
 const FT_TRACKING_HOSTNAME_KEY  = 'yt_tracker_ft_tracking_hostname';
 
 /**
@@ -31,6 +38,12 @@ export interface AttributionContext {
   promotion_id: string | null;
   asset_id: string | null;
   redirect_link_id: string | null;
+  /**
+   * NEW: the short redirect_links.token string (e.g. '9vSr') for the link
+   * that was just resolved. Distinct from redirect_link_id (the UUID) —
+   * both are kept, neither replaces the other.
+   */
+  redirect_link_token: string | null;
   tracking_hostname: string | null;
 }
 
@@ -95,6 +108,7 @@ export const setAttribution = (attribution: AttributionContext) => {
     promotion_id: promotionId,
     asset_id: assetId,
     redirect_link_id: redirectLinkId,
+    redirect_link_token: redirectLinkToken,
     tracking_hostname: trackingHostname,
   } = attribution;
 
@@ -105,6 +119,7 @@ export const setAttribution = (attribution: AttributionContext) => {
   if (promotionId)        localStorage.setItem(PROMOTION_ID_KEY, promotionId);
   if (assetId)             localStorage.setItem(ASSET_ID_KEY, assetId);
   if (redirectLinkId)     localStorage.setItem(REDIRECT_LINK_ID_KEY, redirectLinkId);
+  if (redirectLinkToken)  localStorage.setItem(REDIRECT_LINK_TOKEN_KEY, redirectLinkToken);
   if (trackingHostname)   localStorage.setItem(TRACKING_HOSTNAME_KEY, trackingHostname);
 
   // Only write first-touch if not already set
@@ -126,6 +141,9 @@ export const setAttribution = (attribution: AttributionContext) => {
   if (redirectLinkId && !localStorage.getItem(FT_REDIRECT_LINK_ID_KEY)) {
     localStorage.setItem(FT_REDIRECT_LINK_ID_KEY, redirectLinkId);
   }
+  if (redirectLinkToken && !localStorage.getItem(FT_REDIRECT_LINK_TOKEN_KEY)) {
+    localStorage.setItem(FT_REDIRECT_LINK_TOKEN_KEY, redirectLinkToken);
+  }
   if (trackingHostname && !localStorage.getItem(FT_TRACKING_HOSTNAME_KEY)) {
     localStorage.setItem(FT_TRACKING_HOSTNAME_KEY, trackingHostname);
   }
@@ -139,6 +157,7 @@ export const setAttribution = (attribution: AttributionContext) => {
       promotionId: localStorage.getItem(FT_PROMOTION_ID_KEY),
       assetId: localStorage.getItem(FT_ASSET_ID_KEY),
       redirectLinkId: localStorage.getItem(FT_REDIRECT_LINK_ID_KEY),
+      redirectLinkToken: localStorage.getItem(FT_REDIRECT_LINK_TOKEN_KEY),
       trackingHostname: localStorage.getItem(FT_TRACKING_HOSTNAME_KEY),
     },
   });
@@ -161,6 +180,10 @@ export const getAssetId = (): string | null =>
 
 export const getRedirectLinkId = (): string | null =>
   localStorage.getItem(REDIRECT_LINK_ID_KEY);
+
+/** Current redirect_links.token string (e.g. '9vSr') for the CURRENT event only — no attribution authority. */
+export const getRedirectLinkToken = (): string | null =>
+  localStorage.getItem(REDIRECT_LINK_TOKEN_KEY);
 
 export const getTrackingHostname = (): string | null =>
   localStorage.getItem(TRACKING_HOSTNAME_KEY);
@@ -194,6 +217,16 @@ export const getFirstTouchAssetId = (): string | null =>
  */
 export const getFirstTouchRedirectLinkId = (): string | null =>
   localStorage.getItem(FT_REDIRECT_LINK_ID_KEY) ?? localStorage.getItem(REDIRECT_LINK_ID_KEY);
+
+/**
+ * First-touch redirect_links.token string (e.g. '9vSr') — the exact token
+ * the customer originally clicked. Set on first landing, never overwritten.
+ * This is what gets embedded in client_reference_id for Stripe attribution.
+ * Not to be confused with getFirstTouchRedirectLinkId() above (the UUID) —
+ * both are preserved, neither replaces the other.
+ */
+export const getFirstTouchRedirectLinkToken = (): string | null =>
+  localStorage.getItem(FT_REDIRECT_LINK_TOKEN_KEY) ?? localStorage.getItem(REDIRECT_LINK_TOKEN_KEY);
 
 /** First-touch tracking hostname — set on first landing, never overwritten. Use this for revenue attribution. */
 export const getFirstTouchTrackingHostname = (): string | null =>

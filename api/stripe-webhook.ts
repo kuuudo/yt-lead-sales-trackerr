@@ -65,6 +65,12 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   let tokenFromPayload: string | null = null;
   let sessionIdFromPayload: string | null = null;
   let videoIdFromPayload: string | null = null;
+  // NEW — parts[3] / parts[4]. Additive only: existing parts[0..2] meaning
+  // and position are untouched. Old client_reference_id values with only
+  // 3 segments naturally produce `undefined` here, which `|| null` below
+  // normalizes to null — no special-casing needed for old purchases.
+  let redirectLinkIdFromPayload: string | null = null;
+  let redirectLinkTokenFromPayload: string | null = null;
 
   try {
     const peeked = JSON.parse(rawBody.toString());
@@ -75,6 +81,8 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     tokenFromPayload = parts[0] || null;
     sessionIdFromPayload = parts[1] || null;
     videoIdFromPayload = parts[2] || null;
+    redirectLinkIdFromPayload = parts[3] || null;
+    redirectLinkTokenFromPayload = parts[4] || null;
   } catch {
     // fall through — resolution will fail below and event will be rejected
   }
@@ -185,6 +193,11 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   // video the customer actually clicked) — never used as a fallback here.
   // Empty string in the payload correctly means cold traffic -> null.
   const resolvedVideoId = videoIdFromPayload || null;
+  // NEW — the ORIGINAL redirect link the customer clicked (first-touch),
+  // not this checkout link's own id/token. Both null for old 3-segment
+  // client_reference_id values — expected and handled, not an error.
+  const resolvedRedirectLinkId = redirectLinkIdFromPayload || null;
+  const resolvedRedirectLinkToken = redirectLinkTokenFromPayload || null;
 
   // ── Step 8: dedup + write purchase via upsert — same race fix ────────────
   const { data: insertedPurchase, error: insertError } = await supabase
@@ -197,6 +210,10 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         campaign_id: link.campaign_id,
         user_id: resolvedUserId,
         session_id: resolvedSessionId,
+        // NEW — original attribution redirect link, distinct from `token`
+        // (which remains the campaign-level checkout token, unchanged above).
+        redirect_link_id: resolvedRedirectLinkId,
+        redirect_link_token: resolvedRedirectLinkToken,
         organization_id: link.organization_id ?? null,
         amount: session.amount_total ? session.amount_total / 100 : null,
         currency: session.currency,
@@ -219,6 +236,8 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   console.log(
     '[stripe-webhook] Recorded purchase —',
     'token:', token,
+    'redirect_link_id:', resolvedRedirectLinkId,
+    'redirect_link_token:', resolvedRedirectLinkToken,
     'user:', resolvedUserId,
     'amount:', session.amount_total
   );
