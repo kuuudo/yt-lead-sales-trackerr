@@ -31,8 +31,8 @@ import { useAuth } from '../lib/auth';
 
 import {
   getAnalyticsEngine,
+  buildStripeFromPurchaseTypeTable,
   buildPixelPurchases,
-  buildLegacyStripePurchaseRow,
   flattenSessionEvents,
   mergeEventSources,
   handleSortToggle,
@@ -44,13 +44,7 @@ import {
   type RawEvent,
   type StripePurchaseRow,
   type PixelPurchaseRow,
-  type CanonicalConversionRow,
-  type JourneyEvent,
-  type RedirectLinkRow,
-  type CampaignElementAssetRow,
-  type CampaignUrlFields,
-  type PurchaseEvidenceGraph,
-  type ContributionPattern,
+  type StripePurchaseTypeRow,
   type DateRange,
   type CustomDateRange,
   type RevenueView,
@@ -185,16 +179,6 @@ export default function InDepthAnalyticsTest() {
   const [rawEvents, setRawEvents]             = useState<RawEvent[]>([]);
   const [stripePurchases, setStripePurchases] = useState<StripePurchaseRow[]>([]);
   const [pixelPurchases, setPixelPurchases]   = useState<PixelPurchaseRow[]>([]);
-  // Per-purchase PurchaseEvidenceGraph + contributionPattern, keyed by
-  // stripe_purchases.id. NOT rendered by this pass's UI — held for a future
-  // drill-down ("$500 · Multiple Contribution · click for full journey").
-  // Intentionally not persisted to inDepthAnalyticsPageCache (cache module's
-  // shape is unmodified this pass); a cache-hit page load will have this
-  // empty until the next fresh fetch, which does not affect any rendered
-  // metric since nothing in TABLE_COLUMNS reads it.
-  const [purchaseEvidence, setPurchaseEvidence] = useState<
-    Map<string, { evidenceGraph: PurchaseEvidenceGraph; contributionPattern: ContributionPattern }>
-  >(new Map());
 
   // ── Filter state (unchanged) ─────────────────────────────────────────────
   const [dateRange, setDateRange]                     = useState<DateRange>('30days');
@@ -279,9 +263,6 @@ export default function InDepthAnalyticsTest() {
       const videoIds    = vData.map((v: any) => v.id);
       const campaignIds = vData.map((v: any) => v.campaign_id).filter(Boolean);
 
-      // ── Legacy click-metric events (unchanged) + real Stripe/Pixel purchases ──
-      // stripe_purchase_type is NOT part of this fetch path anymore. Stripe
-      // revenue now comes directly from stripe_purchases.amount.
       const [eDirectData, eViaSessionData, spData, ppData] = await Promise.all([
         supabase
           .from('events')
@@ -295,14 +276,9 @@ export default function InDepthAnalyticsTest() {
           .in('sessions.video_id', videoIds),
 
         (() => {
-          // Real stripe_purchases table. session_id below IS
-          // stripe_purchases.session_id — NOT stripe_session_id (Stripe's
-          // own checkout session id; a different identity — see Phase 5B
-          // audit). asset_id is NOT selected: the real schema has no such
-          // column on stripe_purchases.
           const q = supabase
-            .from('stripe_purchases')
-            .select('id, amount, session_id, video_id, campaign_id, promotion_id, organization_id, created_at');
+            .from('stripe_purchase_type')
+            .select('video_id, campaign_id, amount, stripe_session_id, payment_type');
           if (campaignIds.length) {
             return q.or(
               `video_id.in.(${videoIds.join(',')}),campaign_id.in.(${campaignIds.join(',')})`,
@@ -314,7 +290,7 @@ export default function InDepthAnalyticsTest() {
         campaignIds.length
           ? supabase
               .from('pixel_purchases')
-              .select('id, video_id, campaign_id, amount, event_type, session_id, promotion_id, organization_id, created_at')
+              .select('video_id, campaign_id, amount, event_type, session_id')
               .in('campaign_id', campaignIds)
           : Promise.resolve({ data: [] as any[] }),
       ]);
@@ -322,95 +298,26 @@ export default function InDepthAnalyticsTest() {
       const sessionResolvedEvents = flattenSessionEvents(eViaSessionData.data as any[] || []);
       const allEvents = mergeEventSources(eDirectData.data || [], sessionResolvedEvents);
 
-      const stripeRawRows = (spData.data || []) as any[];
-      const pixelRawRows  = (ppData.data || []) as any[];
+      const stripeRaw: StripePurchaseTypeRow[] = (spData.data || []).map((r: any) => ({
+        video_id:          r.video_id,
+        campaign_id:       r.campaign_id,
+        amount:            r.amount,
+        stripe_session_id: r.stripe_session_id ?? null,
+        payment_type:      r.payment_type ?? null,
+      }));
+      const pixelRaw = ppData.data || [];
 
-      // ── Canonical journey data — fetched only if there's a purchase to
-      //    reconstruct evidence for. Scoped by session_id (NOT video_id):
-      //    canonical evidence such as a checkout event can carry
-      //    video_id = null, so a video_id-scoped query would silently miss
-      //    it (confirmed against the real Stripe test during the Phase 5B
-      //    audit). Depends on the purchase fetch above, so it cannot join
-      //    the earlier Promise.all.
-      const purchaseSessionIds = Array.from(new Set(
-        [...stripeRawRows, ...pixelRawRows]
-          .map((r: any) => r.session_id)
-          .filter((id: unknown): id is string => !!id),
-      ));
+      const [stripeSessLookup, pixelSessLookup] = await Promise.all([
+        buildSessionLookup(stripeRaw.map(r => ({ ...r, session_id: r.stripe_session_id }))),
+        buildSessionLookup(pixelRaw),
+      ]);
 
-      const [journeyEventsRes, redirectLinksRes, campaignElementAssetsRes] = purchaseSessionIds.length
-        ? await Promise.all([
-            supabase
-              .from('events')
-              .select('id, session_id, event_type, created_at, video_id, campaign_id, promotion_id, asset_id, redirect_link_id, organization_id')
-              .in('session_id', purchaseSessionIds),
-            campaignIds.length
-              ? supabase
-                  .from('redirect_links')
-                  .select('id, campaign_id, asset_id, promotion_id, video_id, link_type, destination_url')
-                  .in('campaign_id', campaignIds)
-              : Promise.resolve({ data: [] as any[] }),
-            campaignIds.length
-              ? supabase
-                  .from('campaign_element_assets')
-                  .select('asset_id, campaign_id, element_type')
-                  .in('campaign_id', campaignIds)
-              : Promise.resolve({ data: [] as any[] }),
-          ])
-        : [{ data: [] as any[] }, { data: [] as any[] }, { data: [] as any[] }];
-
-      const journeyEvents:           JourneyEvent[]             = (journeyEventsRes.data || []) as JourneyEvent[];
-      const redirectLinks:           RedirectLinkRow[]           = (redirectLinksRes.data || []) as RedirectLinkRow[];
-      const campaignElementAssets:   CampaignElementAssetRow[]   = (campaignElementAssetsRes.data || []) as CampaignElementAssetRow[];
-      // campaigns were already fetched above with select('*') — the *_url
-      // fields Path B needs are already present on cData, just reshaped.
-      const campaignUrlFields:       CampaignUrlFields[]         = (cData || []) as unknown as CampaignUrlFields[];
-
-      // ── Build canonical evidence + legacy StripePurchaseRow per real
-      //    stripe_purchases row. buildStripeFromPurchaseTypeTable is not
-      //    called anywhere in this path. Promotions/assignmentCollaborators
-      //    are intentionally passed as [] this pass — evidence.member isn't
-      //    required by any current legacy display field, and wiring it up
-      //    is Member Analytics integration, explicitly out of scope here.
-      const evidenceByPurchaseId = new Map<
-        string, { evidenceGraph: PurchaseEvidenceGraph; contributionPattern: ContributionPattern }
-      >();
-
-      const enrichedStripe: StripePurchaseRow[] = stripeRawRows
-        .filter(r => (r.amount ?? 0) > 0)
-        .map(r => {
-          const conversion: CanonicalConversionRow = {
-            id:               r.id,
-            source:           'stripe',
-            amount:           r.amount,
-            session_id:       r.session_id ?? null,
-            promotion_id:     r.promotion_id ?? null,
-            asset_id:         null, // no such column on the real stripe_purchases table
-            video_id:         r.video_id ?? null,
-            campaign_id:      r.campaign_id ?? null,
-            organization_id:  r.organization_id ?? null,
-            created_at:       r.created_at,
-          };
-
-          const { row, evidenceGraph, contributionPattern } = buildLegacyStripePurchaseRow(
-            conversion, journeyEvents, redirectLinks, campaignElementAssets, campaignUrlFields,
-            [], [],
-          );
-
-          evidenceByPurchaseId.set(r.id, { evidenceGraph, contributionPattern });
-          return row;
-        });
-
-      // ── Pixel: unrelated to the stripe_purchase_type problem — untouched
-      //    mechanism, same buildPixelPurchases() + sessionLookup fallback
-      //    as before, just fed the (slightly wider) real column set.
-      const pixelSessLookup = await buildSessionLookup(pixelRawRows);
-      const enrichedPixel   = buildPixelPurchases(pixelRawRows, pixelSessLookup);
+      const enrichedStripe = buildStripeFromPurchaseTypeTable(stripeRaw, stripeSessLookup);
+      const enrichedPixel  = buildPixelPurchases(pixelRaw, pixelSessLookup);
 
       setRawEvents(allEvents);
       setStripePurchases(enrichedStripe);
       setPixelPurchases(enrichedPixel);
-      setPurchaseEvidence(evidenceByPurchaseId);
 
       if (user?.id) {
         inDepthAnalyticsPageCache.set(user.id, {

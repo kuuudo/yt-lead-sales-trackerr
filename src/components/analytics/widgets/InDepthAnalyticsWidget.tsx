@@ -4,14 +4,8 @@
  * Compact "In-Depth Analytics" table widget for the Workspace canvas.
  *
  * ARCHITECTURE — mirrors InDepthAnalytics.tsx exactly:
- *   1. Fetch raw data from Supabase (videos, campaigns, lead_magnets, events,
- *      real stripe_purchases / pixel_purchases — stripe_purchase_type is no
- *      longer part of this fetch path as of the Phase 5B integration pass)
- *   2. Build canonical PurchaseEvidenceGraph per Stripe purchase (session_id-
- *      scoped events/redirect_links/campaign_element_assets), then
- *      buildLegacyStripePurchaseRow() to bridge into the legacy
- *      StripePurchaseRow shape. Pixel enrichment via buildPixelPurchases()
- *      is unchanged (unrelated to the stripe_purchase_type problem).
+ *   1. Fetch raw data from Supabase (videos, campaigns, lead_magnets, events, purchases)
+ *   2. Enrich via buildStripeFromPurchaseTypeTable / buildPixelPurchases
  *   3. Pass through getAnalyticsEngine() → sortedVideos
  *   4. Post-filter by platform (pure UI, same as InDepthAnalytics)
  *   5. Render all rows in a compact scrollable table
@@ -58,8 +52,8 @@ import { supabase }       from '../../../lib/supabase'
 import { inDepthAnalyticsWidgetPageCache } from '../../../lib/inDepthAnalyticsWidgetPageCache'
 import {
   getAnalyticsEngine,
+  buildStripeFromPurchaseTypeTable,
   buildPixelPurchases,
-  buildLegacyStripePurchaseRow,
   flattenSessionEvents,
   mergeEventSources,
   handleSortToggle,
@@ -71,13 +65,7 @@ import {
   type RawEvent,
   type StripePurchaseRow,
   type PixelPurchaseRow,
-  type CanonicalConversionRow,
-  type JourneyEvent,
-  type RedirectLinkRow,
-  type CampaignElementAssetRow,
-  type CampaignUrlFields,
-  type PurchaseEvidenceGraph,
-  type ContributionPattern,
+  type StripePurchaseTypeRow,
   type DateRange,
   type CustomDateRange,
   type RevenueView,
@@ -266,11 +254,6 @@ export default function InDepthAnalyticsWidget({ widget, onUpdate }: Props) {
   const [rawEvents, setRawEvents]             = useState<RawEvent[]>([])
   const [stripePurchases, setStripePurchases] = useState<StripePurchaseRow[]>([])
   const [pixelPurchases, setPixelPurchases]   = useState<PixelPurchaseRow[]>([])
-  // Per-purchase evidence — see InDepthAnalytics.tsx for full rationale.
-  // Not rendered this pass; not persisted to the widget cache.
-  const [purchaseEvidence, setPurchaseEvidence] = useState<
-    Map<string, { evidenceGraph: PurchaseEvidenceGraph; contributionPattern: ContributionPattern }>
-  >(new Map())
 
   // ── Fetch — identical to InDepthAnalytics.fetchData, org-scoped ──────────
   useEffect(() => {
@@ -326,8 +309,6 @@ export default function InDepthAnalyticsWidget({ widget, onUpdate }: Props) {
         const videoIds    = vData.map((v: any) => v.id)
         const campaignIds = vData.map((v: any) => v.campaign_id).filter(Boolean)
 
-        // ── Legacy click-metric events (unchanged) + real Stripe/Pixel purchases ──
-        // stripe_purchase_type is NOT part of this fetch path anymore.
         const [eDirectData, eViaSessionData, spData, ppData] = await Promise.all([
           supabase
             .from('events')
@@ -341,11 +322,9 @@ export default function InDepthAnalyticsWidget({ widget, onUpdate }: Props) {
             .in('sessions.video_id', videoIds),
 
           (() => {
-            // Real stripe_purchases table. session_id below IS
-            // stripe_purchases.session_id — NOT stripe_session_id.
             const q = supabase
-              .from('stripe_purchases')
-              .select('id, amount, session_id, video_id, campaign_id, promotion_id, organization_id, created_at')
+              .from('stripe_purchase_type')
+              .select('video_id, campaign_id, amount, stripe_session_id, payment_type')
             if (campaignIds.length) {
               return q.or(
                 `video_id.in.(${videoIds.join(',')}),campaign_id.in.(${campaignIds.join(',')})`,
@@ -357,100 +336,39 @@ export default function InDepthAnalyticsWidget({ widget, onUpdate }: Props) {
           campaignIds.length
             ? supabase
                 .from('pixel_purchases')
-                .select('id, video_id, campaign_id, amount, event_type, session_id, promotion_id, organization_id, created_at')
+                .select('video_id, campaign_id, amount, event_type, session_id')
                 .in('campaign_id', campaignIds)
             : Promise.resolve({ data: [] as any[] }),
         ])
-
-        if (cancelled) return
 
         const sessionResolvedEvents = flattenSessionEvents(
           (eViaSessionData.data as any[]) || [],
         )
         const allEvents = mergeEventSources(eDirectData.data || [], sessionResolvedEvents)
 
-        const stripeRawRows = ((spData.data as any[]) || [])
-        const pixelRawRows  = ((ppData.data as any[]) || [])
+        const stripeRaw: StripePurchaseTypeRow[] = ((spData.data as any[]) || []).map(
+          (r: any) => ({
+            video_id:          r.video_id,
+            campaign_id:       r.campaign_id,
+            amount:            r.amount,
+            stripe_session_id: r.stripe_session_id ?? null,
+            payment_type:      r.payment_type ?? null,
+          }),
+        )
+        const pixelRaw = ppData.data || []
 
-        // ── Canonical journey data — scoped by session_id (NOT video_id);
-        //    canonical evidence (e.g. a checkout event) can carry
-        //    video_id = null. Depends on the purchase fetch above.
-        const purchaseSessionIds = Array.from(new Set(
-          [...stripeRawRows, ...pixelRawRows]
-            .map((r: any) => r.session_id)
-            .filter((id: unknown): id is string => !!id),
-        ))
+        const [stripeSessLookup, pixelSessLookup] = await Promise.all([
+          buildSessionLookup(stripeRaw.map(r => ({ ...r, session_id: r.stripe_session_id }))),
+          buildSessionLookup(pixelRaw),
+        ])
 
-        const [journeyEventsRes, redirectLinksRes, campaignElementAssetsRes] = purchaseSessionIds.length
-          ? await Promise.all([
-              supabase
-                .from('events')
-                .select('id, session_id, event_type, created_at, video_id, campaign_id, promotion_id, asset_id, redirect_link_id, organization_id')
-                .in('session_id', purchaseSessionIds),
-              campaignIds.length
-                ? supabase
-                    .from('redirect_links')
-                    .select('id, campaign_id, asset_id, promotion_id, video_id, link_type, destination_url')
-                    .in('campaign_id', campaignIds)
-                : Promise.resolve({ data: [] as any[] }),
-              campaignIds.length
-                ? supabase
-                    .from('campaign_element_assets')
-                    .select('asset_id, campaign_id, element_type')
-                    .in('campaign_id', campaignIds)
-                : Promise.resolve({ data: [] as any[] }),
-            ])
-          : [{ data: [] as any[] }, { data: [] as any[] }, { data: [] as any[] }]
-
-        if (cancelled) return
-
-        const journeyEvents:          JourneyEvent[]           = (journeyEventsRes.data || []) as JourneyEvent[]
-        const redirectLinks:          RedirectLinkRow[]         = (redirectLinksRes.data || []) as RedirectLinkRow[]
-        const campaignElementAssets:  CampaignElementAssetRow[] = (campaignElementAssetsRes.data || []) as CampaignElementAssetRow[]
-        const campaignUrlFields:      CampaignUrlFields[]       = (cData || []) as unknown as CampaignUrlFields[]
-
-        // ── Build canonical evidence + legacy StripePurchaseRow per real
-        //    stripe_purchases row. buildStripeFromPurchaseTypeTable is not
-        //    called anywhere in this path. Promotions/assignmentCollaborators
-        //    intentionally [] this pass — see InDepthAnalytics.tsx.
-        const evidenceByPurchaseId = new Map<
-          string, { evidenceGraph: PurchaseEvidenceGraph; contributionPattern: ContributionPattern }
-        >()
-
-        const enrichedStripe: StripePurchaseRow[] = stripeRawRows
-          .filter((r: any) => (r.amount ?? 0) > 0)
-          .map((r: any) => {
-            const conversion: CanonicalConversionRow = {
-              id:               r.id,
-              source:           'stripe',
-              amount:           r.amount,
-              session_id:       r.session_id ?? null,
-              promotion_id:     r.promotion_id ?? null,
-              asset_id:         null,
-              video_id:         r.video_id ?? null,
-              campaign_id:      r.campaign_id ?? null,
-              organization_id:  r.organization_id ?? null,
-              created_at:       r.created_at,
-            }
-
-            const { row, evidenceGraph, contributionPattern } = buildLegacyStripePurchaseRow(
-              conversion, journeyEvents, redirectLinks, campaignElementAssets, campaignUrlFields,
-              [], [],
-            )
-
-            evidenceByPurchaseId.set(r.id, { evidenceGraph, contributionPattern })
-            return row
-          })
-
-        // ── Pixel: unrelated to stripe_purchase_type — untouched mechanism.
-        const pixelSessLookup = await buildSessionLookup(pixelRawRows)
-        const enrichedPixel   = buildPixelPurchases(pixelRawRows, pixelSessLookup)
+        const enrichedStripe = buildStripeFromPurchaseTypeTable(stripeRaw, stripeSessLookup)
+        const enrichedPixel  = buildPixelPurchases(pixelRaw, pixelSessLookup)
 
         if (cancelled) return
         setRawEvents(allEvents)
         setStripePurchases(enrichedStripe)
         setPixelPurchases(enrichedPixel)
-        setPurchaseEvidence(evidenceByPurchaseId)
 
         inDepthAnalyticsWidgetPageCache.set(organizationId, {
           videos: vData, campaigns: cData, leadMagnets: lmData,
