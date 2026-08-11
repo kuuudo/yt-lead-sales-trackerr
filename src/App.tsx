@@ -43,6 +43,8 @@ import InviteMember from './pages/operator/InviteMember';
 import AcceptInvitation from './pages/operator/AcceptInvitation';
 import TrackingDomains from './pages/TrackingDomains';
 import AdminTestimonials from './pages/AdminTestimonials';
+import Testimonials from './pages/Testimonials';
+import Website from './pages/Website';
 function Navigation() {
   const { lang, toggleLanguage, t } = useLanguage();
   const { user, signOut } = useAuth();
@@ -305,7 +307,9 @@ function MainContent() {
   if (!user) {
     // Allow public token redirects even when not logged in
     return (
-      <Routes>
+    <Routes>
+        <Route path="/testimonials" element={<PageWrapper><Testimonials /></PageWrapper>} />
+        <Route path="/website" element={<PageWrapper><Website /></PageWrapper>} />
         <Route path="/track/:token" element={<Track />} />
         <Route path="/:token" element={<Track />} />
         <Route path="*" element={<PageWrapper><Auth /></PageWrapper>} />
@@ -350,6 +354,8 @@ function MainContent() {
         {/* Private admin moderation inbox — AdminTestimonials itself checks
             user.email against ADMIN_EMAIL and blocks/redirects anyone else. */}
         <Route path="/testimonialss" element={<PageWrapper><AdminTestimonials /></PageWrapper>} />
+                <Route path="/testimonials" element={<PageWrapper><Testimonials /></PageWrapper>} />
+        <Route path="/website" element={<PageWrapper><Website /></PageWrapper>} />
       </Routes>
     </AnimatePresence>
   );
