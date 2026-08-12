@@ -1,7 +1,20 @@
 import React, { useEffect, useState } from 'react';
 import { useParams } from 'react-router-dom';
 import { resolveRedirectToken, logRedirectEvent, buildRedirectUrl } from '../lib/redirects';
-import { setAttribution, syncSession, getFirstTouchVideoId, getFirstTouchCampaignId, getFirstTouchOrganizationId, getFirstTouchPromotionId, getFirstTouchAssetId, getFirstTouchTrackingHostname, getFirstTouchRedirectLinkId, getFirstTouchRedirectLinkToken } from '../lib/tracker';
+import {
+  setAttribution,
+  syncSession,
+  getVideoId,
+  getCampaignId,
+  getFirstTouchVideoId,
+  getFirstTouchCampaignId,
+  getFirstTouchOrganizationId,
+  getFirstTouchPromotionId,
+  getFirstTouchAssetId,
+  getFirstTouchTrackingHostname,
+  getFirstTouchRedirectLinkId,
+  getFirstTouchRedirectLinkToken,
+} from '../lib/tracker';
 import { supabase } from '../lib/supabase';
 import { Loader2, AlertCircle } from 'lucide-react';
 
@@ -151,25 +164,32 @@ export default function Track() {
           // Non-fatal — continue to redirect even if session creation failed
         }
 
-        // ── Step 6: sanity-check all three keys before redirecting ───────────
-        const finalSessionId  = localStorage.getItem('yt_tracker_session_id');
-        // Use first-touch video/campaign for Stripe attribution so that clicking a
-        // checkout redirect link (which calls setAttribution again) does not silently
-        // replace the original landing campaign in client_reference_id.
-        const finalVideoId    = getFirstTouchVideoId();
+        // ── Step 6: current vs first-touch before redirecting ────────────────
+        const finalSessionId = localStorage.getItem('yt_tracker_session_id');
+        // CURRENT attribution — the link just clicked (setAttribution already ran).
+        // Used for vt_vid / vt_cid so destination + thank-you pixel resolve pricing
+        // against the active journey, not a stale first-touch campaign.
+        const currentVideoId =
+          getVideoId() ?? (videoId as string | undefined) ?? null;
+        const currentCampaignId =
+          getCampaignId() ?? (campaignId as string | undefined) ?? null;
+        // FIRST-TOUCH — write-once. Used only for Stripe client_reference_id and
+        // vt_first_touch_redirect_link_id so classic FT revenue attribution is preserved.
+        const finalVideoId = getFirstTouchVideoId();
         const finalCampaignId = getFirstTouchCampaignId();
-        const finalOrganizationId    = getFirstTouchOrganizationId();
-        const finalPromotionId       = getFirstTouchPromotionId();
-        const finalAssetId           = getFirstTouchAssetId();
-        const finalTrackingHostname  = getFirstTouchTrackingHostname();
+        const finalOrganizationId = getFirstTouchOrganizationId();
+        const finalPromotionId = getFirstTouchPromotionId();
+        const finalAssetId = getFirstTouchAssetId();
+        const finalTrackingHostname = getFirstTouchTrackingHostname();
         const finalFirstTouchRedirectLinkId = getFirstTouchRedirectLinkId();
         const finalFirstTouchRedirectLinkToken = getFirstTouchRedirectLinkToken();
 
-        if (!finalSessionId || !finalVideoId || !finalCampaignId) {
+        if (!finalSessionId || !currentVideoId || !currentCampaignId) {
           console.warn('[Track] ⚠ one or more localStorage keys missing before redirect:',
-            { finalSessionId, finalVideoId, finalCampaignId });
+            { finalSessionId, currentVideoId, currentCampaignId, finalVideoId, finalCampaignId });
         } else {
-          console.log('[Track] ✓ all localStorage keys present — ready to redirect');
+          console.log('[Track] ✓ all localStorage keys present — ready to redirect',
+            { currentVideoId, currentCampaignId, ftVideoId: finalVideoId, ftCampaignId: finalCampaignId });
         }
 
 // ── Step 7: redirect with attribution params ─────────────────────────
@@ -185,12 +205,12 @@ try {
     url.searchParams.set('vt_sid', finalSessionId);
   }
 
-  if (finalVideoId) {
-    url.searchParams.set('vt_vid', finalVideoId);
+    if (currentVideoId) {
+    url.searchParams.set('vt_vid', currentVideoId);
   }
 
-  if (finalCampaignId) {
-    url.searchParams.set('vt_cid', finalCampaignId);
+  if (currentCampaignId) {
+    url.searchParams.set('vt_cid', currentCampaignId);
   }
 
   // ── PR C: first-touch attribution params ──────────────────────────────

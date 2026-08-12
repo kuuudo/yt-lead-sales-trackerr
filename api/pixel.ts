@@ -65,13 +65,11 @@ console.log('PIXEL BODY', {
 
   let campaign: any = null;
 
-  // ── PR C: First Touch Attribution — Database is the Authority ──────────
-  // first_touch_redirect_link_id is a carrier only. Browser-supplied.
-  // video_id/campaign_id/organization_id/promotion_id/asset_id/
-  // tracking_hostname are NEVER trusted when this is present — only the
-  // redirect_links row itself is. redirect_link_id (below, separately) is
-  // NOT used here — it describes the current event only, it carries no
-  // attribution authority and must never be used to resolve attribution.
+    // ── First-touch: analytics / org context ONLY ───────────────────────────
+  // first_touch_redirect_link_id is a carrier. It must NEVER override
+  // resolvedCampaignId / resolvedVideoId used for pricing_version lookup.
+  // It may still supply organization_id / promotion_id / asset_id /
+  // tracking_hostname when the body did not already carry them.
   if (first_touch_redirect_link_id) {
     const { data: ftLink } = await supabase
       .from('redirect_links')
@@ -80,17 +78,22 @@ console.log('PIXEL BODY', {
       .maybeSingle();
 
     if (ftLink) {
-      resolvedVideoId = ftLink.video_id;
-      resolvedCampaignId = ftLink.campaign_id;
-      resolvedOrganizationId = ftLink.organization_id;
-      resolvedPromotionId = ftLink.promotion_id;
-      resolvedAssetId = ftLink.asset_id;
-      resolvedTrackingHostname = ftLink.tracking_hostname;
+      // Do NOT assign resolvedVideoId / resolvedCampaignId from ftLink.
+      if (!resolvedOrganizationId) resolvedOrganizationId = ftLink.organization_id;
+      if (!resolvedPromotionId) resolvedPromotionId = ftLink.promotion_id;
+      if (!resolvedAssetId) resolvedAssetId = ftLink.asset_id;
+      if (!resolvedTrackingHostname) resolvedTrackingHostname = ftLink.tracking_hostname;
     } else {
-      console.warn('[pixel] first_touch_redirect_link_id provided but no matching redirect_links row:', first_touch_redirect_link_id);
+      console.warn(
+        '[pixel] first_touch_redirect_link_id provided but no matching redirect_links row:',
+        first_touch_redirect_link_id
+      );
     }
-  } else if (token) {
-    // Existing backward-compatible path — unchanged.
+  }
+
+  // Token path: fill current campaign/video only when body did not supply them
+  // (backward-compatible cold / partial payloads).
+  if (token && (!resolvedCampaignId || !resolvedVideoId)) {
     const { data: link } = await supabase
       .from('redirect_links')
       .select('video_id, campaign_id')
@@ -98,8 +101,8 @@ console.log('PIXEL BODY', {
       .single();
 
     if (link) {
-      resolvedVideoId = link.video_id;
-      resolvedCampaignId = link.campaign_id;
+      if (!resolvedVideoId) resolvedVideoId = link.video_id;
+      if (!resolvedCampaignId) resolvedCampaignId = link.campaign_id;
     }
   }
   console.log("PIXEL STATE:", {
