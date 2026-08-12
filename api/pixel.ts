@@ -54,7 +54,7 @@ console.log('PIXEL BODY', {
 
   let resolvedVideoId = video_id;
   if (resolvedVideoId === 'unknown') {
-  resolvedVideoId = null;
+    resolvedVideoId = null;
   }
   let resolvedCampaignId = campaign_id;
   let resolvedUserId: string | null = null;
@@ -65,32 +65,30 @@ console.log('PIXEL BODY', {
 
   let campaign: any = null;
 
-  // ── PR C: First Touch Attribution — Database is the Authority ──────────
-  // first_touch_redirect_link_id is a carrier only. Browser-supplied.
-  // video_id/campaign_id/organization_id/promotion_id/asset_id/
-  // tracking_hostname are NEVER trusted when this is present — only the
-  // redirect_links row itself is. redirect_link_id (below, separately) is
-  // NOT used here — it describes the current event only, it carries no
-  // attribution authority and must never be used to resolve attribution.
-  if (first_touch_redirect_link_id) {
-    const { data: ftLink } = await supabase
+  // ── CURRENT EVENT attribution (drives pixel_purchases + pricing) ──────
+  // Priority:
+  // 1. redirect_link_id (this conversion's link)
+  // 2. body campaign_id / video_id (set by the latest redirect)
+  // 3. token (legacy)
+  // Never use first-touch data for current-event campaign/video.
+  if (redirect_link_id) {
+    const { data: currentLink } = await supabase
       .from('redirect_links')
       .select('video_id, campaign_id, organization_id, promotion_id, asset_id, tracking_hostname')
-      .eq('id', first_touch_redirect_link_id)
+      .eq('id', redirect_link_id)
       .maybeSingle();
 
-    if (ftLink) {
-      resolvedVideoId = ftLink.video_id;
-      resolvedCampaignId = ftLink.campaign_id;
-      resolvedOrganizationId = ftLink.organization_id;
-      resolvedPromotionId = ftLink.promotion_id;
-      resolvedAssetId = ftLink.asset_id;
-      resolvedTrackingHostname = ftLink.tracking_hostname;
-    } else {
-      console.warn('[pixel] first_touch_redirect_link_id provided but no matching redirect_links row:', first_touch_redirect_link_id);
+    if (currentLink) {
+      resolvedVideoId = currentLink.video_id ?? resolvedVideoId;
+      resolvedCampaignId = currentLink.campaign_id ?? resolvedCampaignId;
+      // metadata from current link is acceptable; first-touch can still refine later
+      if (currentLink.organization_id) resolvedOrganizationId = currentLink.organization_id;
+      if (currentLink.promotion_id) resolvedPromotionId = currentLink.promotion_id;
+      if (currentLink.asset_id) resolvedAssetId = currentLink.asset_id;
+      if (currentLink.tracking_hostname) resolvedTrackingHostname = currentLink.tracking_hostname;
     }
   } else if (token) {
-    // Existing backward-compatible path — unchanged.
+    // Existing backward-compatible path
     const { data: link } = await supabase
       .from('redirect_links')
       .select('video_id, campaign_id')
@@ -98,8 +96,29 @@ console.log('PIXEL BODY', {
       .single();
 
     if (link) {
-      resolvedVideoId = link.video_id;
-      resolvedCampaignId = link.campaign_id;
+      resolvedVideoId = link.video_id ?? resolvedVideoId;
+      resolvedCampaignId = link.campaign_id ?? resolvedCampaignId;
+    }
+  }
+  // else: keep body-supplied campaign_id / video_id (already assigned above)
+
+  // ── FIRST-TOUCH attribution (historical metadata only) ────────────────
+  // May populate promotion / asset / tracking_hostname / organization.
+  // MUST NOT overwrite resolvedCampaignId or resolvedVideoId.
+  if (first_touch_redirect_link_id) {
+    const { data: ftLink } = await supabase
+      .from('redirect_links')
+      .select('organization_id, promotion_id, asset_id, tracking_hostname')
+      .eq('id', first_touch_redirect_link_id)
+      .maybeSingle();
+
+    if (ftLink) {
+      if (ftLink.organization_id) resolvedOrganizationId = ftLink.organization_id;
+      if (ftLink.promotion_id) resolvedPromotionId = ftLink.promotion_id;
+      if (ftLink.asset_id) resolvedAssetId = ftLink.asset_id;
+      if (ftLink.tracking_hostname) resolvedTrackingHostname = ftLink.tracking_hostname;
+    } else {
+      console.warn('[pixel] first_touch_redirect_link_id provided but no matching redirect_links row:', first_touch_redirect_link_id);
     }
   }
   console.log("PIXEL STATE:", {
