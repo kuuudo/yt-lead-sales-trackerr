@@ -28,7 +28,7 @@ export default async function handler(
     });
   }
 
-  const {
+    const {
     token,
     video_id,
     campaign_id,
@@ -37,6 +37,7 @@ export default async function handler(
     session_id,
     first_touch_redirect_link_id,
     redirect_link_id,
+    conversion_id,
   } = req.body;
 console.log('PIXEL BODY', {
   session_id,
@@ -133,7 +134,7 @@ console.log('AFTER TOKEN RESOLUTION', {
       resolvedUserId = campaign.user_id;
     }
 
-    // Active pricing version at event time (server now)
+    // Active pricing version at event time (server now).
     const eventTimeIso = new Date().toISOString();
     const { data: versionRow } = await supabase
       .from('campaign_pricing_versions')
@@ -233,7 +234,7 @@ console.log('INSERT VALUES', {
   session_id: session_id ?? null,
 });
 
-// Insert into pixel_purchases
+// Insert into pixel_purchases (conversion_id = idempotency key for thank-you pixels)
 const { error: purchaseError } =
   await supabase
     .from('pixel_purchases')
@@ -248,9 +249,26 @@ const { error: purchaseError } =
       pricing_version_id: resolvedPricingVersionId,
       event_type: finalEventType,
       session_id: session_id ?? null,
+      conversion_id: conversion_id ?? null,
     });
 
   if (purchaseError) {
+    // Duplicate conversion_id (thank-you refresh) → success, no second row
+    const isDuplicateConversion =
+      purchaseError.code === '23505' &&
+      typeof conversion_id === 'string' &&
+      conversion_id.length > 0;
+
+    if (isDuplicateConversion) {
+      console.log(
+        `♻️ Pixel duplicate conversion_id ignored — event: ${finalEventType}, conversion_id: ${conversion_id}`
+      );
+      return res.status(200).json({
+        received: true,
+        duplicate: true,
+      });
+    }
+
     console.error(
       'Failed to insert pixel_purchase:',
       purchaseError

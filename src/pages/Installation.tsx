@@ -176,6 +176,43 @@ const generateAttributionPixel = (
     default_video_id: 'unknown'
   };
   const params = new URLSearchParams(window.location.search);
+
+  // ── conversion_id (ONE real conversion; survives refresh) ──
+  // Priority: external id (if platform put one in URL) → vt_conversion_id → sessionStorage → new UUID
+  // sessionStorage only: refresh-safe in THIS tab. A genuine second booking in the SAME tab
+  // needs a new URL signal (vt_conversion_id or external id) or a new browser session.
+  const STORAGE_KEY = 'vstrk_conversion_id:' + CONFIG.event_type;
+  function resolveConversionId() {
+    const external =
+      params.get('booking_id') ||
+      params.get('transaction_id') ||
+      params.get('payment_id') ||
+      params.get('checkout_session_id') ||
+      params.get('session_id') || // only if YOUR thank-you URL uses this for booking/payment id
+      null;
+    // Prefer explicit VS-Track param over generic names that might mean something else
+    const fromUrl = params.get('vt_conversion_id') || external;
+    if (fromUrl) {
+      try { sessionStorage.setItem(STORAGE_KEY, fromUrl); } catch (e) {}
+      return fromUrl;
+    }
+    try {
+      const existing = sessionStorage.getItem(STORAGE_KEY);
+      if (existing) return existing;
+    } catch (e) {}
+    const id = (typeof crypto !== 'undefined' && crypto.randomUUID)
+      ? crypto.randomUUID()
+      : ('cid_' + Date.now() + '_' + Math.random().toString(36).slice(2, 11));
+    try { sessionStorage.setItem(STORAGE_KEY, id); } catch (e) {}
+    try {
+      const u = new URL(window.location.href);
+      u.searchParams.set('vt_conversion_id', id);
+      window.history.replaceState({}, '', u.toString());
+    } catch (e) {}
+    return id;
+  }
+  const conversionId = resolveConversionId();
+
   const sessionId =
     params.get('vt_sid') || localStorage.getItem('yt_tracker_session_id');
   const videoId =
@@ -226,7 +263,8 @@ const generateAttributionPixel = (
     tracking_hostname: trackingHostname,
     first_touch_redirect_link_id: firstTouchRedirectLinkId,
     redirect_link_id: redirectLinkId,
-    event_type: CONFIG.event_type
+    event_type: CONFIG.event_type,
+    conversion_id: conversionId
   };
   console.debug('[VS-Track] firing pixel:', payload);
   fetch('https://www.vstrk.com/api/pixel', {
