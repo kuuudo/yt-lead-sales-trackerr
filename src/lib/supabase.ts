@@ -66,15 +66,39 @@ export type Asset = {
 
 export type Campaign = {
   id: string;
+  user_id: string;
   organization_id: string;
   campaign_name: string;
   landing_page_url: string;
   newsletter_url?: string | null;
-  sales_call_booking_url?: string | null;
-  consultation_booking_url?: string | null;
+  newsletter_thankyou_url?: string | null;
   checkout_url?: string | null;
   purchase_thankyou_url?: string | null;
-  newsletter_thankyou_url?: string | null;
+  offer_price?: number | null;
+  has_sales_call?: boolean | null;
+  sales_call_booking_url?: string | null;
+  sales_call_thankyou_url?: string | null;
+  estimated_close_rate?: number | null;
+  has_paid_consultation?: boolean | null;
+  consultation_booking_url?: string | null;
+  consultation_thankyou_url?: string | null;
+  consultation_fee?: number | null;
+  has_lead_magnet?: boolean | null;
+  uses_stripe_consultation?: boolean | null;
+  paid_consultation_checkout_url?: string | null;
+  uses_stripe?: boolean | null;
+  checkout_type?: string | null;
+  consultation_checkout_type?: string | null;
+  purchase_method?: string | null;
+  sales_call_delivery?: string | null;
+  average_upsell_value?: number | null;
+  consultation_delivery?: string | null;
+  consultation_payment_method?: string | null;
+  base_offer_value?: number | null;
+  upsell_probability?: number | null;
+  is_system?: boolean | null;
+  archived_at?: string | null;
+  created_at?: string | null;
 };
 
 export type LeadMagnet = {
@@ -82,6 +106,7 @@ export type LeadMagnet = {
   campaign_id: string;
   lead_magnet_name: string;
   lead_magnet_url: string;
+  lead_magnet_thankyou_url?: string | null;
 };
 
 export type Testimonial = {
