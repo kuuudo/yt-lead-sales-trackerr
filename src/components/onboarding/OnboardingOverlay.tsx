@@ -18,8 +18,8 @@ import { AnimatePresence, motion } from 'motion/react';
 import { useOnboardingOverlay } from '../../lib/onboarding-overlay';
 import WelcomeStep from './WelcomeStep';
 import OnboardingVideo from './OnboardingVideo';
-
-type OnboardingStep = 'welcome' | 'video'; // more steps join this union as they're built
+import CampaignOnboardingStep from './CampaignOnboardingStep';
+type OnboardingStep = 'welcome' | 'video' | 'campaign'; // more steps join this union as they're built
 
 export default function OnboardingOverlay() {
   const { isOpen, close } = useOnboardingOverlay();
@@ -75,8 +75,16 @@ export default function OnboardingOverlay() {
             >
               <OnboardingVideo
                 onClose={close}
+                onFinish={() => setStep('campaign')}
               />
             </div>
+          )}
+          {step === 'campaign' && (
+            <CampaignOnboardingStep
+              onComplete={() => {
+                close();
+               }}
+              />
           )}
         </motion.div>
       )}

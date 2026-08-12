@@ -45,7 +45,7 @@ const SECTIONS = [
   },
 ];
 
-export default function OnboardingVideo({ onClose }) {
+export default function OnboardingVideo({ onClose, onFinish }) {
   const [currentIndex, setCurrentIndex] = useState(0);
 
   const current = SECTIONS[currentIndex];
@@ -57,12 +57,12 @@ export default function OnboardingVideo({ onClose }) {
   };
 
   const goNext = () => {
-    if (currentIndex < SECTIONS.length - 1) {
-      setCurrentIndex((i) => i + 1);
-    } else {
-      onClose?.();
-    }
-  };
+  if (currentIndex < SECTIONS.length - 1) {
+    setCurrentIndex((i) => i + 1);
+  } else {
+    onFinish?.();
+  }
+};
 
   const goBack = () => {
     if (currentIndex > 0) {
