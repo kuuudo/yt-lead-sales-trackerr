@@ -19,22 +19,28 @@
 // This revision (UI/UX only — no data model, no save logic, no Installation
 // changes): the wizard is now guided by "Vix", a small fox mascot, and the
 // payment-method decision is staged (Stripe vs. not → then the relevant
-// options) instead of a six-card wall. Flow diagrams were replaced with
-// small icon-based mini-diagrams — solid purple connectors mean "Full"
-// tracking, dashed amber connectors mean "Partial" — so the tracking
-// distinction is visible before you even read the copy.
+// options) instead of a six-card wall.
+//
+// Visual-storytelling pass (this revision): art direction borrowed from
+// OnboardingVideoSection06 — mono-uppercase badge/chip grammar, drawn
+// connector lines, accent-purple pulses, staggered sequential reveals.
+// Concretely: (1) Vix is now the plain 🦊 emoji, no custom illustration;
+// (2) the "what is a campaign" wall of text is gone, replaced by a small
+// animated concept diagram (Offer → Page/Checkout/Content → One Campaign)
+// built with motion/react instead of another full video; (3) the old
+// box→arrow→box flow diagrams on the payment cards were documentation-
+// style and are replaced with pill chips joined by drawn curved connector
+// lines — solid purple still means "Full" tracking, dashed amber still
+// means "Partial", same semantics, lighter visual language. Scope stops
+// at the payment-option cards, same as before — Newsletter, Sales Call,
+// Paid Consultation, Lead Magnet, and Review are untouched.
 // ─────────────────────────────────────────────────────────────────────────
 
 import React, { useState } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import {
-  Monitor,
   CreditCard,
   Wallet,
-  CheckCircle2,
-  FileText,
-  Store,
-  Banknote,
   type LucideIcon,
 } from 'lucide-react';
 import { supabase } from '../../lib/supabase';
@@ -118,6 +124,9 @@ const panel = '#fafafa';
 const amber = '#a5620a';
 const amberSoft = '#fdf1e2';
 const amberBorder = '#f0d9ae';
+// Mono face used for the small uppercase "badge/chip" labels — same
+// typographic move as OnboardingVideoSection06's Badge/Chip primitives.
+const mono = "ui-monospace, SFMono-Regular, Menlo, monospace";
 
 const inputStyle: React.CSSProperties = {
   width: '100%',
@@ -153,28 +162,47 @@ const linkButtonStyle: React.CSSProperties = {
 
 // ── Vix, the fox guide ────────────────────────────────────────────────
 
+/**
+ * Vix, rendered as the plain 🦊 emoji — no custom illustration. A soft
+ * fox-accent ring frames it (the one place fox-orange is allowed to show,
+ * per the app's "sparingly" rule) and pulses in on mount, the same small
+ * arrival gesture as EyeNode's glow in OnboardingVideoSection06.
+ */
 function FoxAvatar({ size = 40 }: { size?: number }) {
   return (
-    <svg width={size} height={size} viewBox="0 0 64 64" fill="none" aria-hidden="true">
-      <polygon points="8,26 20,4 26,28" fill={foxAccent} />
-      <polygon points="56,26 44,4 38,28" fill={foxAccent} />
-      <polygon points="13,22 20,10 23,25" fill="#fff" opacity="0.5" />
-      <polygon points="51,22 44,10 41,25" fill="#fff" opacity="0.5" />
-      <circle cx="32" cy="36" r="19" fill="#fff" stroke={ink} strokeWidth="2" />
-      <circle cx="19" cy="41" r="3" fill={foxAccent} opacity="0.35" />
-      <circle cx="45" cy="41" r="3" fill={foxAccent} opacity="0.35" />
-      <circle cx="24" cy="33" r="2.3" fill={ink} />
-      <circle cx="40" cy="33" r="2.3" fill={ink} />
-      <circle cx="24.7" cy="32.3" r="0.7" fill="#fff" />
-      <circle cx="40.7" cy="32.3" r="0.7" fill="#fff" />
-      <polygon points="29,40 35,40 32,44" fill={ink} />
-      <path d="M32 44 Q32 47.5 27.5 47.5" stroke={ink} strokeWidth="1.4" fill="none" strokeLinecap="round" />
-      <path d="M32 44 Q32 47.5 36.5 47.5" stroke={ink} strokeWidth="1.4" fill="none" strokeLinecap="round" />
-    </svg>
+    <div
+      aria-hidden="true"
+      style={{
+        width: size,
+        height: size,
+        borderRadius: '50%',
+        flexShrink: 0,
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'center',
+        background: '#fff',
+        border: `1.5px solid ${foxAccent}`,
+        fontSize: size * 0.54,
+        lineHeight: 1,
+      }}
+    >
+      <motion.span
+        initial={{ scale: 0.6, opacity: 0 }}
+        animate={{ scale: 1, opacity: 1 }}
+        transition={{ duration: 0.3, ease: 'easeOut' }}
+        style={{ display: 'inline-block' }}
+      >
+        🦊
+      </motion.span>
+    </div>
   );
 }
 
-/** Vix's speech bubble — the guide voice used throughout the wizard. */
+/**
+ * Vix's voice — a small "scene" card rather than a comic speech bubble.
+ * The mono-uppercase "VIX" kicker is the same badge-label grammar the
+ * video uses to caption who/what is on screen.
+ */
 function FoxSay({
   children,
   size = 'md',
@@ -185,20 +213,36 @@ function FoxSay({
   return (
     <div style={{ display: 'flex', gap: 12, alignItems: 'flex-start' }}>
       <div style={{ flexShrink: 0, marginTop: 2 }}>
-        <FoxAvatar size={size === 'lg' ? 52 : 38} />
+        <FoxAvatar size={size === 'lg' ? 44 : 34} />
       </div>
-      <div
+      <motion.div
+        initial={{ opacity: 0, y: 4 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ duration: 0.22, ease: 'easeOut' }}
         style={{
           background: '#fff',
-          border: `1.5px solid ${border}`,
-          borderRadius: '4px 16px 16px 16px',
-          padding: size === 'lg' ? '14px 16px' : '10px 14px',
+          border: `1px solid ${border}`,
+          borderRadius: 12,
+          padding: size === 'lg' ? '12px 16px' : '9px 14px',
           boxShadow: '0 2px 10px rgba(21,21,31,0.05)',
           maxWidth: 540,
         }}
       >
+        <p
+          style={{
+            fontFamily: mono,
+            fontSize: 9.5,
+            fontWeight: 800,
+            letterSpacing: 1,
+            textTransform: 'uppercase',
+            color: purple,
+            margin: '0 0 4px',
+          }}
+        >
+          Vix
+        </p>
         {children}
-      </div>
+      </motion.div>
     </div>
   );
 }
@@ -208,111 +252,84 @@ function FoxSay({
 // The connector style alone communicates the tracking distinction before
 // anyone reads a word of copy.
 
-function FlowNode({
-  icon: Icon,
-  label,
-  tone,
-}: {
-  icon: LucideIcon;
-  label: string;
-  tone: 'full' | 'partial';
-}) {
+/**
+ * A single pill chip in a payment story — the same rounded, mono-uppercase
+ * grammar as the video's Chip primitive. Solid purple = Full tracking,
+ * amber = Partial — same meaning as before, just no longer boxed as an
+ * icon tile, so it reads as a small story rather than a spec diagram.
+ */
+function StoryChip({ label, tone }: { label: string; tone: 'full' | 'partial' }) {
   const bg = tone === 'full' ? purpleSoft : amberSoft;
   const fg = tone === 'full' ? purple : amber;
   const bd = tone === 'full' ? purpleBorder : amberBorder;
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 4, width: 62 }}>
-      <div
-        style={{
-          width: 38,
-          height: 38,
-          borderRadius: 10,
-          background: bg,
-          border: `1px solid ${bd}`,
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'center',
-        }}
-      >
-        <Icon size={17} color={fg} strokeWidth={2} />
-      </div>
-      <span style={{ fontSize: 9, fontWeight: 700, color: sub, textAlign: 'center', lineHeight: 1.2 }}>{label}</span>
-    </div>
+    <span
+      style={{
+        display: 'inline-block',
+        padding: '5px 11px',
+        borderRadius: 999,
+        background: bg,
+        border: `1px solid ${bd}`,
+        fontSize: 10,
+        fontWeight: 800,
+        letterSpacing: 0.3,
+        textTransform: 'uppercase',
+        color: fg,
+        whiteSpace: 'nowrap',
+      }}
+    >
+      {label}
+    </span>
   );
 }
 
-function FlowArrow({ tone }: { tone: 'full' | 'partial' }) {
-  const c = tone === 'full' ? '#c9bdf7' : '#e3b673';
+/** A short drawn curve between two chips — DrawLine's reveal, at chip scale. */
+function StoryConnector({ tone }: { tone: 'full' | 'partial' }) {
+  const c = tone === 'full' ? purple : amber;
   return (
-    <svg width="20" height="12" style={{ flexShrink: 0, marginBottom: 16 }} aria-hidden="true">
-      <line x1="0" y1="6" x2="14" y2="6" stroke={c} strokeWidth="2" strokeDasharray={tone === 'partial' ? '3 3' : undefined} />
-      <path d="M11 2 L16 6 L11 10" fill="none" stroke={c} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+    <svg width="26" height="16" style={{ flexShrink: 0 }} aria-hidden="true">
+      <motion.path
+        d="M2,8 C9,1 17,15 24,8"
+        fill="none"
+        stroke={c}
+        strokeWidth={1.4}
+        strokeLinecap="round"
+        strokeDasharray={tone === 'partial' ? '2.5 4' : undefined}
+        opacity={0.7}
+        initial={{ pathLength: 0 }}
+        animate={{ pathLength: 1 }}
+        transition={{ duration: 0.35, ease: 'easeOut' }}
+      />
     </svg>
   );
 }
 
+// Each payment method's story, as a short ordered list of chip labels —
+// same information the old box→arrow→box diagrams carried, told as a
+// sentence of chips instead of a flowchart.
+const PAYMENT_STORY: Record<string, string[]> = {
+  stripe_checkout: ['Your site', 'Stripe page', 'Confirmed'],
+  stripe_embedded: ['Card form on site', 'Thank-you page'],
+  embedded_alternative_payment: ['Widget on site', 'Thank-you page'],
+  alternative_payment: ['Your site', 'External page'],
+  payment_instructions_page: ['Your site', 'Instructions', 'Paid manually'],
+  external_platform: ['Your site', 'Marketplace'],
+};
+
 function MiniDiagram({ value, tracking }: { value: string; tracking: 'Full' | 'Partial' }) {
   const tone: 'full' | 'partial' = tracking === 'Full' ? 'full' : 'partial';
-  const row = (children: React.ReactNode) => (
-    <div style={{ display: 'flex', alignItems: 'flex-start', marginTop: 10 }}>{children}</div>
+  const chips = PAYMENT_STORY[value];
+  if (!chips) return null;
+  return (
+    <div style={{ display: 'flex', alignItems: 'center', flexWrap: 'wrap', rowGap: 8, marginTop: 10 }}>
+      {chips.map((label, i) => (
+        <React.Fragment key={label}>
+          {i > 0 && <StoryConnector tone={tone} />}
+          <StoryChip label={label} tone={tone} />
+        </React.Fragment>
+      ))}
+    </div>
   );
-
-  switch (value) {
-    case 'stripe_checkout':
-      return row(
-        <>
-          <FlowNode icon={Monitor} label="Your site" tone={tone} />
-          <FlowArrow tone={tone} />
-          <FlowNode icon={CreditCard} label="Stripe page" tone={tone} />
-          <FlowArrow tone={tone} />
-          <FlowNode icon={CheckCircle2} label="Confirmed" tone={tone} />
-        </>
-      );
-    case 'stripe_embedded':
-      return row(
-        <>
-          <FlowNode icon={Monitor} label="Card form on your site" tone={tone} />
-          <FlowArrow tone={tone} />
-          <FlowNode icon={CheckCircle2} label="Thank-you page" tone={tone} />
-        </>
-      );
-    case 'embedded_alternative_payment':
-      return row(
-        <>
-          <FlowNode icon={Monitor} label="Widget on your site" tone={tone} />
-          <FlowArrow tone={tone} />
-          <FlowNode icon={CheckCircle2} label="Thank-you page" tone={tone} />
-        </>
-      );
-    case 'alternative_payment':
-      return row(
-        <>
-          <FlowNode icon={Monitor} label="Your site" tone={tone} />
-          <FlowArrow tone={tone} />
-          <FlowNode icon={Wallet} label="External page" tone={tone} />
-        </>
-      );
-    case 'payment_instructions_page':
-      return row(
-        <>
-          <FlowNode icon={Monitor} label="Your site" tone={tone} />
-          <FlowArrow tone={tone} />
-          <FlowNode icon={FileText} label="Instructions" tone={tone} />
-          <FlowArrow tone={tone} />
-          <FlowNode icon={Banknote} label="Paid manually" tone={tone} />
-        </>
-      );
-    case 'external_platform':
-      return row(
-        <>
-          <FlowNode icon={Monitor} label="Your site" tone={tone} />
-          <FlowArrow tone={tone} />
-          <FlowNode icon={Store} label="Marketplace" tone={tone} />
-        </>
-      );
-    default:
-      return null;
-  }
 }
 
 function TrackingBadge({ quality }: { quality: 'Full' | 'Partial' }) {
