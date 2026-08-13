@@ -82,7 +82,7 @@ export default function OnboardingOverlay() {
           {step === 'campaign' && (
             <div
               className="relative w-full bg-white rounded-2xl overflow-hidden shadow-2xl"
-              style={{ maxWidth: 1400, width: 'min(1400px, 94vw)', height: '90vh' }}
+              style={{ maxWidth: 1100, width: 'min(1100px, 88vw)', height: '82vh' }}
               onClick={(e) => e.stopPropagation()}
             >
               <CampaignOnboardingStep
