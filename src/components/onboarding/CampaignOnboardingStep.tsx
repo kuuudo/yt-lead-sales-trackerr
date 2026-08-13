@@ -118,8 +118,9 @@ const SUPPORT_WHATSAPP_URL = 'https://chat.whatsapp.com/G07wVgoAyRS3Z171uRDQ1K?s
 interface CampaignOnboardingStepProps {
   /** Called after the campaign row is successfully created. */
   onComplete: (campaignId: string) => void;
+
   /** Tells the parent (OnboardingOverlay) which video the left desktop panel should show. */
-  onSceneChange?: (scene: onSceneChange?: (scene: 'basics' | 'stripe' | 'pixel' | PurchaseMethod) => void;
+  onSceneChange?: (scene: 'basics' | 'stripe' | 'pixel') => void;
 }
 
 // ── design tokens ─────────────────────────────────────────────────────
