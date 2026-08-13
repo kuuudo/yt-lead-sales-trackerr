@@ -22,6 +22,7 @@ import CampaignOnboardingStep from './CampaignOnboardingStep';
 import CampaignOnboardingVideo from './CampaignOnboardingVideo/CampaignOnboardingVideo';
 import CampaignOnboardingStripeVideo from './CampaignOnboardingVideo/CampaignOnboardingStripeVideo';
 import CampaignOnboardingPixelVideo from './CampaignOnboardingVideo/CampaignOnboardingPixelVideo';
+import CampaignOnboardingThankYouVideo from './CampaignOnboardingVideo/CampaignOnboardingThankYouVideo';
 import PaymentMethodDiagram from './PaymentMethodDiagram';
 import type { PurchaseMethod } from './campaignOptionContent';
 type OnboardingStep = 'welcome' | 'video' | 'campaign'; // more steps join this union as they're built
@@ -29,7 +30,7 @@ type OnboardingStep = 'welcome' | 'video' | 'campaign'; // more steps join this 
 export default function OnboardingOverlay() {
   const { isOpen, close } = useOnboardingOverlay();
   const [step, setStep] = useState<OnboardingStep>('welcome');
-    const [videoScene, setVideoScene] = useState<'basics' | 'stripe' | 'pixel' | PurchaseMethod>('basics');
+  const [videoScene, setVideoScene] = useState<'basics' | 'stripe' | 'pixel' | 'thankyou' | PurchaseMethod>('basics');
 
   // Reset to the first step each time the overlay is opened fresh.
   useEffect(() => {
@@ -100,6 +101,7 @@ export default function OnboardingOverlay() {
             {videoScene === 'basics' && <CampaignOnboardingVideo />}
       {videoScene === 'stripe' && <CampaignOnboardingStripeVideo />}
       {videoScene === 'pixel' && <CampaignOnboardingPixelVideo />}
+      {videoScene === 'thankyou' && <CampaignOnboardingThankYouVideo />}
       {(videoScene === 'stripe_checkout' ||
         videoScene === 'stripe_embedded' ||
         videoScene === 'embedded_alternative_payment' ||

@@ -49,6 +49,7 @@ import { useOrganization } from '../../lib/useOrganization';
 import CampaignOnboardingVideo from './CampaignOnboardingVideo/CampaignOnboardingVideo';
 import CampaignOnboardingStripeVideo from './CampaignOnboardingVideo/CampaignOnboardingStripeVideo';
 import CampaignOnboardingPixelVideo from './CampaignOnboardingVideo/CampaignOnboardingPixelVideo';
+import CampaignOnboardingThankYouVideo from './CampaignOnboardingVideo/CampaignOnboardingThankYouVideo';
 import PaymentMethodDiagram from './PaymentMethodDiagram';
 import {
   PAYMENT_OPTIONS,
@@ -121,7 +122,7 @@ interface CampaignOnboardingStepProps {
   onComplete: (campaignId: string) => void;
 
     /** Tells the parent (OnboardingOverlay) which video/diagram the left desktop panel should show. */
-  onSceneChange?: (scene: 'basics' | 'stripe' | 'pixel' | PurchaseMethod) => void;
+    onSceneChange?: (scene: 'basics' | 'stripe' | 'pixel' | 'thankyou' | PurchaseMethod) => void;
 }
 
 // ── design tokens ─────────────────────────────────────────────────────
@@ -545,15 +546,21 @@ export default function CampaignOnboardingStep({ onComplete, onSceneChange }: Ca
   // payment-method cards (not just landed on a track, which already
   // pre-fills a default purchase_method behind the scenes).
   const [hasSelectedSpecificCard, setHasSelectedSpecificCard] = useState(false);
+  // Sticky flag: once the user focuses Purchase Thank You URL, keep showing
+  // the Thank You explainer until they pick a different payment card / leave
+  // the step — do not clear on blur so the video can finish.
+  const [showThankYouVideo, setShowThankYouVideo] = useState(false);
 
   // Report which video/diagram the left desktop panel (and mobile inline
   // video) should show. Only fires when we actually know what to show —
   // before a payment track is picked, we deliberately say nothing, so the
   // panel just keeps showing whatever it was already showing.
-  useEffect(() => {
+    useEffect(() => {
     if (!onSceneChange) return;
     if (step === 'basics') {
       onSceneChange('basics');
+    } else if (step === 'purchase' && showThankYouVideo) {
+      onSceneChange('thankyou');
     } else if (step === 'purchase' && hasSelectedSpecificCard) {
       onSceneChange(formData.purchase_method as PurchaseMethod);
     } else if (step === 'purchase' && paymentTrack === 'stripe') {
@@ -561,7 +568,7 @@ export default function CampaignOnboardingStep({ onComplete, onSceneChange }: Ca
     } else if (step === 'purchase' && paymentTrack === 'other') {
       onSceneChange('pixel');
     }
-  }, [step, paymentTrack, hasSelectedSpecificCard, formData.purchase_method, onSceneChange]);
+  }, [step, paymentTrack, hasSelectedSpecificCard, formData.purchase_method, showThankYouVideo, onSceneChange]);
 
   const stepIndex = STEP_ORDER.indexOf(step);
 
@@ -590,10 +597,11 @@ export default function CampaignOnboardingStep({ onComplete, onSceneChange }: Ca
     if (i > 0) setStep(STEP_ORDER[i - 1]);
   };
 
-  const chooseTrack = (track: PaymentTrack) => {
+    const chooseTrack = (track: PaymentTrack) => {
     setPaymentTrack(track);
     setPaymentStage('options');
     setHasSelectedSpecificCard(false);
+    setShowThankYouVideo(false);
     if (track === 'stripe') {
       update({ purchase_method: 'stripe_checkout', uses_stripe: true });
     } else {
@@ -912,6 +920,7 @@ export default function CampaignOnboardingStep({ onComplete, onSceneChange }: Ca
                               onSelect={() => {
                                 update({ purchase_method: opt.value, uses_stripe: opt.value === 'stripe_checkout' });
                                 setHasSelectedSpecificCard(true);
+                                setShowThankYouVideo(false);
                               }}
                             />
                           ))}
@@ -960,6 +969,7 @@ export default function CampaignOnboardingStep({ onComplete, onSceneChange }: Ca
                                 type="url"
                                 value={formData.purchase_thankyou_url}
                                 onChange={(e) => update({ purchase_thankyou_url: e.target.value })}
+                                onFocus={() => setShowThankYouVideo(true)}
                                 placeholder="https://yoursite.com/thank-you"
                               />
                             </div>
