@@ -104,6 +104,13 @@ const STEP_TITLE: Record<WizardStep, string> = {
 // unchanged — this only controls which cards are revealed first.
 const STRIPE_VALUES: PurchaseMethod[] = ['stripe_checkout', 'stripe_embedded'];
 
+// Single source of truth for the "stuck, need a human" escape hatch shown in
+// two places: (1) near the Stripe track choice, for people whose country
+// isn't Stripe-eligible, and (2) in the funnels step, for people who don't
+// have a separate thank-you/confirmation page yet. Change the group link
+// here only — never inline the raw URL elsewhere in this file.
+const SUPPORT_WHATSAPP_URL = 'https://chat.whatsapp.com/G07wVgoAyRS3Z171uRDQ1K?s=cl&p=a&mlu=4';
+
 interface CampaignOnboardingStepProps {
   /** Called after the campaign row is successfully created. */
   onComplete: (campaignId: string) => void;
@@ -159,6 +166,36 @@ const linkButtonStyle: React.CSSProperties = {
   fontWeight: 700,
   cursor: 'pointer',
 };
+
+// ── Support escape hatch — WhatsApp group ───────────────────────────────
+// Used wherever someone might get stuck (Stripe not available in their
+// country, no thank-you page yet, etc). Deliberately framed as "come get
+// help from us" rather than "book a call" — lower friction, matches the
+// tone of the rest of the wizard. Never render SUPPORT_WHATSAPP_URL raw;
+// always go through this component so the link text stays consistent.
+function SupportLink({
+  children = 'Stuck? Join our WhatsApp group and we\u2019ll help you get set up →',
+}: {
+  children?: React.ReactNode;
+}) {
+  return (
+    <a
+      href={SUPPORT_WHATSAPP_URL}
+      target="_blank"
+      rel="noopener noreferrer"
+      style={{
+        alignSelf: 'flex-start',
+        display: 'inline-block',
+        color: purple,
+        fontSize: 12,
+        fontWeight: 700,
+        textDecoration: 'none',
+      }}
+    >
+      💬 {children}
+    </a>
+  );
+}
 
 // ── Vix, the fox guide ────────────────────────────────────────────────
 
@@ -532,9 +569,12 @@ export default function CampaignOnboardingStep({ onComplete }: CampaignOnboardin
     paymentTrack === 'stripe' ? STRIPE_VALUES.includes(o.value) : !STRIPE_VALUES.includes(o.value)
   );
 
-  // Warnings mirrored from Campaigns.tsx's getWarnings() — same conditions.
+  // Warnings mirrored from Campaigns.tsx's getWarnings() — same conditions,
+  // except the purchase thank-you warning below, which is now conditional
+  // on payment method: Stripe confirms purchases via webhook and doesn't
+  // need this URL, so it would be misleading to warn Stripe users about it.
   const warnings: string[] = [];
-  if (!formData.purchase_thankyou_url) warnings.push('No Purchase Thank You URL — pixel tracking for confirmed purchases won\u2019t work yet.');
+  if (!formData.uses_stripe && !formData.purchase_thankyou_url) warnings.push('No Purchase Thank You URL — pixel tracking for confirmed purchases won\u2019t work yet.');
   if (formData.has_sales_call && !formData.sales_call_thankyou_url) warnings.push('No Sales Call Thank You URL — sales call tracking won\u2019t work yet.');
   if (formData.has_paid_consultation && !formData.consultation_thankyou_url) warnings.push('No Consultation Thank You URL — consultation tracking won\u2019t work yet.');
   if (newsletterEnabled && !formData.newsletter_thankyou_url) warnings.push('No Newsletter Thank You URL — newsletter tracking won\u2019t work yet.');
@@ -761,6 +801,10 @@ export default function CampaignOnboardingStep({ onComplete }: CampaignOnboardin
                           onSelect={() => chooseTrack('other')}
                         />
                       </div>
+                      <p style={{ fontSize: 12, color: sub, margin: '2px 0 0 50px', lineHeight: 1.5 }}>
+                        Stripe not available where your business is registered, but you'd still like to use it?{' '}
+                        <SupportLink>Join our WhatsApp group and we'll help you figure out your options →</SupportLink>
+                      </p>
                     </motion.div>
                   )}
 
@@ -828,8 +872,17 @@ export default function CampaignOnboardingStep({ onComplete }: CampaignOnboardin
                             <div>
                               <label style={labelStyle}>
                                 Purchase Thank You URL
-                                {!formData.purchase_thankyou_url && <span style={{ color: amber }}> — needed for tracking</span>}
+                                {formData.uses_stripe ? (
+                                  <span style={{ color: sub, textTransform: 'none', letterSpacing: 0, fontWeight: 600 }}> (optional)</span>
+                                ) : (
+                                  !formData.purchase_thankyou_url && <span style={{ color: amber }}> — needed for tracking</span>
+                                )}
                               </label>
+                              <p style={{ fontSize: 11.5, color: sub, margin: '0 0 6px', lineHeight: 1.5 }}>
+                                {formData.uses_stripe
+                                  ? "You don't need this for Stripe purchase confirmation — Stripe tells VSTRK directly when a payment succeeds. Add it only if you also want your website's own pixel tracking on this page."
+                                  : 'This is the page customers land on right after paying. VSTRK uses a pixel on this page to recognize a completed purchase, so tracking won\u2019t work reliably without it.'}
+                              </p>
                               <input
                                 style={inputStyle}
                                 type="url"
@@ -849,10 +902,39 @@ export default function CampaignOnboardingStep({ onComplete }: CampaignOnboardin
 
             {step === 'funnels' && (
               <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
-                <p style={{ fontSize: 13, color: sub, margin: 0, maxWidth: 560 }}>
-                  Optional — turn on anything else that also leads to a result you want tracked. Skip whatever
-                  doesn't apply.
-                </p>
+                <FoxSay size="lg">
+                  <p style={{ fontSize: 13.5, color: ink, margin: '0 0 8px', lineHeight: 1.55, fontWeight: 700 }}>
+                    Does your campaign have other ways people can convert?
+                  </p>
+                  <p style={{ fontSize: 13, color: sub, margin: '0 0 10px', lineHeight: 1.62 }}>
+                    A purchase isn't always the only result that matters — your campaign might also generate
+                    newsletter subscribers, sales calls, consultations, or leads. Turn on whatever applies; we'll
+                    set up each one with you.
+                  </p>
+                  <p style={{ fontSize: 13, color: sub, margin: '0 0 4px', lineHeight: 1.62 }}>
+                    One thing that matters for all of these: VSTRK needs a clear confirmation step to know a
+                    conversion actually happened.
+                  </p>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 6, margin: '4px 0 10px' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', flexWrap: 'wrap', rowGap: 6 }}>
+                      <StoryChip label="Booking page" tone="full" />
+                      <StoryConnector tone="full" />
+                      <StoryChip label="Thank-you page" tone="full" />
+                      <span style={{ fontSize: 11, color: sub, marginLeft: 6 }}>← VSTRK can see this</span>
+                    </div>
+                    <div style={{ display: 'flex', alignItems: 'center', flexWrap: 'wrap', rowGap: 6 }}>
+                      <StoryChip label="Booking popup" tone="partial" />
+                      <StoryConnector tone="partial" />
+                      <StoryChip label="Same page" tone="partial" />
+                      <span style={{ fontSize: 11, color: sub, marginLeft: 6 }}>← VSTRK can't see this</span>
+                    </div>
+                  </div>
+                  <p style={{ fontSize: 12.5, color: sub, margin: 0, lineHeight: 1.6 }}>
+                    Don't have a separate confirmation page yet? You don't need to know how to code — a website
+                    builder or even ChatGPT can generate a simple one for you to paste in.{' '}
+                    <SupportLink>Stuck? Join our WhatsApp group and we'll help you get set up →</SupportLink>
+                  </p>
+                </FoxSay>
 
                 {/* Newsletter */}
                 <FunnelToggleSection
