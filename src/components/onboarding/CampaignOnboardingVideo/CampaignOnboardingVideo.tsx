@@ -313,7 +313,7 @@ export default function CampaignOnboardingVideo({ onSkip, onComplete }: Campaign
       padding: "16px 10px 2px", fontFamily: "-apple-system, BlinkMacSystemFont, 'Helvetica Neue', sans-serif",
       position: "relative",
     }}>
-      <div style={{ width: "100%", maxWidth: 700, opacity: finalFadeOut }}>
+      <div style={{ width: "100%", maxWidth: 1000, opacity: finalFadeOut }}>
         <svg viewBox="0 0 400 460" style={{ width: "100%", height: "auto", display: "block" }}>
 
           {/* ================= S1 — Vix appears, warm welcome ================= */}
