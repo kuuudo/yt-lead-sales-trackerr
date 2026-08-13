@@ -19,6 +19,7 @@ import { useOnboardingOverlay } from '../../lib/onboarding-overlay';
 import WelcomeStep from './WelcomeStep';
 import OnboardingVideo from './OnboardingVideo';
 import CampaignOnboardingStep from './CampaignOnboardingStep';
+import CampaignOnboardingVideo from './CampaignOnboardingVideo/CampaignOnboardingVideo';
 type OnboardingStep = 'welcome' | 'video' | 'campaign'; // more steps join this union as they're built
 
 export default function OnboardingOverlay() {
@@ -80,18 +81,30 @@ export default function OnboardingOverlay() {
             </div>
           )}
           {step === 'campaign' && (
-            <div
-              className="relative w-full bg-white rounded-2xl overflow-hidden shadow-2xl"
-              style={{ maxWidth: 900, width: 'min(900px, 82vw)', height: '75vh' }}
-              onClick={(e) => e.stopPropagation()}
-            >
-              <CampaignOnboardingStep
-                onComplete={() => {
-                  close();
-                 }}
-                />
-            </div>
-          )}
+  <div
+    className="w-full flex flex-col lg:flex-row gap-4 lg:gap-6 items-stretch justify-center"
+    style={{
+      maxWidth: 1200,
+      width: 'min(1200px, 94vw)',
+      height: '90vh',
+    }}
+    onClick={(e) => e.stopPropagation()}
+  >
+    {/* LEFT: video */}
+    <div className="hidden lg:flex lg:w-[380px] lg:flex-shrink-0 bg-white rounded-2xl overflow-hidden shadow-2xl items-center justify-center p-6">
+      <CampaignOnboardingVideo />
+    </div>
+
+    {/* RIGHT: onboarding form */}
+    <div className="relative w-full flex-1 min-w-0 bg-white rounded-2xl overflow-hidden shadow-2xl">
+      <CampaignOnboardingStep
+        onComplete={() => {
+          close();
+        }}
+      />
+    </div>
+  </div>
+)}
         </motion.div>
       )}
     </AnimatePresence>
