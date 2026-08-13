@@ -23,7 +23,6 @@ import CampaignOnboardingVideo from './CampaignOnboardingVideo/CampaignOnboardin
 import CampaignOnboardingStripeVideo from './CampaignOnboardingVideo/CampaignOnboardingStripeVideo';
 import CampaignOnboardingPixelVideo from './CampaignOnboardingVideo/CampaignOnboardingPixelVideo';
 import PaymentMethodDiagram from './PaymentMethodDiagram';
-import PaymentMethodDiagram from './PaymentMethodDiagram';
 import type { PurchaseMethod } from './campaignOptionContent';
 type OnboardingStep = 'welcome' | 'video' | 'campaign'; // more steps join this union as they're built
 
