@@ -49,6 +49,7 @@ import { useOrganization } from '../../lib/useOrganization';
 import CampaignOnboardingVideo from './CampaignOnboardingVideo/CampaignOnboardingVideo';
 import CampaignOnboardingStripeVideo from './CampaignOnboardingVideo/CampaignOnboardingStripeVideo';
 import CampaignOnboardingPixelVideo from './CampaignOnboardingVideo/CampaignOnboardingPixelVideo';
+import PaymentMethodDiagram from './PaymentMethodDiagram';
 import {
   PAYMENT_OPTIONS,
   CONSULTATION_PAYMENT_OPTIONS,
@@ -119,8 +120,8 @@ interface CampaignOnboardingStepProps {
   /** Called after the campaign row is successfully created. */
   onComplete: (campaignId: string) => void;
 
-  /** Tells the parent (OnboardingOverlay) which video the left desktop panel should show. */
-  onSceneChange?: (scene: 'basics' | 'stripe' | 'pixel') => void;
+    /** Tells the parent (OnboardingOverlay) which video/diagram the left desktop panel should show. */
+  onSceneChange?: (scene: 'basics' | 'stripe' | 'pixel' | PurchaseMethod) => void;
 }
 
 // ── design tokens ─────────────────────────────────────────────────────
