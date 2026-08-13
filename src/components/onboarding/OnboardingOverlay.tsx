@@ -80,11 +80,17 @@ export default function OnboardingOverlay() {
             </div>
           )}
           {step === 'campaign' && (
-            <CampaignOnboardingStep
-              onComplete={() => {
-                close();
-               }}
-              />
+            <div
+              className="relative w-full bg-white rounded-2xl overflow-hidden shadow-2xl"
+              style={{ maxWidth: 1400, width: 'min(1400px, 94vw)', height: '90vh' }}
+              onClick={(e) => e.stopPropagation()}
+            >
+              <CampaignOnboardingStep
+                onComplete={() => {
+                  close();
+                 }}
+                />
+            </div>
           )}
         </motion.div>
       )}
