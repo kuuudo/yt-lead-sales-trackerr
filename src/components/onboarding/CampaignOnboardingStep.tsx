@@ -46,6 +46,7 @@ import {
 import { supabase } from '../../lib/supabase';
 import { useAuth } from '../../lib/auth';
 import { useOrganization } from '../../lib/useOrganization';
+import CampaignOnboardingVideo from './CampaignOnboardingVideo/CampaignOnboardingVideo';
 import {
   PAYMENT_OPTIONS,
   CONSULTATION_PAYMENT_OPTIONS,
@@ -666,29 +667,19 @@ export default function CampaignOnboardingStep({ onComplete }: CampaignOnboardin
             transition={{ duration: 0.18 }}
           >
             {step === 'basics' && (
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 18, maxWidth: 560 }}>
-                <FoxSay size="lg">
-                  <p style={{ fontSize: 13.5, color: ink, margin: '0 0 8px', lineHeight: 1.55, fontWeight: 700 }}>
-                    Let's set up your first campaign together.
-                  </p>
-                  <p style={{ fontSize: 13, color: sub, margin: '0 0 8px', lineHeight: 1.62 }}>
-                    Think of a campaign as one product, service, or offer you're promoting. Everything that
-                    belongs to that same offer — your sales page, checkout, thank-you page, newsletter, sales
-                    calls, paid consultations, lead magnets, and the content that sends people there — lives
-                    inside this one campaign. You don't need to set all of that up now; you can add each piece
-                    later.
-                  </p>
-                  <p style={{ fontSize: 13, color: sub, margin: 0, lineHeight: 1.62 }}>
-                    You can create as many campaigns as you have offers — just remember, one campaign is one
-                    offer, one world. Let's start with the basics.
-                  </p>
-                </FoxSay>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 6, maxWidth: 680 }}>
+                {/* Vix's video introduction to what a Campaign is — replaces the old
+                    explanatory paragraph. Word-for-word script, same SVG/beat engine
+                    as OnboardingVideoSection06. Purely informational: it never gates
+                    the form below, so people who already get the concept can just
+                    skip it and start typing. */}
+                <CampaignOnboardingVideo />
 
                 <motion.div
                   initial={{ opacity: 0, y: 6 }}
                   animate={{ opacity: 1, y: 0 }}
                   transition={{ duration: 0.2, delay: 0.12 }}
-                  style={{ display: 'flex', flexDirection: 'column', gap: 14, paddingLeft: 50 }}
+                  style={{ display: 'flex', flexDirection: 'column', gap: 14, maxWidth: 460, margin: '4px auto 0' }}
                 >
                   <div>
                     <label style={labelStyle}>Campaign Name</label>
