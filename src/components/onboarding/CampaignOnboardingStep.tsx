@@ -43,7 +43,7 @@ import {
   Wallet,
   type LucideIcon,
 } from 'lucide-react';
-import { supabase } from '../../lib/supabase';
+import { supabase, type Campaign } from '../../lib/supabase';
 import { useAuth } from '../../lib/auth';
 import { useOrganization } from '../../lib/useOrganization';
 import CampaignOnboardingVideo from './CampaignOnboardingVideo/CampaignOnboardingVideo';
@@ -549,12 +549,49 @@ export default function CampaignOnboardingStep({ onComplete, onSceneChange }: Ca
   // the Thank You explainer until they pick a different payment card / leave
   // the step — do not clear on blur so the video can finish.
   const [showThankYouVideo, setShowThankYouVideo] = useState(false);
-
+  // Existing-campaign picker: avoid forcing a new campaign every time
+  const [pickerMode, setPickerMode] = useState<'loading' | 'pick' | 'create'>('loading');
+  const [existingCampaigns, setExistingCampaigns] = useState<Campaign[]>([]);
   // Report which video/diagram the left desktop panel (and mobile inline
   // video) should show. Only fires when we actually know what to show —
   // before a payment track is picked, we deliberately say nothing, so the
   // panel just keeps showing whatever it was already showing.
     useEffect(() => {
+
+        // Load active campaigns for this org so the user can continue an existing one
+  useEffect(() => {
+    let cancelled = false;
+    const load = async () => {
+      if (!organizationId) {
+        setPickerMode('create');
+        return;
+      }
+      try {
+        const { data, error } = await supabase
+          .from('campaigns')
+          .select('id, campaign_name, offer_price, has_sales_call, has_paid_consultation, has_lead_magnet, newsletter_url, created_at')
+          .eq('organization_id', organizationId)
+          .eq('is_system', false)
+          .is('archived_at', null)
+          .order('created_at', { ascending: false });
+        if (error) throw error;
+        if (cancelled) return;
+        if (data && data.length > 0) {
+          setExistingCampaigns(data as Campaign[]);
+          setPickerMode('pick');
+        } else {
+          setPickerMode('create');
+        }
+      } catch {
+        if (!cancelled) setPickerMode('create');
+      }
+    };
+    load();
+    return () => {
+      cancelled = true;
+    };
+  }, [organizationId]);
+
     if (!onSceneChange) return;
     if (step === 'basics') {
       onSceneChange('basics');
@@ -667,6 +704,111 @@ export default function CampaignOnboardingStep({ onComplete, onSceneChange }: Ca
   };
 
   const selectedPayment = getPaymentOption(formData.purchase_method);
+
+  // ── Loading existing campaigns ─────────────────────────────────────────
+  if (pickerMode === 'loading') {
+    return (
+      <div
+        style={{
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          height: '100%',
+          background: '#fff',
+          color: sub,
+          fontSize: 13,
+        }}
+      >
+        Loading your campaigns…
+      </div>
+    );
+  }
+
+  // ── Pick existing campaign or create new ───────────────────────────────
+  if (pickerMode === 'pick') {
+    return (
+      <div
+        style={{
+          display: 'flex',
+          flexDirection: 'column',
+          height: '100%',
+          background: '#fff',
+          fontFamily: '-apple-system, BlinkMacSystemFont, "Helvetica Neue", sans-serif',
+        }}
+      >
+        <div style={{ padding: '20px 24px 0' }}>
+          <h2 style={{ fontSize: 19, fontWeight: 800, color: ink, margin: '0 0 4px' }}>
+            Continue setup
+          </h2>
+          <p style={{ fontSize: 13, color: sub, margin: 0, lineHeight: 1.5 }}>
+            You already have campaigns. Pick one to add Newsletter, Sales Call, or other paths — or create a new offer.
+          </p>
+        </div>
+
+        <div style={{ flex: 1, overflow: 'auto', padding: '16px 24px 8px' }}>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 10, maxWidth: 520 }}>
+            {existingCampaigns.map((c) => (
+              <button
+                key={c.id}
+                type="button"
+                onClick={() => onComplete(c.id)}
+                style={{
+                  textAlign: 'left',
+                  padding: '14px 16px',
+                  borderRadius: 12,
+                  border: `1px solid ${border}`,
+                  background: '#fff',
+                  cursor: 'pointer',
+                  display: 'flex',
+                  flexDirection: 'column',
+                  gap: 4,
+                }}
+              >
+                <span style={{ fontSize: 14, fontWeight: 700, color: ink }}>
+                  {c.campaign_name || 'Untitled campaign'}
+                </span>
+                <span style={{ fontSize: 11.5, color: sub }}>
+                  ${c.offer_price ?? 0}
+                  {(c as any).newsletter_url ? ' · Newsletter' : ''}
+                  {c.has_sales_call ? ' · Sales Call' : ''}
+                  {c.has_paid_consultation ? ' · Consultation' : ''}
+                  {c.has_lead_magnet ? ' · Lead Magnet' : ''}
+                </span>
+              </button>
+            ))}
+          </div>
+        </div>
+
+        <div
+          style={{
+            flexShrink: 0,
+            padding: '14px 24px',
+            borderTop: `1px solid #e8e8ee`,
+            background: panel,
+          }}
+        >
+          <button
+            type="button"
+            onClick={() => setPickerMode('create')}
+            style={{
+              width: '100%',
+              padding: '12px 20px',
+              borderRadius: 8,
+              border: 'none',
+              background: purple,
+              color: '#fff',
+              fontSize: 13,
+              fontWeight: 700,
+              cursor: 'pointer',
+              boxShadow: '0 6px 16px rgba(91,61,240,0.3)',
+            }}
+          >
+            Create a new campaign →
+          </button>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div
@@ -1017,18 +1159,7 @@ export default function CampaignOnboardingStep({ onComplete, onSceneChange }: Ca
                   </p>
                 </FoxSay>
             
-                {/* Lead magnet */}
-                <FunnelToggleSection
-                  title="Lead Magnet"
-                  enabled={formData.has_lead_magnet}
-                  onToggle={(v) => update({ has_lead_magnet: v })}
-                  description="A free resource in exchange for contact info."
-                >
-                  <p style={{ fontSize: 12, color: sub, margin: 0 }}>
-                    You'll configure the specific magnet (file/link + thank-you page) after your campaign is
-                    created.
-                  </p>
-                </FunnelToggleSection>
+               
               </div>
             )}
 
@@ -1038,7 +1169,7 @@ export default function CampaignOnboardingStep({ onComplete, onSceneChange }: Ca
                   <h3 style={{ fontSize: 13, fontWeight: 800, color: ink, margin: '0 0 10px' }}>{formData.campaign_name || 'Untitled campaign'}</h3>
                   <ReviewRow label="Direct Purchase" value={selectedPayment.label} tracking={selectedPayment.tracking} />
 
-                  {formData.has_lead_magnet && <ReviewRow label="Lead Magnet" value="Configure after saving" tracking="Full" />}
+                  
                 </div>
 
                 {warnings.length > 0 && (
