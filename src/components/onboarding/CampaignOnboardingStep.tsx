@@ -618,7 +618,6 @@ export default function CampaignOnboardingStep({ onComplete, onSceneChange }: Ca
   // need this URL, so it would be misleading to warn Stripe users about it.
   const warnings: string[] = [];
   if (!formData.uses_stripe && !formData.purchase_thankyou_url) warnings.push('No Purchase Thank You URL — pixel tracking for confirmed purchases won\u2019t work yet.');
-  if (formData.has_sales_call && !formData.sales_call_thankyou_url) warnings.push('No Sales Call Thank You URL — sales call tracking won\u2019t work yet.');
   if (formData.has_paid_consultation && !formData.consultation_thankyou_url) warnings.push('No Consultation Thank You URL — consultation tracking won\u2019t work yet.');
   
 
@@ -1018,42 +1017,7 @@ export default function CampaignOnboardingStep({ onComplete, onSceneChange }: Ca
                     <SupportLink>Stuck? Join our WhatsApp group and we'll help you get set up →</SupportLink>
                   </p>
                 </FoxSay>
-
-
-                {/* Sales call */}
-                <FunnelToggleSection
-                  title="Sales Call"
-                  enabled={formData.has_sales_call}
-                  onToggle={(v) => update({ has_sales_call: v })}
-                  description="Someone books a call with you."
-                >
-                  <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
-                    {SALES_CALL_DELIVERY_OPTIONS.map((opt) => (
-                      <DeliveryOptionCard
-                        key={opt.value}
-                        option={opt}
-                        selected={formData.sales_call_delivery === opt.value}
-                        onSelect={() => update({ sales_call_delivery: opt.value })}
-                      />
-                    ))}
-                  </div>
-                  <FieldRow>
-                    <div>
-                      <label style={labelStyle}>Booking URL</label>
-                      <input style={inputStyle} type="url" value={formData.sales_call_booking_url} onChange={(e) => update({ sales_call_booking_url: e.target.value })} placeholder="https://calendly.com/..." />
-                    </div>
-                    <div>
-                      <label style={labelStyle}>Booking Success / Thank You URL</label>
-                      <input style={inputStyle} type="url" value={formData.sales_call_thankyou_url} onChange={(e) => update({ sales_call_thankyou_url: e.target.value })} placeholder="https://yoursite.com/booked" />
-                    </div>
-                  </FieldRow>
-                  <FieldRow>
-                    <div>
-                      <label style={labelStyle}>Estimated Close Rate (%)</label>
-                      <input style={inputStyle} type="number" value={formData.estimated_close_rate} onChange={(e) => update({ estimated_close_rate: parseFloat(e.target.value) || 0 })} />
-                    </div>
-                  </FieldRow>
-                </FunnelToggleSection>
+            
 
                 {/* Paid consultation */}
                 <FunnelToggleSection
@@ -1139,13 +1103,7 @@ export default function CampaignOnboardingStep({ onComplete, onSceneChange }: Ca
                 <div style={{ border: `1px solid ${border}`, borderRadius: 10, padding: 16, background: panel }}>
                   <h3 style={{ fontSize: 13, fontWeight: 800, color: ink, margin: '0 0 10px' }}>{formData.campaign_name || 'Untitled campaign'}</h3>
                   <ReviewRow label="Direct Purchase" value={selectedPayment.label} tracking={selectedPayment.tracking} />
-                  {formData.has_sales_call && (
-                    <ReviewRow
-                      label="Sales Call"
-                      value={SALES_CALL_DELIVERY_OPTIONS.find((o) => o.value === formData.sales_call_delivery)?.label || ''}
-                      tracking={SALES_CALL_DELIVERY_OPTIONS.find((o) => o.value === formData.sales_call_delivery)?.tracking || 'Partial'}
-                    />
-                  )}
+
                   {formData.has_paid_consultation && (
                     <ReviewRow
                       label="Paid Consultation"

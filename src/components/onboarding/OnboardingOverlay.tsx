@@ -20,13 +20,14 @@ import WelcomeStep from './WelcomeStep';
 import OnboardingVideo from './OnboardingVideo';
 import CampaignOnboardingStep from './CampaignOnboardingStep';
 import NewsletterOnboardingStep from './CampaignOnboarding/NewsletterOnboardingStep';
+import SalesCallOnboardingStep from './CampaignOnboarding/SalesCallOnboardingStep';
 import CampaignOnboardingVideo from './CampaignOnboardingVideo/CampaignOnboardingVideo';
 import CampaignOnboardingStripeVideo from './CampaignOnboardingVideo/CampaignOnboardingStripeVideo';
 import CampaignOnboardingPixelVideo from './CampaignOnboardingVideo/CampaignOnboardingPixelVideo';
 import CampaignOnboardingThankYouVideo from './CampaignOnboardingVideo/CampaignOnboardingThankYouVideo';
 import PaymentMethodDiagram from './PaymentMethodDiagram';
 import type { PurchaseMethod } from './campaignOptionContent';
-type OnboardingStep = 'welcome' | 'video' | 'campaign' | 'hub' | 'newsletter';
+type OnboardingStep = 'welcome' | 'video' | 'campaign' | 'hub' | 'newsletter' | 'sales_call';
 
 export default function OnboardingOverlay() {
   const { isOpen, close } = useOnboardingOverlay();
@@ -166,18 +167,23 @@ export default function OnboardingOverlay() {
         >
           Newsletter → Set up
         </button>
-        <div
+        <button
+          type="button"
+          onClick={() => setStep('sales_call')}
           style={{
+            textAlign: 'left',
             padding: '14px 16px',
             borderRadius: 12,
-            border: '1px solid #e8e8ee',
-            background: '#fafafa',
-            fontSize: 13,
-            color: '#6b6b78',
+            border: '1px solid #d9d9e3',
+            background: '#fff',
+            cursor: 'pointer',
+            fontSize: 14,
+            fontWeight: 700,
+            color: '#15151f',
           }}
         >
-          Sales Call — coming next
-        </div>
+          Sales Call → Set up
+        </button>
         <div
           style={{
             padding: '14px 16px',
@@ -245,6 +251,29 @@ export default function OnboardingOverlay() {
     </div>
   </div>
 )}
+
+          {step === 'sales_call' && campaignId && (
+  <div
+    className="w-full flex flex-col lg:flex-row gap-4 lg:gap-6 items-stretch justify-center"
+    style={{
+      maxWidth: 900,
+      width: 'min(900px, 94vw)',
+      height: '90vh',
+    }}
+    onClick={(e) => e.stopPropagation()}
+  >
+    <div className="relative w-full flex-1 min-w-0 bg-white rounded-2xl overflow-hidden shadow-2xl">
+      <SalesCallOnboardingStep
+        campaignId={campaignId}
+        onDone={() => setStep('hub')}
+        onBack={() => setStep('hub')}
+      />
+    </div>
+  </div>
+)}
+
+
+
         </motion.div>
       )}
     </AnimatePresence>
