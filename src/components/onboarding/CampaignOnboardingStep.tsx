@@ -618,8 +618,7 @@ export default function CampaignOnboardingStep({ onComplete, onSceneChange }: Ca
   // need this URL, so it would be misleading to warn Stripe users about it.
   const warnings: string[] = [];
   if (!formData.uses_stripe && !formData.purchase_thankyou_url) warnings.push('No Purchase Thank You URL — pixel tracking for confirmed purchases won\u2019t work yet.');
-  if (formData.has_paid_consultation && !formData.consultation_thankyou_url) warnings.push('No Consultation Thank You URL — consultation tracking won\u2019t work yet.');
-  
+ 
 
   // ── Save: mirrors Campaigns.tsx's submitCampaign() exactly ─────────────
   const createCampaign = async () => {
@@ -1018,71 +1017,6 @@ export default function CampaignOnboardingStep({ onComplete, onSceneChange }: Ca
                   </p>
                 </FoxSay>
             
-
-                {/* Paid consultation */}
-                <FunnelToggleSection
-                  title="Paid Consultation"
-                  enabled={formData.has_paid_consultation}
-                  onToggle={(v) => update({ has_paid_consultation: v })}
-                  description="Someone books and pays for a consultation."
-                >
-                  <p style={{ fontSize: 12, fontWeight: 700, color: ink, margin: '4px 0 0' }}>Where does the consultation happen?</p>
-                  <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
-                    {CONSULTATION_DELIVERY_OPTIONS.map((opt) => (
-                      <DeliveryOptionCard
-                        key={opt.value}
-                        option={opt}
-                        selected={formData.consultation_delivery === opt.value}
-                        onSelect={() => update({ consultation_delivery: opt.value })}
-                      />
-                    ))}
-                  </div>
-                  <FieldRow>
-                    <div>
-                      <label style={labelStyle}>Booking Page URL</label>
-                      <input style={inputStyle} type="url" value={formData.consultation_booking_url} onChange={(e) => update({ consultation_booking_url: e.target.value })} placeholder="https://tidycal.com/..." />
-                    </div>
-                  </FieldRow>
-
-                  {formData.consultation_delivery === 'own_website' && (
-                    <>
-                      <p style={{ fontSize: 12, fontWeight: 700, color: ink, margin: '8px 0 0' }}>How does the customer pay?</p>
-                      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: 10 }}>
-                        {CONSULTATION_PAYMENT_OPTIONS.map((opt) => (
-                          <PaymentOptionCard
-                            key={opt.value}
-                            option={opt}
-                            selected={formData.consultation_payment_method === opt.value}
-                            onSelect={() =>
-                              update({
-                                consultation_payment_method: opt.value,
-                                uses_stripe_consultation: opt.value === 'stripe_checkout',
-                              })
-                            }
-                          />
-                        ))}
-                      </div>
-                      <FieldRow>
-                        <div>
-                          <label style={labelStyle}>Checkout / Payment URL</label>
-                          <input style={inputStyle} type="url" value={formData.paid_consultation_checkout_url} onChange={(e) => update({ paid_consultation_checkout_url: e.target.value })} placeholder="https://buy.stripe.com/..." />
-                        </div>
-                      </FieldRow>
-                    </>
-                  )}
-
-                  <FieldRow>
-                    <div>
-                      <label style={labelStyle}>Thank You URL</label>
-                      <input style={inputStyle} type="url" value={formData.consultation_thankyou_url} onChange={(e) => update({ consultation_thankyou_url: e.target.value })} placeholder="https://yoursite.com/booked" />
-                    </div>
-                    <div>
-                      <label style={labelStyle}>Fee ($)</label>
-                      <input style={inputStyle} type="number" value={formData.consultation_fee} onChange={(e) => update({ consultation_fee: parseFloat(e.target.value) || 0 })} />
-                    </div>
-                  </FieldRow>
-                </FunnelToggleSection>
-
                 {/* Lead magnet */}
                 <FunnelToggleSection
                   title="Lead Magnet"
@@ -1104,13 +1038,6 @@ export default function CampaignOnboardingStep({ onComplete, onSceneChange }: Ca
                   <h3 style={{ fontSize: 13, fontWeight: 800, color: ink, margin: '0 0 10px' }}>{formData.campaign_name || 'Untitled campaign'}</h3>
                   <ReviewRow label="Direct Purchase" value={selectedPayment.label} tracking={selectedPayment.tracking} />
 
-                  {formData.has_paid_consultation && (
-                    <ReviewRow
-                      label="Paid Consultation"
-                      value={CONSULTATION_DELIVERY_OPTIONS.find((o) => o.value === formData.consultation_delivery)?.label || ''}
-                      tracking={CONSULTATION_DELIVERY_OPTIONS.find((o) => o.value === formData.consultation_delivery)?.tracking || 'Partial'}
-                    />
-                  )}
                   {formData.has_lead_magnet && <ReviewRow label="Lead Magnet" value="Configure after saving" tracking="Full" />}
                 </div>
 
