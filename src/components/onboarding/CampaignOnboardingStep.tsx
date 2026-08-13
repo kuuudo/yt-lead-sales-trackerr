@@ -552,13 +552,7 @@ export default function CampaignOnboardingStep({ onComplete, onSceneChange }: Ca
   // Existing-campaign picker: avoid forcing a new campaign every time
   const [pickerMode, setPickerMode] = useState<'loading' | 'pick' | 'create'>('loading');
   const [existingCampaigns, setExistingCampaigns] = useState<Campaign[]>([]);
-  // Report which video/diagram the left desktop panel (and mobile inline
-  // video) should show. Only fires when we actually know what to show —
-  // before a payment track is picked, we deliberately say nothing, so the
-  // panel just keeps showing whatever it was already showing.
-    useEffect(() => {
-
-        // Load active campaigns for this org so the user can continue an existing one
+   // Load active campaigns for this org so the user can continue an existing one
   useEffect(() => {
     let cancelled = false;
     const load = async () => {
@@ -592,6 +586,11 @@ export default function CampaignOnboardingStep({ onComplete, onSceneChange }: Ca
     };
   }, [organizationId]);
 
+  // Report which video/diagram the left desktop panel (and mobile inline
+  // video) should show. Only fires when we actually know what to show —
+  // before a payment track is picked, we deliberately say nothing, so the
+  // panel just keeps showing whatever it was already showing.
+  useEffect(() => {
     if (!onSceneChange) return;
     if (step === 'basics') {
       onSceneChange('basics');
