@@ -58,6 +58,7 @@ import {
   type PaymentOptionContent,
   type DeliveryOptionContent,
   type PurchaseMethod,
+  type TrackingQuality,
 } from './campaignOptionContent';
 
 // ── Field shape — copied verbatim from pages/Campaigns.tsx's emptyForm ───
@@ -118,7 +119,7 @@ interface CampaignOnboardingStepProps {
   /** Called after the campaign row is successfully created. */
   onComplete: (campaignId: string) => void;
   /** Tells the parent (OnboardingOverlay) which video the left desktop panel should show. */
-  onSceneChange?: (scene: 'basics' | 'stripe' | 'pixel') => void;
+  onSceneChange?: (scene: onSceneChange?: (scene: 'basics' | 'stripe' | 'pixel' | PurchaseMethod) => void;
 }
 
 // ── design tokens ─────────────────────────────────────────────────────
@@ -358,7 +359,7 @@ const PAYMENT_STORY: Record<string, string[]> = {
   external_platform: ['Your site', 'Marketplace'],
 };
 
-function MiniDiagram({ value, tracking }: { value: string; tracking: 'Full' | 'Partial' }) {
+function MiniDiagram({ value, tracking }: { value: string; tracking: TrackingQuality }) {
   const tone: 'full' | 'partial' = tracking === 'Full' ? 'full' : 'partial';
   const chips = PAYMENT_STORY[value];
   if (!chips) return null;
@@ -374,8 +375,15 @@ function MiniDiagram({ value, tracking }: { value: string; tracking: 'Full' | 'P
   );
 }
 
-function TrackingBadge({ quality }: { quality: 'Full' | 'Partial' }) {
-  const isFull = quality === 'Full';
+function TrackingBadge({ quality }: { quality: TrackingQuality }) {
+  const colors =
+    quality === 'Full'
+      ? { color: '#1a7f4b', background: '#e6f7ee' }
+      : quality === 'Partial'
+      ? { color: amber, background: amberSoft }
+      : { color: '#8a5407', background: '#f0e6d2' };
+  const label =
+    quality === 'Full' ? 'Full tracking' : quality === 'Partial' ? 'Partial tracking' : 'Limited tracking';
   return (
     <span
       style={{
@@ -385,11 +393,10 @@ function TrackingBadge({ quality }: { quality: 'Full' | 'Partial' }) {
         textTransform: 'uppercase',
         padding: '3px 7px',
         borderRadius: 999,
-        color: isFull ? '#1a7f4b' : amber,
-        background: isFull ? '#e6f7ee' : amberSoft,
+        ...colors,
       }}
     >
-      {isFull ? 'Full tracking' : 'Partial tracking'}
+      {label}
     </span>
   );
 }
@@ -532,21 +539,27 @@ export default function CampaignOnboardingStep({ onComplete, onSceneChange }: Ca
   // then asks Stripe-or-not, and only then shows the relevant option cards.
   const [paymentStage, setPaymentStage] = useState<PaymentStage>('intro');
   const [paymentTrack, setPaymentTrack] = useState<PaymentTrack | null>(null);
+  // True only once the user has actually clicked one of the 6 specific
+  // payment-method cards (not just landed on a track, which already
+  // pre-fills a default purchase_method behind the scenes).
+  const [hasSelectedSpecificCard, setHasSelectedSpecificCard] = useState(false);
 
-  // Report which video the left desktop panel (and mobile inline video) should
-  // show. Only fires when we actually know what to show — before a payment
-  // track is picked, we deliberately say nothing, so the panel just keeps
-  // showing whatever it was already showing.
+  // Report which video/diagram the left desktop panel (and mobile inline
+  // video) should show. Only fires when we actually know what to show —
+  // before a payment track is picked, we deliberately say nothing, so the
+  // panel just keeps showing whatever it was already showing.
   useEffect(() => {
     if (!onSceneChange) return;
     if (step === 'basics') {
       onSceneChange('basics');
+    } else if (step === 'purchase' && hasSelectedSpecificCard) {
+      onSceneChange(formData.purchase_method as PurchaseMethod);
     } else if (step === 'purchase' && paymentTrack === 'stripe') {
       onSceneChange('stripe');
     } else if (step === 'purchase' && paymentTrack === 'other') {
       onSceneChange('pixel');
     }
-  }, [step, paymentTrack, onSceneChange]);
+  }, [step, paymentTrack, hasSelectedSpecificCard, formData.purchase_method, onSceneChange]);
 
   const stepIndex = STEP_ORDER.indexOf(step);
 
@@ -578,6 +591,7 @@ export default function CampaignOnboardingStep({ onComplete, onSceneChange }: Ca
   const chooseTrack = (track: PaymentTrack) => {
     setPaymentTrack(track);
     setPaymentStage('options');
+    setHasSelectedSpecificCard(false);
     if (track === 'stripe') {
       update({ purchase_method: 'stripe_checkout', uses_stripe: true });
     } else {
@@ -872,7 +886,10 @@ export default function CampaignOnboardingStep({ onComplete, onSceneChange }: Ca
                       <div style={{ marginLeft: 50, display: 'flex', flexDirection: 'column', gap: 12 }}>
                         <button
                           type="button"
-                          onClick={() => setPaymentStage('track')}
+                          onClick={() => {
+                            setPaymentStage('track');
+                            setHasSelectedSpecificCard(false);
+                          }}
                           style={linkButtonStyle}
                         >
                           ← Choose a different payment approach
@@ -884,7 +901,10 @@ export default function CampaignOnboardingStep({ onComplete, onSceneChange }: Ca
                               key={opt.value}
                               option={opt}
                               selected={formData.purchase_method === opt.value}
-                              onSelect={() => update({ purchase_method: opt.value, uses_stripe: opt.value === 'stripe_checkout' })}
+                              onSelect={() => {
+                                update({ purchase_method: opt.value, uses_stripe: opt.value === 'stripe_checkout' });
+                                setHasSelectedSpecificCard(true);
+                              }}
                             />
                           ))}
                         </div>
@@ -1302,7 +1322,7 @@ function FunnelToggleSection({
   );
 }
 
-function ReviewRow({ label, value, tracking }: { label: string; value: string; tracking: 'Full' | 'Partial' }) {
+function ReviewRow({ label, value, tracking }: { label: string; value: string; tracking: TrackingQuality }) {
   return (
     <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '6px 0' }}>
       <span style={{ fontSize: 12, color: sub }}>{label}</span>

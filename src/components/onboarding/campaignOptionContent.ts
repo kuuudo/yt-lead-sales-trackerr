@@ -21,7 +21,7 @@ export type PurchaseMethod =
   | 'payment_instructions_page'
   | 'external_platform';
 
-export type TrackingQuality = 'Full' | 'Partial';
+export type TrackingQuality = 'Full' | 'Partial' | 'Limited';
 
 export interface PaymentOptionContent {
   value: PurchaseMethod;
@@ -68,8 +68,8 @@ export const PAYMENT_OPTIONS: PaymentOptionContent[] = [
     whatTheyExperience:
       'Customers stay on your website, paying through a widget from a provider other than Stripe (e.g. PayPal).',
     flow: ['Your website', 'Payment widget embedded inline (not Stripe)', 'Payment', 'Thank-you page'],
-    tracking: 'Full',
-    trackingNote: 'Confirmed once you add a confirmation snippet to your thank-you page.',
+    tracking: 'Partial',
+    trackingNote: 'A confirmation snippet on your thank-you page tells us the customer got there — but unlike Stripe, there\u2019s no direct payment-provider confirmation behind it.',
     installationBlock: 'Confirmation Pixel',
     needs: ['A thank-you page after payment'],
   },
@@ -90,8 +90,8 @@ export const PAYMENT_OPTIONS: PaymentOptionContent[] = [
     whatTheyExperience:
       'Customers land on a page that tells them how to pay manually — a bank transfer, wire instructions, etc.',
     flow: ['Your website', 'Payment instructions page', 'Customer pays manually (off-platform)'],
-    tracking: 'Partial',
-    trackingNote: 'We can see they reached the instructions page, not whether they actually paid.',
+    tracking: 'Limited',
+    trackingNote: 'We can see they reached the instructions page, not whether they actually paid — there\u2019s no automatic way to confirm a manual transfer.',
     installationBlock: 'Redirect Tracking (intent link)',
     needs: ['Nothing extra to install'],
   },
