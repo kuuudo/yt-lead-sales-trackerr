@@ -534,7 +534,6 @@ export default function CampaignOnboardingStep({ onComplete, onSceneChange }: Ca
   const { organizationId } = useOrganization();
   const [step, setStep] = useState<WizardStep>('basics');
   const [formData, setFormData] = useState<FormData>(emptyForm);
-  const [newsletterEnabled, setNewsletterEnabled] = useState(false);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -621,7 +620,7 @@ export default function CampaignOnboardingStep({ onComplete, onSceneChange }: Ca
   if (!formData.uses_stripe && !formData.purchase_thankyou_url) warnings.push('No Purchase Thank You URL — pixel tracking for confirmed purchases won\u2019t work yet.');
   if (formData.has_sales_call && !formData.sales_call_thankyou_url) warnings.push('No Sales Call Thank You URL — sales call tracking won\u2019t work yet.');
   if (formData.has_paid_consultation && !formData.consultation_thankyou_url) warnings.push('No Consultation Thank You URL — consultation tracking won\u2019t work yet.');
-  if (newsletterEnabled && !formData.newsletter_thankyou_url) warnings.push('No Newsletter Thank You URL — newsletter tracking won\u2019t work yet.');
+  
 
   // ── Save: mirrors Campaigns.tsx's submitCampaign() exactly ─────────────
   const createCampaign = async () => {
@@ -1020,27 +1019,6 @@ export default function CampaignOnboardingStep({ onComplete, onSceneChange }: Ca
                   </p>
                 </FoxSay>
 
-                {/* Newsletter */}
-                <FunnelToggleSection
-                  title="Newsletter"
-                  enabled={newsletterEnabled}
-                  onToggle={(v) => {
-                    setNewsletterEnabled(v);
-                    if (!v) update({ newsletter_url: '', newsletter_thankyou_url: '' });
-                  }}
-                  description="Someone signs up for your list."
-                >
-                  <FieldRow>
-                    <div>
-                      <label style={labelStyle}>Signup Page URL</label>
-                      <input style={inputStyle} type="url" value={formData.newsletter_url} onChange={(e) => update({ newsletter_url: e.target.value })} placeholder="https://yoursite.com/subscribe" />
-                    </div>
-                    <div>
-                      <label style={labelStyle}>Thank You URL</label>
-                      <input style={inputStyle} type="url" value={formData.newsletter_thankyou_url} onChange={(e) => update({ newsletter_thankyou_url: e.target.value })} placeholder="https://yoursite.com/thanks" />
-                    </div>
-                  </FieldRow>
-                </FunnelToggleSection>
 
                 {/* Sales call */}
                 <FunnelToggleSection
@@ -1161,7 +1139,6 @@ export default function CampaignOnboardingStep({ onComplete, onSceneChange }: Ca
                 <div style={{ border: `1px solid ${border}`, borderRadius: 10, padding: 16, background: panel }}>
                   <h3 style={{ fontSize: 13, fontWeight: 800, color: ink, margin: '0 0 10px' }}>{formData.campaign_name || 'Untitled campaign'}</h3>
                   <ReviewRow label="Direct Purchase" value={selectedPayment.label} tracking={selectedPayment.tracking} />
-                  {newsletterEnabled && <ReviewRow label="Newsletter" value="Enabled" tracking={formData.newsletter_thankyou_url ? 'Full' : 'Partial'} />}
                   {formData.has_sales_call && (
                     <ReviewRow
                       label="Sales Call"

@@ -19,22 +19,27 @@ import { useOnboardingOverlay } from '../../lib/onboarding-overlay';
 import WelcomeStep from './WelcomeStep';
 import OnboardingVideo from './OnboardingVideo';
 import CampaignOnboardingStep from './CampaignOnboardingStep';
+import NewsletterOnboardingStep from './CampaignOnboarding/NewsletterOnboardingStep';
 import CampaignOnboardingVideo from './CampaignOnboardingVideo/CampaignOnboardingVideo';
 import CampaignOnboardingStripeVideo from './CampaignOnboardingVideo/CampaignOnboardingStripeVideo';
 import CampaignOnboardingPixelVideo from './CampaignOnboardingVideo/CampaignOnboardingPixelVideo';
 import CampaignOnboardingThankYouVideo from './CampaignOnboardingVideo/CampaignOnboardingThankYouVideo';
 import PaymentMethodDiagram from './PaymentMethodDiagram';
 import type { PurchaseMethod } from './campaignOptionContent';
-type OnboardingStep = 'welcome' | 'video' | 'campaign'; // more steps join this union as they're built
+type OnboardingStep = 'welcome' | 'video' | 'campaign' | 'hub' | 'newsletter';
 
 export default function OnboardingOverlay() {
   const { isOpen, close } = useOnboardingOverlay();
   const [step, setStep] = useState<OnboardingStep>('welcome');
   const [videoScene, setVideoScene] = useState<'basics' | 'stripe' | 'pixel' | 'thankyou' | PurchaseMethod>('basics');
+  const [campaignId, setCampaignId] = useState<string | null>(null);
 
   // Reset to the first step each time the overlay is opened fresh.
   useEffect(() => {
-    if (isOpen) setStep('welcome');
+    if (isOpen) {
+      setStep('welcome');
+      setCampaignId(null);
+    }
   }, [isOpen]);
 
   // Escape closes it — a modal with no dismiss path is a trap. Remove this
@@ -86,7 +91,7 @@ export default function OnboardingOverlay() {
               />
             </div>
           )}
-          {step === 'campaign' && (
+                   {step === 'campaign' && (
   <div
     className="w-full flex flex-col lg:flex-row gap-4 lg:gap-6 items-stretch justify-center"
     style={{
@@ -112,13 +117,130 @@ export default function OnboardingOverlay() {
       )}
     </div>
 
-    {/* RIGHT: onboarding form */}
+    {/* RIGHT: Direct Purchase form */}
     <div className="relative w-full flex-1 min-w-0 bg-white rounded-2xl overflow-hidden shadow-2xl">
       <CampaignOnboardingStep
-        onComplete={() => {
-          close();
+        onComplete={(id) => {
+          setCampaignId(id);
+          setStep('hub');
         }}
         onSceneChange={setVideoScene}
+      />
+    </div>
+  </div>
+)}
+
+          {step === 'hub' && campaignId && (
+  <div
+    className="w-full bg-white rounded-2xl overflow-hidden shadow-2xl"
+    style={{
+      maxWidth: 520,
+      width: 'min(520px, 94vw)',
+      maxHeight: '90vh',
+    }}
+    onClick={(e) => e.stopPropagation()}
+  >
+    <div style={{ padding: '28px 24px 24px', fontFamily: '-apple-system, BlinkMacSystemFont, "Helvetica Neue", sans-serif' }}>
+      <h2 style={{ fontSize: 20, fontWeight: 800, color: '#15151f', margin: '0 0 8px' }}>
+        Your main offer is set up 🎉
+      </h2>
+      <p style={{ fontSize: 13, color: '#6b6b78', margin: '0 0 20px', lineHeight: 1.55 }}>
+        Want to add another way customers can become leads or customers? You can do this now or later.
+      </p>
+
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 10, marginBottom: 20 }}>
+        <button
+          type="button"
+          onClick={() => setStep('newsletter')}
+          style={{
+            textAlign: 'left',
+            padding: '14px 16px',
+            borderRadius: 12,
+            border: '1px solid #d9d9e3',
+            background: '#fff',
+            cursor: 'pointer',
+            fontSize: 14,
+            fontWeight: 700,
+            color: '#15151f',
+          }}
+        >
+          Newsletter → Set up
+        </button>
+        <div
+          style={{
+            padding: '14px 16px',
+            borderRadius: 12,
+            border: '1px solid #e8e8ee',
+            background: '#fafafa',
+            fontSize: 13,
+            color: '#6b6b78',
+          }}
+        >
+          Sales Call — coming next
+        </div>
+        <div
+          style={{
+            padding: '14px 16px',
+            borderRadius: 12,
+            border: '1px solid #e8e8ee',
+            background: '#fafafa',
+            fontSize: 13,
+            color: '#6b6b78',
+          }}
+        >
+          Paid Consultation — coming next
+        </div>
+        <div
+          style={{
+            padding: '14px 16px',
+            borderRadius: 12,
+            border: '1px solid #e8e8ee',
+            background: '#fafafa',
+            fontSize: 13,
+            color: '#6b6b78',
+          }}
+        >
+          Lead Magnet — coming next
+        </div>
+      </div>
+
+      <button
+        type="button"
+        onClick={() => close()}
+        style={{
+          width: '100%',
+          padding: '12px 20px',
+          borderRadius: 8,
+          border: 'none',
+          background: '#5b3df0',
+          color: '#fff',
+          fontSize: 13,
+          fontWeight: 700,
+          cursor: 'pointer',
+          boxShadow: '0 6px 16px rgba(91,61,240,0.3)',
+        }}
+      >
+        Continue to app →
+      </button>
+    </div>
+  </div>
+)}
+
+          {step === 'newsletter' && campaignId && (
+  <div
+    className="w-full flex flex-col lg:flex-row gap-4 lg:gap-6 items-stretch justify-center"
+    style={{
+      maxWidth: 900,
+      width: 'min(900px, 94vw)',
+      height: '90vh',
+    }}
+    onClick={(e) => e.stopPropagation()}
+  >
+    <div className="relative w-full flex-1 min-w-0 bg-white rounded-2xl overflow-hidden shadow-2xl">
+      <NewsletterOnboardingStep
+        campaignId={campaignId}
+        onDone={() => setStep('hub')}
+        onBack={() => setStep('hub')}
       />
     </div>
   </div>
