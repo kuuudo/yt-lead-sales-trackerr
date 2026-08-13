@@ -715,6 +715,31 @@ export default function CampaignOnboardingStep({ onComplete }: CampaignOnboardin
                       placeholder="997"
                     />
                   </div>
+
+                  <div
+                    style={{
+                      background: purpleSoft,
+                      border: `1px solid ${purpleBorder}`,
+                      borderRadius: 10,
+                      padding: 14,
+                      marginTop: 4,
+                    }}
+                  >
+                    <p style={{ fontSize: 12.5, color: ink, margin: '0 0 8px', lineHeight: 1.6, fontWeight: 700 }}>
+                      Let's set up your first campaign together.
+                    </p>
+                    <p style={{ fontSize: 12, color: sub, margin: '0 0 8px', lineHeight: 1.6 }}>
+                      Think of a campaign as one product, service, or offer you're promoting. Everything that
+                      belongs to that same offer — your sales page, checkout, thank-you page, newsletter, sales
+                      calls, paid consultations, lead magnets, and the content that sends people there — lives
+                      inside this one campaign. You don't need to set all of that up now; you can add each piece
+                      later.
+                    </p>
+                    <p style={{ fontSize: 12, color: sub, margin: 0, lineHeight: 1.6 }}>
+                      You can create as many campaigns as you have offers — just remember, one campaign is one
+                      offer, one world. Let's start with the basics.
+                    </p>
+                  </div>
                 </motion.div>
               </div>
             )}
