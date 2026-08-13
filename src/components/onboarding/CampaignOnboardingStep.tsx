@@ -673,13 +673,16 @@ export default function CampaignOnboardingStep({ onComplete }: CampaignOnboardin
                     as OnboardingVideoSection06. Purely informational: it never gates
                     the form below, so people who already get the concept can just
                     skip it and start typing. */}
-                <CampaignOnboardingVideo />
+                <div className="w-full lg:flex-1 lg:min-w-0">
+                  <CampaignOnboardingVideo />
+                </div>
 
                 <motion.div
                   initial={{ opacity: 0, y: 6 }}
                   animate={{ opacity: 1, y: 0 }}
                   transition={{ duration: 0.2, delay: 0.12 }}
-                  style={{ display: 'flex', flexDirection: 'column', gap: 14, maxWidth: 460, margin: '4px auto 0' }}
+                  className="w-full lg:w-[380px] lg:flex-shrink-0 mx-auto lg:mx-0"
+                  style={{ display: 'flex', flexDirection: 'column', gap: 14, maxWidth: 460, marginTop: 4 }}
                 >
                   <div>
                     <label style={labelStyle}>Campaign Name</label>
