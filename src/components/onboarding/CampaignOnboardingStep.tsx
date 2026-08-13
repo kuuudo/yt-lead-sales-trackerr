@@ -872,8 +872,14 @@ export default function CampaignOnboardingStep({ onComplete, onSceneChange }: Ca
                       transition={{ duration: 0.18 }}
                       style={{ display: 'flex', flexDirection: 'column', gap: 14 }}
                     >
-                      <div className="lg:hidden">
-                        {paymentTrack === 'stripe' ? <CampaignOnboardingStripeVideo /> : <CampaignOnboardingPixelVideo />}
+                                            <div className="lg:hidden">
+                        {hasSelectedSpecificCard ? (
+                          <PaymentMethodDiagram method={formData.purchase_method as PurchaseMethod} />
+                        ) : paymentTrack === 'stripe' ? (
+                          <CampaignOnboardingStripeVideo />
+                        ) : (
+                          <CampaignOnboardingPixelVideo />
+                        )}
                       </div>
 
                       <FoxSay>
