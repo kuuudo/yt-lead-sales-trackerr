@@ -552,6 +552,7 @@ export default function CampaignOnboardingStep({ onComplete, onSceneChange }: Ca
   // Existing-campaign picker: avoid forcing a new campaign every time
   const [pickerMode, setPickerMode] = useState<'loading' | 'pick' | 'create'>('loading');
   const [existingCampaigns, setExistingCampaigns] = useState<Campaign[]>([]);
+  const [showAllCampaigns, setShowAllCampaigns] = useState(false);
    // Load active campaigns for this org so the user can continue an existing one
   useEffect(() => {
     let cancelled = false;
@@ -572,10 +573,8 @@ export default function CampaignOnboardingStep({ onComplete, onSceneChange }: Ca
         if (cancelled) return;
         if (data && data.length > 0) {
           setExistingCampaigns(data as Campaign[]);
-          setPickerMode('pick');
-        } else {
-          setPickerMode('create');
         }
+        setPickerMode('create');
       } catch {
         if (!cancelled) setPickerMode('create');
       }
@@ -723,91 +722,7 @@ export default function CampaignOnboardingStep({ onComplete, onSceneChange }: Ca
     );
   }
 
-  // ── Pick existing campaign or create new ───────────────────────────────
-  if (pickerMode === 'pick') {
-    return (
-      <div
-        style={{
-          display: 'flex',
-          flexDirection: 'column',
-          height: '100%',
-          background: '#fff',
-          fontFamily: '-apple-system, BlinkMacSystemFont, "Helvetica Neue", sans-serif',
-        }}
-      >
-        <div style={{ padding: '20px 24px 0' }}>
-          <h2 style={{ fontSize: 19, fontWeight: 800, color: ink, margin: '0 0 4px' }}>
-            Continue setup
-          </h2>
-          <p style={{ fontSize: 13, color: sub, margin: 0, lineHeight: 1.5 }}>
-            You already have campaigns. Pick one to add Newsletter, Sales Call, or other paths — or create a new offer.
-          </p>
-        </div>
 
-        <div style={{ flex: 1, overflow: 'auto', padding: '16px 24px 8px' }}>
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 10, maxWidth: 520 }}>
-            {existingCampaigns.map((c) => (
-              <button
-                key={c.id}
-                type="button"
-                onClick={() => onComplete(c.id)}
-                style={{
-                  textAlign: 'left',
-                  padding: '14px 16px',
-                  borderRadius: 12,
-                  border: `1px solid ${border}`,
-                  background: '#fff',
-                  cursor: 'pointer',
-                  display: 'flex',
-                  flexDirection: 'column',
-                  gap: 4,
-                }}
-              >
-                <span style={{ fontSize: 14, fontWeight: 700, color: ink }}>
-                  {c.campaign_name || 'Untitled campaign'}
-                </span>
-                <span style={{ fontSize: 11.5, color: sub }}>
-                  ${c.offer_price ?? 0}
-                  {(c as any).newsletter_url ? ' · Newsletter' : ''}
-                  {c.has_sales_call ? ' · Sales Call' : ''}
-                  {c.has_paid_consultation ? ' · Consultation' : ''}
-                  {c.has_lead_magnet ? ' · Lead Magnet' : ''}
-                </span>
-              </button>
-            ))}
-          </div>
-        </div>
-
-        <div
-          style={{
-            flexShrink: 0,
-            padding: '14px 24px',
-            borderTop: `1px solid #e8e8ee`,
-            background: panel,
-          }}
-        >
-          <button
-            type="button"
-            onClick={() => setPickerMode('create')}
-            style={{
-              width: '100%',
-              padding: '12px 20px',
-              borderRadius: 8,
-              border: 'none',
-              background: purple,
-              color: '#fff',
-              fontSize: 13,
-              fontWeight: 700,
-              cursor: 'pointer',
-              boxShadow: '0 6px 16px rgba(91,61,240,0.3)',
-            }}
-          >
-            Create a new campaign →
-          </button>
-        </div>
-      </div>
-    );
-  }
 
   return (
     <div
@@ -921,6 +836,80 @@ export default function CampaignOnboardingStep({ onComplete, onSceneChange }: Ca
                       offer, one world. Let's start with the basics.
                     </p>
                   </div>
+
+                  {existingCampaigns.length > 0 && (
+                    <div
+                      style={{
+                        marginTop: 8,
+                        border: `1px solid ${border}`,
+                        borderRadius: 12,
+                        padding: 14,
+                        background: '#fff',
+                      }}
+                    >
+                      <p style={{ fontSize: 13, fontWeight: 800, color: ink, margin: '0 0 4px' }}>
+                        Continue setup
+                      </p>
+                      <p style={{ fontSize: 12, color: sub, margin: '0 0 12px', lineHeight: 1.5 }}>
+                        You already have campaigns. Pick one to add Newsletter, Sales Call, or other paths — or fill the form above to create a new offer.
+                      </p>
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                        {(showAllCampaigns
+                          ? existingCampaigns
+                          : existingCampaigns.slice(0, 3)
+                        ).map((c) => (
+                          <button
+                            key={c.id}
+                            type="button"
+                            onClick={() => onComplete(c.id)}
+                            style={{
+                              textAlign: 'left',
+                              padding: '12px 14px',
+                              borderRadius: 10,
+                              border: `1px solid ${border}`,
+                              background: panel,
+                              cursor: 'pointer',
+                              display: 'flex',
+                              flexDirection: 'column',
+                              gap: 3,
+                            }}
+                          >
+                            <span style={{ fontSize: 13.5, fontWeight: 700, color: ink }}>
+                              {c.campaign_name || 'Untitled campaign'}
+                            </span>
+                            <span style={{ fontSize: 11.5, color: sub }}>
+                              ${c.offer_price ?? 0}
+                              {(c as any).newsletter_url ? ' · Newsletter' : ''}
+                              {c.has_sales_call ? ' · Sales Call' : ''}
+                              {c.has_paid_consultation ? ' · Consultation' : ''}
+                              {c.has_lead_magnet ? ' · Lead Magnet' : ''}
+                            </span>
+                          </button>
+                        ))}
+                      </div>
+                      {existingCampaigns.length > 3 && (
+                        <button
+                          type="button"
+                          onClick={() => setShowAllCampaigns((v) => !v)}
+                          style={{
+                            marginTop: 10,
+                            background: 'none',
+                            border: 'none',
+                            padding: 0,
+                            color: purple,
+                            fontSize: 12,
+                            fontWeight: 700,
+                            cursor: 'pointer',
+                          }}
+                        >
+                          {showAllCampaigns
+                            ? 'Show less'
+                            : `See more (${existingCampaigns.length - 3} more)`}
+                        </button>
+                      )}
+                    </div>
+                  )}
+
                 </motion.div>
               </div>
             )}
