@@ -23,13 +23,26 @@ import React, { useEffect, useState } from "react";
    one beat (S5) with two internal visual phases, the same way
    Section06's S2 packs multiple sub-beats into its longest segment.
 
+   CANVAS — deliberately NOT a copy of Section06's 960x560 dimensions.
+   Section06 plays full-bleed in a wide, dedicated video section.
+   This video plays inside the narrow onboarding wizard panel (roughly
+   360-420px of usable width), stacked above the actual form fields.
+   A 960-wide canvas scaled down into ~380px shrinks 11px labels to
+   ~4px — unreadable. So this file uses its own small, near-1:1
+   viewBox (400x460, portrait) sized for the panel it actually lives
+   in, with the eight campaign-piece chips arranged as a compact two-
+   column grid instead of Section06's wide circular ring, which needs
+   far more horizontal room than this panel has.
+
    NEW IN THIS FILE:
-     - a polar() helper to ring nodes evenly around a hub (used for
-       the eight campaign-piece chips in S3/S4). Everything else
-       (DrawLine, Person, Badge, Chip, timing math, caption grammar,
-       skip/replay chrome) is regenerated from Section06's primitives
-       so this reads as a continuation of the same design system, not
-       a new one.
+     - a two-column grid layout for the eight campaign-piece chips
+       (S3/S4), in place of Section06's ring-of-nodes grammar, sized
+       to actually fit a ~380px-wide panel.
+     - an optional fontSize override on Badge, used once for the long
+       "One Offer → One Campaign" label.
+   Everything else (DrawLine, Person, Chip, timing math, caption
+   grammar, skip/replay chrome) is regenerated from Section06's
+   primitives so this still reads as the same design system.
 
    NOT included on purpose: no form logic, no validation, no Supabase
    calls. This component only explains the concept — the real
@@ -89,12 +102,6 @@ function segOpacity(t: number, key: string, edge = 260) {
 function rangeOpacity(t: number, fromKey: string, toKey: string, edge = 260) {
   return fadeWindow(t, SEG[fromKey].start, SEG[fromKey].start + edge, SEG[toKey].end - edge, SEG[toKey].end);
 }
-/* Places a node on an ellipse around (cx, cy) — used to ring the
-   eight campaign-piece chips evenly around the central hub. */
-function polar(cx: number, cy: number, rx: number, ry: number, angleDeg: number) {
-  const rad = (angleDeg * Math.PI) / 180;
-  return { x: cx + rx * Math.cos(rad), y: cy + ry * Math.sin(rad) };
-}
 
 /* Derives caption fade timing directly from a beat's SEG window —
    identical single-sentence helper from Section06. */
@@ -124,29 +131,28 @@ function Person({ x, y, size = 26, opacity = 1, emoji = "🧑" }: { x: number; y
   return <text x={x} y={y} textAnchor="middle" dominantBaseline="middle" fontSize={size} opacity={opacity}>{emoji}</text>;
 }
 
-function Badge({ x, y, t, arriveStart, arriveEnd, label, scalePulse = 0, width = 96, filled = false, tone = ACCENT }:
-  { x: number; y: number; t: number; arriveStart: number; arriveEnd: number; label: string; scalePulse?: number; width?: number; filled?: boolean; tone?: string }) {
+function Badge({ x, y, t, arriveStart, arriveEnd, label, scalePulse = 0, width = 96, filled = false, tone = ACCENT, fontSize = 11, h = 26 }:
+  { x: number; y: number; t: number; arriveStart: number; arriveEnd: number; label: string; scalePulse?: number; width?: number; filled?: boolean; tone?: string; fontSize?: number; h?: number }) {
   const p = prog(t, arriveStart, arriveEnd);
   if (p <= 0.001) return null;
-  const h = 28;
   const bx = x - width / 2, by = y - h / 2;
   const scale = lerp(0.85, 1, p) * (1 + 0.04 * scalePulse);
   return (
     <g opacity={p} style={{ transformOrigin: `${x}px ${y}px`, transform: `scale(${scale})` }}>
-      <rect x={bx} y={by} width={width} height={h} rx={14} fill={filled ? tone : "#ffffff"} stroke={tone} strokeWidth={1.3}
-        style={{ filter: `drop-shadow(0 4px 10px rgba(91,61,240,0.2))` }} />
-      {!filled && <path d={`M${bx + 2},${by + 2} l10,0 M${bx + 2},${by + 2} l0,10`} stroke={tone} strokeWidth={1.3} strokeLinecap="round" fill="none" />}
-      <text x={x} y={y} dy="0.34em" textAnchor="middle" fontFamily={MONO} fontWeight={800} fontSize={11}
-        letterSpacing={1.1} fill={filled ? "#ffffff" : tone} style={{ textTransform: "uppercase" }}>{label}</text>
+      <rect x={bx} y={by} width={width} height={h} rx={13} fill={filled ? tone : "#ffffff"} stroke={tone} strokeWidth={1.2}
+        style={{ filter: `drop-shadow(0 3px 8px rgba(91,61,240,0.2))` }} />
+      {!filled && <path d={`M${bx + 2},${by + 2} l9,0 M${bx + 2},${by + 2} l0,9`} stroke={tone} strokeWidth={1.2} strokeLinecap="round" fill="none" />}
+      <text x={x} y={y} dy="0.34em" textAnchor="middle" fontFamily={MONO} fontWeight={800} fontSize={fontSize}
+        letterSpacing={0.8} fill={filled ? "#ffffff" : tone} style={{ textTransform: "uppercase" }}>{label}</text>
     </g>
   );
 }
 
-function Chip({ x, y, t, start, end, label, tone = "accent", width = 118, fontSize = 9.5 }:
+function Chip({ x, y, t, start, end, label, tone = "accent", width = 118, fontSize = 8.5 }:
   { x: number; y: number; t: number; start: number; end: number; label: string; tone?: "muted" | "accent" | "filled" | "warn"; width?: number; fontSize?: number }) {
   const p = prog(t, start, end);
   if (p <= 0.001) return null;
-  const h = 24;
+  const h = 22;
   const bx = x - width / 2, by = y - h / 2;
   const tColor = ACCENT;
   const fill = tone === "filled" ? tColor : "#ffffff";
@@ -155,8 +161,8 @@ function Chip({ x, y, t, start, end, label, tone = "accent", width = 118, fontSi
   const scale = lerp(0.9, 1, p);
   return (
     <g opacity={p} style={{ transformOrigin: `${x}px ${y}px`, transform: `scale(${scale})` }}>
-      <rect x={bx} y={by} width={width} height={h} rx={12} fill={fill} stroke={stroke} strokeWidth={1.1} />
-      <text x={x} y={y} dy="0.34em" textAnchor="middle" fontFamily={MONO} fontWeight={700} fontSize={fontSize} letterSpacing={0.4} fill={textFill}
+      <rect x={bx} y={by} width={width} height={h} rx={11} fill={fill} stroke={stroke} strokeWidth={1} />
+      <text x={x} y={y} dy="0.34em" textAnchor="middle" fontFamily={MONO} fontWeight={700} fontSize={fontSize} letterSpacing={0.2} fill={textFill}
         style={{ textTransform: tone === "muted" ? "none" : "uppercase" }}>{label}</text>
     </g>
   );
@@ -164,43 +170,46 @@ function Chip({ x, y, t, start, end, label, tone = "accent", width = 118, fontSi
 
 /* =================================================================
    BEAT-SPECIFIC TIMING & LAYOUT
+   Canvas: viewBox "0 0 400 460" — sized to actually fit the ~360-
+   420px onboarding panel, not a wide desktop video frame.
 ================================================================= */
+const CX = 200;
 
 /* ---- S1 — Vix appears, warm welcome ---- */
 const S1_RING = { start: SEG.S1.start + 150, end: SEG.S1.end - 200 };
 const S1_VIX_IN = { start: SEG.S1.start + 150, end: SEG.S1.start + 650 };
 const S1_LABEL_IN = { start: SEG.S1.start + 550, end: SEG.S1.start + 950 };
 
-/* ---- S2 — ONE CAMPAIGN = product / service / offer ---- */
-const HUB = { x: 480, y: 280 };
+/* ---- Hub — the "Campaign" badge that persists across S2 → S3 ---- */
+const HUB = { x: CX, y: 140 };
+const HUB_IN = { start: SEG.S2.start + 150, end: SEG.S2.start + 650 };
+const HUB_LABEL_RANGE: [string, string] = ["S2", "S3"];
+
+/* ---- S2 — one campaign = product / service / offer ---- */
 const S2_HEAD_IN = { start: SEG.S2.start + 100, end: SEG.S2.start + 600 };
-const S2_HUB_IN = { start: SEG.S2.start + 150, end: SEG.S2.start + 650 };
 const S2_SUB = [
-  { label: "PRODUCT", x: 350 },
-  { label: "SERVICE", x: 480 },
-  { label: "OFFER", x: 610 },
+  { label: "PRODUCT", x: 100 },
+  { label: "SERVICE", x: 200 },
+  { label: "OFFER", x: 300 },
 ];
 const S2_SUB_STAGGER = 260;
 const S2_SUB_IN = S2_SUB.map((_, i) => ({
-  start: S2_HUB_IN.end + 150 + i * S2_SUB_STAGGER, end: S2_HUB_IN.end + 150 + i * S2_SUB_STAGGER + 420,
+  start: HUB_IN.end + 150 + i * S2_SUB_STAGGER, end: HUB_IN.end + 150 + i * S2_SUB_STAGGER + 420,
 }));
 
-/* ---- Hub label persists across S2 → S3, then hands off to S4's badge ---- */
-const HUB_LABEL_RANGE: [string, string] = ["S2", "S3"];
-
-/* ---- S3 — everything belonging to that offer (8-piece campaign world) ---- */
+/* ---- S3 — everything belonging to that offer (8-piece grid) ----
+   Two columns (x=95 / x=305), four rows — a compact "little world"
+   instead of Section06's wide ring, sized for this panel's width. */
 const S3_NODE_DEFS = [
-  { label: "Sales Page", width: 100 },
-  { label: "Checkout", width: 98 },
-  { label: "Thank You", width: 100 },
-  { label: "Newsletter", width: 112 },
-  { label: "Sales Call", width: 100 },
-  { label: "Paid Consultation", width: 156 },
-  { label: "Lead Magnet", width: 114 },
-  { label: "Content", width: 90 },
+  { label: "Sales Page", x: 95, y: 190, width: 88 },
+  { label: "Checkout", x: 305, y: 190, width: 76 },
+  { label: "Thank You", x: 95, y: 232, width: 82 },
+  { label: "Newsletter", x: 305, y: 232, width: 90 },
+  { label: "Sales Call", x: 95, y: 274, width: 88 },
+  { label: "Paid Consultation", x: 305, y: 274, width: 148 },
+  { label: "Lead Magnet", x: 95, y: 316, width: 96 },
+  { label: "Content", x: 305, y: 316, width: 68 },
 ];
-const S3_RADIUS = { rx: 250, ry: 158 };
-const S3_NODE_POS = S3_NODE_DEFS.map((_, i) => polar(HUB.x, HUB.y, S3_RADIUS.rx, S3_RADIUS.ry, -90 + i * 45));
 const S3_STAGGER = 610;
 const S3_NODES_IN = S3_NODE_DEFS.map((_, i) => ({
   start: SEG.S3.start + 550 + i * S3_STAGGER, end: SEG.S3.start + 550 + i * S3_STAGGER + 460,
@@ -218,9 +227,9 @@ const S4_HOLD = { start: S4_BADGE_IN.end + 150, end: SEG.S4.end - 150 };
 
 /* ---- S5 — as many campaigns as offers, then: one offer, one world ---- */
 const S5_CAMPAIGNS = [
-  { x: 220, y: 250, emoji: "🛍️", label: "CAMPAIGN 01" },
-  { x: 480, y: 250, emoji: "📚", label: "CAMPAIGN 02" },
-  { x: 740, y: 250, emoji: "🎓", label: "CAMPAIGN 03" },
+  { x: 90, y: 150, emoji: "🛍️", label: "CAMPAIGN 01" },
+  { x: 200, y: 150, emoji: "📚", label: "CAMPAIGN 02" },
+  { x: 310, y: 150, emoji: "🎓", label: "CAMPAIGN 03" },
 ];
 const S5_STAGGER = 300;
 const S5_CAMP_IN = S5_CAMPAIGNS.map((_, i) => ({
@@ -232,11 +241,14 @@ const S5_CONVERGE = { start: S5_HOLD.end, end: S5_HOLD.end + 1400 };
 const S5_FINAL_BADGE_IN = { start: S5_CONVERGE.start + 450, end: S5_CONVERGE.start + 950 };
 const S5_PULSE = { start: S5_CONVERGE.end + 150, end: SEG.S5.end - 150 };
 
-/* ---- S6 — Vix guides toward the form ---- */
+/* ---- S6 — Vix guides you into the form ---- */
 const S6_VIX_IN = { start: SEG.S6.start + 100, end: SEG.S6.start + 550 };
 const S6_ARROW_IN = { start: SEG.S6.start + 480, end: SEG.S6.start + 980 };
-const S6_FIELDS = ["Campaign Name", "Landing Page URL", "Offer Price"];
-const S6_FIELDS_X = [300, 480, 660];
+const S6_FIELDS = [
+  { label: "Campaign Name", x: 85, width: 96 },
+  { label: "Landing Page URL", x: 200, width: 114 },
+  { label: "Offer Price", x: 315, width: 84 },
+];
 const S6_FIELDS_STAGGER = 220;
 const S6_FIELDS_IN = S6_FIELDS.map((_, i) => ({
   start: S6_ARROW_IN.end + 100 + i * S6_FIELDS_STAGGER, end: S6_ARROW_IN.end + 100 + i * S6_FIELDS_STAGGER + 400,
@@ -298,35 +310,35 @@ export default function CampaignOnboardingVideo({ onSkip, onComplete }: Campaign
     <div style={{
       width: "100%", background: "#ffffff",
       display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center",
-      padding: "18px 12px 4px", fontFamily: "-apple-system, BlinkMacSystemFont, 'Helvetica Neue', sans-serif",
+      padding: "16px 10px 2px", fontFamily: "-apple-system, BlinkMacSystemFont, 'Helvetica Neue', sans-serif",
       position: "relative",
     }}>
-      <div style={{ width: "100%", maxWidth: 720, opacity: finalFadeOut }}>
-        <svg viewBox="0 0 960 520" style={{ width: "100%", height: "auto", display: "block" }}>
+      <div style={{ width: "100%", maxWidth: 420, opacity: finalFadeOut }}>
+        <svg viewBox="0 0 400 460" style={{ width: "100%", height: "auto", display: "block" }}>
 
           {/* ================= S1 — Vix appears, warm welcome ================= */}
           <g opacity={welcomeOpacity}>
-            <circle cx={480} cy={230} r={44 + s1RingVal * 22} fill="none" stroke={ACCENT} strokeWidth={1} opacity={s1RingVal * 0.4} />
+            <circle cx={CX} cy={110} r={30 + s1RingVal * 16} fill="none" stroke={ACCENT} strokeWidth={1} opacity={s1RingVal * 0.4} />
             <g opacity={prog(t, S1_VIX_IN.start, S1_VIX_IN.end)}
-              style={{ transformOrigin: "480px 230px", transform: `scale(${lerp(0.7, 1, prog(t, S1_VIX_IN.start, S1_VIX_IN.end))})` }}>
-              <Person x={480} y={230} size={64} emoji="🦊" />
+              style={{ transformOrigin: `${CX}px 110px`, transform: `scale(${lerp(0.7, 1, prog(t, S1_VIX_IN.start, S1_VIX_IN.end))})` }}>
+              <Person x={CX} y={110} size={42} emoji="🦊" />
             </g>
-            <Badge x={480} y={296} t={t} arriveStart={S1_LABEL_IN.start} arriveEnd={S1_LABEL_IN.end} label="Vix" width={78} filled />
+            <Badge x={CX} y={158} t={t} arriveStart={S1_LABEL_IN.start} arriveEnd={S1_LABEL_IN.end} label="Vix" width={64} filled />
           </g>
 
           {/* ================= persistent hub label (S2 → S3) ================= */}
           <g opacity={hubLabelOpacity}>
-            <Badge x={HUB.x} y={HUB.y} t={t} arriveStart={S2_HUB_IN.start} arriveEnd={S2_HUB_IN.end} label="Campaign" width={150} filled />
+            <Badge x={HUB.x} y={HUB.y} t={t} arriveStart={HUB_IN.start} arriveEnd={HUB_IN.end} label="Campaign" width={124} filled />
           </g>
 
           {/* ================= S2 — one campaign = product / service / offer ================= */}
           <g opacity={conceptOpacity}>
-            <Badge x={480} y={170} t={t} arriveStart={S2_HEAD_IN.start} arriveEnd={S2_HEAD_IN.end} label="One Campaign" width={190} />
+            <Badge x={CX} y={78} t={t} arriveStart={S2_HEAD_IN.start} arriveEnd={S2_HEAD_IN.end} label="One Campaign" width={148} />
             {S2_SUB.map((s, i) => (
               <React.Fragment key={s.label}>
-                <DrawLine d={`M${s.x},${378} L${s.x + (480 - s.x) * 0.35},${330}`} t={t}
+                <DrawLine d={`M${s.x},${196} L${s.x + (CX - s.x) * 0.4},${156}`} t={t}
                   start={S2_SUB_IN[i].start} end={S2_SUB_IN[i].end} width={1} color={LINE} />
-                <Chip x={s.x} y={392} t={t} start={S2_SUB_IN[i].start} end={S2_SUB_IN[i].end} label={s.label} tone="accent" width={104} />
+                <Chip x={s.x} y={208} t={t} start={S2_SUB_IN[i].start} end={S2_SUB_IN[i].end} label={s.label} tone="accent" width={78} />
               </React.Fragment>
             ))}
           </g>
@@ -334,15 +346,15 @@ export default function CampaignOnboardingVideo({ onSkip, onComplete }: Campaign
           {/* ================= S3 — everything belonging to that offer ================= */}
           <g opacity={worldOpacity}>
             {S3_NODE_DEFS.map((n, i) => (
-              <DrawLine key={`line-${n.label}`} d={`M${HUB.x},${HUB.y} L${S3_NODE_POS[i].x},${S3_NODE_POS[i].y}`} t={t}
-                start={S3_LINES_IN[i].start} end={S3_LINES_IN[i].end} width={1} color={ACCENT} opacity={0.45} />
+              <DrawLine key={`line-${n.label}`} d={`M${HUB.x},${HUB.y + 13} L${n.x},${n.y - 11}`} t={t}
+                start={S3_LINES_IN[i].start} end={S3_LINES_IN[i].end} width={1} color={ACCENT} opacity={0.4} />
             ))}
             {S3_NODE_DEFS.map((n, i) => (
-              <Chip key={n.label} x={S3_NODE_POS[i].x} y={S3_NODE_POS[i].y} t={t}
+              <Chip key={n.label} x={n.x} y={n.y} t={t}
                 start={S3_NODES_IN[i].start} end={S3_NODES_IN[i].end} label={n.label} tone="accent" width={n.width} />
             ))}
-            <circle cx={HUB.x} cy={HUB.y} r={22 + s3PulseVal * 14} fill="none" stroke={ACCENT} strokeWidth={1} opacity={s3PulseVal * 0.35} />
-            <text x={480} y={470} textAnchor="middle" fontFamily={MONO} fontSize={10} fontWeight={700} letterSpacing={0.6} fill={MUTED}
+            <circle cx={HUB.x} cy={HUB.y} r={20 + s3PulseVal * 12} fill="none" stroke={ACCENT} strokeWidth={1} opacity={s3PulseVal * 0.35} />
+            <text x={CX} y={368} textAnchor="middle" fontFamily={MONO} fontSize={10} fontWeight={700} letterSpacing={0.5} fill={MUTED}
               opacity={fadeWindow(t, S3_LAST_END, S3_LAST_END + 250, SEG.S3.end - 200, SEG.S3.end)} style={{ textTransform: "uppercase" }}>
               all one offer, all one campaign
             </text>
@@ -350,18 +362,18 @@ export default function CampaignOnboardingVideo({ onSkip, onComplete }: Campaign
 
           {/* ================= S4 — you don't need everything now ================= */}
           <g opacity={laterOpacity}>
-            {S3_NODE_DEFS.map((n, i) => (
-              <React.Fragment key={`later-${n.label}`}>
-                <DrawLine d={`M${HUB.x},${HUB.y} L${S3_NODE_POS[i].x},${S3_NODE_POS[i].y}`} t={t}
-                  start={S4_NODES_MUTED_IN.start} end={S4_NODES_MUTED_IN.end} width={1} color={LINE} dash="2 5" />
-                <g opacity={0.55 * prog(t, S4_NODES_MUTED_IN.start, S4_NODES_MUTED_IN.end)}>
-                  <Chip x={S3_NODE_POS[i].x} y={S3_NODE_POS[i].y} t={t}
-                    start={S4_NODES_MUTED_IN.start} end={S4_NODES_MUTED_IN.end} label={n.label} tone="muted" width={n.width} />
-                </g>
-              </React.Fragment>
+            {S3_NODE_DEFS.map((n) => (
+              <DrawLine key={`later-line-${n.label}`} d={`M${HUB.x},${HUB.y + 13} L${n.x},${n.y - 11}`} t={t}
+                start={S4_NODES_MUTED_IN.start} end={S4_NODES_MUTED_IN.end} width={1} color={LINE} dash="2 5" />
             ))}
-            <circle cx={HUB.x} cy={HUB.y} r={54 + s4PulseVal * 10} fill="none" stroke={ACCENT} strokeWidth={1} opacity={s4PulseVal * 0.3} />
-            <Badge x={HUB.x} y={HUB.y} t={t} arriveStart={S4_BADGE_IN.start} arriveEnd={S4_BADGE_IN.end} label="Start With The Basics" width={260} filled />
+            {S3_NODE_DEFS.map((n) => (
+              <g key={`later-${n.label}`} opacity={0.55 * prog(t, S4_NODES_MUTED_IN.start, S4_NODES_MUTED_IN.end)}>
+                <Chip x={n.x} y={n.y} t={t} start={S4_NODES_MUTED_IN.start} end={S4_NODES_MUTED_IN.end} label={n.label} tone="muted" width={n.width} />
+              </g>
+            ))}
+            <circle cx={HUB.x} cy={HUB.y} r={40 + s4PulseVal * 8} fill="none" stroke={ACCENT} strokeWidth={1} opacity={s4PulseVal * 0.3} />
+            <Badge x={HUB.x} y={HUB.y} t={t} arriveStart={S4_BADGE_IN.start} arriveEnd={S4_BADGE_IN.end}
+              label="Start With The Basics" width={196} fontSize={9.5} filled />
           </g>
 
           {/* ================= S5 — as many campaigns as offers, then: one world ================= */}
@@ -372,29 +384,29 @@ export default function CampaignOnboardingVideo({ onSkip, onComplete }: Campaign
               const fade = 1 - convergeP;
               return (
                 <g key={c.label} opacity={prog(t, S5_CAMP_IN[i].start, S5_CAMP_IN[i].end) * (convergeP > 0 ? fade : 1)}>
-                  <Person x={cx} y={cy - 34} size={30} emoji={c.emoji} />
-                  <Badge x={cx} y={cy + 6} t={t} arriveStart={S5_CAMP_IN[i].start} arriveEnd={S5_CAMP_IN[i].end} label={c.label} width={132} />
+                  <Person x={cx} y={cy - 28} size={24} emoji={c.emoji} />
+                  <Badge x={cx} y={cy + 4} t={t} arriveStart={S5_CAMP_IN[i].start} arriveEnd={S5_CAMP_IN[i].end} label={c.label} width={108} fontSize={8.5} h={22} />
                 </g>
               );
             })}
-            <circle cx={HUB.x} cy={HUB.y} r={20 + s5PulseVal * 16} fill="none" stroke={ACCENT} strokeWidth={1}
+            <circle cx={HUB.x} cy={HUB.y} r={16 + s5PulseVal * 12} fill="none" stroke={ACCENT} strokeWidth={1}
               opacity={s5PulseVal * 0.4 * prog(t, S5_FINAL_BADGE_IN.start, S5_FINAL_BADGE_IN.end)} />
             <Badge x={HUB.x} y={HUB.y + 4} t={t} arriveStart={S5_FINAL_BADGE_IN.start} arriveEnd={S5_FINAL_BADGE_IN.end}
-              label="One Offer → One Campaign" width={310} filled />
+              label="One Offer → One Campaign" width={244} fontSize={8.5} filled />
           </g>
 
           {/* ================= S6 — Vix guides you into the form ================= */}
           <g opacity={handoffOpacity}>
             <g opacity={prog(t, S6_VIX_IN.start, S6_VIX_IN.end)}>
-              <Person x={480} y={140} size={44} emoji="🦊" />
+              <Person x={CX} y={80} size={32} emoji="🦊" />
             </g>
-            <DrawLine d="M480,172 L480,270" t={t} start={S6_ARROW_IN.start} end={S6_ARROW_IN.end} width={1.2} color={ACCENT} />
-            <path d="M470,262 L480,278 L490,262" fill="none" stroke={ACCENT} strokeWidth={1.2} strokeLinecap="round" strokeLinejoin="round"
+            <DrawLine d={`M${CX},108 L${CX},172`} t={t} start={S6_ARROW_IN.start} end={S6_ARROW_IN.end} width={1.2} color={ACCENT} />
+            <path d={`M${CX - 8},164 L${CX},178 L${CX + 8},164`} fill="none" stroke={ACCENT} strokeWidth={1.2} strokeLinecap="round" strokeLinejoin="round"
               opacity={prog(t, S6_ARROW_IN.start + 200, S6_ARROW_IN.end)} />
             {S6_FIELDS.map((f, i) => (
-              <React.Fragment key={f}>
-                <DrawLine d={`M480,282 L${S6_FIELDS_X[i]},322`} t={t} start={S6_FIELDS_IN[i].start} end={S6_FIELDS_IN[i].end} width={1} color={LINE} />
-                <Chip x={S6_FIELDS_X[i]} y={336} t={t} start={S6_FIELDS_IN[i].start} end={S6_FIELDS_IN[i].end} label={f} tone="accent" width={f.length * 7 + 34} fontSize={9} />
+              <React.Fragment key={f.label}>
+                <DrawLine d={`M${CX},186 L${f.x},214`} t={t} start={S6_FIELDS_IN[i].start} end={S6_FIELDS_IN[i].end} width={1} color={LINE} />
+                <Chip x={f.x} y={228} t={t} start={S6_FIELDS_IN[i].start} end={S6_FIELDS_IN[i].end} label={f.label} tone="accent" width={f.width} fontSize={8} />
               </React.Fragment>
             ))}
           </g>
@@ -402,15 +414,15 @@ export default function CampaignOnboardingVideo({ onSkip, onComplete }: Campaign
       </div>
 
       {/* ---------- Caption bar ---------- */}
-      <div style={{ minHeight: 58, display: "flex", alignItems: "center", justifyContent: "center", marginTop: 2, padding: "0 20px" }}>
+      <div style={{ minHeight: 54, display: "flex", alignItems: "center", justifyContent: "center", marginTop: 2, padding: "0 18px" }}>
         {CAPTIONS.map((c, i) => {
           const op = fadeWindow(t, c.a, c.b, c.c, c.d);
           if (op <= 0.001) return null;
           return (
             <p key={i} style={{
               position: "absolute", margin: 0, fontFamily: "Georgia, 'Iowan Old Style', 'Palatino Linotype', serif",
-              fontSize: 15.5, fontWeight: 400, color: INK, opacity: op, letterSpacing: 0.1, textAlign: "center",
-              whiteSpace: "pre-line", lineHeight: 1.4, maxWidth: 620,
+              fontSize: 14.5, fontWeight: 400, color: INK, opacity: op, letterSpacing: 0.1, textAlign: "center",
+              whiteSpace: "pre-line", lineHeight: 1.4, maxWidth: 380,
             }}>
               {c.text}
             </p>
@@ -421,19 +433,19 @@ export default function CampaignOnboardingVideo({ onSkip, onComplete }: Campaign
       {/* ---------- Playback controls ---------- */}
       {!finished ? (
         <button type="button" onClick={() => { setElapsed(TOTAL); onSkip?.(); }} style={{
-          position: "absolute", top: 8, right: 10,
+          position: "absolute", top: 6, right: 8,
           display: "flex", alignItems: "center", gap: 5,
           background: "rgba(255,255,255,0.9)", border: `1px solid ${LINE}`,
-          borderRadius: 999, fontFamily: MONO, fontSize: 10,
-          fontWeight: 700, letterSpacing: 0.6, textTransform: "uppercase",
-          color: "#6b6b78", cursor: "pointer", padding: "6px 12px",
+          borderRadius: 999, fontFamily: MONO, fontSize: 9.5,
+          fontWeight: 700, letterSpacing: 0.5, textTransform: "uppercase",
+          color: "#6b6b78", cursor: "pointer", padding: "5px 10px",
         }}>
           Skip video <span aria-hidden="true">→</span>
         </button>
       ) : (
         <button type="button" onClick={replay} style={{
-          position: "absolute", bottom: 2, right: 10,
-          background: "none", border: "none", fontFamily: MONO, fontSize: 10.5,
+          position: "absolute", bottom: 2, right: 8,
+          background: "none", border: "none", fontFamily: MONO, fontSize: 10,
           letterSpacing: 0.4, color: "#9a9aa8", cursor: "pointer", padding: 4,
         }}>
           ↻ replay
