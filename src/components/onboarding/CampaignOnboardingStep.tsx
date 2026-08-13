@@ -667,7 +667,7 @@ export default function CampaignOnboardingStep({ onComplete }: CampaignOnboardin
             transition={{ duration: 0.18 }}
           >
             {step === 'basics' && (
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 6, maxWidth: 680 }}>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 6, maxWidth: 900 }}>
                 {/* Vix's video introduction to what a Campaign is — replaces the old
                     explanatory paragraph. Word-for-word script, same SVG/beat engine
                     as OnboardingVideoSection06. Purely informational: it never gates
