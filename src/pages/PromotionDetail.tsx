@@ -48,7 +48,7 @@
 
 import React, { useEffect, useState } from 'react';
 import { useParams, Link } from 'react-router-dom';
-import { ArrowLeft, Loader2, ArchiveRestore, UserX, UserCheck, ShieldOff, ShieldCheck, Globe } from 'lucide-react';
+import { ArrowLeft, Loader2, ArchiveRestore, UserX, UserCheck, ShieldOff, ShieldCheck, Globe, BarChart3 } from 'lucide-react';
 import { useAuth } from '../lib/auth';
 import {
   getPromotionDetail,
@@ -530,6 +530,20 @@ export default function PromotionDetail() {
             )}
           </div>
         )}
+
+        {!isRemovedSelf && (
+          <div className="mt-4">
+            <Link
+              to={`/marketplace/promotions/${id}/analytics`}
+              className="inline-flex items-center gap-2 bg-zinc-900 hover:bg-zinc-800 border border-zinc-800 text-zinc-300 hover:text-white text-xs font-bold uppercase tracking-wider px-4 py-2 rounded-lg transition-colors"
+            >
+              <BarChart3 size={14} />
+              View Analytics
+            </Link>
+          </div>
+        )}
+
+        
       </div>
 
       {isRemovedSelf ? (
