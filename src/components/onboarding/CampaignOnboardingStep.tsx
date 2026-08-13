@@ -36,7 +36,7 @@
 // Paid Consultation, Lead Magnet, and Review are untouched.
 // ─────────────────────────────────────────────────────────────────────────
 
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import {
   CreditCard,
@@ -47,6 +47,8 @@ import { supabase } from '../../lib/supabase';
 import { useAuth } from '../../lib/auth';
 import { useOrganization } from '../../lib/useOrganization';
 import CampaignOnboardingVideo from './CampaignOnboardingVideo/CampaignOnboardingVideo';
+import CampaignOnboardingStripeVideo from './CampaignOnboardingVideo/CampaignOnboardingStripeVideo';
+import CampaignOnboardingPixelVideo from './CampaignOnboardingVideo/CampaignOnboardingPixelVideo';
 import {
   PAYMENT_OPTIONS,
   CONSULTATION_PAYMENT_OPTIONS,
@@ -115,6 +117,8 @@ const SUPPORT_WHATSAPP_URL = 'https://chat.whatsapp.com/G07wVgoAyRS3Z171uRDQ1K?s
 interface CampaignOnboardingStepProps {
   /** Called after the campaign row is successfully created. */
   onComplete: (campaignId: string) => void;
+  /** Tells the parent (OnboardingOverlay) which video the left desktop panel should show. */
+  onSceneChange?: (scene: 'basics' | 'stripe' | 'pixel') => void;
 }
 
 // ── design tokens ─────────────────────────────────────────────────────
@@ -515,7 +519,7 @@ function TrackChoiceCard({
   );
 }
 
-export default function CampaignOnboardingStep({ onComplete }: CampaignOnboardingStepProps) {
+export default function CampaignOnboardingStep({ onComplete, onSceneChange }: CampaignOnboardingStepProps) {
   const { user } = useAuth();
   const { organizationId } = useOrganization();
   const [step, setStep] = useState<WizardStep>('basics');
@@ -528,6 +532,21 @@ export default function CampaignOnboardingStep({ onComplete }: CampaignOnboardin
   // then asks Stripe-or-not, and only then shows the relevant option cards.
   const [paymentStage, setPaymentStage] = useState<PaymentStage>('intro');
   const [paymentTrack, setPaymentTrack] = useState<PaymentTrack | null>(null);
+
+  // Report which video the left desktop panel (and mobile inline video) should
+  // show. Only fires when we actually know what to show — before a payment
+  // track is picked, we deliberately say nothing, so the panel just keeps
+  // showing whatever it was already showing.
+  useEffect(() => {
+    if (!onSceneChange) return;
+    if (step === 'basics') {
+      onSceneChange('basics');
+    } else if (step === 'purchase' && paymentTrack === 'stripe') {
+      onSceneChange('stripe');
+    } else if (step === 'purchase' && paymentTrack === 'other') {
+      onSceneChange('pixel');
+    }
+  }, [step, paymentTrack, onSceneChange]);
 
   const stepIndex = STEP_ORDER.indexOf(step);
 
@@ -838,6 +857,10 @@ export default function CampaignOnboardingStep({ onComplete }: CampaignOnboardin
                       transition={{ duration: 0.18 }}
                       style={{ display: 'flex', flexDirection: 'column', gap: 14 }}
                     >
+                      <div className="lg:hidden">
+                        {paymentTrack === 'stripe' ? <CampaignOnboardingStripeVideo /> : <CampaignOnboardingPixelVideo />}
+                      </div>
+
                       <FoxSay>
                         <p style={{ fontSize: 13, color: ink, margin: 0, lineHeight: 1.5 }}>
                           {paymentTrack === 'stripe'

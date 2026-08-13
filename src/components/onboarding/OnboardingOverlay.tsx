@@ -20,11 +20,14 @@ import WelcomeStep from './WelcomeStep';
 import OnboardingVideo from './OnboardingVideo';
 import CampaignOnboardingStep from './CampaignOnboardingStep';
 import CampaignOnboardingVideo from './CampaignOnboardingVideo/CampaignOnboardingVideo';
+import CampaignOnboardingStripeVideo from './CampaignOnboardingVideo/CampaignOnboardingStripeVideo';
+import CampaignOnboardingPixelVideo from './CampaignOnboardingVideo/CampaignOnboardingPixelVideo';
 type OnboardingStep = 'welcome' | 'video' | 'campaign'; // more steps join this union as they're built
 
 export default function OnboardingOverlay() {
   const { isOpen, close } = useOnboardingOverlay();
   const [step, setStep] = useState<OnboardingStep>('welcome');
+  const [videoScene, setVideoScene] = useState<'basics' | 'stripe' | 'pixel'>('basics');
 
   // Reset to the first step each time the overlay is opened fresh.
   useEffect(() => {
@@ -90,9 +93,11 @@ export default function OnboardingOverlay() {
     }}
     onClick={(e) => e.stopPropagation()}
   >
-    {/* LEFT: video */}
+    {/* LEFT: video — swaps based on what the user picks on the right */}
     <div className="hidden lg:flex lg:w-[380px] lg:flex-shrink-0 bg-white rounded-2xl overflow-hidden shadow-2xl items-center justify-center p-6">
-      <CampaignOnboardingVideo />
+      {videoScene === 'basics' && <CampaignOnboardingVideo />}
+      {videoScene === 'stripe' && <CampaignOnboardingStripeVideo />}
+      {videoScene === 'pixel' && <CampaignOnboardingPixelVideo />}
     </div>
 
     {/* RIGHT: onboarding form */}
@@ -101,6 +106,7 @@ export default function OnboardingOverlay() {
         onComplete={() => {
           close();
         }}
+        onSceneChange={setVideoScene}
       />
     </div>
   </div>
