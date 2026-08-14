@@ -4,6 +4,7 @@ import { Briefcase, Mail, Rocket, Loader2, Plus, Archive, ArchiveRestore, X } fr
 import { motion, AnimatePresence } from 'motion/react';
 import { Modal } from '../components/Modal';
 import { useEffectiveIdentity } from '../lib/useEffectiveIdentity';
+import { useViewing } from '../lib/ViewingContext';
 import {
   listOrgAssignments,
   listMyCollaborations,
@@ -58,7 +59,8 @@ export default function Marketplace() {
   // actions so viewing mode can never write to the viewed member's
   // personal archive state.
   const { userId, email: profileEmail, organizationId: orgId, isReadOnly, loading: identityLoading } = useEffectiveIdentity();
-
+  const { viewingOrgId } = useViewing();
+  const effectiveOrgId = isReadOnly ? viewingOrgId : orgId;
   // Personal archive state — Map<assignment_id, archived_at>, scoped to
   // the current user only. Ali and WebMood each get their own Map;
   // archiving never mutates the assignment row itself, so it can never
@@ -171,13 +173,13 @@ export default function Marketplace() {
     if (!userId) return;
 
     if (tab === 'assignments') {
-      loadAssignments(orgId, userId);
+    loadAssignments(effectiveOrgId, userId);
     }
 
     if (tab === 'invitations') {
       loadInvitations(profileEmail);
     }
-  }, [tab, userId, orgId, profileEmail]);
+  }, [tab, userId, orgId, profileEmail, effectiveOrgId]);
 
   // Archive is only ever triggered by an explicit user click below — there
   // is no automatic/time-based archiving anywhere. This only ever writes

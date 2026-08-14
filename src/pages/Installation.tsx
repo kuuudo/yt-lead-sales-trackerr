@@ -2,6 +2,7 @@ import React, { useState, useEffect, useCallback } from 'react';
 import { supabase } from '../lib/supabase';
 import { useAuth } from '../lib/auth';
 import { useEffectiveIdentity } from '../lib/useEffectiveIdentity';
+import { useViewing } from '../lib/ViewingContext';
 import { useOnboardingOverlay } from '../lib/onboarding-overlay';
 import { useNavigate, Link } from 'react-router-dom';
 import { generatePixelSnippet, WEBHOOK_ENDPOINT } from '../lib/tracker';
@@ -26,7 +27,7 @@ interface StripeConfig {
   stripe_webhook_secret: string | null;
 }
 
-// Extend Campaign locally to include the two DB fields that may not be in the generated type.
+// Extend Campaign locally to include the two DB fields that may not be in the generated type
 type CampaignExtended = Campaign & {
   checkout_type?: string | null;
   consultation_checkout_type?: string | null;
@@ -443,39 +444,20 @@ const RedirectTrackingBlock = ({
   linkType,
   eventLabel,
   limitationMessage,
-  isReadOnly = false,
 }: {
   campaignId: string;
   destinationUrl: string | null | undefined;
   linkType: string;
   eventLabel: string;
   limitationMessage: string;
-  isReadOnly?: boolean;
 }) => {
+  const { isReadOnly } = useViewing();
   const [trackedUrl, setTrackedUrl] = useState<string | null>(null);
 
   useEffect(() => {
     if (!destinationUrl || !campaignId) return;
 
     const syncLink = async () => {
-      // Viewing mode: still SHOW the member's existing tracked link (a
-      // read), but never silently insert/update redirect_links on their
-      // behalf. If no row exists yet, there's nothing to display —
-      // creating one is a write and is explicitly out of scope here.
-      if (isReadOnly) {
-        const { data: existing } = await supabase
-          .from('redirect_links')
-          .select('token')
-          .eq('campaign_id', campaignId)
-          .eq('link_type', linkType)
-          .is('video_id', null)
-          .order('created_at', { ascending: false })
-          .limit(1)
-          .single();
-        if (existing) setTrackedUrl(`${window.location.origin}/${existing.token}`);
-        return;
-      }
-
       const { data: existing } = await supabase
         .from('redirect_links')
         .select('token, destination_url')
@@ -485,6 +467,11 @@ const RedirectTrackingBlock = ({
         .order('created_at', { ascending: false })
         .limit(1)
         .single();
+
+      if (isReadOnly) {
+        if (existing) setTrackedUrl(`${window.location.origin}/${existing.token}`);
+        return;
+      }
 
       if (!existing) {
         const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789';
@@ -629,7 +616,6 @@ const StripeSetupBlock = ({
   campaignId,
   linkType,
   onSecretSaved,
-  isReadOnly = false,
 }: {
   userId: string;
   stripeConfig: StripeConfig | null;
@@ -637,8 +623,8 @@ const StripeSetupBlock = ({
   campaignId: string;
   linkType: 'checkout' | 'consultation';
   onSecretSaved: () => void;
-  isReadOnly?: boolean;
 }) => {
+  const { isReadOnly } = useViewing();
   const [webhookSecret, setWebhookSecret] = useState('');
   const [saving, setSaving] = useState(false);
   const [copied, setCopied] = useState(false);
@@ -651,22 +637,6 @@ const StripeSetupBlock = ({
     const dbLinkType = linkType === 'consultation' ? 'consultation' : 'checkout';
 
     const syncTrackedLink = async () => {
-      // Viewing mode: show the member's existing tracked link, but never
-      // silently insert/update redirect_links on their behalf.
-      if (isReadOnly) {
-        const { data: existing } = await supabase
-          .from('redirect_links')
-          .select('token')
-          .eq('campaign_id', campaignId)
-          .eq('link_type', dbLinkType)
-          .is('video_id', null)
-          .order('created_at', { ascending: false })
-          .limit(1)
-          .single();
-        if (existing) setTrackedUrl(`${window.location.origin}/${existing.token}`);
-        return;
-      }
-
       const { data: existing } = await supabase
         .from('redirect_links')
         .select('token, destination_url')
@@ -676,6 +646,11 @@ const StripeSetupBlock = ({
         .order('created_at', { ascending: false })
         .limit(1)
         .single();
+
+      if (isReadOnly) {
+        if (existing) setTrackedUrl(`${window.location.origin}/${existing.token}`);
+        return;
+      }
 
       if (!existing) {
         const token = generateToken();
@@ -800,30 +775,25 @@ const StripeSetupBlock = ({
           </div>
         )}
         {!isReadOnly && (
-          <div className="pl-7 space-y-2">
-            <div className="relative">
-              <Key size={13} className="absolute left-3 top-3 text-zinc-600" />
-              <input
-                type="password"
-                value={webhookSecret}
-                onChange={e => setWebhookSecret(e.target.value)}
-                placeholder="whsec_••••••••••••••••••••••"
-                className="w-full bg-zinc-950 border border-zinc-800 rounded-xl py-2.5 pl-9 pr-4 text-sm text-white font-mono focus:border-violet-500 outline-none transition-all placeholder:text-zinc-700"
-              />
-            </div>
-            <button
-              onClick={handleSave}
-              disabled={saving || !webhookSecret.trim()}
-              className="w-full bg-violet-600 hover:bg-violet-500 text-white h-10 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all flex items-center justify-center gap-2 disabled:opacity-40 disabled:cursor-not-allowed"
-            >
-              {saving ? <Loader2 size={13} className="animate-spin" /> : 'Save Webhook Secret'}
-            </button>
+        <div className="pl-7 space-y-2">
+          <div className="relative">
+            <Key size={13} className="absolute left-3 top-3 text-zinc-600" />
+            <input
+              type="password"
+              value={webhookSecret}
+              onChange={e => setWebhookSecret(e.target.value)}
+              placeholder="whsec_••••••••••••••••••••••"
+              className="w-full bg-zinc-950 border border-zinc-800 rounded-xl py-2.5 pl-9 pr-4 text-sm text-white font-mono focus:border-violet-500 outline-none transition-all placeholder:text-zinc-700"
+            />
           </div>
-        )}
-        {isReadOnly && !isConnected && (
-          <p className="pl-7 text-[11px] text-zinc-600 italic">
-            Read-only — webhook secret cannot be added while viewing.
-          </p>
+          <button
+            onClick={handleSave}
+            disabled={saving || !webhookSecret.trim()}
+            className="w-full bg-violet-600 hover:bg-violet-500 text-white h-10 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all flex items-center justify-center gap-2 disabled:opacity-40 disabled:cursor-not-allowed"
+          >
+            {saving ? <Loader2 size={13} className="animate-spin" /> : 'Save Webhook Secret'}
+          </button>
+        </div>
         )}
       </div>
     </div>
@@ -1846,7 +1816,8 @@ const CampaignCard = ({
 // WHY STRIPE CARD
 // ─────────────────────────────────────────────
 
-const WhyStripeCard = ({ userId, isReadOnly = false }: { userId: string; isReadOnly?: boolean }) => {
+
+  const WhyStripeCard = ({ userId }: { userId: string }) => {
   const [open, setOpen] = useState(false);
   const [email, setEmail] = useState('');
   const [submitting, setSubmitting] = useState(false);
@@ -1854,7 +1825,7 @@ const WhyStripeCard = ({ userId, isReadOnly = false }: { userId: string; isReadO
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (isReadOnly || !email.trim()) return;
+    if (!email.trim()) return;
     setSubmitting(true);
     await supabase.from('stripe_interest').insert({ user_id: userId, email: email.trim() });
     setSubmitting(false);
@@ -1953,7 +1924,7 @@ const WhyStripeCard = ({ userId, isReadOnly = false }: { userId: string; isReadO
 // ─────────────────────────────────────────────
 
 export default function Installation() {
-  const { user } = useAuth();
+  const { userId, isReadOnly, loading: identityLoading } = useEffectiveIdentity();
   const { open: openOnboarding } = useOnboardingOverlay();
   const navigate = useNavigate();
   const [campaigns, setCampaigns] = useState<CampaignExtended[]>([]);
@@ -1965,23 +1936,23 @@ export default function Installation() {
   const [refreshing, setRefreshing] = useState(false);
 
   const fetchData = useCallback(async () => {
-    if (!user) return;
+    if (!userId) return;
     const [{ data: camps }, { data: stripeConf }] = await Promise.all([
       supabase
         .from('campaigns')
         .select('*')
-        .eq('user_id', user.id)
+        .eq('user_id', userId)
         .order('created_at', { ascending: false }),
       supabase
         .from('stripe_configs')
         .select('stripe_webhook_secret')
-        .eq('user_id', user.id)
+        .eq('user_id', userId)
         .single(),
     ]);
     setCampaigns((camps ?? []) as CampaignExtended[]);
     setStripeConfig(stripeConf ?? null);
     setLoading(false);
-  }, [user]);
+  }, [userId]);
 
   useEffect(() => {
     fetchData();
@@ -2081,7 +2052,7 @@ export default function Installation() {
       </div>
 
       {/* Why Stripe */}
-      <WhyStripeCard userId={user!.id} />
+      <WhyStripeCard userId={userId!} />
 
       {/* Campaigns Section */}
       <section className="space-y-4">
@@ -2123,7 +2094,7 @@ export default function Installation() {
                 key={campaign.id}
                 campaign={campaign}
                 stripeConfig={stripeConfig}
-                userId={user!.id}
+                userId={userId!}
                 isExpanded={expandedId === campaign.id}
                 onToggle={() => handleToggle(campaign.id)}
                 onRefresh={handleRefresh}
