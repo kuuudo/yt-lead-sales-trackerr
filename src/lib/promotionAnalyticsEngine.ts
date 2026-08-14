@@ -220,12 +220,38 @@ export interface PromotionAnalyticsEngineInput {
  */
 function scopeToPromotion(input: PromotionAnalyticsEngineInput) {
   const { promotionId } = input;
-  return {
-    events: input.events.filter(e => e.promotion_id === promotionId),
-    stripePurchases: input.stripePurchases.filter(p => p.promotion_id === promotionId),
-    pixelPurchases: input.pixelPurchases.filter(p => p.promotion_id === promotionId),
-    redirectLinks: input.redirectLinks.filter(r => r.promotion_id === promotionId),
-  };
+
+  // Secondary disambiguation only.
+  // Keep links that are ours OR unmarked (null).
+  // Drop only links explicitly stamped for a DIFFERENT promotion.
+  const redirectLinks = input.redirectLinks.filter(
+    r => r.promotion_id === promotionId || r.promotion_id == null,
+  );
+
+  const validTokens = new Set(
+    redirectLinks.map(r => r.token).filter((t): t is string => !!t),
+  );
+  const validVideoIds = new Set(
+    redirectLinks.map(r => r.video_id).filter((id): id is string => !!id),
+  );
+
+  const events = input.events.filter(
+    e => e.video_id != null && validVideoIds.has(e.video_id),
+  );
+
+  const stripePurchases = input.stripePurchases.filter(
+    p => p.redirect_link_token != null && validTokens.has(p.redirect_link_token),
+  );
+
+  const validSessionIds = new Set(
+    events.map(e => e.session_id).filter((s): s is string => !!s),
+  );
+
+  const pixelPurchases = input.pixelPurchases.filter(
+    p => p.session_id != null && validSessionIds.has(p.session_id),
+  );
+
+  return { events, stripePurchases, pixelPurchases, redirectLinks };
 }
 
 // ═════════════════════════════════════════════════════════════════════════════

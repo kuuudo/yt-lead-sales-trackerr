@@ -8,16 +8,6 @@
  * computePromotionAnalytics(). No analytics math lives in this file — this
  * is data access only.
  *
- * STRIPE PURCHASE SCOPING (see fetchPromotionStripePurchases below): real
- * stripe_purchases rows can have promotion_id = NULL at write time even
- * though they genuinely belong to this promotion via
- * redirect_link_id → redirect_links.promotion_id. A plain
- * `.eq('promotion_id', promotionId)` never matches those NULL rows, so
- * Stripe purchases are fetched by promotion_id OR by this promotion's own
- * redirect_link ids and merged. pixel_purchases has no redirect_link_id/
- * redirect_link_token column in this schema, so the same NULL-fallback does
- * not apply there — it stays a plain promotion_id match.
- *
  * JOURNEY CONTEXT RULE (locked): the conversion itself must originate from
  * the selected promotion (promotion_id = promotionId), but journey
  * reconstruction is session-scoped and deliberately NOT filtered by
@@ -65,7 +55,11 @@ const STRIPE_PURCHASES_COLUMNS =
 
 const PIXEL_PURCHASES_COLUMNS =
   'id, promotion_id, session_id, video_id, campaign_id, amount, created_at, event_type, organization_id';
+const PROMOTIONS_COLUMNS =
+  'id, assignment_id, organization_id, campaign_id';
 
+const ASSIGNMENT_ASSETS_COLUMNS =
+  'asset_id';
 const CAMPAIGN_ELEMENT_ASSETS_COLUMNS =
   'id, asset_id, campaign_id, element_type, source_field, display_name';
 
@@ -100,59 +94,6 @@ async function fetchByIn<T>(
 }
 
 /**
- * fetchPromotionStripePurchases
- *
- * A Stripe purchase belongs to this promotion if EITHER:
- *   stripe_purchases.promotion_id === promotionId
- * OR (because real purchase-webhook rows can land with promotion_id NULL):
- *   stripe_purchases.redirect_link_id → redirect_links.id → redirect_links.promotion_id === promotionId
- *
- * Postgres/PostgREST `.eq('promotion_id', promotionId)` never matches a NULL
- * promotion_id row, so a plain single query silently drops the second case.
- * We run two queries — one by promotion_id, one by redirect_link_id against
- * the promotion's own redirect_links (already resolved by the caller) — and
- * merge by purchase id. This does not touch revenue classification; it only
- * changes which rows reach buildStripeFromPurchases() in
- * promotionAnalyticsEngine.ts.
- */
-async function fetchPromotionStripePurchases(
-  promotionId: string,
-  promotionRedirectLinkIds: string[],
-  startIso: string,
-  endIso: string,
-): Promise<PromotionStripePurchaseRow[]> {
-  const byPromotionId = supabase
-    .from('stripe_purchases')
-    .select(STRIPE_PURCHASES_COLUMNS)
-    .eq('promotion_id', promotionId)
-    .gte('created_at', startIso)
-    .lte('created_at', endIso);
-
-  const distinctLinkIds = Array.from(new Set(promotionRedirectLinkIds.filter(Boolean)));
-  const byRedirectLinkQueries = chunk(distinctLinkIds, IN_CHUNK_SIZE).map(batch =>
-    supabase
-      .from('stripe_purchases')
-      .select(STRIPE_PURCHASES_COLUMNS)
-      .in('redirect_link_id', batch)
-      .gte('created_at', startIso)
-      .lte('created_at', endIso),
-  );
-
-  const results = await Promise.all([byPromotionId, ...byRedirectLinkQueries]);
-
-  const merged = new Map<string, PromotionStripePurchaseRow>();
-  for (const res of results) {
-    if (res.error) {
-      throw new Error(`Failed to fetch promotion stripe purchases: ${res.error.message}`);
-    }
-    for (const row of (res.data ?? []) as PromotionStripePurchaseRow[]) {
-      merged.set(row.id, row);
-    }
-  }
-  return Array.from(merged.values());
-}
-
-/**
  * getPromotionAnalytics
  *
  * Fetches everything computePromotionAnalytics() needs for one promotion
@@ -170,44 +111,106 @@ export async function getPromotionAnalytics(
 
   // ── 1. Promotion-scoped core data (the conversion itself must come from
   // here) ─────────────────────────────────────────────────────────────────
-  // redirect_links is fetched first (not date-bounded — reference/
-  // classification data, not time-series events) because the Stripe
-  // purchase fetch below needs this promotion's redirect_link ids to catch
-  // purchase rows whose own promotion_id is NULL (see
-  // fetchPromotionStripePurchases doc comment).
-  const [eventsRes, pixelRes, redirectLinksRes] = await Promise.all([
-    supabase
-      .from('events')
-      .select(EVENTS_COLUMNS)
-      .eq('promotion_id', promotionId)
-      .gte('created_at', startIso)
-      .lte('created_at', endIso),
-    supabase
-      .from('pixel_purchases')
-      .select(PIXEL_PURCHASES_COLUMNS)
-      .eq('promotion_id', promotionId)
-      .gte('created_at', startIso)
-      .lte('created_at', endIso),
-    supabase.from('redirect_links').select(REDIRECT_LINKS_COLUMNS).eq('promotion_id', promotionId),
+  // ── 0. Resolve promotion → assignment → asset pool ───────────────────────
+  const { data: promotionRow, error: promotionError } = await supabase
+    .from('promotions')
+    .select(PROMOTIONS_COLUMNS)
+    .eq('id', promotionId)
+    .single();
+
+  if (promotionError || !promotionRow) {
+    throw new Error(`Failed to fetch promotion: ${promotionError?.message ?? 'not found'}`);
+  }
+
+  const assignmentId = promotionRow.assignment_id as string | null;
+  const organizationId = promotionRow.organization_id as string | null;
+
+  if (!assignmentId) {
+    throw new Error(`Promotion ${promotionId} has no assignment_id`);
+  }
+  if (!organizationId) {
+    throw new Error(`Promotion ${promotionId} has no organization_id`);
+  }
+
+  const { data: assignmentAssetsRows, error: assignmentAssetsError } = await supabase
+    .from('assignment_assets')
+    .select(ASSIGNMENT_ASSETS_COLUMNS)
+    .eq('assignment_id', assignmentId);
+
+  if (assignmentAssetsError) {
+    throw new Error(`Failed to fetch assignment_assets: ${assignmentAssetsError.message}`);
+  }
+
+  const assetIds = (assignmentAssetsRows ?? [])
+    .map((r: { asset_id: string | null }) => r.asset_id)
+    .filter((id): id is string => !!id);
+
+  // ── 1. Candidate redirect_links for this promotion's asset pool ──────────
+  // Secondary promotion_id match/exclude/null happens later in scopeToPromotion.
+  const redirectLinks = assetIds.length === 0
+    ? []
+    : await fetchByIn<PromotionRedirectLinkRow>(
+        'redirect_links',
+        REDIRECT_LINKS_COLUMNS,
+        'asset_id',
+        assetIds,
+      ).then(rows =>
+        rows.filter(r => r.organization_id === organizationId),
+      );
+
+  const tokens = redirectLinks.map(r => r.token).filter((t): t is string => !!t);
+  const videoIds = redirectLinks.map(r => r.video_id).filter((id): id is string => !!id);
+
+  // ── 2. Events by video_id pool (date-bounded) ────────────────────────────
+  const events = videoIds.length === 0
+    ? []
+    : await fetchByIn<PromotionEventRow>(
+        'events',
+        EVENTS_COLUMNS,
+        'video_id',
+        videoIds,
+      ).then(rows =>
+        rows.filter(e => {
+          const t = new Date(e.created_at);
+          return t >= start && t <= end;
+        }),
+      );
+
+  // ── 3. Stripe by token, Pixel by session bridge (date-bounded) ───────────
+  const sessionIdsFromEvents = events
+    .map(e => e.session_id)
+    .filter((s): s is string => !!s);
+
+  const [stripePurchases, pixelPurchases] = await Promise.all([
+    tokens.length === 0
+      ? Promise.resolve([] as PromotionStripePurchaseRow[])
+      : fetchByIn<PromotionStripePurchaseRow>(
+          'stripe_purchases',
+          STRIPE_PURCHASES_COLUMNS,
+          'redirect_link_token',
+          tokens,
+        ).then(rows =>
+          rows.filter(p => {
+            const t = new Date(p.created_at);
+            return t >= start && t <= end;
+          }),
+        ),
+    sessionIdsFromEvents.length === 0
+      ? Promise.resolve([] as PromotionPixelPurchaseRow[])
+      : fetchByIn<PromotionPixelPurchaseRow>(
+          'pixel_purchases',
+          PIXEL_PURCHASES_COLUMNS,
+          'session_id',
+          sessionIdsFromEvents,
+        ).then(rows =>
+          rows.filter(p => {
+            const t = new Date(p.created_at);
+            return t >= start && t <= end;
+          }),
+        ),
   ]);
 
-  if (eventsRes.error) throw new Error(`Failed to fetch promotion events: ${eventsRes.error.message}`);
-  if (pixelRes.error) throw new Error(`Failed to fetch promotion pixel purchases: ${pixelRes.error.message}`);
-  if (redirectLinksRes.error) throw new Error(`Failed to fetch promotion redirect links: ${redirectLinksRes.error.message}`);
-
-  const events = (eventsRes.data ?? []) as PromotionEventRow[];
-  const pixelPurchases = (pixelRes.data ?? []) as PromotionPixelPurchaseRow[];
-  const redirectLinks = (redirectLinksRes.data ?? []) as PromotionRedirectLinkRow[];
-
-  // Stripe purchases: promotion_id = promotionId OR resolvable via this
-  // promotion's own redirect_links (id column, fetched above).
-  const stripePurchases = await fetchPromotionStripePurchases(
-    promotionId,
-    redirectLinks.map(r => r.id),
-    startIso,
-    endIso,
-  );
-
+  
   // ── 2. Journey context — session-scoped, NOT promotion-filtered ─────────
   // Only pull session_ids from the conversion source(s) actually in play
   // for this activeSource, mirroring the engine's own source isolation.
@@ -238,7 +241,7 @@ export async function getPromotionAnalytics(
   // for every asset touched anywhere above (promotion-scoped or journey
   // context), keyed by asset_id (campaign_id disambiguation happens engine
   // + journeyAnalyticsEngine-side via the composite key already on each row).
-  const assetIds = [
+    const allAssetIds = [
     ...events.map(e => e.asset_id),
     ...redirectLinks.map(r => r.asset_id),
     ...journeyEvents.map(e => e.asset_id),
