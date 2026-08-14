@@ -25,9 +25,10 @@
 
 import React, { useState, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import { ChevronLeft, BarChart3, Folder, Megaphone, DollarSign, Eye, Target, Percent } from 'lucide-react';
+import { ChevronLeft, DollarSign, Eye, Target, Percent, Loader2 } from 'lucide-react';
 import { supabase } from '../../lib/supabase';
 import { useOrganization } from '../../lib/useOrganization';
+import { useViewing } from '../../lib/ViewingContext';
 
 interface MemberDetailData {
   id: string;
@@ -47,10 +48,13 @@ export default function MemberDetail() {
   const { id } = useParams();
   const navigate = useNavigate();
   const { organizationId, loading: orgLoading } = useOrganization();
+  const { enterViewing } = useViewing();
 
   const [member, setMember] = useState<MemberDetailData | null>(null);
   const [loading, setLoading] = useState(true);
   const [notFound, setNotFound] = useState(false);
+  const [enteringViewing, setEnteringViewing] = useState(false);
+  const [viewingError, setViewingError] = useState<string | null>(null);
 
   useEffect(() => {
     if (!organizationId || !id) return;
@@ -92,6 +96,20 @@ export default function MemberDetail() {
         setLoading(false);
       });
   }, [organizationId, id]);
+
+  const handleViewAccount = async () => {
+    if (!member) return;
+    setViewingError(null);
+    setEnteringViewing(true);
+    try {
+      await enterViewing(member.id, member.name);
+      navigate('/dashboard');
+    } catch (err: any) {
+      setViewingError(err.message || 'Could not enter viewing mode.');
+    } finally {
+      setEnteringViewing(false);
+    }
+  };
 
   if (orgLoading || loading) {
     return (
@@ -154,17 +172,23 @@ export default function MemberDetail() {
         <div className="px-6 py-4 border-b border-zinc-900 bg-zinc-900/10">
           <h2 className="label-caps !text-white">Quick actions</h2>
         </div>
-        <div className="grid grid-cols-3 gap-3 p-6">
-          {/* Not wired — see file header note on InDepthAnalyticsTest needing a memberId filter */}
-          <button className="flex items-center gap-2 justify-center px-4 py-3 bg-zinc-900 border border-zinc-700 rounded-xl text-[10px] font-black uppercase tracking-widest text-zinc-200 hover:border-zinc-500 transition-all">
-            <BarChart3 size={13} /> Analytics
+        <div className="p-6 space-y-3">
+          {/* Replaces the previous three disabled placeholder buttons. Once
+              viewing mode is entered, the member's Dashboard, Campaigns,
+              Videos, Assets, Analytics, and Workspace pages are all
+              reachable through normal navigation — no separate per-page
+              quick action is needed. */}
+          <button
+            onClick={handleViewAccount}
+            disabled={enteringViewing}
+            className="w-full flex items-center gap-2 justify-center px-4 py-3 bg-zinc-900 border border-zinc-700 rounded-xl text-[10px] font-black uppercase tracking-widest text-zinc-200 hover:border-zinc-500 transition-all disabled:opacity-50 disabled:cursor-not-allowed"
+          >
+            {enteringViewing ? <Loader2 size={13} className="animate-spin" /> : <Eye size={13} />}
+            View account
           </button>
-          <button disabled className="flex items-center gap-2 justify-center px-4 py-3 bg-zinc-950 border border-zinc-900 rounded-xl text-[10px] font-black uppercase tracking-widest text-zinc-700 cursor-not-allowed">
-            <Folder size={13} /> Assets
-          </button>
-          <button disabled className="flex items-center gap-2 justify-center px-4 py-3 bg-zinc-950 border border-zinc-900 rounded-xl text-[10px] font-black uppercase tracking-widest text-zinc-700 cursor-not-allowed">
-            <Megaphone size={13} /> Campaigns
-          </button>
+          {viewingError && (
+            <p className="text-[10px] font-bold text-red-500 text-center">{viewingError}</p>
+          )}
         </div>
       </section>
     </div>

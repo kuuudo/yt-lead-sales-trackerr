@@ -3,7 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { Briefcase, Mail, Rocket, Loader2, Plus, Archive, ArchiveRestore, X } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { Modal } from '../components/Modal';
-import { supabase } from '../lib/supabase';
+import { useEffectiveIdentity } from '../lib/useEffectiveIdentity';
 import {
   listOrgAssignments,
   listMyCollaborations,
@@ -44,20 +44,20 @@ export default function Marketplace() {
   const [showOnboarding, setShowOnboarding] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  // Captured once at bootstrap, reused by loadAssignments/loadInvitations
-  // when the user opens those tabs (so we don't repeat the getUser/profile/
-  // membership lookup for every tab switch).
-  
   const [assignments, setAssignments] = useState<AssignmentSummary[]>([]);
   const [invitations, setInvitations] = useState<InvitationSummary[]>([]);
   const [promotions, setPromotions] = useState<PromotionSummary[]>([]);
 
-  // Track the current user id — needed for archive/restore actions, which
-  // are scoped to (assignment_id, this user's id) only. See
-  // services/assignment/assignmentArchive.ts.
-  const [userId, setUserId] = useState<string | null>(null);
-  const [orgId, setOrgId] = useState<string | null>(null);
-  const [profileEmail, setProfileEmail] = useState<string | null>(null);
+  // Effective identity — the real authenticated user in normal mode, or
+  // the viewed member's identity while an Operator is in viewing mode.
+  // Replaces the old bootstrap that independently called
+  // supabase.auth.getUser() + its own profiles/organization_members
+  // lookups. userId is still needed for archive/restore actions, which
+  // are scoped to (assignment_id, this identity's id) only — see
+  // services/assignment/assignmentArchive.ts. isReadOnly gates those
+  // actions so viewing mode can never write to the viewed member's
+  // personal archive state.
+  const { userId, email: profileEmail, organizationId: orgId, isReadOnly, loading: identityLoading } = useEffectiveIdentity();
 
   // Personal archive state — Map<assignment_id, archived_at>, scoped to
   // the current user only. Ali and WebMood each get their own Map;
@@ -141,72 +141,43 @@ export default function Marketplace() {
     setArchivedPromotionMap(archivedPromotionIds);
   };
 
+  // Bootstrap now just waits on useEffectiveIdentity() instead of doing its
+  // own getUser()/profiles/organization_members lookups — in normal mode
+  // this resolves to the real signed-in user (unchanged behavior); in
+  // viewing mode it resolves to the viewed member's identity.
   useEffect(() => {
-  const bootstrap = async () => {
-    setLoading(true);
-    setError(null);
+    if (identityLoading) return;
 
-    try {
-      const { data: { user } } = await supabase.auth.getUser();
+    const bootstrap = async () => {
+      setLoading(true);
+      setError(null);
 
-      if (!user) throw new Error('Not signed in');
+      try {
+        if (!userId) throw new Error('Not signed in');
 
+        // ONLY load default tab
+        await loadPromotions(userId);
+      } catch (e: any) {
+        setError(e.message ?? 'Failed to load Collaboration Hub');
+      } finally {
+        setLoading(false);
+      }
+    };
 
-      const { data: profile } = await supabase
-        .from('profiles')
-        .select('email')
-        .eq('id', user.id)
-        .single();
+    bootstrap();
+  }, [identityLoading, userId]);
 
+  useEffect(() => {
+    if (!userId) return;
 
-      const { data: membership } = await supabase
-        .from('organization_members')
-        .select('organization_id')
-        .eq('user_id', user.id)
-        .limit(1)
-        .maybeSingle();
-
-
-      setUserId(user.id);
-
-      setOrgId(membership?.organization_id ?? null);
-
-      setProfileEmail(profile?.email ?? null);
-
-
-      // ONLY load default tab
-      await loadPromotions(user.id);
-
-
-    } catch (e: any) {
-      setError(e.message ?? 'Failed to load Collaboration Hub');
-
-    } finally {
-      setLoading(false);
+    if (tab === 'assignments') {
+      loadAssignments(orgId, userId);
     }
-  };
 
-
-  bootstrap();
-
-}, []);
-
-useEffect(() => {
-
-  if (!userId) return;
-
-
-  if (tab === 'assignments') {
-    loadAssignments(orgId, userId);
-  }
-
-
-  if (tab === 'invitations') {
-    loadInvitations(profileEmail);
-  }
-
-
-}, [tab, userId, orgId, profileEmail]);
+    if (tab === 'invitations') {
+      loadInvitations(profileEmail);
+    }
+  }, [tab, userId, orgId, profileEmail]);
 
   // Archive is only ever triggered by an explicit user click below — there
   // is no automatic/time-based archiving anywhere. This only ever writes
@@ -214,7 +185,7 @@ useEffect(() => {
   // affect the other party's view of the same assignment, and never
   // touches assignment status, collaborators, invitations, or promotions.
   const handleArchiveAssignment = (assignment: AssignmentSummary) => {
-    if (!userId) return;
+    if (!userId || isReadOnly) return;
     showConfirm(
       'Archive Assignment?',
       'Archived assignments will be hidden from your active list. You can restore them anytime.',
@@ -245,7 +216,7 @@ useEffect(() => {
   };
 
   const handleRestoreSelected = async () => {
-    if (!userId || selectedArchivedIds.length === 0) return;
+    if (!userId || isReadOnly || selectedArchivedIds.length === 0) return;
     setRestoring(true);
     try {
       await Promise.all(
@@ -274,7 +245,7 @@ useEffect(() => {
   // touches promotion status, promotion_assets, or assignment/collaborator
   // relationships.
   const handleArchivePromotion = (promotion: PromotionSummary) => {
-    if (!userId) return;
+    if (!userId || isReadOnly) return;
     showConfirm(
       'Archive Promotion?',
       'Archived promotions will be hidden from your active list. You can restore them anytime.',
@@ -305,7 +276,7 @@ useEffect(() => {
   };
 
   const handleRestoreSelectedPromotions = async () => {
-    if (!userId || selectedArchivedPromotionIds.length === 0) return;
+    if (!userId || isReadOnly || selectedArchivedPromotionIds.length === 0) return;
     setRestoringPromotions(true);
     try {
       await Promise.all(
@@ -380,13 +351,15 @@ useEffect(() => {
               Archived{archivedPromotions.length > 0 ? ` (${archivedPromotions.length})` : ''}
             </button>
           )}
-          <button
-            onClick={() => navigate('/marketplace/assignments/new')}
-            className="flex items-center gap-2 bg-red-600 hover:bg-red-500 text-white text-xs font-bold uppercase tracking-wider px-4 py-2 rounded-lg"
-          >
-            <Plus size={14} />
-            Create Assignment
-          </button>
+          {!isReadOnly && (
+            <button
+              onClick={() => navigate('/marketplace/assignments/new')}
+              className="flex items-center gap-2 bg-red-600 hover:bg-red-500 text-white text-xs font-bold uppercase tracking-wider px-4 py-2 rounded-lg"
+            >
+              <Plus size={14} />
+              Create Assignment
+            </button>
+          )}
         </div>
         
         {loading && (
@@ -410,17 +383,19 @@ useEffect(() => {
                 onClick={() => navigate(`/marketplace/assignments/${a.id}`)}
                 className="relative group text-left bg-zinc-900 border border-zinc-800 rounded-xl p-5 pr-12 hover:border-zinc-700 transition-colors cursor-pointer"
               >
-                <button
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    handleArchiveAssignment(a);
-                  }}
-                  disabled={archivingId === a.id}
-                  title="Archive"
-                  className="absolute top-3 right-3 w-7 h-7 rounded-lg bg-zinc-950 border border-zinc-800 flex items-center justify-center text-zinc-600 hover:text-white transition-all opacity-0 group-hover:opacity-100 disabled:opacity-50"
-                >
-                  {archivingId === a.id ? <Loader2 size={12} className="animate-spin" /> : <Archive size={12} />}
-                </button>
+                {!isReadOnly && (
+                  <button
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      handleArchiveAssignment(a);
+                    }}
+                    disabled={archivingId === a.id}
+                    title="Archive"
+                    className="absolute top-3 right-3 w-7 h-7 rounded-lg bg-zinc-950 border border-zinc-800 flex items-center justify-center text-zinc-600 hover:text-white transition-all opacity-0 group-hover:opacity-100 disabled:opacity-50"
+                  >
+                    {archivingId === a.id ? <Loader2 size={12} className="animate-spin" /> : <Archive size={12} />}
+                  </button>
+                )}
                 <div className="flex items-center justify-between mb-2">
                   <span className="text-[10px] font-bold uppercase tracking-widest text-zinc-500">
                     {a.status}
@@ -468,17 +443,19 @@ useEffect(() => {
                 onClick={() => navigate(`/marketplace/promotions/${p.id}`)}
                 className="relative group w-full flex items-center justify-between text-left bg-zinc-900 border border-zinc-800 rounded-xl p-5 pr-14 hover:border-zinc-700 transition-colors cursor-pointer"
               >
-                <button
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    handleArchivePromotion(p);
-                  }}
-                  disabled={archivingPromotionId === p.id}
-                  title="Archive"
-                  className="absolute top-1/2 -translate-y-1/2 right-4 w-7 h-7 rounded-lg bg-zinc-950 border border-zinc-800 flex items-center justify-center text-zinc-600 hover:text-white transition-all opacity-0 group-hover:opacity-100 disabled:opacity-50"
-                >
-                  {archivingPromotionId === p.id ? <Loader2 size={12} className="animate-spin" /> : <Archive size={12} />}
-                </button>
+                {!isReadOnly && (
+                  <button
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      handleArchivePromotion(p);
+                    }}
+                    disabled={archivingPromotionId === p.id}
+                    title="Archive"
+                    className="absolute top-1/2 -translate-y-1/2 right-4 w-7 h-7 rounded-lg bg-zinc-950 border border-zinc-800 flex items-center justify-center text-zinc-600 hover:text-white transition-all opacity-0 group-hover:opacity-100 disabled:opacity-50"
+                  >
+                    {archivingPromotionId === p.id ? <Loader2 size={12} className="animate-spin" /> : <Archive size={12} />}
+                  </button>
+                )}
                 <div>
                   <h3 className="font-bold text-white">{p.assignment?.title ?? p.campaign?.campaign_name ?? 'Promotion'}</h3>
                   <p className="text-zinc-500 text-xs mt-1">
@@ -567,7 +544,7 @@ useEffect(() => {
               </div>
 
               <button
-                disabled={selectedArchivedIds.length === 0 || restoring}
+                disabled={isReadOnly || selectedArchivedIds.length === 0 || restoring}
                 onClick={handleRestoreSelected}
                 className="mt-4 w-full flex items-center justify-center gap-2 bg-white hover:bg-zinc-200 disabled:opacity-40 disabled:cursor-not-allowed text-zinc-950 px-5 py-3 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all"
               >
@@ -644,7 +621,7 @@ useEffect(() => {
               </div>
 
               <button
-                disabled={selectedArchivedPromotionIds.length === 0 || restoringPromotions}
+                disabled={isReadOnly || selectedArchivedPromotionIds.length === 0 || restoringPromotions}
                 onClick={handleRestoreSelectedPromotions}
                 className="mt-4 w-full flex items-center justify-center gap-2 bg-white hover:bg-zinc-200 disabled:opacity-40 disabled:cursor-not-allowed text-zinc-950 px-5 py-3 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all"
               >

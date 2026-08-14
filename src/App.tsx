@@ -9,6 +9,7 @@ import { LayoutDashboard, Globe, BarChart3, Video, Library, Briefcase, Users, Lo
 import { motion, AnimatePresence } from 'motion/react';
 import { useTracker, useLanguage } from './lib/hooks';
 import { AuthProvider, useAuth } from './lib/auth';
+import { ViewingProvider, useViewing } from './lib/ViewingContext';
 import { OnboardingOverlayProvider } from './lib/onboarding-overlay';
 import OnboardingOverlay from './components/onboarding/OnboardingOverlay';
 import LeaveTestimonialModal from './components/testimonial/LeaveTestimonialModal';
@@ -375,6 +376,24 @@ function MainContent() {
   );
 }
 
+function ViewingBanner() {
+  const { isReadOnly, viewingMemberName, exitViewing } = useViewing();
+
+  if (!isReadOnly) return null;
+
+  return (
+    <div className="fixed top-14 left-0 right-0 z-40 bg-amber-500/10 border-b border-amber-500/30 text-amber-300 text-[10px] font-black uppercase tracking-widest text-center py-1.5 px-4">
+      Viewing {viewingMemberName ?? 'member'} · Read-only ·{' '}
+      <button
+        onClick={exitViewing}
+        className="underline hover:text-amber-100 transition-colors"
+      >
+        Exit
+      </button>
+    </div>
+  );
+}
+
 function PageWrapper({ children }: { children: React.ReactNode }) {
   return (
     <motion.main
@@ -392,13 +411,16 @@ export default function App() {
   return (
     <Router>
       <AuthProvider>
-        <OnboardingOverlayProvider>
-          <div className="min-h-screen bg-zinc-950 text-zinc-100 selection:bg-red-500/30 selection:text-white font-sans antialiased">
-            <Navigation />
-            <MainContent />
-            <OnboardingOverlay />
-          </div>
-        </OnboardingOverlayProvider>
+        <ViewingProvider>
+          <OnboardingOverlayProvider>
+            <div className="min-h-screen bg-zinc-950 text-zinc-100 selection:bg-red-500/30 selection:text-white font-sans antialiased">
+              <Navigation />
+              <ViewingBanner />
+              <MainContent />
+              <OnboardingOverlay />
+            </div>
+          </OnboardingOverlayProvider>
+        </ViewingProvider>
       </AuthProvider>
     </Router>
   );
