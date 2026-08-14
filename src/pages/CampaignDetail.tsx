@@ -3,6 +3,7 @@ import { useParams, useNavigate, Link } from 'react-router-dom';
 import { useLanguage } from '../lib/hooks';
 import { supabase, Campaign, LeadMagnet } from '../lib/supabase';
 import { useAuth } from '../lib/auth';
+import { useViewing } from '../lib/ViewingContext';
 import { 
   ArrowLeft, Save, Trash2, Plus, ArchiveRestore,
   Loader2, AlertCircle, 
@@ -67,6 +68,7 @@ export default function CampaignDetail() {
   const navigate = useNavigate();
   const { t } = useLanguage();
   const { user } = useAuth();
+  const { isReadOnly } = useViewing();
   
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -155,6 +157,7 @@ export default function CampaignDetail() {
   // Restore is only ever triggered by an explicit user click below.
   const handleRestore = async () => {
     if (!id) return;
+    if (isReadOnly) return;
     setRestoring(true);
     try {
       const { error: restoreErr } = await supabase
@@ -173,6 +176,7 @@ export default function CampaignDetail() {
   const handleSave = async (e: React.FormEvent) => {
   e.preventDefault();
   if (!user || !id) return;
+  if (isReadOnly) return;
 
   if (!formData.landing_page_url?.trim()) {
     setError('Campaign requires a Landing Page URL.');
@@ -272,7 +276,7 @@ export default function CampaignDetail() {
               </motion.div>
             )}
           </AnimatePresence>
-          {(formData as any).archived_at && (
+          {(formData as any).archived_at && !isReadOnly && (
             <button
               onClick={handleRestore}
               disabled={restoring}
@@ -282,6 +286,7 @@ export default function CampaignDetail() {
               {restoring ? 'Restoring...' : 'Restore Campaign'}
             </button>
           )}
+          {!isReadOnly && (
           <button 
             onClick={handleSave}
             disabled={saving}
@@ -290,6 +295,7 @@ export default function CampaignDetail() {
             {saving ? <Loader2 size={16} className="animate-spin" /> : <Save size={16} />}
             {saving ? 'Saving...' : 'Save Changes'}
           </button>
+          )}
         </div>
       </header>
 
@@ -398,6 +404,7 @@ export default function CampaignDetail() {
                 <div>
                   <label className="text-[9px] font-bold text-zinc-600 uppercase mb-1 block">Landing Page URL</label>
                   <input type="url" value={formData.landing_page_url || ''} onChange={e => setFormData({ ...formData, landing_page_url: e.target.value })} className={inputClass} />
+                  {!isReadOnly && (
                   <div className="mt-1.5">
                     <PublishAssetButton
                       campaignId={id!}
@@ -416,6 +423,7 @@ export default function CampaignDetail() {
                       onPublished={el => setPublishedElements(prev => ({ ...prev, [el.source_field]: el }))}
                     />
                   </div>
+                  )}
                 </div>
                 <div>
                   <label className="text-[9px] font-bold text-zinc-600 uppercase mb-1 block">Checkout URL</label>
@@ -487,6 +495,7 @@ export default function CampaignDetail() {
               <div>
                 <label className="text-[9px] font-bold text-zinc-600 uppercase mb-1 block">Newsletter Signup URL</label>
                 <input type="url" value={formData.newsletter_url || ''} onChange={e => setFormData({ ...formData, newsletter_url: e.target.value })} className={inputClass} />
+                {!isReadOnly && (
                 <div className="mt-1.5">
                   <PublishAssetButton
                     campaignId={id!}
@@ -505,6 +514,7 @@ export default function CampaignDetail() {
                     onPublished={el => setPublishedElements(prev => ({ ...prev, [el.source_field]: el }))}
                   />
                 </div>
+                )}
               </div>
               <div>
                 <label className="text-[9px] font-bold text-zinc-600 uppercase mb-1 block">
@@ -543,6 +553,7 @@ export default function CampaignDetail() {
                 <div>
                   <label className="text-[9px] font-bold text-zinc-600 uppercase mb-1 block">Booking Page URL</label>
                   <input type="url" value={formData.sales_call_booking_url || ''} onChange={e => setFormData({ ...formData, sales_call_booking_url: e.target.value })} className={inputClass} />
+                  {!isReadOnly && (
                   <div className="mt-1.5">
                     <PublishAssetButton
                       campaignId={id!}
@@ -561,6 +572,7 @@ export default function CampaignDetail() {
                       onPublished={el => setPublishedElements(prev => ({ ...prev, [el.source_field]: el }))}
                     />
                   </div>
+                  )}
                 </div>
                 <div>
                   <label className="text-[9px] font-bold text-zinc-600 uppercase mb-1 block">
@@ -613,6 +625,7 @@ export default function CampaignDetail() {
                 <div>
                   <label className="text-[9px] font-bold text-zinc-600 uppercase mb-1 block">Booking Page URL (TidyCal, Calendly...)</label>
                   <input type="url" value={formData.consultation_booking_url || ''} onChange={e => setFormData({ ...formData, consultation_booking_url: e.target.value })} className={inputClass} />
+                  {!isReadOnly && (
                   <div className="mt-1.5">
                     <PublishAssetButton
                       campaignId={id!}
@@ -631,6 +644,7 @@ export default function CampaignDetail() {
                       onPublished={el => setPublishedElements(prev => ({ ...prev, [el.source_field]: el }))}
                       />
                   </div>
+                  )}
                 </div>
                 {((formData as any).consultation_delivery ?? 'external_platform') === 'own_website' && (
                   <>
