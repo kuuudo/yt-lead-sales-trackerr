@@ -53,7 +53,7 @@ import {
 import { motion, AnimatePresence } from 'motion/react';
 import { Modal } from '../components/Modal';
 import { useOrganization } from '../lib/useOrganization';
-import { useOrganization } from '../lib/useOrganization';
+import { useViewing } from '../lib/ViewingContext';
 import { videosPageCache } from '../lib/videosPageCache';
 import OnboardingVideoSection01 from '../components/onboarding/OnboardingVideo/OnboardingVideoSection01';
 import { createVideo } from '../services/video/createVideo';
@@ -510,6 +510,9 @@ export default function Videos() {
   const { t } = useLanguage();
   const { user } = useAuth();
   const { organizationId } = useOrganization();
+  const { viewingOrgId, viewingMemberId, isReadOnly } = useViewing();
+  const effectiveOrgId = isReadOnly ? viewingOrgId : organizationId;
+  const effectiveUserId = isReadOnly ? viewingMemberId : (user?.id ?? null);
   const [videos, setVideos] = useState<Video[]>([]);
   const [promotionBadges, setPromotionBadges] =
   useState<VideoPromotionBadgeMap>(new Map());
@@ -562,9 +565,9 @@ const hasBlockingPromotionIssue = Array.from(promotionContextByAssetId.entries()
   // Auto-open import modal when navigated here with ?openImport=true
   // (e.g. from VideoDetail "Import Analytics" button)
   useEffect(() => {
-    if (!organizationId) return;
-    listVerifiedBrandedDomains(organizationId).then(setVerifiedDomains);
-  }, [organizationId]);
+    if (!effectiveOrgId) return;
+    listVerifiedBrandedDomains(effectiveOrgId).then(setVerifiedDomains);
+  }, [effectiveOrgId]);
 // Resolves the assignmentId for each promoted asset that currently has
   // one (same derivation the generate handler already does — see
   // handleGenerate's assetsWithContext), then fetches Shared Domains for
@@ -801,8 +804,8 @@ const hasBlockingPromotionIssue = Array.from(promotionContextByAssetId.entries()
   };
 
   useEffect(() => {
-    if (user && organizationId) {
-      const cached = videosPageCache.get(organizationId);
+    if (user && effectiveOrgId) {
+      const cached = videosPageCache.get(effectiveOrgId);
       if (cached) {
         console.log('[Videos] Cache hit', new Date(cached.cachedAt).toLocaleTimeString());
         setVideos(cached.data.videos);
@@ -817,7 +820,7 @@ const hasBlockingPromotionIssue = Array.from(promotionContextByAssetId.entries()
       console.log('[Videos] Cache miss — fetching from Supabase');
       fetchData();
     }
-  }, [user?.id, organizationId]);
+  }, [user?.id, effectiveOrgId]);
 
   const fetchData = async () => {
     setLoading(true);
@@ -827,7 +830,7 @@ const hasBlockingPromotionIssue = Array.from(promotionContextByAssetId.entries()
       const { data: vData, error: vError } = await supabase
         .from('videos')
         .select('*')
-        .eq('organization_id', organizationId)
+        .eq('organization_id', effectiveOrgId)
         .is('deleted_at', null)
         .is('archived_at', null)
         .order('created_at', { ascending: false });
@@ -837,7 +840,7 @@ const hasBlockingPromotionIssue = Array.from(promotionContextByAssetId.entries()
       const { data: cData, error: cError } = await supabase
         .from('campaigns')
         .select('*')
-        .eq('organization_id', organizationId);
+        .eq('organization_id', effectiveOrgId);
 
       if (vError) throw vError;
       if (cError) throw cError;
@@ -845,11 +848,11 @@ const hasBlockingPromotionIssue = Array.from(promotionContextByAssetId.entries()
       if (vData) {
   setVideos(vData);
 
-  if (organizationId && user && vData.length > 0) {
+  if (effectiveOrgId && user && vData.length > 0) {
     getVideoPromotionBadges({
       videoIds: vData.map(v => v.id),
-      viewerOrganizationId: organizationId,
-      viewerUserId: user.id,
+      viewerOrganizationId: effectiveOrgId,
+      viewerUserId: effectiveUserId,
     })
       .then(setPromotionBadges)
       .catch((err: any) =>
@@ -879,12 +882,12 @@ const hasBlockingPromotionIssue = Array.from(promotionContextByAssetId.entries()
           
           if (lmError) console.error('Error fetching all lead magnets:', lmError);
          if (lmData) setAllLeadMagnets(lmData);
-          if (organizationId) {
-            videosPageCache.set(organizationId, { videos: vData || [], campaigns: cData, allLeadMagnets: lmData || [] });
+          if (effectiveOrgId) {
+            videosPageCache.set(effectiveOrgId, { videos: vData || [], campaigns: cData, allLeadMagnets: lmData || [] });
             console.log('[Videos] Cache updated');
           }
-        } else if (organizationId) {
-          videosPageCache.set(organizationId, { videos: vData || [], campaigns: cData, allLeadMagnets: [] });
+        } else if (effectiveOrgId) {
+          videosPageCache.set(effectiveOrgId, { videos: vData || [], campaigns: cData, allLeadMagnets: [] });
           console.log('[Videos] Cache updated');
         }
       }
@@ -1162,13 +1165,13 @@ console.log(
   };
 
   const fetchArchivedVideos = async () => {
-    if (!organizationId) return;
+    if (!effectiveOrgId) return;
     setArchivedVideosLoading(true);
     try {
       const { data, error } = await supabase
         .from('videos')
         .select('*')
-        .eq('organization_id', organizationId)
+        .eq('organization_id', effectiveOrgId)
         .is('deleted_at', null)
         .not('archived_at', 'is', null)
         .order('archived_at', { ascending: false });
