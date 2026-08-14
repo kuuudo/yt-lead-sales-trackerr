@@ -380,7 +380,7 @@ export default function CampaignDetail() {
                 <input 
                   required 
                   type="number" 
-                  value={formData.offer_price} 
+                  value={formData.offer_price ?? ''}
                   onChange={e => setFormData({ ...formData, offer_price: parseFloat(e.target.value) })}
                   className="w-full bg-zinc-950 border border-zinc-800 rounded-xl p-4 text-sm text-white focus:border-red-600 outline-none" 
                 />
@@ -450,7 +450,7 @@ export default function CampaignDetail() {
                 <h2 className="text-lg font-black text-white uppercase tracking-tight">Lead Magnets</h2>
               </div>
               <label className="relative inline-flex items-center cursor-pointer">
-                <input type="checkbox" className="sr-only peer" checked={formData.has_lead_magnet} onChange={e => setFormData({ ...formData, has_lead_magnet: e.target.checked })} />
+                <input type="checkbox" className="sr-only peer" checked={formData.has_lead_magnet ?? false} onChange={e => setFormData({ ...formData, has_lead_magnet: e.target.checked })} />
                 <div className="w-11 h-6 bg-zinc-800 rounded-full peer peer-checked:after:translate-x-full after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-blue-600"></div>
               </label>
             </div>
@@ -536,7 +536,7 @@ export default function CampaignDetail() {
                 <h2 className="text-lg font-black text-white uppercase tracking-tight">Sales Call Funnel</h2>
               </div>
               <label className="relative inline-flex items-center cursor-pointer">
-                <input type="checkbox" className="sr-only peer" checked={formData.has_sales_call} onChange={e => setFormData({ ...formData, has_sales_call: e.target.checked })} />
+                <input type="checkbox" className="sr-only peer" checked={formData.has_sales_call ?? false} onChange={e => setFormData({ ...formData, has_sales_call: e.target.checked })} />
                 <div className="w-11 h-6 bg-zinc-800 rounded-full peer peer-checked:after:translate-x-full after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-purple-600"></div>
               </label>
             </div>
