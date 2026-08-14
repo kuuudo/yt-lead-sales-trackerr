@@ -25,6 +25,7 @@ import { dashboardPageCache } from '../lib/dashboardPageCache';
 import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import { supabase, Video, Campaign } from '../lib/supabase';
 import { useAuth } from '../lib/auth';
+import { useViewing } from '../lib/ViewingContext';
 
 import {
   getAnalyticsEngine,
@@ -280,6 +281,8 @@ function CampaignSelector({ campaigns, selectedCampaignId, onChange }: CampaignS
 export default function Dashboard() {
   const { user }           = useAuth();
   const { organizationId } = useOrganization();
+  const { viewingOrgId, isReadOnly } = useViewing();
+  const effectiveOrgId = isReadOnly ? viewingOrgId : organizationId;
   const navigate           = useNavigate();
 
   // ── Raw data state ──────────────────────────────────────────────────────────
@@ -324,8 +327,8 @@ export default function Dashboard() {
   };
 
   useEffect(() => {
-    if (user && organizationId) {
-      const cached = dashboardPageCache.get(organizationId);
+    if (user && effectiveOrgId) {
+      const cached = dashboardPageCache.get(effectiveOrgId);
       if (cached) {
         console.log('[Dashboard] Cache hit', new Date(cached.cachedAt).toLocaleTimeString());
         setVideos(cached.data.videos);
@@ -339,15 +342,15 @@ export default function Dashboard() {
       console.log('[Dashboard] Cache miss — fetching from Supabase');
       fetchData();
     }
-  }, [user?.id, organizationId]);
+  }, [user?.id, effectiveOrgId]);
 
   // ── Data fetching ───────────────────────────────────────────────────────────
   const fetchData = async () => {
     setLoading(true);
     try {
       const [vRes, cRes] = await Promise.all([
-        supabase.from('videos').select('*').eq('organization_id', organizationId),
-        supabase.from('campaigns').select('*').eq('organization_id', organizationId),
+        supabase.from('videos').select('*').eq('organization_id', effectiveOrgId),
+        supabase.from('campaigns').select('*').eq('organization_id', effectiveOrgId),
       ]);
 
       if (vRes.error) throw vRes.error;
@@ -358,8 +361,8 @@ export default function Dashboard() {
       setCampaigns(cRes.data);
 
       if (vRes.data.length === 0) {
-        if (organizationId) {
-          dashboardPageCache.set(organizationId, {
+        if (effectiveOrgId) {
+          dashboardPageCache.set(effectiveOrgId, {
             videos: vRes.data, campaigns: cRes.data,
             rawEvents: [], stripePurchases: [], pixelPurchases: [],
           });
@@ -442,8 +445,8 @@ export default function Dashboard() {
       setStripePurchases(enrichedStripe);
       setPixelPurchases(enrichedPixel);
 
-      if (organizationId) {
-        dashboardPageCache.set(organizationId, {
+      if (effectiveOrgId) {
+        dashboardPageCache.set(effectiveOrgId, {
           videos: vRes.data, campaigns: cRes.data,
           rawEvents: allEvents, stripePurchases: enrichedStripe, pixelPurchases: enrichedPixel,
         });
