@@ -26,7 +26,7 @@ interface StripeConfig {
   stripe_webhook_secret: string | null;
 }
 
-// Extend Campaign locally to include the two DB fields that may not be in the generated type
+// Extend Campaign locally to include the two DB fields that may not be in the generated type.
 type CampaignExtended = Campaign & {
   checkout_type?: string | null;
   consultation_checkout_type?: string | null;
