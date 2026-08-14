@@ -4,6 +4,7 @@ import { Globe, Plus, Trash2, Ban, Loader2, Copy, Check, ShieldCheck, ChevronDow
 // "Set Default" action, which is hidden (not deleted) below. Re-add both
 // to this import line if that block gets restored.
 import { useOrganization } from '../lib/useOrganization';
+import { useViewing } from '../lib/ViewingContext';
 import {
   listBrandedDomains,
   addBrandedDomain,
@@ -16,6 +17,8 @@ import {
 
 export default function TrackingDomains() {
   const { organizationId } = useOrganization();
+  const { viewingOrgId, isReadOnly } = useViewing();
+  const effectiveOrgId = isReadOnly ? viewingOrgId : organizationId;
 
   const [domains, setDomains] = useState<BrandedTrackingDomain[]>([]);
   const [loading, setLoading] = useState(true);
@@ -140,9 +143,9 @@ export default function TrackingDomains() {
   }, []);
 
   const refresh = async () => {
-    if (!organizationId) return;
+    if (!effectiveOrgId) return;
     setLoading(true);
-    const rows = await listBrandedDomains(organizationId);
+    const rows = await listBrandedDomains(effectiveOrgId);
     setDomains(rows);
     setLoading(false);
   };
@@ -150,14 +153,14 @@ export default function TrackingDomains() {
   useEffect(() => {
     refresh();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [organizationId]);
+  }, [effectiveOrgId]);
 
   const handleAdd = async () => {
-    if (!organizationId || !newHostname.trim()) return;
+    if (isReadOnly || !effectiveOrgId || !newHostname.trim()) return;
     setAdding(true);
     setActionError(null);
 
-    const result = await addBrandedDomain(organizationId, newHostname);
+    const result = await addBrandedDomain(effectiveOrgId, newHostname);
 
     if (!result) {
       setActionError('Failed to add domain. Check the hostname and try again.');
@@ -178,12 +181,14 @@ export default function TrackingDomains() {
   };
 
   const handleDisable = async (domainId: string) => {
+    if (isReadOnly) return;
     const ok = await disableDomain(domainId);
     if (!ok) setActionError('Failed to disable domain.');
     await refresh();
   };
 
   const handleDelete = async (domainId: string, hostname: string) => {
+    if (isReadOnly) return;
     const confirmed = window.confirm(
       `Delete ${hostname}? Existing links generated with this domain will stop working. This cannot be undone.`
     );
@@ -196,6 +201,7 @@ export default function TrackingDomains() {
   };
 
 const handleVerify = async (domainId: string) => {
+  if (isReadOnly) return;
   setVerifyingId(domainId);
   setVerifyMessage(null);
   setVerifyStage('checking');
@@ -276,11 +282,12 @@ const handleVerify = async (domainId: string) => {
             value={newHostname}
             onChange={(e) => setNewHostname(e.target.value)}
             placeholder="go.yourdomain.com"
+            disabled={isReadOnly}
             className="flex-1 bg-zinc-950 border border-zinc-800 rounded-md px-3 py-2 text-sm text-zinc-100 placeholder-zinc-600 focus:outline-none focus:border-red-600"
           />
           <button
             onClick={handleAdd}
-            disabled={adding || !newHostname.trim()}
+            disabled={adding || !newHostname.trim() || isReadOnly}
             className="flex items-center gap-2 px-4 py-2 rounded-md bg-red-600 hover:bg-red-500 disabled:bg-zinc-800 disabled:text-zinc-600 text-white text-[11px] font-bold uppercase tracking-widest transition-colors"
           >
             {adding ? <Loader2 className="animate-spin" size={14} /> : <Plus size={14} />}
@@ -338,7 +345,7 @@ const handleVerify = async (domainId: string) => {
               </div>
 
               <div className="flex items-center gap-3">
-  {d.status === 'pending' && (
+  {d.status === 'pending' && !isReadOnly && (
     <button
       onClick={() => handleVerify(d.id)}
       disabled={verifyingId === d.id}
@@ -360,7 +367,7 @@ const handleVerify = async (domainId: string) => {
       handleSetDefault above is left wired up so this can be re-enabled by
       restoring this block, without touching any other logic. */}
 
-                {d.is_default && (
+                {d.is_default && !isReadOnly && (
                   <button
                     onClick={() => handleDisable(d.id)}
                     title="Disable"
@@ -369,6 +376,7 @@ const handleVerify = async (domainId: string) => {
                     <Ban size={14} />
                   </button>
                 )}
+                {!isReadOnly && (
                 <button
                   onClick={() => handleDelete(d.id, d.hostname)}
                   title="Delete"
@@ -376,6 +384,7 @@ const handleVerify = async (domainId: string) => {
                 >
                   <Trash2 size={14} />
                </button>
+                )}
               </div>
             </div>
 
@@ -527,7 +536,7 @@ const handleVerify = async (domainId: string) => {
                       Most DNS providers only need the short name shown above. If yours asks for the full hostname instead, use <code className="bg-zinc-100 rounded px-1">_vstrk-verify.{d.hostname}</code> and <code className="bg-zinc-100 rounded px-1">{d.hostname}</code>.
                     </p>
 
-                    {d.status === 'pending' ? (
+                    {d.status === 'pending' && !isReadOnly ? (
                       <div className="flex gap-3">
                         <span className="w-5 h-5 rounded-full bg-zinc-100 text-zinc-500 text-[11px] font-medium flex items-center justify-center flex-shrink-0">6</span>
                         <div className="flex-1">

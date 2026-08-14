@@ -3,6 +3,7 @@ import { useNavigate, useLocation } from 'react-router-dom';
 import { useLanguage } from '../lib/hooks';
 import { supabase, Campaign } from '../lib/supabase';
 import { useAuth } from '../lib/auth';
+import { useViewing } from '../lib/ViewingContext';
 import { Plus, Globe, ChevronRight, DollarSign, Phone, Mail as MailIcon, Briefcase, Save, Loader2, Link2, Magnet, Archive, ArchiveRestore, AlertTriangle, CreditCard, X } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { Modal } from '../components/Modal';
@@ -12,6 +13,8 @@ export default function Campaigns() {
   const { t } = useLanguage();
   const { user } = useAuth();
   const { organizationId } = useOrganization()
+  const { viewingOrgId, isReadOnly } = useViewing();
+  const effectiveOrgId = isReadOnly ? viewingOrgId : organizationId;
   const navigate = useNavigate();
   const location = useLocation();
   const [campaigns, setCampaigns] = useState<Campaign[]>([]);
@@ -77,16 +80,16 @@ export default function Campaigns() {
   });
 
   useEffect(() => {
-    if (user && organizationId) fetchCampaigns()
-  }, [user, organizationId])
+    if (user && effectiveOrgId) fetchCampaigns()
+  }, [user, effectiveOrgId])
 
   const fetchCampaigns = async () => {
-    if (!organizationId) return 
+    if (!effectiveOrgId) return
     try {
       const { data, error } = await supabase
         .from('campaigns')
         .select('*')
-        .eq('organization_id', organizationId) 
+        .eq('organization_id', effectiveOrgId) 
         .eq('is_system', false)
         .is('archived_at', null)
         .order('created_at', { ascending: false });
@@ -117,7 +120,7 @@ export default function Campaigns() {
 };
 
   const submitCampaign = async () => {
-  if (!user) return;
+  if (!user || isReadOnly) return;
 
   if (!formData.landing_page_url.trim()) {
     showAlert(
@@ -180,6 +183,7 @@ export default function Campaigns() {
   // Archive is only ever triggered by an explicit user click on the Archive
   // button below — there is no automatic/time-based archiving anywhere.
   const handleArchive = (campaign: Campaign) => {
+    if (isReadOnly) return;
     showAlert(
       'Archive campaign?',
       `Archived campaigns will be hidden from your active list. You can restore "${campaign.campaign_name}" anytime.`,
@@ -201,13 +205,13 @@ export default function Campaigns() {
   };
 
   const fetchArchivedCampaigns = async () => {
-    if (!organizationId) return;
+    if (!effectiveOrgId) return;
     setArchivedLoading(true);
     try {
       const { data, error } = await supabase
         .from('campaigns')
         .select('*')
-        .eq('organization_id', organizationId)
+        .eq('organization_id', effectiveOrgId)
         .eq('is_system', false)
         .not('archived_at', 'is', null)
         .order('archived_at', { ascending: false });
@@ -233,7 +237,7 @@ export default function Campaigns() {
   };
 
   const handleRestoreSelected = async () => {
-    if (selectedArchiveIds.length === 0) return;
+    if (isReadOnly || selectedArchiveIds.length === 0) return;
     setRestoring(true);
     try {
       const { error } = await supabase
@@ -289,6 +293,7 @@ export default function Campaigns() {
           >
             <Archive size={14} /> Archived
           </button>
+          {!isReadOnly && (
           <button
             onClick={() => {
               localStorage.setItem('campaign_form_return', location.pathname);
@@ -298,6 +303,7 @@ export default function Campaigns() {
           >
             {showAdd ? <><X size={14} /> Close</> : <><Plus size={16} /> {t.campaigns.create}</>}
           </button>
+          )}
         </div>
       </header>
 
@@ -604,12 +610,14 @@ export default function Campaigns() {
               onClick={() => navigate(`/campaigns/${c.id}`)}
             >
               {/* Archive button */}
+              {!isReadOnly && (
               <button
                 onClick={e => { e.stopPropagation(); handleArchive(c); }}
                 className="absolute top-4 right-4 w-7 h-7 rounded-lg bg-zinc-900 border border-zinc-800 flex items-center justify-center text-zinc-600 hover:text-white hover:border-zinc-600 transition-all opacity-0 group-hover:opacity-100"
               >
                 {archivingId === c.id ? <Loader2 size={12} className="animate-spin" /> : <Archive size={12} />}
               </button>
+              )}
 
               <div className="flex justify-between items-start mb-4 pr-8">
                 <h3 className="text-lg font-bold text-white leading-tight">{c.campaign_name}</h3>
@@ -718,7 +726,7 @@ export default function Campaigns() {
               </div>
 
               <button
-                disabled={selectedArchiveIds.length === 0 || restoring}
+                disabled={isReadOnly || selectedArchiveIds.length === 0 || restoring}
                 onClick={handleRestoreSelected}
                 className="mt-4 w-full flex items-center justify-center gap-2 bg-white hover:bg-zinc-200 disabled:opacity-40 disabled:cursor-not-allowed text-zinc-950 px-5 py-3 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all"
               >
