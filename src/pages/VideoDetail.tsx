@@ -27,6 +27,7 @@ import { useLanguage } from '../lib/hooks';
 import { supabase, Video, Campaign, LeadMagnet, Asset } from '../lib/supabase';
 import { useAuth } from '../lib/auth';
 import { useOrganization } from '../lib/useOrganization';
+import { useViewing } from '../lib/ViewingContext';
 import { getRedirectLinksDisplay, CATEGORY_LABEL, buildTrackingLinkUrl, type RedirectLinksDisplayGroups } from '../services/redirect/getPromotedAssetDisplay';
 import { getAsset } from '../services/asset/getAsset';
 import { addToLibrary } from '../services/asset/addToLibrary';
@@ -316,6 +317,9 @@ export default function VideoDetail() {
   const [availableCampaignLeadMagnets, setAvailableCampaignLeadMagnets] = useState<LeadMagnet[]>([]);
   const [copiedLinkToken, setCopiedLinkToken] = useState<string | null>(null);
   const { organizationId } = useOrganization();
+  const { viewingOrgId, viewingMemberId, isReadOnly } = useViewing();
+  const effectiveOrgId = isReadOnly ? viewingOrgId : organizationId;
+  const effectiveUserId = isReadOnly ? viewingMemberId : (user?.id ?? null);
   const [displayGroups, setDisplayGroups] = useState<RedirectLinksDisplayGroups>({ campaignLinks: [], assets: [] });
   const [expandedCardKey, setExpandedCardKey] = useState<string | null>(null);
   const [redirectLinks, setRedirectLinks]         = useState<any[]>([]);
@@ -366,7 +370,7 @@ export default function VideoDetail() {
     if (!id || !user || !organizationId) return;
     fetchData();
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [id, user?.id, organizationId]);
+  }, [id, user?.id, organizationId, effectiveOrgId]);
 
   const fetchData = useCallback(async () => {
     console.log('[VideoDetail] fetchData START — id:', id, 'user:', (user as any)?.id ?? 'null');
@@ -465,12 +469,12 @@ export default function VideoDetail() {
       setRedirectLinks(linksData || []);
 
       // ── Display cards for the redesigned Tracking Links UI ──
-if (organizationId && user) {
+if (effectiveOrgId && effectiveUserId) {
   try {
     const cards = await getRedirectLinksDisplay({
       videoId: id!,
-      viewerOrganizationId: organizationId,
-      viewerUserId: user.id,
+      viewerOrganizationId: effectiveOrgId,
+      viewerUserId: effectiveUserId,
     });
 
     setDisplayGroups(cards);
@@ -778,6 +782,7 @@ if (organizationId && user) {
 
   const handleAddExtraLink = async () => {
     if (!video || !campaign) return;
+    if (isReadOnly) return;
     setSavingExtraLink(true);
     try {
       const appBaseUrl = window.location.origin;
@@ -821,6 +826,7 @@ if (organizationId && user) {
   };
 
   const handleDeleteExtraLink = async (token: string) => {
+    if (isReadOnly) return;
     setDeletingLinkToken(token);
     try {
       const { error } = await supabase.from('redirect_links').delete().eq('token', token);
@@ -840,6 +846,7 @@ if (organizationId && user) {
 
   const handleAddToLibrary = async () => {
     if (!video?.asset_id) return;
+    if (isReadOnly) return;
     setAddingToLibrary(true);
     try {
       const { asset: updated } = await addToLibrary(video.asset_id);
@@ -857,6 +864,7 @@ if (organizationId && user) {
   // internal system logic (still used elsewhere for the asset-linked
   // soft-delete path; simply no longer exposed as a user-facing action here).
   const handleArchive = () => {
+    if (isReadOnly) return;
     showConfirm(
       'Archive Video?',
       'Archived videos will be hidden from your active content library. You can restore them anytime.',
@@ -881,6 +889,7 @@ if (organizationId && user) {
 
   const handleRestore = async () => {
     if (!id) return;
+    if (isReadOnly) return;
     setRestoring(true);
     try {
       const { error } = await supabase
@@ -897,6 +906,7 @@ if (organizationId && user) {
   };
 
   const handleUpdate = async () => {
+    if (isReadOnly) return;
     setSaving(true);
     try {
       const payload = {
@@ -1030,6 +1040,8 @@ if (organizationId && user) {
         </div>
 
         <div className="flex gap-2">
+          {!isReadOnly && (
+          <>
           {(video as any).archived_at && (
             <button
               onClick={handleRestore}
@@ -1056,6 +1068,8 @@ if (organizationId && user) {
           >
             {archiving ? <Loader2 size={20} className="animate-spin" /> : <Archive size={20} />}
           </button>
+          </>
+          )}
           <a
             href={`https://youtube.com/watch?v=${video.youtube_video_id}`}
             target="_blank"
@@ -1101,6 +1115,8 @@ if (organizationId && user) {
           </div>
 
           <div className="shrink-0">
+            {!isReadOnly && (
+            <>
             {ytImportStatus === 'no_analytics' && (
               <button
                 onClick={() => navigate('/videos?openImport=true')}
@@ -1124,6 +1140,8 @@ if (organizationId && user) {
               >
                 View Analytics Mapping
               </Link>
+            )}
+            </>
             )}
           </div>
         </section>
@@ -1329,12 +1347,14 @@ if (organizationId && user) {
           <h3 className="label-caps !text-white flex items-center gap-2 font-black uppercase tracking-widest">
             <Link2 size={14} className="text-red-600" /> Tracking Links
           </h3>
+          {!isReadOnly && (
           <button
             onClick={() => setShowAddLink(!showAddLink)}
             className="flex items-center gap-2 h-9 px-4 rounded-xl border border-zinc-800 hover:bg-zinc-900 text-[10px] font-black uppercase tracking-widest text-zinc-400 hover:text-white transition-all"
           >
             <Plus size={14} /> Add Link
           </button>
+          )}
         </div>
 
         {/* Add Extra Link Form */}
@@ -1586,6 +1606,7 @@ if (organizationId && user) {
             )}
           </AnimatePresence>
 
+          {!isReadOnly && (
           <button
             onClick={handleAddToLibrary}
             disabled={addingToLibrary}
@@ -1593,6 +1614,7 @@ if (organizationId && user) {
           >
             {addingToLibrary ? <Loader2 size={14} className="animate-spin" /> : <Plus size={14} />} Add to Asset Library
           </button>
+          )}
         </section>
       )}
 
