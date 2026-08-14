@@ -186,7 +186,7 @@ interface ImportResult {
 // Fully isolated — does not touch any existing Videos state
 // ---------------------------------------------------------------------------
 
-function YouTubeImportPanel({ onClose }: { onClose: () => void }) {
+function YouTubeImportPanel({ onClose, isReadOnly }: { onClose: () => void; isReadOnly: boolean }) {
   const { user } = useAuth();
   const [status, setStatus] = useState<ImportStatus>('idle');
   const [result, setResult] = useState<ImportResult | null>(null);
@@ -231,6 +231,7 @@ function YouTubeImportPanel({ onClose }: { onClose: () => void }) {
 
   const handleUpload = async () => {
     if (!selectedFile || !user) return;
+    if (isReadOnly) return;
 
     setStatus('uploading');
     setResult(null);
@@ -670,7 +671,7 @@ const hasBlockingPromotionIssue = Array.from(promotionContextByAssetId.entries()
   }
   const [searchParams, setSearchParams] = useSearchParams();
   useEffect(() => {
-    if (searchParams.get('openImport') === 'true') {
+    if (searchParams.get('openImport') === 'true' && !isReadOnly) {
       setShowImportWizard(true);
       // Clean the param so back-navigation doesn't re-trigger
       setSearchParams(prev => { prev.delete('openImport'); return prev; }, { replace: true });
@@ -960,6 +961,7 @@ const hasBlockingPromotionIssue = Array.from(promotionContextByAssetId.entries()
 
   const handleSave = async () => {
     if (!generated || !user) return;
+    if (isReadOnly) return;
     setSaving(true);
     try {
 
@@ -1122,6 +1124,7 @@ console.log(
     e.preventDefault();
     e.stopPropagation();
     if (!v.asset_id) return;
+    if (isReadOnly) return;
     setAddingLibraryId(v.id);
     try {
       await addToLibrary(v.asset_id);
@@ -1142,6 +1145,7 @@ console.log(
   // This is fully independent of deleted_at / deleteVideo(), which remain
   // untouched internal system logic.
   const handleArchiveVideo = (v: Video) => {
+    if (isReadOnly) return;
     showConfirm(
       'Archive Video?',
       'Archived videos will be hidden from your active content library. You can restore them anytime.',
@@ -1198,6 +1202,7 @@ console.log(
 
   const handleRestoreSelectedVideos = async () => {
     if (selectedArchivedVideoIds.length === 0) return;
+    if (isReadOnly) return;
     setRestoringVideos(true);
     try {
       const { error } = await supabase
@@ -1283,6 +1288,7 @@ console.log(
           <p className="text-zinc-500 text-[10px] uppercase tracking-widest mt-1">Manage your tracked content</p>
         </div>
         <div className="flex items-center gap-3">
+          {!isReadOnly && (
           <button
             onClick={() => setShowImportWizard(true)}
             className="flex items-center gap-2 border border-zinc-700 hover:border-zinc-500 text-zinc-400 hover:text-zinc-200 px-4 py-2.5 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all"
@@ -1290,7 +1296,9 @@ console.log(
             <Upload size={14} />
             Import YouTube Analytics
           </button>
-          <button 
+          )}
+          {!isReadOnly && (
+          <button
             onClick={() => {
               if (showAdd) {
                 setEditingVideoId(null);
@@ -1313,6 +1321,7 @@ console.log(
           >
             {showAdd ? 'Cancel' : <><Plus size={16} /> {t.videos.add}</>}
           </button>
+          )}
         </div>
       </header>
 
@@ -2602,7 +2611,7 @@ console.log(
 )}
       {/* Phase 2.5: YouTube Analytics Import Overlay */}
       {showImportWizard && (
-        <YouTubeImportPanel onClose={() => setShowImportWizard(false)} />
+        <YouTubeImportPanel onClose={() => setShowImportWizard(false)} isReadOnly={isReadOnly} />
       )}
     </div>
   );
