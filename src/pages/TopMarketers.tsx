@@ -8,7 +8,7 @@ import {
   type MarketerRow,
   type TopMarketersMetric,
   type TopMarketersPreset,
-} from '../../services/promotion/getTopMarketersAnalytics';
+} from '../services/promotion/getTopMarketersAnalytics';
 
 // Independent design — deliberately not modeled on IndividualPromotionAnalytics.tsx
 // or TopPromotions.tsx's row shape. A marketer row here is a GROUP (one or
