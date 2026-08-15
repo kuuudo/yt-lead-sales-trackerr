@@ -33,7 +33,7 @@ import { RedirectTrackingBlock } from '../components/installation/RedirectTracki
 import { StripeSetupBlock } from '../components/installation/StripeSetupBlock';
 import { FunnelHeader } from '../components/installation/FunnelHeader';
 import { GlobalWebsiteTrackingSection } from '../components/installation/GlobalWebsiteTrackingSection';
-
+import { DirectPurchaseInstallation } from '../components/installation/DirectPurchaseInstallation';
 // ─────────────────────────────────────────────
 // CHECKOUT TYPE SELECTOR (legacy — kept for backward compat display only)
 // ─────────────────────────────────────────────
@@ -427,140 +427,16 @@ const CampaignCard = ({
               {/* ── GLOBAL WEBSITE TRACKING ── */}
               <GlobalWebsiteTrackingSection />
 
-              {/* ── DIRECT PURCHASE FUNNEL ── */}
-              <div className="space-y-4 p-4 bg-zinc-950/50 rounded-xl border border-zinc-800">
-                <FunnelHeader
-                  icon={<ShoppingCart size={14} />}
-                  title="Direct Purchase Funnel"
-                  funnelState={funnelStates.purchase}
-                  trackingState={trackingStates.purchase}
-                />
-
-                {funnelStates.purchase === 'inactive' && (
-                  <div className="flex gap-3 p-3 bg-red-500/5 border border-red-500/15 rounded-xl">
-                    <XCircle size={13} className="text-red-400 shrink-0 mt-0.5" />
-                    <p className="text-[11px] text-zinc-400 leading-relaxed">
-                      {!campaign.landing_page_url
-                        ? 'No landing page URL detected. Add one in your campaign settings to activate this funnel.'
-                        : 'Funnel inactive.'}
-                    </p>
-                  </div>
-                )}
-
-                {funnelStates.purchase === 'partial' && (
-                  <div className="flex gap-3 p-3 bg-orange-500/5 border border-orange-500/15 rounded-xl">
-                    <AlertCircle size={13} className="text-orange-400 shrink-0 mt-0.5" />
-                    <p className="text-[11px] text-zinc-400 leading-relaxed">
-                      Landing page detected, but no checkout URL found yet. Add a checkout URL to your campaign.
-                    </p>
-                  </div>
-                )}
-
-                {funnelStates.purchase === 'active' && (
-                  <div className="space-y-4">
-                    {/* Method label */}
-                    <div className="flex items-center gap-2">
-                      <span className="text-[9px] font-black uppercase tracking-widest text-zinc-500">Payment Method:</span>
-                      <span className="text-[9px] font-black uppercase tracking-widest px-2 py-0.5 rounded-full bg-zinc-800 border border-zinc-700 text-zinc-300">
-                        {purchaseMethod === 'stripe_checkout' ? 'Stripe Checkout' :
-                         purchaseMethod === 'stripe_embedded' ? 'Stripe Embedded Checkout' :
-                         purchaseMethod === 'embedded_alternative_payment' ? 'Embedded Alternative Payment' :
-                         purchaseMethod === 'alternative_payment' ? 'Alternative Payment Method' :
-                         purchaseMethod === 'external_platform' ? 'External Platform' :
-                         'Payment Instructions Page'}
-                      </span>
-                    </div>
-
-                    {/* stripe_checkout: redirect link + webhook */}
-                    {purchaseMethod === 'stripe_checkout' && (
-                      <StripeSetupBlock
-                        userId={userId}
-                        stripeConfig={stripeConfig}
-                        checkoutUrl={campaign.checkout_url}
-                        campaignId={campaign.id}
-                        linkType="checkout"
-                        onSecretSaved={onRefresh}
-                      />
-                    )}
-
-                    {/* stripe_embedded: webhook + optional intent pixel + confirmation pixel */}
-                    {purchaseMethod === 'stripe_embedded' && (
-                      <div className="space-y-3">
-                        <StripeSetupBlock
-                          userId={userId}
-                          stripeConfig={stripeConfig}
-                          checkoutUrl={null}
-                          campaignId={campaign.id}
-                          linkType="checkout"
-                          onSecretSaved={onRefresh}
-                        />
-                        <CheckoutIntentBlock
-                          campaignId={campaign.id}
-                          checkoutUrl={campaign.checkout_url}
-                          hasThankYouUrl={!!campaign.purchase_thankyou_url}
-                        />
-                        <PixelBlock
-                          campaignId={campaign.id}
-                          eventType="purchase"
-                          amount={campaign.offer_price ?? null}
-                          thankyouUrl={campaign.purchase_thankyou_url}
-                          pendingMessage="No thank-you page URL detected yet."
-                          activeInstruction={`✅ Paste this on your purchase confirmation page to track confirmed orders.`}
-                        />
-                      </div>
-                    )}
-
-                    {/* alternative_payment: redirect link + intent tracking + limitation notice */}
-                    {purchaseMethod === 'alternative_payment' && (
-                      <RedirectTrackingBlock
-                        campaignId={campaign.id}
-                        destinationUrl={campaign.checkout_url}
-                        linkType="checkout"
-                        eventLabel="Checkout"
-                        limitationMessage="Without direct integration, we track visitor intent. For the best attribution accuracy, we recommend using your own website and embedding external tools inside your pages so VS-Track can track the full customer journey."
-                      />
-                    )}
-
-                    {/* payment_instructions_page: redirect link + visitor intent only */}
-                    {purchaseMethod === 'payment_instructions_page' && (
-                      <RedirectTrackingBlock
-                        campaignId={campaign.id}
-                        destinationUrl={campaign.checkout_url}
-                        linkType="checkout"
-                        eventLabel="Payment Page"
-                        limitationMessage="Without direct integration, we track visitor intent. For the best attribution accuracy, we recommend using your own website and embedding external tools inside your pages so VS-Track can track the full customer journey."
-                      />
-                    )}
-
-                    {/* embedded_alternative_payment: confirmation pixel only.
-                        Embedded delivery (PayPal embed, custom widget, etc).
-                        No webhook (non-Stripe), no checkout intent pixel (embed pages not editable),
-                        no redirect (embedded delivery). Uses direct purchase event type. */}
-                    {purchaseMethod === 'embedded_alternative_payment' && (
-                      <PixelBlock
-                        campaignId={campaign.id}
-                        eventType="purchase"
-                        amount={campaign.offer_price ?? null}
-                        thankyouUrl={campaign.purchase_thankyou_url}
-                        pendingMessage="No thank-you page URL detected yet. Add one in your campaign settings."
-                        activeInstruction="✅ Confirmation page detected. Paste this pixel on your purchase thank-you page to track completed orders."
-                      />
-                    )}
-
-                    {/* external_platform: redirect tracking link + limitation notice.
-                        Buyer intent only — no webhook, no confirmation tracking. */}
-                    {purchaseMethod === 'external_platform' && (
-                      <RedirectTrackingBlock
-                        campaignId={campaign.id}
-                        destinationUrl={campaign.checkout_url}
-                        linkType="checkout"
-                        eventLabel="Checkout"
-                        limitationMessage="This funnel routes through an external platform. Without direct integration, we track visitor intent only. For full-funnel confirmation tracking, we recommend hosting your checkout on your own website and embedding the payment tool there."
-                      />
-                    )}
-                  </div>
-                )}
-              </div>
+                           {/* ── DIRECT PURCHASE FUNNEL ── */}
+              <DirectPurchaseInstallation
+                campaign={campaign}
+                stripeConfig={stripeConfig}
+                userId={userId}
+                funnelState={funnelStates.purchase}
+                trackingState={trackingStates.purchase}
+                purchaseMethod={purchaseMethod}
+                onRefresh={onRefresh}
+              />
 
               {/* ── NEWSLETTER FUNNEL ── */}
               <div className="space-y-4 p-4 bg-zinc-950/50 rounded-xl border border-zinc-800">
