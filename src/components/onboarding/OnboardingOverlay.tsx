@@ -23,13 +23,14 @@ import NewsletterOnboardingStep from './CampaignOnboarding/NewsletterOnboardingS
 import SalesCallOnboardingStep from './CampaignOnboarding/SalesCallOnboardingStep';
 import PaidConsultationOnboardingStep from './CampaignOnboarding/PaidConsultationOnboardingStep';
 import LeadMagnetOnboardingStep from './CampaignOnboarding/LeadMagnetOnboardingStep';
+import GlobalAttributionOnboarding from './InstallationOnboarding/GlobalAttributionOnboarding';
 import CampaignOnboardingVideo from './CampaignOnboardingVideo/CampaignOnboardingVideo';
 import CampaignOnboardingStripeVideo from './CampaignOnboardingVideo/CampaignOnboardingStripeVideo';
 import CampaignOnboardingPixelVideo from './CampaignOnboardingVideo/CampaignOnboardingPixelVideo';
 import CampaignOnboardingThankYouVideo from './CampaignOnboardingVideo/CampaignOnboardingThankYouVideo';
 import PaymentMethodDiagram from './PaymentMethodDiagram';
 import type { PurchaseMethod } from './campaignOptionContent';
-type OnboardingStep = 'welcome' | 'video' | 'campaign' | 'hub' | 'newsletter' | 'sales_call' | 'consultation' | 'lead_magnet';
+type OnboardingStep = 'welcome' | 'video' | 'campaign' | 'hub' | 'newsletter' | 'sales_call' | 'consultation' | 'lead_magnet' | 'install_global';
 
 export default function OnboardingOverlay() {
   const { isOpen, close } = useOnboardingOverlay();
@@ -152,6 +153,27 @@ export default function OnboardingOverlay() {
       </p>
 
       <div style={{ display: 'flex', flexDirection: 'column', gap: 10, marginBottom: 20 }}>
+
+      <button
+        type="button"
+        onClick={() => setStep('install_global')}
+        style={{
+          width: '100%',
+          padding: '12px 20px',
+          borderRadius: 8,
+          border: '1px solid #5b3df0',
+          background: '#fff',
+          color: '#5b3df0',
+          fontSize: 13,
+          fontWeight: 700,
+          cursor: 'pointer',
+          marginBottom: 10,
+        }}
+      >
+        Continue to Installation →
+      </button>
+
+
         <button
           type="button"
           onClick={() => setStep('newsletter')}
@@ -319,6 +341,28 @@ export default function OnboardingOverlay() {
         campaignId={campaignId}
         onDone={() => setStep('hub')}
         onBack={() => setStep('hub')}
+      />
+    </div>
+  </div>
+)}
+
+          {step === 'install_global' && campaignId && (
+  <div
+    className="w-full bg-white rounded-2xl overflow-hidden shadow-2xl"
+    style={{
+      maxWidth: 640,
+      width: 'min(640px, 94vw)',
+      maxHeight: '90vh',
+    }}
+    onClick={(e) => e.stopPropagation()}
+  >
+    <div style={{ maxHeight: '90vh', overflow: 'auto' }}>
+      <GlobalAttributionOnboarding
+        onBack={() => setStep('hub')}
+        onDone={() => {
+          // STEP 3 will chain to Direct Purchase Installation here
+          close();
+        }}
       />
     </div>
   </div>
