@@ -320,6 +320,12 @@ export default function Marketplace() {
         <p className="text-zinc-500 text-[11px] font-bold uppercase tracking-widest mb-8">
           Collaboration Hub
         </p>
+  <button
+        onClick={() => navigate('/marketplace/marketer-analytics')}
+        className="mb-6 flex items-center gap-2 bg-zinc-900 hover:bg-zinc-800 border border-zinc-800 text-zinc-300 text-xs font-bold uppercase tracking-wider px-4 py-2 rounded-lg"
+          >
+        Marketer Analytics
+  </button>
         <TopRankings organizationId={effectiveOrgId} />
         <div className="flex gap-2 mb-8 border-b border-zinc-800">
           {TABS.map(({ key, label, icon: Icon }) => (
