@@ -25,48 +25,10 @@ import {
   computeExpectedCallValue,
   generateAttributionPixel,
 } from '../components/installation/installationHelpers';
+import { StatusBadge } from '../components/installation/StatusBadge';
+import { CopyButton } from '../components/installation/CopyButton';
 
 
-// ─────────────────────────────────────────────
-// STATUS BADGE
-// ─────────────────────────────────────────────
-
-const StatusBadge = ({ state, label }: { state: FunnelState | TrackingState; label?: string }) => {
-  const configs = {
-    active: { color: 'text-green-400 bg-green-500/10 border-green-500/20', icon: <CheckCircle2 size={10} />, text: label ?? 'Active' },
-    partial: { color: 'text-orange-400 bg-orange-500/10 border-orange-500/20', icon: <AlertCircle size={10} />, text: label ?? 'Partial' },
-    pending: { color: 'text-orange-400 bg-orange-500/10 border-orange-500/20', icon: <AlertCircle size={10} />, text: label ?? 'Pending' },
-    inactive: { color: 'text-red-400 bg-red-500/10 border-red-500/20', icon: <XCircle size={10} />, text: label ?? 'Inactive' },
-  };
-  const c = configs[state];
-  return (
-    <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full border text-[9px] font-black uppercase tracking-widest ${c.color}`}>
-      {c.icon} {c.text}
-    </span>
-  );
-};
-
-// ─────────────────────────────────────────────
-// COPY BUTTON
-// ─────────────────────────────────────────────
-
-const CopyButton = ({ text, label = 'Copy' }: { text: string; label?: string }) => {
-  const [copied, setCopied] = useState(false);
-  const handleCopy = () => {
-    navigator.clipboard.writeText(text);
-    setCopied(true);
-    setTimeout(() => setCopied(false), 2000);
-  };
-  return (
-    <button
-      onClick={handleCopy}
-      className="flex items-center gap-1.5 px-3 py-2 rounded-xl bg-zinc-800 hover:bg-zinc-700 border border-zinc-700 text-[10px] font-black uppercase tracking-widest text-zinc-300 hover:text-white transition-all active:scale-95 shrink-0"
-    >
-      {copied ? <Check size={12} className="text-green-400" /> : <Copy size={12} />}
-      {copied ? 'Copied!' : label}
-    </button>
-  );
-};
 
 
 // ─────────────────────────────────────────────
