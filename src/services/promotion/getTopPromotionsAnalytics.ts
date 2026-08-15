@@ -54,17 +54,23 @@
  * organizationId` exactly as getPromotionAnalytics.ts does. No new
  * organization-resolution mechanism is introduced.
  *
- * TITLE / MARKETER NOTE: `promotions` itself has no title column (see
+ * TITLE NOTE: `promotions` itself has no title column (see
  * getPromotionAnalytics.ts's PROMOTIONS_COLUMNS). Marketplace.tsx already
  * displays promotion titles as `p.assignment?.title ?? p.campaign?.campaign_name
  * ?? 'Promotion'` (see Marketplace.tsx), so `assignments.title` and
  * `campaigns.campaign_name` are resolved here the same way, batched by id.
  * If your `assignments`/`campaigns` tables use different column names than
- * assumed here, adjust ASSIGNMENTS_COLUMNS / CAMPAIGNS_COLUMNS below — this
- * is the one place in this file inferred from UI usage rather than from a
- * schema file you gave me directly. `marketer` has no evidence anywhere in
- * the supplied files, so it is always returned as `null` rather than
- * guessed, per your instructions.
+ * assumed here, adjust ASSIGNMENTS_COLUMNS / CAMPAIGNS_COLUMNS below.
+ *
+ * MARKETER NOTE: the marketer is the accepted assignment_collaborator, NOT
+ * promotions.owner_user_id (the assignment creator). Confirmed chain:
+ *   promotions.assignment_collaborator_id
+ *     → assignment_collaborators.id → assignment_collaborators.user_id
+ *       → profiles.id → profiles.full_name ?? profiles.email
+ *
+ * getPromotionLevelMetricsForOrg() below is the shared internal batch layer
+ * — it resolves this chain once per org and is reused by
+ * getTopMarketersAnalytics.ts so the marketer resolution isn't duplicated.
  */
 
 import { supabase } from '../../lib/supabase';
@@ -102,10 +108,30 @@ export interface GetTopPromotionsAnalyticsParams {
   customRange?: CustomDateRange | null;
 }
 
+/**
+ * Internal shared shape — one row per promotion, with the resolved marketer
+ * identity attached. TopPromotions.tsx never sees this directly (it gets
+ * TopPromotionRow, below); getTopMarketersAnalytics.ts groups these by
+ * marketerId.
+ */
+export interface PromotionLevelMetrics {
+  promotionId: string;
+  title: string;
+  marketerId: string | null;
+  marketerName: string | null;
+  clicks: number;
+  sessions: number;
+  conversions: number;
+  revenue: number;
+  rpc: number;
+}
+
 // ── Column sets (mirrors getPromotionAnalytics.ts exactly where shared) ────
 
-const PROMOTIONS_COLUMNS = 'id, assignment_id, organization_id, campaign_id';
+const PROMOTIONS_COLUMNS = 'id, assignment_id, organization_id, campaign_id, assignment_collaborator_id';
 const ASSIGNMENT_ASSETS_COLUMNS = 'assignment_id, asset_id';
+const ASSIGNMENT_COLLABORATORS_COLUMNS = 'id, user_id';
+const PROFILES_COLUMNS = 'id, email, full_name';
 const REDIRECT_LINKS_COLUMNS =
   'id, token, video_id, campaign_id, link_type, destination_url, organization_id, promotion_id, asset_id, tracking_hostname';
 const EVENTS_COLUMNS =
@@ -146,15 +172,17 @@ async function fetchByIn<T>(
 }
 
 /**
- * getTopPromotionsAnalytics
+ * getPromotionLevelMetricsForOrg
  *
- * One batched round of queries for the whole organization, then one
- * in-memory computePromotionAnalytics() call per promotion. No query is
- * issued per-promotion.
+ * The shared batch layer: one round of org-wide queries, then one in-memory
+ * computePromotionAnalytics() call per promotion (no query issued per
+ * promotion). Both getTopPromotionsAnalytics() (below) and
+ * getTopMarketersAnalytics.ts build on this — the fetch pipeline and the
+ * attribution logic live in exactly one place.
  */
-export async function getTopPromotionsAnalytics(
+export async function getPromotionLevelMetricsForOrg(
   params: GetTopPromotionsAnalyticsParams,
-): Promise<TopPromotionRow[]> {
+): Promise<PromotionLevelMetrics[]> {
   const { organizationId, preset, customRange = null } = params;
   if (!organizationId) return [];
 
@@ -170,7 +198,13 @@ export async function getTopPromotionsAnalytics(
     throw new Error(`Failed to fetch promotions: ${promotionsError.message}`);
   }
 
-  type PromotionRow = { id: string; assignment_id: string | null; organization_id: string | null; campaign_id: string | null };
+  type PromotionRow = {
+    id: string;
+    assignment_id: string | null;
+    organization_id: string | null;
+    campaign_id: string | null;
+    assignment_collaborator_id: string | null;
+  };
   const promotions = ((promotionRows ?? []) as PromotionRow[]).filter(
     p => !!p.assignment_id && p.organization_id === organizationId,
   );
@@ -178,6 +212,9 @@ export async function getTopPromotionsAnalytics(
 
   const assignmentIds = promotions.map(p => p.assignment_id!).filter(Boolean);
   const campaignIds = promotions.map(p => p.campaign_id).filter((id): id is string => !!id);
+  const collaboratorIds = promotions
+    .map(p => p.assignment_collaborator_id)
+    .filter((id): id is string => !!id);
 
   // ── 2. Titles — batched, best-effort (see file header note). ────────────
   const [assignmentRows, campaignRows] = await Promise.all([
@@ -196,6 +233,28 @@ export async function getTopPromotionsAnalytics(
   ]);
   const titleByAssignmentId = new Map(assignmentRows.map(a => [a.id, a.title]));
   const nameByCampaignId = new Map(campaignRows.map(c => [c.id, c.campaign_name]));
+
+  // ── 2b. Marketer identity — assignment_collaborators.id → user_id →
+  // profiles. This is the accepted collaborator (Webmood), never
+  // promotions.owner_user_id (Ali, the assignment creator). ───────────────
+  const collaboratorRows = await fetchByIn<{ id: string; user_id: string | null }>(
+    'assignment_collaborators',
+    ASSIGNMENT_COLLABORATORS_COLUMNS,
+    'id',
+    collaboratorIds,
+  );
+  const userIdByCollaboratorId = new Map(collaboratorRows.map(c => [c.id, c.user_id]));
+
+  const marketerUserIds = collaboratorRows
+    .map(c => c.user_id)
+    .filter((id): id is string => !!id);
+  const profileRows = await fetchByIn<{ id: string; email: string | null; full_name: string | null }>(
+    'profiles',
+    PROFILES_COLUMNS,
+    'id',
+    marketerUserIds,
+  );
+  const profileByUserId = new Map(profileRows.map(p => [p.id, p]));
 
   // ── 3. assignment_assets → asset pool per promotion, batched once. ──────
   const assignmentAssetsRows = await fetchByIn<{ assignment_id: string; asset_id: string | null }>(
@@ -301,7 +360,7 @@ export async function getTopPromotionsAnalytics(
 
   // ── 7. Slice in-memory per promotion and reuse the real engine. No
   // queries happen below this line. ────────────────────────────────────────
-  const rows: TopPromotionRow[] = [];
+  const rows: PromotionLevelMetrics[] = [];
 
   for (const promotion of promotions) {
     const assetIds = assetIdsByAssignmentId.get(promotion.assignment_id!) ?? [];
@@ -356,10 +415,17 @@ export async function getTopPromotionsAnalytics(
       (promotion.campaign_id ? nameByCampaignId.get(promotion.campaign_id) : null) ??
       'Promotion';
 
+    const marketerId = promotion.assignment_collaborator_id
+      ? userIdByCollaboratorId.get(promotion.assignment_collaborator_id) ?? null
+      : null;
+    const marketerProfile = marketerId ? profileByUserId.get(marketerId) : null;
+    const marketerName = marketerProfile?.full_name?.trim() || marketerProfile?.email || null;
+
     rows.push({
       promotionId: promotion.id,
       title,
-      marketer: null, // no evidence of a marketer field anywhere in the supplied schema
+      marketerId,
+      marketerName,
       clicks: result.kpis.clicks,
       sessions: scopedSessions.size,
       conversions: result.kpis.conversions,
@@ -369,6 +435,26 @@ export async function getTopPromotionsAnalytics(
   }
 
   return rows;
+}
+
+/**
+ * getTopPromotionsAnalytics — public API for TopPromotions.tsx. Thin
+ * projection over getPromotionLevelMetricsForOrg(); no separate queries.
+ */
+export async function getTopPromotionsAnalytics(
+  params: GetTopPromotionsAnalyticsParams,
+): Promise<TopPromotionRow[]> {
+  const rows = await getPromotionLevelMetricsForOrg(params);
+  return rows.map(r => ({
+    promotionId: r.promotionId,
+    title: r.title,
+    marketer: r.marketerName,
+    clicks: r.clicks,
+    sessions: r.sessions,
+    conversions: r.conversions,
+    revenue: r.revenue,
+    rpc: r.rpc,
+  }));
 }
 
 /**
