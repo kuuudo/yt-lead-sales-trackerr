@@ -35,7 +35,7 @@ import { FunnelHeader } from '../components/installation/FunnelHeader';
 import { GlobalWebsiteTrackingSection } from '../components/installation/GlobalWebsiteTrackingSection';
 import { DirectPurchaseInstallation } from '../components/installation/DirectPurchaseInstallation';
 import { NewsletterInstallation } from '../components/installation/NewsletterInstallation';
-
+import { SalesCallInstallation } from '../components/installation/SalesCallInstallation';
 // ─────────────────────────────────────────────
 // CHECKOUT TYPE SELECTOR (legacy — kept for backward compat display only)
 // ─────────────────────────────────────────────
@@ -448,79 +448,14 @@ const CampaignCard = ({
               />
 
               {/* ── SALES CALL FUNNEL ── */}
-              {campaign.has_sales_call && (
-                <div className="space-y-4 p-4 bg-zinc-950/50 rounded-xl border border-zinc-800">
-                  <FunnelHeader
-                    icon={<Phone size={14} />}
-                    title="Sales Call Funnel"
-                    funnelState={funnelStates.salesCall}
-                    trackingState={trackingStates.salesCall}
-                  />
-
-                  {funnelStates.salesCall === 'inactive' ? (
-                    <div className="flex gap-3 p-3 bg-red-500/5 border border-red-500/15 rounded-xl">
-                      <XCircle size={13} className="text-red-400 shrink-0 mt-0.5" />
-                      <p className="text-[11px] text-zinc-400 leading-relaxed">
-                        No sales call booking URL detected. Add one to your campaign settings.
-                      </p>
-                    </div>
-                  ) : (
-                    <div className="space-y-3">
-                      {/* Delivery method label */}
-                      <div className="flex items-center gap-2">
-                        <span className="text-[9px] font-black uppercase tracking-widest text-zinc-500">Delivery:</span>
-                        <span className="text-[9px] font-black uppercase tracking-widest px-2 py-0.5 rounded-full bg-zinc-800 border border-zinc-700 text-zinc-300">
-                          {salesCallDelivery === 'embedded_own_website' ? 'Embedded on Own Website' : 'External Platform'}
-                        </span>
-                      </div>
-
-                      {expectedCallValue > 0 && (
-                        <div className="flex items-center gap-3 p-3 bg-zinc-800/60 rounded-xl border border-zinc-700">
-                          <Star size={13} className="text-yellow-400 shrink-0" />
-                          <p className="text-[11px] text-zinc-400 leading-relaxed">
-                            Expected revenue per booked call: <span className="text-white font-black">${expectedCallValue}</span>
-                            <span className="text-zinc-600 ml-1">(${campaign.offer_price} × {campaign.estimated_close_rate}% close rate)</span>
-                            {(campaign.average_upsell_value ?? 0) > 0 && (
-                              <span className="text-zinc-500 ml-1">+ ${campaign.average_upsell_value} avg upsell</span>
-                            )}
-                          </p>
-                        </div>
-                      )}
-
-                      {/* embedded_own_website: confirmation pixel + optional booking intent */}
-                      {salesCallDelivery === 'embedded_own_website' && (
-                        <div className="space-y-3">
-                          <CheckoutIntentBlock
-                            campaignId={campaign.id}
-                            checkoutUrl={campaign.sales_call_booking_url}
-                            hasThankYouUrl={!!campaign.sales_call_thankyou_url}
-                          />
-                          <PixelBlock
-                            campaignId={campaign.id}
-                            eventType="sales_call"
-                            amount={expectedCallValue || null}
-                            thankyouUrl={campaign.sales_call_thankyou_url}
-                            pendingMessage="No booking confirmation page URL detected yet."
-                            activeInstruction="✅ Confirmation page detected. Paste this code on your booking confirmation page."
-                          />
-                        </div>
-                      )}
-
-                      {/* external_platform: redirect tracking link only */}
-                      {salesCallDelivery === 'external_platform' && (
-                        <RedirectTrackingBlock
-                          campaignId={campaign.id}
-                          destinationUrl={campaign.sales_call_booking_url}
-                          linkType="booking"
-                          eventLabel="Booking"
-                          limitationMessage="Without direct integration, we track booking intent. Embedded widgets provide more accurate attribution. We recommend embedding booking tools on your own website whenever possible."
-                        />
-                      )}
-                    </div>
-                  )}
-                </div>
-              )}
-
+              <SalesCallInstallation
+                campaign={campaign}
+                funnelState={funnelStates.salesCall}
+                trackingState={trackingStates.salesCall}
+                salesCallDelivery={salesCallDelivery}
+                expectedCallValue={expectedCallValue}
+              />
+             
               {/* ── PAID CONSULTATION FUNNEL ── */}
               {campaign.has_paid_consultation && (
                 <div className="space-y-4 p-4 bg-zinc-950/50 rounded-xl border border-zinc-800">
