@@ -25,13 +25,14 @@ import PaidConsultationOnboardingStep from './CampaignOnboarding/PaidConsultatio
 import LeadMagnetOnboardingStep from './CampaignOnboarding/LeadMagnetOnboardingStep';
 import GlobalAttributionOnboarding from './InstallationOnboarding/GlobalAttributionOnboarding';
 import DirectPurchaseInstallationOnboarding from './InstallationOnboarding/DirectPurchaseInstallationOnboarding';
+import NewsletterInstallationOnboarding from './InstallationOnboarding/NewsletterInstallationOnboarding';
 import CampaignOnboardingVideo from './CampaignOnboardingVideo/CampaignOnboardingVideo';
 import CampaignOnboardingStripeVideo from './CampaignOnboardingVideo/CampaignOnboardingStripeVideo';
 import CampaignOnboardingPixelVideo from './CampaignOnboardingVideo/CampaignOnboardingPixelVideo';
 import CampaignOnboardingThankYouVideo from './CampaignOnboardingVideo/CampaignOnboardingThankYouVideo';
 import PaymentMethodDiagram from './PaymentMethodDiagram';
 import type { PurchaseMethod } from './campaignOptionContent';
-type OnboardingStep = 'welcome' | 'video' | 'campaign' | 'hub' | 'newsletter' | 'sales_call' | 'consultation' | 'lead_magnet' | 'install_global' | 'install_direct_purchase';
+type OnboardingStep = 'welcome' | 'video' | 'campaign' | 'hub' | 'newsletter' | 'sales_call' | 'consultation' | 'lead_magnet' | 'install_global' | 'install_direct_purchase' | 'install_newsletter';
 
 export default function OnboardingOverlay() {
   const { isOpen, close } = useOnboardingOverlay();
@@ -380,8 +381,28 @@ export default function OnboardingOverlay() {
       <DirectPurchaseInstallationOnboarding
         campaignId={campaignId}
         onBack={() => setStep('install_global')}
+        onDone={() => setStep('install_newsletter')}
+      />
+    </div>
+  </div>
+)}
+
+          {step === 'install_newsletter' && campaignId && (
+  <div
+    className="w-full bg-zinc-950 rounded-2xl overflow-hidden shadow-2xl"
+    style={{
+      maxWidth: 720,
+      width: 'min(720px, 94vw)',
+      maxHeight: '90vh',
+    }}
+    onClick={(e) => e.stopPropagation()}
+  >
+    <div style={{ maxHeight: '90vh', overflow: 'auto' }}>
+      <NewsletterInstallationOnboarding
+        campaignId={campaignId}
+        onBack={() => setStep('install_direct_purchase')}
         onDone={() => {
-          // STEP 4+: chain Newsletter / Sales Call / Consultation install if enabled
+          // STEP 5: Sales Call install
           close();
         }}
       />
