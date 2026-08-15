@@ -8,7 +8,7 @@ import {
   type TopPromotionRow,
   type TopPromotionsMetric,
   type TopPromotionsPreset,
-} from '../../services/promotion/getTopPromotionsAnalytics';
+} from '../services/promotion/getTopPromotionsAnalytics';
 
 // Not the journey-diagnostic UI from IndividualPromotionAnalytics.tsx on
 // purpose — this is a compact ranking card for the Marketplace landing
