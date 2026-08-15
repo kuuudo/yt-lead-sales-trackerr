@@ -21,6 +21,7 @@ import Analytics from './pages/Analytics';
 import Installation from './pages/Installation';
 import VideoDetail from './pages/VideoDetail';
 import AssetDetail from './pages/AssetDetail';
+import AssetAnalytics from './pages/AssetAnalytics';
 import CampaignDetail from './pages/CampaignDetail';
 import InDepthAnalytics from './pages/InDepthAnalytics';
 import Track from './pages/Track';
@@ -341,6 +342,7 @@ function MainContent() {
         <Route path="/unmapped-videos" element={<PageWrapper><UnmappedVideos /></PageWrapper>} />
         <Route path="/videos/:id" element={<PageWrapper><VideoDetail /></PageWrapper>} />
         <Route path="/assets/:id" element={<PageWrapper><AssetDetail /></PageWrapper>} />
+        <Route path="/assets/:id/analytics" element={<PageWrapper><AssetAnalytics /></PageWrapper>} />
         <Route path="/campaigns/:id" element={<PageWrapper><CampaignDetail /></PageWrapper>} />
         <Route path="/analytics" element={<PageWrapper><Analytics /></PageWrapper>} />
         <Route path="/analytics/indepth" element={<InDepthAnalytics />} />
