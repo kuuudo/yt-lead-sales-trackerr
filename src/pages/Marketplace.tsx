@@ -306,26 +306,29 @@ export default function Marketplace() {
   return (
     <div className="min-h-screen bg-zinc-950 text-zinc-100">
       <div className="max-w-5xl mx-auto px-6 py-10">
-        <div className="flex items-center gap-3 mb-1">
-  <span className="w-2 h-2 rounded-full bg-red-600" />
-  <h1 className="text-2xl font-bold">Marketplace</h1>
+        <div className="flex items-center justify-between mb-1">
+  <div className="flex items-center gap-3">
+    <span className="w-2 h-2 rounded-full bg-red-600" />
+    <h1 className="text-2xl font-bold">Marketplace</h1>
+    <button
+      onClick={() => setShowOnboarding(true)}
+      className="w-8 h-8 rounded-full bg-zinc-800 border border-zinc-600 text-white text-sm flex items-center justify-center hover:bg-zinc-700 hover:border-zinc-500 transition-colors"
+      aria-label="Watch onboarding"
+    >
+      🦊
+    </button>
+  </div>
   <button
-    onClick={() => setShowOnboarding(true)}
-    className="w-8 h-8 rounded-full bg-zinc-800 border border-zinc-600 text-white text-sm flex items-center justify-center hover:bg-zinc-700 hover:border-zinc-500 transition-colors"
-    aria-label="Watch onboarding"
+    onClick={() => navigate('/marketplace/marketer-analytics')}
+    className="flex items-center gap-2 bg-zinc-900 hover:bg-zinc-800 border border-zinc-800 text-zinc-300 text-xs font-bold uppercase tracking-wider px-4 py-2 rounded-lg"
   >
-    🦊
+    Marketer Analytics
   </button>
 </div>
         <p className="text-zinc-500 text-[11px] font-bold uppercase tracking-widest mb-8">
           Collaboration Hub
         </p>
-  <button
-        onClick={() => navigate('/marketplace/marketer-analytics')}
-        className="mb-6 flex items-center gap-2 bg-zinc-900 hover:bg-zinc-800 border border-zinc-800 text-zinc-300 text-xs font-bold uppercase tracking-wider px-4 py-2 rounded-lg"
-          >
-        Marketer Analytics
-  </button>
+  
         <TopRankings organizationId={effectiveOrgId} />
         <div className="flex gap-2 mb-8 border-b border-zinc-800">
           {TABS.map(({ key, label, icon: Icon }) => (
