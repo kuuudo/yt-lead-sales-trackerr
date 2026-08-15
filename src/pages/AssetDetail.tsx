@@ -65,7 +65,7 @@
 
 import React, { useEffect, useState } from 'react';
 import { useParams, Link } from 'react-router-dom';
-import { ArrowLeft, Loader2, ExternalLink, Video as VideoIcon, ArchiveRestore } from 'lucide-react';
+import { ArrowLeft, Loader2, ExternalLink, Video as VideoIcon, ArchiveRestore, BarChart3 } from 'lucide-react';
 import { useAuth } from '../lib/auth';
 import { getAssetDetail } from '../services/asset/getAssetDetail';
 import type { AssetDetail as AssetDetailData } from '../services/asset/getAssetDetail';
@@ -275,6 +275,19 @@ export default function AssetDetail() {
               <VideoIcon size={12} /> Open Video Detail
             </Link>
           )}
+
+          {/* Individual Asset Analytics — diagnostic/validation surface
+              (see pages/AssetAnalytics.tsx). Works for all three asset
+              types since it's driven by the shared getAssetAnalytics()
+              service, not by resource.origin like the Video Detail link
+              above. Deliberately plain — this is a validation entry
+              point, not a polished CTA. */}
+          <Link
+            to={`/assets/${asset.id}/analytics`}
+            className="flex items-center justify-center gap-2 text-[10px] font-black uppercase tracking-widest text-zinc-300 bg-zinc-900 hover:bg-zinc-800 border border-zinc-800 rounded-xl px-4 py-3 transition-all"
+          >
+            <BarChart3 size={12} /> Asset Analytics (Diagnostic)
+          </Link>
 
           {archivedAt && (
             <button
