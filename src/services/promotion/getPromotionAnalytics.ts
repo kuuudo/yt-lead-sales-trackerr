@@ -1,20 +1,28 @@
 /**
  * src/services/promotion/getPromotionAnalytics.ts
  *
- * Fetch layer for Individual Promotion Analytics. Resolves promotion-scoped
- * events / stripe_purchases / pixel_purchases / redirect_links directly by
- * promotion_id (per the locked architecture — see promotionAnalyticsEngine.ts
- * header), plus a SESSION-scoped journey context, then hands everything to
- * computePromotionAnalytics(). No analytics math lives in this file — this
- * is data access only.
+ * Fetch layer for Individual Promotion Analytics. The scope is resolved
+ * OUTWARD from the known promotionId, never by filtering rows on their own
+ * promotion_id column:
  *
- * JOURNEY CONTEXT RULE (locked): the conversion itself must originate from
- * the selected promotion (promotion_id = promotionId), but journey
- * reconstruction is session-scoped and deliberately NOT filtered by
- * promotion_id — a session can touch other promotions' redirect links /
- * assets on its way to a conversion, and journeyAnalyticsEngine.ts is meant
- * to see all of that. Only the conversion-origin query is promotion-scoped;
- * everything fetched for journeyContext is scoped by session_id instead.
+ *   Promotion → promotions.assignment_id → assignment_assets → asset pool
+ *     → redirect_links (asset_id IN pool, organization_id = Promotion's org)
+ *       → token[]      → stripe_purchases.redirect_link_token
+ *       → video_id[]   → events.video_id → session_id[]
+ *                           → pixel_purchases.session_id
+ *                           → stripe_purchases.session_id (see §3 below)
+ *
+ * redirect_links.promotion_id is checked ONLY as secondary disambiguation,
+ * downstream in promotionAnalyticsEngine.ts's scopeToPromotion() — include
+ * if it matches this promotion or is NULL, exclude only if it's stamped for
+ * a DIFFERENT promotion. No row anywhere in this file is fetched via
+ * `.eq('promotion_id', promotionId)`, and a purchase's own promotion_id is
+ * never treated as authoritative (see §3).
+ *
+ * JOURNEY CONTEXT RULE (locked): journey reconstruction is session-scoped
+ * and deliberately NOT filtered by promotion_id — a session can touch other
+ * promotions' redirect links / assets on its way to a conversion, and
+ * journeyAnalyticsEngine.ts is meant to see all of that.
  */
 
 import { supabase } from '../../lib/supabase';
@@ -176,12 +184,34 @@ export async function getPromotionAnalytics(
         }),
       );
 
-  // ── 3. Stripe by token, Pixel by session bridge (date-bounded) ───────────
+  // ── 3. Stripe by token AND by session bridge, Pixel by session bridge
+  // (date-bounded) ───────────────────────────────────────────────────────
+  //
+  // Checkout-type redirect_links (link_type = 'checkout') commonly carry
+  // asset_id = NULL and video_id = NULL on the DB row (verified against
+  // production data — a checkout link is a generic per-campaign destination,
+  // not tied to any one asset). That means a checkout link's token NEVER
+  // appears in `tokens` above (which is derived purely from the asset-pool
+  // redirect_links), so a stripe_purchases row whose redirect_link_token
+  // points at a checkout link is invisible to the token-only fetch — this
+  // was silently producing $0 Promotion Revenue for exactly the purchases
+  // that matter. Pixel already avoids this by bridging through session_id;
+  // Stripe purchases carry a session_id column too, so the same bridge is
+  // applied here, additively (union, not replacement) with the token match.
+  // The purchase row's own promotion_id is NOT used to scope this fetch —
+  // per the locked architecture, it is secondary evidence only, checked (if
+  // at all) downstream in scopeToPromotion(), never authoritative here.
   const sessionIdsFromEvents = events
     .map(e => e.session_id)
     .filter((s): s is string => !!s);
 
-  const [stripePurchases, pixelPurchases] = await Promise.all([
+  const inDateWindow = <T extends { created_at: string }>(rows: T[]): T[] =>
+    rows.filter(p => {
+      const t = new Date(p.created_at);
+      return t >= start && t <= end;
+    });
+
+  const [stripeByToken, stripeBySession, pixelPurchases] = await Promise.all([
     tokens.length === 0
       ? Promise.resolve([] as PromotionStripePurchaseRow[])
       : fetchByIn<PromotionStripePurchaseRow>(
@@ -189,12 +219,15 @@ export async function getPromotionAnalytics(
           STRIPE_PURCHASES_COLUMNS,
           'redirect_link_token',
           tokens,
-        ).then(rows =>
-          rows.filter(p => {
-            const t = new Date(p.created_at);
-            return t >= start && t <= end;
-          }),
-        ),
+        ).then(inDateWindow),
+    sessionIdsFromEvents.length === 0
+      ? Promise.resolve([] as PromotionStripePurchaseRow[])
+      : fetchByIn<PromotionStripePurchaseRow>(
+          'stripe_purchases',
+          STRIPE_PURCHASES_COLUMNS,
+          'session_id',
+          sessionIdsFromEvents,
+        ).then(inDateWindow),
     sessionIdsFromEvents.length === 0
       ? Promise.resolve([] as PromotionPixelPurchaseRow[])
       : fetchByIn<PromotionPixelPurchaseRow>(
@@ -202,13 +235,16 @@ export async function getPromotionAnalytics(
           PIXEL_PURCHASES_COLUMNS,
           'session_id',
           sessionIdsFromEvents,
-        ).then(rows =>
-          rows.filter(p => {
-            const t = new Date(p.created_at);
-            return t >= start && t <= end;
-          }),
-        ),
+        ).then(inDateWindow),
   ]);
+
+  // Merge + dedupe by id — the same purchase can legitimately be returned by
+  // both queries (token-matched AND session-matched at once).
+  const stripePurchases = Array.from(
+    new Map(
+      [...stripeByToken, ...stripeBySession].map(p => [p.id, p]),
+    ).values(),
+  );
 
   
   // ── 2. Journey context — session-scoped, NOT promotion-filtered ─────────

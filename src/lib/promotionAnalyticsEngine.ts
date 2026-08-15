@@ -1,16 +1,30 @@
 // ─────────────────────────────────────────────────────────────────────────────
 // promotionAnalyticsEngine.ts
 //
-// PURPOSE: Promotion-level analytics, computed by aggregating DIRECTLY on
-// promotion_id — events / stripe_purchases / pixel_purchases / redirect_links
-// all carry promotion_id as a real column (verified against schema, 2026-08).
+// PURPOSE: Promotion-level analytics. Scope is resolved OUTWARD from the
+// known promotionId, never by filtering rows on their own promotion_id
+// column:
+//
+//   Promotion → assignment_id → assignment_assets → asset pool
+//     → redirect_links (asset_id IN pool, organization-bounded)
+//       → token[] → stripe_purchases.redirect_link_token
+//       → video_id[] → events.video_id → session_id[]
+//                          → pixel_purchases.session_id
+//                          → stripe_purchases.session_id (checkout-link bridge)
+//
+// redirect_links.promotion_id is used ONLY as secondary disambiguation in
+// scopeToPromotion() below (include if it matches this promotion or is
+// NULL; exclude only if it's stamped for a DIFFERENT promotion). No row is
+// ever matched by `row.promotion_id === promotionId` on events,
+// stripe_purchases, or pixel_purchases — a purchase's own promotion_id is
+// not authoritative for scoping.
 //
 // This deliberately does NOT reuse analyticsEngine.ts's processVideoMetrics(),
 // which is keyed by video_id. That path (see the old promotionAnalytics.ts)
 // only attributes correctly when one video belongs to exactly one Promotion —
 // the schema allows an asset/video to appear in multiple Promotions, so a
 // video_id-keyed rollup can silently pull in another Promotion's traffic.
-// Filtering directly on promotion_id sidesteps that assumption entirely.
+// Resolving scope through the asset pool sidesteps that assumption entirely.
 //
 // What this file reuses from analyticsEngine.ts (protected, unmodified):
 //   - CLICK_EVENT_MAP            (exact raw event_type → click metric mapping)
@@ -184,11 +198,15 @@ export interface PromotionAnalyticsEngineInput {
   includeEV?: boolean;
 
   /**
-   * Promotion-scoped rows: everything here should already be filtered
-   * WHERE promotion_id = promotionId by the caller (service layer). This
-   * engine ALSO defensively re-filters by promotion_id itself — see
-   * scopeToPromotion() below — so a caller mistake can't silently
-   * contaminate one promotion's numbers with another's.
+   * Candidate rows for this promotion's asset pool: the caller
+   * (getPromotionAnalytics.ts) fetches these via the asset-pool → token /
+   * video_id / session_id resolution described in the file header — NOT via
+   * `WHERE promotion_id = promotionId`. This engine defensively re-narrows
+   * them to the actual scope via scopeToPromotion() below (redirect_links
+   * disambiguated by promotion_id as secondary evidence; events by
+   * video_id; stripePurchases by token OR session_id; pixelPurchases by
+   * session_id) — so a caller mistake, or an over-broad candidate set,
+   * can't silently contaminate one promotion's numbers with another's.
    */
   events: PromotionEventRow[];
   stripePurchases: PromotionStripePurchaseRow[];
@@ -239,12 +257,24 @@ function scopeToPromotion(input: PromotionAnalyticsEngineInput) {
     e => e.video_id != null && validVideoIds.has(e.video_id),
   );
 
-  const stripePurchases = input.stripePurchases.filter(
-    p => p.redirect_link_token != null && validTokens.has(p.redirect_link_token),
-  );
-
   const validSessionIds = new Set(
     events.map(e => e.session_id).filter((s): s is string => !!s),
+  );
+
+  // Stripe: match by token (asset-pool redirect_links) OR by session_id
+  // bridged through this promotion's own events — same session bridge
+  // pixel_purchases already uses below. Checkout-type redirect_links
+  // (link_type = 'checkout') commonly carry asset_id = NULL and are
+  // therefore never asset-pool-derived, so their token never lands in
+  // validTokens; without the session bridge, every purchase that went
+  // through a checkout link would be silently dropped here even though the
+  // fetch layer (getPromotionAnalytics.ts) already retrieved it. The
+  // purchase row's own promotion_id is intentionally NOT checked — it is
+  // not authoritative for scoping (see file header).
+  const stripePurchases = input.stripePurchases.filter(
+    p =>
+      (p.redirect_link_token != null && validTokens.has(p.redirect_link_token)) ||
+      (p.session_id != null && validSessionIds.has(p.session_id)),
   );
 
   const pixelPurchases = input.pixelPurchases.filter(
