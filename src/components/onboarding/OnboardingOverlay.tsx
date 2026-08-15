@@ -24,13 +24,14 @@ import SalesCallOnboardingStep from './CampaignOnboarding/SalesCallOnboardingSte
 import PaidConsultationOnboardingStep from './CampaignOnboarding/PaidConsultationOnboardingStep';
 import LeadMagnetOnboardingStep from './CampaignOnboarding/LeadMagnetOnboardingStep';
 import GlobalAttributionOnboarding from './InstallationOnboarding/GlobalAttributionOnboarding';
+import DirectPurchaseInstallationOnboarding from './InstallationOnboarding/DirectPurchaseInstallationOnboarding';
 import CampaignOnboardingVideo from './CampaignOnboardingVideo/CampaignOnboardingVideo';
 import CampaignOnboardingStripeVideo from './CampaignOnboardingVideo/CampaignOnboardingStripeVideo';
 import CampaignOnboardingPixelVideo from './CampaignOnboardingVideo/CampaignOnboardingPixelVideo';
 import CampaignOnboardingThankYouVideo from './CampaignOnboardingVideo/CampaignOnboardingThankYouVideo';
 import PaymentMethodDiagram from './PaymentMethodDiagram';
 import type { PurchaseMethod } from './campaignOptionContent';
-type OnboardingStep = 'welcome' | 'video' | 'campaign' | 'hub' | 'newsletter' | 'sales_call' | 'consultation' | 'lead_magnet' | 'install_global';
+type OnboardingStep = 'welcome' | 'video' | 'campaign' | 'hub' | 'newsletter' | 'sales_call' | 'consultation' | 'lead_magnet' | 'install_global' | 'install_direct_purchase';
 
 export default function OnboardingOverlay() {
   const { isOpen, close } = useOnboardingOverlay();
@@ -359,8 +360,28 @@ export default function OnboardingOverlay() {
     <div style={{ maxHeight: '90vh', overflow: 'auto' }}>
       <GlobalAttributionOnboarding
         onBack={() => setStep('hub')}
+        onDone={() => setStep('install_direct_purchase')}
+      />
+    </div>
+  </div>
+)}
+
+          {step === 'install_direct_purchase' && campaignId && (
+  <div
+    className="w-full bg-zinc-950 rounded-2xl overflow-hidden shadow-2xl"
+    style={{
+      maxWidth: 720,
+      width: 'min(720px, 94vw)',
+      maxHeight: '90vh',
+    }}
+    onClick={(e) => e.stopPropagation()}
+  >
+    <div style={{ maxHeight: '90vh', overflow: 'auto' }}>
+      <DirectPurchaseInstallationOnboarding
+        campaignId={campaignId}
+        onBack={() => setStep('install_global')}
         onDone={() => {
-          // STEP 3 will chain to Direct Purchase Installation here
+          // STEP 4+: chain Newsletter / Sales Call / Consultation install if enabled
           close();
         }}
       />
