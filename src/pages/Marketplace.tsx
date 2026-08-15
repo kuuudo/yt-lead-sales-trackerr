@@ -30,6 +30,7 @@ import { marketplacePromotionsPageCache } from '../lib/marketplacePromotionsPage
 import { marketplaceInvitationsPageCache } from '../lib/marketplaceInvitationsPageCache';
 import OnboardingVideoSection03 from '../components/onboarding/OnboardingVideo/OnboardingVideoSection03';
 import OnboardingVideoSection06 from '../components/onboarding/OnboardingVideo/OnboardingVideoSection06';
+import TopPromotions from './TopPromotions'; // adjust path to wherever you save the file
 type Tab = 'assignments' | 'invitations' | 'promotions';
 
 const TABS: { key: Tab; label: string; icon: typeof Briefcase }[] = [
@@ -317,7 +318,7 @@ export default function Marketplace() {
         <p className="text-zinc-500 text-[11px] font-bold uppercase tracking-widest mb-8">
           Collaboration Hub
         </p>
-
+        <TopPromotions organizationId={effectiveOrgId} />
         <div className="flex gap-2 mb-8 border-b border-zinc-800">
           {TABS.map(({ key, label, icon: Icon }) => (
             <button

@@ -286,7 +286,7 @@ export default function AssetDetail() {
             to={`/assets/${asset.id}/analytics`}
             className="flex items-center justify-center gap-2 text-[10px] font-black uppercase tracking-widest text-zinc-300 bg-zinc-900 hover:bg-zinc-800 border border-zinc-800 rounded-xl px-4 py-3 transition-all"
           >
-            <BarChart3 size={12} /> Asset Analytics (Diagnostic)
+            <BarChart3 size={12} /> Asset Analytics 
           </Link>
 
           {archivedAt && (
