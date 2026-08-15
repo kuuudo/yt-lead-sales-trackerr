@@ -38,7 +38,7 @@ import { NewsletterInstallation } from '../components/installation/NewsletterIns
 import { SalesCallInstallation } from '../components/installation/SalesCallInstallation';
 import { PaidConsultationInstallation } from '../components/installation/PaidConsultationInstallation';
 // ─────────────────────────────────────────────
-// CHECKOUT TYPE SELECTOR (legacy — kept for backward compat display only)
+// CHECKOUT TYPE SELECTOR (legacy — kept for backward compat display only).
 // ─────────────────────────────────────────────
 
 const CHECKOUT_OPTIONS = [
