@@ -186,7 +186,7 @@ export default function Marketplace() {
   // is no automatic/time-based archiving anywhere. This only ever writes
   // a row scoped to (assignment_id, the CURRENT user's id) — it can never
   // affect the other party's view of the same assignment, and never
-  // touches assignment status, collaborators, invitations, or promotions.
+  // touches assignment status, collaborators, invitations, or promotions..
   const handleArchiveAssignment = (assignment: AssignmentSummary) => {
     if (!userId || isReadOnly) return;
     showConfirm(
