@@ -49,6 +49,8 @@ import TrackingDomains from './pages/TrackingDomains';
 import AdminTestimonials from './pages/AdminTestimonials';
 import Testimonials from './pages/Testimonials';
 import Website from './pages/Website';
+import AllAssetsAnalytics from './pages/AllAssetsAnalytics';
+import AllPromotionsAnalytics from './pages/AllPromotionsAnalytics';
 function Navigation() {
   const { lang, toggleLanguage, t } = useLanguage();
   const { user, signOut } = useAuth();
@@ -59,9 +61,16 @@ function Navigation() {
   const links = [
     { to: '/dashboard', icon: LayoutDashboard, label: t.nav.dashboard },
     { to: '/campaigns', icon: Briefcase, label: t.nav.campaigns },
-    { to: '/videos', icon: Video, label: t.nav.videos },
-    { to: '/assets', icon: Library, label: t.nav.assets },
-    { to: '/marketplace', icon: Briefcase, label: t.nav.marketplace },
+    { to: '/videos', icon: Video, label: t.nav.videos, children: [
+      { to: '/analytics/indepth', label: 'Content Analytics' },
+    ] },
+    { to: '/assets', icon: Library, label: t.nav.assets, children: [
+      { to: '/assets/analytics', label: 'Asset Analytics' },
+    ] },
+    { to: '/marketplace', icon: Briefcase, label: t.nav.marketplace, children: [
+      { to: '/marketplace/marketer-analytics', label: 'Marketer Analytics' },
+      { to: '/marketplace/promotions-analytics', label: 'Promotions Analytics' },
+    ] },
     { to: '/operator', icon: Users, label: t.nav.operator },
     { to: '/workspace', icon: Briefcase, label: t.nav.workspace },
     { to: '/analytics', icon: BarChart3, label: t.nav.analytics },
@@ -113,18 +122,40 @@ function Navigation() {
           </Link>
           {user && (
             <div className="hidden md:flex items-center gap-6">
-              {links.map(({ to, icon: Icon, label }) => {
-                const isActive = location.pathname === to;
+              {links.map(({ to, icon: Icon, label, children }) => {
+                const isActive =
+                  location.pathname === to ||
+                  (children?.some(child => child.to === location.pathname) ?? false);
                 return (
-                  <Link
-                    key={to}
-                    to={to}
-                    className={`text-[10px] font-bold uppercase tracking-widest transition-all inline-flex items-center gap-2 ${
-                      isActive ? 'text-white' : 'text-zinc-500 hover:text-zinc-300'
-                    }`}
-                  >
-                    {label}
-                  </Link>
+                  <div key={to} className="relative group">
+                    <Link
+                      to={to}
+                      className={`text-[10px] font-bold uppercase tracking-widest transition-all inline-flex items-center gap-2 ${
+                        isActive ? 'text-white' : 'text-zinc-500 hover:text-zinc-300'
+                      }`}
+                    >
+                      {label}
+                    </Link>
+                    {children && children.length > 0 && (
+                      <div className="absolute left-0 top-full pt-3 hidden group-hover:block z-50">
+                        <div className="bg-zinc-950 border border-zinc-800 rounded-lg py-1.5 min-w-[180px] shadow-xl">
+                          {children.map(child => (
+                            <Link
+                              key={child.to}
+                              to={child.to}
+                              className={`block px-3.5 py-2 text-[10px] font-bold uppercase tracking-widest whitespace-nowrap transition-all ${
+                                location.pathname === child.to
+                                  ? 'text-white bg-zinc-900'
+                                  : 'text-zinc-500 hover:text-zinc-300 hover:bg-zinc-900/50'
+                              }`}
+                            >
+                              {child.label}
+                            </Link>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+                  </div>
                 );
               })}
             </div>
@@ -344,6 +375,8 @@ function MainContent() {
         <Route path="/videos/:id" element={<PageWrapper><VideoDetail /></PageWrapper>} />
         <Route path="/assets/:id" element={<PageWrapper><AssetDetail /></PageWrapper>} />
         <Route path="/assets/:id/analytics" element={<PageWrapper><AssetAnalytics /></PageWrapper>} />
+        <Route path="/assets/:id/analytics" element={<PageWrapper><AssetAnalytics /></PageWrapper>} />
+        <Route path="/assets/analytics" element={<PageWrapper><AllAssetsAnalytics /></PageWrapper>} />
         <Route path="/campaigns/:id" element={<PageWrapper><CampaignDetail /></PageWrapper>} />
         <Route path="/analytics" element={<PageWrapper><Analytics /></PageWrapper>} />
         <Route path="/analytics/indepth" element={<InDepthAnalytics />} />
@@ -360,6 +393,8 @@ function MainContent() {
         <Route path="/workspace/:boardId" element={<BoardPage />} />
         <Route path="/marketplace" element={<PageWrapper><Marketplace /></PageWrapper>} />
         <Route path="/marketplace/marketer-analytics" element={<PageWrapper><MarketerAnalytics /></PageWrapper>} />
+        <Route path="/marketplace/marketer-analytics" element={<PageWrapper><MarketerAnalytics /></PageWrapper>} />
+        <Route path="/marketplace/promotions-analytics" element={<PageWrapper><AllPromotionsAnalytics /></PageWrapper>} />
         <Route path="/marketplace/assignments/new" element={<PageWrapper><CreateAssignment /></PageWrapper>} />
         <Route path="/marketplace/assignments/:assignmentId" element={<PageWrapper><AssignmentDetail /></PageWrapper>} />
         <Route path="/marketplace/promotions/:id" element={<PageWrapper><PromotionDetail /></PageWrapper>} />

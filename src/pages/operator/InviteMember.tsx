@@ -108,7 +108,7 @@ export default function InviteMember() {
   return (
     <div className="max-w-md mx-auto px-6 py-16">
       <button
-        onClick={() => navigate('/operator/members')}
+        onClick={() => navigate('/operator')}
         className="flex items-center gap-1.5 text-[10px] font-black uppercase tracking-widest text-zinc-600 hover:text-zinc-300 transition-colors mb-8"
       >
         <ChevronLeft size={13} /> Back to members
