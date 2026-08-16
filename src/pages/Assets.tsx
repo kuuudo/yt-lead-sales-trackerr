@@ -70,6 +70,7 @@ import type { AssetResource } from '../services/asset/createAssetResource';
 import { assetsPageCache, updateCachedArchivedMap } from '../lib/assetsPageCache';
 import OnboardingVideoSection02 from '../components/onboarding/OnboardingVideo/OnboardingVideoSection02';
 import TopAssetsRanking from '../components/assets/TopAssetsRanking';
+import MobileRankingsButton from '../components/MobileRankingsButton';
 export default function Assets() {
   const navigate = useNavigate();
   const { user } = useAuth();
@@ -414,8 +415,12 @@ if (user) {
       </header>
 
       {organizationId && rows.length > 0 && (
-        <TopAssetsRanking organizationId={organizationId} rows={rows} />
+        <div className="hidden md:block">
+          <TopAssetsRanking organizationId={organizationId} rows={rows} />
+        </div>
       )}
+
+      <MobileRankingsButton organizationId={organizationId} defaultRanking="assets" assetRows={rows} />
 
       <div className="relative max-w-xs">
         <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-zinc-600" />

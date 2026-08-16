@@ -33,6 +33,7 @@ import OnboardingVideoSection06 from '../components/onboarding/OnboardingVideo/O
 import TopPromotions from './TopPromotions'; 
 import TopMarketers from './TopMarketers';
 import TopRankings from './TopRankings';
+import MobileRankingsButton from '../components/MobileRankingsButton';
 type Tab = 'assignments' | 'invitations' | 'promotions';
 
 const TABS: { key: Tab; label: string; icon: typeof Briefcase }[] = [
@@ -329,7 +330,11 @@ export default function Marketplace() {
           Collaboration Hub
         </p>
   
-        <TopRankings organizationId={effectiveOrgId} />
+        <div className="hidden md:block">
+          <TopRankings organizationId={effectiveOrgId} />
+        </div>
+
+        <MobileRankingsButton organizationId={effectiveOrgId} defaultRanking="promotions" />
         <div className="flex gap-2 mb-8 border-b border-zinc-800">
           {TABS.map(({ key, label, icon: Icon }) => (
             <button
