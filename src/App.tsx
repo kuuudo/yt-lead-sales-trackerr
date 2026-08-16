@@ -3,9 +3,9 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { BrowserRouter as Router, Routes, Route, Link, useLocation, Navigate } from 'react-router-dom';
-import { LayoutDashboard, Globe, BarChart3, Video, Library, Briefcase, Users, LogOut, Loader2, User as UserIcon, Code, Settings as SettingsIcon, Menu, X, Star, MessageSquareText } from 'lucide-react';
+import { LayoutDashboard, Globe, BarChart3, Video, Library, Briefcase, Users, LogOut, Loader2, User as UserIcon, Code, Settings as SettingsIcon, Menu, X, Star, MessageSquareText, ChevronDown } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { useTracker, useLanguage } from './lib/hooks';
 import { AuthProvider, useAuth } from './lib/auth';
@@ -58,6 +58,24 @@ function Navigation() {
   const [mobileOpen, setMobileOpen] = useState(false);
   const [testimonialModalOpen, setTestimonialModalOpen] = useState(false);
 
+  // True hover/pointer capability — NOT a screen-width guess. A narrow
+  // touchscreen laptop and a wide touch tablet both get this right, where
+  // a `md:` breakpoint check alone would get them wrong.
+  const [supportsHover, setSupportsHover] = useState(true);
+  useEffect(() => {
+    const query = window.matchMedia('(hover: hover) and (pointer: fine)');
+    setSupportsHover(query.matches);
+    const onChange = (e: MediaQueryListEvent) => setSupportsHover(e.matches);
+    query.addEventListener('change', onChange);
+    return () => query.removeEventListener('change', onChange);
+  }, []);
+
+  // Which item's submenu is open — desktop and mobile are separate DOM
+  // trees, so they get separate state. Only one open at a time in each.
+  const [openDesktopMenu, setOpenDesktopMenu] = useState<string | null>(null);
+  const [openMobileMenu, setOpenMobileMenu] = useState<string | null>(null);
+  const desktopNavRef = useRef<HTMLDivElement>(null);
+
   const links = [
     { to: '/dashboard', icon: LayoutDashboard, label: t.nav.dashboard },
     { to: '/campaigns', icon: Briefcase, label: t.nav.campaigns },
@@ -80,6 +98,8 @@ function Navigation() {
   // Close the drawer whenever the route changes (e.g. after clicking a link).
   useEffect(() => {
     setMobileOpen(false);
+    setOpenDesktopMenu(null);
+    setOpenMobileMenu(null);
   }, [location.pathname]);
 
   // Close on Escape while the drawer is open.
@@ -91,6 +111,23 @@ function Navigation() {
     window.addEventListener('keydown', onKeyDown);
     return () => window.removeEventListener('keydown', onKeyDown);
   }, [mobileOpen]);
+
+// Close the desktop dropdown on outside click — only matters on
+  // non-hover devices, where the dropdown is opened by a tap.
+  useEffect(() => {
+    if (!openDesktopMenu) return;
+    const onClickOutside = (e: MouseEvent) => {
+      if (desktopNavRef.current && !desktopNavRef.current.contains(e.target as Node)) {
+        setOpenDesktopMenu(null);
+      }
+    };
+    document.addEventListener('mousedown', onClickOutside);
+    document.addEventListener('touchstart', onClickOutside);
+    return () => {
+      document.removeEventListener('mousedown', onClickOutside);
+      document.removeEventListener('touchstart', onClickOutside);
+    };
+  }, [openDesktopMenu]);
 
   // Prevent background scroll/overflow while the drawer is open on mobile.
   useEffect(() => {
@@ -121,23 +158,38 @@ function Navigation() {
             VS-Track
           </Link>
           {user && (
-            <div className="hidden md:flex items-center gap-6">
+            <div ref={desktopNavRef} className="hidden md:flex items-center gap-6">
               {links.map(({ to, icon: Icon, label, children }) => {
                 const isActive =
                   location.pathname === to ||
                   (children?.some(child => child.to === location.pathname) ?? false);
+                const hasChildren = !!children && children.length > 0;
+                const isOpen = openDesktopMenu === to;
                 return (
                   <div key={to} className="relative group">
                     <Link
                       to={to}
+                      onClick={(e) => {
+                        // Devices that can't hover: first tap opens the
+                        // submenu instead of navigating. Hover-capable
+                        // devices keep navigating immediately, unchanged.
+                        if (hasChildren && !supportsHover) {
+                          e.preventDefault();
+                          setOpenDesktopMenu(isOpen ? null : to);
+                        }
+                      }}
                       className={`text-[10px] font-bold uppercase tracking-widest transition-all inline-flex items-center gap-2 ${
                         isActive ? 'text-white' : 'text-zinc-500 hover:text-zinc-300'
                       }`}
                     >
                       {label}
                     </Link>
-                    {children && children.length > 0 && (
-                      <div className="absolute left-0 top-full pt-3 hidden group-hover:block z-50">
+                    {hasChildren && (
+                      <div
+                        className={`absolute left-0 top-full pt-3 z-50 ${
+                          supportsHover ? 'hidden group-hover:block' : isOpen ? 'block' : 'hidden'
+                        }`}
+                      >
                         <div className="bg-zinc-950 border border-zinc-800 rounded-lg py-1.5 min-w-[180px] shadow-xl">
                           {children.map(child => (
                             <Link
@@ -251,22 +303,82 @@ function Navigation() {
               </div>
 
               <div className="flex-1 flex flex-col gap-1 px-3 py-4">
-                {links.map(({ to, icon: Icon, label }) => {
-                  const isActive = location.pathname === to;
+                {links.map(({ to, icon: Icon, label, children }) => {
+                  const isActive =
+                    location.pathname === to ||
+                    (children?.some(child => child.to === location.pathname) ?? false);
+                  const hasChildren = !!children && children.length > 0;
+
+                  if (!hasChildren) {
+                    return (
+                      <Link
+                        key={to}
+                        to={to}
+                        onClick={() => setMobileOpen(false)}
+                        className={`flex items-center gap-3 px-3 py-2.5 rounded-md text-[11px] font-bold uppercase tracking-widest transition-all ${
+                          isActive
+                            ? 'text-white bg-zinc-900 border border-zinc-800'
+                            : 'text-zinc-500 hover:text-zinc-300 hover:bg-zinc-900/50'
+                        }`}
+                      >
+                        <Icon size={15} className={isActive ? 'text-red-500' : ''} />
+                        {label}
+                      </Link>
+                    );
+                  }
+
+                  const isOpen = openMobileMenu === to;
                   return (
-                    <Link
-                      key={to}
-                      to={to}
-                      onClick={() => setMobileOpen(false)}
-                      className={`flex items-center gap-3 px-3 py-2.5 rounded-md text-[11px] font-bold uppercase tracking-widest transition-all ${
-                        isActive
-                          ? 'text-white bg-zinc-900 border border-zinc-800'
-                          : 'text-zinc-500 hover:text-zinc-300 hover:bg-zinc-900/50'
-                      }`}
-                    >
-                      <Icon size={15} className={isActive ? 'text-red-500' : ''} />
-                      {label}
-                    </Link>
+                    <div key={to}>
+                      <button
+                        type="button"
+                        onClick={() => setOpenMobileMenu(isOpen ? null : to)}
+                        aria-expanded={isOpen}
+                        className={`w-full flex items-center justify-between gap-3 px-3 py-2.5 rounded-md text-[11px] font-bold uppercase tracking-widest transition-all ${
+                          isActive
+                            ? 'text-white bg-zinc-900 border border-zinc-800'
+                            : 'text-zinc-500 hover:text-zinc-300 hover:bg-zinc-900/50'
+                        }`}
+                      >
+                        <span className="flex items-center gap-3">
+                          <Icon size={15} className={isActive ? 'text-red-500' : ''} />
+                          {label}
+                        </span>
+                        <ChevronDown
+                          size={14}
+                          className={`transition-transform ${isOpen ? 'rotate-180' : ''}`}
+                        />
+                      </button>
+                      {isOpen && (
+                        <div className="flex flex-col gap-1 pl-9 pt-1 pb-1">
+                          <Link
+                            to={to}
+                            onClick={() => setMobileOpen(false)}
+                            className={`px-3 py-2 rounded-md text-[11px] font-bold uppercase tracking-widest transition-all ${
+                              location.pathname === to
+                                ? 'text-white bg-zinc-900 border border-zinc-800'
+                                : 'text-zinc-500 hover:text-zinc-300 hover:bg-zinc-900/50'
+                            }`}
+                          >
+                            {label}
+                          </Link>
+                          {children.map(child => (
+                            <Link
+                              key={child.to}
+                              to={child.to}
+                              onClick={() => setMobileOpen(false)}
+                              className={`px-3 py-2 rounded-md text-[11px] font-bold uppercase tracking-widest transition-all ${
+                                location.pathname === child.to
+                                  ? 'text-white bg-zinc-900 border border-zinc-800'
+                                  : 'text-zinc-500 hover:text-zinc-300 hover:bg-zinc-900/50'
+                              }`}
+                            >
+                              {child.label}
+                            </Link>
+                          ))}
+                        </div>
+                      )}
+                    </div>
                   );
                 })}
               </div>

@@ -630,7 +630,7 @@ export default function Dashboard() {
           </p>
         </div>
         <Link
-          to="/analytics"
+          to="/analytics/indepth"
           className="bg-zinc-900 border border-zinc-800 text-white px-5 py-2.5 rounded-xl text-[10px] font-black uppercase tracking-widest flex items-center gap-2 hover:bg-zinc-800 transition-all"
         >
           Go To Analytics <ArrowRight size={14} />
