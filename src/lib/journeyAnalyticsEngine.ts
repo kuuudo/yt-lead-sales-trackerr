@@ -73,6 +73,21 @@
 //      provenance in this schema — asset_resources has no campaign_id
 //      column. This engine reports that as unknown; it does not modify the
 //      schema or infer a campaign relationship.
+//
+//  10. JOURNEY EVIDENCE CONTRACT (added 2026-08-16): session_id equality
+//      alone is NOT sufficient for an event to become a JourneyStep.
+//      session_id and campaign_id are near-universal on `events` rows —
+//      they are grouping keys, not proof of a real touchpoint. After the
+//      session_id boundary (§4) is applied, each session-matched event must
+//      ALSO pass isJourneyEligibleEvidence(): Tier A event types
+//      (consultation, newsletter, sales_call) are eligible unconditionally;
+//      everything else needs at least one non-null Evidence Anchor
+//      (organization_id, promotion_id, asset_id, redirect_link_id,
+//      tracking_hostname, link_type, or value). This is NOT an event_type
+//      blacklist — a page_view with real attribution context still
+//      qualifies; a page_view with none of it does not. Events that fail
+//      this check are excluded from Journey.steps only — they are never
+//      deleted or mutated in the raw `events` data this engine receives.
 // ─────────────────────────────────────────────────────────────────────────────
 
 
@@ -126,6 +141,11 @@ export interface JourneyEvent {
   redirect_link_id:    string | null;
   tracking_hostname:   string | null;
   link_type:           string | null;
+  // Added for the Journey Evidence Contract's `value` anchor check (see
+  // isJourneyEligibleEvidence below). Nothing on this engine read `value`
+  // before now. Presence, not truthiness, is what's checked — `value = 0`
+  // is a written value and counts as an anchor; only NULL/undefined don't.
+  value:               number | string | null;
 }
 
 /**
@@ -209,6 +229,7 @@ export interface JourneyStep {
   link_type:           string | null;
   tracking_hostname:   string | null;
   organization_id:     string | null;
+  value:               number | string | null;
 
   // Derived — only populated if event.redirect_link_id resolved to a real
   // row in the redirectLinks input. Never fabricated.
@@ -287,6 +308,95 @@ function parseSupabaseTimestamp(raw: string): number {
   return Number.isNaN(t) ? new Date(raw).getTime() : t;
 }
 
+// ═════════════════════════════════════════════════════════════════════════════
+// JOURNEY EVIDENCE CONTRACT
+//
+// Fixes the bug where every event sharing the purchase's session_id was
+// admitted into Journey.steps, with no eligibility check. session_id and
+// campaign_id are near-universal on `events` rows — they are grouping keys,
+// not proof a row is a real journey touchpoint. This section is the only
+// thing standing between "session-matched" and "journey-eligible."
+//
+// Verified real-data case this must exclude: event_type = 'page_view',
+// session_id + campaign_id present, organization_id / promotion_id /
+// asset_id / redirect_link_id / tracking_hostname / link_type / value all
+// NULL. That row must never reach Journey.steps.
+//
+// Verified real-data cases this must keep: 'consultation' / 'newsletter' /
+// 'sales_call' events, and a 'landing_page' event carrying organization_id,
+// promotion_id, redirect_link_id, tracking_hostname, and link_type.
+// ═════════════════════════════════════════════════════════════════════════════
+
+/**
+ * TIER_A_EVENT_TYPES
+ *
+ * Intrinsically behavioral event types: the type itself asserts a real user
+ * action occurred, so no Evidence Anchor is required. Kept as an explicit,
+ * maintained list — never inferred — per the file's existing "never guess"
+ * principle (see locked scope). 'sales_call' is included alongside the
+ * originally-confirmed 'consultation' / 'newsletter' because it is the same
+ * category of explicit conversion/engagement event; it happened to also
+ * carry anchors in the sample row, so this inclusion doesn't change that
+ * row's outcome — flagging it here so it can be corrected if wrong.
+ *
+ * 'page_view' and 'landing_page' are deliberately NOT in this list — both
+ * are ambient/contextual types that can fire with no attribution, so both
+ * fall through to the anchor check (Tier B) instead.
+ */
+const TIER_A_EVENT_TYPES: ReadonlySet<string> = new Set([
+  'consultation',
+  'newsletter',
+  'sales_call',
+]);
+
+/**
+ * hasEvidenceAnchor
+ *
+ * An Evidence Anchor is a field whose non-null presence proves the event is
+ * tied to something more specific than "happened during this session."
+ * session_id, campaign_id, and video_id are deliberately excluded — they are
+ * association/grouping fields present on nearly every row, not proof of a
+ * real touchpoint.
+ *
+ * `value` is checked for presence (`!= null`), not truthiness: `value = 0`
+ * is a deliberately written value and counts as an anchor. Only NULL /
+ * undefined mean "no value was recorded."
+ */
+function hasEvidenceAnchor(evt: JourneyEvent): boolean {
+  return (
+    evt.organization_id    != null ||
+    evt.promotion_id       != null ||
+    evt.asset_id           != null ||
+    evt.redirect_link_id   != null ||
+    evt.tracking_hostname  != null ||
+    evt.link_type          != null ||
+    evt.value              != null
+  );
+}
+
+/**
+ * isJourneyEligibleEvidence
+ *
+ * The Journey Evidence Contract's admission test, applied AFTER the
+ * session_id boundary (session matching is unchanged — this is an
+ * additional filter on top of it, not a replacement for it):
+ *
+ *   Tier A event_type            → eligible unconditionally (type IS the evidence)
+ *   Tier B/C (anything else,
+ *   including null/unrecognized) → eligible only if hasEvidenceAnchor(evt)
+ *
+ * This is deliberately NOT an event_type blacklist. A 'page_view' with real
+ * attribution context (asset_id, redirect_link_id, link_type, etc.) passes;
+ * a 'page_view' with none of that fails — regardless of type.
+ */
+function isJourneyEligibleEvidence(evt: JourneyEvent): boolean {
+  if (evt.event_type != null && TIER_A_EVENT_TYPES.has(evt.event_type)) {
+    return true;
+  }
+  return hasEvidenceAnchor(evt);
+}
+
+
 /**
  * buildPurchaseJourney
  *
@@ -335,16 +445,24 @@ export function buildPurchaseJourney(
     };
   }
 
+  // Step 1 of 2: session boundary — unchanged from before (locked scope §4).
   const sessionEvents = events
     .filter(e => e.session_id === conversion.session_id)
     .slice()
     .sort((a, b) => parseSupabaseTimestamp(a.created_at) - parseSupabaseTimestamp(b.created_at));
 
+  // Step 2 of 2: Journey Evidence Contract — the new filter. Raw events
+  // themselves are never mutated or discarded; this only decides which
+  // session-matched rows are ALSO journey-eligible. Rows that fail this
+  // check remain valid analytics data elsewhere — they're simply excluded
+  // from Journey.steps.
+  const eligibleEvents = sessionEvents.filter(isJourneyEligibleEvidence);
+
   // Cross-session evidence is structurally unreachable under the current
-  // schema regardless of whether sessionEvents is empty — always flagged
+  // schema regardless of eligibleEvents length — always flagged
   // (locked scope §5).
   const unresolvedDimensions: string[] = ['cross_session'];
-  if (sessionEvents.length === 0) {
+  if (eligibleEvents.length === 0) {
     unresolvedDimensions.push('journey_steps');
   }
 
@@ -360,7 +478,7 @@ export function buildPurchaseJourney(
     return elementTypeByCompositeKey.get(`${assetId}::${campaignId}`) ?? null;
   };
 
-  const steps: JourneyStep[] = sessionEvents.map((evt): JourneyStep => {
+  const steps: JourneyStep[] = eligibleEvents.map((evt): JourneyStep => {
     const linkRow = evt.redirect_link_id ? redirectLinkById.get(evt.redirect_link_id) ?? null : null;
 
     const redirectLink: JourneyStepRedirectLink | null = linkRow ? {
@@ -391,6 +509,7 @@ export function buildPurchaseJourney(
       link_type:            evt.link_type,
       tracking_hostname:    evt.tracking_hostname,
       organization_id:      evt.organization_id,
+      value:                evt.value,
       redirectLink,
       // Resolved from the event's OWN (asset_id, campaign_id) — separate
       // from redirectLink.elementType above; never merged with it
