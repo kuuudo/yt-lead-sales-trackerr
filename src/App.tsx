@@ -5,7 +5,7 @@
 
 import React, { useState, useEffect, useRef } from 'react';
 import { BrowserRouter as Router, Routes, Route, Link, useLocation, Navigate } from 'react-router-dom';
-import { LayoutDashboard, Globe, BarChart3, Video, Library, Briefcase, Users, LogOut, Loader2, User as UserIcon, Code, Settings as SettingsIcon, Menu, X, Star, MessageSquareText, ChevronDown } from 'lucide-react';
+import { LayoutDashboard, Globe, BarChart3, Video, Library, Briefcase, Users, LogOut, Loader2, User as UserIcon, DollarSign, Settings as SettingsIcon, Menu, X, Star, MessageSquareText, ChevronDown } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { useTracker, useLanguage } from './lib/hooks';
 import { AuthProvider, useAuth } from './lib/auth';
@@ -86,7 +86,9 @@ function Navigation() {
 
   const links = [
     { to: '/dashboard', icon: LayoutDashboard, label: t.nav.dashboard },
-    { to: '/campaigns', icon: Briefcase, label: t.nav.campaigns },
+    { to: '/campaigns', icon: Briefcase, label: t.nav.campaigns, children: [
+      { to: '/installation', label: t.nav.installation || 'Setup' },
+    ] },
     { to: '/videos', icon: Video, label: t.nav.videos, children: [
       { to: '/analytics/indepth', label: 'Content Analytics' },
     ] },
@@ -100,7 +102,7 @@ function Navigation() {
     { to: '/operator', icon: Users, label: t.nav.operator },
     { to: '/workspace', icon: Briefcase, label: t.nav.workspace },
     { to: '/analytics', icon: BarChart3, label: t.nav.analytics },
-    { to: '/installation', icon: Code, label: t.nav.installation || 'Install' },
+    { to: '/pricing', icon: DollarSign, label: t.nav.pricing },
   ];
 
   // Close the drawer whenever the route changes (e.g. after clicking a link).
