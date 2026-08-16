@@ -27,6 +27,7 @@
  */
 
 import React, { useEffect, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { motion, AnimatePresence } from 'motion/react';
 import { Castle, TrendingUp, Users, Library, X, Loader2 } from 'lucide-react';
 import TopPromotions from '../pages/TopPromotions';
@@ -115,13 +116,16 @@ export default function MobileRankingsButton({
 
   const resolvedAssetRows = assetRows ?? fetchedAssetRows;
 
-  return (
+  return createPortal(
     <>
-      {/* Floating button — mobile only, matches the project's existing md: breakpoint convention */}
+      {/* Floating button — mobile only. Rendered via a portal straight into
+          <body> so no page's own layout (tall tables, scroll containers,
+          transformed wrappers, etc.) can ever clip it, push it off-screen,
+          or bury it under something with a lower z-index. */}
       <button
         onClick={() => setOpen(true)}
         aria-label="Open rankings"
-        className="md:hidden fixed bottom-5 right-5 z-40 w-14 h-14 rounded-full bg-zinc-900 border border-zinc-700 shadow-[0_8px_24px_rgba(0,0,0,0.5)] flex items-center justify-center text-red-500 hover:border-zinc-500 hover:text-red-400 active:scale-95 transition-all"
+        className="md:hidden fixed bottom-5 right-5 z-[9000] w-14 h-14 rounded-full bg-zinc-900 border border-zinc-700 shadow-[0_8px_24px_rgba(0,0,0,0.5)] flex items-center justify-center text-white hover:border-zinc-500 hover:text-zinc-300 active:scale-95 transition-all"
       >
         <Castle size={22} />
       </button>
@@ -132,7 +136,7 @@ export default function MobileRankingsButton({
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
-            className="md:hidden fixed inset-0 z-[100] bg-black/70 flex items-end sm:items-center justify-center"
+            className="md:hidden fixed inset-0 z-[9999] bg-black/70 flex items-end sm:items-center justify-center"
             onClick={() => setOpen(false)}
           >
             <motion.div
@@ -144,7 +148,7 @@ export default function MobileRankingsButton({
             >
               <div className="flex justify-between items-center mb-4 shrink-0">
                 <h2 className="text-sm font-black uppercase tracking-widest text-white flex items-center gap-2">
-                  <Castle size={16} className="text-red-500" /> Rankings
+                  <Castle size={16} className="text-white" /> Rankings
                 </h2>
                 <button
                   onClick={() => setOpen(false)}
@@ -198,6 +202,7 @@ export default function MobileRankingsButton({
           </motion.div>
         )}
       </AnimatePresence>
-    </>
+    </>,
+    document.body
   );
 }
