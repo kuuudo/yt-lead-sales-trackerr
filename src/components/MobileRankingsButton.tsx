@@ -44,6 +44,12 @@ const TABS: { key: RankingKey; label: string; icon: typeof TrendingUp }[] = [
   { key: 'assets', label: 'Top Assets', icon: Library },
 ];
 
+/**
+ * Module-level dismiss flag: survives SPA client-side navigation (tab switches)
+ * but resets on full page refresh, so the FAB reappears after reload.
+ */
+let rankingsButtonDismissed = false;
+
 interface MobileRankingsButtonProps {
   organizationId: string | null;
   /** Which tab is selected the moment the modal opens. User can still switch freely afterward. */
@@ -57,7 +63,16 @@ export default function MobileRankingsButton({
   defaultRanking,
   assetRows,
 }: MobileRankingsButtonProps) {
-  const [open, setOpen] = useState(false);
+    const [open, setOpen] = useState(false);
+  const [dismissed, setDismissed] = useState(rankingsButtonDismissed);
+  const [activeTab, setActiveTab] = useState<RankingKey>(defaultRanking);
+
+  const handleDismiss = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    rankingsButtonDismissed = true;
+    setDismissed(true);
+    setOpen(false);
+  };
   const [activeTab, setActiveTab] = useState<RankingKey>(defaultRanking);
 
   // Only used when the host page didn't already pass assetRows (Marketplace.tsx case).
@@ -117,6 +132,7 @@ export default function MobileRankingsButton({
   
 
   const resolvedAssetRows = assetRows ?? fetchedAssetRows;
+    if (dismissed) return null;
 
   return createPortal(
     <>
@@ -124,13 +140,23 @@ export default function MobileRankingsButton({
           <body> so no page's own layout (tall tables, scroll containers,
           transformed wrappers, etc.) can ever clip it, push it off-screen,
           or bury it under something with a lower z-index. */}
-      <button
-        onClick={() => setOpen(true)}
-        aria-label="Open rankings"
-        className="md:hidden fixed bottom-5 right-5 z-[9000] w-14 h-14 rounded-full bg-zinc-900 border border-zinc-700 shadow-[0_8px_24px_rgba(0,0,0,0.5)] flex items-center justify-center text-white hover:border-zinc-500 hover:text-zinc-300 active:scale-95 transition-all"
-      >
-        <Castle size={22} />
-      </button>
+            <div className="md:hidden fixed bottom-5 right-5 z-[9000]">
+        <button
+          onClick={() => setOpen(true)}
+          aria-label="Open rankings"
+          className="w-14 h-14 rounded-full bg-zinc-900 border border-zinc-700 shadow-[0_8px_24px_rgba(0,0,0,0.5)] flex items-center justify-center text-white hover:border-zinc-500 hover:text-zinc-300 active:scale-95 transition-all"
+        >
+          <Castle size={22} />
+        </button>
+        {/* Cancel / dismiss — hides the FAB for this session; reappears on full refresh */}
+        <button
+          onClick={handleDismiss}
+          aria-label="Hide rankings button"
+          className="absolute -top-1.5 -right-1.5 w-5 h-5 rounded-full bg-zinc-800 border border-zinc-600 flex items-center justify-center text-zinc-400 hover:text-white hover:border-zinc-400 active:scale-90 transition-all shadow-md"
+        >
+          <X size={10} strokeWidth={2.5} />
+        </button>
+      </div>
 
       <AnimatePresence>
         {open && (
