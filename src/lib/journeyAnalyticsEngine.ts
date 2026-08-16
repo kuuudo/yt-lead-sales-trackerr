@@ -480,7 +480,40 @@ export function buildPurchaseJourney(
   // session-matched rows are ALSO journey-eligible. Rows that fail this
   // check remain valid analytics data elsewhere — they're simply excluded
   // from Journey.steps.
-  const eligibleEvents = sessionEvents.filter(isJourneyEligibleEvidence);
+  // ── TEMPORARY DIAGNOSTIC (2026-08-16) ───────────────────────────────────
+// Not permanent architecture. Tests whether session_id + organization_id
+// meaningfully shrinks touchpoint count. Remove this block once the
+// diagnostic question is answered — revert to the single line:
+//   const eligibleEvents = sessionEvents.filter(isJourneyEligibleEvidence);
+const orgFilteredEvents = sessionEvents.filter(e => {
+  if (!conversion.organization_id) return true;
+  return e.organization_id === conversion.organization_id;
+});
+
+const orgExcluded = sessionEvents.filter(e => !orgFilteredEvents.includes(e));
+const orgExcludedByType: Record<string, number> = {};
+for (const e of orgExcluded) {
+  const key = e.event_type ?? 'null';
+  orgExcludedByType[key] = (orgExcludedByType[key] ?? 0) + 1;
+}
+
+const pageViewExcluded = orgFilteredEvents.filter(e => e.event_type === 'page_view').length;
+const eligibleEvents = orgFilteredEvents.filter(isJourneyEligibleEvidence);
+const noEvidenceExcluded = orgFilteredEvents.length - pageViewExcluded - eligibleEvents.length;
+
+console.log('[JOURNEY DIAGNOSTIC]', {
+  purchase_id: conversion.id,
+  session_id: conversion.session_id,
+  organization_id: conversion.organization_id,
+  raw_session_events: sessionEvents.length,
+  after_organization_filter: orgFilteredEvents.length,
+  excluded_by_organization: orgExcluded.length,
+  excluded_by_organization_by_type: orgExcludedByType,
+  page_view_excluded: pageViewExcluded,
+  no_evidence_excluded: noEvidenceExcluded,
+  final_journey_steps: eligibleEvents.length,
+});
+// ── END TEMPORARY DIAGNOSTIC ─────────────────────────────────────────────
 
   // Cross-session evidence is structurally unreachable under the current
   // schema regardless of eligibleEvents length — always flagged
