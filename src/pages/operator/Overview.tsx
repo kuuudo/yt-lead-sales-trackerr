@@ -20,15 +20,17 @@
 // ─────────────────────────────────────────────────────────────────────────────
 
 import React, { useState, useEffect } from 'react';
-import { Users, DollarSign, Target, Activity, ArrowRight } from 'lucide-react';
-import { Link } from 'react-router-dom';
+import { Users, DollarSign, Target, Activity, Search, Plus, BarChart3, X, Eye, Loader2 } from 'lucide-react';
+import { Link, useNavigate } from 'react-router-dom';
 import { supabase } from '../../lib/supabase';
 import { useOrganization } from '../../lib/useOrganization';
+import { useViewing } from '../../lib/ViewingContext';
 import OnboardingVideoSection04 from '../../components/onboarding/OnboardingVideo/OnboardingVideoSection04';
 
 interface OperatorMember {
   id: string;
   name: string;
+  email: string;
   revenue: number;      // placeholder — not wired yet
   conversions: number;  // placeholder — not wired yet
   cvr: number;           // placeholder — not wired yet
@@ -53,10 +55,15 @@ function initials(name: string): string {
 }
 
 export default function Overview() {
+  const navigate = useNavigate();
+  const { enterViewing } = useViewing();
   const { organizationId, loading: orgLoading } = useOrganization();
   const [members, setMembers] = useState<OperatorMember[]>([]);
   const [loading, setLoading] = useState(true);
   const [showOnboarding, setShowOnboarding] = useState(false);
+  const [memberSearch, setMemberSearch] = useState('');
+  const [enteringAccountId, setEnteringAccountId] = useState<string | null>(null);
+  const [viewingError, setViewingError] = useState<string | null>(null);
   useEffect(() => {
     if (!organizationId) return;
 
@@ -83,6 +90,7 @@ export default function Overview() {
             return {
               id: row.user_id,
               name: profile?.full_name || 'Unnamed member',
+              email: profile?.email || '',
               revenue: 0,       // placeholder — not wired yet
               conversions: 0,   // placeholder — not wired yet
               cvr: 0,            // placeholder — not wired yet
@@ -111,6 +119,24 @@ export default function Overview() {
 
   const topPerformers = [...members].sort((a, b) => b.revenue - a.revenue).slice(0, 3);
 
+  const filteredMembers = members.filter(m =>
+    m.name.toLowerCase().includes(memberSearch.toLowerCase()) ||
+    m.email.toLowerCase().includes(memberSearch.toLowerCase())
+  );
+
+  const handleViewAccount = async (member: OperatorMember) => {
+    setViewingError(null);
+    setEnteringAccountId(member.id);
+    try {
+      await enterViewing(member.id, member.name);
+      navigate('/dashboard');
+    } catch (err: any) {
+      setViewingError(err.message || 'Could not enter viewing mode.');
+    } finally {
+      setEnteringAccountId(null);
+    }
+  };
+
   return (
     <div className="max-w-6xl mx-auto px-6 py-8 space-y-6">
       <div className="flex items-center justify-between mb-2">
@@ -124,12 +150,7 @@ export default function Overview() {
       🦊
     </button>
   </div>
-        <Link
-          to="/operator/members"
-          className="flex items-center gap-2 bg-zinc-900 border border-zinc-700 text-zinc-200 text-[10px] font-black uppercase tracking-widest px-4 py-2.5 rounded-xl hover:border-zinc-500 hover:text-white transition-all"
-        >
-          Manage members <ArrowRight size={13} />
-        </Link>
+        
       </div>
 
       {/* ── Team KPI cards — wired ──────────────────────────────────────── */}
@@ -150,6 +171,86 @@ export default function Overview() {
             </div>
           </div>
         ))}
+      </section>
+
+      {/* ── All Members — moved here from Members.tsx ─────────────────────── */}
+      <section className="bento-card p-0 overflow-hidden">
+        <div className="px-6 py-4 border-b border-zinc-900 bg-zinc-900/10 flex items-center justify-between">
+          <h2 className="label-caps !text-white">All Members</h2>
+          <Link
+            to="/operator/members/invite"
+            className="flex items-center gap-2 bg-zinc-900 border border-zinc-700 text-zinc-200 text-[10px] font-black uppercase tracking-widest px-4 py-2.5 rounded-xl hover:border-zinc-500 hover:text-white transition-all"
+          >
+            <Plus size={13} /> Invite member
+          </Link>
+        </div>
+
+        <div className="px-6 pt-4">
+          <div className="relative max-w-xs">
+            <Search size={13} className="absolute left-3 top-1/2 -translate-y-1/2 text-zinc-600" />
+            <input
+              value={memberSearch}
+              onChange={e => setMemberSearch(e.target.value)}
+              placeholder="Search members"
+              className="w-full bg-zinc-900 border border-zinc-800 rounded-xl pl-9 pr-3 py-2 text-[11px] text-zinc-200 placeholder:text-zinc-600 focus:outline-none focus:border-zinc-600"
+            />
+          </div>
+        </div>
+
+        {filteredMembers.length === 0 ? (
+          <div className="py-20 text-center">
+            <p className="text-[10px] font-black uppercase text-zinc-600 tracking-widest">
+              {members.length === 0 ? 'No members yet' : 'No members match your search'}
+            </p>
+          </div>
+        ) : (
+          <div className="divide-y divide-zinc-900/50 mt-4">
+            {filteredMembers.map(m => (
+              <div key={m.id} className="flex items-center justify-between px-6 py-3">
+                <div className="flex items-center gap-3">
+                  <div className="w-8 h-8 rounded-lg bg-zinc-900 border border-zinc-700 flex items-center justify-center text-[10px] font-black text-zinc-400">
+                    {initials(m.name)}
+                  </div>
+                  <div>
+                    <p className="text-[11px] font-bold text-zinc-200">{m.name}</p>
+                    <p className="text-[9px] font-bold text-zinc-600">{m.email}</p>
+                  </div>
+                </div>
+
+                <div className="flex items-center gap-6">
+                  <span className="text-sm font-black text-emerald-400 tabular-nums w-20 text-right">
+                    ${m.revenue.toLocaleString()}
+                  </span>
+                  <button
+                    onClick={() => handleViewAccount(m)}
+                    disabled={enteringAccountId === m.id}
+                    className="flex items-center gap-2 px-3 py-2 border border-zinc-800 rounded-lg text-[10px] font-black uppercase tracking-widest text-zinc-300 hover:text-white hover:border-zinc-600 transition-all disabled:opacity-50"
+                  >
+                    {enteringAccountId === m.id ? <Loader2 size={13} className="animate-spin" /> : <Eye size={13} />}
+                    View account
+                  </button>
+                  <button
+                    onClick={() => navigate(`/operator/members/${m.id}`)}
+                    className="p-2 border border-zinc-800 rounded-lg text-zinc-500 hover:text-white hover:border-zinc-700 transition-all"
+                    aria-label={`View ${m.name}'s analytics`}
+                  >
+                    <BarChart3 size={13} />
+                  </button>
+                  <button
+                    onClick={() => { /* TODO: remove confirmation via existing <Modal /> */ }}
+                    className="p-2 border border-zinc-800 rounded-lg text-zinc-600 hover:text-red-400 hover:border-red-900 transition-all"
+                    aria-label={`Remove ${m.name}`}
+                  >
+                    <X size={13} />
+                  </button>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+        {viewingError && (
+          <p className="text-[10px] font-bold text-red-500 text-center py-3">{viewingError}</p>
+        )}
       </section>
 
       {/* ── Top Performers — wired ──────────────────────────────────────── */}

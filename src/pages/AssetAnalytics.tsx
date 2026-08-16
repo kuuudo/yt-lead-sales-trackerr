@@ -162,7 +162,7 @@ export default function AssetAnalytics() {
   return (
     <div className="space-y-6 max-w-5xl">
       <Link
-        to={`/assets/${id}`}
+        to="/assets"
         className="flex items-center gap-2 text-zinc-500 hover:text-white text-[10px] font-black uppercase tracking-widest"
       >
         <ArrowLeft size={14} /> Back to Asset
