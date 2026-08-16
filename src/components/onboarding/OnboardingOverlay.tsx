@@ -27,13 +27,14 @@ import GlobalAttributionOnboarding from './InstallationOnboarding/GlobalAttribut
 import DirectPurchaseInstallationOnboarding from './InstallationOnboarding/DirectPurchaseInstallationOnboarding';
 import NewsletterInstallationOnboarding from './InstallationOnboarding/NewsletterInstallationOnboarding';
 import SalesCallInstallationOnboarding from './InstallationOnboarding/SalesCallInstallationOnboarding';
+import PaidConsultationInstallationOnboarding from './InstallationOnboarding/PaidConsultationInstallationOnboarding';
 import CampaignOnboardingVideo from './CampaignOnboardingVideo/CampaignOnboardingVideo';
 import CampaignOnboardingStripeVideo from './CampaignOnboardingVideo/CampaignOnboardingStripeVideo';
 import CampaignOnboardingPixelVideo from './CampaignOnboardingVideo/CampaignOnboardingPixelVideo';
 import CampaignOnboardingThankYouVideo from './CampaignOnboardingVideo/CampaignOnboardingThankYouVideo';
 import PaymentMethodDiagram from './PaymentMethodDiagram';
 import type { PurchaseMethod } from './campaignOptionContent';
-type OnboardingStep = 'welcome' | 'video' | 'campaign' | 'hub' | 'newsletter' | 'sales_call' | 'consultation' | 'lead_magnet' | 'install_global' | 'install_direct_purchase' | 'install_newsletter' | 'install_sales_call';
+type OnboardingStep = 'welcome' | 'video' | 'campaign' | 'hub' | 'newsletter' | 'sales_call' | 'consultation' | 'lead_magnet' | 'install_global' | 'install_direct_purchase' | 'install_newsletter' | 'install_sales_call' | 'install_consultation';
 
 export default function OnboardingOverlay() {
   const { isOpen, close } = useOnboardingOverlay();
@@ -370,7 +371,7 @@ export default function OnboardingOverlay() {
 
           {step === 'install_direct_purchase' && campaignId && (
   <div
-    className="w-full bg-zinc-950 rounded-2xl overflow-hidden shadow-2xl"
+    className="w-full bg-white rounded-2xl overflow-hidden shadow-2xl"
     style={{
       maxWidth: 720,
       width: 'min(720px, 94vw)',
@@ -390,7 +391,7 @@ export default function OnboardingOverlay() {
 
           {step === 'install_newsletter' && campaignId && (
   <div
-    className="w-full bg-zinc-950 rounded-2xl overflow-hidden shadow-2xl"
+    className="w-full bg-white rounded-2xl overflow-hidden shadow-2xl"
     style={{
       maxWidth: 720,
       width: 'min(720px, 94vw)',
@@ -410,7 +411,7 @@ export default function OnboardingOverlay() {
 
           {step === 'install_sales_call' && campaignId && (
   <div
-    className="w-full bg-zinc-950 rounded-2xl overflow-hidden shadow-2xl"
+    className="w-full bg-white rounded-2xl overflow-hidden shadow-2xl"
     style={{
       maxWidth: 720,
       width: 'min(720px, 94vw)',
@@ -422,15 +423,31 @@ export default function OnboardingOverlay() {
       <SalesCallInstallationOnboarding
         campaignId={campaignId}
         onBack={() => setStep('install_newsletter')}
-        onDone={() => {
-          // STEP 6: Consultation install
-          close();
-        }}
+        onDone={() => setStep('install_consultation')}
       />
     </div>
   </div>
 )}
 
+          {step === 'install_consultation' && campaignId && (
+  <div
+    className="w-full bg-white rounded-2xl overflow-hidden shadow-2xl"
+    style={{
+      maxWidth: 720,
+      width: 'min(720px, 94vw)',
+      maxHeight: '90vh',
+    }}
+    onClick={(e) => e.stopPropagation()}
+  >
+    <div style={{ maxHeight: '90vh', overflow: 'auto' }}>
+      <PaidConsultationInstallationOnboarding
+        campaignId={campaignId}
+        onBack={() => setStep('install_sales_call')}
+        onDone={() => close()}
+      />
+    </div>
+  </div>
+)}
         </motion.div>
       )}
     </AnimatePresence>

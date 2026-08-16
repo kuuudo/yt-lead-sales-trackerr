@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { Loader2, ShoppingCart } from 'lucide-react';
+import { CreditCard, Loader2 } from 'lucide-react';
 import { supabase } from '../../../lib/supabase';
 import { useEffectiveIdentity } from '../../../lib/useEffectiveIdentity';
 import {
@@ -8,13 +8,13 @@ import {
   getFunnelState,
   getTrackingState,
 } from '../../installation/installationHelpers';
-import { DirectPurchaseInstallation } from '../../installation/DirectPurchaseInstallation';
+import { PaidConsultationInstallation } from '../../installation/PaidConsultationInstallation';
 
 /**
- * Installation Onboarding — Direct Purchase path.
- * Reuses DirectPurchaseInstallation (page logic). No new tracking system.
+ * Installation Onboarding — Paid Consultation path.
+ * Reuses PaidConsultationInstallation. No new tracking logic.
  */
-export default function DirectPurchaseInstallationOnboarding({
+export default function PaidConsultationInstallationOnboarding({
   campaignId,
   onDone,
   onBack,
@@ -65,7 +65,6 @@ export default function DirectPurchaseInstallationOnboarding({
           padding: 40,
           display: 'flex',
           justifyContent: 'center',
-          alignItems: 'center',
           background: '#fff',
           minHeight: 200,
         }}
@@ -77,36 +76,26 @@ export default function DirectPurchaseInstallationOnboarding({
 
   if (error || !campaign || !userId) {
     return (
-      <div style={{ padding: 28, background: '#fff', fontFamily: '-apple-system, BlinkMacSystemFont, "Helvetica Neue", sans-serif' }}>
-        <p style={{ color: '#dc2626', fontSize: 13, marginBottom: 16 }}>
-          {error || 'Campaign not found'}
-        </p>
+      <div style={{ padding: 28, background: '#fff', color: '#dc2626', fontSize: 13 }}>
+        {error || 'Campaign not found'}
         {onBack && (
-          <button
-            type="button"
-            onClick={onBack}
-            style={{
-              padding: '10px 16px',
-              borderRadius: 8,
-              border: '1px solid #d9d9e3',
-              background: '#fff',
-              fontWeight: 700,
-              cursor: 'pointer',
-            }}
-          >
-            Back
-          </button>
+          <div style={{ marginTop: 16 }}>
+            <button type="button" onClick={onBack} style={{ padding: '10px 16px', cursor: 'pointer' }}>
+              Back
+            </button>
+          </div>
         )}
       </div>
     );
   }
 
-  const purchaseMethod: string =
-    campaign.purchase_method ??
-    (campaign.uses_stripe ? 'stripe_checkout' : 'alternative_payment');
-
-  const funnelState = getFunnelState(campaign, 'purchase');
-  const trackingState = getTrackingState(campaign, 'purchase', stripeConfig);
+  const notEnabled = !campaign.has_paid_consultation;
+  const consultationDelivery: string = campaign.consultation_delivery ?? 'external_platform';
+  const consultationPaymentMethod: string =
+    campaign.consultation_payment_method ??
+    (campaign.uses_stripe_consultation ? 'stripe_checkout' : 'alternative_payment');
+  const funnelState = getFunnelState(campaign, 'consultation');
+  const trackingState = getTrackingState(campaign, 'consultation', stripeConfig);
 
   return (
     <div
@@ -119,25 +108,29 @@ export default function DirectPurchaseInstallationOnboarding({
       }}
     >
       <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 6 }}>
-        <ShoppingCart size={18} style={{ color: '#a1a1aa' }} />
+        <CreditCard size={18} style={{ color: '#6b6b78' }} />
         <h2 style={{ fontSize: 18, fontWeight: 800, color: '#15151f', margin: 0 }}>
-          Direct Purchase Installation
+          Paid Consultation Installation
         </h2>
       </div>
-      <p style={{ fontSize: 12, color: '#71717a', margin: '0 0 16px', lineHeight: 1.5 }}>
-        Install tracking for the main offer you just set up. Copy links / pixels below, then
-        continue.
+      <p style={{ fontSize: 12, color: '#6b6b78', margin: '0 0 16px', lineHeight: 1.5 }}>
+        {notEnabled
+          ? 'Paid Consultation is not enabled on this campaign. Skip and set it up later from the hub if you want.'
+          : 'Install consultation tracking below, then finish.'}
       </p>
 
-      <DirectPurchaseInstallation
-        campaign={campaign}
-        stripeConfig={stripeConfig}
-        userId={userId}
-        funnelState={funnelState}
-        trackingState={trackingState}
-        purchaseMethod={purchaseMethod}
-        onRefresh={load}
-      />
+      {!notEnabled && (
+        <PaidConsultationInstallation
+          campaign={campaign}
+          stripeConfig={stripeConfig}
+          userId={userId}
+          funnelState={funnelState}
+          trackingState={trackingState}
+          consultationDelivery={consultationDelivery}
+          consultationPaymentMethod={consultationPaymentMethod}
+          onRefresh={load}
+        />
+      )}
 
       <div style={{ display: 'flex', gap: 10, marginTop: 20 }}>
         {onBack && (
@@ -175,7 +168,7 @@ export default function DirectPurchaseInstallationOnboarding({
             boxShadow: '0 6px 16px rgba(91,61,240,0.3)',
           }}
         >
-          Next →
+          {notEnabled ? 'Skip →' : 'Done →'}
         </button>
       </div>
     </div>

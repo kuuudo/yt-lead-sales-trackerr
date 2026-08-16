@@ -53,7 +53,7 @@ export default function NewsletterInstallationOnboarding({
           padding: 40,
           display: 'flex',
           justifyContent: 'center',
-          background: '#0a0a0b',
+          background: '#fff',
           minHeight: 200,
         }}
       >
@@ -64,7 +64,7 @@ export default function NewsletterInstallationOnboarding({
 
   if (error || !campaign) {
     return (
-      <div style={{ padding: 28, background: '#0a0a0b', color: '#fca5a5', fontSize: 13 }}>
+      <div style={{ padding: 28, background: '#fff', color: '#fca5a5', fontSize: 13 }}>
         {error || 'Campaign not found'}
         {onBack && (
           <div style={{ marginTop: 16 }}>
@@ -87,12 +87,12 @@ export default function NewsletterInstallationOnboarding({
         overflow: 'auto',
         padding: '24px 20px 20px',
         fontFamily: '-apple-system, BlinkMacSystemFont, "Helvetica Neue", sans-serif',
-        background: '#0a0a0b',
+        background: '#fff',
       }}
     >
       <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 6 }}>
         <Newspaper size={18} style={{ color: '#a1a1aa' }} />
-        <h2 style={{ fontSize: 18, fontWeight: 800, color: '#fff', margin: 0 }}>
+        <h2 style={{ fontSize: 18, fontWeight: 800, color: '#15151f', margin: 0 }}>
           Newsletter Installation
         </h2>
       </div>
@@ -117,9 +117,9 @@ export default function NewsletterInstallationOnboarding({
               flex: 1,
               padding: '12px 16px',
               borderRadius: 8,
-              border: '1px solid #3f3f46',
-              background: '#18181b',
-              color: '#e4e4e7',
+              border: '1px solid #d9d9e3',
+              background: '#fff',
+              color: '#3f3f46',
               fontSize: 13,
               fontWeight: 700,
               cursor: 'pointer',
