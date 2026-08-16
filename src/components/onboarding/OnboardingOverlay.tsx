@@ -26,13 +26,14 @@ import LeadMagnetOnboardingStep from './CampaignOnboarding/LeadMagnetOnboardingS
 import GlobalAttributionOnboarding from './InstallationOnboarding/GlobalAttributionOnboarding';
 import DirectPurchaseInstallationOnboarding from './InstallationOnboarding/DirectPurchaseInstallationOnboarding';
 import NewsletterInstallationOnboarding from './InstallationOnboarding/NewsletterInstallationOnboarding';
+import SalesCallInstallationOnboarding from './InstallationOnboarding/SalesCallInstallationOnboarding';
 import CampaignOnboardingVideo from './CampaignOnboardingVideo/CampaignOnboardingVideo';
 import CampaignOnboardingStripeVideo from './CampaignOnboardingVideo/CampaignOnboardingStripeVideo';
 import CampaignOnboardingPixelVideo from './CampaignOnboardingVideo/CampaignOnboardingPixelVideo';
 import CampaignOnboardingThankYouVideo from './CampaignOnboardingVideo/CampaignOnboardingThankYouVideo';
 import PaymentMethodDiagram from './PaymentMethodDiagram';
 import type { PurchaseMethod } from './campaignOptionContent';
-type OnboardingStep = 'welcome' | 'video' | 'campaign' | 'hub' | 'newsletter' | 'sales_call' | 'consultation' | 'lead_magnet' | 'install_global' | 'install_direct_purchase' | 'install_newsletter';
+type OnboardingStep = 'welcome' | 'video' | 'campaign' | 'hub' | 'newsletter' | 'sales_call' | 'consultation' | 'lead_magnet' | 'install_global' | 'install_direct_purchase' | 'install_newsletter' | 'install_sales_call';
 
 export default function OnboardingOverlay() {
   const { isOpen, close } = useOnboardingOverlay();
@@ -401,8 +402,28 @@ export default function OnboardingOverlay() {
       <NewsletterInstallationOnboarding
         campaignId={campaignId}
         onBack={() => setStep('install_direct_purchase')}
+        onDone={() => setStep('install_sales_call')}
+      />
+    </div>
+  </div>
+)}
+
+          {step === 'install_sales_call' && campaignId && (
+  <div
+    className="w-full bg-zinc-950 rounded-2xl overflow-hidden shadow-2xl"
+    style={{
+      maxWidth: 720,
+      width: 'min(720px, 94vw)',
+      maxHeight: '90vh',
+    }}
+    onClick={(e) => e.stopPropagation()}
+  >
+    <div style={{ maxHeight: '90vh', overflow: 'auto' }}>
+      <SalesCallInstallationOnboarding
+        campaignId={campaignId}
+        onBack={() => setStep('install_newsletter')}
         onDone={() => {
-          // STEP 5: Sales Call install
+          // STEP 6: Consultation install
           close();
         }}
       />
