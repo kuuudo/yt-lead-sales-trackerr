@@ -28,7 +28,7 @@
 
 import React, { useEffect, useState } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
-import { Sprout, TrendingUp, Users, Library, X, Loader2 } from 'lucide-react';
+import { Castle, TrendingUp, Users, Library, X, Loader2 } from 'lucide-react';
 import TopPromotions from '../pages/TopPromotions';
 import TopMarketers from '../pages/TopMarketers';
 import TopAssetsRanking from './assets/TopAssetsRanking';
@@ -123,7 +123,7 @@ export default function MobileRankingsButton({
         aria-label="Open rankings"
         className="md:hidden fixed bottom-5 right-5 z-40 w-14 h-14 rounded-full bg-zinc-900 border border-zinc-700 shadow-[0_8px_24px_rgba(0,0,0,0.5)] flex items-center justify-center text-red-500 hover:border-zinc-500 hover:text-red-400 active:scale-95 transition-all"
       >
-        <Sprout size={22} />
+        <Castle size={22} />
       </button>
 
       <AnimatePresence>
@@ -144,7 +144,7 @@ export default function MobileRankingsButton({
             >
               <div className="flex justify-between items-center mb-4 shrink-0">
                 <h2 className="text-sm font-black uppercase tracking-widest text-white flex items-center gap-2">
-                  <Sprout size={16} className="text-red-500" /> Rankings
+                  <Castle size={16} className="text-red-500" /> Rankings
                 </h2>
                 <button
                   onClick={() => setOpen(false)}

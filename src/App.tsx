@@ -11,6 +11,8 @@ import { useTracker, useLanguage } from './lib/hooks';
 import { AuthProvider, useAuth } from './lib/auth';
 import { ViewingProvider, useViewing } from './lib/ViewingContext';
 import { OnboardingOverlayProvider } from './lib/onboarding-overlay';
+import { useEffectiveIdentity } from './lib/useEffectiveIdentity';
+import MobileRankingsButton from './components/MobileRankingsButton';
 import OnboardingOverlay from './components/onboarding/OnboardingOverlay';
 import LeaveTestimonialModal from './components/testimonial/LeaveTestimonialModal';
 import Auth from './pages/Auth';
@@ -57,6 +59,12 @@ function Navigation() {
   const location = useLocation();
   const [mobileOpen, setMobileOpen] = useState(false);
   const [testimonialModalOpen, setTestimonialModalOpen] = useState(false);
+
+  // Same source Marketplace.tsx already uses for its organization id.
+  const { organizationId: effectiveOrgId } = useEffectiveIdentity();
+
+  // Contextual default for the global mobile Rankings modal.
+  const rankingsDefault = location.pathname === '/assets' ? 'assets' : 'promotions';
 
   // True hover/pointer capability — NOT a screen-width guess. A narrow
   // touchscreen laptop and a wide touch tablet both get this right, where
@@ -446,6 +454,10 @@ function Navigation() {
           isOpen={testimonialModalOpen}
           onClose={() => setTestimonialModalOpen(false)}
         />
+      )}
+
+      {user && (
+        <MobileRankingsButton organizationId={effectiveOrgId} defaultRanking={rankingsDefault} />
       )}
     </>
   );
