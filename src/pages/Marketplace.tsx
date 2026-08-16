@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Briefcase, Mail, Rocket, Loader2, Plus, Archive, ArchiveRestore, X } from 'lucide-react';
+import { Briefcase, Mail, Rocket, Loader2, Plus, Archive, ArchiveRestore, X, BarChart2, Gamepad2 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { Modal } from '../components/Modal';
 import { useEffectiveIdentity } from '../lib/useEffectiveIdentity';
@@ -454,22 +454,43 @@ export default function Marketplace() {
             {activePromotions.map(p => (
               <div
                 key={p.id}
-                onClick={() => navigate(`/marketplace/promotions/${p.id}`)}
-                className="relative group w-full flex items-center justify-between text-left bg-zinc-900 border border-zinc-800 rounded-xl p-5 pr-14 hover:border-zinc-700 transition-colors cursor-pointer"
+                className="relative group w-full flex items-center justify-between text-left bg-zinc-900 border border-zinc-800 rounded-xl p-5 pr-32"
               >
-                {!isReadOnly && (
+                <div className="absolute top-1/2 -translate-y-1/2 right-4 flex items-center gap-2">
                   <button
                     onClick={(e) => {
                       e.stopPropagation();
-                      handleArchivePromotion(p);
+                      navigate(`/marketplace/promotions/${p.id}/analytics`);
                     }}
-                    disabled={archivingPromotionId === p.id}
-                    title="Archive"
-                    className="absolute top-1/2 -translate-y-1/2 right-4 w-7 h-7 rounded-lg bg-zinc-950 border border-zinc-800 flex items-center justify-center text-zinc-600 hover:text-white transition-all opacity-0 group-hover:opacity-100 disabled:opacity-50"
+                    title="Analytics"
+                    className="w-7 h-7 rounded-lg bg-zinc-950 border border-zinc-800 flex items-center justify-center text-zinc-400 hover:text-white transition-all"
                   >
-                    {archivingPromotionId === p.id ? <Loader2 size={12} className="animate-spin" /> : <Archive size={12} />}
+                    <BarChart2 size={14} />
                   </button>
-                )}
+                  <button
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      navigate(`/marketplace/promotions/${p.id}`);
+                    }}
+                    title="Manage Promotion"
+                    className="w-7 h-7 rounded-lg bg-zinc-950 border border-zinc-800 flex items-center justify-center text-zinc-400 hover:text-white transition-all"
+                  >
+                    <Gamepad2 size={14} />
+                  </button>
+                  {!isReadOnly && (
+                    <button
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        handleArchivePromotion(p);
+                      }}
+                      disabled={archivingPromotionId === p.id}
+                      title="Archive"
+                      className="w-7 h-7 rounded-lg bg-zinc-950 border border-zinc-800 flex items-center justify-center text-zinc-600 hover:text-white transition-all opacity-0 group-hover:opacity-100 disabled:opacity-50"
+                    >
+                      {archivingPromotionId === p.id ? <Loader2 size={12} className="animate-spin" /> : <Archive size={12} />}
+                    </button>
+                  )}
+                </div>
                 <div>
                   <h3 className="font-bold text-white">{p.assignment?.title ?? p.campaign?.campaign_name ?? 'Promotion'}</h3>
                   <p className="text-zinc-500 text-xs mt-1">
