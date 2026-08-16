@@ -83,11 +83,19 @@
 //      (consultation, newsletter, sales_call) are eligible unconditionally;
 //      everything else needs at least one non-null Evidence Anchor
 //      (organization_id, promotion_id, asset_id, redirect_link_id,
-//      tracking_hostname, link_type, or value). This is NOT an event_type
-//      blacklist — a page_view with real attribution context still
-//      qualifies; a page_view with none of it does not. Events that fail
-//      this check are excluded from Journey.steps only — they are never
-//      deleted or mutated in the raw `events` data this engine receives.
+//      tracking_hostname, link_type, or value). Events that fail this check
+//      are excluded from Journey.steps only — they are never deleted or
+//      mutated in the raw `events` data this engine receives.
+//
+//  11. PAGE_VIEW HARD EXCLUSION (added 2026-08-16): event_type === 'page_view'
+//      is now excluded from Journey.steps unconditionally, before the Tier
+//      A / Evidence Anchor check even runs — confirmed against real
+//      tracking data where a meaningful touchpoint always produces a
+//      SEPARATE semantic event (landing_page, checkout, ...) carrying the
+//      attribution fields; page_view itself has never been observed to
+//      carry them. Every other event_type (known or unknown) still goes
+//      through Tier A / Evidence Anchor exactly as in §10 — this is a
+//      single named carve-out, not a reversion to an event_type blacklist.
 // ─────────────────────────────────────────────────────────────────────────────
 
 
@@ -381,15 +389,31 @@ function hasEvidenceAnchor(evt: JourneyEvent): boolean {
  * session_id boundary (session matching is unchanged — this is an
  * additional filter on top of it, not a replacement for it):
  *
+ *   event_type === 'page_view'   → ALWAYS excluded, unconditionally (see below)
  *   Tier A event_type            → eligible unconditionally (type IS the evidence)
  *   Tier B/C (anything else,
  *   including null/unrecognized) → eligible only if hasEvidenceAnchor(evt)
  *
- * This is deliberately NOT an event_type blacklist. A 'page_view' with real
- * attribution context (asset_id, redirect_link_id, link_type, etc.) passes;
- * a 'page_view' with none of that fails — regardless of type.
+ * page_view is a hard exclusion, not folded into the Tier B anchor check,
+ * per an explicit decision made on real tracking data (2026-08-16): every
+ * observed case where a meaningful touchpoint occurred, the attribution
+ * fields (asset_id, redirect_link_id, link_type, tracking_hostname, etc.)
+ * showed up on a PAIRED semantic event (landing_page, checkout, ...), never
+ * on the page_view row itself. So a page_view row carrying anchors has not
+ * been observed to happen — if that assumption turns out to be wrong (a
+ * tracker path that writes attribution directly onto a page_view row with
+ * no semantic sibling), this exclusion would need to be revisited, since it
+ * would then be silently dropping real evidence that the old anchor check
+ * would have caught.
+ *
+ * This is still NOT a general event_type blacklist — only page_view is
+ * hardcoded. Every other type (including unknown/future ones) is still
+ * decided by Tier A membership or the Evidence Anchor check, not by name.
  */
 function isJourneyEligibleEvidence(evt: JourneyEvent): boolean {
+  if (evt.event_type === 'page_view') {
+    return false;
+  }
   if (evt.event_type != null && TIER_A_EVENT_TYPES.has(evt.event_type)) {
     return true;
   }
