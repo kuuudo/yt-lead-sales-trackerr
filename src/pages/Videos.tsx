@@ -2186,6 +2186,7 @@ console.log(
 
       {/* ── CARD VIEW (existing, unchanged) ── */}
       {viewMode === 'card' && (
+      <>
       <div
         className="grid grid-cols-1 gap-4 rounded-2xl transition-all"
         style={
@@ -2470,6 +2471,7 @@ console.log(
           </button>
         </div>
       )}
+      </>
       )} {/* end card view */}
 
       {/* Links Modal */}
