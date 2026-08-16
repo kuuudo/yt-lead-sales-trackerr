@@ -169,7 +169,7 @@ export default function IndividualPromotionAnalytics() {
   return (
     <div className="space-y-6 max-w-6xl">
       <Link
-        to={`/marketplace/promotions/${id}`}
+        to="/marketplace"
         className="flex items-center gap-2 text-zinc-500 hover:text-white text-[10px] font-black uppercase tracking-widest"
       >
         <ArrowLeft size={14} /> Back to Promotion

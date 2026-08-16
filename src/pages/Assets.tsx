@@ -38,8 +38,8 @@
  */
 
 import React, { useEffect, useMemo, useState } from 'react';
-import { Link } from 'react-router-dom';
-import { Library, Loader2, Plus, Search, Archive, ArchiveRestore, X } from 'lucide-react';
+import { Link, useNavigate } from 'react-router-dom';
+import { Library, Loader2, Plus, Search, Archive, ArchiveRestore, X, BarChart2, Gamepad2 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { Modal } from '../components/Modal';
 import { useAuth } from '../lib/auth';
@@ -71,6 +71,7 @@ import { assetsPageCache, updateCachedArchivedMap } from '../lib/assetsPageCache
 import OnboardingVideoSection02 from '../components/onboarding/OnboardingVideo/OnboardingVideoSection02';
 import TopAssetsRanking from '../components/assets/TopAssetsRanking';
 export default function Assets() {
+  const navigate = useNavigate();
   const { user } = useAuth();
   const { organizationId } = useOrganization();
   const [rows, setRows] = useState<AssetLibraryRow[]>([]);
@@ -525,23 +526,43 @@ if (user) {
       {!loading && !error && filteredRows.length > 0 && (
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
           {filteredRows.map((row) => (
-            <Link
+            <div
               key={row.key}
-              to={`/assets/${row.linkId}`}
-              className="relative group flex items-center gap-4 p-4 pr-12 bg-zinc-900 border border-zinc-800 rounded-xl hover:border-zinc-600 transition-all"
+              className="relative group flex items-center gap-4 p-4 pr-32 bg-zinc-900 border border-zinc-800 rounded-xl hover:border-zinc-600 transition-all"
             >
-              <button
-                onClick={(e) => {
-                  e.preventDefault();
-                  e.stopPropagation();
-                  handleArchiveAsset(row);
-                }}
-                disabled={archivingAssetId === row.key}
-                title="Archive"
-                className="absolute top-3 right-3 w-7 h-7 rounded-lg bg-zinc-950 border border-zinc-800 flex items-center justify-center text-zinc-600 hover:text-white transition-all opacity-0 group-hover:opacity-100 disabled:opacity-50"
-              >
-                {archivingAssetId === row.key ? <Loader2 size={12} className="animate-spin" /> : <Archive size={12} />}
-              </button>
+              <div className="absolute top-3 right-3 flex items-center gap-2">
+                <button
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    navigate(`/assets/${row.linkId}/analytics`);
+                  }}
+                  title="Analytics"
+                  className="w-7 h-7 rounded-lg bg-zinc-950 border border-zinc-800 flex items-center justify-center text-zinc-400 hover:text-white transition-all"
+                >
+                  <BarChart2 size={14} />
+                </button>
+                <button
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    navigate(`/assets/${row.linkId}`);
+                  }}
+                  title="Asset Detail"
+                  className="w-7 h-7 rounded-lg bg-zinc-950 border border-zinc-800 flex items-center justify-center text-zinc-400 hover:text-white transition-all"
+                >
+                  <Gamepad2 size={14} />
+                </button>
+                <button
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    handleArchiveAsset(row);
+                  }}
+                  disabled={archivingAssetId === row.key}
+                  title="Archive"
+                  className="w-7 h-7 rounded-lg bg-zinc-950 border border-zinc-800 flex items-center justify-center text-zinc-600 hover:text-white transition-all opacity-0 group-hover:opacity-100 disabled:opacity-50"
+                >
+                  {archivingAssetId === row.key ? <Loader2 size={12} className="animate-spin" /> : <Archive size={12} />}
+                </button>
+              </div>
               <div className="w-16 h-10 overflow-hidden rounded-lg border border-zinc-800 flex-shrink-0">
                 <img
   src={row.thumbnail ?? undefined}
@@ -600,7 +621,7 @@ if (user) {
   </div>
 </div>
                 
-            </Link>
+            </div>
           ))}
         </div>
       )}
