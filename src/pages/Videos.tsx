@@ -2282,9 +2282,9 @@ console.log(
                 </Link>
               )}
 
-              <div className="flex-1 min-w-0">
-                <div className="flex items-center gap-3 mb-1">
-                  <Link to={`/videos/${v.id}`} className="text-sm font-bold text-white hover:text-red-500 transition-colors truncate">
+              <div className="flex-1 min-w-0 w-full">
+                <div className="flex items-center gap-3 mb-1 min-w-0">
+                  <Link to={`/videos/${v.id}`} className="flex-1 min-w-0 text-sm font-bold text-white hover:text-red-500 transition-colors truncate">
                     {isReddit && subreddit
                       ? <><span style={{ color: 'rgba(255, 69, 0, 0.7)' }}>{`r/${subreddit}`}</span><span className="text-zinc-600 mx-1">•</span>{redditTitle ?? v.video_title}</>
                       : isX
