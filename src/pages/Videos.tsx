@@ -2446,7 +2446,7 @@ console.log(
                 </button>
               </div>
             </motion.div>
-          );})
+          ))
         )}
       </div>
       {hasMoreVideos && (
