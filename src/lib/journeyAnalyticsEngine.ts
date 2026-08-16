@@ -25,12 +25,22 @@
 //      Deciding "distinct assets touched = 1" is a downstream Asset/
 //      Promotion Analytics concern, not this engine's.
 //
-//   3. `purchase.redirect_link_id` / `redirect_link_token` (Stripe-only) is
-//      NOT used to reconstruct the journey. Verified against real
-//      production data: stripe_purchases.redirect_link_id can point to a
-//      DIFFERENT redirect link than the one recorded on the checkout event
-//      in the very same session. It is kept only as a confirmed fact about
-//      the purchase row itself — never a join key into the journey.
+//   3. AMENDED 2026-08-16 (see §12 — do not re-read this as still absolute).
+//      `purchase.redirect_link_id` is still NEVER used — verified real data
+//      shows it can point to a redirect_links row that doesn't even match
+//      the purchase's own `redirect_link_token` (e.g. purchase.redirect_link_id
+//      = eefd41da..., but the row with that purchase's token N1Gj is a
+//      DIFFERENT row, ef874960...). `redirect_link_id` equality is
+//      unreliable and stays banned as a join key.
+//      `purchase.redirect_link_token`, however, IS now used — narrowly — as
+//      one of two Attribution Verification paths (§12). The original reason
+//      this was banned (checkout event's redirect_link differs from the
+//      purchase's) turned out to be explained, not disproven: the purchase
+//      captures the FIRST-TOUCH token, while a checkout event's own
+//      redirect_link is a distinct, later-stage link with its own token.
+//      They're allowed to differ by design — the token is only ever
+//      compared against the FIRST-TOUCH-shaped event it actually matches,
+//      never used as a blanket "every step must equal this" join.
 //
 //   4. The only journey boundary is session_id equality:
 //         purchase.session_id → events WHERE session_id = purchase.session_id
@@ -96,6 +106,52 @@
 //      carry them. Every other event_type (known or unknown) still goes
 //      through Tier A / Evidence Anchor exactly as in §10 — this is a
 //      single named carve-out, not a reversion to an event_type blacklist.
+//
+//  12. ATTRIBUTION VERIFICATION CONTRACT (added 2026-08-16): §10's
+//      Evidence Contract proves an event is REAL (not tracking noise). It
+//      does NOT prove the event belongs to THIS conversion. Verified real
+//      data: session_id in this schema is a persistent, localStorage-backed
+//      client identifier, not a bounded browser session — the SAME
+//      session_id was observed spanning ~2 months and multiple distinct
+//      campaign_ids (1615 page_view / 78 checkout / 63 landing_page / 32
+//      consultation / 8 sales_call / 3 newsletter events, all sharing one
+//      session_id). Tier A auto-eligibility (§10) previously meant a
+//      consultation/sales_call/newsletter event became a JourneyStep purely
+//      by type, with no proof it belonged to this purchase — that gap is
+//      closed here. Every event that passes §10/§11 must ALSO pass
+//      isAttributionVerified() before becoming a JourneyStep:
+//
+//        VERIFIED  — token-chain match: event.redirect_link_id resolves (via
+//                    the redirectLinks input) to a token equal to
+//                    conversion.redirect_link_token (the purchase's captured
+//                    FIRST-TOUCH token — Stripe only); OR campaign+org
+//                    match: event.campaign_id === conversion.campaign_id AND
+//                    event.organization_id === conversion.organization_id
+//                    (both must be present on the CONVERSION side — a
+//                    missing field there is never treated as a wildcard).
+//        AMBIGUOUS — passed §10/§11 (real, anchored evidence) but matched
+//                    NEITHER path above. Not deleted, not called wrong —
+//                    just insufficiently proven to belong to THIS
+//                    conversion specifically. Excluded from `steps`, counted
+//                    in `meta.attributionSummary.ambiguous`.
+//        REJECTED  — failed §10/§11 (page_view, or no evidence anchor), or
+//                    failed the temporal check in §13.
+//
+//      Deliberately NOT implemented as a third path: promotion_id / asset_id
+//      equality. Both are too sparsely/inconsistently populated on
+//      historical purchase and event rows to serve as a trustworthy
+//      boundary yet (locked scope §8 — this engine never fabricates
+//      missing attribution). Revisit once promotion_id is reliably written
+//      on both sides.
+//
+//  13. TEMPORAL CAUSALITY (added 2026-08-16): an event with
+//      created_at > conversion.created_at is rejected before any other
+//      check runs. This is not an arbitrary lookback window (none is
+//      imposed) — it is the logical fact that an event occurring AFTER the
+//      purchase cannot be evidence of the journey that LED to it. Given
+//      §12's finding that session_id can span months, this is a cheap,
+//      always-correct floor under the rest of the contract, not a
+//      replacement for it.
 // ─────────────────────────────────────────────────────────────────────────────
 
 
@@ -288,6 +344,17 @@ export interface Journey {
     // treat this as an explicit "here is what we know we don't know," never
     // an incidental empty array.
     unresolvedDimensions:  string[];
+    // Additive (locked scope §12) — diagnostic breakdown of why the raw
+    // session_id match did or didn't collapse down to `steps`. Never
+    // required reading; existing callers reading only `steps` are
+    // unaffected.
+    attributionSummary: {
+      rawSessionEvents:      number;
+      rejectedFutureEvent:   number;
+      rejectedNoEvidence:    number;
+      ambiguous:             number;
+      verified:              number;
+    };
   };
 }
 
@@ -420,6 +487,63 @@ function isJourneyEligibleEvidence(evt: JourneyEvent): boolean {
   return hasEvidenceAnchor(evt);
 }
 
+/**
+ * isBeforeOrAtConversion — locked scope §13. An event timestamped after the
+ * purchase cannot be evidence leading to it.
+ */
+function isBeforeOrAtConversion(evt: JourneyEvent, conversion: CanonicalConversionRow): boolean {
+  return parseSupabaseTimestamp(evt.created_at) <= parseSupabaseTimestamp(conversion.created_at);
+}
+
+/**
+ * isFirstTouchTokenVerified — Attribution Verification path 1 (locked scope
+ * §12). Resolves the event's OWN redirect_link_id to its token via the
+ * redirectLinks input, then compares against conversion.redirect_link_token
+ * (the purchase's captured first-touch token, Stripe-only). Never compares
+ * redirect_link_id values directly — different touchpoints in the same
+ * funnel legitimately carry different redirect_link_ids; only the resolved
+ * TOKEN is meaningful here, and only against the specific event(s) that are
+ * actually the first-touch entry point.
+ */
+function isFirstTouchTokenVerified(
+  evt:              JourneyEvent,
+  conversion:       CanonicalConversionRow,
+  redirectLinkById: Map<string, JourneyRedirectLinkRow>,
+): boolean {
+  if (!conversion.redirect_link_token) return false;
+  if (!evt.redirect_link_id) return false;
+  const link = redirectLinkById.get(evt.redirect_link_id);
+  if (!link) return false;
+  return link.token === conversion.redirect_link_token;
+}
+
+/**
+ * isCampaignOrgVerified — Attribution Verification path 2 (locked scope
+ * §12). Both conversion.campaign_id AND conversion.organization_id must be
+ * present to attempt this path — a missing field on the CONVERSION side is
+ * never treated as "matches anything."
+ */
+function isCampaignOrgVerified(evt: JourneyEvent, conversion: CanonicalConversionRow): boolean {
+  if (!conversion.campaign_id || !conversion.organization_id) return false;
+  return evt.campaign_id === conversion.campaign_id && evt.organization_id === conversion.organization_id;
+}
+
+/**
+ * isAttributionVerified — the full VERIFIED test: either path is
+ * sufficient (locked scope §12). Callers only reach here for events that
+ * already passed §10/§11 (isJourneyEligibleEvidence).
+ */
+function isAttributionVerified(
+  evt:              JourneyEvent,
+  conversion:       CanonicalConversionRow,
+  redirectLinkById: Map<string, JourneyRedirectLinkRow>,
+): boolean {
+  return (
+    isFirstTouchTokenVerified(evt, conversion, redirectLinkById) ||
+    isCampaignOrgVerified(evt, conversion)
+  );
+}
+
 
 /**
  * buildPurchaseJourney
@@ -465,65 +589,58 @@ export function buildPurchaseJourney(
       meta: {
         joinedSessionIds,
         unresolvedDimensions: ['cross_session', 'journey_steps'],
+        attributionSummary: {
+          rawSessionEvents: 0, rejectedFutureEvent: 0, rejectedNoEvidence: 0,
+          ambiguous: 0, verified: 0,
+        },
       },
     };
   }
 
-  // Step 1 of 2: session boundary — unchanged from before (locked scope §4).
+  // Step 1 of 4: session boundary — unchanged from before (locked scope §4).
+  // NOTE (§12): this is now known to be a persistent-client match, not a
+  // bounded-session match — it is intentionally kept as the outermost,
+  // widest gate; §13/§10/§11/§12 below are what narrow it down safely.
   const sessionEvents = events
     .filter(e => e.session_id === conversion.session_id)
     .slice()
     .sort((a, b) => parseSupabaseTimestamp(a.created_at) - parseSupabaseTimestamp(b.created_at));
 
-  // Step 2 of 2: Journey Evidence Contract — the new filter. Raw events
-  // themselves are never mutated or discarded; this only decides which
-  // session-matched rows are ALSO journey-eligible. Rows that fail this
-  // check remain valid analytics data elsewhere — they're simply excluded
-  // from Journey.steps.
-  // ── TEMPORARY DIAGNOSTIC (2026-08-16) ───────────────────────────────────
-// Not permanent architecture. Tests whether session_id + organization_id
-// meaningfully shrinks touchpoint count. Remove this block once the
-// diagnostic question is answered — revert to the single line:
-//   const eligibleEvents = sessionEvents.filter(isJourneyEligibleEvidence);
-const orgFilteredEvents = sessionEvents.filter(e => {
-  if (!conversion.organization_id) return true;
-  return e.organization_id === conversion.organization_id;
-});
+  const redirectLinkById = new Map(redirectLinks.map(r => [r.id, r]));
 
-const orgExcluded = sessionEvents.filter(e => !orgFilteredEvents.includes(e));
-const orgExcludedByType: Record<string, number> = {};
-for (const e of orgExcluded) {
-  const key = e.event_type ?? 'null';
-  orgExcludedByType[key] = (orgExcludedByType[key] ?? 0) + 1;
-}
+  // Step 2 of 4: temporal causality (locked scope §13).
+  const causallyValidEvents = sessionEvents.filter(e => isBeforeOrAtConversion(e, conversion));
 
-const pageViewExcluded = orgFilteredEvents.filter(e => e.event_type === 'page_view').length;
-const eligibleEvents = orgFilteredEvents.filter(isJourneyEligibleEvidence);
-const noEvidenceExcluded = orgFilteredEvents.length - pageViewExcluded - eligibleEvents.length;
+  // Step 3 of 4: Journey Evidence Contract (locked scope §10/§11). Raw
+  // events themselves are never mutated or discarded; this only decides
+  // which events are journey-eligible in principle.
+  const eligibleEvents = causallyValidEvents.filter(isJourneyEligibleEvidence);
 
-console.log('[JOURNEY DIAGNOSTIC]', {
-  purchase_id: conversion.id,
-  session_id: conversion.session_id,
-  organization_id: conversion.organization_id,
-  raw_session_events: sessionEvents.length,
-  after_organization_filter: orgFilteredEvents.length,
-  excluded_by_organization: orgExcluded.length,
-  excluded_by_organization_by_type: orgExcludedByType,
-  page_view_excluded: pageViewExcluded,
-  no_evidence_excluded: noEvidenceExcluded,
-  final_journey_steps: eligibleEvents.length,
-});
-// ── END TEMPORARY DIAGNOSTIC ─────────────────────────────────────────────
+  // Step 4 of 4: Attribution Verification (locked scope §12). Only VERIFIED
+  // events become JourneyStep entries. AMBIGUOUS events are real, anchored
+  // evidence with no provable link to THIS conversion — excluded from
+  // `steps`, but distinct from REJECTED for diagnostic purposes below.
+  const verifiedEvents  = eligibleEvents.filter(e => isAttributionVerified(e, conversion, redirectLinkById));
+  const ambiguousEvents = eligibleEvents.filter(e => !isAttributionVerified(e, conversion, redirectLinkById));
 
   // Cross-session evidence is structurally unreachable under the current
-  // schema regardless of eligibleEvents length — always flagged
+  // schema regardless of verifiedEvents length — always flagged
   // (locked scope §5).
   const unresolvedDimensions: string[] = ['cross_session'];
-  if (eligibleEvents.length === 0) {
+  if (verifiedEvents.length === 0) {
     unresolvedDimensions.push('journey_steps');
   }
 
-  const redirectLinkById = new Map(redirectLinks.map(r => [r.id, r]));
+  // Additive diagnostic breakdown — does not change any existing field.
+  // Lets a caller distinguish "no journey found" from "journey found but
+  // most of the session's activity was correctly excluded as unrelated."
+  const attributionSummary = {
+    rawSessionEvents:        sessionEvents.length,
+    rejectedFutureEvent:     sessionEvents.length - causallyValidEvents.length,
+    rejectedNoEvidence:      causallyValidEvents.length - eligibleEvents.length,
+    ambiguous:               ambiguousEvents.length,
+    verified:                verifiedEvents.length,
+  };
 
   // Composite (asset_id, campaign_id) key — see locked scope §6. asset_id
   // alone is never a valid lookup into campaign_element_assets.
@@ -535,7 +652,7 @@ console.log('[JOURNEY DIAGNOSTIC]', {
     return elementTypeByCompositeKey.get(`${assetId}::${campaignId}`) ?? null;
   };
 
-  const steps: JourneyStep[] = eligibleEvents.map((evt): JourneyStep => {
+  const steps: JourneyStep[] = verifiedEvents.map((evt): JourneyStep => {
     const linkRow = evt.redirect_link_id ? redirectLinkById.get(evt.redirect_link_id) ?? null : null;
 
     const redirectLink: JourneyStepRedirectLink | null = linkRow ? {
@@ -578,6 +695,6 @@ console.log('[JOURNEY DIAGNOSTIC]', {
   return {
     purchase,
     steps,
-    meta: { joinedSessionIds, unresolvedDimensions },
+    meta: { joinedSessionIds, unresolvedDimensions, attributionSummary },
   };
 }
