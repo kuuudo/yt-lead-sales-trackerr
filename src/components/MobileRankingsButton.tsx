@@ -114,30 +114,9 @@ export default function MobileRankingsButton({
     }
   }, [open]);
 
-  // Hide the button/modal whenever an onboarding video overlay is open,
-  // anywhere in the app. Every onboarding overlay (Videos, Assets,
-  // Marketplace, Operator Overview, etc.) shares the same marker class
-  // (`z-[20000]`), so this single check covers all of them — and any new
-  // onboarding overlay built the same way — without editing those pages.
-  const [onboardingOpen, setOnboardingOpen] = useState(false);
-  useEffect(() => {
-    const checkOnboarding = () => {
-      setOnboardingOpen(document.getElementsByClassName('z-[20000]').length > 0);
-    };
-    checkOnboarding();
-    const observer = new MutationObserver(checkOnboarding);
-    observer.observe(document.body, { childList: true, subtree: true });
-    return () => observer.disconnect();
-  }, []);
-
-  // If an onboarding overlay opens while our own modal happens to be open, close ours too.
-  useEffect(() => {
-    if (onboardingOpen) setOpen(false);
-  }, [onboardingOpen]);
+  
 
   const resolvedAssetRows = assetRows ?? fetchedAssetRows;
-
-  if (onboardingOpen) return null;
 
   return createPortal(
     <>
