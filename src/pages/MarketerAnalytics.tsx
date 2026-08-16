@@ -246,9 +246,9 @@ export default function MarketerAnalytics() {
     platformTab === 'all' ? rows : rows.filter(r => r.platform === platformTab);
 
   const visibleCampaignElements = content?.campaignElements ?? [];
-  const visiblePromotionalVideos = content ? filterByPlatform(content.promotionalVideos) : [];
-  const visibleResources = content ? filterByPlatform(content.resources) : [];
-  const visibleContentVideos = content ? filterByPlatform(content.contentVideos) : [];
+  const visiblePromotionalVideos = content ? filterByPlatform<PromotionalVideoRow>(content.promotionalVideos) : [];
+  const visibleResources = content ? filterByPlatform<ContentAssetRow>(content.resources) : [];
+  const visibleContentVideos = content ? filterByPlatform<ContentAssetRow>(content.contentVideos) : [];
 
   if (!organizationId) {
     return (

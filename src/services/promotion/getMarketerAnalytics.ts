@@ -367,8 +367,6 @@ export async function getMarketerContentAnalytics(
 
   if (campaignElementRows.length > 0) {
     const { start, end } = getDateBounds(dateRange, customRange ?? null);
-    const startIso = start.toISOString();
-    const endIso = end.toISOString();
     const ceIds = campaignElementRows.map(r => r.id);
 
     const EVENTS_COLUMNS = 'event_type, asset_id, session_id, created_at';
