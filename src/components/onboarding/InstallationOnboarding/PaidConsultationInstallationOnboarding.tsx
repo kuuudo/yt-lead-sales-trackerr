@@ -542,6 +542,7 @@ export default function PaidConsultationInstallationOnboarding({
                     background: '#fff',
                     fontSize: 11,
                     fontFamily: 'ui-monospace, monospace',
+                    color: '#52525b',
                     whiteSpace: 'pre-wrap',
                     wordBreak: 'break-all',
                     lineHeight: 1.45,

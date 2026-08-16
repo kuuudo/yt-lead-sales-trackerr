@@ -73,7 +73,7 @@ export default function MobileRankingsButton({
     setDismissed(true);
     setOpen(false);
   };
-  const [activeTab, setActiveTab] = useState<RankingKey>(defaultRanking);
+ 
 
   // Only used when the host page didn't already pass assetRows (Marketplace.tsx case).
   const [fetchedAssetRows, setFetchedAssetRows] = useState<AssetLibraryRow[] | null>(null);
