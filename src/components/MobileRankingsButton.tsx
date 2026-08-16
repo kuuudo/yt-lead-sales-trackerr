@@ -91,7 +91,7 @@ export default function MobileRankingsButton({
     return () => {
       cancelled = true;
     };
-  }, [open, activeTab, assetRows, fetchedAssetRows, assetRowsLoading, organizationId]);
+  }, [open, activeTab, assetRows, fetchedAssetRows, organizationId]);
 
   // Escape to close.
   useEffect(() => {

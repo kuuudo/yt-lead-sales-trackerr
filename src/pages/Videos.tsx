@@ -1271,6 +1271,25 @@ console.log(
     return result;
   }, [videos, filters]);
 
+  // Load only the first 10 videos initially (desktop and mobile both) — the
+  // full list can be very long, which was pushing page height up enough to
+  // cause rendering/positioning issues elsewhere on the page. "Load More"
+  // reveals the rest without a second network request.
+  const INITIAL_VISIBLE_VIDEOS = 10;
+  const [visibleVideoCount, setVisibleVideoCount] = useState(INITIAL_VISIBLE_VIDEOS);
+
+  // Reset back to the first 10 whenever the filtered result set changes
+  // (new search, new platform filter, etc.) so you don't land on an empty page.
+  useEffect(() => {
+    setVisibleVideoCount(INITIAL_VISIBLE_VIDEOS);
+  }, [filters]);
+
+  const visibleVideos = React.useMemo(
+    () => filteredVideos.slice(0, visibleVideoCount),
+    [filteredVideos, visibleVideoCount],
+  );
+  const hasMoreVideos = filteredVideos.length > visibleVideoCount;
+
   return (
     <div className="space-y-8">
       <header className="flex justify-between items-center">
@@ -1991,7 +2010,7 @@ console.log(
                 <span>Campaign</span>
                 <span>Added</span>
               </div>
-              {filteredVideos.map((v, i) => {
+              {visibleVideos.map((v, i) => {
                 const isReddit = v.platform === 'reddit';
                 const isX = v.platform === 'x';
                 const isThreads = v.platform === 'threads';
@@ -2139,6 +2158,27 @@ console.log(
                   </motion.div>
                 );
               })}
+              {hasMoreVideos && (
+                <div className="flex justify-center py-4 bg-zinc-950">
+                  <button
+                    onClick={() => setVisibleVideoCount(filteredVideos.length)}
+                    className="flex items-center gap-2 text-[10px] font-black uppercase tracking-widest text-zinc-400 hover:text-white transition-colors"
+                  >
+                    Load more ({filteredVideos.length - visibleVideoCount} more)
+                    <ChevronDown size={13} />
+                  </button>
+                </div>
+              )}
+              {!hasMoreVideos && visibleVideoCount > INITIAL_VISIBLE_VIDEOS && filteredVideos.length > INITIAL_VISIBLE_VIDEOS && (
+                <div className="flex justify-center py-4 bg-zinc-950">
+                  <button
+                    onClick={() => setVisibleVideoCount(INITIAL_VISIBLE_VIDEOS)}
+                    className="text-[10px] font-black uppercase tracking-widest text-zinc-600 hover:text-zinc-300 transition-colors"
+                  >
+                    Show less
+                  </button>
+                </div>
+              )}
             </>
           )}
         </div>
@@ -2165,7 +2205,7 @@ console.log(
             <p className="text-zinc-600 text-[10px] font-bold uppercase tracking-widest">{t.filters.noResults}</p>
           </div>
         ) : (
-          filteredVideos.map((v, i) => {
+          visibleVideos.map((v, i) => {
             const isReddit = v.platform === 'reddit';
             const isX = v.platform === 'x';
             const isThreads = v.platform === 'threads';
@@ -2409,6 +2449,27 @@ console.log(
           );})
         )}
       </div>
+      {hasMoreVideos && (
+        <div className="flex justify-center py-4">
+          <button
+            onClick={() => setVisibleVideoCount(filteredVideos.length)}
+            className="flex items-center gap-2 text-[10px] font-black uppercase tracking-widest text-zinc-400 hover:text-white transition-colors"
+          >
+            Load more ({filteredVideos.length - visibleVideoCount} more)
+            <ChevronDown size={13} />
+          </button>
+        </div>
+      )}
+      {!hasMoreVideos && visibleVideoCount > INITIAL_VISIBLE_VIDEOS && filteredVideos.length > INITIAL_VISIBLE_VIDEOS && (
+        <div className="flex justify-center py-4">
+          <button
+            onClick={() => setVisibleVideoCount(INITIAL_VISIBLE_VIDEOS)}
+            className="text-[10px] font-black uppercase tracking-widest text-zinc-600 hover:text-zinc-300 transition-colors"
+          >
+            Show less
+          </button>
+        </div>
+      )}
       )} {/* end card view */}
 
       {/* Links Modal */}
