@@ -44,18 +44,32 @@ function measureGroup(selector: string): Rect | null {
   return { x: x - pad, y: y - pad, w: right - x + pad * 2, h: bottom - y + pad * 2 };
 }
 
-function renderBody(body: string) {
+function renderBody(body: string, navigate: (path: string) => void) {
   return body.split('\n\n').map((para, i) => (
     <p key={i} className="text-xs text-zinc-400 leading-relaxed mb-3">
-      {para.split(/(\*\*[^*]+\*\*)/g).map((chunk, j) =>
-        chunk.startsWith('**') && chunk.endsWith('**') ? (
-          <span key={j} className="text-orange-500 font-bold">
-            {chunk.slice(2, -2)}
-          </span>
-        ) : (
-          chunk
-        )
-      )}
+      {para.split(/(\*\*[^*]+\*\*|\[[^\]]+\]\([^)]+\))/g).map((chunk, j) => {
+        if (chunk.startsWith('**') && chunk.endsWith('**')) {
+          return (
+            <span key={j} className="text-orange-500 font-bold">
+              {chunk.slice(2, -2)}
+            </span>
+          );
+        }
+        const linkMatch = chunk.match(/^\[([^\]]+)\]\(([^)]+)\)$/);
+        if (linkMatch) {
+          return (
+            <button
+              key={j}
+              type="button"
+              onClick={() => navigate(linkMatch[2])}
+              className="underline text-zinc-300 hover:text-white"
+            >
+              {linkMatch[1]}
+            </button>
+          );
+        }
+        return chunk;
+      })}
     </p>
   ));
 }
@@ -267,7 +281,7 @@ export default function TutorialRunner() {
             </span>
           )}
           <p className="text-sm font-semibold text-white mb-1.5">{step.title}</p>
-          {renderBody(step.body)}
+          {renderBody(step.body, navigate)}
 
           {step.previewImage && (
             <div className="relative rounded-lg overflow-hidden border border-zinc-700 mb-3">

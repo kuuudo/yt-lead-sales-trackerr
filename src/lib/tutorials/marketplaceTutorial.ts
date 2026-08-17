@@ -36,7 +36,7 @@ export const marketplaceTutorial: Tutorial = {
       id: 'tracking-domains',
       title: 'Tracking Domains',
       body:
-        '**Tracking Domains let your collaborators promote your links using your own domain instead of a VSTRK tracking URL.**\n\nFor example, instead of sharing vstrk.com/token, you can use yourdomain.com/token. Your link stays on your brand while VSTRK continues tracking the activity behind it.',
+        '**Tracking Domains let your collaborators promote your links using your own domain instead of a VSTRK tracking URL.**\n\nFor example, instead of sharing vstrk.com/token, you can use yourdomain.com/token. Your link stays on your brand while VSTRK continues tracking the activity behind it.\n\nIf you haven\u2019t set up your own custom domain yet, you can [set one up here](/settings/tracking-domains).',
       tag: 'demo',
       route: '/marketplace/assignments/new',
       targetSelector: '[data-tutorial-id="marketplace-tracking-domains"]',
