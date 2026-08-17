@@ -785,7 +785,6 @@ function MarketplaceOnboarding({ onClose, onStartTour }: { onClose: () => void; 
               </button>
             );
           })}
-        })}
         </div>
 
         <button
