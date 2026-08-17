@@ -36,7 +36,8 @@
  * separate from the Assignment Picker's card-grid rework happening in the
  * same pass, since the two changes don't depend on each other.
  */
-
+import { useTutorial } from '../lib/tutorial-overlay';
+import { assetsTutorial } from '../lib/tutorials/assetsTutorial';
 import React, { useEffect, useMemo, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { Library, Loader2, Plus, Search, Archive, ArchiveRestore, X, BarChart2, Gamepad2 } from 'lucide-react';
@@ -82,6 +83,7 @@ export default function Assets() {
   const [showOnboarding, setShowOnboarding] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [showImportModal, setShowImportModal] = useState(false);
+  const tutorial = useTutorial();
   const [search, setSearch] = useState('');
 
   // Personal archive state — Map<asset_id, archived_at>, scoped to the
@@ -740,7 +742,7 @@ if (user) {
       }}
       className="fixed top-4 left-4 z-[20001] flex items-center gap-2 bg-zinc-900 text-white border border-zinc-700 rounded-full text-[10px] font-black uppercase tracking-widest px-4 py-2 shadow-lg hover:bg-zinc-800 transition-colors"
     >
-      Take the interactive tour instead
+      Take the interactive tour 
     </button>
     <OnboardingVideoSection02
       onSkip={() => setShowOnboarding(false)}
