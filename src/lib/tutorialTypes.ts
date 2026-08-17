@@ -59,7 +59,7 @@ export interface TutorialStep {
   previewImage?: {
     src: string;
     alt: string;
-    highlight?: { xPct: number; yPct: number; wPct: number; hPct: number };
+    
   };
   fallbackNote?: string;
 

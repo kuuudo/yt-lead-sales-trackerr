@@ -15,6 +15,17 @@ import type { Tutorial } from '../tutorialTypes';
 // no campaigns yet — TutorialRunner falls back to fallbackNote instead
 // of navigating anywhere.
 
+async function resolveMostRecentCampaignRoute(): Promise<string | null> {
+  const { data, error } = await supabase
+    .from('campaigns')
+    .select('id')
+    .order('created_at', { ascending: false })
+    .limit(1)
+    .maybeSingle();
+
+  if (error || !data) return null;
+  return `/campaigns/${data.id}`;
+}
 
 export const assetsTutorial: Tutorial = {
   id: 'assets',
@@ -33,17 +44,19 @@ export const assetsTutorial: Tutorial = {
         'You can publish a campaign element, turn a video into an asset, or import a link directly. Let\u2019s look at each.',
       route: '/assets',
     },
-{
+    {
       id: 'campaign-element',
       title: 'Campaign elements can become assets',
       body:
-        'Any of these can be published as an asset. Because they\u2019re already part of a campaign, they bring that setup with them.',
+        'Landing Page URL, Newsletter Signup URL, Sales Call Booking Page URL, Consultation Booking Page URL \u2014 they can all turn into an Asset. Just press **Publish as Asset**.\n\nThis is a medium-sized piece of your funnel. It goes beyond the link itself by carrying the connected thank-you page, attribution, and revenue tracking. That means when you share or assign this Asset to someone else, VSTRK can continue tracking their journey and the revenue it generates.',
       tag: 'demo',
-      route: '/assets',
+      resolveRoute: resolveMostRecentCampaignRoute,
+      targetSelector: '[data-tutorial-id^="campaign-publish-"]',
+      fallbackNote:
+        "You don't have a campaign yet \u2014 once you create one, its elements can become assets like this.",
       previewImage: {
         src: campaignPublishExample,
         alt: 'The Publish as Asset action on a campaign element',
-        highlight: { xPct: 0.06, yPct: 0.52, wPct: 0.5, hPct: 0.08 },
       },
     },
     {

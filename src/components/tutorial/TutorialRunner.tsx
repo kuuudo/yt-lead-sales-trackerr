@@ -42,6 +42,22 @@ function measureGroup(selector: string): Rect | null {
   return { x: x - pad, y: y - pad, w: right - x + pad * 2, h: bottom - y + pad * 2 };
 }
 
+function renderBody(body: string) {
+  return body.split('\n\n').map((para, i) => (
+    <p key={i} className="text-xs text-zinc-400 leading-relaxed mb-3">
+      {para.split(/(\*\*[^*]+\*\*)/g).map((chunk, j) =>
+        chunk.startsWith('**') && chunk.endsWith('**') ? (
+          <span key={j} className="text-orange-500 font-bold">
+            {chunk.slice(2, -2)}
+          </span>
+        ) : (
+          chunk
+        )
+      )}
+    </p>
+  ));
+}
+
 export default function TutorialRunner() {
   const { tutorial, stepIndex, status, satisfiedEventKeys, next, back, close, resumeAt } =
     useTutorial();
@@ -239,8 +255,7 @@ export default function TutorialRunner() {
             </span>
           )}
           <p className="text-sm font-semibold text-white mb-1.5">{step.title}</p>
-          <p className="text-xs text-zinc-400 leading-relaxed mb-3">{step.body}</p>
-          <p className="text-xs text-zinc-400 leading-relaxed mb-3">{step.body}</p>
+          {renderBody(step.body)}
 
           {step.previewImage && (
             <div className="relative rounded-lg overflow-hidden border border-zinc-700 mb-3">
@@ -249,17 +264,7 @@ export default function TutorialRunner() {
                 alt={step.previewImage.alt}
                 className="w-full h-auto block"
               />
-              {step.previewImage.highlight && (
-                <div
-                  className="absolute rounded-md border-2 border-red-500 shadow-[0_0_0_3px_rgba(239,68,68,0.25)] pointer-events-none"
-                  style={{
-                    left: `${step.previewImage.highlight.xPct * 100}%`,
-                    top: `${step.previewImage.highlight.yPct * 100}%`,
-                    width: `${step.previewImage.highlight.wPct * 100}%`,
-                    height: `${step.previewImage.highlight.hPct * 100}%`,
-                  }}
-                />
-              )}
+              
             </div>
           )}
 
