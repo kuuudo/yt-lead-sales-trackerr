@@ -393,13 +393,6 @@ if (user) {
   >
     🦊
   </button>
-  <button
-    onClick={() => tutorial.start(assetsTutorial)}
-    className="text-[10px] font-black uppercase tracking-widest text-zinc-500 hover:text-white border border-zinc-800 hover:border-zinc-600 rounded-full px-3 py-1.5 transition-colors"
-    aria-label="Take the assets tour"
-  >
-    Take the tour
-  </button>
 </h1>
         <p className="text-zinc-500 text-[10px] uppercase tracking-widest mt-1">
           Content you own and can promote
@@ -739,6 +732,16 @@ if (user) {
   ✕
 </button>
 */}
+
+<button
+      onClick={() => {
+        setShowOnboarding(false);
+        tutorial.start(assetsTutorial);
+      }}
+      className="fixed top-4 left-4 z-[20001] flex items-center gap-2 bg-zinc-900 text-white border border-zinc-700 rounded-full text-[10px] font-black uppercase tracking-widest px-4 py-2 shadow-lg hover:bg-zinc-800 transition-colors"
+    >
+      Take the interactive tour instead
+    </button>
     <OnboardingVideoSection02
       onSkip={() => setShowOnboarding(false)}
       onComplete={() => setShowOnboarding(false)}
