@@ -156,14 +156,31 @@ export default function TutorialRunner() {
   const showFallback = routeMissing || (!!step.targetSelector && !rect && routeResolved);
 
   const cardWidth = 280;
+  const isMobile = window.innerWidth < 640;
   let cardStyle: React.CSSProperties;
-  if (rect) {
-    const spaceRight = window.innerWidth - (rect.x + rect.w);
-    const placeRight = spaceRight > cardWidth + 24;
+
+  if (isMobile) {
+    // Bottom sheet on small screens — floating the card next to a
+    // target, or dead-center, isn't reliable on short viewports and
+    // risks colliding with persistent UI like MobileRankingsButton.
     cardStyle = {
       position: 'fixed',
-      top: Math.max(16, Math.min(rect.y, window.innerHeight - 220)),
-      left: placeRight ? rect.x + rect.w + 16 : Math.max(16, rect.x - cardWidth - 16),
+      left: 16,
+      right: 16,
+      bottom: 'max(16px, env(safe-area-inset-bottom))',
+      width: 'auto',
+      maxHeight: '45vh',
+      overflowY: 'auto',
+    };
+  } else if (rect) {
+    const spaceRight = window.innerWidth - (rect.x + rect.w);
+    const placeRight = spaceRight > cardWidth + 24;
+    let left = placeRight ? rect.x + rect.w + 16 : rect.x - cardWidth - 16;
+    left = Math.max(16, Math.min(left, window.innerWidth - cardWidth - 16));
+    cardStyle = {
+      position: 'fixed',
+      top: Math.max(16, Math.min(rect.y, window.innerHeight - 260)),
+      left,
       width: cardWidth,
     };
   } else {
@@ -173,11 +190,13 @@ export default function TutorialRunner() {
       left: '50%',
       transform: 'translate(-50%, -50%)',
       width: cardWidth,
+      maxHeight: 'calc(100dvh - 96px)',
+      overflowY: 'auto',
     };
   }
 
   return (
-    <div className="fixed inset-0 z-[500] pointer-events-none" aria-live="polite">
+    <div className="fixed inset-0 pointer-events-none" style={{ zIndex: 2147483000 }} aria-live="polite">
       {/* Dim layer with a cut-out around the real target — pointer-events
           left on so the user can still click the real app underneath.
           The card itself re-enables pointer-events below. */}
