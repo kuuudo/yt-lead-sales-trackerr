@@ -793,8 +793,8 @@ function MarketplaceOnboarding({ onClose, onStartTour }: { onClose: () => void; 
           style={{
             padding: '6px 14px',
             borderRadius: 999,
-            border: '1px solid #5b3df0',
-            background: '#5b3df0',
+            border: '1px solid #000000',
+            background: '#000000',
             color: '#ffffff',
             fontSize: 11,
             fontWeight: 700,
@@ -803,7 +803,7 @@ function MarketplaceOnboarding({ onClose, onStartTour }: { onClose: () => void; 
             cursor: 'pointer',
           }}
         >
-          🚀 Take the Interactive Tour
+          Take the Interactive Tour
         </button>
 
         <button
