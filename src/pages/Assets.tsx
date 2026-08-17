@@ -393,6 +393,13 @@ if (user) {
   >
     🦊
   </button>
+  <button
+    onClick={() => tutorial.start(assetsTutorial)}
+    className="text-[10px] font-black uppercase tracking-widest text-zinc-500 hover:text-white border border-zinc-800 hover:border-zinc-600 rounded-full px-3 py-1.5 transition-colors"
+    aria-label="Take the assets tour"
+  >
+    Take the tour
+  </button>
 </h1>
         <p className="text-zinc-500 text-[10px] uppercase tracking-widest mt-1">
           Content you own and can promote

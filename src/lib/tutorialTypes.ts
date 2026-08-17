@@ -1,0 +1,66 @@
+// src/lib/tutorialTypes.ts
+//
+// Shared step/tutorial shape for the interactive product-tour system.
+// This is deliberately generic — Collaboration, Content, and Operator
+// tutorials plug into the same shape later. Nothing here is Assets-specific.
+
+export interface TutorialStep {
+  /** Unique within the tutorial. Used for persistence + debugging. */
+  id: string;
+
+  /** Card copy. Keep both short — this is a tour, not documentation. */
+  title: string;
+  body: string;
+
+  /** 'demo' = just Next. 'try-it' = a real action is required (see requireAction). */
+  tag?: 'demo' | 'try-it';
+
+  /**
+   * Static route this step needs to be shown on. Use this for fixed
+   * paths like '/assets' or '/videos'. Omit for steps that stay on
+   * whatever route the tutorial is already on.
+   */
+  route?: string;
+
+  /**
+   * For routes that need a real id (e.g. /campaigns/:id), resolve it at
+   * runtime instead of hardcoding one. Takes precedence over `route`
+   * when present. Return null if there's nothing to navigate to (e.g.
+   * the org has no campaigns yet) — the runner will show `fallbackNote`
+   * on the current page instead of navigating.
+   */
+  resolveRoute?: () => Promise<string | null>;
+
+  /**
+   * CSS attribute selector for the real DOM element(s) to spotlight,
+   * e.g. '[data-tutorial-id="assets-import"]'. Can match one or many
+   * elements — multiple matches are highlighted as a single grouped
+   * region (see CampaignDetail's four publish buttons). Omit for a
+   * centered card with no spotlight.
+   */
+  targetSelector?: string;
+
+  /** How long to wait for targetSelector before falling back. Default 4000ms. */
+  waitTimeoutMs?: number;
+
+  /**
+   * Shown instead of the spotlight when resolveRoute returns null, or
+   * when targetSelector never appears in time. Keeps the step from
+   * getting stuck — it just explains the concept without pointing at
+   * something that isn't there.
+   */
+  fallbackNote?: string;
+
+  /**
+   * If set, Next is replaced by a disabled "waiting" state until the
+   * app calls tutorial.notify(eventKey) from the REAL success path of
+   * the real action (see ImportAssetModal's onImported in Assets.tsx).
+   * Never gate on a click — only on a real success callback.
+   */
+  requireAction?: { eventKey: string };
+}
+
+export interface Tutorial {
+  id: string;
+  steps: TutorialStep[];
+}

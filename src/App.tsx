@@ -11,6 +11,8 @@ import { useTracker, useLanguage } from './lib/hooks';
 import { AuthProvider, useAuth } from './lib/auth';
 import { ViewingProvider, useViewing } from './lib/ViewingContext';
 import { OnboardingOverlayProvider } from './lib/onboarding-overlay';
+import { TutorialProvider } from './lib/tutorial-overlay';
+import TutorialRunner from './components/tutorial/TutorialRunner';
 import { useEffectiveIdentity } from './lib/useEffectiveIdentity';
 import MobileRankingsButton from './components/MobileRankingsButton';
 import OnboardingOverlay from './components/onboarding/OnboardingOverlay';
@@ -125,19 +127,23 @@ function Navigation() {
 // Close the desktop dropdown on outside click — only matters on
   // non-hover devices, where the dropdown is opened by a tap.
   useEffect(() => {
-    if (!openDesktopMenu) return;
-    const onClickOutside = (e: MouseEvent) => {
-      if (desktopNavRef.current && !desktopNavRef.current.contains(e.target as Node)) {
-        setOpenDesktopMenu(null);
-      }
-    };
-    document.addEventListener('mousedown', onClickOutside);
-    document.addEventListener('touchstart', onClickOutside);
-    return () => {
-      document.removeEventListener('mousedown', onClickOutside);
-      document.removeEventListener('touchstart', onClickOutside);
-    };
-  }, [openDesktopMenu]);
+  if (!openDesktopMenu) return;
+
+  const onPointerDownOutside = (e: PointerEvent) => {
+    if (
+      desktopNavRef.current &&
+      !desktopNavRef.current.contains(e.target as Node)
+    ) {
+      setOpenDesktopMenu(null);
+    }
+  };
+
+  document.addEventListener('pointerdown', onPointerDownOutside);
+
+  return () => {
+    document.removeEventListener('pointerdown', onPointerDownOutside);
+  };
+}, [openDesktopMenu]);
 
   // Prevent background scroll/overflow while the drawer is open on mobile.
   useEffect(() => {
@@ -572,21 +578,24 @@ function PageWrapper({ children }: { children: React.ReactNode }) {
   );
 }
 
-export default function App() {
-  return (
-    <Router>
-      <AuthProvider>
-        <ViewingProvider>
-          <OnboardingOverlayProvider>
-            <div className="min-h-screen bg-zinc-950 text-zinc-100 selection:bg-red-500/30 selection:text-white font-sans antialiased">
-              <Navigation />
-              <ViewingBanner />
-              <MainContent />
-              <OnboardingOverlay />
-            </div>
-          </OnboardingOverlayProvider>
-        </ViewingProvider>
-      </AuthProvider>
-    </Router>
-  );
+export default function App() { 
+  return ( 
+    <Router> 
+      <AuthProvider> 
+        <ViewingProvider> 
+          <OnboardingOverlayProvider> 
+            <TutorialProvider>
+              <div className="min-h-screen bg-zinc-950 text-zinc-100 selection:bg-red-500/30 selection:text-white font-sans antialiased"> 
+                <Navigation /> 
+                <ViewingBanner /> 
+                <MainContent /> 
+                <OnboardingOverlay />
+                <TutorialRunner />
+              </div> 
+            </TutorialProvider>
+          </OnboardingOverlayProvider> 
+        </ViewingProvider> 
+      </AuthProvider> 
+    </Router> 
+  ); 
 }
