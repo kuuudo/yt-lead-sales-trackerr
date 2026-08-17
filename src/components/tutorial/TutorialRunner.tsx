@@ -188,7 +188,7 @@ export default function TutorialRunner() {
       maxHeight: '45vh',
       overflowY: 'auto',
     };
-  } else if (rect) {
+  } else if (rect && !step.previewImage) {
     const spaceRight = window.innerWidth - (rect.x + rect.w);
     const placeRight = spaceRight > cardWidth + 24;
     let left = placeRight ? rect.x + rect.w + 16 : rect.x - cardWidth - 16;

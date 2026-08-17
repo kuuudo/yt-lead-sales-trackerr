@@ -7,6 +7,7 @@
 
 import { supabase } from '../supabase';
 import campaignPublishExample from '../../assets/tutorial/campaign-publish-example.png';
+import videoAssetExample from '../../assets/tutorial/videoasset-publish-example.png';
 import type { Tutorial } from '../tutorialTypes';
 
 // Resolves to the user's most recently created campaign, since Campaign
@@ -48,12 +49,10 @@ export const assetsTutorial: Tutorial = {
       id: 'campaign-element',
       title: 'Campaign elements can become assets',
       body:
-        'Landing Page URL, Newsletter Signup URL, Sales Call Booking Page URL, Consultation Booking Page URL \u2014 they can all turn into an Asset. Just press **Publish as Asset**.\n\nThis is a medium-sized piece of your funnel. It goes beyond the link itself by carrying the connected thank-you page, attribution, and revenue tracking. That means when you share or assign this Asset to someone else, VSTRK can continue tracking their journey and the revenue it generates.',
+        'You\u2019re now on the Campaign Detail page.\n\nLanding Page URL, Newsletter Signup URL, Sales Call Booking Page URL, Consultation Booking Page URL \u2014 they can all turn into an Asset. Just press **Publish as Asset**.\n\nThis is a medium-sized piece of your funnel. It goes beyond the link itself by carrying the connected thank-you page, attribution, and revenue tracking. That means when you share or assign this Asset to someone else, VSTRK can continue tracking their journey and the revenue it generates.',
       tag: 'demo',
       resolveRoute: resolveMostRecentCampaignRoute,
       targetSelector: '[data-tutorial-id^="campaign-publish-"]',
-      fallbackNote:
-        "You don't have a campaign yet \u2014 once you create one, its elements can become assets like this.",
       previewImage: {
         src: campaignPublishExample,
         alt: 'The Publish as Asset action on a campaign element',
@@ -63,12 +62,14 @@ export const assetsTutorial: Tutorial = {
       id: 'video-asset',
       title: 'Turn your video into an asset',
       body:
-        'Your video can carry the journey connected to it \u2014 so it\u2019s more than just content.',
+        'This can be a larger piece of your funnel. When your video is connected to a sales page and thank-you page, the Asset can carry that entire journey \u2014 including video tracking, attribution, and revenue tracking. So when you share or assign it, VSTRK can track the journey from the video all the way to revenue.\n\n**If your video doesn\u2019t have those links connected, that\u2019s okay too \u2014 it can simply be a smaller piece of the funnel, focused on the video itself.**\n\nIf you want to turn content into an asset, just press the +ASSET button.',
       tag: 'demo',
       route: '/videos',
       targetSelector: '[data-tutorial-id="videos-add-to-library"]',
-      fallbackNote:
-        "None of your videos are ready for this right now, but the same action shows up here once one is.",
+      previewImage: {
+        src: videoAssetExample,
+        alt: 'The +Asset button on a video',
+      },
     },
     {
       id: 'import-asset',
