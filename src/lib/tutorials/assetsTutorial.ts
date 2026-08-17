@@ -53,6 +53,7 @@ export const assetsTutorial: Tutorial = {
       tag: 'demo',
       resolveRoute: resolveMostRecentCampaignRoute,
       targetSelector: '[data-tutorial-id^="campaign-publish-"]',
+      cardOffset: { top: '46%', left: '80%' },
       previewImage: {
         src: campaignPublishExample,
         alt: 'The Publish as Asset action on a campaign element',
@@ -73,19 +74,31 @@ export const assetsTutorial: Tutorial = {
     },
     {
       id: 'import-asset',
-      title: 'Now try it yourself',
-      body: 'Import a link to create your first asset.',
-      tag: 'try-it',
+      title: 'Import a link directly',
+      body:
+        'This is the simplest piece of your funnel. When you import a link directly into your Asset Library, the Asset is built around the link itself. It doesn\u2019t automatically carry additional funnel setup or tracking \u2014 it\u2019s simply a clean, trackable, shareable Asset you can use across VSTRK. To create one, just click **+ Import Asset** in your Asset Library and paste your link. Almost anything with a link can become an Asset \u2014 a document, image, audio file, music, or any other piece of content you want to track and share.',
+      tag: 'demo',
       route: '/assets',
       targetSelector: '[data-tutorial-id="assets-import"]',
-      requireAction: { eventKey: 'assets-import-success' },
     },
     {
       id: 'recap',
       title: "You're ready to use assets",
       body:
-        'Campaign elements carry setup, videos carry journey context, imports are the simplest link \u2014 all three land in one library.',
+        'Now you understand what an Asset is and how different Assets can carry different parts of your funnel. Next, let\u2019s see what you can actually do with them \u2014 from assigning Assets to other people to using them to track your content and performance.',
       route: '/assets',
+      ctaLinks: [
+        {
+          emoji: '\ud83e\udd1d',
+          title: 'Explore Marketplace & Collaboration',
+          description: 'Learn how to assign Assets, collaborate with others, and manage access.',
+        },
+        {
+          emoji: '\ud83d\udcca',
+          title: 'Explore Content & Tracking',
+          description: 'Learn how to use Assets with your content, tracking links, and custom domains.',
+        },
+      ],
     },
   ],
 };

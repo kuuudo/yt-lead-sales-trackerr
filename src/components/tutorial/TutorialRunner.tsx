@@ -200,15 +200,25 @@ export default function TutorialRunner() {
       width: cardWidth,
     };
   } else {
-    cardStyle = {
-      position: 'fixed',
-      top: '50%',
-      left: '50%',
-      transform: 'translate(-50%, -50%)',
-      width: cardWidth,
-      maxHeight: 'calc(100dvh - 96px)',
-      overflowY: 'auto',
-    };
+    cardStyle = step.cardOffset
+      ? {
+          position: 'fixed',
+          top: step.cardOffset.top,
+          left: step.cardOffset.left,
+          transform: 'translate(-50%, -50%)',
+          width: cardWidth,
+          maxHeight: 'calc(100dvh - 96px)',
+          overflowY: 'auto',
+        }
+      : {
+          position: 'fixed',
+          top: '50%',
+          left: '50%',
+          transform: 'translate(-50%, -50%)',
+          width: cardWidth,
+          maxHeight: 'calc(100dvh - 96px)',
+          overflowY: 'auto',
+        };
   }
 
   return (
@@ -268,7 +278,21 @@ export default function TutorialRunner() {
             </div>
           )}
 
-
+{step.ctaLinks && (
+            <div className="flex flex-col gap-2 mb-3">
+              {step.ctaLinks.map((cta, i) => (
+                <button
+                  key={i}
+                  onClick={() => cta.href && navigate(cta.href)}
+                  disabled={!cta.href}
+                  className="text-left bg-zinc-800 border border-zinc-700 rounded-lg p-3 hover:bg-zinc-700 disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  <p className="text-xs font-bold text-white mb-1">{cta.emoji} {cta.title}</p>
+                  <p className="text-[11px] text-zinc-400 leading-relaxed">{cta.description}</p>
+                </button>
+              ))}
+            </div>
+          )}
           {showFallback && step.fallbackNote && (
             <p className="text-xs text-zinc-500 italic leading-relaxed mb-3">
               {step.fallbackNote}

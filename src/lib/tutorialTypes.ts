@@ -62,7 +62,19 @@ export interface TutorialStep {
     
   };
   fallbackNote?: string;
+/**
+   * Manually override where the centered card sits, instead of dead
+   * center. Use CSS percentage strings, e.g. { top: '46%', left: '80%' }.
+   * Only applies when previewImage is set (centered-card mode).
+   */
+  cardOffset?: { top: string; left: string };
 
+  /**
+   * Optional "what's next" buttons shown at the bottom of a step
+   * (used on the final recap step). If href is omitted, the button
+   * renders disabled/greyed — use that for pages that don't exist yet.
+   */
+  ctaLinks?: { emoji: string; title: string; description: string; href?: string }[];
   /**
    * If set, Next is replaced by a disabled "waiting" state until the
    * app calls tutorial.notify(eventKey) from the REAL success path of
