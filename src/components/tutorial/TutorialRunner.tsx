@@ -155,7 +155,7 @@ export default function TutorialRunner() {
     : true;
   const showFallback = routeMissing || (!!step.targetSelector && !rect && routeResolved);
 
-  const cardWidth = 280;
+  const cardWidth = step.previewImage ? 320 : 280;
   const isMobile = window.innerWidth < 640;
   let cardStyle: React.CSSProperties;
 
@@ -240,6 +240,30 @@ export default function TutorialRunner() {
           )}
           <p className="text-sm font-semibold text-white mb-1.5">{step.title}</p>
           <p className="text-xs text-zinc-400 leading-relaxed mb-3">{step.body}</p>
+          <p className="text-xs text-zinc-400 leading-relaxed mb-3">{step.body}</p>
+
+          {step.previewImage && (
+            <div className="relative rounded-lg overflow-hidden border border-zinc-700 mb-3">
+              <img
+                src={step.previewImage.src}
+                alt={step.previewImage.alt}
+                className="w-full h-auto block"
+              />
+              {step.previewImage.highlight && (
+                <div
+                  className="absolute rounded-md border-2 border-red-500 shadow-[0_0_0_3px_rgba(239,68,68,0.25)] pointer-events-none"
+                  style={{
+                    left: `${step.previewImage.highlight.xPct * 100}%`,
+                    top: `${step.previewImage.highlight.yPct * 100}%`,
+                    width: `${step.previewImage.highlight.wPct * 100}%`,
+                    height: `${step.previewImage.highlight.hPct * 100}%`,
+                  }}
+                />
+              )}
+            </div>
+          )}
+
+
           {showFallback && step.fallbackNote && (
             <p className="text-xs text-zinc-500 italic leading-relaxed mb-3">
               {step.fallbackNote}

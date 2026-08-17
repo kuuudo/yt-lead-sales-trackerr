@@ -6,6 +6,7 @@
 // CampaignDetail.tsx, or Videos.tsx.
 
 import { supabase } from '../supabase';
+import campaignPublishExample from '../../assets/tutorial/campaign-publish-example.png';
 import type { Tutorial } from '../tutorialTypes';
 
 // Resolves to the user's most recently created campaign, since Campaign
@@ -13,17 +14,7 @@ import type { Tutorial } from '../tutorialTypes';
 // specific campaign to point to otherwise. Returns null if the org has
 // no campaigns yet — TutorialRunner falls back to fallbackNote instead
 // of navigating anywhere.
-async function resolveMostRecentCampaignRoute(): Promise<string | null> {
-  const { data, error } = await supabase
-    .from('campaigns')
-    .select('id')
-    .order('created_at', { ascending: false })
-    .limit(1)
-    .maybeSingle();
 
-  if (error || !data) return null;
-  return `/campaigns/${data.id}`;
-}
 
 export const assetsTutorial: Tutorial = {
   id: 'assets',
@@ -42,16 +33,18 @@ export const assetsTutorial: Tutorial = {
         'You can publish a campaign element, turn a video into an asset, or import a link directly. Let\u2019s look at each.',
       route: '/assets',
     },
-    {
+{
       id: 'campaign-element',
       title: 'Campaign elements can become assets',
       body:
         'Any of these can be published as an asset. Because they\u2019re already part of a campaign, they bring that setup with them.',
       tag: 'demo',
-      resolveRoute: resolveMostRecentCampaignRoute,
-      targetSelector: '[data-tutorial-id^="campaign-publish-"]',
-      fallbackNote:
-        "You don't have a campaign yet \u2014 once you create one, its elements can become assets like this.",
+      route: '/assets',
+      previewImage: {
+        src: campaignPublishExample,
+        alt: 'The Publish as Asset action on a campaign element',
+        highlight: { xPct: 0.06, yPct: 0.52, wPct: 0.5, hPct: 0.08 },
+      },
     },
     {
       id: 'video-asset',

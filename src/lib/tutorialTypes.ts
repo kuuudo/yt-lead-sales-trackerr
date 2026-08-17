@@ -49,6 +49,18 @@ export interface TutorialStep {
    * getting stuck — it just explains the concept without pointing at
    * something that isn't there.
    */
+  /**
+   * Static reference screenshot shown instead of a live spotlight, for
+   * steps where the real target may not exist for a given user (e.g. no
+   * campaign set up yet). xPct/yPct/wPct/hPct describe the highlight
+   * box's position as a fraction of the image's rendered size, so it
+   * survives responsive resizing without pixel math.
+   */
+  previewImage?: {
+    src: string;
+    alt: string;
+    highlight?: { xPct: number; yPct: number; wPct: number; hPct: number };
+  };
   fallbackNote?: string;
 
   /**
