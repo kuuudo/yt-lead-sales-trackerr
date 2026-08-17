@@ -33,6 +33,8 @@ import OnboardingVideoSection06 from '../components/onboarding/OnboardingVideo/O
 import TopPromotions from './TopPromotions'; 
 import TopMarketers from './TopMarketers';
 import TopRankings from './TopRankings';
+import { useTutorial } from '../lib/tutorial-overlay';
+import { marketplaceTutorial } from '../lib/tutorials/marketplaceTutorial';
 type Tab = 'assignments' | 'invitations' | 'promotions';
 
 const TABS: { key: Tab; label: string; icon: typeof Briefcase }[] = [
@@ -43,6 +45,7 @@ const TABS: { key: Tab; label: string; icon: typeof Briefcase }[] = [
 
 export default function Marketplace() {
   const navigate = useNavigate();
+  const { start: startTutorial } = useTutorial();
   const [tab, setTab] = useState<Tab>('promotions');
   const [loading, setLoading] = useState(true);
   const [showOnboarding, setShowOnboarding] = useState(false);
@@ -91,7 +94,10 @@ export default function Marketplace() {
     variant: 'info' | 'danger' | 'success';
     onConfirm?: () => void;
   }>({ isOpen: false, title: '', message: '', variant: 'info' });
-
+  const handleStartMarketplaceTour = () => {
+    setShowOnboarding(false);
+    startTutorial(marketplaceTutorial);
+  };
   const showAlert = (title: string, message: string, variant: 'info' | 'danger' | 'success' = 'info') => {
     setModalConfig({ isOpen: true, title, message, variant, onConfirm: undefined });
   };
@@ -372,6 +378,7 @@ export default function Marketplace() {
           {!isReadOnly && (
             <button
               onClick={() => navigate('/marketplace/assignments/new')}
+              data-tutorial-id="marketplace-create-assignment"
               className="flex items-center gap-2 bg-red-600 hover:bg-red-500 text-white text-xs font-bold uppercase tracking-wider px-4 py-2 rounded-lg"
             >
               <Plus size={14} />
@@ -683,6 +690,7 @@ export default function Marketplace() {
       {showOnboarding && (
   <MarketplaceOnboarding
     onClose={() => setShowOnboarding(false)}
+    onStartTour={handleStartMarketplaceTour}
   />
 )}
     </div>
@@ -690,7 +698,7 @@ export default function Marketplace() {
 }
 
 /* ── Marketplace mini onboarding controller (Section 03 + 06) ── */
-function MarketplaceOnboarding({ onClose }: { onClose: () => void }) {
+function MarketplaceOnboarding({ onClose, onStartTour }: { onClose: () => void; onStartTour: () => void }) {
   const SECTIONS = [
     {
       id: 1,
@@ -777,7 +785,27 @@ function MarketplaceOnboarding({ onClose }: { onClose: () => void }) {
               </button>
             );
           })}
+        })}
         </div>
+
+        <button
+          type="button"
+          onClick={onStartTour}
+          style={{
+            padding: '6px 14px',
+            borderRadius: 999,
+            border: '1px solid #5b3df0',
+            background: '#5b3df0',
+            color: '#ffffff',
+            fontSize: 11,
+            fontWeight: 700,
+            letterSpacing: 0.4,
+            textTransform: 'uppercase',
+            cursor: 'pointer',
+          }}
+        >
+          🚀 Take the Interactive Tour
+        </button>
 
         <button
           type="button"

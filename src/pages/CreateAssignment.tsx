@@ -231,6 +231,7 @@ export default function CreateAssignment() {
         {/* --- New: Tracking Domains. Assignment configuration, NOT an
             Asset — deliberately a plain checkbox list, no thumbnails,
             no filters, no AssetPicker. Zero selected is valid. --- */}
+        <div data-tutorial-id="marketplace-tracking-domains">
         <div className="flex items-center gap-1.5 mb-2">
           <label className="text-[10px] font-bold uppercase tracking-widest text-zinc-500">
             Tracking Domains <span className="normal-case text-zinc-600">(optional)</span>
@@ -269,6 +270,8 @@ export default function CreateAssignment() {
             ))}
           </div>
         )}
+
+        </div>
 
         <label className="block text-[10px] font-bold uppercase tracking-widest text-zinc-500 mb-2">
           Campaign <span className="normal-case text-zinc-600">(filters the Asset list below only)</span>
@@ -345,6 +348,7 @@ export default function CreateAssignment() {
             type="button"
             onClick={openLibraryPicker}
             disabled={!organizationId}
+            data-tutorial-id="marketplace-select-assets"
             className="flex items-center gap-2 bg-zinc-800 hover:bg-zinc-700 disabled:opacity-50 text-white text-xs font-bold uppercase tracking-wider px-4 py-2 rounded-lg"
           >
             <Plus size={14} /> Select Assets
@@ -389,6 +393,7 @@ export default function CreateAssignment() {
           </div>
         )}
 
+        <div data-tutorial-id="marketplace-invite-collaborators">
         <label className="block text-[10px] font-bold uppercase tracking-widest text-zinc-500 mb-2">
           Invite Collaborators
         </label>
@@ -421,9 +426,12 @@ export default function CreateAssignment() {
           ))}
         </div>
 
+        </div>
+
         <button
           onClick={handleSubmit}
           disabled={submitting}
+          data-tutorial-id="marketplace-submit"
           className="flex items-center gap-2 bg-red-600 hover:bg-red-500 disabled:opacity-50 text-white text-xs font-bold uppercase tracking-wider px-5 py-3 rounded-lg"
         >
           {submitting ? <Loader2 className="animate-spin" size={14} /> : <Send size={14} />}

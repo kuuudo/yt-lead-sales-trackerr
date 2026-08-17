@@ -63,7 +63,7 @@ export const assetsTutorial: Tutorial = {
       id: 'video-asset',
       title: 'Turn your video into an asset',
       body:
-        'This can be a larger piece of your funnel. When your video is connected to a sales page and thank-you page, the Asset can carry that entire journey \u2014 including video tracking, attribution, and revenue tracking. So when you share or assign it, VSTRK can track the journey from the video all the way to revenue.\n\n**If your video doesn\u2019t have those links connected, that\u2019s okay too \u2014 it can simply be a smaller piece of the funnel, focused on the video itself.**\n\nIf you want to turn content into an asset, just press the +ASSET button.',
+        'This can be a larger piece of your funnel. When your video is connected to a sales page and thank-you page, the Asset can carry that entire journey \u2014 including video tracking, attribution, and revenue tracking. So when you share or assign it, VSTRK can track the journey from the video all the way to revenue.\n\n**If your video doesn\u2019t have those links connected, that\u2019s okay too \u2014 it can simply be a smaller piece of the funnel, focused on the video itself.**\n\nIf you want to turn content into an asset, just press the <span style="color: #f97316;">+ASSET</span> button.',
       tag: 'demo',
       route: '/videos',
       targetSelector: '[data-tutorial-id="videos-add-to-library"]',

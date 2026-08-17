@@ -15,12 +15,14 @@ import { AnimatePresence, motion } from 'motion/react';
 import { useTutorial, readPersistedProgress } from '../../lib/tutorial-overlay';
 import { useAuth } from '../../lib/auth';
 import { assetsTutorial } from '../../lib/tutorials/assetsTutorial';
+import { marketplaceTutorial } from '../../lib/tutorials/marketplaceTutorial';
 
 // Registry of tutorials the runner knows how to resume after a refresh.
 // Add future tutorials (collaboration, content, operator) here — nothing
 // else in this file needs to change to support them.
 const TUTORIAL_REGISTRY = {
   [assetsTutorial.id]: assetsTutorial,
+  [marketplaceTutorial.id]: marketplaceTutorial,
 };
 
 interface Rect {
