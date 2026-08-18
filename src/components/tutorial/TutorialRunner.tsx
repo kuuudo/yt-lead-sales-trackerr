@@ -16,6 +16,7 @@ import { useTutorial, readPersistedProgress } from '../../lib/tutorial-overlay';
 import { useAuth } from '../../lib/auth';
 import { assetsTutorial } from '../../lib/tutorials/assetsTutorial';
 import { marketplaceTutorial } from '../../lib/tutorials/marketplaceTutorial';
+import { promotionTutorial } from '../../lib/tutorials/promotionTutorial';
 import { videosTutorial } from '../../lib/tutorials/videosTutorial';
 
 // Registry of tutorials the runner knows how to resume after a refresh.
@@ -25,6 +26,7 @@ const TUTORIAL_REGISTRY = {
   [assetsTutorial.id]: assetsTutorial,
   [marketplaceTutorial.id]: marketplaceTutorial,
   [videosTutorial.id]: videosTutorial,
+  [promotionTutorial.id]: promotionTutorial,
 };
 
 interface Rect {

@@ -50,6 +50,8 @@ import React, { useEffect, useState } from 'react';
 import { useParams, Link } from 'react-router-dom';
 import { ArrowLeft, Loader2, ArchiveRestore, UserX, UserCheck, ShieldOff, ShieldCheck, Globe, BarChart3 } from 'lucide-react';
 import { useAuth } from '../lib/auth';
+import { useTutorial } from '../lib/tutorial-overlay';
+import { promotionTutorial } from '../lib/tutorials/promotionTutorial';
 import {
   getPromotionDetail,
   type PromotionDetailData,
@@ -108,6 +110,7 @@ function resolveTypeLabel(resource: AssetResourceView | null): string {
 export default function PromotionDetail() {
   const { id } = useParams<{ id: string }>();
   const { user } = useAuth();
+  const { start: startTutorial } = useTutorial();
   const [detail, setDetail] = useState<PromotionDetailData | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -532,7 +535,7 @@ export default function PromotionDetail() {
         )}
 
         {!isRemovedSelf && (
-          <div className="mt-4">
+          <div className="mt-4 flex items-center gap-2">
             <Link
               to={`/marketplace/promotions/${id}/analytics`}
               className="inline-flex items-center gap-2 bg-zinc-900 hover:bg-zinc-800 border border-zinc-800 text-zinc-300 hover:text-white text-xs font-bold uppercase tracking-wider px-4 py-2 rounded-lg transition-colors"
@@ -540,6 +543,13 @@ export default function PromotionDetail() {
               <BarChart3 size={14} />
               View Analytics
             </Link>
+            <button
+              onClick={() => startTutorial(promotionTutorial)}
+              title="Take a tour of Promotion Detail"
+              className="inline-flex items-center justify-center bg-zinc-900 hover:bg-zinc-800 border border-zinc-800 text-lg w-9 h-9 rounded-lg transition-colors"
+            >
+              🦊
+            </button>
           </div>
         )}
 

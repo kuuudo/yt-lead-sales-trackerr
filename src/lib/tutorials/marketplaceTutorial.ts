@@ -20,7 +20,7 @@ import type { Tutorial } from '../tutorialTypes';
 import invitationMarketplaceExample from '../../assets/tutorial/invitation-marketplace-example.png';
 import invitationAcceptExample from '../../assets/tutorial/invitation-accept-example.png';
 import startPromotingExample from '../../assets/tutorial/start-promoting-example.png';
-
+import promotionDetailOverview from '../../assets/tutorial/promotion-detail-overview.png';
 export const marketplaceTutorial: Tutorial = {
   id: 'marketplace',
   steps: [
@@ -105,6 +105,18 @@ export const marketplaceTutorial: Tutorial = {
       previewImage: {
         src: startPromotingExample,
         alt: 'The Select Assets to Promote screen with the Start Promoting button',
+      },
+    },
+    {
+      id: 'promotion-detail-intro',
+      title: 'Your Promotion Control Center',
+      body:
+        'This is where you can see the Promotion once it\u2019s created \u2014 the collaborator, the Assets they\u2019re promoting, and the access controls you have over both.\n\nLook for the \ud83e\udd8a icon on that page for a deeper tour of everything you can control there.',
+      tag: 'demo',
+      route: '/marketplace',
+      previewImage: {
+        src: promotionDetailOverview,
+        alt: 'The full Promotion Detail page',
       },
     },
   ],
