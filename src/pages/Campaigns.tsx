@@ -8,7 +8,13 @@ import { Plus, Globe, ChevronRight, DollarSign, Phone, Mail as MailIcon, Briefca
 import { motion, AnimatePresence } from 'motion/react';
 import { Modal } from '../components/Modal';
 import { useOrganization } from '../lib/useOrganization'
+import CampaignOnboardingStep from '../components/onboarding/CampaignOnboardingStep';
 import CampaignOnboardingVideo from '../components/onboarding/CampaignOnboardingVideo/CampaignOnboardingVideo';
+import CampaignOnboardingStripeVideo from '../components/onboarding/CampaignOnboardingVideo/CampaignOnboardingStripeVideo';
+import CampaignOnboardingPixelVideo from '../components/onboarding/CampaignOnboardingVideo/CampaignOnboardingPixelVideo';
+import CampaignOnboardingThankYouVideo from '../components/onboarding/CampaignOnboardingVideo/CampaignOnboardingThankYouVideo';
+import PaymentMethodDiagram from '../components/onboarding/PaymentMethodDiagram';
+import type { PurchaseMethod } from '../components/onboarding/campaignOptionContent';
 
 export default function Campaigns() {
   const { t } = useLanguage();
@@ -762,8 +768,10 @@ export default function Campaigns() {
   );
 }
 
-/* ── Campaigns page fox onboarding (local, self-contained) ── */
+/* ── Campaigns page fox onboarding (local, self-contained, two-panel) ── */
 function CampaignsOnboarding({ onClose }: { onClose: () => void }) {
+  const [videoScene, setVideoScene] = useState<'basics' | 'stripe' | 'pixel' | 'thankyou' | PurchaseMethod>('basics');
+
   return (
     <div
       style={{
@@ -781,34 +789,37 @@ function CampaignsOnboarding({ onClose }: { onClose: () => void }) {
       }}
     >
       <div
+        className="w-full flex flex-col lg:flex-row gap-4 lg:gap-6 items-stretch justify-center"
         style={{
-          width: 'min(420px, 94vw)',
-          maxHeight: '90vh',
-          background: '#fff',
-          borderRadius: 16,
-          overflow: 'auto',
-          padding: 24,
+          maxWidth: 1200,
+          width: 'min(1200px, 94vw)',
+          height: '90vh',
         }}
+        onClick={(e) => e.stopPropagation()}
       >
-        <CampaignOnboardingVideo />
-        <button
-          type="button"
-          onClick={onClose}
-          style={{
-            width: '100%',
-            marginTop: 16,
-            padding: '12px 20px',
-            borderRadius: 8,
-            border: 'none',
-            background: '#5b3df0',
-            color: '#fff',
-            fontSize: 13,
-            fontWeight: 700,
-            cursor: 'pointer',
-          }}
-        >
-          Close
-        </button>
+        {/* LEFT: video — swaps based on what the user focuses on the right */}
+        <div className="hidden lg:flex lg:w-[380px] lg:flex-shrink-0 bg-white rounded-2xl overflow-hidden shadow-2xl items-center justify-center p-6">
+          {videoScene === 'basics' && <CampaignOnboardingVideo />}
+          {videoScene === 'stripe' && <CampaignOnboardingStripeVideo />}
+          {videoScene === 'pixel' && <CampaignOnboardingPixelVideo />}
+          {videoScene === 'thankyou' && <CampaignOnboardingThankYouVideo />}
+          {(videoScene === 'stripe_checkout' ||
+            videoScene === 'stripe_embedded' ||
+            videoScene === 'embedded_alternative_payment' ||
+            videoScene === 'alternative_payment' ||
+            videoScene === 'payment_instructions_page' ||
+            videoScene === 'external_platform') && (
+            <PaymentMethodDiagram method={videoScene} />
+          )}
+        </div>
+
+        {/* RIGHT: the live campaign wizard */}
+        <div className="relative w-full flex-1 min-w-0 bg-white rounded-2xl overflow-hidden shadow-2xl">
+          <CampaignOnboardingStep
+            onComplete={() => onClose()}
+            onSceneChange={setVideoScene}
+          />
+        </div>
       </div>
     </div>
   );
