@@ -202,8 +202,6 @@ export default function TutorialRunner() {
     ? satisfiedEventKeys.includes(step.requireAction!.eventKey)
     : true;
   const showFallback = routeMissing || (!!step.targetSelector && !rect && routeResolved);
-  const isLastStep = stepIndex === tutorial.steps.length - 1;
-  const willHandoff = isLastStep && !!step.handoffTutorial && !showFallback;
 
   const cardWidth = step.previewImage ? 320 : 280;
   const isMobile = window.innerWidth < 640;
