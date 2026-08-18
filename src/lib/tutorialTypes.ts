@@ -82,6 +82,15 @@ export interface TutorialStep {
    * Never gate on a click — only on a real success callback.
    */
   requireAction?: { eventKey: string };
+
+  /**
+   * If this is the tutorial's LAST step, and the step's resolveRoute
+   * actually found something real (not the fallbackNote case), pressing
+   * the button starts this tutorial instead of just finishing. Lets a
+   * short tutorial hand off into a deeper one only when there's real
+   * data to show — otherwise it just ends normally.
+   */
+  handoffTutorial?: Tutorial;
 }
 
 export interface Tutorial {

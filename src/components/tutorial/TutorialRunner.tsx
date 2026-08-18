@@ -79,7 +79,7 @@ function renderBody(body: string, navigate: (path: string) => void) {
 }
 
 export default function TutorialRunner() {
-  const { tutorial, stepIndex, status, satisfiedEventKeys, next, back, close, resumeAt } =
+  const { tutorial, stepIndex, status, satisfiedEventKeys, next, back, close, resumeAt, start } =
     useTutorial();
   const { user } = useAuth();
   const navigate = useNavigate();
@@ -181,7 +181,19 @@ export default function TutorialRunner() {
     };
   }, [step, routeResolved, routeMissing]);
 
-  const handleNext = useCallback(() => next(), [next]);
+  const isLastStep = !!tutorial && stepIndex === tutorial.steps.length - 1;
+  // Only hand off when this step actually resolved to something real —
+  // showFallback true means resolveRoute found nothing (see fallbackNote
+  // branch below), so a handoff here would launch the next tutorial with
+  // nothing real to show either. Computed above handleNext since both need it.
+  const willHandoff = isLastStep && !!step?.handoffTutorial && !showFallback;
+  const handleNext = useCallback(() => {
+    if (willHandoff && step?.handoffTutorial) {
+      start(step.handoffTutorial);
+      return;
+    }
+    next();
+  }, [next, start, willHandoff, step]);
 
   if (status !== 'active' || !tutorial || !step) return null;
 
@@ -190,6 +202,8 @@ export default function TutorialRunner() {
     ? satisfiedEventKeys.includes(step.requireAction!.eventKey)
     : true;
   const showFallback = routeMissing || (!!step.targetSelector && !rect && routeResolved);
+  const isLastStep = stepIndex === tutorial.steps.length - 1;
+  const willHandoff = isLastStep && !!step.handoffTutorial && !showFallback;
 
   const cardWidth = step.previewImage ? 320 : 280;
   const isMobile = window.innerWidth < 640;
@@ -348,7 +362,7 @@ export default function TutorialRunner() {
                 onClick={handleNext}
                 className="text-[10px] font-black uppercase tracking-widest bg-white text-zinc-950 px-3 py-1.5 rounded-lg hover:bg-zinc-200"
               >
-                {stepIndex === tutorial.steps.length - 1 ? 'Done' : 'Next'}
+                {willHandoff ? 'Continue Tour' : stepIndex === tutorial.steps.length - 1 ? 'Done' : 'Next'}
               </button>
             )}
           </div>

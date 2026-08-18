@@ -17,10 +17,24 @@
 // without a new planning pass.
 
 import type { Tutorial } from '../tutorialTypes';
+import { supabase } from '../supabase';
+import { listMyPromotions } from '../../services/assignment/collaborationHub';
+import { promotionTutorial } from './promotionTutorial';
 import invitationMarketplaceExample from '../../assets/tutorial/invitation-marketplace-example.png';
 import invitationAcceptExample from '../../assets/tutorial/invitation-accept-example.png';
 import startPromotingExample from '../../assets/tutorial/start-promoting-example.png';
 import promotionDetailOverview from '../../assets/tutorial/promotion-detail-overview.png';
+
+// Reuses the exact same query Marketplace.tsx's "My Promotions" tab
+// already runs (listMyPromotions) — no new data logic. Returns the
+// most recent real Promotion's route, or null if the user has none yet.
+async function resolveMostRecentPromotionRoute(): Promise<string | null> {
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) return null;
+  const promos = await listMyPromotions(user.id);
+  if (!promos || promos.length === 0) return null;
+  return `/marketplace/promotions/${promos[0].id}`;
+}
 export const marketplaceTutorial: Tutorial = {
   id: 'marketplace',
   steps: [
@@ -111,13 +125,18 @@ export const marketplaceTutorial: Tutorial = {
       id: 'promotion-detail-intro',
       title: 'Your Promotion Control Center',
       body:
-        'This is where you can see the Promotion once it\u2019s created \u2014 the collaborator, the Assets they\u2019re promoting, and the access controls you have over both.\n\nLook for the \ud83e\udd8a icon on that page for a deeper tour of everything you can control there.',
+        'This is where you can see the Promotion once it\u2019s created \u2014 the collaborator, the Assets they\u2019re promoting, and the access controls you have over both.',
       tag: 'demo',
       route: '/marketplace',
+      resolveRoute: resolveMostRecentPromotionRoute,
+      targetSelector: '[data-tutorial-id="marketplace-promotion-assignment-info"]',
       previewImage: {
         src: promotionDetailOverview,
         alt: 'The full Promotion Detail page',
       },
+      fallbackNote:
+        'You don\u2019t have a Promotion yet \u2014 that gets created once your collaborator starts promoting. Once it exists, you\u2019ll see it here. Look for the \ud83e\udd8a icon on that page for a deeper tour.',
+      handoffTutorial: promotionTutorial,
     },
   ],
 };
