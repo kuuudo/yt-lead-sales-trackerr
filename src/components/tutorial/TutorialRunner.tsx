@@ -181,11 +181,12 @@ export default function TutorialRunner() {
     };
   }, [step, routeResolved, routeMissing]);
 
+  const showFallback = routeMissing || (!!step?.targetSelector && !rect && routeResolved);
   const isLastStep = !!tutorial && stepIndex === tutorial.steps.length - 1;
   // Only hand off when this step actually resolved to something real —
   // showFallback true means resolveRoute found nothing (see fallbackNote
   // branch below), so a handoff here would launch the next tutorial with
-  // nothing real to show either. Computed above handleNext since both need it.
+  // nothing real to show either.
   const willHandoff = isLastStep && !!step?.handoffTutorial && !showFallback;
   const handleNext = useCallback(() => {
     if (willHandoff && step?.handoffTutorial) {
@@ -201,7 +202,6 @@ export default function TutorialRunner() {
   const actionSatisfied = needsAction
     ? satisfiedEventKeys.includes(step.requireAction!.eventKey)
     : true;
-  const showFallback = routeMissing || (!!step.targetSelector && !rect && routeResolved);
 
   const cardWidth = step.previewImage ? 320 : 280;
   const isMobile = window.innerWidth < 640;
