@@ -35,9 +35,16 @@ import CampaignOnboardingThankYouVideo from './CampaignOnboardingVideo/CampaignO
 import PaymentMethodDiagram from './PaymentMethodDiagram';
 import type { PurchaseMethod } from './campaignOptionContent';
 import { supabase } from '../../lib/supabase';
-import { getFunnelState, type CampaignExtended } from '../installation/installationHelpers';
+import { getFunnelState, type CampaignExtended, type StripeConfig } from '../installation/installationHelpers';
+import { useEffectiveIdentity } from '../../lib/useEffectiveIdentity';
 
 type OnboardingStep = 'welcome' | 'video' | 'campaign' | 'hub' | 'newsletter' | 'sales_call' | 'consultation' | 'lead_magnet' | 'install_global' | 'install_direct_purchase' | 'install_newsletter' | 'install_sales_call' | 'install_consultation';
+
+type LeadMagnetRow = {
+  lead_magnet_name: string;
+  lead_magnet_url: string;
+  lead_magnet_thankyou_url: string;
+};
 
 /* ── 中轉站 hub: shared UI pieces ─────────────────────────────── */
 function HubProgressBar({ completed, total }: { completed: number; total: number }) {
@@ -128,6 +135,9 @@ export default function OnboardingOverlay() {
   const [videoScene, setVideoScene] = useState<'basics' | 'stripe' | 'pixel' | 'thankyou' | PurchaseMethod>('basics');
   const [campaignId, setCampaignId] = useState<string | null>(null);
   const [campaign, setCampaign] = useState<CampaignExtended | null>(null);
+  const [leadMagnets, setLeadMagnets] = useState<LeadMagnetRow[]>([]);
+  const [stripeConfig, setStripeConfig] = useState<StripeConfig | null>(null);
+  const { userId } = useEffectiveIdentity();
 
   // Reset to the first step each time the overlay is opened fresh.
   useEffect(() => {
@@ -135,6 +145,8 @@ export default function OnboardingOverlay() {
       setStep('welcome');
       setCampaignId(null);
       setCampaign(null);
+      setLeadMagnets([]);
+      setStripeConfig(null);
     }
   }, [isOpen]);
 
@@ -143,9 +155,29 @@ export default function OnboardingOverlay() {
   // including right after a path's config step just wrote to it.
   const loadHubCampaign = useCallback(async () => {
     if (!campaignId) return;
-    const { data } = await supabase.from('campaigns').select('*').eq('id', campaignId).single();
-    if (data) setCampaign(data as CampaignExtended);
-  }, [campaignId]);
+
+    const { data: campaignRow } = await supabase
+      .from('campaigns')
+      .select('*')
+      .eq('id', campaignId)
+      .single();
+    if (campaignRow) setCampaign(campaignRow as CampaignExtended);
+
+    const { data: magnetRows } = await supabase
+      .from('lead_magnets')
+      .select('lead_magnet_name, lead_magnet_url, lead_magnet_thankyou_url')
+      .eq('campaign_id', campaignId);
+    if (magnetRows) setLeadMagnets(magnetRows as LeadMagnetRow[]);
+
+    if (userId) {
+      const { data: stripeRow } = await supabase
+        .from('stripe_configs')
+        .select('stripe_webhook_secret')
+        .eq('user_id', userId)
+        .maybeSingle();
+      setStripeConfig((stripeRow as StripeConfig) ?? null);
+    }
+  }, [campaignId, userId]);
 
   useEffect(() => {
     if (step === 'hub' && campaignId) {
@@ -411,6 +443,7 @@ export default function OnboardingOverlay() {
     <div className="relative w-full flex-1 min-w-0 bg-white rounded-2xl overflow-hidden shadow-2xl">
       <NewsletterOnboardingStep
         campaignId={campaignId}
+        initialData={campaign ?? undefined}
         onDone={() => setStep('hub')}
         onBack={() => setStep('hub')}
       />
@@ -431,6 +464,7 @@ export default function OnboardingOverlay() {
     <div className="relative w-full flex-1 min-w-0 bg-white rounded-2xl overflow-hidden shadow-2xl">
       <SalesCallOnboardingStep
         campaignId={campaignId}
+        initialData={campaign ?? undefined}
         onDone={() => setStep('hub')}
         onBack={() => setStep('hub')}
       />
@@ -451,6 +485,7 @@ export default function OnboardingOverlay() {
     <div className="relative w-full flex-1 min-w-0 bg-white rounded-2xl overflow-hidden shadow-2xl">
       <PaidConsultationOnboardingStep
         campaignId={campaignId}
+        initialData={campaign ?? undefined}
         onDone={() => setStep('hub')}
         onBack={() => setStep('hub')}
       />
@@ -471,6 +506,7 @@ export default function OnboardingOverlay() {
     <div className="relative w-full flex-1 min-w-0 bg-white rounded-2xl overflow-hidden shadow-2xl">
       <LeadMagnetOnboardingStep
         campaignId={campaignId}
+        initialMagnets={leadMagnets}
         onDone={() => setStep('hub')}
         onBack={() => setStep('hub')}
       />

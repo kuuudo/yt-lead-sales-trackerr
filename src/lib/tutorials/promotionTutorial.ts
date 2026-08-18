@@ -56,9 +56,9 @@ export const promotionTutorial: Tutorial = {
       id: 'allow-collaborator-domains-enabled',
       title: 'Enabled: they can use their own domain',
       body:
-        'Think of this as permission to use their own domain. **ON** \u2014 the collaborator can use their own tracking domain when promoting this Asset.',
+        'Sorry if the example image is a little confusing — the domains shown are the same because this is a test.\n\n**ON** means the collaborator can use **their own tracking domain** when promoting this Asset. For example, if they own `nike.com`, it appears under **Your domains**. Domains you assign to them, such as `shop.kaksidigitals.com` or `lucky.kaksidigitals.com`, appear under **Shared domains**.',
       tag: 'demo',
-      previewImage: { src: allowCollaboratorDomainsEnabled, alt: 'Allow Collaborator Domains enabled, showing the collaborator\u2019s own domains available' },
+      previewImage: { src: allowCollaboratorDomainsEnabled, alt: 'Allow Collaborator Domains enabled, showing the collaborator’s own domains available' },
     },
     {
       id: 'allow-collaborator-domains-disabled',
