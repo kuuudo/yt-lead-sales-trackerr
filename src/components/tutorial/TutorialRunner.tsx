@@ -288,11 +288,11 @@ export default function TutorialRunner() {
           {renderBody(step.body, navigate)}
 
           {step.previewImage && (
-            <div className="relative rounded-lg overflow-hidden border border-zinc-700 mb-3">
+            <div className="relative rounded-lg overflow-hidden border border-zinc-700 mb-3 bg-zinc-950 flex items-center justify-center max-h-64">
               <img
                 src={step.previewImage.src}
                 alt={step.previewImage.alt}
-                className="w-full h-auto block"
+                className="w-full h-auto max-h-64 object-contain block"
               />
               
             </div>
