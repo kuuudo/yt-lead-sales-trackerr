@@ -130,6 +130,25 @@ export default function OnboardingVideo({ onClose, onFinish }) {
               </button>
             );
           })}
+
+          <button
+            type="button"
+            onClick={() => onFinish?.()}
+            style={{
+              padding: '6px 12px',
+              borderRadius: 999,
+              border: '1px solid #5b3df0',
+              background: '#ffffff',
+              color: '#5b3df0',
+              fontSize: 11,
+              fontWeight: 700,
+              letterSpacing: 0.4,
+              textTransform: 'uppercase',
+              cursor: 'pointer',
+            }}
+          >
+            Campaign Setup →
+          </button>
         </div>
 
         <button

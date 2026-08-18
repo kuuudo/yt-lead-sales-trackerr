@@ -633,7 +633,7 @@ export default function OnboardingOverlay() {
 
           <button
             type="button"
-            onClick={() => setStep('install_global')}
+            onClick={() => setStep('campaign')}
             style={{
               width: '100%',
               padding: '12px 20px',
@@ -647,7 +647,7 @@ export default function OnboardingOverlay() {
               marginBottom: 10,
             }}
           >
-            Continue to Installation →
+            ← Back to Campaign Setup
           </button>
 
           <button
