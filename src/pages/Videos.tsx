@@ -529,11 +529,22 @@ export default function Videos() {
   const [showAdd, setShowAdd] = useState(false);
   const [showImportWizard, setShowImportWizard] = useState(false);
   const [showOnboarding, setShowOnboarding] = useState(false);
-  const { start: startTutorial } = useTutorial();
+  const { start: startTutorial, tutorial: activeTutorial, stepIndex: tutorialStepIndex, status: tutorialStatus } = useTutorial();
   const handleStartVideosTour = () => {
     setShowOnboarding(false);
     startTutorial(videosTutorial);
   };
+
+    useEffect(() => {
+    if (
+      tutorialStatus === 'active' &&
+      activeTutorial?.id === 'videos' &&
+      tutorialStepIndex >= 1 &&
+      !showAdd
+    ) {
+      setShowAdd(true);
+    }
+  }, [tutorialStatus, activeTutorial, tutorialStepIndex, showAdd]);
   // Promoted Asset (optional) — UI-only per locked scope: this selection is
   // never sent to createVideo() and nothing is persisted from it yet.
   // Wiring it into a real video -> asset relationship is separate, later work.
