@@ -3,11 +3,23 @@
 // Content only — copy, step order, targets. No rendering logic lives
 // here (see TutorialRunner.tsx). Mirrors assetsTutorial.ts's structure.
 //
-// PART 1 ONLY: Create Assignment. Invitation acceptance, Promotion
-// Detail, and revoke flows are separate future parts — do not add
-// those steps here without a new planning pass.
+// PART 1: Create Assignment (steps 1-5).
+//
+// PART 2A: What happens for the collaborator — invitation, accept,
+// select assets, start promoting (steps 6-8). These are DEMO-only,
+// screenshot-based (previewImage) steps: the Sponsor taking this
+// tutorial cannot see the collaborator's own pending-invitation /
+// asset-picker screens from their own account, so there's nothing
+// live to spotlight here.
+//
+// Promotion Detail (live spotlight) and revoke/access-management flows
+// are separate future parts (2B, 3) — do not add those steps here
+// without a new planning pass.
 
 import type { Tutorial } from '../tutorialTypes';
+import invitationMarketplaceExample from '../../assets/tutorial/invitation-marketplace-example.png';
+import invitationAcceptExample from '../../assets/tutorial/invitation-accept-example.png';
+import startPromotingExample from '../../assets/tutorial/start-promoting-example.png';
 
 export const marketplaceTutorial: Tutorial = {
   id: 'marketplace',
@@ -58,6 +70,42 @@ export const marketplaceTutorial: Tutorial = {
       tag: 'demo',
       route: '/marketplace/assignments/new',
       targetSelector: '[data-tutorial-id="marketplace-submit"]',
+    },
+    {
+      id: 'collaborator-invitation',
+      title: 'Your collaborator receives an invitation',
+      body:
+        'Your collaborator will first see your invitation here, in their own Marketplace \u2014 under Invitations. They simply open it to see what you\u2019ve assigned to them.',
+      tag: 'demo',
+      route: '/marketplace',
+      previewImage: {
+        src: invitationMarketplaceExample,
+        alt: 'The Invitations tab in Marketplace showing a pending invitation',
+      },
+    },
+    {
+      id: 'collaborator-accept',
+      title: 'They open it and accept',
+      body:
+        'They\u2019ll see the Assignment you sent them, and can simply press **Accept Invitation** to become an active collaborator.\n\nThey don\u2019t need to recreate anything you already set up.',
+      tag: 'demo',
+      route: '/marketplace',
+      previewImage: {
+        src: invitationAcceptExample,
+        alt: 'The Assignment invitation page with the Accept Invitation button',
+      },
+    },
+    {
+      id: 'collaborator-start-promoting',
+      title: 'They choose what to promote',
+      body:
+        'After accepting, they choose which of the assigned Assets they want to promote. Once they\u2019re ready, they press **Start Promoting**.\n\nThat\u2019s when their promotion workspace is created and they can start managing the promotion \u2014 using the Assets and tracking setup you selected. They\u2019re not getting your whole VSTRK account, just access to what you assigned them.',
+      tag: 'demo',
+      route: '/marketplace',
+      previewImage: {
+        src: startPromotingExample,
+        alt: 'The Select Assets to Promote screen with the Start Promoting button',
+      },
     },
   ],
 };
