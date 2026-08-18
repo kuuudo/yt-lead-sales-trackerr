@@ -193,7 +193,7 @@ export default function TutorialRunner() {
 
   const cardWidth = step.previewImage ? 320 : 280;
   const isMobile = window.innerWidth < 640;
-  let cardStyle: React.CSSProperties;
+    let cardStyle: any; // needs x/y (not transform) so Framer Motion can compose it with its own scale animation
 
   if (isMobile) {
     // Bottom sheet on small screens — floating the card next to a
@@ -225,7 +225,8 @@ export default function TutorialRunner() {
           position: 'fixed',
           top: step.cardOffset.top,
           left: step.cardOffset.left,
-          transform: 'translate(-50%, -50%)',
+          x: '-50%',
+          y: '-50%',
           width: cardWidth,
           maxHeight: 'calc(100dvh - 96px)',
           overflowY: 'auto',
@@ -234,7 +235,8 @@ export default function TutorialRunner() {
           position: 'fixed',
           top: '50%',
           left: '50%',
-          transform: 'translate(-50%, -50%)',
+          x: '-50%',
+          y: '-50%',
           width: cardWidth,
           maxHeight: 'calc(100dvh - 96px)',
           overflowY: 'auto',
