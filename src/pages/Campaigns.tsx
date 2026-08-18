@@ -8,6 +8,7 @@ import { Plus, Globe, ChevronRight, DollarSign, Phone, Mail as MailIcon, Briefca
 import { motion, AnimatePresence } from 'motion/react';
 import { Modal } from '../components/Modal';
 import { useOrganization } from '../lib/useOrganization'
+import CampaignOnboardingVideo from '../components/onboarding/CampaignOnboardingVideo/CampaignOnboardingVideo';
 
 export default function Campaigns() {
   const { t } = useLanguage();
@@ -22,6 +23,7 @@ export default function Campaigns() {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [archivingId, setArchivingId] = useState<string | null>(null);
+  const [showOnboarding, setShowOnboarding] = useState(false);
 
   // Archived campaigns modal state
   const [showArchived, setShowArchived] = useState(false);
@@ -283,6 +285,13 @@ export default function Campaigns() {
         <div>
           <h1 className="text-3xl font-bold text-white flex items-center gap-3">
             <Briefcase className="text-red-600" size={28} /> {t.campaigns.title}
+            <button
+              onClick={() => setShowOnboarding(true)}
+              className="w-8 h-8 rounded-full bg-zinc-800 border border-orange-500/60 text-orange-400 flex items-center justify-center hover:bg-zinc-700 hover:border-orange-400 transition-colors text-[14px]"
+              aria-label="Watch onboarding"
+            >
+              🦊
+            </button>
           </h1>
           <p className="text-zinc-500 text-[10px] uppercase tracking-widest mt-1">Configure your revenue engine</p>
         </div>
@@ -746,6 +755,62 @@ export default function Campaigns() {
         variant={modalConfig.variant}
         onConfirm={modalConfig.onConfirm}
       />
+      {showOnboarding && (
+        <CampaignsOnboarding onClose={() => setShowOnboarding(false)} />
+      )}
     </div>
   );
 }
+
+/* ── Campaigns page fox onboarding (local, self-contained) ── */
+function CampaignsOnboarding({ onClose }: { onClose: () => void }) {
+  return (
+    <div
+      style={{
+        position: 'fixed',
+        inset: 0,
+        zIndex: 20000,
+        background: 'rgba(0,0,0,0.7)',
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'center',
+        padding: 16,
+      }}
+      onClick={(e) => {
+        if (e.target === e.currentTarget) onClose();
+      }}
+    >
+      <div
+        style={{
+          width: 'min(420px, 94vw)',
+          maxHeight: '90vh',
+          background: '#fff',
+          borderRadius: 16,
+          overflow: 'auto',
+          padding: 24,
+        }}
+      >
+        <CampaignOnboardingVideo />
+        <button
+          type="button"
+          onClick={onClose}
+          style={{
+            width: '100%',
+            marginTop: 16,
+            padding: '12px 20px',
+            borderRadius: 8,
+            border: 'none',
+            background: '#5b3df0',
+            color: '#fff',
+            fontSize: 13,
+            fontWeight: 700,
+            cursor: 'pointer',
+          }}
+        >
+          Close
+        </button>
+      </div>
+    </div>
+  );
+}
+
