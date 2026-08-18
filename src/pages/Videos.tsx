@@ -56,6 +56,8 @@ import { useOrganization } from '../lib/useOrganization';
 import { useViewing } from '../lib/ViewingContext';
 import { videosPageCache } from '../lib/videosPageCache';
 import OnboardingVideoSection01 from '../components/onboarding/OnboardingVideo/OnboardingVideoSection01';
+import { useTutorial } from '../lib/tutorial-overlay';
+import { videosTutorial } from '../lib/tutorials/videosTutorial';
 import { createVideo } from '../services/video/createVideo';
 import { generateAssetRedirectLinks } from '../services/asset/generateAssetRedirectLinks';
 import { PromotedAssetPicker, type PromotedAssetRow } from '../components/PromotedAssetPicker';
@@ -527,6 +529,11 @@ export default function Videos() {
   const [showAdd, setShowAdd] = useState(false);
   const [showImportWizard, setShowImportWizard] = useState(false);
   const [showOnboarding, setShowOnboarding] = useState(false);
+  const { start: startTutorial } = useTutorial();
+  const handleStartVideosTour = () => {
+    setShowOnboarding(false);
+    startTutorial(videosTutorial);
+  };
   // Promoted Asset (optional) — UI-only per locked scope: this selection is
   // never sent to createVideo() and nothing is persisted from it yet.
   // Wiring it into a real video -> asset relationship is separate, later work.
@@ -1336,6 +1343,7 @@ console.log(
               }
               setShowAdd(!showAdd);
             }} 
+            data-tutorial-id="videos-track-new"
             className="flex items-center gap-2 bg-white hover:bg-zinc-200 text-zinc-950 px-5 py-2.5 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all"
           >
             {showAdd ? 'Cancel' : <><Plus size={16} /> {t.videos.add}</>}
@@ -1366,7 +1374,7 @@ console.log(
             ) : (
               <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
                 <div className="space-y-6">
-                  <div className="space-y-1">
+                  <div className="space-y-1" data-tutorial-id="videos-platform-url">
                     {/* Platform Selector */}
                     <div className="space-y-2">
                       <label className="label-caps">Platform</label>
@@ -1413,7 +1421,7 @@ console.log(
                     </div>
 
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                      <div className="space-y-1">
+                      <div className="space-y-1" data-tutorial-id="videos-campaign">
                         <label className="label-caps">Campaign</label>
                         <select 
                           value={formData.campaign_id}
@@ -1427,7 +1435,7 @@ console.log(
                           {campaigns.map(c => <option key={c.id} value={c.id}>{c.campaign_name}</option>)}
                         </select>
                       </div>
-                      <div className="space-y-1">
+                      <div className="space-y-1" data-tutorial-id="videos-objectives">
                         <label className="label-caps">Goals / Objectives</label>
                         <div className="flex flex-wrap gap-2 pt-1">
                           {(['sales', 'newsletter', 'calls', 'consult', 'viral'] as const).map(obj => (
@@ -1453,7 +1461,7 @@ console.log(
                       </div>
                     </div>
 
-                    <div className="space-y-4 pt-2 border-t border-zinc-900">
+                    <div className="space-y-4 pt-2 border-t border-zinc-900" data-tutorial-id="videos-lead-magnet">
                       <label className="flex items-center gap-3 cursor-pointer group">
                         <div className="relative flex items-center justify-center">
                           <input 
@@ -1519,7 +1527,7 @@ console.log(
                         choice, not a data dependency (Option B: Asset is
                         Library-scoped, not Campaign-scoped, so nothing
                         here actually reads campaign_id). */}
-                    <div className="space-y-2">
+                    <div className="space-y-2" data-tutorial-id="videos-tracking-type">
                       <div className="flex items-center gap-1.5">
                         <label className="label-caps">Tracking Type</label>
                         <div className="relative group/tip">
@@ -1571,7 +1579,7 @@ console.log(
                       </div>
                     </div>
 
-                    <div className="space-y-2">
+                    <div className="space-y-2" data-tutorial-id="videos-promoted-asset">
                       <label className="label-caps">
                         Promoted Asset <span className="normal-case text-zinc-600">(optional)</span>
                       </label>
@@ -1654,7 +1662,7 @@ console.log(
                       )}
                     </div>
 
-                   <div className="space-y-2">
+                   <div className="space-y-2" data-tutorial-id="videos-tracking-domain">
                       <div className="flex items-center gap-1.5">
                         <label className="label-caps">
                           Tracking Domain
@@ -1700,6 +1708,7 @@ console.log(
                     <button 
                       onClick={handleGenerate}
                       disabled={fetchingInfo}
+                      data-tutorial-id="videos-generate"
                       className="w-full bg-zinc-100 text-zinc-950 h-14 rounded-xl text-xs font-black uppercase tracking-widest hover:bg-white disabled:opacity-50 disabled:cursor-not-allowed transition-all shadow-xl flex items-center justify-center gap-2"
                     >
                       {fetchingInfo ? (
@@ -2666,6 +2675,28 @@ console.log(
   ✕
 </button>
 */}
+    <button
+      type="button"
+      onClick={handleStartVideosTour}
+      style={{
+        position: 'fixed',
+        top: 14,
+        left: 18,
+        zIndex: 20001,
+        padding: '6px 14px',
+        borderRadius: 999,
+        border: '1px solid #000000',
+        background: '#000000',
+        color: '#ffffff',
+        fontSize: 11,
+        fontWeight: 700,
+        letterSpacing: 0.4,
+        textTransform: 'uppercase',
+        cursor: 'pointer',
+      }}
+    >
+      Take the Interactive Tour
+    </button>
     <OnboardingVideoSection01
       onSkip={() => setShowOnboarding(false)}
       onComplete={() => setShowOnboarding(false)}
