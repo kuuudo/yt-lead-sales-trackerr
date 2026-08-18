@@ -4,9 +4,12 @@
 // here (see TutorialRunner.tsx). Mirrors assetsTutorial.ts's and
 // marketplaceTutorial.ts's structure.
 //
-// PART 1 ONLY: Track New Content. Video Detail / Redirect Links is a
-// separate future part — do not add those steps here without a new
-// planning pass.
+// PART 1: Track New Content (steps 1-9), plus one screenshot-based
+// preview step showing the redirect links that get generated
+// (step 10, previewImage — not a live spotlight, mirrors
+// marketplaceTutorial.ts's Part 2A pattern). The full Video Detail /
+// Redirect Links live-spotlight tour is still separate future work —
+// do not add more of that here without a new planning pass.
 //
 // All steps live on the same route ('/videos') — Track New Content is
 // a same-page toggle, not a separate route like Marketplace's
@@ -18,7 +21,7 @@
 // handles that gracefully — no TutorialRunner changes needed.
 
 import type { Tutorial } from '../tutorialTypes';
-
+import redirectLinksExample from '../../assets/tutorial/redirect-links-example.png';
 export const videosTutorial: Tutorial = {
   id: 'videos',
   steps: [
@@ -120,6 +123,18 @@ export const videosTutorial: Tutorial = {
       targetSelector: '[data-tutorial-id="videos-generate"]',
       fallbackNote:
         'Click **Track New Content** above to see the Generate button.',
+    },
+    {
+      id: 'redirect-links',
+      title: 'Your Redirect Links',
+      body:
+        'Once you generate a tracking link, VSTRK creates redirect links for everywhere this content can point \u2014 Campaign Links (Newsletter, Landing Page, Sales Call, Consultation) plus links for any Assets connected to it, whether from your own Library, Shared with you, or Assigned to you.\n\nOne piece of content can power many redirect links at once.',
+      tag: 'demo',
+      route: '/videos',
+      previewImage: {
+        src: redirectLinksExample,
+        alt: 'Tracking Links panel showing Campaign Links, My Assets, Shared Assets, and Assigned Assets redirect links',
+      },
     },
   ],
 };
