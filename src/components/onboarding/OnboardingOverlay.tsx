@@ -13,7 +13,7 @@
 // real app is still visible (dimmed) behind the Fox.
 // ─────────────────────────────────────────────────────────────────────────
 
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, useCallback } from 'react';
 import { AnimatePresence, motion } from 'motion/react';
 import { useOnboardingOverlay } from '../../lib/onboarding-overlay';
 import WelcomeStep from './WelcomeStep';
@@ -34,21 +34,124 @@ import CampaignOnboardingPixelVideo from './CampaignOnboardingVideo/CampaignOnbo
 import CampaignOnboardingThankYouVideo from './CampaignOnboardingVideo/CampaignOnboardingThankYouVideo';
 import PaymentMethodDiagram from './PaymentMethodDiagram';
 import type { PurchaseMethod } from './campaignOptionContent';
+import { supabase } from '../../lib/supabase';
+import { getFunnelState, type CampaignExtended } from '../installation/installationHelpers';
+
 type OnboardingStep = 'welcome' | 'video' | 'campaign' | 'hub' | 'newsletter' | 'sales_call' | 'consultation' | 'lead_magnet' | 'install_global' | 'install_direct_purchase' | 'install_newsletter' | 'install_sales_call' | 'install_consultation';
+
+/* ── 中轉站 hub: shared UI pieces ─────────────────────────────── */
+function HubProgressBar({ completed, total }: { completed: number; total: number }) {
+  const pct = Math.round((completed / total) * 100);
+  return (
+    <div style={{ marginBottom: 22 }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginBottom: 6 }}>
+        <span style={{ fontSize: 11, fontWeight: 800, color: '#6b6b78', textTransform: 'uppercase', letterSpacing: '0.06em' }}>
+          Setup progress
+        </span>
+        <span style={{ fontSize: 12, fontWeight: 700, color: '#15151f' }}>{completed} of {total} completed</span>
+      </div>
+      <div style={{ height: 6, borderRadius: 999, background: '#efeffb', overflow: 'hidden' }}>
+        <div style={{ height: '100%', width: `${pct}%`, background: '#5b3df0', borderRadius: 999, transition: 'width 0.3s ease' }} />
+      </div>
+    </div>
+  );
+}
+
+function HubPathCard({
+  title,
+  description,
+  completed,
+  clickable,
+  onClick,
+}: {
+  title: string;
+  description: string;
+  completed: boolean;
+  clickable: boolean;
+  onClick?: () => void;
+}) {
+  const inner = (
+    <>
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8, marginBottom: 6 }}>
+        <span style={{ fontSize: 14, fontWeight: 800, color: '#15151f' }}>{title}</span>
+        <span
+          style={{
+            display: 'inline-flex',
+            alignItems: 'center',
+            gap: 4,
+            fontSize: 10,
+            fontWeight: 800,
+            textTransform: 'uppercase',
+            letterSpacing: '0.04em',
+            borderRadius: 999,
+            padding: '3px 8px',
+            color: completed ? '#16a34a' : '#71717a',
+            background: completed ? '#e6f7ee' : '#f4f4f5',
+            border: completed ? '1px solid #bbf7d0' : '1px solid #e4e4e7',
+          }}
+        >
+          {completed ? '✓ Completed' : '○ Not started'}
+        </span>
+      </div>
+      <p style={{ fontSize: 12, color: '#6b6b78', margin: 0, lineHeight: 1.5 }}>{description}</p>
+      {clickable && (
+        <span style={{ display: 'inline-block', marginTop: 10, fontSize: 12, fontWeight: 700, color: '#5b3df0' }}>
+          {completed ? 'Review →' : 'Set up →'}
+        </span>
+      )}
+    </>
+  );
+
+  const sharedStyle: React.CSSProperties = {
+    textAlign: 'left',
+    padding: '14px 16px',
+    borderRadius: 12,
+    border: completed ? '1px solid #bbf7d0' : '1px solid #d9d9e3',
+    background: completed ? '#f6fdf9' : clickable ? '#fff' : '#fafafa',
+    width: '100%',
+  };
+
+  if (!clickable) {
+    return <div style={{ ...sharedStyle, cursor: 'default' }}>{inner}</div>;
+  }
+
+  return (
+    <button type="button" onClick={onClick} style={{ ...sharedStyle, cursor: 'pointer' }}>
+      {inner}
+    </button>
+  );
+}
 
 export default function OnboardingOverlay() {
   const { isOpen, close } = useOnboardingOverlay();
   const [step, setStep] = useState<OnboardingStep>('welcome');
   const [videoScene, setVideoScene] = useState<'basics' | 'stripe' | 'pixel' | 'thankyou' | PurchaseMethod>('basics');
   const [campaignId, setCampaignId] = useState<string | null>(null);
+  const [campaign, setCampaign] = useState<CampaignExtended | null>(null);
 
   // Reset to the first step each time the overlay is opened fresh.
   useEffect(() => {
     if (isOpen) {
       setStep('welcome');
       setCampaignId(null);
+      setCampaign(null);
     }
   }, [isOpen]);
+
+  // 中轉站 hub: (re)fetch the current campaign's row every time we land on
+  // 'hub', so completion status always reflects THIS campaign, freshly —
+  // including right after a path's config step just wrote to it.
+  const loadHubCampaign = useCallback(async () => {
+    if (!campaignId) return;
+    const { data } = await supabase.from('campaigns').select('*').eq('id', campaignId).single();
+    if (data) setCampaign(data as CampaignExtended);
+  }, [campaignId]);
+
+  useEffect(() => {
+    if (step === 'hub' && campaignId) {
+      loadHubCampaign();
+    }
+  }, [step, campaignId, loadHubCampaign]);
 
   // Escape closes it — a modal with no dismiss path is a trap. Remove this
   // if you'd rather onboarding only be dismissible by finishing it.
@@ -60,6 +163,18 @@ export default function OnboardingOverlay() {
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
   }, [isOpen, close]);
+
+  // 中轉站 hub: completion is always derived from THIS campaign's row —
+  // never from any other campaign the user might have. Direct Purchase is
+  // shown as completed outright per product decision (Option A) — no
+  // dynamic check, no click target, no edit mode yet.
+  const leadMagnetCompleted = !!campaign?.has_lead_magnet;
+  const newsletterCompleted = campaign ? getFunnelState(campaign, 'newsletter') === 'active' : false;
+  const salesCallCompleted = campaign ? getFunnelState(campaign, 'salesCall') === 'active' : false;
+  const consultationCompleted = campaign ? getFunnelState(campaign, 'consultation') === 'active' : false;
+  const completedCount =
+    1 /* Direct Purchase, always */ +
+    [leadMagnetCompleted, newsletterCompleted, salesCallCompleted, consultationCompleted].filter(Boolean).length;
 
   return (
     <AnimatePresence>
@@ -142,130 +257,143 @@ export default function OnboardingOverlay() {
   <div
     className="w-full bg-white rounded-2xl overflow-hidden shadow-2xl"
     style={{
-      maxWidth: 520,
-      width: 'min(520px, 94vw)',
+      maxWidth: 860,
+      width: 'min(860px, 94vw)',
       maxHeight: '90vh',
     }}
     onClick={(e) => e.stopPropagation()}
   >
-    <div style={{ padding: '28px 24px 24px', fontFamily: '-apple-system, BlinkMacSystemFont, "Helvetica Neue", sans-serif' }}>
-      <h2 style={{ fontSize: 20, fontWeight: 800, color: '#15151f', margin: '0 0 8px' }}>
-        Your main offer is set up 🎉
-      </h2>
-      <p style={{ fontSize: 13, color: '#6b6b78', margin: '0 0 20px', lineHeight: 1.55 }}>
-        Want to add another way customers can become leads or customers? You can do this now or later.
-      </p>
+    <div
+      style={{
+        maxHeight: '90vh',
+        overflow: 'auto',
+        padding: '28px 24px 24px',
+        fontFamily: '-apple-system, BlinkMacSystemFont, "Helvetica Neue", sans-serif',
+      }}
+    >
+      <div className="flex flex-col lg:flex-row gap-8">
+        {/* LEFT: fox guide + progress */}
+        <div className="lg:w-[240px] lg:flex-shrink-0">
+          <div style={{ display: 'flex', alignItems: 'flex-start', gap: 10, marginBottom: 14 }}>
+            <div
+              aria-hidden="true"
+              style={{
+                width: 40,
+                height: 40,
+                borderRadius: '50%',
+                flexShrink: 0,
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                background: '#fff',
+                border: '1.5px solid #ff7a45',
+                fontSize: 22,
+              }}
+            >
+              🦊
+            </div>
+            <div
+              style={{
+                background: '#fafafa',
+                border: '1px solid #d9d9e3',
+                borderRadius: 12,
+                padding: '9px 12px',
+              }}
+            >
+              <p style={{ fontSize: 12.5, color: '#15151f', margin: 0, lineHeight: 1.5 }}>
+                Let's finish setting up your tracking paths.
+              </p>
+            </div>
+          </div>
 
-      <div style={{ display: 'flex', flexDirection: 'column', gap: 10, marginBottom: 20 }}>
+          <h2 style={{ fontSize: 20, fontWeight: 800, color: '#15151f', margin: '0 0 8px' }}>
+            Your main offer is set up 🎉
+          </h2>
+          <p style={{ fontSize: 13, color: '#6b6b78', margin: '0 0 18px', lineHeight: 1.55 }}>
+            Want to add another way customers can become leads or customers? You can do this now or later.
+          </p>
 
-      <button
-        type="button"
-        onClick={() => setStep('install_global')}
-        style={{
-          width: '100%',
-          padding: '12px 20px',
-          borderRadius: 8,
-          border: '1px solid #5b3df0',
-          background: '#fff',
-          color: '#5b3df0',
-          fontSize: 13,
-          fontWeight: 700,
-          cursor: 'pointer',
-          marginBottom: 10,
-        }}
-      >
-        Continue to Installation →
-      </button>
+          <HubProgressBar completed={completedCount} total={5} />
+        </div>
 
+        {/* RIGHT: the five paths */}
+        <div className="flex-1 min-w-0">
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 10, marginBottom: 16 }}>
+            <HubPathCard
+              title="Direct Purchase"
+              description="Your main paid conversion path."
+              completed={true}
+              clickable={false}
+            />
+            <HubPathCard
+              title="Lead Magnet"
+              description="A free resource in exchange for contact info."
+              completed={leadMagnetCompleted}
+              clickable
+              onClick={() => setStep('lead_magnet')}
+            />
+            <HubPathCard
+              title="Newsletter"
+              description="Track when someone signs up for your list."
+              completed={newsletterCompleted}
+              clickable
+              onClick={() => setStep('newsletter')}
+            />
+            <HubPathCard
+              title="Sales Call"
+              description="Let customers book a call with you."
+              completed={salesCallCompleted}
+              clickable
+              onClick={() => setStep('sales_call')}
+            />
+            <HubPathCard
+              title="Paid Consultation"
+              description="A paid 1:1 consultation booking path."
+              completed={consultationCompleted}
+              clickable
+              onClick={() => setStep('consultation')}
+            />
+          </div>
 
-        <button
-          type="button"
-          onClick={() => setStep('newsletter')}
-          style={{
-            textAlign: 'left',
-            padding: '14px 16px',
-            borderRadius: 12,
-            border: '1px solid #d9d9e3',
-            background: '#fff',
-            cursor: 'pointer',
-            fontSize: 14,
-            fontWeight: 700,
-            color: '#15151f',
-          }}
-        >
-          Newsletter → Set up
-        </button>
-        <button
-          type="button"
-          onClick={() => setStep('sales_call')}
-          style={{
-            textAlign: 'left',
-            padding: '14px 16px',
-            borderRadius: 12,
-            border: '1px solid #d9d9e3',
-            background: '#fff',
-            cursor: 'pointer',
-            fontSize: 14,
-            fontWeight: 700,
-            color: '#15151f',
-          }}
-        >
-          Sales Call → Set up
-        </button>
-        <button
-          type="button"
-          onClick={() => setStep('consultation')}
-          style={{
-            textAlign: 'left',
-            padding: '14px 16px',
-            borderRadius: 12,
-            border: '1px solid #d9d9e3',
-            background: '#fff',
-            cursor: 'pointer',
-            fontSize: 14,
-            fontWeight: 700,
-            color: '#15151f',
-          }}
-        >
-          Paid Consultation → Set up
-        </button>
-        <button
-          type="button"
-          onClick={() => setStep('lead_magnet')}
-          style={{
-            textAlign: 'left',
-            padding: '14px 16px',
-            borderRadius: 12,
-            border: '1px solid #d9d9e3',
-            background: '#fff',
-            cursor: 'pointer',
-            fontSize: 14,
-            fontWeight: 700,
-            color: '#15151f',
-          }}
-        >
-          Lead Magnet → Set up
-        </button>
+          <button
+            type="button"
+            onClick={() => setStep('install_global')}
+            style={{
+              width: '100%',
+              padding: '12px 20px',
+              borderRadius: 8,
+              border: '1px solid #5b3df0',
+              background: '#fff',
+              color: '#5b3df0',
+              fontSize: 13,
+              fontWeight: 700,
+              cursor: 'pointer',
+              marginBottom: 10,
+            }}
+          >
+            Continue to Installation →
+          </button>
+
+          <button
+            type="button"
+            onClick={() => close()}
+            style={{
+              width: '100%',
+              padding: '12px 20px',
+              borderRadius: 8,
+              border: 'none',
+              background: '#5b3df0',
+              color: '#fff',
+              fontSize: 13,
+              fontWeight: 700,
+              cursor: 'pointer',
+              boxShadow: '0 6px 16px rgba(91,61,240,0.3)',
+            }}
+          >
+            Continue to app →
+          </button>
+        </div>
       </div>
-
-      <button
-        type="button"
-        onClick={() => close()}
-        style={{
-          width: '100%',
-          padding: '12px 20px',
-          borderRadius: 8,
-          border: 'none',
-          background: '#5b3df0',
-          color: '#fff',
-          fontSize: 13,
-          fontWeight: 700,
-          cursor: 'pointer',
-          boxShadow: '0 6px 16px rgba(91,61,240,0.3)',
-        }}
-      >
-        Continue to app →
-      </button>
     </div>
   </div>
 )}
