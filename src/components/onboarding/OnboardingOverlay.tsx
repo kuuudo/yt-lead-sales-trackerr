@@ -47,15 +47,23 @@ type LeadMagnetRow = {
 };
 
 /* ── 中轉站 hub: shared UI pieces ─────────────────────────────── */
-function HubProgressBar({ completed, total }: { completed: number; total: number }) {
+function HubProgressBar({
+  label,
+  completed,
+  total,
+}: {
+  label: string;
+  completed: number;
+  total: number;
+}) {
   const pct = Math.round((completed / total) * 100);
   return (
-    <div style={{ marginBottom: 22 }}>
+    <div style={{ marginBottom: 14 }}>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginBottom: 6 }}>
         <span style={{ fontSize: 11, fontWeight: 800, color: '#6b6b78', textTransform: 'uppercase', letterSpacing: '0.06em' }}>
-          Setup progress
+          {label}
         </span>
-        <span style={{ fontSize: 12, fontWeight: 700, color: '#15151f' }}>{completed} of {total} completed</span>
+        <span style={{ fontSize: 12, fontWeight: 700, color: '#15151f' }}>{completed} of {total}</span>
       </div>
       <div style={{ height: 6, borderRadius: 999, background: '#efeffb', overflow: 'hidden' }}>
         <div style={{ height: '100%', width: `${pct}%`, background: '#5b3df0', borderRadius: 999, transition: 'width 0.3s ease' }} />
@@ -423,6 +431,13 @@ export default function OnboardingOverlay() {
     ? getTrackingState(campaign, 'consultation', stripeConfig) === 'active'
     : false;
 
+  const installedCount = [
+    directPurchaseInstallCompleted,
+    newsletterInstallCompleted,
+    salesCallInstallCompleted,
+    consultationInstallCompleted,
+  ].filter(Boolean).length;
+
   return (
     <AnimatePresence>
       {isOpen && (
@@ -560,7 +575,8 @@ export default function OnboardingOverlay() {
             Want to add another way customers can become leads or customers? You can do this now or later.
           </p>
 
-          <HubProgressBar completed={completedCount} total={5} />
+          <HubProgressBar label="Configuration" completed={completedCount} total={5} />
+          <HubProgressBar label="Installation" completed={installedCount} total={4} />
         </div>
 
         {/* RIGHT: the five paths */}
@@ -755,7 +771,7 @@ export default function OnboardingOverlay() {
     <div style={{ maxHeight: '90vh', overflow: 'auto' }}>
       <GlobalAttributionOnboarding
         onBack={() => setStep('hub')}
-        onDone={() => setStep('install_direct_purchase')}
+        onDone={() => setStep('hub')}
       />
     </div>
   </div>
@@ -774,8 +790,8 @@ export default function OnboardingOverlay() {
     <div style={{ maxHeight: '90vh', overflow: 'auto' }}>
       <DirectPurchaseInstallationOnboarding
         campaignId={campaignId}
-        onBack={() => setStep('install_global')}
-        onDone={() => setStep('install_newsletter')}
+        onBack={() => setStep('hub')}
+        onDone={() => setStep('hub')}
       />
     </div>
   </div>
@@ -794,8 +810,8 @@ export default function OnboardingOverlay() {
     <div style={{ maxHeight: '90vh', overflow: 'auto' }}>
       <NewsletterInstallationOnboarding
         campaignId={campaignId}
-        onBack={() => setStep('install_direct_purchase')}
-        onDone={() => setStep('install_sales_call')}
+        onBack={() => setStep('hub')}
+        onDone={() => setStep('hub')}
       />
     </div>
   </div>
@@ -814,8 +830,8 @@ export default function OnboardingOverlay() {
     <div style={{ maxHeight: '90vh', overflow: 'auto' }}>
       <SalesCallInstallationOnboarding
         campaignId={campaignId}
-        onBack={() => setStep('install_newsletter')}
-        onDone={() => setStep('install_consultation')}
+        onBack={() => setStep('hub')}
+        onDone={() => setStep('hub')}
       />
     </div>
   </div>
@@ -834,8 +850,8 @@ export default function OnboardingOverlay() {
     <div style={{ maxHeight: '90vh', overflow: 'auto' }}>
       <PaidConsultationInstallationOnboarding
         campaignId={campaignId}
-        onBack={() => setStep('install_sales_call')}
-        onDone={() => close()}
+        onBack={() => setStep('hub')}
+        onDone={() => setStep('hub')}
       />
     </div>
   </div>
