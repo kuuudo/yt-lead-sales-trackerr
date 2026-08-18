@@ -35,7 +35,7 @@ import CampaignOnboardingThankYouVideo from './CampaignOnboardingVideo/CampaignO
 import PaymentMethodDiagram from './PaymentMethodDiagram';
 import type { PurchaseMethod } from './campaignOptionContent';
 import { supabase } from '../../lib/supabase';
-import { getFunnelState, type CampaignExtended, type StripeConfig } from '../installation/installationHelpers';
+import { getFunnelState, getTrackingState, type CampaignExtended, type StripeConfig } from '../installation/installationHelpers';
 import { useEffectiveIdentity } from '../../lib/useEffectiveIdentity';
 
 type OnboardingStep = 'welcome' | 'video' | 'campaign' | 'hub' | 'newsletter' | 'sales_call' | 'consultation' | 'lead_magnet' | 'install_global' | 'install_direct_purchase' | 'install_newsletter' | 'install_sales_call' | 'install_consultation';
@@ -129,6 +129,202 @@ function HubPathCard({
   );
 }
 
+/* ── 中轉站 hub: two-part path row (Config node + Install node) ──── */
+function PathStatusTag({ label, tone }: { label: string; tone: 'done' | 'pending' | 'muted' }) {
+  const styles =
+    tone === 'done'
+      ? { color: '#16a34a', background: '#e6f7ee', border: '1px solid #bbf7d0' }
+      : tone === 'pending'
+      ? { color: '#71717a', background: '#f4f4f5', border: '1px solid #e4e4e7' }
+      : { color: '#a1a1aa', background: '#fafafa', border: '1px solid #ececec' };
+  return (
+    <span
+      style={{
+        display: 'inline-flex',
+        alignItems: 'center',
+        gap: 4,
+        fontSize: 10,
+        fontWeight: 800,
+        textTransform: 'uppercase',
+        letterSpacing: '0.04em',
+        borderRadius: 999,
+        padding: '3px 8px',
+        ...styles,
+      }}
+    >
+      {label}
+    </span>
+  );
+}
+
+function HubConfigNode({
+  title,
+  description,
+  completed,
+  locked,
+  onClick,
+}: {
+  title: string;
+  description: string;
+  completed: boolean;
+  locked?: boolean;
+  onClick?: () => void;
+}) {
+  const inner = (
+    <>
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8, marginBottom: 6 }}>
+        <span style={{ fontSize: 13.5, fontWeight: 800, color: '#15151f' }}>{title}</span>
+        <PathStatusTag label={completed ? '✓ Completed' : '○ Not started'} tone={completed ? 'done' : 'pending'} />
+      </div>
+      <p style={{ fontSize: 11.5, color: '#6b6b78', margin: 0, lineHeight: 1.5 }}>{description}</p>
+      {!locked && (
+        <span style={{ display: 'inline-block', marginTop: 8, fontSize: 12, fontWeight: 700, color: '#5b3df0' }}>
+          {completed ? 'Review →' : 'Set up →'}
+        </span>
+      )}
+    </>
+  );
+
+  const sharedStyle: React.CSSProperties = {
+    textAlign: 'left',
+    padding: '12px 14px',
+    borderRadius: 12,
+    border: completed ? '1px solid #bbf7d0' : '1px solid #d9d9e3',
+    background: completed ? '#f6fdf9' : locked ? '#fafafa' : '#fff',
+    flex: '1 1 200px',
+    minWidth: 180,
+  };
+
+  if (locked) {
+    return <div style={{ ...sharedStyle, cursor: 'default' }}>{inner}</div>;
+  }
+
+  return (
+    <button type="button" onClick={onClick} style={{ ...sharedStyle, cursor: 'pointer' }}>
+      {inner}
+    </button>
+  );
+}
+
+function HubInstallNode({
+  title,
+  completed,
+  configReady,
+  onClick,
+}: {
+  title: string;
+  completed: boolean;
+  configReady: boolean;
+  onClick?: () => void;
+}) {
+  const clickable = configReady;
+  const inner = (
+    <>
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8, marginBottom: 6 }}>
+        <span style={{ fontSize: 13.5, fontWeight: 800, color: clickable ? '#15151f' : '#a1a1aa' }}>{title}</span>
+        <PathStatusTag
+          label={!configReady ? '○ Not available yet' : completed ? '✓ Completed' : '○ Not installed'}
+          tone={!configReady ? 'muted' : completed ? 'done' : 'pending'}
+        />
+      </div>
+      {clickable ? (
+        <span style={{ display: 'inline-block', fontSize: 12, fontWeight: 700, color: '#5b3df0' }}>
+          {completed ? 'Review →' : 'Install →'}
+        </span>
+      ) : (
+        <p style={{ fontSize: 11.5, color: '#a1a1aa', margin: 0, lineHeight: 1.5 }}>
+          Finish the setup on the left first.
+        </p>
+      )}
+    </>
+  );
+
+  const sharedStyle: React.CSSProperties = {
+    textAlign: 'left',
+    padding: '12px 14px',
+    borderRadius: 12,
+    border: !clickable ? '1px dashed #e4e4e7' : completed ? '1px solid #bbf7d0' : '1px solid #d9d9e3',
+    background: !clickable ? '#fafafa' : completed ? '#f6fdf9' : '#fff',
+    flex: '1 1 200px',
+    minWidth: 180,
+    opacity: clickable ? 1 : 0.75,
+  };
+
+  if (!clickable) {
+    return <div style={{ ...sharedStyle, cursor: 'not-allowed' }}>{inner}</div>;
+  }
+
+  return (
+    <button type="button" onClick={onClick} style={{ ...sharedStyle, cursor: 'pointer' }}>
+      {inner}
+    </button>
+  );
+}
+
+function HubPathArrow() {
+  return (
+    <div
+      aria-hidden="true"
+      style={{
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'center',
+        color: '#c4c4cc',
+        fontSize: 16,
+        padding: '0 2px',
+        flex: '0 0 auto',
+      }}
+    >
+      →
+    </div>
+  );
+}
+
+function HubPathRow({
+  configTitle,
+  configDescription,
+  configCompleted,
+  configLocked,
+  onConfigClick,
+  installTitle,
+  installCompleted,
+  showInstall,
+  onInstallClick,
+}: {
+  configTitle: string;
+  configDescription: string;
+  configCompleted: boolean;
+  configLocked?: boolean;
+  onConfigClick?: () => void;
+  installTitle?: string;
+  installCompleted?: boolean;
+  showInstall: boolean;
+  onInstallClick?: () => void;
+}) {
+  return (
+    <div style={{ display: 'flex', alignItems: 'stretch', gap: 4, flexWrap: 'wrap', marginBottom: 10 }}>
+      <HubConfigNode
+        title={configTitle}
+        description={configDescription}
+        completed={configCompleted}
+        locked={configLocked}
+        onClick={onConfigClick}
+      />
+      {showInstall && (
+        <>
+          <HubPathArrow />
+          <HubInstallNode
+            title={installTitle || ''}
+            completed={!!installCompleted}
+            configReady={configCompleted}
+            onClick={onInstallClick}
+          />
+        </>
+      )}
+    </div>
+  );
+}
+
 export default function OnboardingOverlay() {
   const { isOpen, close } = useOnboardingOverlay();
   const [step, setStep] = useState<OnboardingStep>('welcome');
@@ -207,6 +403,25 @@ export default function OnboardingOverlay() {
   const completedCount =
     1 /* Direct Purchase, always */ +
     [leadMagnetCompleted, newsletterCompleted, salesCallCompleted, consultationCompleted].filter(Boolean).length;
+
+  // Install-side status — separate from the config-side booleans above.
+  // "completed" here means getTrackingState returned 'active'. If it
+  // returned 'pending' (e.g. thank-you URL missing, or Stripe not
+  // connected), we still show it as "not installed" for now — Step 2
+  // is only adding the two-state visual (done vs. not done), not a
+  // three-state one.
+  const directPurchaseInstallCompleted = campaign
+    ? getTrackingState(campaign, 'purchase', stripeConfig) === 'active'
+    : false;
+  const newsletterInstallCompleted = campaign
+    ? getTrackingState(campaign, 'newsletter', stripeConfig) === 'active'
+    : false;
+  const salesCallInstallCompleted = campaign
+    ? getTrackingState(campaign, 'salesCall', stripeConfig) === 'active'
+    : false;
+  const consultationInstallCompleted = campaign
+    ? getTrackingState(campaign, 'consultation', stripeConfig) === 'active'
+    : false;
 
   return (
     <AnimatePresence>
@@ -351,39 +566,52 @@ export default function OnboardingOverlay() {
         {/* RIGHT: the five paths */}
         <div className="flex-1 min-w-0">
           <div style={{ display: 'flex', flexDirection: 'column', gap: 10, marginBottom: 16 }}>
-            <HubPathCard
-              title="Direct Purchase"
-              description="Your main paid conversion path."
-              completed={true}
-              clickable={false}
+            <HubPathRow
+              configTitle="Direct Purchase"
+              configDescription="Your main paid conversion path."
+              configCompleted={true}
+              configLocked
+              installTitle="Direct Purchase Pixel Setup"
+              installCompleted={directPurchaseInstallCompleted}
+              showInstall
+              onInstallClick={() => setStep('install_direct_purchase')}
             />
-            <HubPathCard
-              title="Lead Magnet"
-              description="A free resource in exchange for contact info."
-              completed={leadMagnetCompleted}
-              clickable
-              onClick={() => setStep('lead_magnet')}
+            <HubPathRow
+              configTitle="Lead Magnet"
+              configDescription="A free resource in exchange for contact info."
+              configCompleted={leadMagnetCompleted}
+              onConfigClick={() => setStep('lead_magnet')}
+              showInstall={false}
             />
-            <HubPathCard
-              title="Newsletter"
-              description="Track when someone signs up for your list."
-              completed={newsletterCompleted}
-              clickable
-              onClick={() => setStep('newsletter')}
+            <HubPathRow
+              configTitle="Newsletter"
+              configDescription="Track when someone signs up for your list."
+              configCompleted={newsletterCompleted}
+              onConfigClick={() => setStep('newsletter')}
+              installTitle="Newsletter Pixel Setup"
+              installCompleted={newsletterInstallCompleted}
+              showInstall
+              onInstallClick={() => setStep('install_newsletter')}
             />
-            <HubPathCard
-              title="Sales Call"
-              description="Let customers book a call with you."
-              completed={salesCallCompleted}
-              clickable
-              onClick={() => setStep('sales_call')}
+            <HubPathRow
+              configTitle="Sales Call"
+              configDescription="Let customers book a call with you."
+              configCompleted={salesCallCompleted}
+              onConfigClick={() => setStep('sales_call')}
+              installTitle="Sales Call Pixel Setup"
+              installCompleted={salesCallInstallCompleted}
+              showInstall
+              onInstallClick={() => setStep('install_sales_call')}
             />
-            <HubPathCard
-              title="Paid Consultation"
-              description="A paid 1:1 consultation booking path."
-              completed={consultationCompleted}
-              clickable
-              onClick={() => setStep('consultation')}
+            <HubPathRow
+              configTitle="Paid Consultation"
+              configDescription="A paid 1:1 consultation booking path."
+              configCompleted={consultationCompleted}
+              onConfigClick={() => setStep('consultation')}
+              installTitle="Consultation Pixel Setup"
+              installCompleted={consultationInstallCompleted}
+              showInstall
+              onInstallClick={() => setStep('install_consultation')}
             />
           </div>
 
