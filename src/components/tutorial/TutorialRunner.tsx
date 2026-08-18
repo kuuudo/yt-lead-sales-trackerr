@@ -309,8 +309,14 @@ export default function TutorialRunner() {
               {step.ctaLinks.map((cta, i) => (
                 <button
                   key={i}
-                  onClick={() => cta.href && navigate(cta.href)}
-                  disabled={!cta.href}
+                  onClick={() => {
+                  if (cta.startTutorial) {
+                  start(cta.startTutorial);
+                  return;
+                  }
+                  if (cta.href) navigate(cta.href);
+                  }}
+                  disabled={!cta.href && !cta.startTutorial}
                   className="text-left bg-zinc-800 border border-zinc-700 rounded-lg p-3 hover:bg-zinc-700 disabled:opacity-50 disabled:cursor-not-allowed"
                 >
                   <p className="text-xs font-bold text-white mb-1">{cta.emoji} {cta.title}</p>

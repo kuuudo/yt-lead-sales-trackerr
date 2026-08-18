@@ -9,6 +9,8 @@ import { supabase } from '../supabase';
 import campaignPublishExample from '../../assets/tutorial/campaign-publish-example.png';
 import videoAssetExample from '../../assets/tutorial/videoasset-publish-example.png';
 import type { Tutorial } from '../tutorialTypes';
+import { marketplaceTutorial } from './marketplaceTutorial';
+import { videosTutorial } from './videosTutorial';
 
 // Resolves to the user's most recently created campaign, since Campaign
 // Detail is a dynamic route (/campaigns/:id) and the tutorial has no
@@ -92,11 +94,13 @@ export const assetsTutorial: Tutorial = {
           emoji: '\ud83e\udd1d',
           title: 'Explore Marketplace & Collaboration',
           description: 'Learn how to assign Assets, collaborate with others, and manage access.',
+          startTutorial: marketplaceTutorial,
         },
         {
           emoji: '\ud83d\udcca',
           title: 'Explore Content & Tracking',
           description: 'Learn how to use Assets with your content, tracking links, and custom domains.',
+          startTutorial: videosTutorial,
         },
       ],
     },

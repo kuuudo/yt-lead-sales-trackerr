@@ -74,7 +74,7 @@ export interface TutorialStep {
    * (used on the final recap step). If href is omitted, the button
    * renders disabled/greyed — use that for pages that don't exist yet.
    */
-  ctaLinks?: { emoji: string; title: string; description: string; href?: string }[];
+    ctaLinks?: { emoji: string; title: string; description: string; href?: string; startTutorial?: Tutorial }[];
   /**
    * If set, Next is replaced by a disabled "waiting" state until the
    * app calls tutorial.notify(eventKey) from the REAL success path of
