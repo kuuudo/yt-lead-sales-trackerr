@@ -84,11 +84,12 @@ export interface TutorialStep {
   requireAction?: { eventKey: string };
 
   /**
-   * If this is the tutorial's LAST step, and the step's resolveRoute
-   * actually found something real (not the fallbackNote case), pressing
-   * the button starts this tutorial instead of just finishing. Lets a
-   * short tutorial hand off into a deeper one only when there's real
-   * data to show — otherwise it just ends normally.
+   * If this is the tutorial's LAST step, a "Continue the [X] Tour"
+   * button is shown alongside Done, letting the user jump straight into
+   * this tutorial. Not gated on live data — only use this when the
+   * target tutorial's own steps work standalone (e.g. screenshot-only),
+   * since it never navigates anywhere on its own; it just starts at
+   * that tutorial's step 1, wherever the user currently is.
    */
   handoffTutorial?: Tutorial;
 }

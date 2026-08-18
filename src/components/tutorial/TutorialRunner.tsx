@@ -183,18 +183,10 @@ export default function TutorialRunner() {
 
   const showFallback = routeMissing || (!!step?.targetSelector && !rect && routeResolved);
   const isLastStep = !!tutorial && stepIndex === tutorial.steps.length - 1;
-  // Only hand off when this step actually resolved to something real —
-  // showFallback true means resolveRoute found nothing (see fallbackNote
-  // branch below), so a handoff here would launch the next tutorial with
-  // nothing real to show either.
-  const willHandoff = isLastStep && !!step?.handoffTutorial && !showFallback;
-  const handleNext = useCallback(() => {
-    if (willHandoff && step?.handoffTutorial) {
-      start(step.handoffTutorial);
-      return;
-    }
-    next();
-  }, [next, start, willHandoff, step]);
+  const handleNext = useCallback(() => next(), [next]);
+  const handleContinueTour = useCallback(() => {
+    if (step?.handoffTutorial) start(step.handoffTutorial);
+  }, [start, step]);
 
   if (status !== 'active' || !tutorial || !step) return null;
 
@@ -360,10 +352,19 @@ export default function TutorialRunner() {
                 onClick={handleNext}
                 className="text-[10px] font-black uppercase tracking-widest bg-white text-zinc-950 px-3 py-1.5 rounded-lg hover:bg-zinc-200"
               >
-                {willHandoff ? 'Continue Tour' : stepIndex === tutorial.steps.length - 1 ? 'Done' : 'Next'}
+                {stepIndex === tutorial.steps.length - 1 ? 'Done' : 'Next'}
               </button>
             )}
           </div>
+
+          {isLastStep && step.handoffTutorial && (
+            <button
+              onClick={handleContinueTour}
+              className="mt-3 w-full text-center text-[10px] font-black uppercase tracking-widest bg-orange-600 hover:bg-orange-500 text-white px-3 py-2.5 rounded-lg"
+            >
+              Continue the Promotion Tour
+            </button>
+          )}
 
           <button
             onClick={close}
