@@ -20,7 +20,20 @@ import {
   getTrackingState,
 } from '../../installation/installationHelpers';
 import { CopyButton } from '../../installation/CopyButton';
+import { isPixelSetupComplete, setPixelSetupComplete } from './pixelSetupCompletion';
+import WhyDoWeNeedThankYouPagePixel from '../PixelSetupVideo/WhyDoWeNeedThankYouPagePixel';
+import WhyThankyouPixelOnMultipleWebsite from '../PixelSetupVideo/WhyThankyouPixelOnMultipleWebsite';
 
+type PixelSetupVideoTabKey = 'why' | 'multiple';
+
+const PIXEL_SETUP_VIDEO_TABS: {
+  key: PixelSetupVideoTabKey;
+  label: string;
+  Component: React.ComponentType<{ onSkip?: () => void; onComplete?: () => void }>;
+}[] = [
+  { key: 'why', label: 'Why It Matters', Component: WhyDoWeNeedThankYouPagePixel },
+  { key: 'multiple', label: 'Multiple Pages', Component: WhyThankyouPixelOnMultipleWebsite },
+];
 function generateToken(): string {
   const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789';
   return Array.from({ length: 4 }, () => chars[Math.floor(Math.random() * chars.length)]).join('');
