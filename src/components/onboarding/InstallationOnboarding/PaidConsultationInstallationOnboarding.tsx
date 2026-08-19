@@ -637,6 +637,29 @@ export default function PaidConsultationInstallationOnboarding({
         </>
       )}
 
+      <button
+        type="button"
+        onClick={handleToggleComplete}
+        style={{
+          width: '100%',
+          marginTop: 16,
+          padding: '12px 16px',
+          borderRadius: 10,
+          border: completed ? '1px solid #bbf7d0' : '1px solid #d9d9e3',
+          background: completed ? '#f0fdf4' : '#fff',
+          color: completed ? '#16a34a' : '#3f3f46',
+          fontSize: 13,
+          fontWeight: 700,
+          cursor: 'pointer',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          gap: 8,
+        }}
+      >
+        {completed ? '✓ Marked as complete' : '○ Mark as complete'}
+      </button>
+
       <div style={{ display: 'flex', gap: 10, marginTop: 20 }}>
         {onBack && (
           <button
