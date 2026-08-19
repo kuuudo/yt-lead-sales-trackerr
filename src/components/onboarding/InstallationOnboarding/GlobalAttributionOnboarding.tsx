@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState } from 'react';
 import {
   BookOpen,
   CheckCircle2,
@@ -8,21 +8,44 @@ import {
 } from 'lucide-react';
 import { GLOBAL_TRACKING_SCRIPT } from '../../installation/GlobalWebsiteTrackingSection';
 import { CopyButton } from '../../installation/CopyButton';
+import {
+  isGlobalAttributionComplete,
+  setGlobalAttributionComplete,
+  type GlobalAttributionPath,
+} from './globalAttributionCompletion';
 
 /**
  * Installation Onboarding — Global Attribution (shared, once).
  * Reuses GLOBAL_TRACKING_SCRIPT from the Installation page. Does not change tracking logic.
+ *
+ * Shared across all four paths (Direct Purchase / Newsletter / Sales Call /
+ * Paid Consultation) — campaignId + path scope the "Mark as complete"
+ * localStorage flag (see globalAttributionCompletion.ts) so each
+ * campaign/path combination has an independent completion state. No
+ * Supabase column involved — this is a manual, browser-remembered flag.
  */
 export default function GlobalAttributionOnboarding({
+  campaignId,
+  path,
   onDone,
   onBack,
 }: {
+  campaignId: string;
+  path: GlobalAttributionPath;
   onDone: () => void;
   onBack?: () => void;
 }) {
   const platforms = ['Webflow', 'WordPress', 'Framer', 'Wix', 'Shopify', 'Custom HTML'];
   const chatgptPrompt =
     'Help me install this tracking script into my website. Show me exactly where to place it in the <head> section. My website platform is: [INSERT PLATFORM NAME].';
+
+  const [completed, setCompleted] = useState(() => isGlobalAttributionComplete(campaignId, path));
+
+  const handleToggleComplete = () => {
+    const next = !completed;
+    setGlobalAttributionComplete(campaignId, path, next);
+    setCompleted(next);
+  };
 
   return (
     <div
@@ -263,7 +286,48 @@ export default function GlobalAttributionOnboarding({
           {chatgptPrompt}
         </pre>
       </div>
-
+      <div
+        style={{
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'space-between',
+          gap: 12,
+          padding: 14,
+          borderRadius: 12,
+          border: completed ? '1px solid #bbf7d0' : '1px solid #d9d9e3',
+          background: completed ? '#f0fdf4' : '#fafafa',
+          marginBottom: 20,
+        }}
+      >
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+          <CheckCircle2 size={18} style={{ color: completed ? '#16a34a' : '#a1a1aa' }} />
+          <div>
+            <p style={{ fontSize: 13, fontWeight: 700, color: '#15151f', margin: 0 }}>
+              {completed ? 'Marked as complete' : 'Have you installed this script?'}
+            </p>
+            <p style={{ fontSize: 11.5, color: '#71717a', margin: '2px 0 0', lineHeight: 1.4 }}>
+              This is a manual confirmation — VSTRK doesn't verify installation automatically.
+            </p>
+          </div>
+        </div>
+        <button
+          type="button"
+          onClick={handleToggleComplete}
+          style={{
+            flexShrink: 0,
+            padding: '9px 14px',
+            borderRadius: 8,
+            border: completed ? '1px solid #bbf7d0' : 'none',
+            background: completed ? '#fff' : '#16a34a',
+            color: completed ? '#16a34a' : '#fff',
+            fontSize: 12.5,
+            fontWeight: 700,
+            cursor: 'pointer',
+          }}
+        >
+          {completed ? 'Mark as not complete' : 'Mark as complete ✓'}
+        </button>
+      </div>
       <div style={{ display: 'flex', gap: 10 }}>
         {onBack && (
           <button
