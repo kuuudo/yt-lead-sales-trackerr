@@ -164,6 +164,23 @@ export default function PaidConsultationInstallationOnboarding({
   const [webhookSecret, setWebhookSecret] = useState('');
   const [savingSecret, setSavingSecret] = useState(false);
 
+  const [manuallyCompleted, setManuallyCompleted] = useState(() =>
+    isPixelSetupComplete(campaignId, 'consultation')
+  );
+  const handleToggleComplete = () => {
+    const next = !manuallyCompleted;
+    setPixelSetupComplete(campaignId, 'consultation', next);
+    setManuallyCompleted(next);
+  };
+  const [videoTab, setVideoTab] = useState<PixelSetupVideoTabKey>('why');
+  const goToNextVideoTab = () => {
+    setVideoTab((current: PixelSetupVideoTabKey) => {
+      const idx = PIXEL_SETUP_VIDEO_TABS.findIndex((t) => t.key === current);
+      const next = PIXEL_SETUP_VIDEO_TABS[idx + 1];
+      return next ? next.key : current;
+    });
+  };
+
   const load = async () => {
     if (!campaignId) return;
     setLoading(true);

@@ -8,6 +8,7 @@ import {
   getTrackingState,
 } from '../../installation/installationHelpers';
 import { CopyButton } from '../../installation/CopyButton';
+  const [error, setError] = useState<string | null>(null);
 
 /**
  * Installation Onboarding — Newsletter (GlobalAttribution-style white UI).
@@ -26,6 +27,23 @@ export default function NewsletterInstallationOnboarding({
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
+  const [manuallyCompleted, setManuallyCompleted] = useState(() =>
+    isPixelSetupComplete(campaignId, 'newsletter')
+  );
+  const handleToggleComplete = () => {
+    const next = !manuallyCompleted;
+    setPixelSetupComplete(campaignId, 'newsletter', next);
+    setManuallyCompleted(next);
+  };
+  const [videoTab, setVideoTab] = useState<PixelSetupVideoTabKey>('why');
+  const goToNextVideoTab = () => {
+    setVideoTab((current: PixelSetupVideoTabKey) => {
+      const idx = PIXEL_SETUP_VIDEO_TABS.findIndex((t) => t.key === current);
+      const next = PIXEL_SETUP_VIDEO_TABS[idx + 1];
+      return next ? next.key : current;
+    });
+  };
+  
   useEffect(() => {
     const load = async () => {
       setLoading(true);

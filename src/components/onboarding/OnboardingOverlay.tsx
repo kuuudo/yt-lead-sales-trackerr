@@ -45,6 +45,7 @@ import { SALES_CALL_DELIVERY_OPTIONS, type PurchaseMethod, type DeliveryValue } 
 import { supabase } from '../../lib/supabase';
 import { getFunnelState, getTrackingState, type CampaignExtended, type StripeConfig } from '../installation/installationHelpers';
 import { isGlobalAttributionComplete, type GlobalAttributionPath } from './InstallationOnboarding/globalAttributionCompletion';
+import { isPixelSetupComplete, type PixelSetupPath } from './InstallationOnboarding/pixelSetupCompletion';
 import { useEffectiveIdentity } from '../../lib/useEffectiveIdentity';
 
 type OnboardingStep = 'welcome' | 'video' | 'campaign' | 'hub' | 'newsletter' | 'sales_call' | 'consultation' | 'lead_magnet' | 'install_global' | 'install_direct_purchase' | 'install_newsletter' | 'install_sales_call' | 'install_consultation';
@@ -372,7 +373,7 @@ function HubPathRow({
           <HubInstallNode
             title={installTitle || ''}
             completed={!!installCompleted}
-            configReady={configCompleted && !!attributionCompleted}
+            configReady={configCompleted}
             onClick={onInstallClick}
           />
         </>
@@ -394,6 +395,8 @@ type VideoScene =
   | { kind: 'booking'; value: DeliveryValue }
   | { kind: 'idle' };
 
+  const SUPPORT_WHATSAPP_URL =
+  'https://chat.whatsapp.com/G07wVgoAyRS3Z171uRDQ1K?s=cl&p=a&mlu=4';
 export default function OnboardingOverlay() {
   const { isOpen, close } = useOnboardingOverlay();
   const [step, setStep] = useState<OnboardingStep>('welcome');
@@ -506,18 +509,18 @@ export default function OnboardingOverlay() {
   // connected), we still show it as "not installed" for now — Step 2
   // is only adding the two-state visual (done vs. not done), not a
   // three-state one.
-  const directPurchaseInstallCompleted = campaign
-    ? getTrackingState(campaign, 'purchase', stripeConfig) === 'active'
-    : false;
-  const newsletterInstallCompleted = campaign
-    ? getTrackingState(campaign, 'newsletter', stripeConfig) === 'active'
-    : false;
-  const salesCallInstallCompleted = campaign
-    ? getTrackingState(campaign, 'salesCall', stripeConfig) === 'active'
-    : false;
-  const consultationInstallCompleted = campaign
-    ? getTrackingState(campaign, 'consultation', stripeConfig) === 'active'
-    : false;
+  const directPurchaseInstallCompleted =
+    (campaign ? getTrackingState(campaign, 'purchase', stripeConfig) === 'active' : false) ||
+    isPixelSetupComplete(campaignId, 'purchase');
+  const newsletterInstallCompleted =
+    (campaign ? getTrackingState(campaign, 'newsletter', stripeConfig) === 'active' : false) ||
+    isPixelSetupComplete(campaignId, 'newsletter');
+  const salesCallInstallCompleted =
+    (campaign ? getTrackingState(campaign, 'salesCall', stripeConfig) === 'active' : false) ||
+    isPixelSetupComplete(campaignId, 'salesCall');
+  const consultationInstallCompleted =
+    (campaign ? getTrackingState(campaign, 'consultation', stripeConfig) === 'active' : false) ||
+    isPixelSetupComplete(campaignId, 'consultation');
 
   const installedCount = [
     directPurchaseInstallCompleted,
@@ -789,6 +792,35 @@ export default function OnboardingOverlay() {
             />
           </div>
 
+          <div
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'space-between',
+              gap: 12,
+              padding: '12px 14px',
+              borderRadius: 12,
+              border: '1px solid #d9d9e3',
+              background: '#fafafa',
+              marginBottom: 10,
+            }}
+          >
+            <span style={{ fontSize: 12.5, color: '#6b6b78' }}>Need help?</span>
+            
+              href={SUPPORT_WHATSAPP_URL}
+              target="_blank"
+              rel="noopener noreferrer"
+              style={{
+                fontSize: 12.5,
+                fontWeight: 700,
+                color: '#5b3df0',
+                textDecoration: 'none',
+              }}
+            >
+              Join our WhatsApp group →
+            </a>
+          </div>
+
           <button
             type="button"
             onClick={() => setStep('campaign')}
@@ -960,8 +992,8 @@ export default function OnboardingOverlay() {
   <div
     className="w-full bg-white rounded-2xl overflow-hidden shadow-2xl"
     style={{
-      maxWidth: 720,
-      width: 'min(720px, 94vw)',
+      maxWidth: 1080,
+      width: 'min(1080px, 94vw)',
       maxHeight: '90vh',
     }}
     onClick={(e) => e.stopPropagation()}
@@ -980,8 +1012,8 @@ export default function OnboardingOverlay() {
   <div
     className="w-full bg-white rounded-2xl overflow-hidden shadow-2xl"
     style={{
-      maxWidth: 720,
-      width: 'min(720px, 94vw)',
+      maxWidth: 1080,
+      width: 'min(1080px, 94vw)',
       maxHeight: '90vh',
     }}
     onClick={(e) => e.stopPropagation()}
@@ -1000,8 +1032,8 @@ export default function OnboardingOverlay() {
   <div
     className="w-full bg-white rounded-2xl overflow-hidden shadow-2xl"
     style={{
-      maxWidth: 720,
-      width: 'min(720px, 94vw)',
+      maxWidth: 1080,
+      width: 'min(1080px, 94vw)',
       maxHeight: '90vh',
     }}
     onClick={(e) => e.stopPropagation()}
@@ -1020,8 +1052,8 @@ export default function OnboardingOverlay() {
   <div
     className="w-full bg-white rounded-2xl overflow-hidden shadow-2xl"
     style={{
-      maxWidth: 720,
-      width: 'min(720px, 94vw)',
+      maxWidth: 1080,
+      width: 'min(1080px, 94vw)',
       maxHeight: '90vh',
     }}
     onClick={(e) => e.stopPropagation()}
