@@ -511,10 +511,10 @@ export default function OnboardingOverlay() {
   // is only adding the two-state visual (done vs. not done), not a
   // three-state one.
   const directPurchaseInstallCompleted = isPixelSetupComplete(campaignId, 'purchase');
-  const newsletterInstallCompleted =
+    const newsletterInstallCompleted = isPixelSetupComplete(campaignId, 'newsletter');
     (campaign ? getTrackingState(campaign, 'newsletter', stripeConfig) === 'active' : false) ||
     isPixelSetupComplete(campaignId, 'newsletter');
-  const salesCallInstallCompleted =
+    const salesCallInstallCompleted = isPixelSetupComplete(campaignId, 'salesCall');
     (campaign ? getTrackingState(campaign, 'salesCall', stripeConfig) === 'active' : false) ||
     isPixelSetupComplete(campaignId, 'salesCall');
   const consultationInstallCompleted = isPixelSetupComplete(campaignId, 'consultation');

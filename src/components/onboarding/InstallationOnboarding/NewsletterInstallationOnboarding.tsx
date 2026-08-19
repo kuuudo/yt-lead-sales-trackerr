@@ -8,7 +8,7 @@ import {
   getTrackingState,
 } from '../../installation/installationHelpers';
 import { CopyButton } from '../../installation/CopyButton';
-
+import { isPixelSetupComplete, setPixelSetupComplete } from './pixelSetupCompletion';
 /**
  * Installation Onboarding — Newsletter (GlobalAttribution-style white UI).
  * Reuses generateAttributionPixel only — no new tracking system.
@@ -25,6 +25,16 @@ export default function NewsletterInstallationOnboarding({
   const [campaign, setCampaign] = useState<CampaignExtended | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+
+  const [completed, setCompleted] = useState(() =>
+    isPixelSetupComplete(campaignId, 'newsletter')
+  );
+
+  const handleToggleComplete = () => {
+    const next = !completed;
+    setPixelSetupComplete(campaignId, 'newsletter', next);
+    setCompleted(next);
+  };
 
   useEffect(() => {
     const load = async () => {
@@ -202,6 +212,29 @@ export default function NewsletterInstallationOnboarding({
           </div>
         </>
       )}
+
+      <button
+        type="button"
+        onClick={handleToggleComplete}
+        style={{
+          width: '100%',
+          marginTop: 16,
+          padding: '12px 16px',
+          borderRadius: 10,
+          border: completed ? '1px solid #bbf7d0' : '1px solid #d9d9e3',
+          background: completed ? '#f0fdf4' : '#fff',
+          color: completed ? '#16a34a' : '#3f3f46',
+          fontSize: 13,
+          fontWeight: 700,
+          cursor: 'pointer',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          gap: 8,
+        }}
+      >
+        {completed ? '✓ Marked as complete' : '○ Mark as complete'}
+      </button>
 
       <div style={{ display: 'flex', gap: 10, marginTop: 20 }}>
         {onBack && (
