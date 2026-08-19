@@ -33,6 +33,12 @@ import CampaignOnboardingStripeVideo from './CampaignOnboardingVideo/CampaignOnb
 import CampaignOnboardingPixelVideo from './CampaignOnboardingVideo/CampaignOnboardingPixelVideo';
 import CampaignOnboardingThankYouVideo from './CampaignOnboardingVideo/CampaignOnboardingThankYouVideo';
 import PaymentMethodDiagram from './PaymentMethodDiagram';
+import HubVideoWebsiteStructure from './PixelSetupVideo/WebsiteStructureIsImportant';
+import HubVideoThankYouPixel from './PixelSetupVideo/WhyDoWeNeedThankYouPagePixel';
+import HubVideoGlobalAttribution from './PixelSetupVideo/WhyDoWeNeedGlobalAttribution';
+import HubVideoInstallGlobalAttribution from './PixelSetupVideo/HowtoInstallGlobalAttribution';
+import HubVideoMultipleWebsites from './PixelSetupVideo/WhyGlobalAttributionOnMultipleWebsite';
+import HubVideoMultipleThankYouPixels from './PixelSetupVideo/WhyThankyouPixelOnMultipleWebsite';
 import type { PurchaseMethod } from './campaignOptionContent';
 import { supabase } from '../../lib/supabase';
 import { getFunnelState, getTrackingState, type CampaignExtended, type StripeConfig } from '../installation/installationHelpers';
@@ -45,6 +51,28 @@ type LeadMagnetRow = {
   lead_magnet_url: string;
   lead_magnet_thankyou_url: string;
 };
+
+
+type HubVideoTabKey =
+  | 'structure'
+  | 'thankyou_pixel'
+  | 'global_attribution'
+  | 'install_global_attribution'
+  | 'multiple_websites'
+  | 'multiple_thankyou_pixels';
+
+const HUB_VIDEO_TABS: {
+  key: HubVideoTabKey;
+  label: string;
+  Component: React.ComponentType<{ onSkip?: () => void; onComplete?: () => void }>;
+}[] = [
+  { key: 'structure', label: '① Website Structure ⭐', Component: HubVideoWebsiteStructure },
+  { key: 'thankyou_pixel', label: '② Thank-You Page Pixel', Component: HubVideoThankYouPixel },
+  { key: 'global_attribution', label: '③ Global Attribution', Component: HubVideoGlobalAttribution },
+  { key: 'install_global_attribution', label: '④ Install Global Attribution', Component: HubVideoInstallGlobalAttribution },
+  { key: 'multiple_websites', label: '⑤ Multiple Websites', Component: HubVideoMultipleWebsites },
+  { key: 'multiple_thankyou_pixels', label: '⑥ Multiple Thank-You Pages', Component: HubVideoMultipleThankYouPixels },
+];
 
 /* ── 中轉站 hub: shared UI pieces ─────────────────────────────── */
 function HubProgressBar({
@@ -341,7 +369,16 @@ export default function OnboardingOverlay() {
   const [campaign, setCampaign] = useState<CampaignExtended | null>(null);
   const [leadMagnets, setLeadMagnets] = useState<LeadMagnetRow[]>([]);
   const [stripeConfig, setStripeConfig] = useState<StripeConfig | null>(null);
+  const [hubVideoTab, setHubVideoTab] = useState<HubVideoTabKey>('structure');
   const { userId } = useEffectiveIdentity();
+
+  const goToNextHubVideoTab = useCallback(() => {
+    setHubVideoTab((current) => {
+      const index = HUB_VIDEO_TABS.findIndex((t) => t.key === current);
+      const next = HUB_VIDEO_TABS[index + 1];
+      return next ? next.key : current;
+    });
+  }, []);
 
   // Reset to the first step each time the overlay is opened fresh.
   useEffect(() => {
@@ -351,6 +388,7 @@ export default function OnboardingOverlay() {
       setCampaign(null);
       setLeadMagnets([]);
       setStripeConfig(null);
+      setHubVideoTab('structure');
     }
   }, [isOpen]);
 
@@ -519,8 +557,8 @@ export default function OnboardingOverlay() {
   <div
     className="w-full bg-white rounded-2xl overflow-hidden shadow-2xl"
     style={{
-      maxWidth: 860,
-      width: 'min(860px, 94vw)',
+      maxWidth: 1180,
+      width: 'min(1180px, 96vw)',
       maxHeight: '90vh',
     }}
     onClick={(e) => e.stopPropagation()}
@@ -533,7 +571,48 @@ export default function OnboardingOverlay() {
         fontFamily: '-apple-system, BlinkMacSystemFont, "Helvetica Neue", sans-serif',
       }}
     >
-      <div className="flex flex-col lg:flex-row gap-8">
+      <div className="flex flex-col lg:flex-row gap-6">
+        {/* LEFT: learn — compact video selector + video, always TWO columns total with the setup panel on the right, never a third */}
+        <div className="lg:w-[360px] lg:flex-shrink-0 flex flex-col gap-3">
+          <div className="flex flex-wrap gap-1.5">
+            {HUB_VIDEO_TABS.map((tab) => (
+              <button
+                key={tab.key}
+                type="button"
+                onClick={() => setHubVideoTab(tab.key)}
+                style={{
+                  padding: '6px 10px',
+                  borderRadius: 999,
+                  border: hubVideoTab === tab.key ? '1.5px solid #5b3df0' : '1px solid #d9d9e3',
+                  background: hubVideoTab === tab.key ? '#5b3df0' : '#fff',
+                  color: hubVideoTab === tab.key ? '#fff' : '#6b6b78',
+                  fontSize: 10.5,
+                  fontWeight: 700,
+                  cursor: 'pointer',
+                  whiteSpace: 'nowrap',
+                }}
+              >
+                {tab.label}
+              </button>
+            ))}
+          </div>
+          <div
+            className="bg-white border rounded-2xl overflow-hidden"
+            style={{ borderColor: '#e8e8ee', minHeight: 320 }}
+          >
+            {HUB_VIDEO_TABS.map((tab) => {
+              if (tab.key !== hubVideoTab) return null;
+              const HubVideo = tab.Component;
+              return (
+                <HubVideo key={tab.key} onSkip={goToNextHubVideoTab} onComplete={goToNextHubVideoTab} />
+              );
+            })}
+          </div>
+        </div>
+
+        {/* RIGHT: the existing 中轉站 setup — everything below is unchanged content, just now living inside this right-hand panel instead of being the whole modal */}
+        <div className="flex-1 min-w-0">
+        <div className="flex flex-col gap-8">
         {/* LEFT: fox guide + progress */}
         <div className="lg:w-[240px] lg:flex-shrink-0">
           <div style={{ display: 'flex', alignItems: 'flex-start', gap: 10, marginBottom: 14 }}>
@@ -668,6 +747,8 @@ export default function OnboardingOverlay() {
           >
             Continue to app →
           </button>
+        </div>
+        </div>
         </div>
       </div>
     </div>
