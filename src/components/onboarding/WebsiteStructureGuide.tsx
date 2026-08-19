@@ -233,6 +233,46 @@ export default function WebsiteStructureGuide() {
         ))}
       </div>
 
+      {tab === 'stripe' && (
+        <div style={{ marginBottom: 18 }}>
+          <div
+            style={{
+              border: `1.5px solid ${purpleBorder}`,
+              background: purpleSoft,
+              borderRadius: 12,
+              padding: '14px 16px',
+              textAlign: 'center',
+            }}
+          >
+            <p
+              style={{
+                fontSize: 10.5,
+                fontWeight: 800,
+                letterSpacing: 0.4,
+                textTransform: 'uppercase',
+                color: purple,
+                margin: '0 0 8px',
+              }}
+            >
+              Stripe Setup
+            </p>
+            <p style={{ fontSize: 13, fontWeight: 700, color: ink, margin: '0 0 6px', lineHeight: 1.4 }}>
+              Complete this setup ONE TIME.
+            </p>
+            <p style={{ fontSize: 11.5, color: sub, margin: 0, lineHeight: 1.5 }}>
+              Connect / configure your Stripe checkout setup here.
+            </p>
+          </div>
+          <StepArrow />
+          <p style={{ fontSize: 11.5, fontWeight: 700, color: ink, textAlign: 'center', margin: '0 0 4px' }}>
+            Applies to your Stripe-based paths
+          </p>
+          <p style={{ fontSize: 10.5, color: sub, textAlign: 'center', margin: 0, lineHeight: 1.5 }}>
+            You don't need to repeat this setup for every Stripe path.
+          </p>
+        </div>
+      )}
+
       {FUNNELS.map((funnel) => (
         <FunnelDiagram key={funnel.title} funnel={funnel} tab={tab} />
       ))}

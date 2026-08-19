@@ -60,10 +60,10 @@ const MUTED = "#9a9aa8";
 ----------------------------------------------------------------- */
 const GAP = 280;
 const SEG_SOURCE: [string, string, number][] = [
-  ["S1", "The Thank-You Page Pixel tells us when someone has successfully completed an action, such as making a purchase, booking a consultation, or signing up.", 7000],
-  ["S2", "So instead of only knowing that someone clicked your link, we can know when they actually completed the action.", 5200],
-  ["S3", "That's why the pixel needs to be installed on your Thank-You Page.", 3400],
-  ["S4", "And remember, if you have any questions or you're not sure where to install it, just join our WhatsApp support group and we'll help you with the setup.", 6800],
+  ["S1", "The Thank-You Page Pixel tells us when someone completes an action, such as a purchase, booking, or sign-up.", 8000],
+  ["S2", "So instead of only knowing that someone clicked your link, we can know when they actually completed the action.", 6200],
+  ["S3", "That's why the pixel needs to be installed on your Thank-You Page.", 4400],
+  ["S4", "And remember, if you have any questions or you're not sure where to install it, just join our WhatsApp support group and we'll help you with the setup.", 7800],
 ];
 
 const SEG: Record<string, { start: number; end: number; dur: number; text: string }> = {};
