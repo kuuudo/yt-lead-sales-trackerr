@@ -475,7 +475,7 @@ export default function PaidConsultationInstallationOnboarding({
                     </p>
                     {trackedUrl ? (
                       <div style={{ display: 'flex', gap: 8 }}>
-                        <div style={{ flex: 1, padding: 10, borderRadius: 10, border: '1px solid #e4e4e7', background: '#fff', fontSize: 11, fontFamily: 'ui-monospace, monospace', wordBreak: 'break-all' }}>
+                        <div style={{ flex: 1, padding: 10, borderRadius: 10, border: '1px solid #e4e4e7', background: '#fff', fontSize: 11, fontFamily: 'ui-monospace, monospace', color: '#52525b', wordBreak: 'break-all' }}>
                           {trackedUrl}
                         </div>
                         <CopyButton text={trackedUrl} />
@@ -495,7 +495,7 @@ export default function PaidConsultationInstallationOnboarding({
                     Webhook endpoint
                   </p>
                   <div style={{ display: 'flex', gap: 8 }}>
-                    <div style={{ flex: 1, padding: 10, borderRadius: 10, border: '1px solid #e4e4e7', background: '#fff', fontSize: 11, fontFamily: 'ui-monospace, monospace', wordBreak: 'break-all' }}>
+                    <div style={{ flex: 1, padding: 10, borderRadius: 10, border: '1px solid #e4e4e7', background: '#fff', fontSize: 11, fontFamily: 'ui-monospace, monospace', color: '#52525b', wordBreak: 'break-all' }}>
                       {WEBHOOK_ENDPOINT}
                     </div>
                     <CopyButton text={WEBHOOK_ENDPOINT} />
@@ -505,7 +505,7 @@ export default function PaidConsultationInstallationOnboarding({
                 {isConnected && stripeConfig?.stripe_webhook_secret && (
                   <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: 10, borderRadius: 10, border: '1px solid #bbf7d0', background: '#f0fdf4', marginBottom: 8 }}>
                     <CheckCircle2 size={14} style={{ color: '#16a34a' }} />
-                    <span style={{ fontSize: 11, fontFamily: 'ui-monospace, monospace' }}>
+                    <span style={{ fontSize: 11, fontFamily: 'ui-monospace, monospace', color: '#3f3f46' }}>
                       {maskSecret(stripeConfig.stripe_webhook_secret)}
                     </span>
                   </div>
