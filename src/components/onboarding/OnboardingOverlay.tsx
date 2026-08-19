@@ -395,8 +395,9 @@ type VideoScene =
   | { kind: 'booking'; value: DeliveryValue }
   | { kind: 'idle' };
 
-  const SUPPORT_WHATSAPP_URL =
+const SUPPORT_WHATSAPP_URL =
   'https://chat.whatsapp.com/G07wVgoAyRS3Z171uRDQ1K?s=cl&p=a&mlu=4';
+
 export default function OnboardingOverlay() {
   const { isOpen, close } = useOnboardingOverlay();
   const [step, setStep] = useState<OnboardingStep>('welcome');
@@ -806,7 +807,7 @@ export default function OnboardingOverlay() {
             }}
           >
             <span style={{ fontSize: 12.5, color: '#6b6b78' }}>Need help?</span>
-            
+            <a
               href={SUPPORT_WHATSAPP_URL}
               target="_blank"
               rel="noopener noreferrer"
