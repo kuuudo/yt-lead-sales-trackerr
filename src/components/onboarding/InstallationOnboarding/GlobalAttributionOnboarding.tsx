@@ -13,6 +13,23 @@ import {
   setGlobalAttributionComplete,
   type GlobalAttributionPath,
 } from './globalAttributionCompletion';
+import WhyGlobalAttributionOnMultipleWebsite from '../PixelSetupVideo/WhyGlobalAttributionOnMultipleWebsite';
+import HowtoInstallGlobalAttribution from '../PixelSetupVideo/HowtoInstallGlobalAttribution';
+
+// Local video tab list for THIS screen only. Deliberately not routed through
+// OnboardingOverlay.tsx's HUB_VIDEO_TABS / VideoScene systems — this tab
+// state lives and dies inside this component, per product decision to keep
+// it fully separate from the hub-level video machinery.
+type GlobalAttributionVideoTabKey = 'why' | 'how';
+
+const GLOBAL_ATTRIBUTION_VIDEO_TABS: {
+  key: GlobalAttributionVideoTabKey;
+  label: string;
+  Component: React.ComponentType<{ onSkip?: () => void; onComplete?: () => void }>;
+}[] = [
+  { key: 'why', label: 'Why It Matters', Component: WhyGlobalAttributionOnMultipleWebsite },
+  { key: 'how', label: 'How to Install', Component: HowtoInstallGlobalAttribution },
+];
 
 /**
  * Installation Onboarding — Global Attribution (shared, once).
@@ -47,16 +64,88 @@ export default function GlobalAttributionOnboarding({
     setCompleted(next);
   };
 
+  const [videoTab, setVideoTab] = useState<GlobalAttributionVideoTabKey>('why');
+  const goToNextVideoTab = () => {
+    setVideoTab((current: GlobalAttributionVideoTabKey) => {
+      const idx = GLOBAL_ATTRIBUTION_VIDEO_TABS.findIndex((t) => t.key === current);
+      const next = GLOBAL_ATTRIBUTION_VIDEO_TABS[idx + 1];
+      return next ? next.key : current;
+    });
+  };
+
   return (
     <div
       style={{
         height: '100%',
-        overflow: 'auto',
-        padding: '28px 24px 24px',
+        display: 'flex',
+        overflow: 'hidden',
         fontFamily: '-apple-system, BlinkMacSystemFont, "Helvetica Neue", sans-serif',
         background: '#fff',
       }}
     >
+      {/* LEFT: video panel — local tab state only, intentionally separate
+          from OnboardingOverlay.tsx's hub-level video systems. */}
+      <div
+        style={{
+          width: 320,
+          flexShrink: 0,
+          borderRight: '1px solid #e4e4e7',
+          background: '#fafafa',
+          display: 'flex',
+          flexDirection: 'column',
+          padding: 20,
+          overflow: 'auto',
+        }}
+      >
+        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginBottom: 14 }}>
+          {GLOBAL_ATTRIBUTION_VIDEO_TABS.map((tab) => (
+            <button
+              key={tab.key}
+              type="button"
+              onClick={() => setVideoTab(tab.key)}
+              style={{
+                padding: '6px 10px',
+                borderRadius: 999,
+                border: videoTab === tab.key ? '1.5px solid #16a34a' : '1px solid #d9d9e3',
+                background: videoTab === tab.key ? '#16a34a' : '#fff',
+                color: videoTab === tab.key ? '#fff' : '#6b6b78',
+                fontSize: 10.5,
+                fontWeight: 700,
+                cursor: 'pointer',
+                whiteSpace: 'nowrap',
+              }}
+            >
+              {tab.label}
+            </button>
+          ))}
+        </div>
+        <div
+          style={{
+            flex: 1,
+            minHeight: 260,
+            borderRadius: 12,
+            overflow: 'hidden',
+            background: '#fff',
+            border: '1px solid #e4e4e7',
+          }}
+        >
+          {GLOBAL_ATTRIBUTION_VIDEO_TABS.map((tab) => {
+            if (tab.key !== videoTab) return null;
+            const VideoComponent = tab.Component;
+            return <VideoComponent key={tab.key} onSkip={goToNextVideoTab} onComplete={goToNextVideoTab} />;
+          })}
+        </div>
+      </div>
+
+      {/* RIGHT: existing Global Attribution setup content — unchanged */}
+      <div
+        style={{
+          flex: 1,
+          minWidth: 0,
+          overflow: 'auto',
+          padding: '28px 24px 24px',
+        }}
+      >
       <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 8 }}>
         <Globe size={18} style={{ color: '#16a34a' }} />
         <h2 style={{ fontSize: 20, fontWeight: 800, color: '#15151f', margin: 0 }}>
@@ -366,6 +455,7 @@ export default function GlobalAttributionOnboarding({
         >
           Next →
         </button>
+      </div>
       </div>
     </div>
   );

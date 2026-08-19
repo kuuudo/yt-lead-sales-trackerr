@@ -44,6 +44,7 @@ import HubVideoMultipleThankYouPixels from './PixelSetupVideo/WhyThankyouPixelOn
 import { SALES_CALL_DELIVERY_OPTIONS, type PurchaseMethod, type DeliveryValue } from './campaignOptionContent';
 import { supabase } from '../../lib/supabase';
 import { getFunnelState, getTrackingState, type CampaignExtended, type StripeConfig } from '../installation/installationHelpers';
+import { isGlobalAttributionComplete, type GlobalAttributionPath } from './InstallationOnboarding/globalAttributionCompletion';
 import { useEffectiveIdentity } from '../../lib/useEffectiveIdentity';
 
 type OnboardingStep = 'welcome' | 'video' | 'campaign' | 'hub' | 'newsletter' | 'sales_call' | 'consultation' | 'lead_magnet' | 'install_global' | 'install_direct_purchase' | 'install_newsletter' | 'install_sales_call' | 'install_consultation';
@@ -330,6 +331,8 @@ function HubPathRow({
   installCompleted,
   showInstall,
   onInstallClick,
+  attributionCompleted,
+  onAttributionClick,
 }: {
   configTitle: string;
   configDescription: string;
@@ -340,6 +343,8 @@ function HubPathRow({
   installCompleted?: boolean;
   showInstall: boolean;
   onInstallClick?: () => void;
+  attributionCompleted?: boolean;
+  onAttributionClick?: () => void;
 }) {
   return (
     <div style={{ display: 'flex', alignItems: 'stretch', gap: 4, flexWrap: 'wrap', marginBottom: 10 }}>
@@ -353,10 +358,21 @@ function HubPathRow({
       {showInstall && (
         <>
           <HubPathArrow />
+          {/* Middle node: Global Attribution. Reuses HubInstallNode as-is —
+              it's already generic (title/completed/configReady/onClick).
+              Locked until this path's config step is completed; never
+              hidden, even once completed (per product rule). */}
+          <HubInstallNode
+            title="Global Attribution"
+            completed={!!attributionCompleted}
+            configReady={configCompleted}
+            onClick={onAttributionClick}
+          />
+          <HubPathArrow />
           <HubInstallNode
             title={installTitle || ''}
             completed={!!installCompleted}
-            configReady={configCompleted}
+            configReady={configCompleted && !!attributionCompleted}
             onClick={onInstallClick}
           />
         </>
@@ -402,6 +418,7 @@ export default function OnboardingOverlay() {
   const [leadMagnets, setLeadMagnets] = useState<LeadMagnetRow[]>([]);
   const [stripeConfig, setStripeConfig] = useState<StripeConfig | null>(null);
   const [hubVideoTab, setHubVideoTab] = useState<HubVideoTabKey>('structure_guide');
+  const [globalAttributionPath, setGlobalAttributionPath] = useState<GlobalAttributionPath | null>(null);
   const { userId } = useEffectiveIdentity();
 
   const goToNextHubVideoTab = useCallback(() => {
@@ -421,6 +438,7 @@ export default function OnboardingOverlay() {
       setLeadMagnets([]);
       setStripeConfig(null);
       setHubVideoTab('structure_guide');
+      setGlobalAttributionPath(null);
     }
   }, [isOpen]);
 
@@ -507,6 +525,16 @@ export default function OnboardingOverlay() {
     salesCallInstallCompleted,
     consultationInstallCompleted,
   ].filter(Boolean).length;
+
+  // Global Attribution completion — read fresh on every render straight
+  // from localStorage (via globalAttributionCompletion.ts), scoped to
+  // THIS campaignId + path. No extra state needed: whenever the user
+  // returns from the 'install_global' screen, the hub re-renders and
+  // these are recalculated automatically.
+  const directPurchaseAttributionCompleted = isGlobalAttributionComplete(campaignId, 'purchase');
+  const newsletterAttributionCompleted = isGlobalAttributionComplete(campaignId, 'newsletter');
+  const salesCallAttributionCompleted = isGlobalAttributionComplete(campaignId, 'salesCall');
+  const consultationAttributionCompleted = isGlobalAttributionComplete(campaignId, 'consultation');
 
   return (
     <AnimatePresence>
@@ -695,6 +723,11 @@ export default function OnboardingOverlay() {
               installCompleted={directPurchaseInstallCompleted}
               showInstall
               onInstallClick={() => setStep('install_direct_purchase')}
+              attributionCompleted={directPurchaseAttributionCompleted}
+              onAttributionClick={() => {
+                setGlobalAttributionPath('purchase');
+                setStep('install_global');
+              }}
             />
             <HubPathRow
               configTitle="Lead Magnet"
@@ -712,6 +745,11 @@ export default function OnboardingOverlay() {
               installCompleted={newsletterInstallCompleted}
               showInstall
               onInstallClick={() => setStep('install_newsletter')}
+              attributionCompleted={newsletterAttributionCompleted}
+              onAttributionClick={() => {
+                setGlobalAttributionPath('newsletter');
+                setStep('install_global');
+              }}
             />
             <HubPathRow
               configTitle="Sales Call"
@@ -725,6 +763,11 @@ export default function OnboardingOverlay() {
               installCompleted={salesCallInstallCompleted}
               showInstall
               onInstallClick={() => setStep('install_sales_call')}
+              attributionCompleted={salesCallAttributionCompleted}
+              onAttributionClick={() => {
+                setGlobalAttributionPath('salesCall');
+                setStep('install_global');
+              }}
             />
             <HubPathRow
               configTitle="Paid Consultation"
@@ -738,6 +781,11 @@ export default function OnboardingOverlay() {
               installCompleted={consultationInstallCompleted}
               showInstall
               onInstallClick={() => setStep('install_consultation')}
+              attributionCompleted={consultationAttributionCompleted}
+              onAttributionClick={() => {
+                setGlobalAttributionPath('consultation');
+                setStep('install_global');
+              }}
             />
           </div>
 
@@ -889,22 +937,22 @@ export default function OnboardingOverlay() {
   </div>
 )}
 
-          {step === 'install_global' && campaignId && (
+          {step === 'install_global' && campaignId && globalAttributionPath && (
   <div
     className="w-full bg-white rounded-2xl overflow-hidden shadow-2xl"
     style={{
-      maxWidth: 640,
-      width: 'min(640px, 94vw)',
-      maxHeight: '90vh',
+      maxWidth: 1080,
+      width: 'min(1080px, 94vw)',
+      height: '90vh',
     }}
     onClick={(e) => e.stopPropagation()}
   >
-    <div style={{ maxHeight: '90vh', overflow: 'auto' }}>
-      <GlobalAttributionOnboarding
-        onBack={() => setStep('hub')}
-        onDone={() => setStep('hub')}
-      />
-    </div>
+    <GlobalAttributionOnboarding
+      campaignId={campaignId}
+      path={globalAttributionPath}
+      onBack={() => setStep('hub')}
+      onDone={() => setStep('hub')}
+    />
   </div>
 )}
 
