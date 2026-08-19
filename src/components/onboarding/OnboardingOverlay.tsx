@@ -33,6 +33,7 @@ import CampaignOnboardingStripeVideo from './CampaignOnboardingVideo/CampaignOnb
 import CampaignOnboardingPixelVideo from './CampaignOnboardingVideo/CampaignOnboardingPixelVideo';
 import CampaignOnboardingThankYouVideo from './CampaignOnboardingVideo/CampaignOnboardingThankYouVideo';
 import PaymentMethodDiagram from './PaymentMethodDiagram';
+import WebsiteStructureGuide from './WebsiteStructureGuide';
 import HubVideoWebsiteStructure from './PixelSetupVideo/WebsiteStructureIsImportant';
 import HubVideoThankYouPixel from './PixelSetupVideo/WhyDoWeNeedThankYouPagePixel';
 import HubVideoGlobalAttribution from './PixelSetupVideo/WhyDoWeNeedGlobalAttribution';
@@ -54,7 +55,8 @@ type LeadMagnetRow = {
 
 
 type HubVideoTabKey =
-  | 'structure'
+  | 'structure_guide'
+  | 'structure_video'
   | 'thankyou_pixel'
   | 'global_attribution'
   | 'install_global_attribution'
@@ -66,12 +68,13 @@ const HUB_VIDEO_TABS: {
   label: string;
   Component: React.ComponentType<{ onSkip?: () => void; onComplete?: () => void }>;
 }[] = [
-  { key: 'structure', label: '① Website Structure ⭐', Component: HubVideoWebsiteStructure },
-  { key: 'thankyou_pixel', label: '② Thank-You Page Pixel', Component: HubVideoThankYouPixel },
-  { key: 'global_attribution', label: '③ Global Attribution', Component: HubVideoGlobalAttribution },
-  { key: 'install_global_attribution', label: '④ Install Global Attribution', Component: HubVideoInstallGlobalAttribution },
-  { key: 'multiple_websites', label: '⑤ Multiple Websites', Component: HubVideoMultipleWebsites },
-  { key: 'multiple_thankyou_pixels', label: '⑥ Multiple Thank-You Pages', Component: HubVideoMultipleThankYouPixels },
+  { key: 'structure_guide', label: 'Website Structure ⭐', Component: WebsiteStructureGuide },
+  { key: 'structure_video', label: 'Website Structure (video)', Component: HubVideoWebsiteStructure },
+  { key: 'thankyou_pixel', label: 'Thank-You Page Pixel', Component: HubVideoThankYouPixel },
+  { key: 'global_attribution', label: 'Global Attribution', Component: HubVideoGlobalAttribution },
+  { key: 'install_global_attribution', label: 'Install Global Attribution', Component: HubVideoInstallGlobalAttribution },
+  { key: 'multiple_websites', label: 'Multiple Websites', Component: HubVideoMultipleWebsites },
+  { key: 'multiple_thankyou_pixels', label: 'Multiple Thank-You Pages', Component: HubVideoMultipleThankYouPixels },
 ];
 
 /* ── 中轉站 hub: shared UI pieces ─────────────────────────────── */
@@ -369,7 +372,7 @@ export default function OnboardingOverlay() {
   const [campaign, setCampaign] = useState<CampaignExtended | null>(null);
   const [leadMagnets, setLeadMagnets] = useState<LeadMagnetRow[]>([]);
   const [stripeConfig, setStripeConfig] = useState<StripeConfig | null>(null);
-  const [hubVideoTab, setHubVideoTab] = useState<HubVideoTabKey>('structure');
+  const [hubVideoTab, setHubVideoTab] = useState<HubVideoTabKey>('structure_guide');
   const { userId } = useEffectiveIdentity();
 
   const goToNextHubVideoTab = useCallback(() => {
@@ -388,7 +391,7 @@ export default function OnboardingOverlay() {
       setCampaign(null);
       setLeadMagnets([]);
       setStripeConfig(null);
-      setHubVideoTab('structure');
+      setHubVideoTab('structure_guide');
     }
   }, [isOpen]);
 
