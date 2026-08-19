@@ -34,6 +34,7 @@ const PIXEL_SETUP_VIDEO_TABS: {
   { key: 'why', label: 'Why It Matters', Component: WhyDoWeNeedThankYouPagePixel },
   { key: 'multiple', label: 'Multiple Pages', Component: WhyThankyouPixelOnMultipleWebsite },
 ];
+
 function generateToken(): string {
   const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789';
   return Array.from({ length: 4 }, () => chars[Math.floor(Math.random() * chars.length)]).join('');
