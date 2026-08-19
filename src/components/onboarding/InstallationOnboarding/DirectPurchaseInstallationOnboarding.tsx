@@ -324,6 +324,7 @@ export default function DirectPurchaseInstallationOnboarding({
                           border: '1px solid #e4e4e7',
                           fontSize: 13,
                           fontFamily: 'ui-monospace, monospace',
+                          color: '#15151f',
                         }}
                       />
                     </div>
