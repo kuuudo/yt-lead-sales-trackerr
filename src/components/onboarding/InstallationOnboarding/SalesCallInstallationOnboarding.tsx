@@ -230,34 +230,7 @@ export default function SalesCallInstallationOnboarding({
 
           {!isExternal && funnelState !== 'inactive' && (
             <>
-              <div style={card}>
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
-                  <span style={{ fontSize: 11, fontWeight: 800, color: '#5b3df0', textTransform: 'uppercase', letterSpacing: '0.06em' }}>
-                    Optional: Intent pixel
-                  </span>
-                  <CopyButton text={intentPixel} />
-                </div>
-                <p style={{ fontSize: 12, color: '#6b6b78', margin: '0 0 8px', lineHeight: 1.45 }}>
-                  Optional — paste on the booking page for mid-funnel intent.
-                </p>
-                <pre
-                  style={{
-                    margin: 0,
-                    padding: 12,
-                    borderRadius: 10,
-                    border: '1px solid #e4e4e7',
-                    background: '#fff',
-                    fontSize: 11,
-                    fontFamily: 'ui-monospace, monospace',
-                    color: '#52525b',
-                    whiteSpace: 'pre-wrap',
-                    wordBreak: 'break-all',
-                    lineHeight: 1.45,
-                  }}
-                >
-                  {intentPixel}
-                </pre>
-              </div>
+             
 
               <div
                 style={{
