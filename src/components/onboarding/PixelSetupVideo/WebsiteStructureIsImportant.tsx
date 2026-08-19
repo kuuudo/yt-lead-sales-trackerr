@@ -44,11 +44,11 @@ const SUCCESS = "#2f9e6b";
 const GAP = 280;
 const SEG_SOURCE: [string, string, number][] = [
   ["S1", "Before you set up your tracking, there is one very important thing you need to check.", 3800],
-  ["S2", "Your website structure should look like this:\n1. Website / Landing Page → 2. Booking or Checkout → 3. Thank-You Page", 7200],
-  ["S3", "For example:\nSomeone visits your website, goes to Booking or Checkout, then is sent to a separate Thank-You Page after completing the action.", 6200],
-  ["S4", "This structure is very important for our tracking to work correctly.", 3600],
-  ["S5", "If your website currently looks like this:\nWebsite → Booking → Booking Successful", 4200],
-  ["S6", "and the successful message appears on the same page, you will need to change your setup so the successful action redirects to a separate Thank-You Page.", 5600],
+  ["S2", "Your website structure should look like this:\n1. Website / Landing Page → 2. Booking or Checkout → 3. Thank-You Page", 8200],
+  ["S3", "For example:\nSomeone visits your website, goes to Booking or Checkout, then is sent to a separate Thank-You Page after completing the action.", 7200],
+  ["S4", "This structure is very important for our tracking to work correctly.", 4600],
+  ["S5", "If your website currently looks like this:\nWebsite → Booking → Booking Successful", 6200],
+  ["S6", "and the successful message appears on the same page, you will need to change your setup so the successful action redirects to a separate Thank-You Page.", 7600],
   ["S7", "Don’t worry — if you’re not sure how to do this, you can ask Claude for help or join our support group.\nWe’ll help you get it set up correctly.", 4800],
 ];
 
