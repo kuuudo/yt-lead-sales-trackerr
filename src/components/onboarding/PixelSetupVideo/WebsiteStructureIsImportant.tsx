@@ -48,7 +48,7 @@ const SEG_SOURCE: [string, string, number][] = [
   ["S3", "For example:\nSomeone visits your website, goes to Booking or Checkout, then is sent to a separate Thank-You Page after completing the action.", 7200],
   ["S4", "This structure is very important for our tracking to work correctly.", 4600],
   ["S5", "If your website currently looks like this:\nWebsite → Booking → Booking Successful", 6200],
-  ["S6", "and the successful message appears on the same page, you will need to change your setup so the successful action redirects to a separate Thank-You Page.", 7600],
+  ["S6", "If the success message appears on the same page, change your setup to redirect visitors to a separate Thank-You Page.", 8600],
   ["S7", "Don’t worry — if you’re not sure how to do this, you can ask Claude for help or join our support group.\nWe’ll help you get it set up correctly.", 4800],
 ];
 
