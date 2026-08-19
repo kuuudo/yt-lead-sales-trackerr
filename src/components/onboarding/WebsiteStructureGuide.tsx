@@ -182,13 +182,13 @@ function FunnelDiagram({ funnel, tab }: { funnel: FunnelDef; tab: GuideTab }) {
             <InstallTag icon={<Globe size={11} />} label="Install Global Attribution here" tone="attribution" />
           )}
           {tab === 'stripe' && funnel.checkoutStepIndex === i && <CheckoutUrlNote />}
-          {i === funnel.pixelStepIndex && (
-            <InstallTag
-              icon={<Tag size={11} />}
-              label={`Install ${funnel.pixelLabel} here${funnel.freeAction ? ' (still required)' : ''}`}
-              tone="pixel"
-            />
-          )}
+{tab === 'pixel' && i === funnel.pixelStepIndex && (
+  <InstallTag 
+    icon={<Tag size={11} />} 
+    label={`Install ${funnel.pixelLabel} here${funnel.freeAction ? ' (still required)' : ''}`} 
+    tone="pixel" 
+  />
+)}
         </React.Fragment>
       ))}
     </div>
