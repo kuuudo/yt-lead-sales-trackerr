@@ -238,6 +238,9 @@ export default function SalesCallOnboardingStep({
   const [bookingUrl, setBookingUrl] = useState(initialData?.sales_call_booking_url ?? '');
   const [thankyouUrl, setThankyouUrl] = useState(initialData?.sales_call_thankyou_url ?? '');
   const [closeRate, setCloseRate] = useState(initialData?.estimated_close_rate ?? 0);
+  const [avgUpsell, setAvgUpsell] = useState((initialData as any)?.average_upsell_value ?? 0);
+const [baseOffer, setBaseOffer] = useState((initialData as any)?.base_offer_value ?? 0);
+const [upsellProb, setUpsellProb] = useState((initialData as any)?.upsell_probability ?? 0);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -262,6 +265,9 @@ export default function SalesCallOnboardingStep({
           sales_call_booking_url: bookingUrl.trim() || null,
           sales_call_thankyou_url: thankyouUrl.trim() || null,
           estimated_close_rate: closeRate || 0,
+          average_upsell_value: avgUpsell || 0,
+          base_offer_value: baseOffer || 0,
+          upsell_probability: upsellProb || 0,
         })
         .eq('id', campaignId);
 
@@ -382,6 +388,38 @@ export default function SalesCallOnboardingStep({
                 placeholder="20"
               />
             </div>
+
+<div>
+  <label style={labelStyle}>Average Upsell Value ($)</label>
+  <input
+    style={inputStyle}
+    type="number"
+    value={avgUpsell}
+    onChange={(e) => setAvgUpsell(parseFloat(e.target.value) || 0)}
+    placeholder="0"
+  />
+</div>
+<div>
+  <label style={labelStyle}>Base Offer Value ($)</label>
+  <input
+    style={inputStyle}
+    type="number"
+    value={baseOffer}
+    onChange={(e) => setBaseOffer(parseFloat(e.target.value) || 0)}
+    placeholder="130"
+  />
+</div>
+<div>
+  <label style={labelStyle}>Upsell Probability (%)</label>
+  <input
+    style={inputStyle}
+    type="number"
+    value={upsellProb}
+    onChange={(e) => setUpsellProb(parseFloat(e.target.value) || 0)}
+    placeholder="10"
+  />
+</div>
+            
           </div>
 
           {showThankYouWarning && (
