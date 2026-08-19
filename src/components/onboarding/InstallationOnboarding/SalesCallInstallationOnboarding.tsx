@@ -134,7 +134,7 @@ export default function SalesCallInstallationOnboarding({
   const trackingState = getTrackingState(campaign, 'salesCall', null);
   const expectedCallValue = computeExpectedCallValue(campaign);
   const salesPixel = generateAttributionPixel(campaign.id, 'sales_call', null);
-  const intentPixel = generateAttributionPixel(campaign.id, 'checkout_intent', 0);
+
   const hasThankYou = !!campaign.sales_call_thankyou_url;
 
   const card = {
