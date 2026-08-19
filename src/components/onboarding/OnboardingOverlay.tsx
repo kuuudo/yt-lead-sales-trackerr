@@ -33,6 +33,7 @@ import CampaignOnboardingStripeVideo from './CampaignOnboardingVideo/CampaignOnb
 import CampaignOnboardingPixelVideo from './CampaignOnboardingVideo/CampaignOnboardingPixelVideo';
 import CampaignOnboardingThankYouVideo from './CampaignOnboardingVideo/CampaignOnboardingThankYouVideo';
 import PaymentMethodDiagram from './PaymentMethodDiagram';
+import BookingMethodDiagram from './BookingMethodDiagram';
 import WebsiteStructureGuide from './WebsiteStructureGuide';
 import HubVideoWebsiteStructure from './PixelSetupVideo/WebsiteStructureIsImportant';
 import HubVideoThankYouPixel from './PixelSetupVideo/WhyDoWeNeedThankYouPagePixel';
@@ -40,7 +41,7 @@ import HubVideoGlobalAttribution from './PixelSetupVideo/WhyDoWeNeedGlobalAttrib
 import HubVideoInstallGlobalAttribution from './PixelSetupVideo/HowtoInstallGlobalAttribution';
 import HubVideoMultipleWebsites from './PixelSetupVideo/WhyGlobalAttributionOnMultipleWebsite';
 import HubVideoMultipleThankYouPixels from './PixelSetupVideo/WhyThankyouPixelOnMultipleWebsite';
-import type { PurchaseMethod } from './campaignOptionContent';
+import { SALES_CALL_DELIVERY_OPTIONS, type PurchaseMethod, type DeliveryValue } from './campaignOptionContent';
 import { supabase } from '../../lib/supabase';
 import { getFunnelState, getTrackingState, type CampaignExtended, type StripeConfig } from '../installation/installationHelpers';
 import { useEffectiveIdentity } from '../../lib/useEffectiveIdentity';
@@ -364,10 +365,38 @@ function HubPathRow({
   );
 }
 
+// Discriminated union for the left-panel scene. Kept here in
+// OnboardingOverlay.tsx only — CampaignOnboardingStep.tsx keeps its own
+// existing flat-string onSceneChange signature untouched (see
+// handleCampaignScene below), so this type never needs to reach it.
+// The `kind` discriminant exists specifically because PurchaseMethod and
+// DeliveryValue both contain an 'external_platform' value with different
+// meanings (payment vs. booking) — a flat union would collide the two.
+type VideoScene =
+  | { kind: 'video'; name: 'basics' | 'stripe' | 'pixel' | 'thankyou' }
+  | { kind: 'payment'; method: PurchaseMethod }
+  | { kind: 'booking'; value: DeliveryValue }
+  | { kind: 'idle' };
+
 export default function OnboardingOverlay() {
   const { isOpen, close } = useOnboardingOverlay();
   const [step, setStep] = useState<OnboardingStep>('welcome');
-  const [videoScene, setVideoScene] = useState<'basics' | 'stripe' | 'pixel' | 'thankyou' | PurchaseMethod>('basics');
+  const [videoScene, setVideoScene] = useState<VideoScene>({ kind: 'video', name: 'basics' });
+
+  // Adapter ONLY for CampaignOnboardingStep.tsx's existing onSceneChange
+  // prop, whose signature is (scene: 'basics'|'stripe'|'pixel'|'thankyou'|PurchaseMethod) => void
+  // and must not change. Wraps whatever it sends into the VideoScene shape
+  // above without CampaignOnboardingStep.tsx knowing this layer exists.
+  const handleCampaignScene = useCallback(
+    (scene: 'basics' | 'stripe' | 'pixel' | 'thankyou' | PurchaseMethod) => {
+      if (scene === 'basics' || scene === 'stripe' || scene === 'pixel' || scene === 'thankyou') {
+        setVideoScene({ kind: 'video', name: scene });
+      } else {
+        setVideoScene({ kind: 'payment', method: scene });
+      }
+    },
+    []
+  );
   const [campaignId, setCampaignId] = useState<string | null>(null);
   const [campaign, setCampaign] = useState<CampaignExtended | null>(null);
   const [leadMagnets, setLeadMagnets] = useState<LeadMagnetRow[]>([]);
@@ -529,18 +558,11 @@ export default function OnboardingOverlay() {
   >
     {/* LEFT: video — swaps based on what the user picks on the right */}
     <div className="hidden lg:flex lg:w-[380px] lg:flex-shrink-0 bg-white rounded-2xl overflow-hidden shadow-2xl items-center justify-center p-6">
-            {videoScene === 'basics' && <CampaignOnboardingVideo />}
-      {videoScene === 'stripe' && <CampaignOnboardingStripeVideo />}
-      {videoScene === 'pixel' && <CampaignOnboardingPixelVideo />}
-      {videoScene === 'thankyou' && <CampaignOnboardingThankYouVideo />}
-      {(videoScene === 'stripe_checkout' ||
-        videoScene === 'stripe_embedded' ||
-        videoScene === 'embedded_alternative_payment' ||
-        videoScene === 'alternative_payment' ||
-        videoScene === 'payment_instructions_page' ||
-        videoScene === 'external_platform') && (
-        <PaymentMethodDiagram method={videoScene} />
-      )}
+            {videoScene.kind === 'video' && videoScene.name === 'basics' && <CampaignOnboardingVideo />}
+      {videoScene.kind === 'video' && videoScene.name === 'stripe' && <CampaignOnboardingStripeVideo />}
+      {videoScene.kind === 'video' && videoScene.name === 'pixel' && <CampaignOnboardingPixelVideo />}
+      {videoScene.kind === 'video' && videoScene.name === 'thankyou' && <CampaignOnboardingThankYouVideo />}
+      {videoScene.kind === 'payment' && <PaymentMethodDiagram method={videoScene.method} />}
     </div>
 
     {/* RIGHT: Direct Purchase form */}
@@ -550,7 +572,7 @@ export default function OnboardingOverlay() {
           setCampaignId(id);
           setStep('hub');
         }}
-        onSceneChange={setVideoScene}
+        onSceneChange={handleCampaignScene}
       />
     </div>
   </div>
@@ -695,7 +717,10 @@ export default function OnboardingOverlay() {
               configTitle="Sales Call"
               configDescription="Let customers book a call with you."
               configCompleted={salesCallCompleted}
-              onConfigClick={() => setStep('sales_call')}
+              onConfigClick={() => {
+                setVideoScene({ kind: 'idle' });
+                setStep('sales_call');
+              }}
               installTitle="Sales Call Pixel Setup"
               installCompleted={salesCallInstallCompleted}
               showInstall
@@ -705,7 +730,10 @@ export default function OnboardingOverlay() {
               configTitle="Paid Consultation"
               configDescription="A paid 1:1 consultation booking path."
               configCompleted={consultationCompleted}
-              onConfigClick={() => setStep('consultation')}
+              onConfigClick={() => {
+                setVideoScene({ kind: 'idle' });
+                setStep('consultation');
+              }}
               installTitle="Consultation Pixel Setup"
               installCompleted={consultationInstallCompleted}
               showInstall
@@ -783,18 +811,31 @@ export default function OnboardingOverlay() {
   <div
     className="w-full flex flex-col lg:flex-row gap-4 lg:gap-6 items-stretch justify-center"
     style={{
-      maxWidth: 900,
-      width: 'min(900px, 94vw)',
+      maxWidth: 1200,
+      width: 'min(1200px, 94vw)',
       height: '90vh',
     }}
     onClick={(e) => e.stopPropagation()}
   >
+    {/* LEFT: booking diagram — idle until a delivery option is picked on the right */}
+    <div className="hidden lg:flex lg:w-[380px] lg:flex-shrink-0 bg-white rounded-2xl overflow-hidden shadow-2xl items-center justify-center p-6">
+      {videoScene.kind === 'booking' && (
+        <BookingMethodDiagram
+          option={
+            SALES_CALL_DELIVERY_OPTIONS.find((o) => o.value === videoScene.value) ??
+            SALES_CALL_DELIVERY_OPTIONS[0]
+          }
+        />
+      )}
+    </div>
+
     <div className="relative w-full flex-1 min-w-0 bg-white rounded-2xl overflow-hidden shadow-2xl">
       <SalesCallOnboardingStep
         campaignId={campaignId}
         initialData={campaign ?? undefined}
         onDone={() => setStep('hub')}
         onBack={() => setStep('hub')}
+        onSceneChange={setVideoScene}
       />
     </div>
   </div>
@@ -804,18 +845,24 @@ export default function OnboardingOverlay() {
   <div
     className="w-full flex flex-col lg:flex-row gap-4 lg:gap-6 items-stretch justify-center"
     style={{
-      maxWidth: 900,
-      width: 'min(900px, 94vw)',
+      maxWidth: 1200,
+      width: 'min(1200px, 94vw)',
       height: '90vh',
     }}
     onClick={(e) => e.stopPropagation()}
   >
+    {/* LEFT: payment diagram — idle until a payment method is picked on the right */}
+    <div className="hidden lg:flex lg:w-[380px] lg:flex-shrink-0 bg-white rounded-2xl overflow-hidden shadow-2xl items-center justify-center p-6">
+      {videoScene.kind === 'payment' && <PaymentMethodDiagram method={videoScene.method} />}
+    </div>
+
     <div className="relative w-full flex-1 min-w-0 bg-white rounded-2xl overflow-hidden shadow-2xl">
       <PaidConsultationOnboardingStep
         campaignId={campaignId}
         initialData={campaign ?? undefined}
         onDone={() => setStep('hub')}
         onBack={() => setStep('hub')}
+        onSceneChange={setVideoScene}
       />
     </div>
   </div>

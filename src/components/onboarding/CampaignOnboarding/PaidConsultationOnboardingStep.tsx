@@ -15,6 +15,7 @@ import {
   CONSULTATION_PAYMENT_OPTIONS,
   type DeliveryOptionContent,
   type PaymentOptionContent,
+  type PurchaseMethod,
   type TrackingQuality,
 } from '../campaignOptionContent';
 
@@ -259,6 +260,10 @@ interface PaidConsultationOnboardingStepProps {
   };
   onDone: () => void;
   onBack?: () => void;
+  /** Fires only when a payment method card is selected — delivery choice
+   *  does not drive the left panel (see PaidConsultationOnboardingStep
+   *  design decision: left stays idle until a payment method is picked). */
+  onSceneChange?: (scene: { kind: 'payment'; method: PurchaseMethod }) => void;
 }
 
 export default function PaidConsultationOnboardingStep({
@@ -266,6 +271,7 @@ export default function PaidConsultationOnboardingStep({
   initialData,
   onDone,
   onBack,
+  onSceneChange,
 }: PaidConsultationOnboardingStepProps) {
   const { user } = useAuth();
   const [delivery, setDelivery] = useState(
@@ -418,7 +424,10 @@ export default function PaidConsultationOnboardingStep({
                         key={opt.value}
                         option={opt}
                         selected={paymentMethod === opt.value}
-                        onSelect={() => setPaymentMethod(opt.value)}
+                        onSelect={() => {
+                          setPaymentMethod(opt.value);
+                          onSceneChange?.({ kind: 'payment', method: opt.value });
+                        }}
                       />
                     ))}
                   </div>

@@ -13,6 +13,7 @@ import { useAuth } from '../../../lib/auth';
 import {
   SALES_CALL_DELIVERY_OPTIONS,
   type DeliveryOptionContent,
+  type DeliveryValue,
   type TrackingQuality,
 } from '../campaignOptionContent';
 
@@ -220,6 +221,7 @@ interface SalesCallOnboardingStepProps {
   };
   onDone: () => void;
   onBack?: () => void;
+  onSceneChange?: (scene: { kind: 'booking'; value: DeliveryValue }) => void;
 }
 
 export default function SalesCallOnboardingStep({
@@ -227,6 +229,7 @@ export default function SalesCallOnboardingStep({
   initialData,
   onDone,
   onBack,
+  onSceneChange,
 }: SalesCallOnboardingStepProps) {
   const { user } = useAuth();
   const [delivery, setDelivery] = useState(
@@ -318,7 +321,10 @@ export default function SalesCallOnboardingStep({
                   key={opt.value}
                   option={opt}
                   selected={delivery === opt.value}
-                  onSelect={() => setDelivery(opt.value)}
+                  onSelect={() => {
+                    setDelivery(opt.value);
+                    onSceneChange?.({ kind: 'booking', value: opt.value });
+                  }}
                 />
               ))}
             </div>
