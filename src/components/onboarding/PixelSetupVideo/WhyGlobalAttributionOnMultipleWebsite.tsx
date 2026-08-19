@@ -1,8 +1,9 @@
 import React, { useEffect, useState } from "react";
 
 /* ---------------------------------------------------------------
-   VSTRK — Onboarding VSL, "Why Global Attribution on multiple
-   websites?" — standalone, modular scene file.
+   VSTRK — Onboarding VSL, "Why do I need to install Global
+   Attribution on multiple websites?" — standalone, modular scene
+   file.
 
    Same visual language as OnboardingVideoSection06 (self-contained,
    regenerates the shared design tokens and timing philosophy
@@ -10,15 +11,19 @@ import React, { useEffect, useState } from "react";
 
    STORY: Answers the single most common install question — "I
    already installed Global Attribution, why do I need it again?"
-   The answer is one rule: Global Attribution is installed PER
-   WEBSITE, not per funnel. Multiple funnels on the same website
-   share one setup; funnels split across different websites/domains
-   each need their own.
+   The answer is a simple operational rule, not a technical one:
+   Global Attribution is part of whatever setup VSTRK is currently
+   walking the user through. A finished setup does not carry over
+   to a new one. Whenever VSTRK shows another Global Attribution
+   setup step, that step needs to be completed too — no exceptions,
+   no assumptions.
 
-   PRODUCT GROUNDING: purely an installation-concept explainer — no
-   code, no technical implementation detail (no localStorage, JS,
-   cookies, APIs, schemas). The only unit on screen is "website" vs
-   "funnel," matching the brief exactly.
+   PRODUCT GROUNDING: purely an operational explainer — no code, no
+   technical implementation detail (no localStorage, JS, cookies,
+   APIs, schemas, domains). There is no "same website" / "different
+   website" rule anywhere in this file. The only idea on screen is
+   "setup," and whether it has its own Global Attribution step
+   completed yet.
 
    REUSED FROM SECTION 06 (regenerated locally, same shapes):
      - clamp / prog / fadeWindow / lerp / segOpacity / rangeOpacity
@@ -28,10 +33,12 @@ import React, { useEffect, useState } from "react";
      - Skip / replay / Get started control chrome
 
    NEW IN THIS FILE:
-     - WebsiteCard — a small rounded card (globe glyph + domain
-       label) representing one website/domain. This topic is about
-       websites as the unit of installation, so it earns its own
-       primitive the way WidgetCard did for "results" in Section 06.
+     - SetupCard — a small rounded card (gear glyph + "SETUP N"
+       label) representing one VSTRK setup. This topic is about
+       setups as the unit that needs Global Attribution, so it
+       earns its own primitive the way WidgetCard did for "results"
+       in Section 06. (Replaces the old WebsiteCard — no domain
+       labels anywhere.)
      - bw() — a small helper that expresses a sub-animation as a
        fraction of a beat's own duration, so each scene's timing
        stays readable without a wall of hand-computed millisecond
@@ -47,22 +54,25 @@ const MUTED = "#9a9aa8";
 
 /* ---------------------------------------------------------------
    Timing — narration used word-for-word, split one beat per
-   sentence (the two quoted-question beats and the two "remember"
-   lines get their own beat too, matching Section 06's philosophy).
+   sentence (the two quoted-question beats and the three "don't
+   assume / complete it / follow exactly" lines each get their own
+   beat too, matching Section 06's philosophy). Beats run a little
+   longer than a strict word-count would suggest, giving the visual
+   room to land before the caption changes.
 ----------------------------------------------------------------- */
 const GAP = 280;
 const SEG_SOURCE: [string, string, number][] = [
-  ["S1", "Why do I need to install Global Attribution on multiple websites?", 2800],
-  ["S2a", "You might be wondering:", 1400],
-  ["S2b", "\u201CIf I already installed Global Attribution, why do I need to install it again?\u201D", 3600],
-  ["S3a", "The answer is simple.", 1400],
-  ["S3b", "Global Attribution is installed per website.", 2800],
-  ["S4", "If your Sales Booking, Consultation, and Direct Purchase pages are all part of the same website, you don\u2019t need to install a separate Global Attribution script for each one.", 7200],
-  ["S5", "But if they are on different websites or domains, each website needs its own Global Attribution script.", 4800],
-  ["S6a", "So remember:", 1200],
-  ["S6b", "Same website \u2192 one Global Attribution setup.", 2600],
-  ["S6c", "Different websites \u2192 each website needs its own setup.", 3000],
-  ["S7", "That\u2019s it!", 1800],
+  ["S1", "Why do I need to install Global Attribution on multiple websites?", 4800],
+  ["S2a", "You might be wondering:", 2200],
+  ["S2b", "\u201CIf I already installed Global Attribution, why do I need to install it again?\u201D", 5400],
+  ["S3a", "The answer is simple.", 2200],
+  ["S3b", "Global Attribution is part of the setup you\u2019re completing.", 4800],
+  ["S4", "Each setup needs Global Attribution so VSTRK can track the activity happening through that setup.", 6600],
+  ["S5", "That\u2019s why, when VSTRK gives you another Global Attribution setup, you need to complete it as well.", 6200],
+  ["S6a", "So don\u2019t assume a previous installation covers a new setup.", 5000],
+  ["S6b", "If you see a Global Attribution setup step, complete it.", 4800],
+  ["S6c", "Follow each setup exactly as shown.", 4600],
+  ["S7", "That\u2019s it!", 3600],
 ];
 
 const SEG: Record<string, { start: number; end: number; dur: number; text: string }> = {};
@@ -161,10 +171,11 @@ function Chip({ x, y, t, start, end, label, tone = "accent", width = 118, fontSi
   );
 }
 
-/* NEW — a small "website" card: globe glyph + domain label. Stands
-   in for the unit of installation this whole video is about. */
-function WebsiteCard({ x, y, t, start, end, label, width = 176, height = 54, small = false }:
-  { x: number; y: number; t: number; start: number; end: number; label: string; width?: number; height?: number; small?: boolean }) {
+/* NEW — a small "setup" card: gear glyph + "SETUP N" label. Stands
+   in for the unit this whole video is about — a setup VSTRK gives
+   the user, not a website or a domain. */
+function SetupCard({ x, y, t, start, end, label, width = 176, height = 54, small = false, dim = false }:
+  { x: number; y: number; t: number; start: number; end: number; label: string; width?: number; height?: number; small?: boolean; dim?: boolean }) {
   const p = prog(t, start, end);
   if (p <= 0.001) return null;
   const bx = x - width / 2, by = y - height / 2;
@@ -173,11 +184,12 @@ function WebsiteCard({ x, y, t, start, end, label, width = 176, height = 54, sma
   const textSize = small ? 10.5 : 12.5;
   const glyphY = small ? y - 3 : y - 8;
   const textY = small ? y + 13 : y + 17;
+  const strokeColor = dim ? LINE : ACCENT;
   return (
-    <g opacity={p} style={{ transformOrigin: `${x}px ${y}px`, transform: `scale(${scale})` }}>
-      <rect x={bx} y={by} width={width} height={height} rx={12} fill="#ffffff" stroke={ACCENT} strokeWidth={1.3}
+    <g opacity={p * (dim ? 0.6 : 1)} style={{ transformOrigin: `${x}px ${y}px`, transform: `scale(${scale})` }}>
+      <rect x={bx} y={by} width={width} height={height} rx={12} fill="#ffffff" stroke={strokeColor} strokeWidth={1.3}
         style={{ filter: "drop-shadow(0 4px 10px rgba(21,21,31,0.08))" }} />
-      <text x={x} y={glyphY} textAnchor="middle" fontSize={glyphSize}>{"\uD83C\uDF10"}</text>
+      <text x={x} y={glyphY} textAnchor="middle" fontSize={glyphSize}>{"\u2699\uFE0F"}</text>
       <text x={x} y={textY} textAnchor="middle" fontFamily={MONO} fontWeight={700} fontSize={textSize} letterSpacing={0.2} fill={INK}>{label}</text>
     </g>
   );
@@ -235,37 +247,32 @@ export default function OnboardingVideoGlobalAttribution({ onSkip, onComplete }:
 
   /* ---------------- Scene 3 — the simple answer ---------------- */
   const s3TextIn = { start: SEG.S3a.start + 150, end: SEG.S3b.start + (SEG.S3b.end - SEG.S3b.start) * 0.35 };
-  const s3WebsiteIn = bw("S3b", 0.45, 0.72);
+  const s3SetupIn = bw("S3b", 0.45, 0.72);
   const s3ArrowIn = bw("S3b", 0.6, 0.82);
   const s3GaIn = bw("S3b", 0.78, 1);
 
-  /* ---------------- Scene 4 — same website ---------------- */
-  const s4WebsiteIn = bw("S4", 0, 0.14);
-  const s4FunnelsIn = FUNNELS.map((_, i) => bw("S4", 0.14 + i * 0.08, 0.32 + i * 0.08));
-  const s4LinesIn = FUNNELS.map((_, i) => bw("S4", 0.2 + i * 0.08, 0.38 + i * 0.08));
-  const s4TrunkIn = bw("S4", 0.5, 0.64);
-  const s4GaIn = bw("S4", 0.58, 0.74);
-  const s4LabelIn = bw("S4", 0.78, 0.96);
+  /* ---------------- Scene 4 — one setup, one Global Attribution step ---------------- */
+  const s4SetupIn = bw("S4", 0, 0.18);
+  const s4Arrow1In = bw("S4", 0.22, 0.34);
+  const s4GaIn = bw("S4", 0.36, 0.56);
+  const s4Arrow2In = bw("S4", 0.6, 0.72);
+  const s4LabelIn = bw("S4", 0.76, 0.96);
 
-  /* ---------------- Scene 5 — different websites ---------------- */
-  const SITES_5 = ["yoursite.com", "booking.example.com", "anotherbrand.com"];
-  const s5SiteIn = SITES_5.map((_, i) => bw("S5", i * 0.1, 0.22 + i * 0.1));
-  const s5LineIn = SITES_5.map((_, i) => bw("S5", 0.36 + i * 0.08, 0.5 + i * 0.08));
-  const s5GaIn = SITES_5.map((_, i) => bw("S5", 0.42 + i * 0.08, 0.58 + i * 0.08));
-  const s5CaptionIn = bw("S5", 0.76, 0.98);
+  /* ---------------- Scene 5 — a new setup appears ---------------- */
+  const s5LeftSetupIn = bw("S5", 0, 0.16);
+  const s5LeftGaIn = bw("S5", 0.1, 0.26);
+  const s5CrossIn = bw("S5", 0.3, 0.48);
+  const s5RightSetupIn = bw("S5", 0.44, 0.62);
+  const s5RightGaIn = bw("S5", 0.58, 0.78);
+  const s5CaptionIn = bw("S5", 0.8, 0.98);
 
-  /* ---------------- Scene 6 — side-by-side comparison ---------------- */
-  const s6DividerIn = bw("S6a", 0, 0.9);
-  const s6LeftHeaderIn = bw("S6a", 0.1, 0.7);
-  const s6RightHeaderIn = bw("S6b", 0, 0.35);
-  const s6LeftSiteIn = bw("S6a", 0.35, 0.75);
-  const s6LeftFunnelsIn = FUNNELS.map((_, i) => bw("S6a", 0.4 + i * 0.12, 0.7 + i * 0.12));
-  const s6LeftGaIn = bw("S6b", 0.05, 0.35);
-  const s6LeftLabelIn = bw("S6b", 0.4, 0.7);
-  const SITES_6 = ["website-a.com", "website-b.com", "website-c.com"];
-  const s6RightSiteIn = SITES_6.map((_, i) => bw("S6b", 0.15 + i * 0.14, 0.5 + i * 0.14));
-  const s6RightGaIn = SITES_6.map((_, i) => bw("S6b", 0.25 + i * 0.14, 0.6 + i * 0.14));
-  const s6RightLabelIn = bw("S6c", 0, 0.4);
+  /* ---------------- Scene 6 — don't assume, complete it, follow exactly ---------------- */
+  const s6WarnIn = bw("S6a", 0, 0.5);
+  const s6Step1In = bw("S6a", 0.45, 0.95);
+  const s6Step2In = bw("S6b", 0, 0.55);
+  const s6Check2In = bw("S6b", 0.35, 0.7);
+  const s6Step3In = bw("S6c", 0, 0.6);
+  const s6Check3In = bw("S6c", 0.4, 0.85);
 
   /* ---------------- Scene 7 — final ---------------- */
   const s7Line1In = bw("S7", 0, 0.5);
@@ -333,77 +340,70 @@ export default function OnboardingVideoGlobalAttribution({ onSkip, onComplete }:
               opacity={prog(t, s3TextIn.start, s3TextIn.end)}>
               GLOBAL ATTRIBUTION
             </text>
-            <text x={480} y={210} textAnchor="middle" fontFamily={MONO} fontWeight={800} fontSize={30} letterSpacing={1} fill={ACCENT}
+            <text x={480} y={210} textAnchor="middle" fontFamily={MONO} fontWeight={800} fontSize={26} letterSpacing={1} fill={ACCENT}
               opacity={prog(t, s3TextIn.start, s3TextIn.end)}>
-              IS INSTALLED PER WEBSITE.
+              IS PART OF THIS SETUP.
             </text>
 
-            <WebsiteCard x={480} y={330} t={t} start={s3WebsiteIn.start} end={s3WebsiteIn.end} label="WEBSITE A" width={200} height={60} />
+            <SetupCard x={480} y={330} t={t} start={s3SetupIn.start} end={s3SetupIn.end} label="SETUP 01" width={200} height={60} />
             <DrawLine d="M480,362 L480,410" t={t} start={s3ArrowIn.start} end={s3ArrowIn.end} width={1.4} color={ACCENT} />
             <text x={480} y={412} textAnchor="middle" fontFamily={MONO} fontSize={13} fill={ACCENT}
               opacity={prog(t, s3ArrowIn.start, s3ArrowIn.end)}>&darr;</text>
             <Badge x={480} y={442} t={t} arriveStart={s3GaIn.start} arriveEnd={s3GaIn.end} label="Global Attribution \u2713" width={210} filled />
           </g>
 
-          {/* ================= Scene 4 — same website, one setup ================= */}
+          {/* ================= Scene 4 — every setup carries its own Global Attribution step ================= */}
           <g opacity={scene4Opacity}>
-            <WebsiteCard x={480} y={100} t={t} start={s4WebsiteIn.start} end={s4WebsiteIn.end} label="yoursite.com" width={210} height={58} />
-            {FUNNELS.map((_, i) => (
-              <DrawLine key={`s4-l-${i}`} d={`M${280 + i * 200},188 L480,128`} t={t} start={s4LinesIn[i].start} end={s4LinesIn[i].end}
-                width={1.1} color={LINE} />
-            ))}
-            {FUNNELS.map((f, i) => (
-              <Chip key={`s4-f-${i}`} x={280 + i * 200} y={210} t={t} start={s4FunnelsIn[i].start} end={s4FunnelsIn[i].end}
-                label={f} tone="muted" width={168} fontSize={11.5} />
-            ))}
-            <DrawLine d="M480,128 L480,330" t={t} start={s4TrunkIn.start} end={s4TrunkIn.end} width={1.6} color={ACCENT} />
-            <Badge x={480} y={358} t={t} arriveStart={s4GaIn.start} arriveEnd={s4GaIn.end} label="Global Attribution \u2713" width={210} filled />
-            <Chip x={480} y={404} t={t} start={s4LabelIn.start} end={s4LabelIn.end} label="One Setup" tone="filled" width={140} fontSize={11} />
+            <SetupCard x={480} y={110} t={t} start={s4SetupIn.start} end={s4SetupIn.end} label="SETUP 01" width={210} height={58} />
+            <DrawLine d="M480,140 L480,196" t={t} start={s4Arrow1In.start} end={s4Arrow1In.end} width={1.4} color={ACCENT} />
+            <text x={480} y={198} textAnchor="middle" fontFamily={MONO} fontSize={13} fill={ACCENT}
+              opacity={prog(t, s4Arrow1In.start, s4Arrow1In.end)}>&darr;</text>
+            <Badge x={480} y={230} t={t} arriveStart={s4GaIn.start} arriveEnd={s4GaIn.end} label="Global Attribution \u2713" width={220} filled />
+            <DrawLine d="M480,246 L480,300" t={t} start={s4Arrow2In.start} end={s4Arrow2In.end} width={1.4} color={ACCENT} />
+            <text x={480} y={302} textAnchor="middle" fontFamily={MONO} fontSize={13} fill={ACCENT}
+              opacity={prog(t, s4Arrow2In.start, s4Arrow2In.end)}>&darr;</text>
+            <Chip x={480} y={336} t={t} start={s4LabelIn.start} end={s4LabelIn.end} label="Completed" tone="filled" width={150} fontSize={11} />
           </g>
 
-          {/* ================= Scene 5 — different websites, own setups ================= */}
+          {/* ================= Scene 5 — another setup, another Global Attribution step ================= */}
           <g opacity={scene5Opacity}>
-            {SITES_5.map((s, i) => (
-              <WebsiteCard key={`s5-w-${i}`} x={175 + i * 305} y={130} t={t} start={s5SiteIn[i].start} end={s5SiteIn[i].end}
-                label={s} width={220} height={58} />
-            ))}
-            {SITES_5.map((_, i) => (
-              <DrawLine key={`s5-l-${i}`} d={`M${175 + i * 305},158 L${175 + i * 305},248`} t={t} start={s5LineIn[i].start} end={s5LineIn[i].end}
-                width={1.4} color={ACCENT} />
-            ))}
-            {SITES_5.map((_, i) => (
-              <Badge key={`s5-g-${i}`} x={175 + i * 305} y={280} t={t} arriveStart={s5GaIn[i].start} arriveEnd={s5GaIn[i].end}
-                label="Global Attribution \u2713" width={210} filled />
-            ))}
+            <SetupCard x={230} y={130} t={t} start={s5LeftSetupIn.start} end={s5LeftSetupIn.end} label="SETUP 01" width={190} height={54} dim />
+            <Badge x={230} y={196} t={t} arriveStart={s5LeftGaIn.start} arriveEnd={s5LeftGaIn.end} label="Completed \u2713" width={170} filled />
+
+            <DrawLine d="M330,150 L630,150" t={t} start={s5CrossIn.start} end={s5CrossIn.end} width={1.2} color={WARN} dash="3 6" />
+            <text x={480} y={130} textAnchor="middle" fontFamily={MONO} fontWeight={800} fontSize={20} fill={WARN}
+              opacity={prog(t, s5CrossIn.start, s5CrossIn.end)}>&#8856;</text>
+
+            <SetupCard x={730} y={130} t={t} start={s5RightSetupIn.start} end={s5RightSetupIn.end} label="SETUP 02" width={190} height={54} />
+            <Badge x={730} y={196} t={t} arriveStart={s5RightGaIn.start} arriveEnd={s5RightGaIn.end} label="Complete this setup" width={200} />
+
             <text x={480} y={430} textAnchor="middle" fontFamily={MONO} fontSize={13} fontWeight={700} letterSpacing={0.4} fill={INK}
               opacity={prog(t, s5CaptionIn.start, s5CaptionIn.end)} style={{ textTransform: "uppercase" }}>
-              Different website &rarr; different setup
+              A finished setup doesn&rsquo;t cover a new one
             </text>
           </g>
 
-          {/* ================= Scene 6 — side-by-side comparison ================= */}
+          {/* ================= Scene 6 — don't assume, complete it, follow exactly ================= */}
           <g opacity={scene6Opacity}>
-            <DrawLine d="M480,110 L480,460" t={t} start={s6DividerIn.start} end={s6DividerIn.end} width={1} color={LINE} dash="4 6" />
+            <Chip x={480} y={82} t={t} start={s6WarnIn.start} end={s6WarnIn.end} label="Skip it? \u2715" tone="warn" width={140} fontSize={11} />
 
-            <Badge x={240} y={90} t={t} arriveStart={s6LeftHeaderIn.start} arriveEnd={s6LeftHeaderIn.end} label="Same Website" width={180} filled />
-            <WebsiteCard x={240} y={150} t={t} start={s6LeftSiteIn.start} end={s6LeftSiteIn.end} label="yoursite.com" width={168} height={44} small />
-            {FUNNELS.map((f, i) => (
-              <Chip key={`s6-lf-${i}`} x={240} y={202 + i * 30} t={t} start={s6LeftFunnelsIn[i].start} end={s6LeftFunnelsIn[i].end}
-                label={f} tone="muted" width={158} fontSize={9.5} />
-            ))}
-            <Badge x={240} y={324} t={t} arriveStart={s6LeftGaIn.start} arriveEnd={s6LeftGaIn.end} label="Global Attribution \u2713" width={190} filled />
-            <Chip x={240} y={362} t={t} start={s6LeftLabelIn.start} end={s6LeftLabelIn.end} label="One Setup" tone="filled" width={130} fontSize={10} />
+            <rect x={300} y={126} width={360} height={2} fill={LINE} opacity={prog(t, s6Step1In.start, s6Step1In.end)} />
 
-            <Badge x={720} y={90} t={t} arriveStart={s6RightHeaderIn.start} arriveEnd={s6RightHeaderIn.end} label="Different Websites" width={210} filled tone={WARN} />
-            {SITES_6.map((s, i) => (
-              <WebsiteCard key={`s6-rw-${i}`} x={720} y={150 + i * 58} t={t} start={s6RightSiteIn[i].start} end={s6RightSiteIn[i].end}
-                label={s} width={168} height={44} small />
-            ))}
-            {SITES_6.map((_, i) => (
-              <Badge key={`s6-rg-${i}`} x={860} y={150 + i * 58} t={t} arriveStart={s6RightGaIn[i].start} arriveEnd={s6RightGaIn[i].end}
-                label="\u2713" width={54} filled />
-            ))}
-            <Chip x={720} y={368} t={t} start={s6RightLabelIn.start} end={s6RightLabelIn.end} label="Each Website" tone="warn" width={150} fontSize={10} />
+            <Badge x={340} y={168} t={t} arriveStart={s6Step1In.start} arriveEnd={s6Step1In.end} label="1" width={34} filled />
+            <text x={390} y={173} fontFamily={MONO} fontSize={13.5} fontWeight={700} fill={INK}
+              opacity={prog(t, s6Step1In.start, s6Step1In.end)}>See a Global Attribution setup</text>
+
+            <Badge x={340} y={230} t={t} arriveStart={s6Step2In.start} arriveEnd={s6Step2In.end} label="2" width={34} filled />
+            <text x={390} y={235} fontFamily={MONO} fontSize={13.5} fontWeight={700} fill={INK}
+              opacity={prog(t, s6Step2In.start, s6Step2In.end)}>Complete it</text>
+            <text x={860} y={235} textAnchor="middle" fontFamily={MONO} fontWeight={800} fontSize={18} fill={ACCENT}
+              opacity={prog(t, s6Check2In.start, s6Check2In.end)}>&#10003;</text>
+
+            <Badge x={340} y={292} t={t} arriveStart={s6Step3In.start} arriveEnd={s6Step3In.end} label="3" width={34} filled />
+            <text x={390} y={297} fontFamily={MONO} fontSize={13.5} fontWeight={700} fill={INK}
+              opacity={prog(t, s6Step3In.start, s6Step3In.end)}>Follow it exactly as shown</text>
+            <text x={860} y={297} textAnchor="middle" fontFamily={MONO} fontWeight={800} fontSize={18} fill={ACCENT}
+              opacity={prog(t, s6Check3In.start, s6Check3In.end)}>&#10003;</text>
           </g>
 
           {/* ================= Scene 7 — final ================= */}
@@ -411,11 +411,11 @@ export default function OnboardingVideoGlobalAttribution({ onSkip, onComplete }:
             <circle cx={480} cy={250} r={70 + s7RingVal * 30} fill="none" stroke={ACCENT} strokeWidth={1} opacity={s7RingVal * 0.4} />
             <text x={480} y={246} textAnchor="middle" fontFamily={MONO} fontWeight={800} fontSize={22} letterSpacing={0.6} fill={INK}
               opacity={prog(t, s7Line1In.start, s7Line1In.end)}>
-              SAME WEBSITE &rarr; ONE SETUP
+              EVERY SETUP GETS ITS OWN
             </text>
             <text x={480} y={284} textAnchor="middle" fontFamily={MONO} fontWeight={800} fontSize={22} letterSpacing={0.4} fill={ACCENT}
               opacity={prog(t, s7Line2In.start, s7Line2In.end)}>
-              DIFFERENT WEBSITES &rarr; EACH GETS ITS OWN
+              GLOBAL ATTRIBUTION STEP &mdash; COMPLETE EACH ONE
             </text>
             <text x={480} y={360} textAnchor="middle" fontFamily={MONO} fontWeight={700} fontSize={13} letterSpacing={3} fill={MUTED}
               opacity={prog(t, s7BrandIn.start, s7BrandIn.end)}>
