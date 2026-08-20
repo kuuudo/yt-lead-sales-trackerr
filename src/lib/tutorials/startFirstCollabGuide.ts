@@ -74,7 +74,7 @@ export const startFirstCollabGuide: Tutorial = {
       id: 'go-to-invitations-tab',
       title: 'Check Your Invitations',
       body:
-        'Your invitation will show up right here, in your own Invitations tab — exactly where a real collaborator would see it.',
+        '(No action required in this step)Your invitation will show up right here, in your own Invitations tab — exactly where a real collaborator would see it.',
       tag: 'demo',
       route: '/marketplace',
       targetSelector: '[data-tutorial-id="marketplace-invitations-tab"]',
@@ -98,7 +98,7 @@ export const startFirstCollabGuide: Tutorial = {
       tag: 'try-it',
       targetSelector: '[data-tutorial-id="assignment-accept-invitation"]',
       fallbackNote: 'If you don\u2019t see this yet, the page may still be loading your invitation.',
-      requireAction: { eventKey: 'collab-invitation-accepted' },
+      
     },
     {
       id: 'select-asset',
