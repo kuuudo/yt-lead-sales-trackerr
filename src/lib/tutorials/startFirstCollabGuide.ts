@@ -177,6 +177,7 @@ export const startFirstCollabGuide: Tutorial = {
         'You just created a real Promotion. Go back to the Marketplace and open the Promotion you just started — that\u2019s the control center for everything that happens after someone begins promoting your Assets.',
       tag: 'try-it',
       route: '/marketplace',
+      targetSelector: '[data-tutorial-id="marketplace-promotion-manage"]',
       // Point at whatever selector shows the newly-created promotion row
       // (you may need to add data-tutorial-id="marketplace-promotion-row" if it doesn’t exist yet)
       targetSelector: '[data-tutorial-id="marketplace-promotion-row"]',
