@@ -190,6 +190,8 @@ export const startFirstCollabGuide: Tutorial = {
       body:
         'Once someone starts promoting your Assets through an Assignment, this is where you can see and manage that Promotion \u2014 who\u2019s involved, what they\u2019re promoting, and what they have access to.',
       tag: 'demo',
+      route: '/marketplace',
+      targetSelector: '[data-tutorial-id="marketplace-promotion-row"]',
       previewImage: { src: promotionDetailOverview, alt: 'The full Promotion Detail page' },
     },
     {
