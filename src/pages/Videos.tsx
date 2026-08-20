@@ -1361,15 +1361,7 @@ console.log(
   >
     🦊
   </button>
-  {!isReadOnly && (
-  <button
-    onClick={handleStartTrackFirstContentGuide}
-    className="flex items-center gap-1.5 h-8 px-3 rounded-full bg-zinc-800 border border-zinc-300/60 text-zinc-100 hover:bg-zinc-700 hover:border-white transition-colors text-[10px] font-black uppercase tracking-widest"
-    aria-label="Follow the Track Your First Content guide"
-  >
-    🎓 Track Your First Content
-  </button>
-  )}
+
 </h1>
           <p className="text-zinc-500 text-[10px] uppercase tracking-widest mt-1">Manage your tracked content</p>
         </div>
@@ -2759,6 +2751,30 @@ console.log(
     >
       Take the Interactive Tour
     </button>
+
+    <button
+      type="button"
+      onClick={handleStartTrackFirstContentGuide}
+      style={{
+        position: 'fixed',
+        top: 14,
+        left: 210,
+        zIndex: 20001,
+        padding: '6px 14px',
+        borderRadius: 999,
+        border: '1px solid #000000',
+        background: '#ffffff',
+        color: '#000000',
+        fontSize: 11,
+        fontWeight: 700,
+        letterSpacing: 0.4,
+        textTransform: 'uppercase',
+        cursor: 'pointer',
+      }}
+    >
+      🎓 Track Your First Content
+    </button>
+
     <OnboardingVideoSection01
       onSkip={() => setShowOnboarding(false)}
       onComplete={() => setShowOnboarding(false)}
