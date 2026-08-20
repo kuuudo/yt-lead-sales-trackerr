@@ -60,6 +60,17 @@ export default function Marketplace() {
     if (onCollabInviteStep && tab !== 'invitations') {
       setTab('invitations');
     }
+
+  // force My Promotions tab for the transition step
+    const onGoToPromotionStep =
+      tutorialStatus === 'active' &&
+      activeTutorial?.id === 'start-first-collab' &&
+      activeTutorial.steps[tutorialStepIndex]?.id === 'go-to-promotion-detail';
+    if (onGoToPromotionStep && tab !== 'promotions') {
+      setTab('promotions');
+    }
+  }, [tutorialStatus, activeTutorial, tutorialStepIndex, tab]);
+
   }, [tutorialStatus, activeTutorial, tutorialStepIndex, tab]);
   const [loading, setLoading] = useState(true);
   const [showOnboarding, setShowOnboarding] = useState(false);
@@ -506,9 +517,11 @@ export default function Marketplace() {
                   <button
                     onClick={(e) => {
                       e.stopPropagation();
+                      notifyTutorial('collab-promotion-opened');  
                       navigate(`/marketplace/promotions/${p.id}`);
                     }}
                     title="Manage Promotion"
+                    data-tutorial-id="marketplace-promotion-manage"  
                     className="w-7 h-7 rounded-lg bg-zinc-950 border border-zinc-800 flex items-center justify-center text-zinc-400 hover:text-white transition-all"
                   >
                     <Gamepad2 size={14} />

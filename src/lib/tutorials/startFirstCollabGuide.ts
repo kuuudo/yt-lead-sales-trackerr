@@ -181,6 +181,7 @@ export const startFirstCollabGuide: Tutorial = {
       // (you may need to add data-tutorial-id="marketplace-promotion-row" if it doesn’t exist yet)
       targetSelector: '[data-tutorial-id="marketplace-promotion-row"]',
       fallbackNote: 'Look for the Promotion that was created when you clicked “Start Promoting”.',
+      requireAction: { eventKey: 'collab-promotion-opened' },
     },
 
     // ── continuation of promotionTutorial steps ───────────────────────
