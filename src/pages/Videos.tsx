@@ -1187,6 +1187,7 @@ console.log(
     try {
       await addToLibrary(v.asset_id);
       setLibraryStatus(prev => new Map(prev).set(v.asset_id!, true));
+      notifyTutorial('follow-along-video-added-to-library');
     } catch (err: any) {
       showAlert('Error', err.message || 'Could not add to library.', 'danger');
     } finally {
@@ -2372,6 +2373,7 @@ console.log(
                   {v.status === 'no_data' && v.asset_id && !libraryStatus.get(v.asset_id) ? (
                     <div className="flex items-center gap-1">
                       <button
+                        data-tutorial-id="videos-add-to-library"
                         type="button"
                         onClick={(e) => handleAddToLibraryInList(v, e)}
                         disabled={addingLibraryId === v.id}

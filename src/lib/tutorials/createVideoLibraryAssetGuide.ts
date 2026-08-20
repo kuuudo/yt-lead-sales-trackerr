@@ -3,84 +3,45 @@
 // Content only — copy, step order, targets. No rendering logic lives here
 // (see TutorialRunner.tsx). PATH 2 of "Create Your First Asset."
 //
-// Real workflow (confirmed from VideoDetail.tsx):
-//   1. Land on a specific tracked video's detail page (/videos/:id) —
-//      the "Add to Asset Library" button only exists there, and only
-//      shows for a video that already has a real tracking link
-//      (asset_id) that isn't already in the library (see
-//      handleAddToLibrary's own guard: `if (!video?.asset_id) return;`).
-//   2. Click "Add to Asset Library".
+// UPDATED: now targets the "+ Asset" button in the Videos.tsx LIST
+// (the real, already-existing per-row button, condition:
+// v.status === 'no_data' && v.asset_id && !libraryStatus.get(v.asset_id))
+// instead of the "Add to Asset Library" button on VideoDetail.tsx. Same
+// underlying rule either way — a video needs a real tracking link
+// (asset_id) and must not already be in the library — so no VideoDetail.tsx
+// spot is used anymore.
 //
-// IMPORTANT PREREQUISITE (confirmed, not assumed): a user with zero
-// tracked videos CANNOT complete this path — there is no "create a video
-// from scratch" step here. So step 1 tries to find an eligible video
-// automatically (same small-helper pattern as assetsTutorial.ts's
-// resolveMostRecentCampaignRoute — no new system, just one query).
-// If none exists, this step's ctaLinks hands off straight to the
-// existing trackFirstContentGuide instead of leaving the user stuck.
+// This version is SIMPLER than the old one: no dynamic route lookup is
+// needed. The button only renders when an eligible video exists, so we
+// just send the user to the static '/videos' page and target the real
+// button directly. If no eligible video exists, the button simply won't
+// be on the page — the runner's normal wait-then-fallback behavior
+// handles that (see fallbackNote + ctaLinks below), same idea as before,
+// just without a custom resolver function.
 //
-// NOTE / known limitation: ctaLinks always render on a step, whether or
-// not resolveRoute succeeded (TutorialRunner.tsx doesn't currently
-// condition ctaLinks on the fallback state). So the "Track Your First
-// Content" button will show even when an eligible video WAS found. This
-// is a minor UX quirk, not a bug — worst case the user has an extra,
-// harmless option visible. Flagging this now in case you want a
-// follow-up change to TutorialRunner.tsx to only show ctaLinks when
-// showFallback is true.
+// IMPORTANT PREREQUISITE (unchanged): a user with zero tracked videos
+// still cannot complete this path. fallbackNote + the "Track Your First
+// Content" ctaLinks handoff below cover that case.
 //
 // New selector needed (see edit notes given separately):
-//   video-add-to-library — the real "Add to Asset Library" button
+//   videos-add-to-library — the real "+ Asset" button in the Videos.tsx list row
 
-import { supabase } from '../supabase';
 import type { Tutorial } from '../tutorialTypes';
 import { trackFirstContentGuide } from './trackFirstContentGuide';
-
-// Finds a recently tracked video that has a real tracking link (asset_id)
-// and isn't in the Asset Library yet. Mirrors the two-step
-// videos-then-assets lookup already used in Videos.tsx's fetchData, just
-// scoped down to "give me one eligible video" instead of the whole list.
-// Returns null if nothing qualifies — the runner then shows fallbackNote
-// + the Track Your First Content handoff button instead of navigating.
-async function resolveEligibleVideoRoute(): Promise<string | null> {
-  const { data: vids, error: vErr } = await supabase
-    .from('videos')
-    .select('id, asset_id, created_at')
-    .not('asset_id', 'is', null)
-    .is('deleted_at', null)
-    .is('archived_at', null)
-    .order('created_at', { ascending: false })
-    .limit(20);
-
-  if (vErr || !vids || vids.length === 0) return null;
-
-  const assetIds = [...new Set(vids.map(v => v.asset_id).filter(Boolean))];
-  if (assetIds.length === 0) return null;
-
-  const { data: assets, error: aErr } = await supabase
-    .from('assets')
-    .select('id, added_to_library_at')
-    .in('id', assetIds);
-
-  if (aErr || !assets) return null;
-
-  const notYetInLibrary = new Set(
-    assets.filter(a => !a.added_to_library_at).map(a => a.id)
-  );
-  const eligible = vids.find(v => v.asset_id && notYetInLibrary.has(v.asset_id));
-
-  return eligible ? `/videos/${eligible.id}` : null;
-}
 
 export const createVideoLibraryAssetGuide: Tutorial = {
   id: 'create-video-library-asset',
   mode: 'follow-along',
   steps: [
     {
-      id: 'open-video',
-      title: 'Open a tracked video',
+      id: 'add-to-library',
+      title: 'Click + Asset',
       body:
-        'Let\u2019s turn one of your tracked videos into an Asset. Here\u2019s one that\u2019s ready.',
-      resolveRoute: resolveEligibleVideoRoute,
+        'Find a tracked video in your list and click **+ Asset** next to it. This turns it into a reusable, shareable Asset.',
+      tag: 'try-it',
+      route: '/videos',
+      targetSelector: '[data-tutorial-id="videos-add-to-library"]',
+      requireAction: { eventKey: 'follow-along-video-added-to-library' },
       fallbackNote:
         'Before you can create a Video Library Asset, you need to track a video first.',
       ctaLinks: [
@@ -91,16 +52,6 @@ export const createVideoLibraryAssetGuide: Tutorial = {
           startTutorial: trackFirstContentGuide,
         },
       ],
-    },
-    {
-      id: 'add-to-library',
-      title: 'Click Add to Asset Library',
-      body:
-        'This is the real, final step \u2014 it turns this video into a reusable, shareable Asset.',
-      tag: 'try-it',
-      targetSelector: '[data-tutorial-id="video-add-to-library"]',
-      requireAction: { eventKey: 'follow-along-video-added-to-library' },
-      fallbackNote: 'Scroll down to the Asset Library section on this page.',
     },
     {
       id: 'complete',
