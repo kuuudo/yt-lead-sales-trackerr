@@ -15,6 +15,7 @@ import {
 import { motion, AnimatePresence } from 'motion/react';
 import { syncCampaignRedirectLinks } from '../lib/campaignRedirectEngine';
 import { PublishAssetButton } from "../components/PublishAssetButton";
+import { useTutorial } from '../lib/tutorial-overlay';
 import { getPublishedElements, type PublishedElement } from '../services/asset/publishCampaignElementAsAsset';
 import { saveCampaign } from '../services/campaign/saveCampaign';
 // Reusable Stripe toggle component
@@ -111,7 +112,7 @@ export default function CampaignDetail() {
   const [checkoutUrlChanged, setCheckoutUrlChanged] = useState(false);
   const originalCheckoutUrl = React.useRef<string>('');
   const [publishedElements, setPublishedElements] = useState<Record<string, PublishedElement>>({});
-
+  const { notify } = useTutorial();
   useEffect(() => {
     if (user && id) fetchCampaignData();
   }, [user, id]);
@@ -420,7 +421,10 @@ export default function CampaignDetail() {
                           leadMagnets,
                          });
                       }}
-                      onPublished={el => setPublishedElements(prev => ({ ...prev, [el.source_field]: el }))}
+                      onPublished={el => {
+                        setPublishedElements(prev => ({ ...prev, [el.source_field]: el }));
+                        notify('create-campaign-asset-created');
+                      }}                      
                     />
                   </div>
                   )}

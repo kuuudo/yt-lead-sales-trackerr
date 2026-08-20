@@ -98,6 +98,7 @@ export function ImportAssetModal({ onClose, onImported }: ImportAssetModalProps)
         <div className="flex items-center gap-2 mb-4">
           <Link2 size={14} className="text-zinc-600 shrink-0" />
           <input
+            data-tutorial-id="import-asset-url-input"
             value={url}
             onChange={e => setUrl(e.target.value)}
             placeholder="https://..."
@@ -132,6 +133,7 @@ export function ImportAssetModal({ onClose, onImported }: ImportAssetModalProps)
         )}
 
         <button
+          data-tutorial-id="import-asset-submit"
           onClick={handleImport}
           disabled={submitting || !url.trim()}
           className="w-full flex items-center justify-center gap-2 bg-red-600 hover:bg-red-500 disabled:opacity-50 text-white text-xs font-bold uppercase tracking-wider px-4 py-3 rounded-lg"

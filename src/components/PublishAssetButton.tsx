@@ -68,6 +68,7 @@ export function PublishAssetButton({
   return (
     <>
       <button
+        data-tutorial-id={`campaign-publish-${sourceField}`}
         type="button"
         disabled={!currentUrl}
         onClick={() => setOpen(true)}
@@ -122,6 +123,7 @@ export function PublishAssetButton({
             </a>
 
             <button
+              data-tutorial-id={`campaign-publish-submit-${sourceField}`}
               onClick={handlePublish}
               disabled={submitting}
               className="w-full flex items-center justify-center gap-2 bg-red-600 hover:bg-red-500 disabled:opacity-50 text-white text-xs font-bold uppercase tracking-wider px-4 py-3 rounded-lg"

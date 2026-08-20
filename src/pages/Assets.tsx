@@ -45,6 +45,7 @@ import { motion, AnimatePresence } from 'motion/react';
 import { Modal } from '../components/Modal';
 import { useAuth } from '../lib/auth';
 import { useOrganization } from '../lib/useOrganization';
+import { useTutorial } from '../lib/tutorial-overlay';
 import { listAssetsByOrganization } from '../services/asset/listAssetsByOrganization';
 import type { AssetLibraryRow } from '../services/asset/listAssetsByOrganization';
 import {
@@ -83,6 +84,7 @@ export default function Assets() {
   const [showOnboarding, setShowOnboarding] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [showImportModal, setShowImportModal] = useState(false);
+  const { notify } = useTutorial();
   const tutorial = useTutorial();
   const [search, setSearch] = useState('');
 
@@ -401,7 +403,8 @@ if (user) {
         </p>
         <div className="mt-4 flex items-center gap-3">
           <button
-            onClick={() => setShowImportModal(true)}
+            data-tutorial-id="assets-import-open"
+            onClick={() => { setShowImportModal(true); notify('follow-along-import-opened'); }}
             className="flex items-center gap-2 bg-red-600 hover:bg-red-500 text-white text-[10px] font-black uppercase tracking-widest px-4 py-2.5 rounded-xl transition-all"
           >
             <Plus size={14} /> Import Asset
@@ -637,6 +640,7 @@ if (user) {
           onClose={() => setShowImportModal(false)}
           onImported={(_assetResource: AssetResource) => {
             fetchAssets();
+            notify('follow-along-import-created');
           }}
         />
       )}

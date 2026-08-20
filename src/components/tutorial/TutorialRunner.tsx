@@ -19,7 +19,10 @@ import { marketplaceTutorial } from '../../lib/tutorials/marketplaceTutorial';
 import { promotionTutorial } from '../../lib/tutorials/promotionTutorial';
 import { videosTutorial } from '../../lib/tutorials/videosTutorial';
 import { trackFirstContentGuide } from '../../lib/tutorials/trackFirstContentGuide';
-
+import { createFirstAssetGuide } from '../../lib/tutorials/createFirstAssetGuide';
+import { createCampaignAssetGuide } from '../../lib/tutorials/createCampaignAssetGuide';
+import { createVideoLibraryAssetGuide } from '../../lib/tutorials/createVideoLibraryAssetGuide';
+import { createImportAssetGuide } from '../../lib/tutorials/createImportAssetGuide';
 // Registry of tutorials the runner knows how to resume after a refresh.
 // Add future tutorials (collaboration, content, operator) here — nothing
 // else in this file needs to change to support them. trackFirstContentGuide
@@ -31,6 +34,10 @@ const TUTORIAL_REGISTRY = {
   [videosTutorial.id]: videosTutorial,
   [promotionTutorial.id]: promotionTutorial,
   [trackFirstContentGuide.id]: trackFirstContentGuide,
+  [createFirstAssetGuide.id]: createFirstAssetGuide,
+  [createCampaignAssetGuide.id]: createCampaignAssetGuide,
+  [createVideoLibraryAssetGuide.id]: createVideoLibraryAssetGuide,
+  [createImportAssetGuide.id]: createImportAssetGuide,
 };
 
 interface Rect {

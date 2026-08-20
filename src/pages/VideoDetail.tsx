@@ -31,6 +31,7 @@ import { useViewing } from '../lib/ViewingContext';
 import { getRedirectLinksDisplay, CATEGORY_LABEL, buildTrackingLinkUrl, type RedirectLinksDisplayGroups } from '../services/redirect/getPromotedAssetDisplay';
 import { getAsset } from '../services/asset/getAsset';
 import { addToLibrary } from '../services/asset/addToLibrary';
+import { useTutorial } from '../lib/tutorial-overlay';
 import {
   ArrowLeft, Youtube, DollarSign, Users, Activity,
   TrendingUp, MousePointer2, Phone, Briefcase,
@@ -290,6 +291,7 @@ export default function VideoDetail() {
   const [video, setVideo]         = useState<Video | null>(null);
   const [asset, setAsset]         = useState<Asset | null>(null);
   const [addingToLibrary, setAddingToLibrary] = useState(false);
+  const { notify } = useTutorial();
   const [campaign, setCampaign]   = useState<Campaign | null>(null);
   const [leadMagnets, setLeadMagnets] = useState<LeadMagnet[]>([]);
 
@@ -851,6 +853,7 @@ if (effectiveOrgId && effectiveUserId) {
     try {
       const { asset: updated } = await addToLibrary(video.asset_id);
       setAsset(updated);
+      notify('follow-along-video-added-to-library');
     } catch (err: any) {
       showAlert('Error', err.message || 'Could not add to library.', 'danger');
     } finally {
@@ -1608,6 +1611,7 @@ if (effectiveOrgId && effectiveUserId) {
 
           {!isReadOnly && (
           <button
+            data-tutorial-id="video-add-to-library"
             onClick={handleAddToLibrary}
             disabled={addingToLibrary}
             className="flex items-center gap-2 h-9 px-4 mx-auto rounded-xl border border-zinc-800 hover:bg-zinc-900 text-[10px] font-black uppercase tracking-widest text-zinc-400 hover:text-white transition-all disabled:opacity-50"
