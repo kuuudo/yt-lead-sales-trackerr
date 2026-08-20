@@ -71,7 +71,7 @@ export default function Marketplace() {
     }
   }, [tutorialStatus, activeTutorial, tutorialStepIndex, tab]);
 
-  }, [tutorialStatus, activeTutorial, tutorialStepIndex, tab]);
+  
   const [loading, setLoading] = useState(true);
   const [showOnboarding, setShowOnboarding] = useState(false);
   const [error, setError] = useState<string | null>(null);
