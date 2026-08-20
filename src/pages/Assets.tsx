@@ -38,6 +38,7 @@
  */
 import { useTutorial } from '../lib/tutorial-overlay';
 import { assetsTutorial } from '../lib/tutorials/assetsTutorial';
+import { createFirstAssetGuide } from '../lib/tutorials/createFirstAssetGuide';
 import React, { useEffect, useMemo, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { Library, Loader2, Plus, Search, Archive, ArchiveRestore, X, BarChart2, Gamepad2 } from 'lucide-react';
@@ -747,6 +748,16 @@ if (user) {
       className="fixed top-4 left-4 z-[20001] flex items-center gap-2 bg-zinc-900 text-white border border-zinc-700 rounded-full text-[10px] font-black uppercase tracking-widest px-4 py-2 shadow-lg hover:bg-zinc-800 transition-colors"
     >
       Take the interactive tour 
+    </button>
+    <button
+      onClick={() => {
+        setShowOnboarding(false);
+        tutorial.start(createFirstAssetGuide);
+      }}
+      className="fixed top-4 z-[20001] flex items-center gap-2 bg-white text-zinc-900 border border-zinc-300 rounded-full text-[10px] font-black uppercase tracking-widest px-4 py-2 shadow-lg hover:bg-zinc-100 transition-colors"
+      style={{ left: 210 }}
+    >
+      🎓 Create Your First Asset
     </button>
     <OnboardingVideoSection02
       onSkip={() => setShowOnboarding(false)}
