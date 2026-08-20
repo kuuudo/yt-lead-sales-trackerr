@@ -50,9 +50,9 @@ export const trackFirstContentGuide: Tutorial = {
     },
     {
       id: 'platform-url',
-      title: 'Choose your platform and paste the URL',
+      title: 'Paste the content URL you want to track',
       body:
-        'Select the platform your content is on, then paste the content URL. VSTRK will usually detect the platform automatically once you paste a link.',
+        'You can paste a YouTube, TikTok, LinkedIn, or other content URL. VSTRK will usually detect the platform automatically once you paste a link.',
       route: '/videos',
       targetSelector: '[data-tutorial-id="videos-platform-url"]',
       fallbackNote:

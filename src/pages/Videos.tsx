@@ -1364,10 +1364,10 @@ console.log(
   {!isReadOnly && (
   <button
     onClick={handleStartTrackFirstContentGuide}
-    className="w-8 h-8 rounded-full bg-zinc-800 border border-zinc-300/60 text-zinc-100 flex items-center justify-center hover:bg-zinc-700 hover:border-white transition-colors text-[14px]"
+    className="flex items-center gap-1.5 h-8 px-3 rounded-full bg-zinc-800 border border-zinc-300/60 text-zinc-100 hover:bg-zinc-700 hover:border-white transition-colors text-[10px] font-black uppercase tracking-widest"
     aria-label="Follow the Track Your First Content guide"
   >
-    🎓
+    🎓 Track Your First Content
   </button>
   )}
 </h1>
