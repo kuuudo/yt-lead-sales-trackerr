@@ -136,6 +136,18 @@ export const startFirstCollabGuide: Tutorial = {
       route: '/videos',
       targetSelector: '[data-tutorial-id="videos-track-new"]',
     },
+
+    {
+      id: 'track-new-content',
+      title: 'Track New Content',
+      body:
+        'Click this to open the form. This is the same flow you\u2019d use for any content \u2014 nothing collab-specific here yet.',
+      tag: 'try-it',
+      route: '/videos',
+      targetSelector: '[data-tutorial-id="videos-track-new"]',
+      requireAction: { eventKey: 'collab-form-opened' },
+    },
+
     {
       id: 'select-promoted-asset',
       title: 'Select Your Assigned Asset',
