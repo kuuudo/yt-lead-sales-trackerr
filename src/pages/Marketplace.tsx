@@ -46,8 +46,21 @@ const TABS: { key: Tab; label: string; icon: typeof Briefcase }[] = [
 
 export default function Marketplace() {
   const navigate = useNavigate();
-  const { start: startTutorial } = useTutorial();
+  const { start: startTutorial, notify: notifyTutorial, tutorial: activeTutorial, stepIndex: tutorialStepIndex, status: tutorialStatus } = useTutorial();
   const [tab, setTab] = useState<Tab>('promotions');
+  
+  // Follow-Along ("Start Your First Collab") — force the Invitations
+  // tab open when the guide reaches that step, since tab selection is
+  // internal component state, not a route the runner can navigate to.
+  useEffect(() => {
+    const onCollabInviteStep =
+      tutorialStatus === 'active' &&
+      activeTutorial?.id === 'start-first-collab' &&
+      activeTutorial.steps[tutorialStepIndex]?.id === 'open-your-invitation';
+    if (onCollabInviteStep && tab !== 'invitations') {
+      setTab('invitations');
+    }
+  }, [tutorialStatus, activeTutorial, tutorialStepIndex, tab]);
   const [loading, setLoading] = useState(true);
   const [showOnboarding, setShowOnboarding] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -352,6 +365,7 @@ export default function Marketplace() {
             <button
               key={key}
               onClick={() => setTab(key)}
+              data-tutorial-id={key === 'invitations' ? 'marketplace-invitations-tab' : undefined}
               className={`flex items-center gap-2 px-4 py-3 text-xs font-bold uppercase tracking-wider transition-colors border-b-2 -mb-px ${
                 tab === key
                   ? 'text-white border-red-600'
@@ -451,7 +465,11 @@ export default function Marketplace() {
             {invitations.map(inv => (
               <button
                 key={inv.id}
-                onClick={() => navigate(`/marketplace/assignments/${inv.assignment_id}`)}
+                onClick={() => {
+                  notifyTutorial('collab-invitation-opened');
+                  navigate(`/marketplace/assignments/${inv.assignment_id}`);
+                }}
+                data-tutorial-id="marketplace-pending-invitation"
                 className="w-full text-left flex items-center justify-between bg-zinc-900 border border-zinc-800 rounded-xl p-5 hover:border-zinc-700 transition-colors"
               >
                 <div>

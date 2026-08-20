@@ -42,6 +42,8 @@ export const promotionTutorial: Tutorial = {
       body:
         'This removes the collaborator from THIS Promotion \u2014 not their VSTRK account.\n\nOnce removed, they can no longer promote the Assets in this Promotion, or use the Tracking Domains assigned through it.',
       tag: 'demo',
+      targetSelector: '[data-tutorial-id="promotion-collaborator-actions"]',
+      fallbackNote: 'This only appears once this Promotion has a collaborator.',
       previewImage: { src: removeCollaboratorExample, alt: 'The Remove Collaborator button' },
     },
     {
@@ -50,6 +52,8 @@ export const promotionTutorial: Tutorial = {
       body:
         'This decides whether your collaborator can use **their own** tracking domain when promoting **your** Assets.\n\nIf allowed, they can use their own domain for redirect links. If not, they must use the domains you\u2019ve assigned to the Promotion.',
       tag: 'demo',
+      targetSelector: '[data-tutorial-id="promotion-allow-collaborator-domains"]',
+      fallbackNote: 'This checkbox appears next to each promoted Asset, once this Promotion has an active collaborator.',
       previewImage: { src: allowCollaboratorDomainsExample, alt: 'The Allow Collaborator Domains checkbox next to a promoted asset' },
     },
     {
@@ -74,6 +78,8 @@ export const promotionTutorial: Tutorial = {
       body:
         'You\u2019re not limited to the Assets originally selected. If you want your collaborator to promote something else later, add it here.',
       tag: 'demo',
+      targetSelector: '[data-tutorial-id="promotion-add-asset"]',
+      fallbackNote: 'This appears once this Promotion has an active collaborator.',
       previewImage: { src: addAssetExample, alt: 'The Add Asset / Select Assets to Add button' },
     },
     {
@@ -82,6 +88,8 @@ export const promotionTutorial: Tutorial = {
       body:
         'This removes the collaborator\u2019s access to **this one Asset only** \u2014 it does not remove them from the whole Promotion. They can no longer promote this specific Asset, but keep access to everything else.',
       tag: 'demo',
+      targetSelector: '[data-tutorial-id="promotion-asset-access-management"]',
+      fallbackNote: 'This list appears once this Promotion has an active collaborator with assigned Assets.',
       previewImage: { src: revokeAssetAccessExample, alt: 'The Access Management — Assigned Assets list with Revoke Access buttons' },
     },
     {
@@ -90,6 +98,8 @@ export const promotionTutorial: Tutorial = {
       body:
         'If you accidentally revoke access, don\u2019t worry \u2014 you can restore it later. Restoring lets the collaborator use that Asset again. Nothing was permanently deleted.',
       tag: 'demo',
+      targetSelector: '[data-tutorial-id="promotion-asset-access-management"]',
+      fallbackNote: 'This appears in the same list as Revoke Access, above, once an Asset has actually been revoked.',
       previewImage: { src: restoreAssetAccessExample, alt: 'A revoked asset with a Restore Access button' },
     },
     {
@@ -98,6 +108,8 @@ export const promotionTutorial: Tutorial = {
       body:
         'Just like you control which Assets someone can promote, you control which Tracking Domains they can use.\n\n**Assign Tracking Domain** adds a new one to the Promotion. **Access Management \u2014 Tracking Domains** lets you revoke or restore access to any of them.',
       tag: 'demo',
+      targetSelector: '[data-tutorial-id="promotion-assign-tracking-domain"]',
+      fallbackNote: 'This section appears once this Promotion has an active collaborator. The Access Management list below it only appears after at least one domain has been assigned.',
       previewImage: { src: trackingDomainManagementExample, alt: 'Assign Tracking Domain and Access Management — Tracking Domains sections' },
     },
   ],

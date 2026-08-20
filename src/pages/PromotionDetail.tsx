@@ -643,6 +643,7 @@ export default function PromotionDetail() {
                             {collaborator.status}
                           </span>
                         )}
+                        <div data-tutorial-id="promotion-collaborator-actions">
                         {collaborator.status === 'active' ? (
                           <button
                             onClick={handleRemoveCollaborator}
@@ -665,6 +666,7 @@ export default function PromotionDetail() {
                         {collaboratorActionError && (
                           <p className="text-[10px] text-red-500 mt-2">{collaboratorActionError}</p>
                         )}
+                        </div>
                       </div>
                     )}
                   </div>
@@ -730,7 +732,7 @@ export default function PromotionDetail() {
                           structural change to this block; the Link's
                           own content/target/styling is unchanged. */}
                       {!isRemovedSelf && isSponsor && collaborator && collaborator.status === 'active' && (
-                        <label className="flex items-center gap-1.5 text-[9px] font-bold uppercase tracking-widest text-zinc-500 shrink-0 cursor-pointer select-none">
+                        <label data-tutorial-id="promotion-allow-collaborator-domains" className="flex items-center gap-1.5 text-[9px] font-bold uppercase tracking-widest text-zinc-500 shrink-0 cursor-pointer select-none">
                           <input
                             type="checkbox"
                             checked={a.allowCollaboratorDomains}
@@ -754,7 +756,7 @@ export default function PromotionDetail() {
             )}
 
             {!isRemovedSelf && isSponsor && collaborator && collaborator.status === 'active' && (
-              <div className="mt-4 pt-4 border-t border-zinc-800">
+              <div className="mt-4 pt-4 border-t border-zinc-800" data-tutorial-id="promotion-add-asset">
                 <p className="text-[10px] font-black uppercase tracking-widest text-zinc-500 mb-2">
                   Add Asset
                 </p>
@@ -800,7 +802,7 @@ export default function PromotionDetail() {
           either way — restoring the collaborator later reveals whatever
           access state was already there. */}
       {!isRemovedSelf && isSponsor && collaborator && collaborator.status === 'active' && assignedAssets.length > 0 && (
-        <div>
+        <div data-tutorial-id="promotion-asset-access-management">
           <p className="text-[10px] font-black uppercase tracking-widest text-zinc-500 mb-3">
             Access Management — Assigned Assets
           </p>
@@ -909,7 +911,7 @@ export default function PromotionDetail() {
           minus the trackingDomains.length > 0 check since this should
           be usable even when nothing has been assigned yet. */}
       {!isRemovedSelf && isSponsor && collaborator && collaborator.status === 'active' && (
-        <div>
+        <div data-tutorial-id="promotion-assign-tracking-domain">
           <p className="text-[10px] font-black uppercase tracking-widest text-zinc-500 mb-3">
             Assign Tracking Domain
           </p>
