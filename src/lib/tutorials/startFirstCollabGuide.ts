@@ -46,7 +46,7 @@ export const startFirstCollabGuide: Tutorial = {
       id: 'create-assignment',
       title: 'Create an Assignment',
       body:
-        'Give it a title and select at least one Asset \u2014 this is what your collaborator (you!) will be promoting.',
+        'Give it a title and select at least one Asset — this is what your collaborator (you!) will be promoting.\n\nIf you don’t have an Asset yet, create your first one first. Go to **Assets**, click the 🦊 icon, then click **🎓 Create Your First Asset**.',
       tag: 'demo',
       route: '/marketplace/assignments/new',
       targetSelector: '[data-tutorial-id="marketplace-select-assets"]',

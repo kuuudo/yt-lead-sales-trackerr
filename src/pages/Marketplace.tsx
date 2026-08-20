@@ -820,9 +820,9 @@ function MarketplaceOnboarding({ onClose, onStartTour, onStartCollabGuide }: { o
           style={{
             padding: '6px 14px',
             borderRadius: 999,
-            border: '1px solid #5b3df0',
-            background: '#5b3df0',
-            color: '#ffffff',
+            border: '1px solid #000000', 
+            background: '#ffffff', 
+            color: '#000000',
             fontSize: 11,
             fontWeight: 700,
             letterSpacing: 0.4,
@@ -830,7 +830,7 @@ function MarketplaceOnboarding({ onClose, onStartTour, onStartCollabGuide }: { o
             cursor: 'pointer',
           }}
         >
-          🎓 Start Your First Collab
+          🎓 First Collab — Start With Yourself, It’s Just a Test
         </button>
 
         <button
