@@ -58,6 +58,7 @@ import { videosPageCache } from '../lib/videosPageCache';
 import OnboardingVideoSection01 from '../components/onboarding/OnboardingVideo/OnboardingVideoSection01';
 import { useTutorial } from '../lib/tutorial-overlay';
 import { videosTutorial } from '../lib/tutorials/videosTutorial';
+import { trackFirstContentGuide } from '../lib/tutorials/trackFirstContentGuide';
 import { createVideo } from '../services/video/createVideo';
 import { generateAssetRedirectLinks } from '../services/asset/generateAssetRedirectLinks';
 import { PromotedAssetPicker, type PromotedAssetRow } from '../components/PromotedAssetPicker';
@@ -529,10 +530,14 @@ export default function Videos() {
   const [showAdd, setShowAdd] = useState(false);
   const [showImportWizard, setShowImportWizard] = useState(false);
   const [showOnboarding, setShowOnboarding] = useState(false);
-  const { start: startTutorial, tutorial: activeTutorial, stepIndex: tutorialStepIndex, status: tutorialStatus } = useTutorial();
+  const { start: startTutorial, tutorial: activeTutorial, stepIndex: tutorialStepIndex, status: tutorialStatus, notify: notifyTutorial } = useTutorial();
   const handleStartVideosTour = () => {
     setShowOnboarding(false);
     startTutorial(videosTutorial);
+  };
+  const handleStartTrackFirstContentGuide = () => {
+    setShowOnboarding(false);
+    startTutorial(trackFirstContentGuide);
   };
 
     useEffect(() => {
@@ -545,6 +550,21 @@ export default function Videos() {
       setShowAdd(true);
     }
   }, [tutorialStatus, activeTutorial, tutorialStepIndex, showAdd]);
+
+  // Follow-Along ("Track Your First Content") milestone detection. Deliberately
+  // separate from the Tour's force-open effect above — Follow-Along must NEVER
+  // programmatically open the form for the user; it only watches real state
+  // transitions the user caused themselves and reports them via notify(). Only
+  // 3 milestones are reported, matching the locked "don't validate every field"
+  // decision — platform/URL and campaign stay plain instructional steps.
+  const isTrackFirstContentGuideActive =
+    tutorialStatus === 'active' && activeTutorial?.id === trackFirstContentGuide.id;
+
+  useEffect(() => {
+    if (isTrackFirstContentGuideActive && showAdd) {
+      notifyTutorial('follow-along-form-opened');
+    }
+  }, [isTrackFirstContentGuideActive, showAdd, notifyTutorial]);
   // Promoted Asset (optional) — UI-only per locked scope: this selection is
   // never sent to createVideo() and nothing is persisted from it yet.
   // Wiring it into a real video -> asset relationship is separate, later work.
@@ -762,6 +782,26 @@ const hasBlockingPromotionIssue = Array.from(promotionContextByAssetId.entries()
   const [availableLeadMagnets, setAvailableLeadMagnets] = useState<LeadMagnet[]>([]);
   const [loadingMagnets, setLoadingMagnets] = useState(false);
   const [generated, setGenerated] = useState<{ link: string, video: Partial<Video>, campaign?: Campaign } | null>(null);
+
+  // Follow-Along ("Track Your First Content") milestone detection, continued
+  // from isTrackFirstContentGuideActive above — split into two effects here
+  // because `generated` and `showLinksModal` aren't declared until this point
+  // in the component. Note: `generated` becoming truthy only means the LOCAL
+  // PREVIEW exists (handleGenerate's placeholder link) — the real, savable
+  // link doesn't exist until handleSave() succeeds and showLinksModal flips
+  // true. Follow-Along's copy step is gated on showLinksModal, never on
+  // `generated`, so the guide never tells the user to copy the placeholder.
+  useEffect(() => {
+    if (isTrackFirstContentGuideActive && generated) {
+      notifyTutorial('follow-along-generated');
+    }
+  }, [isTrackFirstContentGuideActive, generated, notifyTutorial]);
+
+  useEffect(() => {
+    if (isTrackFirstContentGuideActive && showLinksModal) {
+      notifyTutorial('follow-along-saved');
+    }
+  }, [isTrackFirstContentGuideActive, showLinksModal, notifyTutorial]);
 
   // "ONLY PROMOTE ASSET" — existing System Campaign, one per organization,
   // already seeded in the DB (see product decision doc). We resolve it from
@@ -1321,6 +1361,15 @@ console.log(
   >
     🦊
   </button>
+  {!isReadOnly && (
+  <button
+    onClick={handleStartTrackFirstContentGuide}
+    className="w-8 h-8 rounded-full bg-zinc-800 border border-zinc-300/60 text-zinc-100 flex items-center justify-center hover:bg-zinc-700 hover:border-white transition-colors text-[14px]"
+    aria-label="Follow the Track Your First Content guide"
+  >
+    🎓
+  </button>
+  )}
 </h1>
           <p className="text-zinc-500 text-[10px] uppercase tracking-widest mt-1">Manage your tracked content</p>
         </div>
@@ -1852,6 +1901,7 @@ console.log(
                       <button 
                         onClick={handleSave}
                         disabled={saving || hasBlockingPromotionIssue}
+                        data-tutorial-id="videos-save-to-list"
                         className="mt-auto w-full bg-red-600 text-white h-12 rounded-xl text-[10px] font-black uppercase tracking-widest flex items-center justify-center gap-2"
                       >
                         {saving ? <Loader2 className="animate-spin" size={16} /> : (editingVideoId ? 'Update Video' : 'Save To My List')}
@@ -2523,7 +2573,7 @@ console.log(
                 <div>
                   <p className="text-[9px] font-black uppercase tracking-widest text-zinc-500 mb-2">Campaign Links</p>
                   <div className="space-y-2">
-                    {savedDisplayGroups.campaignLinks.map((link) => (
+                    {savedDisplayGroups.campaignLinks.map((link, linkIndex) => (
                       <div key={link.key} className="flex items-center justify-between gap-3 bg-zinc-950 border border-zinc-800 rounded-xl p-3">
                         <div className="flex-1 min-w-0">
                           <p className="text-[10px] font-black uppercase text-zinc-400 mb-1">{link.icon} {link.label}</p>
@@ -2535,6 +2585,7 @@ console.log(
                             setCopiedLink(link.token);
                             setTimeout(() => setCopiedLink(null), 2000);
                           }}
+                          {...(linkIndex === 0 ? { 'data-tutorial-id': 'videos-saved-modal-copy' } : {})}
                           className="shrink-0 h-8 w-8 flex items-center justify-center rounded-lg border border-zinc-700 hover:bg-zinc-800 transition-all"
                         >
                           {copiedLink === link.token ? <Check size={14} className="text-green-500" /> : <Copy size={14} className="text-zinc-400" />}

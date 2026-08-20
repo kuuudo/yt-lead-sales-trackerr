@@ -18,15 +18,19 @@ import { assetsTutorial } from '../../lib/tutorials/assetsTutorial';
 import { marketplaceTutorial } from '../../lib/tutorials/marketplaceTutorial';
 import { promotionTutorial } from '../../lib/tutorials/promotionTutorial';
 import { videosTutorial } from '../../lib/tutorials/videosTutorial';
+import { trackFirstContentGuide } from '../../lib/tutorials/trackFirstContentGuide';
 
 // Registry of tutorials the runner knows how to resume after a refresh.
 // Add future tutorials (collaboration, content, operator) here — nothing
-// else in this file needs to change to support them.
+// else in this file needs to change to support them. trackFirstContentGuide
+// is the first `mode: 'follow-along'` entry — resume/persistence works
+// identically to the tour-mode entries, no special-casing needed.
 const TUTORIAL_REGISTRY = {
   [assetsTutorial.id]: assetsTutorial,
   [marketplaceTutorial.id]: marketplaceTutorial,
   [videosTutorial.id]: videosTutorial,
   [promotionTutorial.id]: promotionTutorial,
+  [trackFirstContentGuide.id]: trackFirstContentGuide,
 };
 
 interface Rect {
@@ -48,13 +52,13 @@ function measureGroup(selector: string): Rect | null {
   return { x: x - pad, y: y - pad, w: right - x + pad * 2, h: bottom - y + pad * 2 };
 }
 
-function renderBody(body: string, navigate: (path: string) => void) {
+function renderBody(body: string, navigate: (path: string) => void, isLight: boolean) {
   return body.split('\n\n').map((para, i) => (
-    <p key={i} className="text-xs text-zinc-400 leading-relaxed mb-3">
+    <p key={i} className={`text-xs leading-relaxed mb-3 ${isLight ? 'text-zinc-600' : 'text-zinc-400'}`}>
       {para.split(/(\*\*[^*]+\*\*|\[[^\]]+\]\([^)]+\))/g).map((chunk, j) => {
         if (chunk.startsWith('**') && chunk.endsWith('**')) {
           return (
-            <span key={j} className="text-orange-500 font-bold">
+            <span key={j} className={`font-bold ${isLight ? 'text-orange-600' : 'text-orange-500'}`}>
               {chunk.slice(2, -2)}
             </span>
           );
@@ -66,7 +70,7 @@ function renderBody(body: string, navigate: (path: string) => void) {
               key={j}
               type="button"
               onClick={() => navigate(linkMatch[2])}
-              className="underline text-zinc-300 hover:text-white"
+              className={isLight ? 'underline text-zinc-700 hover:text-zinc-950' : 'underline text-zinc-300 hover:text-white'}
             >
               {linkMatch[1]}
             </button>
@@ -188,18 +192,76 @@ export default function TutorialRunner() {
     if (step?.handoffTutorial) start(step.handoffTutorial);
   }, [start, step]);
 
+  // requireAction gating — computed here (before the early return below) so
+  // the auto-advance effect for Follow-Along can use it. Tour-mode behavior
+  // is unchanged either way: it never auto-advances, so needsAction/
+  // actionSatisfied only ever drove the existing Next/"Waiting…" button swap.
+  const needsAction = !!step?.requireAction;
+  const actionSatisfied = needsAction
+    ? satisfiedEventKeys.includes(step!.requireAction!.eventKey)
+    : true;
+  const isFollowAlong = tutorial?.mode === 'follow-along';
+
+  // Follow-Along's own collapsed/expanded state — a small 🎓 launcher when
+  // collapsed, the full white guide card when expanded. Tour mode never
+  // reads this and is unaffected. Defaults to expanded so the very first
+  // step is visible right after the user starts the guide; resets to
+  // expanded again whenever a (new) tutorial becomes active.
+  const [panelOpen, setPanelOpen] = useState(true);
+  useEffect(() => {
+    setPanelOpen(true);
+  }, [tutorial?.id]);
+
+  // Auto-advance: once a Follow-Along step's real-world action is detected,
+  // move on automatically instead of waiting for a Next click — this is the
+  // "Instruction → user performs action → detect → continue" behavior from
+  // the spec. Tour mode is untouched; its requireAction steps (if any) still
+  // require an explicit Next click via the existing button below.
+  useEffect(() => {
+    if (isFollowAlong && needsAction && actionSatisfied && status === 'active') {
+      next();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isFollowAlong, needsAction, actionSatisfied, status]);
+
   if (status !== 'active' || !tutorial || !step) return null;
 
-  const needsAction = !!step.requireAction;
-  const actionSatisfied = needsAction
-    ? satisfiedEventKeys.includes(step.requireAction!.eventKey)
-    : true;
+  // Collapsed Follow-Along state: just the small 🎓 launcher, bottom-right,
+  // no spotlight/dim — fully out of the way until the user wants it back.
+  // Tour mode never reaches this branch (isFollowAlong is false for it).
+  if (isFollowAlong && !panelOpen) {
+    return (
+      <div className="fixed inset-0 pointer-events-none" style={{ zIndex: 2147483000 }} aria-live="polite">
+        <button
+          type="button"
+          onClick={() => setPanelOpen(true)}
+          aria-label="Reopen the Track Your First Content guide"
+          className="pointer-events-auto fixed bottom-5 right-5 w-12 h-12 rounded-full bg-white border border-zinc-200 text-lg shadow-2xl flex items-center justify-center hover:scale-105 transition-transform"
+        >
+          🎓
+        </button>
+      </div>
+    );
+  }
 
-  const cardWidth = step.previewImage ? 320 : 280;
+  const cardWidth = step.previewImage ? 320 : (isFollowAlong ? 300 : 280);
   const isMobile = window.innerWidth < 640;
     let cardStyle: any; // needs x/y (not transform) so Framer Motion can compose it with its own scale animation
 
-  if (isMobile) {
+  if (isFollowAlong && !isMobile) {
+    // Follow-Along always anchors bottom-right on desktop, regardless of
+    // where the spotlighted element is — the spotlight (drawn separately
+    // below, unchanged) is what points at the real element; the card's job
+    // is just to stay out of the way as a persistent, predictable guide.
+    cardStyle = {
+      position: 'fixed',
+      right: 20,
+      bottom: 20,
+      width: cardWidth,
+      maxHeight: '60vh',
+      overflowY: 'auto',
+    };
+  } else if (isMobile) {
     // Bottom sheet on small screens — floating the card next to a
     // target, or dead-center, isn't reliable on short viewports and
     // risks colliding with persistent UI like MobileRankingsButton.
@@ -279,22 +341,41 @@ export default function TutorialRunner() {
           exit={{ opacity: 0, scale: 0.97 }}
           transition={{ duration: 0.18 }}
           style={cardStyle}
-          className="pointer-events-auto bg-zinc-900 border border-zinc-700 rounded-xl p-4 shadow-2xl"
+          className={
+            isFollowAlong
+              ? 'pointer-events-auto bg-white border border-zinc-200 rounded-xl p-4 shadow-2xl'
+              : 'pointer-events-auto bg-zinc-900 border border-zinc-700 rounded-xl p-4 shadow-2xl'
+          }
         >
+          {isFollowAlong && (
+            <p className="text-[9px] font-black uppercase tracking-widest text-zinc-400 mb-1 flex items-center gap-1">
+              🎓 Follow Along
+            </p>
+          )}
           {step.tag && (
             <span
               className={`inline-block text-[9px] font-black uppercase tracking-widest px-2 py-0.5 rounded-full mb-2 ${
-                step.tag === 'try-it' ? 'bg-red-600 text-white' : 'bg-zinc-700 text-zinc-300'
+                step.tag === 'try-it'
+                  ? 'bg-red-600 text-white'
+                  : isFollowAlong
+                    ? 'bg-zinc-100 text-zinc-600'
+                    : 'bg-zinc-700 text-zinc-300'
               }`}
             >
               {step.tag === 'try-it' ? 'Try it' : 'Demo'}
             </span>
           )}
-          <p className="text-sm font-semibold text-white mb-1.5">{step.title}</p>
-          {renderBody(step.body, navigate)}
+          <p className={`text-sm font-semibold mb-1.5 ${isFollowAlong ? 'text-zinc-900' : 'text-white'}`}>
+            {step.title}
+          </p>
+          {renderBody(step.body, navigate, isFollowAlong)}
 
           {step.previewImage && (
-            <div className="relative rounded-lg overflow-hidden border border-zinc-700 mb-3 bg-zinc-950 flex items-center justify-center max-h-64">
+            <div
+              className={`relative rounded-lg overflow-hidden mb-3 flex items-center justify-center max-h-64 ${
+                isFollowAlong ? 'border border-zinc-200 bg-zinc-50' : 'border border-zinc-700 bg-zinc-950'
+              }`}
+            >
               <img
                 src={step.previewImage.src}
                 alt={step.previewImage.alt}
@@ -317,16 +398,24 @@ export default function TutorialRunner() {
                   if (cta.href) navigate(cta.href);
                   }}
                   disabled={!cta.href && !cta.startTutorial}
-                  className="text-left bg-zinc-800 border border-zinc-700 rounded-lg p-3 hover:bg-zinc-700 disabled:opacity-50 disabled:cursor-not-allowed"
+                  className={
+                    isFollowAlong
+                      ? 'text-left bg-zinc-50 border border-zinc-200 rounded-lg p-3 hover:bg-zinc-100 disabled:opacity-50 disabled:cursor-not-allowed'
+                      : 'text-left bg-zinc-800 border border-zinc-700 rounded-lg p-3 hover:bg-zinc-700 disabled:opacity-50 disabled:cursor-not-allowed'
+                  }
                 >
-                  <p className="text-xs font-bold text-white mb-1">{cta.emoji} {cta.title}</p>
-                  <p className="text-[11px] text-zinc-400 leading-relaxed">{cta.description}</p>
+                  <p className={`text-xs font-bold mb-1 ${isFollowAlong ? 'text-zinc-900' : 'text-white'}`}>
+                    {cta.emoji} {cta.title}
+                  </p>
+                  <p className={`text-[11px] leading-relaxed ${isFollowAlong ? 'text-zinc-600' : 'text-zinc-400'}`}>
+                    {cta.description}
+                  </p>
                 </button>
               ))}
             </div>
           )}
           {showFallback && step.fallbackNote && (
-            <p className="text-xs text-zinc-500 italic leading-relaxed mb-3">
+            <p className={`text-xs italic leading-relaxed mb-3 ${isFollowAlong ? 'text-zinc-500' : 'text-zinc-500'}`}>
               {step.fallbackNote}
             </p>
           )}
@@ -335,7 +424,11 @@ export default function TutorialRunner() {
             <button
               onClick={back}
               disabled={stepIndex === 0}
-              className="text-[10px] font-black uppercase tracking-widest text-zinc-500 hover:text-white disabled:opacity-30 disabled:hover:text-zinc-500"
+              className={
+                isFollowAlong
+                  ? 'text-[10px] font-black uppercase tracking-widest text-zinc-400 hover:text-zinc-900 disabled:opacity-30 disabled:hover:text-zinc-400'
+                  : 'text-[10px] font-black uppercase tracking-widest text-zinc-500 hover:text-white disabled:opacity-30 disabled:hover:text-zinc-500'
+              }
             >
               Back
             </button>
@@ -344,19 +437,25 @@ export default function TutorialRunner() {
                 <div
                   key={i}
                   className={`w-1.5 h-1.5 rounded-full ${
-                    i === stepIndex ? 'bg-white' : 'bg-zinc-700'
+                    i === stepIndex
+                      ? (isFollowAlong ? 'bg-zinc-900' : 'bg-white')
+                      : (isFollowAlong ? 'bg-zinc-200' : 'bg-zinc-700')
                   }`}
                 />
               ))}
             </div>
             {needsAction && !actionSatisfied ? (
-              <span className="text-[10px] font-black uppercase tracking-widest text-zinc-600">
+              <span className={`text-[10px] font-black uppercase tracking-widest ${isFollowAlong ? 'text-zinc-400' : 'text-zinc-600'}`}>
                 Waiting…
               </span>
             ) : (
               <button
                 onClick={handleNext}
-                className="text-[10px] font-black uppercase tracking-widest bg-white text-zinc-950 px-3 py-1.5 rounded-lg hover:bg-zinc-200"
+                className={
+                  isFollowAlong
+                    ? 'text-[10px] font-black uppercase tracking-widest bg-zinc-900 text-white px-3 py-1.5 rounded-lg hover:bg-zinc-700'
+                    : 'text-[10px] font-black uppercase tracking-widest bg-white text-zinc-950 px-3 py-1.5 rounded-lg hover:bg-zinc-200'
+                }
               >
                 {stepIndex === tutorial.steps.length - 1 ? 'Done' : 'Next'}
               </button>
@@ -372,9 +471,23 @@ export default function TutorialRunner() {
             </button>
           )}
 
+          {isFollowAlong && (
+            <button
+              onClick={() => setPanelOpen(false)}
+              className="absolute -top-2 -right-9 w-6 h-6 rounded-full bg-white border border-zinc-200 text-zinc-400 hover:text-zinc-900 text-xs flex items-center justify-center shadow"
+              aria-label="Minimize guide"
+            >
+              –
+            </button>
+          )}
+
           <button
             onClick={close}
-            className="absolute -top-2 -right-2 w-6 h-6 rounded-full bg-zinc-800 border border-zinc-700 text-zinc-500 hover:text-white text-xs flex items-center justify-center"
+            className={
+              isFollowAlong
+                ? 'absolute -top-2 -right-2 w-6 h-6 rounded-full bg-white border border-zinc-200 text-zinc-400 hover:text-zinc-900 text-xs flex items-center justify-center shadow'
+                : 'absolute -top-2 -right-2 w-6 h-6 rounded-full bg-zinc-800 border border-zinc-700 text-zinc-500 hover:text-white text-xs flex items-center justify-center'
+            }
             aria-label="Close tutorial"
           >
             ✕
