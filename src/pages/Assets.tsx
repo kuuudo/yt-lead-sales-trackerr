@@ -750,15 +750,14 @@ if (user) {
     >
       Take the interactive tour 
     </button>
-    <button
-      onClick={() => {
-        setShowOnboarding(false);
-        tutorial.start(createFirstAssetGuide);
-      }}
-      className="fixed top-4 z-[20001] flex items-center gap-2 bg-white text-zinc-900 border border-zinc-300 rounded-full text-[10px] font-black uppercase tracking-widest px-4 py-2 shadow-lg hover:bg-zinc-100 transition-colors"
-      style={{ left: 210 }}
+    <button 
+      onClick={() => { 
+        setShowOnboarding(false); 
+        tutorial.start(createFirstAssetGuide); 
+      }} 
+      className="fixed top-[52px] left-[18px] sm:top-4 sm:left-[210px] z-[20001] flex items-center gap-2 bg-white text-zinc-900 border border-zinc-300 rounded-full text-[10px] font-black uppercase tracking-widest px-4 py-2 shadow-lg hover:bg-zinc-100 transition-colors"
     >
-      🎓 Create Your First Asset
+      🎓 Create Your First Asset 
     </button>
     <OnboardingVideoSection02
       onSkip={() => setShowOnboarding(false)}

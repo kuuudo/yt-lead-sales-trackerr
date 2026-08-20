@@ -2778,10 +2778,9 @@ console.log(
     <button
       type="button"
       onClick={handleStartTrackFirstContentGuide}
+      className="track-first-content-button top-[52px] left-[18px] sm:top-[14px] sm:left-[210px]"
       style={{
         position: 'fixed',
-        top: 14,
-        left: 210,
         zIndex: 20001,
         padding: '6px 14px',
         borderRadius: 999,
