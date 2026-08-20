@@ -4,6 +4,7 @@ import { Loader2, AlertCircle, CheckCircle2, Rocket, ArrowLeft } from 'lucide-re
 import { supabase } from '../lib/supabase';
 import { getAssignmentDetail, type AssignmentDetailData } from '../services/assignment/getAssignmentDetail';
 import { acceptInvitation } from '../services/assignment/acceptInvitation';
+import { useTutorial } from '../lib/tutorial-overlay';
 import { getElementTypeLabel, resolveThumbnail, resolveElementThumbnail } from '../lib/videoFormatters';
 
 export default function AssignmentDetail() {
@@ -17,7 +18,7 @@ export default function AssignmentDetail() {
   const [starting, setStarting] = useState(false);
 
   const [selectedAssetIds, setSelectedAssetIds] = useState<Set<string>>(new Set());
-
+  const { notify: notifyTutorial } = useTutorial();
   const load = async () => {
     if (!assignmentId) return;
     setLoading(true);
@@ -48,6 +49,7 @@ export default function AssignmentDetail() {
     try {
       await acceptInvitation(invitationId);
       await load();
+      notifyTutorial('collab-invitation-accepted');
     } catch (e: any) {
       setError(e.message ?? 'Failed to accept invitation');
     } finally {
@@ -93,6 +95,7 @@ export default function AssignmentDetail() {
         throw new Error(rpcError?.message ?? 'Failed to create promotion');
       }
 
+      notifyTutorial('collab-promotion-started');
       navigate(`/marketplace/promotions/${promotionId}`);
     } catch (e: any) {
       setError(e.message ?? 'Failed to start promoting');
@@ -189,6 +192,7 @@ export default function AssignmentDetail() {
             <button
               onClick={() => handleAccept(myInvitation.id)}
               disabled={accepting}
+              data-tutorial-id="assignment-accept-invitation"
               className="flex items-center gap-2 bg-red-600 hover:bg-red-500 disabled:opacity-50 text-white text-xs font-bold uppercase tracking-wider px-4 py-2 rounded-lg"
             >
               {accepting ? <Loader2 className="animate-spin" size={14} /> : <CheckCircle2 size={14} />}
@@ -237,7 +241,7 @@ export default function AssignmentDetail() {
           Select Assets to Promote
         </label>
 
-        <div className="space-y-2 mb-6">
+        <div className="space-y-2 mb-6" data-tutorial-id="assignment-select-assets">
           {assignmentAssets.map(asset => (
             <label
               key={asset.asset_id}
@@ -284,6 +288,7 @@ export default function AssignmentDetail() {
         <button
           onClick={handleStartPromoting}
           disabled={starting || selectedAssetIds.size === 0}
+          data-tutorial-id="assignment-start-promoting"
           className="flex items-center gap-2 bg-red-600 hover:bg-red-500 disabled:opacity-40 text-white text-xs font-bold uppercase tracking-wider px-5 py-3 rounded-lg"
         >
           {starting ? (

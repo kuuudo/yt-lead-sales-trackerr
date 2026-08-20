@@ -463,6 +463,7 @@ if (user) {
 
   <button
     onClick={() => setOwnershipFilter('shared')}
+    data-tutorial-id="assets-shared-filter"
     className={`text-[10px] font-black uppercase tracking-widest px-3 py-1.5 rounded-lg transition-all ${
       ownershipFilter === 'shared'
         ? 'bg-red-600 text-white'

@@ -4,6 +4,7 @@ import { Loader2, Plus, X, Send, HelpCircle } from 'lucide-react';
 import { supabase } from '../lib/supabase';
 import { createAssignment } from '../services/assignment/createAssignment';
 import { inviteCollaborators } from '../services/assignment/inviteCollaborator';
+import { useTutorial } from '../lib/tutorial-overlay';
 import {
   listCampaignsForOrg,
   listAssetsForCampaign,
@@ -19,6 +20,8 @@ import {
 
 export default function CreateAssignment() {
   const navigate = useNavigate();
+
+  const { notify: notifyTutorial } = useTutorial();
 
   const [organizationId, setOrganizationId] = useState<string | null>(null);
   const [userId, setUserId] = useState<string | null>(null);
@@ -182,6 +185,8 @@ export default function CreateAssignment() {
       if (failed.length > 0) {
         console.warn('Some invitations failed:', failed);
       }
+
+      notifyTutorial('collab-assignment-created');
 
       navigate(`/marketplace/assignments/${assignmentId}`);
     } catch (e: any) {

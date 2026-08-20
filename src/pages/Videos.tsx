@@ -59,6 +59,7 @@ import OnboardingVideoSection01 from '../components/onboarding/OnboardingVideo/O
 import { useTutorial } from '../lib/tutorial-overlay';
 import { videosTutorial } from '../lib/tutorials/videosTutorial';
 import { trackFirstContentGuide } from '../lib/tutorials/trackFirstContentGuide';
+import { startFirstCollabGuide } from '../lib/tutorials/startFirstCollabGuide';
 import { createVideo } from '../services/video/createVideo';
 import { generateAssetRedirectLinks } from '../services/asset/generateAssetRedirectLinks';
 import { PromotedAssetPicker, type PromotedAssetRow } from '../components/PromotedAssetPicker';
@@ -565,6 +566,20 @@ export default function Videos() {
       notifyTutorial('follow-along-form-opened');
     }
   }, [isTrackFirstContentGuideActive, showAdd, notifyTutorial]);
+
+  // Follow-Along ("Start Your First Collab") milestone detection — same
+  // pattern as isTrackFirstContentGuideActive above, kept fully separate
+  // since the two guides can never be active at the same time but should
+  // not share gating logic.
+  const isStartFirstCollabGuideActive =
+    tutorialStatus === 'active' && activeTutorial?.id === startFirstCollabGuide.id;
+
+  useEffect(() => {
+    if (isStartFirstCollabGuideActive && showAdd) {
+      notifyTutorial('collab-form-opened');
+    }
+  }, [isStartFirstCollabGuideActive, showAdd, notifyTutorial]);
+
   // Promoted Asset (optional) — UI-only per locked scope: this selection is
   // never sent to createVideo() and nothing is persisted from it yet.
   // Wiring it into a real video -> asset relationship is separate, later work.
@@ -802,6 +817,12 @@ const hasBlockingPromotionIssue = Array.from(promotionContextByAssetId.entries()
       notifyTutorial('follow-along-saved');
     }
   }, [isTrackFirstContentGuideActive, showLinksModal, notifyTutorial]);
+
+    useEffect(() => {
+    if (isStartFirstCollabGuideActive && showLinksModal) {
+      notifyTutorial('collab-saved');
+    }
+  }, [isStartFirstCollabGuideActive, showLinksModal, notifyTutorial]);
 
   // "ONLY PROMOTE ASSET" — existing System Campaign, one per organization,
   // already seeded in the DB (see product decision doc). We resolve it from
@@ -1671,7 +1692,7 @@ console.log(
                             if (verifiedDomains.length === 0 && sharedDomains.length === 0) return null;
 
                             return (
-                              <div key={asset.asset_id} className="pl-1 space-y-1">
+                              <div key={asset.asset_id} className="pl-1 space-y-1" data-tutorial-id="videos-asset-shared-domain">
                                 <p className="text-[9px] font-black uppercase tracking-widest text-zinc-600 truncate">
                                   {asset.display_name} — Tracking Domain
                                 </p>
