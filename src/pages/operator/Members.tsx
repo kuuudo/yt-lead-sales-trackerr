@@ -108,7 +108,20 @@ export default function Members() {
             };
           });
 
-        setMembers(rows);
+        // ── POC: hardcoded UI entry for Alin ──────────────────────
+        // This does NOT grant access by itself. It only makes her
+        // show up in the list. Real authorization happens entirely
+        // in is_operator_for_user() in the database — this array
+        // has zero power to unlock her data.
+        const alinPoc: OperatorMember = {
+          id: 'cd180432-44c5-4a20-b778-66b7753191f0',
+          name: 'Alin (POC)',
+          email: 'alinospam2020@gmail.com',
+          revenue: 0,
+          status: 'no_analytics',
+        };
+
+        setMembers([...rows, alinPoc]);
         setLoading(false);
       });
   }, [organizationId]);
