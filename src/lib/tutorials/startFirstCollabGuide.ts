@@ -95,7 +95,7 @@ export const startFirstCollabGuide: Tutorial = {
         'This is the real moment a Promotion gets created. Once you press this, you officially become a collaborator promoting this Asset \u2014 for real.',
       tag: 'try-it',
       targetSelector: '[data-tutorial-id="assignment-start-promoting"]',
-      requireAction: { eventKey: 'collab-promotion-started' },
+      
     },
     {
       id: 'shared-assets-explain',
