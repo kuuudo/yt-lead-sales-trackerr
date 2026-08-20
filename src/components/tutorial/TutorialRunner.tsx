@@ -292,7 +292,9 @@ export default function TutorialRunner() {
       left,
       width: cardWidth,
     };
-  } else {
+  } else if (!isMobile) {
+    // Desktop fallback (previewImage steps, or target not found).
+    // Park the card on the right so it doesn't cover page content.
     cardStyle = step.cardOffset
       ? {
           position: 'fixed',
@@ -306,14 +308,23 @@ export default function TutorialRunner() {
         }
       : {
           position: 'fixed',
+          right: 20,
           top: '50%',
-          left: '50%',
-          x: '-50%',
           y: '-50%',
           width: cardWidth,
           maxHeight: 'calc(100dvh - 96px)',
           overflowY: 'auto',
         };
+  } else {
+    cardStyle = {
+      position: 'fixed',
+      left: 16,
+      right: 16,
+      bottom: 'max(16px, env(safe-area-inset-bottom))',
+      width: 'auto',
+      maxHeight: '45vh',
+      overflowY: 'auto',
+    };
   }
 
   return (
