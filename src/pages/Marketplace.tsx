@@ -35,6 +35,7 @@ import TopMarketers from './TopMarketers';
 import TopRankings from './TopRankings';
 import { useTutorial } from '../lib/tutorial-overlay';
 import { marketplaceTutorial } from '../lib/tutorials/marketplaceTutorial';
+import { startFirstCollabGuide } from '../lib/tutorials/startFirstCollabGuide';
 type Tab = 'assignments' | 'invitations' | 'promotions';
 
 const TABS: { key: Tab; label: string; icon: typeof Briefcase }[] = [
@@ -98,6 +99,12 @@ export default function Marketplace() {
     setShowOnboarding(false);
     startTutorial(marketplaceTutorial);
   };
+
+  const handleStartFirstCollabGuide = () => {
+    setShowOnboarding(false);
+    startTutorial(startFirstCollabGuide);
+  };
+
   const showAlert = (title: string, message: string, variant: 'info' | 'danger' | 'success' = 'info') => {
     setModalConfig({ isOpen: true, title, message, variant, onConfirm: undefined });
   };
@@ -691,6 +698,7 @@ export default function Marketplace() {
   <MarketplaceOnboarding
     onClose={() => setShowOnboarding(false)}
     onStartTour={handleStartMarketplaceTour}
+    onStartCollabGuide={handleStartFirstCollabGuide}
   />
 )}
     </div>
@@ -698,7 +706,7 @@ export default function Marketplace() {
 }
 
 /* ── Marketplace mini onboarding controller (Section 03 + 06) ── */
-function MarketplaceOnboarding({ onClose, onStartTour }: { onClose: () => void; onStartTour: () => void }) {
+function MarketplaceOnboarding({ onClose, onStartTour, onStartCollabGuide }: { onClose: () => void; onStartTour: () => void; onStartCollabGuide: () => void }) {
   const SECTIONS = [
     {
       id: 1,
@@ -804,6 +812,25 @@ function MarketplaceOnboarding({ onClose, onStartTour }: { onClose: () => void; 
           }}
         >
           Take the Interactive Tour
+        </button>
+
+        <button
+          type="button"
+          onClick={onStartCollabGuide}
+          style={{
+            padding: '6px 14px',
+            borderRadius: 999,
+            border: '1px solid #5b3df0',
+            background: '#5b3df0',
+            color: '#ffffff',
+            fontSize: 11,
+            fontWeight: 700,
+            letterSpacing: 0.4,
+            textTransform: 'uppercase',
+            cursor: 'pointer',
+          }}
+        >
+          🎓 Start Your First Collab
         </button>
 
         <button
