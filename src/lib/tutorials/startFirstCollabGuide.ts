@@ -172,9 +172,9 @@ export const startFirstCollabGuide: Tutorial = {
     // ── transition into Promotion Detail ──────────────────────────────
     {
       id: 'go-to-promotion-detail',
-      title: 'Open your new Promotion',
+      title: 'Open your new Promotion, Click on the Gamepad Icon',
       body:
-        'You just created a real Promotion. Go back to the Marketplace and open the Promotion you just started — that\u2019s the control center for everything that happens after someone begins promoting your Assets.',
+        'Open the Promotion you just started — Click the controller (gamepad) icon on the right of the row.',
       tag: 'try-it',
       route: '/marketplace',
       targetSelector: '[data-tutorial-id="marketplace-promotion-manage"]',
