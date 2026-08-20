@@ -68,7 +68,7 @@ export const startFirstCollabGuide: Tutorial = {
       tag: 'try-it',
       route: '/marketplace/assignments/new',
       targetSelector: '[data-tutorial-id="marketplace-submit"]',
-      requireAction: { eventKey: 'collab-assignment-created' },
+      
     },
     {
       id: 'go-to-invitations-tab',
