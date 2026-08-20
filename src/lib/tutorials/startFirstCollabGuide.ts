@@ -26,7 +26,15 @@
 //
 // Does NOT touch, replace, or duplicate the existing Interactive Tour
 // (marketplaceTutorial.ts / promotionTutorial.ts / videosTutorial.ts).
-
+import promotionDetailOverview from '../../assets/tutorial/promotion-detail-overview.png';
+import removeCollaboratorExample from '../../assets/tutorial/remove-collaborator-example.png';
+import allowCollaboratorDomainsExample from '../../assets/tutorial/allow-collaborator-domains-example.png';
+import allowCollaboratorDomainsEnabled from '../../assets/tutorial/allow-collaborator-domains-enabled.png';
+import allowCollaboratorDomainsDisabled from '../../assets/tutorial/allow-collaborator-domains-disabled.png';
+import addAssetExample from '../../assets/tutorial/add-asset-example.png';
+import revokeAssetAccessExample from '../../assets/tutorial/revoke-asset-access-example.png';
+import restoreAssetAccessExample from '../../assets/tutorial/restore-asset-access-example.png';
+import trackingDomainManagementExample from '../../assets/tutorial/tracking-domain-management-example.png';
 import type { Tutorial } from '../tutorialTypes';
 
 export const startFirstCollabGuide: Tutorial = {
@@ -148,6 +156,8 @@ export const startFirstCollabGuide: Tutorial = {
       requireAction: { eventKey: 'collab-form-opened' },
     },
 
+        // … previous steps stay the same …
+
     {
       id: 'select-promoted-asset',
       title: 'Select Your Assigned Asset',
@@ -158,12 +168,50 @@ export const startFirstCollabGuide: Tutorial = {
       targetSelector: '[data-tutorial-id="videos-promoted-asset"]',
       fallbackNote: 'Click **Track New Content** above, then fill in the platform/URL/campaign to see this field.',
     },
+
+    // ── transition into Promotion Detail ──────────────────────────────
     {
-      id: 'complete',
-      title: 'You\u2019ve completed the full Collab workflow!',
+      id: 'go-to-promotion-detail',
+      title: 'Open your new Promotion',
       body:
-        'You just experienced everything a real collaborator will see \u2014 the invitation, accepting it, Shared Assets, and generating a tracking link.\n\nYou\u2019re ready to invite a real collaborator with confidence.',
+        'You just created a real Promotion. Go back to the Marketplace and open the Promotion you just started — that\u2019s the control center for everything that happens after someone begins promoting your Assets.',
+      tag: 'try-it',
+      route: '/marketplace',
+      // Point at whatever selector shows the newly-created promotion row
+      // (you may need to add data-tutorial-id="marketplace-promotion-row" if it doesn’t exist yet)
+      targetSelector: '[data-tutorial-id="marketplace-promotion-row"]',
+      fallbackNote: 'Look for the Promotion that was created when you clicked “Start Promoting”.',
+    },
+
+    // ── continuation of promotionTutorial steps ───────────────────────
+    {
+      id: 'overview',
+      title: 'Your Promotion Control Center',
+      body:
+        'Once someone starts promoting your Assets through an Assignment, this is where you can see and manage that Promotion \u2014 who\u2019s involved, what they\u2019re promoting, and what they have access to.',
       tag: 'demo',
+      previewImage: { src: promotionDetailOverview, alt: 'The full Promotion Detail page' },
+    },
+    {
+      id: 'remove-collaborator',
+      title: 'Remove Collaborator',
+      body:
+        'This removes the collaborator from THIS Promotion \u2014 not their VSTRK account.\n\nOnce removed, they can no longer promote the Assets in this Promotion, or use the Tracking Domains assigned through it.',
+      tag: 'demo',
+      targetSelector: '[data-tutorial-id="promotion-collaborator-actions"]',
+      fallbackNote: 'This only appears once this Promotion has a collaborator.',
+      previewImage: { src: removeCollaboratorExample, alt: 'The Remove Collaborator button' },
+    },
+    // … paste the rest of the steps from promotionTutorial.ts exactly as they are …
+    {
+      id: 'tracking-domain-management',
+      title: 'Tracking Domain access works the same way',
+      body:
+        'Just like you control which Assets someone can promote, you control which Tracking Domains they can use.\n\n**Assign Tracking Domain** adds a new one to the Promotion. **Access Management \u2014 Tracking Domains** lets you revoke or restore access to any of them.',
+      tag: 'demo',
+      targetSelector: '[data-tutorial-id="promotion-assign-tracking-domain"]',
+      fallbackNote: 'This section appears once this Promotion has an active collaborator. The Access Management list below it only appears after at least one domain has been assigned.',
+      previewImage: { src: trackingDomainManagementExample, alt: 'Assign Tracking Domain and Access Management — Tracking Domains sections' },
     },
   ],
 };
