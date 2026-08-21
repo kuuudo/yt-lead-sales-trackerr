@@ -33,7 +33,7 @@ import { useViewing } from '../../lib/ViewingContext';
 // POC: single hardcoded target user, see is_operator_for_user() SQL bypass.
 const ALIN_POC_ID = 'cd180432-44c5-4a20-b778-66b7753191f0';
 
-interface MemberDetailData {
+
 
 interface MemberDetailData {
   id: string;
