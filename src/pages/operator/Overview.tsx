@@ -27,7 +27,7 @@ import { useOrganization } from '../../lib/useOrganization';
 import { useViewing } from '../../lib/ViewingContext';
 import { useTutorial } from '../../lib/tutorial-overlay';
 import OnboardingVideoSection04 from '../../components/onboarding/OnboardingVideo/OnboardingVideoSection04';
-
+import { workWithYourTeamGuide } from '../../lib/tutorials/workWithYourTeamGuide';
 // POC: single hardcoded target user, same as Members.tsx.
 const ALIN_POC: { id: string; name: string; email: string } = {
   id: 'cd180432-44c5-4a20-b778-66b7753191f0',
@@ -65,7 +65,7 @@ function initials(name: string): string {
 export default function Overview() {
   const navigate = useNavigate();
   const { enterViewing } = useViewing();
-  const { notify } = useTutorial();
+  const { notify, start } = useTutorial();
   const { organizationId, loading: orgLoading } = useOrganization();
   const [members, setMembers] = useState<OperatorMember[]>([]);
   const [loading, setLoading] = useState(true);
@@ -350,6 +350,23 @@ export default function Overview() {
   ✕
 </button>
 */}
+    <button
+      onClick={() => {
+        setShowOnboarding(false);
+        start(workWithYourTeamGuide);
+      }}
+      className="fixed top-4 left-4 z-[20001] max-w-[calc(100vw-32px)] sm:max-w-[280px] flex items-start gap-2 bg-zinc-900 text-white border border-zinc-700 rounded-2xl text-left px-4 py-3 shadow-lg hover:bg-zinc-800 transition-colors"
+    >
+      <span className="text-base leading-none shrink-0">🎓</span>
+      <span>
+        <span className="block text-[10px] font-black uppercase tracking-widest mb-1">
+          First Team Setup — Do It Yourself (Just a Demo)
+        </span>
+        <span className="block text-[10px] font-normal normal-case text-zinc-400 leading-snug">
+          Don't worry if you don't have a teammate yet — this is just a demo. We'll add a creator account so you can see their account from an Operator's perspective.
+        </span>
+      </span>
+    </button>
     <OnboardingVideoSection04
       onSkip={() => setShowOnboarding(false)}
       onComplete={() => setShowOnboarding(false)}
