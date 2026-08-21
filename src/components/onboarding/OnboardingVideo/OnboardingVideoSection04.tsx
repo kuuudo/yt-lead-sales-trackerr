@@ -506,9 +506,10 @@ const CAPTIONS = [
 export interface OnboardingVideoSection04Props {
   onSkip?: () => void;
   onComplete?: () => void;
+  onStartTutorial?: () => void;
 }
 
-export default function OnboardingVideoSection04({ onSkip, onComplete }: OnboardingVideoSection04Props = {}) {
+export default function OnboardingVideoSection04({ onSkip, onComplete, onStartTutorial }: OnboardingVideoSection04Props = {}) {
   const [elapsed, setElapsed] = useState(0);
   const [runId, setRunId] = useState(0);
 
@@ -527,6 +528,7 @@ export default function OnboardingVideoSection04({ onSkip, onComplete }: Onboard
   const t = elapsed;
   const finished = t >= TOTAL;
   const replay = () => { setElapsed(0); setRunId((id) => id + 1); };
+  const isMobile = typeof window !== "undefined" && window.innerWidth < 640;
 
   /* ---------------- Group opacities (contiguous visual scenes) ---------------- */
   const introOpacity = rangeOpacity(t, "S1", "S4");
@@ -817,20 +819,64 @@ export default function OnboardingVideoSection04({ onSkip, onComplete }: Onboard
           Skip video <span aria-hidden="true">→</span>
         </button>
       ) : (
-        <div style={{ position: "absolute", bottom: 14, right: 18, display: "flex", alignItems: "center", gap: 14 }}>
-          <button type="button" onClick={replay} style={{ background: "none", border: "none", fontFamily: MONO, fontSize: 11, letterSpacing: 0.4, color: "#9a9aa8", cursor: "pointer", padding: 4 }}>
-            ↻ replay
-          </button>
-          <button type="button" onClick={onComplete} style={{
-            display: "flex", alignItems: "center", gap: 6,
-            background: ACCENT, border: "none", borderRadius: 8,
-            fontFamily: MONO, fontSize: 11.5, fontWeight: 700,
-            letterSpacing: 0.6, textTransform: "uppercase",
-            color: "#ffffff", cursor: "pointer", padding: "10px 18px",
-            boxShadow: `0 8px 20px rgba(91,61,240,0.35)`,
-          }}>
-            Next step <span aria-hidden="true">→</span>
-          </button>
+        <div style={{
+          position: "absolute",
+          left: isMobile ? 16 : "auto",
+          right: 18,
+          bottom: 14,
+          display: "flex",
+          flexDirection: "column",
+          alignItems: isMobile ? "stretch" : "flex-end",
+          gap: 10,
+          width: isMobile ? "auto" : 320,
+        }}>
+          {onStartTutorial && (
+            <div style={{
+              background: "#f7f6ff",
+              border: `1px solid ${LINE}`,
+              borderRadius: 12,
+              padding: "12px 14px",
+              textAlign: "left",
+            }}>
+              <p style={{
+                margin: "0 0 10px 0",
+                fontFamily: "Georgia, 'Iowan Old Style', 'Palatino Linotype', serif",
+                fontSize: 12.5, lineHeight: 1.5, color: "#4a4a58",
+              }}>
+                Don't worry if you don't have a teammate yet — this is just a demo. We'll add a creator account so you can see their account from an Operator's perspective.
+                <br /><br />
+                This way, you can see the full potential of VSTRK.
+              </p>
+              <button type="button" onClick={onStartTutorial} style={{
+                display: "flex", alignItems: "center", justifyContent: "center", gap: 6,
+                width: "100%",
+                background: ACCENT, border: "none", borderRadius: 8,
+                fontFamily: MONO, fontSize: 11, fontWeight: 700,
+                letterSpacing: 0.3, lineHeight: 1.4,
+                color: "#ffffff", cursor: "pointer", padding: "10px 14px",
+                boxShadow: `0 8px 20px rgba(91,61,240,0.35)`,
+                textAlign: "center",
+              }}>
+                🎓 First Team Setup — Do It Yourself (Just a Demo)
+              </button>
+            </div>
+          )}
+
+          <div style={{ display: "flex", alignItems: "center", justifyContent: isMobile ? "space-between" : "flex-end", gap: 14 }}>
+            <button type="button" onClick={replay} style={{ background: "none", border: "none", fontFamily: MONO, fontSize: 11, letterSpacing: 0.4, color: "#9a9aa8", cursor: "pointer", padding: 4 }}>
+              ↻ replay
+            </button>
+            <button type="button" onClick={onComplete} style={{
+              display: "flex", alignItems: "center", gap: 6,
+              background: ACCENT, border: "none", borderRadius: 8,
+              fontFamily: MONO, fontSize: 11.5, fontWeight: 700,
+              letterSpacing: 0.6, textTransform: "uppercase",
+              color: "#ffffff", cursor: "pointer", padding: "10px 18px",
+              boxShadow: `0 8px 20px rgba(91,61,240,0.35)`,
+            }}>
+              Next step <span aria-hidden="true">→</span>
+            </button>
+          </div>
         </div>
       )}
     </div>
