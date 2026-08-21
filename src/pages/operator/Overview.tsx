@@ -196,6 +196,20 @@ export default function Overview() {
     setViewingError(null);
     setEnteringAccountId(member.id);
     try {
+      // ── Audit log: internal-only record of Kaksi viewing sessions.
+      // Only inserted when the caller is Kaksi — RLS on kaksi_viewing_log
+      // would reject an insert from anyone else anyway, but skipping the
+      // call entirely for normal operators avoids a pointless request.
+      // A logging failure does not block viewing — it's recorded
+      // best-effort and surfaced only to the console, not the user.
+      if (user?.id === KAKSI_UUID) {
+        const { error: logError } = await supabase
+          .from('kaksi_viewing_log')
+          .insert({ target_user_id: member.id });
+        if (logError) {
+          console.error('Failed to write Kaksi viewing log:', logError);
+        }
+      }
       await enterViewing(member.id, member.name);
       if (member.id === ALIN_POC.id) {
         notify('operator-alin-viewing-entered');
