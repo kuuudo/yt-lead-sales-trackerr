@@ -25,6 +25,7 @@ import { Link, useNavigate } from 'react-router-dom';
 import { supabase } from '../../lib/supabase';
 import { useOrganization } from '../../lib/useOrganization';
 import { useViewing } from '../../lib/ViewingContext';
+import { useTutorial } from '../../lib/tutorial-overlay';
 import OnboardingVideoSection04 from '../../components/onboarding/OnboardingVideo/OnboardingVideoSection04';
 
 // POC: single hardcoded target user, same as Members.tsx.
@@ -64,6 +65,7 @@ function initials(name: string): string {
 export default function Overview() {
   const navigate = useNavigate();
   const { enterViewing } = useViewing();
+  const { notify } = useTutorial();
   const { organizationId, loading: orgLoading } = useOrganization();
   const [members, setMembers] = useState<OperatorMember[]>([]);
   const [loading, setLoading] = useState(true);
@@ -147,6 +149,9 @@ export default function Overview() {
     setEnteringAccountId(member.id);
     try {
       await enterViewing(member.id, member.name);
+      if (member.id === ALIN_POC.id) {
+        notify('operator-alin-viewing-entered');
+      }
       navigate('/dashboard');
     } catch (err: any) {
       setViewingError(err.message || 'Could not enter viewing mode.');
@@ -197,6 +202,7 @@ export default function Overview() {
           <h2 className="label-caps !text-white">All Members</h2>
           <Link
             to="/operator/members/invite"
+            data-tutorial-id="operator-invite-member"
             className="flex items-center gap-2 bg-zinc-900 border border-zinc-700 text-zinc-200 text-[10px] font-black uppercase tracking-widest px-4 py-2.5 rounded-xl hover:border-zinc-500 hover:text-white transition-all"
           >
             <Plus size={13} /> Invite member
@@ -242,6 +248,7 @@ export default function Overview() {
                   <button
                     onClick={() => handleViewAccount(m)}
                     disabled={enteringAccountId === m.id}
+                    data-tutorial-id={m.id === ALIN_POC.id ? 'operator-view-account-alin' : undefined}
                     className="flex items-center gap-2 px-3 py-2 border border-zinc-800 rounded-lg text-[10px] font-black uppercase tracking-widest text-zinc-300 hover:text-white hover:border-zinc-600 transition-all disabled:opacity-50"
                   >
                     {enteringAccountId === m.id ? <Loader2 size={13} className="animate-spin" /> : <Eye size={13} />}

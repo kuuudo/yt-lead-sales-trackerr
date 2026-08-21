@@ -19,6 +19,7 @@ import { ChevronLeft, Copy, Check } from 'lucide-react';
 import { supabase } from '../../lib/supabase';
 import { useAuth } from '../../lib/auth';
 import { useOrganization } from '../../lib/useOrganization';
+import { useTutorial } from '../../lib/tutorial-overlay';
 
 // POC: single hardcoded bypass email — see is_operator_for_user() SQL bypass.
 const ALIN_POC_EMAIL = 'alinospam2020@gmail.com';
@@ -27,6 +28,7 @@ export default function InviteMember() {
   const navigate = useNavigate();
   const { user } = useAuth();
   const { organizationId } = useOrganization();
+  const { notify } = useTutorial();
 
   const [email, setEmail] = useState('');
   const [submitting, setSubmitting] = useState(false);
@@ -50,6 +52,7 @@ export default function InviteMember() {
     if (normalizedEmail === ALIN_POC_EMAIL) {
       setPocSuccess(true);
       setSubmitting(false);
+      notify('operator-alin-added');
       return;
     }
 
@@ -169,6 +172,7 @@ export default function InviteMember() {
             <input
               value={email}
               onChange={e => setEmail(e.target.value)}
+              data-tutorial-id="invite-member-email-input"
               placeholder="name@company.com"
               className="w-full bg-zinc-900 border border-zinc-700 rounded-xl px-3 py-2.5 text-[11px] text-zinc-200 placeholder:text-zinc-600 focus:outline-none focus:border-zinc-500 mb-3"
             />
@@ -178,6 +182,7 @@ export default function InviteMember() {
             <button
               onClick={handleInvite}
               disabled={!email || submitting}
+              data-tutorial-id="invite-member-submit-button"
               className="w-full bg-emerald-500 disabled:bg-zinc-800 disabled:text-zinc-600 text-emerald-950 text-[10px] font-black uppercase tracking-widest py-3 rounded-xl transition-colors"
             >
               {submitting ? 'Creating…' : 'Create invitation'}

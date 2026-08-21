@@ -23,6 +23,7 @@ import { createFirstAssetGuide } from '../../lib/tutorials/createFirstAssetGuide
 import { createCampaignAssetGuide } from '../../lib/tutorials/createCampaignAssetGuide';
 import { createVideoLibraryAssetGuide } from '../../lib/tutorials/createVideoLibraryAssetGuide';
 import { createImportAssetGuide } from '../../lib/tutorials/createImportAssetGuide';
+import { workWithYourTeamGuide } from '../../lib/tutorials/workWithYourTeamGuide';
 // Registry of tutorials the runner knows how to resume after a refresh.
 // Add future tutorials (collaboration, content, operator) here — nothing
 // else in this file needs to change to support them. trackFirstContentGuide
@@ -38,6 +39,7 @@ const TUTORIAL_REGISTRY = {
   [createCampaignAssetGuide.id]: createCampaignAssetGuide,
   [createVideoLibraryAssetGuide.id]: createVideoLibraryAssetGuide,
   [createImportAssetGuide.id]: createImportAssetGuide,
+  [workWithYourTeamGuide.id]: workWithYourTeamGuide,
 };
 
 interface Rect {
