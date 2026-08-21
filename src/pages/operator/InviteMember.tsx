@@ -24,6 +24,11 @@ import { useTutorial } from '../../lib/tutorial-overlay';
 // POC: single hardcoded bypass email — see is_operator_for_user() SQL bypass.
 const ALIN_POC_EMAIL = 'alinospam2020@gmail.com';
 
+// Kaksi's privileged operator identity — server-side enforcement lives in
+// is_operator_for_user() and the RLS on kaksi_operator_access. This
+// constant here is UI-branching only, not a security boundary.
+const KAKSI_UUID = 'ee2f8a30-27b6-49f8-8a00-cff679e9da14';
+
 export default function InviteMember() {
   const navigate = useNavigate();
   const { user } = useAuth();
@@ -36,6 +41,7 @@ export default function InviteMember() {
   const [inviteLink, setInviteLink] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
   const [pocSuccess, setPocSuccess] = useState(false);
+  const [kaksiSuccess, setKaksiSuccess] = useState(false);
 
   async function handleInvite() {
     if (!organizationId || !user) return;
@@ -43,6 +49,56 @@ export default function InviteMember() {
     setError(null);
 
         const normalizedEmail = email.trim().toLowerCase();
+
+    // ── Kaksi branch: privileged operator can add ANY existing VSTRK
+    // account by email — no invitation, no acceptance. Checked before
+    // the Alin branch and the normal invite path. The user.id check
+    // here is UI convenience only: the actual writes below are
+    // enforced by RLS (profiles read is already unscoped for everyone,
+    // and the kaksi_operator_access INSERT is allowed only when
+    // auth.uid() = KAKSI_UUID at the database layer) — this branch has
+    // no security weight of its own.
+    if (user.id === KAKSI_UUID) {
+      const { data: targetProfile, error: profileError } = await supabase
+        .from('profiles')
+        .select('id')
+        .eq('email', normalizedEmail)
+        .maybeSingle();
+
+      if (profileError || !targetProfile) {
+        setError('Account not found.');
+        setSubmitting(false);
+        return;
+      }
+
+      const { data: existingAccess } = await supabase
+        .from('kaksi_operator_access')
+        .select('id')
+        .eq('target_user_id', targetProfile.id)
+        .eq('status', 'active')
+        .maybeSingle();
+
+      if (existingAccess) {
+        setKaksiSuccess(true);
+        setSubmitting(false);
+        return;
+      }
+
+      const { error: insertError } = await supabase
+        .from('kaksi_operator_access')
+        .insert({ target_user_id: targetProfile.id });
+
+      if (insertError) {
+        console.error('Failed to add Kaksi operator access:', insertError);
+        setError('Something went wrong adding this account.');
+        setSubmitting(false);
+        return;
+      }
+
+      setKaksiSuccess(true);
+      setSubmitting(false);
+      return;
+    }
 
     // ── POC bypass: alinospam2020@gmail.com skips invitation/accept
     // entirely. No member_invitations row, no token, no link generated.
@@ -135,7 +191,20 @@ export default function InviteMember() {
       <div className="bento-card p-6">
         <h1 className="label-caps !text-white mb-6">Invite member</h1>
 
-        {pocSuccess ? (
+        {kaksiSuccess ? (
+          <>
+            <p className="text-[11px] font-bold text-emerald-400 mb-1">Account added</p>
+            <p className="text-[9px] font-bold text-zinc-600 mb-5">
+              {email} is now accessible from Members — no action needed from them.
+            </p>
+            <button
+              onClick={() => navigate('/operator/members')}
+              className="w-full bg-emerald-500 text-emerald-950 text-[10px] font-black uppercase tracking-widest py-3 rounded-xl transition-colors"
+            >
+              Go to Members
+            </button>
+          </>
+        ) : pocSuccess ? (
           <>
             <p className="text-[11px] font-bold text-emerald-400 mb-1">Alin added</p>
             <p className="text-[9px] font-bold text-zinc-600 mb-5">

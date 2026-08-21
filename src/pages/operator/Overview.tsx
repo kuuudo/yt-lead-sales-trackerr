@@ -25,10 +25,16 @@ import { Link, useNavigate } from 'react-router-dom';
 import { supabase } from '../../lib/supabase';
 import { useOrganization } from '../../lib/useOrganization';
 import { useViewing } from '../../lib/ViewingContext';
+import { useAuth } from '../../lib/auth';
 import { useTutorial } from '../../lib/tutorial-overlay';
 import OnboardingVideoSection04 from '../../components/onboarding/OnboardingVideo/OnboardingVideoSection04';
 import { workWithYourTeamGuide } from '../../lib/tutorials/workWithYourTeamGuide';
 // POC: single hardcoded target user, same as Members.tsx.
+// Kaksi's privileged operator identity — server-side enforcement lives in
+// is_operator_for_user() and the RLS on kaksi_operator_access. This
+// constant here is UI-branching only, not a security boundary.
+const KAKSI_UUID = 'ee2f8a30-27b6-49f8-8a00-cff679e9da14';
+
 const ALIN_POC: { id: string; name: string; email: string } = {
   id: 'cd180432-44c5-4a20-b778-66b7753191f0',
   name: 'Alin (POC)',
@@ -66,6 +72,7 @@ export default function Overview() {
   const navigate = useNavigate();
   const { enterViewing } = useViewing();
   const { notify, start } = useTutorial();
+  const { user } = useAuth();
   const { organizationId, loading: orgLoading } = useOrganization();
   const [members, setMembers] = useState<OperatorMember[]>([]);
   const [loading, setLoading] = useState(true);
@@ -117,10 +124,51 @@ export default function Overview() {
           cvr: 0,
         };
 
+        // ── Kaksi branch: third data source, only queried when the
+        // logged-in user is Kaksi. This if-check controls UI visibility
+        // only — real authorization is enforced by RLS on
+        // kaksi_operator_access (SELECT is Kaksi-only), so a non-Kaksi
+        // caller's query would return zero rows regardless of this check.
+        if (user?.id === KAKSI_UUID) {
+          supabase
+            .from('kaksi_operator_access')
+            .select('target_user_id, profiles(id, full_name, email)')
+            .eq('status', 'active')
+            .then(({ data: kaksiRows, error: kaksiError }) => {
+              if (kaksiError) {
+                console.error('Failed to load Kaksi-added members:', kaksiError);
+                setMembers([...rows, alinPoc]);
+                setLoading(false);
+                return;
+              }
+
+              const kaksiMembers: OperatorMember[] = (kaksiRows ?? []).map(row => {
+                const profile = row.profiles as unknown as {
+                  id: string;
+                  full_name: string | null;
+                  email: string | null;
+                } | null;
+
+                return {
+                  id: row.target_user_id,
+                  name: profile?.full_name || profile?.email || 'Unnamed member',
+                  email: profile?.email || '',
+                  revenue: 0,       // placeholder — not wired yet
+                  conversions: 0,   // placeholder — not wired yet
+                  cvr: 0,            // placeholder — not wired yet
+                };
+              });
+
+              setMembers([...rows, alinPoc, ...kaksiMembers]);
+              setLoading(false);
+            });
+          return;
+        }
+
         setMembers([...rows, alinPoc]);
         setLoading(false);
       });
-  }, [organizationId]);
+  }, [organizationId, user?.id]);
 
   if (orgLoading || loading) {
     return (

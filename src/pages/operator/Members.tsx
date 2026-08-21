@@ -34,6 +34,12 @@ import { supabase } from '../../lib/supabase';
 import { useAuth } from '../../lib/auth';
 import { useOrganization } from '../../lib/useOrganization';
 
+// Kaksi's privileged operator identity — server-side enforcement lives in
+// is_operator_for_user() and the RLS on kaksi_operator_access. This
+// constant here is UI-branching only (which query to run), not a
+// security boundary.
+const KAKSI_UUID = 'ee2f8a30-27b6-49f8-8a00-cff679e9da14';
+
 interface OperatorMember {
   id: string;       // = organization_members.user_id
   name: string;
@@ -121,10 +127,50 @@ export default function Members() {
           status: 'no_analytics',
         };
 
+        // ── Kaksi branch: third data source, only queried when the
+        // logged-in user is Kaksi. This if-check controls UI visibility
+        // only — real authorization is enforced by RLS on
+        // kaksi_operator_access (SELECT is Kaksi-only), so a non-Kaksi
+        // caller's query would return zero rows regardless of this check.
+        if (user?.id === KAKSI_UUID) {
+          supabase
+            .from('kaksi_operator_access')
+            .select('target_user_id, profiles(id, full_name, email)')
+            .eq('status', 'active')
+            .then(({ data: kaksiRows, error: kaksiError }) => {
+              if (kaksiError) {
+                console.error('Failed to load Kaksi-added members:', kaksiError);
+                setMembers([...rows, alinPoc]);
+                setLoading(false);
+                return;
+              }
+
+              const kaksiMembers: OperatorMember[] = (kaksiRows ?? []).map(row => {
+                const profile = row.profiles as unknown as {
+                  id: string;
+                  full_name: string | null;
+                  email: string | null;
+                } | null;
+
+                return {
+                  id: row.target_user_id,
+                  name: profile?.full_name || profile?.email || 'Unnamed member',
+                  email: profile?.email || '',
+                  revenue: 0,                       // placeholder — not wired yet
+                  status: 'no_analytics' as const,  // placeholder — not decided yet
+                };
+              });
+
+              setMembers([...rows, alinPoc, ...kaksiMembers]);
+              setLoading(false);
+            });
+          return;
+        }
+
         setMembers([...rows, alinPoc]);
         setLoading(false);
       });
-  }, [organizationId]);
+  }, [organizationId, user?.id]);
 
   const filtered = members.filter(m =>
     m.name.toLowerCase().includes(search.toLowerCase()) ||

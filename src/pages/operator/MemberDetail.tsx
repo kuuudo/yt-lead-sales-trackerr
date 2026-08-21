@@ -29,9 +29,14 @@ import { ChevronLeft, DollarSign, Eye, Target, Percent, Loader2 } from 'lucide-r
 import { supabase } from '../../lib/supabase';
 import { useOrganization } from '../../lib/useOrganization';
 import { useViewing } from '../../lib/ViewingContext';
+import { useAuth } from '../../lib/auth';
 
 // POC: single hardcoded target user, see is_operator_for_user() SQL bypass.
 const ALIN_POC_ID = 'cd180432-44c5-4a20-b778-66b7753191f0';
+// Kaksi's privileged operator identity — server-side enforcement lives in
+// is_operator_for_user() and the RLS on kaksi_operator_access. This
+// constant here is UI-branching only.
+const KAKSI_UUID = 'ee2f8a30-27b6-49f8-8a00-cff679e9da14';
 
 
 
@@ -53,6 +58,7 @@ export default function MemberDetail() {
   const { id } = useParams();
   const navigate = useNavigate();
   const { organizationId, loading: orgLoading } = useOrganization();
+  const { user } = useAuth();
   const { enterViewing } = useViewing();
 
   const [member, setMember] = useState<MemberDetailData | null>(null);
@@ -96,6 +102,55 @@ export default function MemberDetail() {
       return;
     }
 
+    // ── Kaksi branch: table-driven, not UUID-specific. Any target with
+    // an ACTIVE row in kaksi_operator_access renders here, loaded from
+    // profiles directly — same shape as the Alin branch above. This
+    // block only decides whether the page RENDERS; real authorization
+    // still happens later via enterViewing() -> resolve_member_organization()
+    // -> is_operator_for_user(), which has the matching table-gated
+    // branch deployed in SQL (Step 2). RLS on kaksi_operator_access
+    // means a non-Kaksi caller gets zero rows back from this query no
+    // matter what id is in the URL — this if-check is UI convenience,
+    // not the security boundary.
+    if (user?.id === KAKSI_UUID) {
+      supabase
+        .from('kaksi_operator_access')
+        .select('target_user_id')
+        .eq('target_user_id', id)
+        .eq('status', 'active')
+        .maybeSingle()
+        .then(({ data: accessRow, error: accessError }) => {
+          if (accessError || !accessRow) {
+            setNotFound(true);
+            setLoading(false);
+            return;
+          }
+          supabase
+            .from('profiles')
+            .select('id, full_name, email')
+            .eq('id', id)
+            .maybeSingle()
+            .then(({ data, error }) => {
+              if (error || !data) {
+                setNotFound(true);
+                setLoading(false);
+                return;
+              }
+              setMember({
+                id: data.id,
+                name: data.full_name || 'Unnamed member',
+                email: data.email || '',
+                revenue: 0,
+                views: 0,
+                conversions: 0,
+                ctr: 0,
+              });
+              setLoading(false);
+            });
+        });
+      return;
+    }
+
     supabase
       .from('organization_members')
       .select('user_id, role, profiles(id, full_name, email)')
@@ -132,7 +187,7 @@ export default function MemberDetail() {
         });
         setLoading(false);
       });
-  }, [organizationId, id]);
+  }, [organizationId, id, user?.id]);
 
   const handleViewAccount = async () => {
     if (!member) return;
