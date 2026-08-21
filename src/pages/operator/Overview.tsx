@@ -344,7 +344,7 @@ export default function Overview() {
     {/* 
 <button
   onClick={() => setShowOnboarding(false)}
-  className="fixed top-4 right-4 z-[20001] w-10 h-10 rounded-full bg-zinc-900 text-white border border-zinc-700 flex items-center justify-center text-lg shadow-lg"
+  className="fixed top-4 right-4 z-[20001] w-10 h-10 rounded-full bg-white text-black border border-zinc-200 flex items-center justify-center text-lg shadow-lg"
   aria-label="Close video"
 >
   ✕
@@ -355,7 +355,7 @@ export default function Overview() {
         setShowOnboarding(false);
         start(workWithYourTeamGuide);
       }}
-      className="fixed top-4 left-4 z-[20001] max-w-[calc(100vw-32px)] sm:max-w-[280px] flex items-start gap-2 bg-zinc-900 text-white border border-zinc-700 rounded-2xl text-left px-4 py-3 shadow-lg hover:bg-zinc-800 transition-colors"
+      className="fixed top-4 left-4 z-[20001] max-w-[calc(100vw-32px)] sm:max-w-[280px] flex items-start gap-2 bg-white text-black border border-zinc-200 rounded-2xl text-left px-4 py-3 shadow-lg hover:bg-zinc-800 transition-colors"
     >
       <span className="text-base leading-none shrink-0">🎓</span>
       <span>
