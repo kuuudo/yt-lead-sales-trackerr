@@ -30,6 +30,11 @@ import { supabase } from '../../lib/supabase';
 import { useOrganization } from '../../lib/useOrganization';
 import { useViewing } from '../../lib/ViewingContext';
 
+// POC: single hardcoded target user, see is_operator_for_user() SQL bypass.
+const ALIN_POC_ID = 'cd180432-44c5-4a20-b778-66b7753191f0';
+
+interface MemberDetailData {
+
 interface MemberDetailData {
   id: string;
   name: string;
@@ -58,6 +63,38 @@ export default function MemberDetail() {
 
   useEffect(() => {
     if (!organizationId || !id) return;
+
+    // ── POC bypass: Alin does not need a row in the current Operator's
+    // organization_members. Load her real profile directly instead.
+    // Real authorization still happens later — enterViewing() calls
+    // resolve_member_organization() -> is_operator_for_user(), which
+    // already has the matching UUID bypass deployed in SQL. This branch
+    // only decides whether the page RENDERS; it grants nothing itself.
+    if (id === ALIN_POC_ID) {
+      supabase
+        .from('profiles')
+        .select('id, full_name, email')
+        .eq('id', ALIN_POC_ID)
+        .maybeSingle()
+        .then(({ data, error }) => {
+          if (error || !data) {
+            setNotFound(true);
+            setLoading(false);
+            return;
+          }
+          setMember({
+            id: data.id,
+            name: data.full_name || 'Unnamed member',
+            email: data.email || '',
+            revenue: 0,
+            views: 0,
+            conversions: 0,
+            ctr: 0,
+          });
+          setLoading(false);
+        });
+      return;
+    }
 
     supabase
       .from('organization_members')

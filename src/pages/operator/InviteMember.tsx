@@ -20,6 +20,9 @@ import { supabase } from '../../lib/supabase';
 import { useAuth } from '../../lib/auth';
 import { useOrganization } from '../../lib/useOrganization';
 
+// POC: single hardcoded bypass email — see is_operator_for_user() SQL bypass.
+const ALIN_POC_EMAIL = 'alinospam2020@gmail.com';
+
 export default function InviteMember() {
   const navigate = useNavigate();
   const { user } = useAuth();
@@ -30,13 +33,25 @@ export default function InviteMember() {
   const [error, setError] = useState<string | null>(null);
   const [inviteLink, setInviteLink] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
+  const [pocSuccess, setPocSuccess] = useState(false);
 
   async function handleInvite() {
     if (!organizationId || !user) return;
     setSubmitting(true);
     setError(null);
 
-    const normalizedEmail = email.trim().toLowerCase();
+        const normalizedEmail = email.trim().toLowerCase();
+
+    // ── POC bypass: alinospam2020@gmail.com skips invitation/accept
+    // entirely. No member_invitations row, no token, no link generated.
+    // She's already visible via the Members.tsx POC entry; the real
+    // access check is enforced later by is_operator_for_user()'s
+    // matching SQL bypass. This branch does not grant any access.
+    if (normalizedEmail === ALIN_POC_EMAIL) {
+      setPocSuccess(true);
+      setSubmitting(false);
+      return;
+    }
 
     // 1. Already a member? — look up the profile by email, then check
     //    organization_members for that user_id in this org.
@@ -117,7 +132,20 @@ export default function InviteMember() {
       <div className="bento-card p-6">
         <h1 className="label-caps !text-white mb-6">Invite member</h1>
 
-        {inviteLink ? (
+        {pocSuccess ? (
+          <>
+            <p className="text-[11px] font-bold text-emerald-400 mb-1">Alin added</p>
+            <p className="text-[9px] font-bold text-zinc-600 mb-5">
+              alinospam2020@gmail.com is now an Operator Member — no action needed from them.
+            </p>
+            <button
+              onClick={() => navigate('/operator/members')}
+              className="w-full bg-emerald-500 text-emerald-950 text-[10px] font-black uppercase tracking-widest py-3 rounded-xl transition-colors"
+            >
+              Go to Members
+            </button>
+          </>
+        ) : inviteLink ? (
           <>
             <p className="text-[11px] font-bold text-emerald-400 mb-1">Invitation created</p>
             <p className="text-[9px] font-bold text-zinc-600 mb-5">
