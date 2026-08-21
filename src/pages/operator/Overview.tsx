@@ -27,6 +27,13 @@ import { useOrganization } from '../../lib/useOrganization';
 import { useViewing } from '../../lib/ViewingContext';
 import OnboardingVideoSection04 from '../../components/onboarding/OnboardingVideo/OnboardingVideoSection04';
 
+// POC: single hardcoded target user, same as Members.tsx.
+const ALIN_POC: { id: string; name: string; email: string } = {
+  id: 'cd180432-44c5-4a20-b778-66b7753191f0',
+  name: 'Alin (POC)',
+  email: 'alinospam2020@gmail.com',
+};
+
 interface OperatorMember {
   id: string;
   name: string;
@@ -97,7 +104,18 @@ export default function Overview() {
             };
           });
 
-        setMembers(rows);
+        // POC: same pattern as Members.tsx — UI-only entry, grants no
+        // access by itself. Real authorization is enforced later by
+        // is_operator_for_user()'s matching SQL bypass when View account
+        // is clicked (enterViewing() -> resolve_member_organization()).
+        const alinPoc: OperatorMember = {
+          ...ALIN_POC,
+          revenue: 0,
+          conversions: 0,
+          cvr: 0,
+        };
+
+        setMembers([...rows, alinPoc]);
         setLoading(false);
       });
   }, [organizationId]);
