@@ -216,5 +216,26 @@ export const startFirstCollabGuide: Tutorial = {
       fallbackNote: 'This section appears once this Promotion has an active collaborator. The Access Management list below it only appears after at least one domain has been assigned.',
       previewImage: { src: trackingDomainManagementExample, alt: 'Assign Tracking Domain and Access Management — Tracking Domains sections' },
     },
+
+    {
+      id: 'learn-more',
+      title: 'There’s More Here — But No Rush',
+      body:
+        'I don’t want to overwhelm you — there are a few more tools and functions on this page, but they’re not necessary for your first Collab.\n\nFor now, you’ve seen the core workflow from start to finish. 🎉\n\nIf you want to explore what else you can do here, look for the **🦊 icon** on this page. It will show you more tutorials and guides for the different features available.',
+      tag: 'demo',
+      targetSelector: '[data-tutorial-id="promotion-page-fox"]',
+      fallbackNote: 'Look for the 🦊 icon on the Promotion page to explore more tutorials when you’re ready.',
+      
+    },
+    
+     {
+      id: 'collab-complete',
+      title: 'Congratulations! 🎉',
+      body:
+        'You’ve created your first Collab!\n\nYou’ve now gone through the full workflow yourself — from creating an Assignment and inviting a collaborator, to accepting the invitation, selecting an Asset, and starting a Promotion.\n\nYou now know exactly what a real collaborator will experience. Great job!',
+      tag: 'demo',
+    },
+    
+
   ],
 };
