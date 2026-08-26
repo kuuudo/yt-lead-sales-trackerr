@@ -68,6 +68,7 @@ import { useAuth } from '../../lib/auth';
 import { listAssetsByOrganization } from '../../services/asset/listAssetsByOrganization';
 import type { AssetLibraryRow } from '../../services/asset/listAssetsByOrganization';
 import { getAssignedAssetSummaryForOwner } from '../../services/asset/getAssignedAssetSummaryForOwner';
+import { getAssetArchiveContextsForViewer } from '../../services/asset/getAssetArchiveContext';
 import type { AssignedAssetSummary } from '../../services/asset/getAssignedAssetSummaryForOwner';
 import {
   resolveAssetThumbnail,
@@ -187,11 +188,20 @@ export function AssetPicker({
       listAssetsByOrganization({ organizationId }),
       user ? getAssignedAssetSummaryForOwner(user.id) : Promise.resolve([]),
     ])
-      .then(([myData, assignedData]) => {
+      .then(async ([myData, assignedData]) => {
         if (cancelled) return;
-        // No asset_type filter — My Assets now matches Assets.tsx's full
-        // set (video / resource / campaign_element). See UPDATE note above.
-        setRows(myData);
+
+        let visibleRows = myData;
+        if (user && myData.length > 0) {
+          const archiveContextMap = await getAssetArchiveContextsForViewer(
+            myData.map(r => ({ id: r.id, assetType: r.asset_type })),
+            user.id
+          );
+          visibleRows = myData.filter(r => !archiveContextMap.get(r.id)?.isArchived);
+        }
+
+        if (cancelled) return;
+        setRows(visibleRows);
         setAssignedSummary(assignedData);
       })
       .catch(err => {

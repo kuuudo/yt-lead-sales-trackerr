@@ -112,7 +112,6 @@ export async function listAssetsForCampaign(campaignId: string, viewerId: string
     }
   }
 
-  return results;
   if (results.length === 0) return results;
 
   const archiveContextMap = await getAssetArchiveContextsForViewer(

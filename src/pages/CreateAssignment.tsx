@@ -88,14 +88,14 @@ export default function CreateAssignment() {
   }, []);
 
   useEffect(() => {
-    if (!selectedCampaignId) { setAssets([]); return; }
+    if (!selectedCampaignId || !userId) { setAssets([]); return; }
     setLoadingAssets(true);
     setSelectedAssetIds(new Set());
-    listAssetsForCampaign(selectedCampaignId)
+    listAssetsForCampaign(selectedCampaignId, userId)
       .then(setAssets)
       .catch(e => setError(e.message))
       .finally(() => setLoadingAssets(false));
-  }, [selectedCampaignId]);
+  }, [selectedCampaignId, userId]);
 
   // --- New: load this organization's verified Tracking Domains once
   // organizationId is known. Independent of Campaign/Asset selection —

@@ -84,6 +84,7 @@ import type { AssetLibraryRow } from '../services/asset/listAssetsByOrganization
 import { listSharedAssetsForCollaborator } from '../services/asset/listSharedAssetsForCollaborator';
 import type { SharedAssetLibraryRow } from '../services/asset/listSharedAssetsForCollaborator';
 import { getAssignedAssetSummaryForOwner } from '../services/asset/getAssignedAssetSummaryForOwner';
+import { getAssetArchiveContextsForViewer } from '../services/asset/getAssetArchiveContext';
 import type { AssignedAssetSummary } from '../services/asset/getAssignedAssetSummaryForOwner';
 import {
   resolveAssetThumbnail,
@@ -286,14 +287,32 @@ export function PromotedAssetPicker({
         ? getAssignedAssetSummaryForOwner(user.id)
         : Promise.resolve([]),
     ])
-      .then(([myData, sharedData, assignedData]) => {
+      .then(async ([myData, sharedData, assignedData]) => {
         if (cancelled) return;
-        // No asset_type filter — My Assets now matches Assets.tsx's full
-        // set (video / resource / campaign_element). Removed per explicit
-        // product decision: this is purely a selection UI, downstream
-        // handling of a selected campaign_element is a separate concern.
-        setRows(myData);
-        setSharedRows(sharedData);
+
+        let visibleMy = myData;
+        let visibleShared = sharedData;
+
+        if (user) {
+          const inputs = [
+            ...myData.map(r => ({ id: r.id, assetType: r.asset_type })),
+            ...sharedData.map(r => ({ id: r.asset_id, assetType: r.asset_type })),
+          ];
+          if (inputs.length > 0) {
+            const archiveContextMap = await getAssetArchiveContextsForViewer(
+              inputs,
+              user.id
+            );
+            visibleMy = myData.filter(r => !archiveContextMap.get(r.id)?.isArchived);
+            visibleShared = sharedData.filter(
+              r => !archiveContextMap.get(r.asset_id)?.isArchived
+            );
+          }
+        }
+
+        if (cancelled) return;
+        setRows(visibleMy);
+        setSharedRows(visibleShared);
         setAssignedSummary(assignedData);
       })
       .catch(err => {
