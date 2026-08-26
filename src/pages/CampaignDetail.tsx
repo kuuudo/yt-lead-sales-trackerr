@@ -9,7 +9,7 @@ import {
   Loader2, AlertCircle, 
   CheckCircle2, Globe, Magnet, 
   Phone, DollarSign, MousePointer2,
-  CreditCard, AlertTriangle
+  CreditCard, AlertTriangle, EyeOff, Eye
 } from 'lucide-react';
 
 import { motion, AnimatePresence } from 'motion/react';
@@ -18,6 +18,11 @@ import { PublishAssetButton } from "../components/PublishAssetButton";
 import { useTutorial } from '../lib/tutorial-overlay';
 import { getPublishedElements, type PublishedElement } from '../services/asset/publishCampaignElementAsAsset';
 import { saveCampaign } from '../services/campaign/saveCampaign';
+import {
+  getCampaignArchiveContext,
+  type CampaignArchiveContext,
+} from '../services/campaign/getCampaignArchiveContext';
+import { hideCampaignForUser, unhideCampaignForUser } from '../services/campaign/archiveUiVisibility';
 // Reusable Stripe toggle component
 const StripeToggle = ({ value, onChange }: { value: boolean; onChange: (v: boolean) => void }) => (
   <div className="space-y-2">
@@ -74,6 +79,9 @@ export default function CampaignDetail() {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [restoring, setRestoring] = useState(false);
+  const [archiveContext, setArchiveContext] = useState<CampaignArchiveContext | null>(null);
+  const [hiding, setHiding] = useState(false);
+  const [unhiding, setUnhiding] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState(false);
   const [missingAfterSave, setMissingAfterSave] = useState<string[]>([]);
@@ -128,10 +136,18 @@ export default function CampaignDetail() {
         .eq('id', id)
         .single();
 
-      if (cErr) throw cErr;
+    if (cErr) throw cErr;
       if (campaign) {
         setFormData(campaign);
         originalCheckoutUrl.current = campaign.checkout_url ?? '';
+        // Central resolver — read-only, single source of truth for Level 1/Level 2 state.
+        if (user && id) {
+          try {
+            setArchiveContext(await getCampaignArchiveContext(id, user.id));
+          } catch (ctxErr) {
+            console.error('Failed to load campaign archive context:', ctxErr);
+          }
+        }
       }
 
       const { data: magnets, error: mErr } = await supabase
@@ -156,7 +172,7 @@ export default function CampaignDetail() {
   };
 
   // Restore is only ever triggered by an explicit user click below.
-  const handleRestore = async () => {
+   const handleRestore = async () => {
     if (!id) return;
     if (isReadOnly) return;
     setRestoring(true);
@@ -167,10 +183,40 @@ export default function CampaignDetail() {
         .eq('id', id);
       if (restoreErr) throw restoreErr;
       setFormData(prev => ({ ...prev, archived_at: null } as any));
+      // Campaign has only one archive reason — clearing it always returns to NORMAL.
+      setArchiveContext(prev => (prev ? { ...prev, isArchived: false, isHiddenByViewer: false, level: 'normal' } : prev));
     } catch (err: any) {
       setError(err.message || 'Failed to restore campaign');
     } finally {
       setRestoring(false);
+    }
+  };
+
+  // Hide (Level 1 -> Level 2). Never modifies campaigns.archived_at.
+  const handleHide = async () => {
+    if (!id || !user || isReadOnly) return;
+    setHiding(true);
+    try {
+      await hideCampaignForUser(id, user.id);
+      setArchiveContext(prev => (prev ? { ...prev, isHiddenByViewer: true, level: 'level2' } : prev));
+    } catch (err: any) {
+      setError(err.message || 'Failed to hide campaign');
+    } finally {
+      setHiding(false);
+    }
+  };
+
+  // Level 2 Restore = Unhide only. Never modifies campaigns.archived_at.
+  const handleUnhide = async () => {
+    if (!id || !user || isReadOnly) return;
+    setUnhiding(true);
+    try {
+      await unhideCampaignForUser(id, user.id);
+      setArchiveContext(prev => (prev ? { ...prev, isHiddenByViewer: false, level: 'level1' } : prev));
+    } catch (err: any) {
+      setError(err.message || 'Failed to unhide campaign');
+    } finally {
+      setUnhiding(false);
     }
   };
 
@@ -277,14 +323,34 @@ export default function CampaignDetail() {
               </motion.div>
             )}
           </AnimatePresence>
-          {(formData as any).archived_at && !isReadOnly && (
+           {(formData as any).archived_at && !isReadOnly && archiveContext?.level === 'level1' && (
+            <>
+              <button
+                onClick={handleRestore}
+                disabled={restoring}
+                className="flex items-center gap-2 px-6 py-3 bg-zinc-900 border border-zinc-800 text-zinc-300 text-[11px] font-black uppercase rounded-xl hover:bg-zinc-800 transition-all disabled:opacity-50"
+              >
+                {restoring ? <Loader2 size={16} className="animate-spin" /> : <ArchiveRestore size={16} />}
+                {restoring ? 'Restoring...' : 'Restore Campaign'}
+              </button>
+              <button
+                onClick={handleHide}
+                disabled={hiding}
+                className="flex items-center gap-2 px-6 py-3 bg-zinc-900 border border-zinc-800 text-zinc-500 hover:text-white text-[11px] font-black uppercase rounded-xl hover:bg-zinc-800 transition-all disabled:opacity-50"
+              >
+                {hiding ? <Loader2 size={16} className="animate-spin" /> : <EyeOff size={16} />}
+                {hiding ? 'Hiding...' : 'Hide'}
+              </button>
+            </>
+          )}
+          {(formData as any).archived_at && !isReadOnly && archiveContext?.level === 'level2' && (
             <button
-              onClick={handleRestore}
-              disabled={restoring}
+              onClick={handleUnhide}
+              disabled={unhiding}
               className="flex items-center gap-2 px-6 py-3 bg-zinc-900 border border-zinc-800 text-zinc-300 text-[11px] font-black uppercase rounded-xl hover:bg-zinc-800 transition-all disabled:opacity-50"
             >
-              {restoring ? <Loader2 size={16} className="animate-spin" /> : <ArchiveRestore size={16} />}
-              {restoring ? 'Restoring...' : 'Restore Campaign'}
+              {unhiding ? <Loader2 size={16} className="animate-spin" /> : <Eye size={16} />}
+              {unhiding ? 'Unhiding...' : 'Unhide'}
             </button>
           )}
           {!isReadOnly && (

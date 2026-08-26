@@ -4,7 +4,7 @@ import { useLanguage } from '../lib/hooks';
 import { supabase, Campaign } from '../lib/supabase';
 import { useAuth } from '../lib/auth';
 import { useViewing } from '../lib/ViewingContext';
-import { Plus, Globe, ChevronRight, DollarSign, Phone, Mail as MailIcon, Briefcase, Save, Loader2, Link2, Magnet, Archive, ArchiveRestore, AlertTriangle, CreditCard, X } from 'lucide-react';
+import { Plus, Globe, ChevronRight, DollarSign, Phone, Mail as MailIcon, Briefcase, Save, Loader2, Link2, Magnet, Archive, ArchiveRestore, AlertTriangle, CreditCard, X, EyeOff, Eye } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { Modal } from '../components/Modal';
 import { useOrganization } from '../lib/useOrganization'
@@ -15,7 +15,11 @@ import CampaignOnboardingPixelVideo from '../components/onboarding/CampaignOnboa
 import CampaignOnboardingThankYouVideo from '../components/onboarding/CampaignOnboardingVideo/CampaignOnboardingThankYouVideo';
 import PaymentMethodDiagram from '../components/onboarding/PaymentMethodDiagram';
 import type { PurchaseMethod } from '../components/onboarding/campaignOptionContent';
-
+import {
+  getCampaignArchiveContextsForViewer,
+  type CampaignArchiveContext,
+} from '../services/campaign/getCampaignArchiveContext';
+import { hideCampaignForUser, unhideCampaignForUser } from '../services/campaign/archiveUiVisibility';
 export default function Campaigns() {
   const { t } = useLanguage();
   const { user } = useAuth();
@@ -31,12 +35,15 @@ export default function Campaigns() {
   const [archivingId, setArchivingId] = useState<string | null>(null);
   const [showOnboarding, setShowOnboarding] = useState(false);
 
-  // Archived campaigns modal state
+  // Archived campaigns — Level 1 (Archive Tab, inline) + Level 2 (Hidden modal)
   const [showArchived, setShowArchived] = useState(false);
   const [archivedCampaigns, setArchivedCampaigns] = useState<Campaign[]>([]);
   const [archivedLoading, setArchivedLoading] = useState(false);
   const [selectedArchiveIds, setSelectedArchiveIds] = useState<string[]>([]);
-  const [restoring, setRestoring] = useState(false);
+  const [archiveContextMap, setArchiveContextMap] = useState<Map<string, CampaignArchiveContext>>(new Map());
+  const [hidingId, setHidingId] = useState<string | null>(null);
+  const [restoringId, setRestoringId] = useState<string | null>(null);
+  const [unhiding, setUnhiding] = useState(false);
 
   const [modalConfig, setModalConfig] = useState<{
     isOpen: boolean;
@@ -88,7 +95,10 @@ export default function Campaigns() {
   });
 
   useEffect(() => {
-    if (user && effectiveOrgId) fetchCampaigns()
+    if (user && effectiveOrgId) {
+      fetchCampaigns();
+      fetchArchivedCampaigns();
+    }
   }, [user, effectiveOrgId])
 
   const fetchCampaigns = async () => {
@@ -207,13 +217,15 @@ export default function Campaigns() {
           showAlert('Archive Failed', error.message, 'danger');
         } else {
           setCampaigns(campaigns.filter(c => c.id !== campaign.id));
+          // Newly archived campaign enters Level 1 — refresh so the Archive Tab reflects it.
+          fetchArchivedCampaigns();
         }
       }
     );
   };
 
-  const fetchArchivedCampaigns = async () => {
-    if (!effectiveOrgId) return;
+ const fetchArchivedCampaigns = async () => {
+    if (!effectiveOrgId || !user) return;
     setArchivedLoading(true);
     try {
       const { data, error } = await supabase
@@ -224,7 +236,15 @@ export default function Campaigns() {
         .not('archived_at', 'is', null)
         .order('archived_at', { ascending: false });
       if (error) throw error;
-      setArchivedCampaigns(data || []);
+      const rows = data || [];
+      setArchivedCampaigns(rows);
+      // Central resolver: Level 1 (Archive Tab) vs Level 2 (Hidden) per viewer.
+      // Read-only — never writes campaigns.archived_at or archive_ui_visibility.
+      const contextMap = await getCampaignArchiveContextsForViewer(
+        rows.map(c => ({ id: c.id, archivedAt: (c as any).archived_at ?? null })),
+        user.id
+      );
+      setArchiveContextMap(contextMap);
     } catch (err: any) {
       showAlert('Fetch Error', `Failed to fetch archived campaigns: ${err.message}`, 'danger');
     } finally {
@@ -244,23 +264,55 @@ export default function Campaigns() {
     );
   };
 
-  const handleRestoreSelected = async () => {
-    if (isReadOnly || selectedArchiveIds.length === 0) return;
-    setRestoring(true);
+ // Level 2 Restore = Unhide only. Must NEVER modify campaigns.archived_at —
+  // deletes the viewer's archive_ui_visibility row and returns the item to
+  // Level 1 (Archive Tab), not to NORMAL/Active.
+  const handleUnhideSelected = async () => {
+    if (isReadOnly || !user || selectedArchiveIds.length === 0) return;
+    setUnhiding(true);
+    try {
+      await Promise.all(selectedArchiveIds.map(id => unhideCampaignForUser(id, user.id)));
+      setSelectedArchiveIds([]);
+      // These campaigns are still archived — they move back to Level 1, not out of the archive system.
+      await fetchArchivedCampaigns();
+    } catch (err: any) {
+      showAlert('Unhide Failed', err.message, 'danger');
+    } finally {
+      setUnhiding(false);
+    }
+  };
+
+  // Level 1 Restore = true source restore. Clears campaigns.archived_at —
+  // Campaign has only one archive reason, so this always returns it to NORMAL/Active.
+  const handleRestoreCampaign = async (campaignId: string) => {
+    if (isReadOnly) return;
+    setRestoringId(campaignId);
     try {
       const { error } = await supabase
         .from('campaigns')
         .update({ archived_at: null })
-        .in('id', selectedArchiveIds);
+        .eq('id', campaignId);
       if (error) throw error;
-      setArchivedCampaigns(prev => prev.filter(c => !selectedArchiveIds.includes(c.id)));
-      setSelectedArchiveIds([]);
-      // Restored campaigns belong back in the active list
+      setArchivedCampaigns(prev => prev.filter(c => c.id !== campaignId));
       fetchCampaigns();
     } catch (err: any) {
       showAlert('Restore Failed', err.message, 'danger');
     } finally {
-      setRestoring(false);
+      setRestoringId(null);
+    }
+  };
+
+  // Hide (Level 1 -> Level 2). Never modifies campaigns.archived_at.
+  const handleHideCampaign = async (campaignId: string) => {
+    if (isReadOnly || !user) return;
+    setHidingId(campaignId);
+    try {
+      await hideCampaignForUser(campaignId, user.id);
+      await fetchArchivedCampaigns();
+    } catch (err: any) {
+      showAlert('Hide Failed', err.message, 'danger');
+    } finally {
+      setHidingId(null);
     }
   };
 
@@ -285,6 +337,9 @@ export default function Campaigns() {
 
   const warnings = getWarnings();
 
+  const level1Campaigns = archivedCampaigns.filter(c => archiveContextMap.get(c.id)?.level === 'level1');
+  const level2Campaigns = archivedCampaigns.filter(c => archiveContextMap.get(c.id)?.level === 'level2');
+
   return (
     <div className="space-y-8">
       <header className="flex justify-between items-center">
@@ -306,7 +361,7 @@ export default function Campaigns() {
             onClick={openArchivedModal}
             className="flex items-center gap-2 bg-zinc-900 hover:bg-zinc-800 border border-zinc-800 text-zinc-300 px-5 py-2.5 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all"
           >
-            <Archive size={14} /> Archived
+            <EyeOff size={14} /> Hidden{level2Campaigns.length > 0 ? ` (${level2Campaigns.length})` : ''}
           </button>
           {!isReadOnly && (
           <button
@@ -679,7 +734,51 @@ export default function Campaigns() {
             </motion.div>
           ))
         )}
-      </section>
+   </section>
+
+      {/* Level 1 — Campaign Archive Tab (single reason: campaigns.archived_at) */}
+      {level1Campaigns.length > 0 && (
+        <section className="bento-card border-zinc-800 bg-zinc-900/20 p-6 space-y-3">
+          <h2 className="text-sm font-bold text-white flex items-center gap-2">
+            <Archive size={14} className="text-zinc-500" /> Archive ({level1Campaigns.length})
+          </h2>
+          <div className="space-y-1 -mx-2 px-2">
+            {level1Campaigns.map(c => (
+              <div
+                key={c.id}
+                className="flex items-center gap-3 p-2.5 rounded-xl hover:bg-zinc-900 transition-all group"
+              >
+                <span
+                  className="text-sm text-zinc-200 flex-1 truncate cursor-pointer"
+                  onClick={() => navigate(`/campaigns/${c.id}`)}
+                >
+                  {c.campaign_name}
+                </span>
+                {!isReadOnly && (
+                  <>
+                    <button
+                      onClick={() => handleRestoreCampaign(c.id)}
+                      disabled={restoringId === c.id}
+                      className="flex items-center gap-1.5 bg-zinc-900 hover:bg-zinc-800 border border-zinc-800 text-zinc-300 px-3 py-1.5 rounded-lg text-[9px] font-black uppercase tracking-widest transition-all disabled:opacity-40"
+                    >
+                      {restoringId === c.id ? <Loader2 size={11} className="animate-spin" /> : <ArchiveRestore size={11} />}
+                      Restore
+                    </button>
+                    <button
+                      onClick={() => handleHideCampaign(c.id)}
+                      disabled={hidingId === c.id}
+                      className="flex items-center gap-1.5 bg-zinc-900 hover:bg-zinc-800 border border-zinc-800 text-zinc-500 hover:text-white px-3 py-1.5 rounded-lg text-[9px] font-black uppercase tracking-widest transition-all disabled:opacity-40"
+                    >
+                      {hidingId === c.id ? <Loader2 size={11} className="animate-spin" /> : <EyeOff size={11} />}
+                      Hide
+                    </button>
+                  </>
+                )}
+              </div>
+            ))}
+          </div>
+        </section>
+      )}
 
       {/* Archived campaigns modal */}
       <AnimatePresence>
@@ -698,9 +797,9 @@ export default function Campaigns() {
               className="bento-card w-full max-w-md max-h-[80vh] flex flex-col p-6"
               onClick={e => e.stopPropagation()}
             >
-              <div className="flex justify-between items-center mb-4">
+            <div className="flex justify-between items-center mb-4">
                 <h2 className="text-lg font-bold text-white flex items-center gap-2">
-                  <Archive size={16} className="text-zinc-500" /> Archived Campaigns
+                  <EyeOff size={16} className="text-zinc-500" /> Hidden Campaigns
                 </h2>
                 <button
                   onClick={() => setShowArchived(false)}
@@ -711,16 +810,16 @@ export default function Campaigns() {
               </div>
 
               <div className="flex-1 overflow-y-auto space-y-1 -mx-2 px-2">
-                {archivedLoading ? (
+               {archivedLoading ? (
                   Array.from({ length: 3 }).map((_, i) => (
                     <div key={i} className="h-11 rounded-xl bg-zinc-900/50 animate-pulse" />
                   ))
-                ) : archivedCampaigns.length === 0 ? (
+                ) : level2Campaigns.length === 0 ? (
                   <p className="text-zinc-600 text-xs font-bold uppercase tracking-widest text-center py-10">
-                    No archived campaigns
+                    No hidden campaigns
                   </p>
                 ) : (
-                  archivedCampaigns.map(c => (
+                  level2Campaigns.map(c => (
                     <div
                       key={c.id}
                       className="flex items-center gap-3 p-2.5 rounded-xl hover:bg-zinc-900 transition-all cursor-pointer group"
@@ -741,12 +840,12 @@ export default function Campaigns() {
               </div>
 
               <button
-                disabled={isReadOnly || selectedArchiveIds.length === 0 || restoring}
-                onClick={handleRestoreSelected}
+                disabled={isReadOnly || selectedArchiveIds.length === 0 || unhiding}
+                onClick={handleUnhideSelected}
                 className="mt-4 w-full flex items-center justify-center gap-2 bg-white hover:bg-zinc-200 disabled:opacity-40 disabled:cursor-not-allowed text-zinc-950 px-5 py-3 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all"
               >
-                {restoring ? <Loader2 size={14} className="animate-spin" /> : <ArchiveRestore size={14} />}
-                Restore Selected{selectedArchiveIds.length > 0 ? ` (${selectedArchiveIds.length})` : ''}
+                {unhiding ? <Loader2 size={14} className="animate-spin" /> : <Eye size={14} />}
+                Unhide Selected{selectedArchiveIds.length > 0 ? ` (${selectedArchiveIds.length})` : ''}
               </button>
             </motion.div>
           </motion.div>
