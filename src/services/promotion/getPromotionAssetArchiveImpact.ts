@@ -1,131 +1,75 @@
 /**
- * src/services/promotion/getPromotionArchiveContext.ts
+ * src/services/promotion/getPromotionAssetArchiveImpact.ts
  *
- * Central Promotion Archive Resolver — SURFACE A ONLY, READ ONLY. Mirrors
- * the shape of services/campaign/getCampaignArchiveContext.ts, but the
- * archive condition is PERSONAL (promotion_user_states.archived_at),
- * scoped to (promotion_id, viewerId) — not a global column, unlike
- * Campaign. There is no upstream-derived reason for Promotion under
- * Surface A: whether an Asset used by this Promotion is archived is
- * Surface B (Archive Impact) — a completely separate, non-L1/L2,
- * non-archived-state diagnostic surface. See
- * getPromotionAssetArchiveImpact.ts for that. Do not merge the two here.
+ * SURFACE B — Archive Impact. Diagnostic/informational only. This is NOT
+ * Promotion Archive (that's Surface A — see getPromotionArchiveContext.ts
+ * and promotionArchive.ts). Per LOCKED design:
  *
- * Level 1 vs Level 2 is a separate signal — archive_ui_visibility
- * (entity_type='promotion') — used ONLY to compute `level`, never to
- * compute `isArchived`. Does NOT add archive_reason / archive_level /
- * archive_source_* columns, and does NOT add promotions.archived_at —
- * forbidden by LOCKED design.
+ *   - If an Asset used by a Promotion becomes archived, the Promotion does
+ *     NOT automatically archive, does NOT leave My Promotions, does NOT
+ *     automatically remove a collaborator, and does NOT automatically
+ *     revoke asset or tracking-domain access.
+ *   - No Level 1 / Level 2 for this surface. No Hide/Unhide. No Restore.
+ *   - This module writes NOTHING and triggers NO automatic Remove/Revoke
+ *     of anything. Actual Remove/Revoke remains a manual, separate user
+ *     action (see removeCollaborator.ts / assignmentAssetAccess.ts /
+ *     assignmentTrackingDomainAccess.ts, all untouched by this module).
  *
- * No writes. No cascade reads into promotion_assets/assets — Archive
- * Impact (Surface B) is intentionally a separate module/concern.
+ * Per-Asset reasons are read-time derived from the existing, single
+ * authoritative Asset resolver (services/asset/getAssetArchiveContext.ts)
+ * — this module does NOT independently join asset_user_states / videos /
+ * campaigns and does NOT introduce a second Asset archive calculation.
+ * Uses the single-entry getAssetArchiveContext() per promoted asset
+ * (rather than the batch entry point) because it self-resolves each
+ * asset's type from the `assets` table itself — this module deliberately
+ * does not require callers to already know each promoted asset's
+ * asset_type, since getPromotionDetail.ts's exact row shape was not
+ * inspected as part of this phase (kept the resolver's public surface
+ * bulletproof against that unknown rather than guessing it).
  *
  * Callers:
- *   - pages/PromotionDetail.tsx (getPromotionArchiveContext — single promotion)
+ *   - pages/PromotionDetail.tsx (Promoted Assets — Archive Impact banner)
  */
 
-import { supabase } from '../../lib/supabase';
+import { getAssetArchiveContext, type AssetArchiveContext } from '../asset/getAssetArchiveContext';
 
-export type PromotionArchiveLevel = 'normal' | 'level1' | 'level2';
-
-export interface PromotionArchiveContext {
-  promotionId: string;
-  isArchived: boolean;
-  isHiddenByViewer: boolean;
-  level: PromotionArchiveLevel;
+export interface PromotionAssetImpact {
+  assetId: string;
+  context: AssetArchiveContext;
 }
 
-// ── Single-promotion entry point (PromotionDetail.tsx) ───────────────────
+export interface PromotionArchiveImpact {
+  archivedAssetCount: number;
+  /** Only entries where context.isArchived === true. */
+  impacts: PromotionAssetImpact[];
+}
 
-export async function getPromotionArchiveContext(
-  promotionId: string,
+export async function getPromotionAssetArchiveImpact(
+  assetIds: string[],
   viewerId: string
-): Promise<PromotionArchiveContext> {
-  const { data, error } = await supabase
-    .from('promotion_user_states')
-    .select('archived_at')
-    .eq('promotion_id', promotionId)
-    .eq('user_id', viewerId)
-    .maybeSingle();
-
-  if (error) {
-    throw new Error(`Failed to load promotion archive state: ${error.message}`);
+): Promise<PromotionArchiveImpact> {
+  if (assetIds.length === 0) {
+    return { archivedAssetCount: 0, impacts: [] };
   }
 
-  const isArchived = !!data?.archived_at;
-  const isHiddenByViewer = isArchived ? await getIsHiddenByViewer(promotionId, viewerId) : false;
+  const settled = await Promise.all(
+    assetIds.map(async (assetId): Promise<PromotionAssetImpact | null> => {
+      try {
+        const context = await getAssetArchiveContext(assetId, viewerId);
+        return { assetId, context };
+      } catch (err) {
+        // Diagnostic surface only — a single asset failing to resolve
+        // (e.g. deleted, or a transient RLS/network issue) must never
+        // block the rest of the Promotion page from rendering.
+        console.error(`[getPromotionAssetArchiveImpact] failed for asset ${assetId}:`, err);
+        return null;
+      }
+    })
+  );
 
-  return buildContext(promotionId, isArchived, isHiddenByViewer);
-}
+  const impacts = settled.filter(
+    (x): x is PromotionAssetImpact => !!x && x.context.isArchived
+  );
 
-// ── Batch entry point (kept for parity with Asset/Video/Campaign; not ────
-// currently required by Marketplace.tsx, which already maintains its own
-// archivedPromotionMap via promotionArchive.ts's bulk getter and only
-// needs the Level 2 hidden-id set on top of it — see
-// archiveUiVisibility.ts's getHiddenPromotionIdsForUser for that.)
-
-export interface PromotionForArchiveContext {
-  id: string;
-  archivedAt: string | null;
-}
-
-export async function getPromotionArchiveContextsForViewer(
-  promotionsIn: PromotionForArchiveContext[],
-  viewerId: string
-): Promise<Map<string, PromotionArchiveContext>> {
-  if (promotionsIn.length === 0) return new Map();
-
-  const archivedIds = promotionsIn.filter(p => !!p.archivedAt).map(p => p.id);
-  const hiddenSet = archivedIds.length > 0
-    ? await getHiddenPromotionIdsBulk(archivedIds, viewerId)
-    : new Set<string>();
-
-  const result = new Map<string, PromotionArchiveContext>();
-  for (const p of promotionsIn) {
-    const isArchived = !!p.archivedAt;
-    const isHiddenByViewer = isArchived && hiddenSet.has(p.id);
-    result.set(p.id, buildContext(p.id, isArchived, isHiddenByViewer));
-  }
-  return result;
-}
-
-// ── Shared level computation ──────────────────────────────────────────────
-
-function buildContext(
-  promotionId: string,
-  isArchived: boolean,
-  isHiddenByViewer: boolean
-): PromotionArchiveContext {
-  const level: PromotionArchiveLevel = !isArchived ? 'normal' : isHiddenByViewer ? 'level2' : 'level1';
-  return { promotionId, isArchived, isHiddenByViewer, level };
-}
-
-// ── Queries ────────────────────────────────────────────────────────────────
-
-async function getIsHiddenByViewer(promotionId: string, viewerId: string): Promise<boolean> {
-  const { data, error } = await supabase
-    .from('archive_ui_visibility')
-    .select('id')
-    .eq('entity_type', 'promotion')
-    .eq('entity_id', promotionId)
-    .eq('user_id', viewerId)
-    .maybeSingle();
-
-  if (error) throw new Error(`Failed to load archive_ui_visibility state: ${error.message}`);
-  return !!data;
-}
-
-async function getHiddenPromotionIdsBulk(
-  promotionIds: string[],
-  viewerId: string
-): Promise<Set<string>> {
-  const { data, error } = await supabase
-    .from('archive_ui_visibility')
-    .select('entity_id')
-    .eq('entity_type', 'promotion')
-    .eq('user_id', viewerId)
-    .in('entity_id', promotionIds);
-
-  if (error) throw new Error(`Failed to bulk-load archive_ui_visibility: ${error.message}`);
-  return new Set((data ?? []).map((row: any) => row.entity_id as string));
+  return { archivedAssetCount: impacts.length, impacts };
 }
