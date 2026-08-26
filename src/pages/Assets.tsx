@@ -108,7 +108,7 @@ import TopAssetsRanking from '../components/assets/TopAssetsRanking';
 // MOVED to module scope (see UPDATE note below) — was previously declared
 // inside Assets() but referenced by fromMyRow/fromSharedRow outside it.
 type AssetLibraryTab = 'all' | ResourceType | 'campaign_element';
-type OwnershipFilter = 'all' | 'mine' | 'shared' | 'assigned';
+type OwnershipFilter = 'all' | 'mine' | 'shared' | 'assigned' | 'archived';
 // video asset 目前 resource_type 是 null
 // campaign_element asset 沒有 resource_type,只有 element_type,獨立分類,不混進 ResourceType
 // 只在這頁補上,不改 service
@@ -587,82 +587,7 @@ const filteredRows = useMemo(() => {
         </div>
       </header>
 
-      {/* Level 1 — Archive Tab. Only rendered when there's something in
-          it (Design Doc §9: "只在有內容時顯示"). One row per Asset even
-          when it has multiple reasons; each reason keeps its own
-          Restore/navigate action per LOCKED design. */}
-      {level1UnifiedRows.length > 0 && (
-        <section className="space-y-3">
-          <div className="flex items-center gap-2">
-            <Archive size={14} className="text-zinc-500" />
-            <h2 className="text-[10px] font-black uppercase tracking-widest text-zinc-400">
-              Archive Tab ({level1UnifiedRows.length})
-            </h2>
-          </div>
-          <div className="space-y-2">
-            {level1UnifiedRows.map(row => (
-              <div
-                key={row.key}
-                className="bg-zinc-900 border border-zinc-800 rounded-xl p-4 space-y-2"
-              >
-                <div className="flex items-center justify-between gap-3">
-                  <Link to={`/assets/${row.linkId}`} className="text-sm font-bold text-white truncate hover:text-zinc-300">
-                    {row.title}
-                  </Link>
-                  <button
-                    onClick={() => handleHideAsset(row)}
-                    disabled={hidingAssetId === row.key}
-                    className="flex items-center gap-1 text-[9px] font-black uppercase tracking-widest text-zinc-500 hover:text-white shrink-0 disabled:opacity-50"
-                  >
-                    {hidingAssetId === row.key ? <Loader2 size={10} className="animate-spin" /> : <EyeOff size={10} />}
-                    Hide
-                  </button>
-                </div>
-                <div className="space-y-1.5">
-                  {(row.archiveContext?.reasons ?? []).map(reason => (
-                    <div
-                      key={`${reason.sourceType}-${reason.sourceId}`}
-                      className="flex items-center justify-between gap-2 text-[10px]"
-                    >
-                      <span className="text-zinc-400">
-                        {reason.sourceType === 'personal' && 'Archived by You'}
-                        {reason.sourceType === 'video' && `Source Video Archived${reason.sourceName ? `: ${reason.sourceName}` : ''}`}
-                        {reason.sourceType === 'campaign' && `Campaign Archived${reason.sourceName ? `: ${reason.sourceName}` : ''}`}
-                      </span>
-                      {reason.sourceType === 'personal' && (
-                        <button
-                          onClick={() => handleRestorePersonalReason(row)}
-                          className="font-black uppercase tracking-widest text-white hover:text-zinc-300 shrink-0"
-                        >
-                          Restore
-                        </button>
-                      )}
-                      {reason.sourceType === 'video' && (
-                        <Link
-                          to={`/videos/${reason.sourceId}`}
-                          className="font-black uppercase tracking-widest text-white hover:text-zinc-300 shrink-0"
-                        >
-                          Go to Video
-                        </Link>
-                      )}
-                      {reason.sourceType === 'campaign' && (
-                        // ASSUMPTION FLAGGED — route not confirmed, see
-                        // AssetDetail.tsx header note.
-                        <Link
-                          to={`/campaigns/${reason.sourceId}`}
-                          className="font-black uppercase tracking-widest text-white hover:text-zinc-300 shrink-0"
-                        >
-                          Go to Campaign
-                        </Link>
-                      )}
-                    </div>
-                  ))}
-                </div>
-              </div>
-            ))}
-          </div>
-        </section>
-      )}
+
 
       {organizationId && rows.length > 0 && (
         <div className="hidden md:block">
@@ -727,6 +652,18 @@ const filteredRows = useMemo(() => {
 >
   Assigned
 </button>
+
+  <button
+    onClick={() => setOwnershipFilter('archived')}
+    className={`text-[10px] font-black uppercase tracking-widest px-3 py-1.5 rounded-lg transition-all ${
+      ownershipFilter === 'archived'
+        ? 'bg-amber-600 text-white'
+        : 'bg-amber-950/40 text-amber-500 hover:text-amber-300'
+    }`}
+  >
+    Archived ({level1UnifiedRows.length})
+  </button>
+
 </div>
 <div className="flex items-center gap-2 flex-wrap">
   <button
@@ -779,7 +716,7 @@ const filteredRows = useMemo(() => {
         </p>
       )}
 
-      {!loading && !error && filteredRows.length > 0 && (
+      {!loading && !error && ownershipFilter !== 'archived' && filteredRows.length > 0 && (
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
           {filteredRows.map((row) => (
             <div
@@ -881,6 +818,60 @@ const filteredRows = useMemo(() => {
           ))}
         </div>
       )}
+
+      {!loading && !error && ownershipFilter === 'archived' && (
+        <div className="space-y-2">
+          {level1UnifiedRows.length === 0 ? (
+            <p className="text-zinc-500 text-sm">No archived assets.</p>
+          ) : (
+            level1UnifiedRows.map(row => (
+              <div key={row.key} className="bg-zinc-900 border border-amber-900/40 rounded-xl p-4 space-y-2">
+                <div className="flex items-center justify-between gap-3">
+                  <Link to={`/assets/${row.linkId}`} className="text-sm font-bold text-white truncate hover:text-zinc-300">
+                    {row.title}
+                  </Link>
+                  <button
+                    onClick={() => handleHideAsset(row)}
+                    disabled={hidingAssetId === row.key}
+                    className="flex items-center gap-1 text-[9px] font-black uppercase tracking-widest text-zinc-500 hover:text-white shrink-0 disabled:opacity-50"
+                  >
+                    {hidingAssetId === row.key ? <Loader2 size={10} className="animate-spin" /> : <EyeOff size={10} />}
+                    Hide
+                  </button>
+                </div>
+                <div className="space-y-1.5">
+                  {(row.archiveContext?.reasons ?? []).map(reason => (
+                    <div key={`${reason.sourceType}-${reason.sourceId}`} className="flex items-center justify-between gap-2 text-[10px]">
+                      <span className="text-zinc-400">
+                        {reason.sourceType === 'personal' && 'Archived by You'}
+                        {reason.sourceType === 'video' && `Source Video Archived${reason.sourceName ? `: ${reason.sourceName}` : ''}`}
+                        {reason.sourceType === 'campaign' && `Campaign Archived${reason.sourceName ? `: ${reason.sourceName}` : ''}`}
+                      </span>
+                      {reason.sourceType === 'personal' && (
+                        <button onClick={() => handleRestorePersonalReason(row)} className="font-black uppercase tracking-widest text-white hover:text-zinc-300 shrink-0">
+                          Restore
+                        </button>
+                      )}
+                      {reason.sourceType === 'video' && (
+                        <Link to={`/videos/${reason.sourceId}`} className="font-black uppercase tracking-widest text-white hover:text-zinc-300 shrink-0">
+                          Go to Video
+                        </Link>
+                      )}
+                      {reason.sourceType === 'campaign' && (
+                        <Link to={`/campaigns/${reason.sourceId}`} className="font-black uppercase tracking-widest text-white hover:text-zinc-300 shrink-0">
+                          Go to Campaign
+                        </Link>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              </div>
+            ))
+          )}
+        </div>
+      )}
+
+      
 
       {showImportModal && (
         <ImportAssetModal
