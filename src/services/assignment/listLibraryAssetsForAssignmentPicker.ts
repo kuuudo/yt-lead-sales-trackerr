@@ -26,7 +26,7 @@
 
 import { supabase } from '../../lib/supabase';
 import { resolveAssetThumbnail, type ResourceType } from '../../lib/videoFormatters';
-
+import { getAssetArchiveContextsForViewer } from '../asset/getAssetArchiveContext';
 export type AssetPickerFilterType = 'video' | 'resource';
 
 export interface LibraryAssetPickerRow {
@@ -39,12 +39,14 @@ export interface LibraryAssetPickerRow {
 
 export interface ListLibraryAssetsForAssignmentPickerInput {
   organizationId: string;
+  viewerId: string;
   filterType?: AssetPickerFilterType;
   search?: string;
 }
 
 export async function listLibraryAssetsForAssignmentPicker({
   organizationId,
+  viewerId,
   filterType,
   search,
 }: ListLibraryAssetsForAssignmentPickerInput): Promise<LibraryAssetPickerRow[]> {
@@ -132,5 +134,12 @@ export async function listLibraryAssetsForAssignmentPicker({
     }
   }
 
-  return results;
+  if (results.length === 0) return results;
+
+  const archiveContextMap = await getAssetArchiveContextsForViewer(
+    results.map(r => ({ id: r.asset_id, assetType: r.asset_type })),
+    viewerId
+  );
+
+  return results.filter(r => !archiveContextMap.get(r.asset_id)?.isArchived);
 }

@@ -8,7 +8,7 @@
 
 import { supabase } from '../../lib/supabase';
 import { resolveElementThumbnail, getElementTypeLabel, type CampaignElementType } from '../../lib/videoFormatters';
-
+import { getAssetArchiveContextsForViewer } from '../asset/getAssetArchiveContext';
 export interface CampaignOption {
   id: string;
   campaign_name: string | null;
@@ -51,7 +51,7 @@ export async function listCampaignsForOrg(organizationId: string): Promise<Campa
  * exact same query/shape as before this change — nothing about that path
  * was altered, only extended alongside.
  */
-export async function listAssetsForCampaign(campaignId: string): Promise<AssetOption[]> {
+export async function listAssetsForCampaign(campaignId: string, viewerId: string): Promise<AssetOption[]> {
   const { data: campaignAssetRows, error: caErr } = await supabase
     .from('campaign_assets')
     .select('asset_id')
@@ -113,4 +113,15 @@ export async function listAssetsForCampaign(campaignId: string): Promise<AssetOp
   }
 
   return results;
+  if (results.length === 0) return results;
+
+  const archiveContextMap = await getAssetArchiveContextsForViewer(
+    results.map(r => ({
+      id: r.asset_id,
+      assetType: r.kind === 'video' ? 'video' : 'campaign_element',
+    })),
+    viewerId
+  );
+
+  return results.filter(r => !archiveContextMap.get(r.asset_id)?.isArchived);
 }
