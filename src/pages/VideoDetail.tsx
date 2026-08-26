@@ -36,8 +36,13 @@ import {
   ArrowLeft, Youtube, DollarSign, Users, Activity,
   TrendingUp, MousePointer2, Phone, Briefcase,
   ExternalLink, BarChart3, Clock, Edit2, Archive, ArchiveRestore, Save, X, Loader2, Check, Link2, Plus, Copy,
-  BookmarkPlus, ArrowRight, ChevronRight
+  BookmarkPlus, ArrowRight, ChevronRight,
+  // Phase 2 (Video Archive)
+  EyeOff,
 } from 'lucide-react';
+// Phase 2 (Video Archive): central resolver + Level 1/2 UI-visibility service
+import { getVideoArchiveContext, type VideoArchiveContext } from '../services/video/getVideoArchiveContext';
+import { hideVideoForUser, unhideVideoForUser } from '../services/video/archiveUiVisibility';
 import { motion, AnimatePresence } from 'motion/react';
 import { ResponsiveContainer, AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip } from 'recharts';
 import { Modal } from '../components/Modal';
@@ -315,6 +320,12 @@ export default function VideoDetail() {
   const [saving, setSaving]       = useState(false);
   const [archiving, setArchiving]   = useState(false);
   const [restoring, setRestoring]   = useState(false);
+  // Phase 2 (Video Archive): resolver output for this single video —
+  // reasons[] (video / campaign, both may be present), isHiddenByViewer,
+  // and the derived level. Consumed instead of reading video.archived_at
+  // directly.
+  const [archiveContext, setArchiveContext] = useState<VideoArchiveContext | null>(null);
+  const [hiding, setHiding] = useState(false);
   const [timeRange, setTimeRange] = useState<DateRange>('7days');
   const [availableCampaignLeadMagnets, setAvailableCampaignLeadMagnets] = useState<LeadMagnet[]>([]);
   const [copiedLinkToken, setCopiedLinkToken] = useState<string | null>(null);
@@ -445,6 +456,18 @@ export default function VideoDetail() {
         .from('campaigns').select('*').eq('id', vData.campaign_id).single();
       console.log('[VideoDetail] campaign query — found:', !!cData);
       setCampaign(cData);
+
+      // Phase 2 (Video Archive): resolver call — single source of both
+      // reasons ('video' = this video's own archived_at, 'campaign' = the
+      // parent Campaign's) and the Level 1/2 isHiddenByViewer state.
+      if (effectiveUserId) {
+        try {
+          const ctx = await getVideoArchiveContext(vData.id, effectiveUserId);
+          setArchiveContext(ctx);
+        } catch (archiveErr: any) {
+          console.warn('[VideoDetail] Could not load archive context:', archiveErr?.message);
+        }
+      }
 
       if (vData.selected_lead_magnet_ids?.length) {
         const { data: lmData } = await supabase
@@ -879,6 +902,11 @@ if (effectiveOrgId && effectiveUserId) {
             .update({ archived_at: new Date().toISOString() })
             .eq('id', id!);
           if (error) throw error;
+          setArchiveContext(prev => {
+            const base = prev ?? { videoId: id!, isArchived: false, reasons: [], isHiddenByViewer: false, level: 'normal' as const };
+            const reasons = [...base.reasons.filter(r => r.sourceType !== 'video'), { sourceType: 'video' as const, sourceId: id!, sourceName: video?.video_title ?? null }];
+            return { ...base, isArchived: true, reasons, level: base.isHiddenByViewer ? 'level2' : 'level1' };
+          });
           showAlert('Video Archived', 'This video has been moved to your archive. You can restore it anytime.', 'success', () => navigate('/videos'));
         } catch (err: any) {
           showAlert('Archive Failed', `Could not archive the video. Error: ${err.message}`, 'danger');
@@ -901,6 +929,16 @@ if (effectiveOrgId && effectiveUserId) {
         .eq('id', id);
       if (error) throw error;
       setVideo(prev => (prev ? ({ ...prev, archived_at: null } as any) : prev));
+      setArchiveContext(prev => {
+        if (!prev) return prev;
+        const remainingReasons = prev.reasons.filter(r => r.sourceType !== 'video');
+        return {
+          ...prev,
+          reasons: remainingReasons,
+          isArchived: remainingReasons.length > 0,
+          level: remainingReasons.length === 0 ? 'normal' : prev.isHiddenByViewer ? 'level2' : 'level1',
+        };
+      });
     } catch (err: any) {
       showAlert('Restore Failed', err.message || 'Could not restore the video.', 'danger');
     } finally {
@@ -1014,11 +1052,17 @@ if (effectiveOrgId && effectiveUserId) {
             <div>
               <h1 className="text-xl font-black text-white leading-tight flex items-center gap-2">
                 {video.video_title}
-                {(video as any).archived_at && (
-                  <span className="flex items-center gap-1 text-[9px] font-black uppercase tracking-widest text-amber-500 bg-amber-500/10 border border-amber-500/20 px-2 py-1 rounded-full">
-                    <ArchiveRestore size={10} /> Archived
-                  </span>
-                )}
+                {archiveContext?.reasons.map(reason => (
+                  reason.sourceType === 'video' ? (
+                    <span key="video" className="flex items-center gap-1 text-[9px] font-black uppercase tracking-widest text-amber-500 bg-amber-500/10 border border-amber-500/20 px-2 py-1 rounded-full">
+                      <ArchiveRestore size={10} /> Video Archived
+                    </span>
+                  ) : (
+                    <span key="campaign" className="flex items-center gap-1 text-[9px] font-black uppercase tracking-widest text-orange-500 bg-orange-500/10 border border-orange-500/20 px-2 py-1 rounded-full">
+                      <ArchiveRestore size={10} /> Campaign Archived{reason.sourceName ? `: ${reason.sourceName}` : ''}
+                    </span>
+                  )
+                ))}
               </h1>
               <div className="flex items-center gap-3 mt-1">
                 <span className="text-[9px] font-black uppercase text-red-600 tracking-widest">{campaign?.campaign_name}</span>
@@ -1045,7 +1089,10 @@ if (effectiveOrgId && effectiveUserId) {
         <div className="flex gap-2">
           {!isReadOnly && (
           <>
-          {(video as any).archived_at && (
+          {/* Phase 2 (Video Archive): Restore only applies to the video's
+              own archive — a Campaign-derived reason gets "Go to Campaign"
+              instead, never an auto-restore. */}
+          {archiveContext?.reasons.some(r => r.sourceType === 'video') && (
             <button
               onClick={handleRestore}
               disabled={restoring}
@@ -1054,6 +1101,45 @@ if (effectiveOrgId && effectiveUserId) {
             >
               {restoring ? <Loader2 size={16} className="animate-spin" /> : <ArchiveRestore size={16} />}
               {restoring ? 'Restoring...' : 'Restore'}
+            </button>
+          )}
+          {archiveContext?.reasons.some(r => r.sourceType === 'campaign') && (
+            <button
+              onClick={() => {
+                const campaignReason = archiveContext.reasons.find(r => r.sourceType === 'campaign');
+                if (campaignReason) navigate(`/campaigns/${campaignReason.sourceId}`);
+              }}
+              className="flex items-center gap-2 px-4 py-3 bg-zinc-900 border border-zinc-800 rounded-xl text-zinc-300 text-[10px] font-black uppercase tracking-widest hover:bg-zinc-800 transition-all"
+              title="Go to Campaign"
+            >
+              Go to Campaign <ArrowRight size={16} />
+            </button>
+          )}
+          {archiveContext?.isArchived && !isReadOnly && (
+            <button
+              onClick={async () => {
+                if (!effectiveUserId || !id) return;
+                setHiding(true);
+                try {
+                  if (archiveContext.isHiddenByViewer) {
+                    await unhideVideoForUser(id, effectiveUserId);
+                    setArchiveContext(prev => prev ? { ...prev, isHiddenByViewer: false, level: 'level1' } : prev);
+                  } else {
+                    await hideVideoForUser(id, effectiveUserId);
+                    setArchiveContext(prev => prev ? { ...prev, isHiddenByViewer: true, level: 'level2' } : prev);
+                  }
+                } catch (err: any) {
+                  showAlert(archiveContext.isHiddenByViewer ? 'Unhide Failed' : 'Hide Failed', err.message, 'danger');
+                } finally {
+                  setHiding(false);
+                }
+              }}
+              disabled={hiding}
+              className="flex items-center gap-2 px-4 py-3 bg-zinc-900 border border-zinc-800 rounded-xl text-zinc-300 text-[10px] font-black uppercase tracking-widest hover:bg-zinc-800 transition-all disabled:opacity-50"
+              title={archiveContext.isHiddenByViewer ? 'Unhide' : 'Hide'}
+            >
+              <EyeOff size={16} />
+              {hiding ? '...' : archiveContext.isHiddenByViewer ? 'Unhide' : 'Hide'}
             </button>
           )}
           <button

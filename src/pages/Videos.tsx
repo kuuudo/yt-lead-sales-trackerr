@@ -526,6 +526,7 @@ export default function Videos() {
   const { viewingOrgId, viewingMemberId, isReadOnly } = useViewing();
   const effectiveOrgId = isReadOnly ? viewingOrgId : organizationId;
   const effectiveUserId = isReadOnly ? viewingMemberId : (user?.id ?? null);
+  const navigate = useNavigate();
   const [videos, setVideos] = useState<Video[]>([]);
   const [promotionBadges, setPromotionBadges] =
   useState<VideoPromotionBadgeMap>(new Map());
@@ -749,6 +750,10 @@ const hasBlockingPromotionIssue = Array.from(promotionContextByAssetId.entries()
 
   // Archived videos modal state
   const [showArchivedVideos, setShowArchivedVideos] = useState(false);
+  // Phase 2 (Video Archive): resolver output, keyed by video id. Level 1 tab,
+  // the ARCHIVE/HIDDEN tab counts, and the Hidden (Level 2) modal all read
+  // from this map instead of independently deriving archive state.
+  const [archiveContextMap, setArchiveContextMap] = useState<Map<string, VideoArchiveContext>>(new Map());
   const [archivedVideos, setArchivedVideos] = useState<Video[]>([]);
   const [archivedVideosLoading, setArchivedVideosLoading] = useState(false);
   const [selectedArchivedVideoIds, setSelectedArchivedVideoIds] = useState<string[]>([]);
@@ -765,7 +770,9 @@ const hasBlockingPromotionIssue = Array.from(promotionContextByAssetId.entries()
 
   const [filters, setFilters] = useState({
     search: '',
-    platform: 'all' as 'all' | Platform,
+    // Phase 2 (Video Archive): 'archive' is the Level 1 status tab —
+    // mutually exclusive with platform values, same one-tab-active pattern.
+    platform: 'all' as 'all' | Platform | 'archive',
     goals: [] as string[],
     leadMagnets: [] as string[],
     dateRange: 'all',
@@ -899,6 +906,7 @@ const hasBlockingPromotionIssue = Array.from(promotionContextByAssetId.entries()
         setVideos(cached.data.videos);
         setCampaigns(cached.data.campaigns);
         setAllLeadMagnets(cached.data.allLeadMagnets);
+        setArchiveContextMap(cached.data.archiveContextMap ?? new Map());
         setLoading(false);
         if (cached.data.campaigns.length > 0) {
           setFormData(prev => ({ ...prev, campaign_id: prev.campaign_id || cached.data.campaigns[0].id }));
@@ -915,12 +923,17 @@ const hasBlockingPromotionIssue = Array.from(promotionContextByAssetId.entries()
     try {
       console.log('Fetching data for user:', user?.id);
       
+      // Phase 2 (Video Archive): no longer filters archived_at at the DB
+      // level. The old filter meant Level 1 (own-archived) videos, and
+      // Campaign-archived-but-not-self-archived videos, were never fetched
+      // at all — there was no data to build the Archive tab from. All org
+      // videos are fetched here; Active / Level 1 / Level 2 buckets are
+      // computed client-side by the resolver below.
       const { data: vData, error: vError } = await supabase
         .from('videos')
         .select('*')
         .eq('organization_id', effectiveOrgId)
         .is('deleted_at', null)
-        .is('archived_at', null)
         .order('created_at', { ascending: false });
 
       console.log('Supabase Videos Response:', { data: vData, error: vError });
@@ -970,12 +983,40 @@ const hasBlockingPromotionIssue = Array.from(promotionContextByAssetId.entries()
           
           if (lmError) console.error('Error fetching all lead magnets:', lmError);
          if (lmData) setAllLeadMagnets(lmData);
+
+          // Phase 2 (Video Archive): compute the resolver map from data
+          // already loaded above (vData + cData) — no extra Supabase round
+          // trip. Mirrors computeVideoArchiveContextsFromLoadedData's
+          // intended caller shape.
+          const newArchiveContextMap = await computeVideoArchiveContextsFromLoadedData(
+            (vData || []).map(v => ({
+              id: v.id,
+              archived_at: v.archived_at,
+              campaign_id: v.campaign_id,
+              video_title: v.video_title,
+            })),
+            cData.map(c => ({ id: c.id, archived_at: c.archived_at, campaign_name: c.campaign_name })),
+            effectiveUserId || ''
+          );
+          setArchiveContextMap(newArchiveContextMap);
+
           if (effectiveOrgId) {
-            videosPageCache.set(effectiveOrgId, { videos: vData || [], campaigns: cData, allLeadMagnets: lmData || [] });
+            videosPageCache.set(effectiveOrgId, { videos: vData || [], campaigns: cData, allLeadMagnets: lmData || [], archiveContextMap: newArchiveContextMap });
             console.log('[Videos] Cache updated');
           }
         } else if (effectiveOrgId) {
-          videosPageCache.set(effectiveOrgId, { videos: vData || [], campaigns: cData, allLeadMagnets: [] });
+          const newArchiveContextMap = await computeVideoArchiveContextsFromLoadedData(
+            (vData || []).map(v => ({
+              id: v.id,
+              archived_at: v.archived_at,
+              campaign_id: v.campaign_id,
+              video_title: v.video_title,
+            })),
+            [],
+            effectiveUserId || ''
+          );
+          setArchiveContextMap(newArchiveContextMap);
+          videosPageCache.set(effectiveOrgId, { videos: vData || [], campaigns: cData, allLeadMagnets: [], archiveContextMap: newArchiveContextMap });
           console.log('[Videos] Cache updated');
         }
       }
@@ -1245,7 +1286,27 @@ console.log(
             .update({ archived_at: new Date().toISOString() })
             .eq('id', v.id);
           if (error) throw error;
-          setVideos(prev => prev.filter(vid => vid.id !== v.id));
+          // Phase 2 (Video Archive): keep the video in `videos` state (it
+          // still belongs to the org) — just update its archived_at so the
+          // resolver-driven filteredVideos memo excludes it from Active and
+          // the Archive tab picks it up, instead of removing it from state
+          // entirely (which would have hidden it from the Archive tab too).
+          setVideos(prev => prev.map(vid => vid.id === v.id ? { ...vid, archived_at: new Date().toISOString() } as Video : vid));
+          setArchiveContextMap(prev => {
+            const next = new Map(prev);
+            const existing = next.get(v.id);
+            next.set(v.id, {
+              videoId: v.id,
+              isArchived: true,
+              reasons: [
+                ...(existing?.reasons.filter(r => r.sourceType !== 'video') ?? []),
+                { sourceType: 'video', sourceId: v.id, sourceName: v.video_title },
+              ],
+              isHiddenByViewer: existing?.isHiddenByViewer ?? false,
+              level: existing?.isHiddenByViewer ? 'level2' : 'level1',
+            });
+            return next;
+          });
         } catch (err: any) {
           showAlert('Archive Failed', err.message || 'Could not archive the video.', 'danger');
         } finally {
@@ -1256,21 +1317,22 @@ console.log(
     );
   };
 
+  // Phase 2 (Video Archive): this modal is now the Level 2 "Hidden" surface
+  // only — sourced from archiveContextMap (level === 'level2'), never a raw
+  // videos.archived_at query. Level 1 lives in the new Archive tab instead.
   const fetchArchivedVideos = async () => {
     if (!effectiveOrgId) return;
     setArchivedVideosLoading(true);
     try {
-      const { data, error } = await supabase
-        .from('videos')
-        .select('*')
-        .eq('organization_id', effectiveOrgId)
-        .is('deleted_at', null)
-        .not('archived_at', 'is', null)
-        .order('archived_at', { ascending: false });
-      if (error) throw error;
-      setArchivedVideos(data || []);
+      const hiddenIds = new Set(
+        Array.from(archiveContextMap.entries())
+          .filter(([, ctx]) => ctx.level === 'level2')
+          .map(([id]) => id)
+      );
+      const hiddenVideos = videos.filter(v => hiddenIds.has(v.id));
+      setArchivedVideos(hiddenVideos);
     } catch (err: any) {
-      showAlert('Fetch Error', `Failed to fetch archived videos: ${err.message}`, 'danger');
+      showAlert('Fetch Error', `Failed to load hidden videos: ${err.message}`, 'danger');
     } finally {
       setArchivedVideosLoading(false);
     }
@@ -1282,34 +1344,108 @@ console.log(
     fetchArchivedVideos();
   };
 
+  // Phase 2 (Video Archive): Level 1 tab actions ─────────────────────────
+
+  // Restore Video (own archive) — clears videos.archived_at only. Per
+  // LOCKED design this must NOT touch a Campaign-derived reason, and must
+  // NOT auto-restore the Campaign.
+  const handleRestoreVideoOwnArchive = async (videoId: string) => {
+    if (isReadOnly) return;
+    try {
+      const { error } = await supabase
+        .from('videos')
+        .update({ archived_at: null })
+        .eq('id', videoId);
+      if (error) throw error;
+      setVideos(prev => prev.map(v => v.id === videoId ? { ...v, archived_at: null } as Video : v));
+      setArchiveContextMap(prev => {
+        const next = new Map(prev);
+        const existing = next.get(videoId);
+        if (existing) {
+          const remainingReasons = existing.reasons.filter(r => r.sourceType !== 'video');
+          next.set(videoId, {
+            ...existing,
+            reasons: remainingReasons,
+            isArchived: remainingReasons.length > 0,
+            level: remainingReasons.length === 0 ? 'normal' : existing.isHiddenByViewer ? 'level2' : 'level1',
+          });
+        }
+        return next;
+      });
+    } catch (err: any) {
+      showAlert('Restore Failed', err.message || 'Could not restore the video.', 'danger');
+    }
+  };
+
+  // Hide (Level 1 -> Level 2). UI visibility only — never writes
+  // videos.archived_at or campaigns.archived_at.
+  const handleHideVideo = async (videoId: string) => {
+    if (isReadOnly) return;
+    if (!effectiveUserId) return;
+    try {
+      await hideVideoForUser(videoId, effectiveUserId);
+      setArchiveContextMap(prev => {
+        const next = new Map(prev);
+        const existing = next.get(videoId);
+        if (existing) {
+          next.set(videoId, { ...existing, isHiddenByViewer: true, level: 'level2' });
+        }
+        return next;
+      });
+    } catch (err: any) {
+      showAlert('Hide Failed', err.message || 'Could not hide the video.', 'danger');
+    }
+  };
+
   const toggleArchivedVideoSelection = (id: string) => {
     setSelectedArchivedVideoIds(prev =>
       prev.includes(id) ? prev.filter(x => x !== id) : [...prev, id]
     );
   };
 
+  // Phase 2 (Video Archive): "Restore Selected" on the Level 2 (Hidden)
+  // modal is Unhide-only — deletes archive_ui_visibility rows. NEVER writes
+  // videos.archived_at here; that would confuse Hide/Unhide with Archive/
+  // Restore, which the LOCKED design keeps completely separate.
   const handleRestoreSelectedVideos = async () => {
     if (selectedArchivedVideoIds.length === 0) return;
     if (isReadOnly) return;
+    if (!effectiveUserId) return;
     setRestoringVideos(true);
     try {
-      const { error } = await supabase
-        .from('videos')
-        .update({ archived_at: null })
-        .in('id', selectedArchivedVideoIds);
-      if (error) throw error;
+      await Promise.all(
+        selectedArchivedVideoIds.map(videoId => unhideVideoForUser(videoId, effectiveUserId))
+      );
       setArchivedVideos(prev => prev.filter(v => !selectedArchivedVideoIds.includes(v.id)));
+      setArchiveContextMap(prev => {
+        const next = new Map(prev);
+        for (const videoId of selectedArchivedVideoIds) {
+          const existing = next.get(videoId);
+          if (existing) {
+            next.set(videoId, { ...existing, isHiddenByViewer: false, level: 'level1' });
+          }
+        }
+        return next;
+      });
       setSelectedArchivedVideoIds([]);
-      fetchData();
     } catch (err: any) {
-      showAlert('Restore Failed', err.message, 'danger');
+      showAlert('Unhide Failed', err.message, 'danger');
     } finally {
       setRestoringVideos(false);
     }
   };
 
   const filteredVideos = React.useMemo(() => {
-    let result = [...videos];
+    // Phase 2 (Video Archive): the Archive tab (Level 1) is rendered by its
+    // own dedicated block below, not by List/Card view — return empty so
+    // those views don't also try to render archived videos.
+    if (filters.platform === 'archive') return [];
+
+    // Active view must exclude anything the resolver has flagged as
+    // archived (Level 1 or Level 2) — fetchData no longer filters
+    // archived_at at the DB level, so this is now the only place that
+    // keeps archived videos out of the normal platform tabs.
+    let result = videos.filter(v => (archiveContextMap.get(v.id)?.level ?? 'normal') === 'normal');
 
     if (filters.platform !== 'all') {
       result = result.filter(v => v.platform === filters.platform);
@@ -1357,7 +1493,7 @@ console.log(
     });
 
     return result;
-  }, [videos, filters]);
+  }, [videos, filters, archiveContextMap]);
 
   // Load only the first 10 videos initially (desktop and mobile both) — the
   // full list can be very long, which was pushing page height up enough to
@@ -1944,14 +2080,20 @@ console.log(
 
       {/* Platform Tabs */}
       {(() => {
-        const presentPlatforms = Array.from(new Set(videos.map(v => v.platform).filter(Boolean))) as Platform[];
+        // Phase 2 (Video Archive): platform tab counts must only reflect
+        // Active videos — archived ones now stay in `videos` state (see
+        // fetchData edit) so they must be explicitly excluded here.
+        const activeVideos = videos.filter(v => (archiveContextMap.get(v.id)?.level ?? 'normal') === 'normal');
+        const presentPlatforms = Array.from(new Set(activeVideos.map(v => v.platform).filter(Boolean))) as Platform[];
         const tabs: Array<'all' | Platform> = ['all', ...presentPlatforms];
-        if (tabs.length <= 1) return null; // no tabs if only one platform
+        const archiveCount = Array.from(archiveContextMap.values()).filter(c => c.level === 'level1').length;
+        const hiddenCount = Array.from(archiveContextMap.values()).filter(c => c.level === 'level2').length;
+        if (tabs.length <= 1 && archiveCount === 0 && hiddenCount === 0) return null;
         return (
           <div className="flex flex-wrap gap-2">
             {tabs.map(p => {
               const isAll = p === 'all';
-              const count = isAll ? videos.length : videos.filter(v => v.platform === p).length;
+              const count = isAll ? activeVideos.length : activeVideos.filter(v => v.platform === p).length;
               const label = isAll ? 'All' : PLATFORM_CONFIG[p]?.label ?? p;
               const color = isAll ? null : PLATFORM_CONFIG[p]?.color;
               const active = filters.platform === p;
@@ -1974,6 +2116,39 @@ console.log(
                 </button>
               );
             })}
+
+            {/* Phase 2 (Video Archive): Level 1 status tab — mutually
+                exclusive with platform tabs, styled distinctly (amber) so
+                it reads as a status toggle rather than another platform. */}
+            <button
+              onClick={() => setFilters(f => ({ ...f, platform: 'archive' }))}
+              className={`h-9 px-3.5 rounded-xl border text-[10px] font-black uppercase tracking-widest transition-all flex items-center gap-1.5 ${
+                filters.platform === 'archive'
+                  ? 'border-transparent text-white'
+                  : 'border-amber-900/50 bg-zinc-950 text-amber-600 hover:border-amber-700 hover:text-amber-400'
+              }`}
+              style={filters.platform === 'archive' ? { backgroundColor: '#b45309', borderColor: 'transparent' } : {}}
+            >
+              <FolderArchive size={13} className="opacity-70" />
+              Archive
+              <span className={`text-[9px] px-1.5 py-0.5 rounded-md font-black ${filters.platform === 'archive' ? 'bg-black/20 text-white' : 'bg-zinc-900 text-zinc-600'}`}>
+                {archiveCount}
+              </span>
+            </button>
+
+            {/* Phase 2 (Video Archive): Level 2 — standalone button (not a
+                filter tab), opens the Hidden modal. Replaces the old
+                bottom "Archived" icon button in the Filter Bar. */}
+            <button
+              onClick={openArchivedVideosModal}
+              className="h-9 px-3.5 rounded-xl border border-zinc-800 bg-zinc-950 text-zinc-500 hover:border-zinc-600 hover:text-zinc-300 text-[10px] font-black uppercase tracking-widest transition-all flex items-center gap-1.5"
+            >
+              <EyeOff size={13} className="opacity-70" />
+              Hidden
+              <span className="text-[9px] px-1.5 py-0.5 rounded-md font-black bg-zinc-900 text-zinc-600">
+                {hiddenCount}
+              </span>
+            </button>
           </div>
         );
       })()}
@@ -2070,18 +2245,77 @@ console.log(
             </button>
           </div>
 
-          <button
-            onClick={openArchivedVideosModal}
-            title="Archived Videos"
-            className="h-11 flex items-center gap-2 px-4 bg-zinc-950 border border-zinc-800 rounded-xl text-[10px] font-black uppercase tracking-widest text-zinc-500 hover:text-white hover:bg-zinc-900 transition-all"
-          >
-            <Archive size={15} /> Archived
-          </button>
         </div>
       </section>
 
+      {/* ── ARCHIVE TAB (Level 1) ── */}
+      {filters.platform === 'archive' && (
+        <div className="rounded-2xl overflow-hidden border border-zinc-900 divide-y divide-zinc-900">
+          {(() => {
+            const level1Videos = videos.filter(v => archiveContextMap.get(v.id)?.level === 'level1');
+            if (level1Videos.length === 0) {
+              return (
+                <div className="py-20 text-center">
+                  <p className="text-zinc-600 text-[10px] font-bold uppercase tracking-widest">No archived videos</p>
+                </div>
+              );
+            }
+            return level1Videos.map(v => {
+              const ctx = archiveContextMap.get(v.id);
+              return (
+                <div key={v.id} className="flex items-center gap-3 p-4 hover:bg-zinc-900/40 transition-all flex-wrap">
+                  <Link to={`/videos/${v.id}`} className="text-sm text-zinc-200 flex-1 min-w-[160px] truncate hover:text-white font-bold">
+                    {v.video_title}
+                  </Link>
+
+                  <div className="flex items-center gap-2 flex-wrap justify-end">
+                    {ctx?.reasons.map(reason => (
+                      reason.sourceType === 'video' ? (
+                        <div key="video" className="flex items-center gap-2">
+                          <span className="text-[9px] font-black uppercase tracking-widest text-amber-500 bg-amber-500/10 border border-amber-500/20 px-2 py-1 rounded-full">
+                            Video Archived
+                          </span>
+                          <button
+                            onClick={() => handleRestoreVideoOwnArchive(v.id)}
+                            disabled={isReadOnly}
+                            className="h-8 px-3 flex items-center gap-1.5 bg-zinc-900 border border-zinc-800 rounded-lg text-zinc-300 text-[9px] font-black uppercase tracking-widest hover:bg-zinc-800 transition-all disabled:opacity-40"
+                          >
+                            <ArchiveRestore size={12} /> Restore
+                          </button>
+                        </div>
+                      ) : (
+                        <div key="campaign" className="flex items-center gap-2">
+                          <span className="text-[9px] font-black uppercase tracking-widest text-orange-500 bg-orange-500/10 border border-orange-500/20 px-2 py-1 rounded-full">
+                            Campaign Archived{reason.sourceName ? `: ${reason.sourceName}` : ''}
+                          </span>
+                          <button
+                            onClick={() => navigate(`/campaigns/${reason.sourceId}`)}
+                            className="h-8 px-3 flex items-center gap-1.5 bg-zinc-900 border border-zinc-800 rounded-lg text-zinc-300 text-[9px] font-black uppercase tracking-widest hover:bg-zinc-800 transition-all"
+                          >
+                            Go to Campaign <ArrowRight size={12} />
+                          </button>
+                        </div>
+                      )
+                    ))}
+
+                    <button
+                      onClick={() => handleHideVideo(v.id)}
+                      disabled={isReadOnly}
+                      title="Hide from Archive tab"
+                      className="h-8 w-8 flex items-center justify-center bg-zinc-900 border border-zinc-800 rounded-lg text-zinc-500 hover:text-white transition-all disabled:opacity-40"
+                    >
+                      <EyeOff size={13} />
+                    </button>
+                  </div>
+                </div>
+              );
+            });
+          })()}
+        </div>
+      )}
+
       {/* ── LIST VIEW ── */}
-      {viewMode === 'list' && (
+      {viewMode === 'list' && filters.platform !== 'archive' && (
         <div className="rounded-2xl overflow-hidden border border-zinc-900">
           {loading ? (
             Array.from({ length: 4 }).map((_, i) => (
@@ -2277,7 +2511,7 @@ console.log(
       )}
 
       {/* ── CARD VIEW (existing, unchanged) ── */}
-      {viewMode === 'card' && (
+      {viewMode === 'card' && filters.platform !== 'archive' && (
       <>
       <div
         className="grid grid-cols-1 gap-4 rounded-2xl transition-all"
@@ -2684,7 +2918,7 @@ console.log(
             >
               <div className="flex justify-between items-center mb-4">
                 <h2 className="text-lg font-bold text-white flex items-center gap-2">
-                  <Archive size={16} className="text-zinc-500" /> Archived Videos
+                  <EyeOff size={16} className="text-zinc-500" /> Hidden Videos
                 </h2>
                 <button
                   onClick={() => setShowArchivedVideos(false)}
@@ -2701,7 +2935,7 @@ console.log(
                   ))
                 ) : archivedVideos.length === 0 ? (
                   <p className="text-zinc-600 text-xs font-bold uppercase tracking-widest text-center py-10">
-                    No archived videos
+                    No hidden videos
                   </p>
                 ) : (
                   archivedVideos.map(v => (
@@ -2733,7 +2967,7 @@ console.log(
                 className="mt-4 w-full flex items-center justify-center gap-2 bg-white hover:bg-zinc-200 disabled:opacity-40 disabled:cursor-not-allowed text-zinc-950 px-5 py-3 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all"
               >
                 {restoringVideos ? <Loader2 size={14} className="animate-spin" /> : <ArchiveRestore size={14} />}
-                Restore Selected{selectedArchivedVideoIds.length > 0 ? ` (${selectedArchivedVideoIds.length})` : ''}
+                Unhide Selected{selectedArchivedVideoIds.length > 0 ? ` (${selectedArchivedVideoIds.length})` : ''}
               </button>
             </motion.div>
           </motion.div>
