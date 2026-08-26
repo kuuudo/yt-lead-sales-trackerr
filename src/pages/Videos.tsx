@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
-import { Link, useSearchParams } from 'react-router-dom';
+import { Link, useSearchParams, useNavigate } from 'react-router-dom';
 import { useLanguage } from '../lib/hooks';
 import { supabase, Video, Campaign, LeadMagnet } from '../lib/supabase';
 import { useAuth } from '../lib/auth';
@@ -17,8 +17,16 @@ import { Youtube, Plus, Link2, Copy, Check, ExternalLink, Calendar, Target, Aler
   // Phase 2.5 additions
   Upload, FileText, CheckCircle2, AlertTriangle, ArrowRight, RefreshCw,
   HelpCircle, BookmarkPlus, Info,
+  // Phase 2 (Video Archive) additions
+  EyeOff, FolderArchive,
 } from 'lucide-react';
 import { addToLibrary } from '../services/asset/addToLibrary';
+import {
+  getVideoArchiveContext,
+  computeVideoArchiveContextsFromLoadedData,
+  type VideoArchiveContext,
+} from '../services/video/getVideoArchiveContext';
+import { hideVideoForUser, unhideVideoForUser } from '../services/video/archiveUiVisibility';
 import {
   type Platform,
   PLATFORM_CONFIG,
