@@ -35,18 +35,38 @@
  * markup itself unchanged — this pass only added search, kept deliberately
  * separate from the Assignment Picker's card-grid rework happening in the
  * same pass, since the two changes don't depend on each other.
+ *
+ * UPDATE (Archive Resolver pass, Phase 1 — ARCHIVE_SYSTEM_DESIGN.md):
+ * replaced the old single-source `archivedMap` (asset_user_states only,
+ * via getArchivedAssetIdsForUser) with `archiveContextMap`, resolved
+ * through the central resolver's batch entry point
+ * (getAssetArchiveContextsForViewer). This page no longer independently
+ * decides what "archived" means — it renders whatever `level` and
+ * `reasons` the resolver returns per Asset. The old single-tier "Archived"
+ * modal is now Level 2 only (Hidden — Unhide-only, never touches true
+ * archive state); a new inline "Archive Tab" section is Level 1 (visible
+ * archived Assets, one row per Asset even with multiple reasons, each
+ * reason with its own action, plus a Hide affordance per Design Doc §9).
+ *
+ * UPDATE (Cache wiring pass — closes the prior "KNOWN GAP"): now that
+ * lib/assetsPageCache.ts's `AssetsPageCacheData` has been updated to hold
+ * `archiveContextMap` natively, this page trusts a cache hit for archive
+ * state exactly the same way it already trusted one for rows/sharedRows/
+ * assignedSummary — no more forced live refetch on cache hit. Every
+ * action below (archive, restore, hide, unhide) mirrors its local state
+ * update into the cache via updateCachedArchiveContextMap, same
+ * convention the old archivedMap actions used.
  */
 import { useTutorial } from '../lib/tutorial-overlay';
 import { assetsTutorial } from '../lib/tutorials/assetsTutorial';
 import { createFirstAssetGuide } from '../lib/tutorials/createFirstAssetGuide';
 import React, { useEffect, useMemo, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
-import { Library, Loader2, Plus, Search, Archive, ArchiveRestore, X, BarChart2, Gamepad2 } from 'lucide-react';
+import { Library, Loader2, Plus, Search, Archive, ArchiveRestore, EyeOff, X, BarChart2, Gamepad2 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { Modal } from '../components/Modal';
 import { useAuth } from '../lib/auth';
 import { useOrganization } from '../lib/useOrganization';
-import { useTutorial } from '../lib/tutorial-overlay';
 import { listAssetsByOrganization } from '../services/asset/listAssetsByOrganization';
 import type { AssetLibraryRow } from '../services/asset/listAssetsByOrganization';
 import {
@@ -56,10 +76,17 @@ import {
   getAssignedAssetSummaryForOwner,
 } from '../services/asset/getAssignedAssetSummaryForOwner';
 import {
-  getArchivedAssetIdsForUser,
   archiveAssetForUser,
   restoreAssetForUser,
 } from '../services/asset/assetArchive';
+import {
+  getAssetArchiveContextsForViewer,
+} from '../services/asset/getAssetArchiveContext';
+import type { AssetArchiveContext } from '../services/asset/getAssetArchiveContext';
+import {
+  hideAssetForUser,
+  unhideAssetForUser,
+} from '../services/asset/archiveUiVisibility';
 
 import type {
   AssignedAssetSummary,
@@ -70,60 +97,18 @@ import type {
 import { resolveThumbnail, resolveAssetThumbnail, resolveElementThumbnail, getElementTypeLabel, RESOURCE_TYPE_LABELS, type ResourceType, type CampaignElementType } from '../lib/videoFormatters';
 import { ImportAssetModal } from '../components/ImportAssetModal';
 import type { AssetResource } from '../services/asset/createAssetResource';
-import { assetsPageCache, updateCachedArchivedMap } from '../lib/assetsPageCache';
+// UPDATE: assetsPageCache.ts now supports archiveContextMap natively —
+// the earlier "KNOWN GAP" (cache writes for archive state skipped) is
+// closed. updateCachedArchiveContextMap mirrors every archive/restore/
+// hide/unhide action into the cache, same convention as rows/sharedRows/
+// assignedSummary.
+import { assetsPageCache, updateCachedArchiveContextMap } from '../lib/assetsPageCache';
 import OnboardingVideoSection02 from '../components/onboarding/OnboardingVideo/OnboardingVideoSection02';
 import TopAssetsRanking from '../components/assets/TopAssetsRanking';
-export default function Assets() {
-  const navigate = useNavigate();
-  const { user } = useAuth();
-  const { organizationId } = useOrganization();
-  const [rows, setRows] = useState<AssetLibraryRow[]>([]);
-  const [sharedRows, setSharedRows] = useState<SharedAssetLibraryRow[]>([]);
-  const [assignedSummary, setAssignedSummary] =
-  useState<AssignedAssetSummary[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [showOnboarding, setShowOnboarding] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const [showImportModal, setShowImportModal] = useState(false);
-  const { notify } = useTutorial();
-  const tutorial = useTutorial();
-  const [search, setSearch] = useState('');
-
-  // Personal archive state — Map<asset_id, archived_at>, scoped to the
-  // current user only (see services/asset/assetArchive.ts). Ali and
-  // WebMood each get their own Map; archiving never mutates the asset row
-  // itself, so it can never affect what another user sees.
-  const [archivedMap, setArchivedMap] = useState<Map<string, string>>(new Map());
-  const [archivingAssetId, setArchivingAssetId] = useState<string | null>(null);
-  const [showArchivedAssets, setShowArchivedAssets] = useState(false);
-  const [selectedArchivedAssetIds, setSelectedArchivedAssetIds] = useState<string[]>([]);
-  const [restoringAssets, setRestoringAssets] = useState(false);
-
-  const [modalConfig, setModalConfig] = useState<{
-    isOpen: boolean;
-    title: string;
-    message: string;
-    variant: 'info' | 'danger' | 'success';
-    onConfirm?: () => void;
-  }>({ isOpen: false, title: '', message: '', variant: 'info' });
-
-  const showAlert = (title: string, message: string, variant: 'info' | 'danger' | 'success' = 'info') => {
-    setModalConfig({ isOpen: true, title, message, variant, onConfirm: undefined });
-  };
-
-  const showConfirm = (
-    title: string,
-    message: string,
-    onConfirm: () => void,
-    variant: 'info' | 'danger' | 'success' = 'danger'
-  ) => {
-    setModalConfig({ isOpen: true, title, message, variant, onConfirm });
-  };
+// MOVED to module scope (see UPDATE note below) — was previously declared
+// inside Assets() but referenced by fromMyRow/fromSharedRow outside it.
 type AssetLibraryTab = 'all' | ResourceType | 'campaign_element';
 type OwnershipFilter = 'all' | 'mine' | 'shared' | 'assigned';
-const [activeTab, setActiveTab] = useState<AssetLibraryTab>('all');
-const [ownershipFilter, setOwnershipFilter] =
-  useState<OwnershipFilter>('all');
 // video asset 目前 resource_type 是 null
 // campaign_element asset 沒有 resource_type,只有 element_type,獨立分類,不混進 ResourceType
 // 只在這頁補上,不改 service
@@ -154,9 +139,70 @@ interface UnifiedAssetRow {
 
   assignedCollaboratorCount: number | null;
 
-  /** archived_at for the CURRENT user only — null means active. See assetArchive.ts. */
-  archivedAt: string | null;
+  /**
+   * Full archive context for the CURRENT viewer — null means the central
+   * resolver hasn't resolved this row yet (still loading), NOT the same
+   * as "not archived". Check `archiveContext?.isArchived` /
+   * `archiveContext?.level`, never re-derive archive state from other
+   * fields on this row. See getAssetArchiveContext.ts.
+   */
+  archiveContext: AssetArchiveContext | null;
 }
+
+export default function Assets() {
+  const navigate = useNavigate();
+  const { user } = useAuth();
+  const { organizationId } = useOrganization();
+  const [rows, setRows] = useState<AssetLibraryRow[]>([]);
+  const [sharedRows, setSharedRows] = useState<SharedAssetLibraryRow[]>([]);
+  const [assignedSummary, setAssignedSummary] =
+  useState<AssignedAssetSummary[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [showOnboarding, setShowOnboarding] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [showImportModal, setShowImportModal] = useState(false);
+  const { notify } = useTutorial();
+  const tutorial = useTutorial();
+  const [search, setSearch] = useState('');
+
+  // Archive context — resolved entirely through the central resolver
+  // (getAssetArchiveContext.ts, batch entry point). Map<asset_id,
+  // AssetArchiveContext>, scoped to the current viewer only. Ali and
+  // WebMood each get their own Map; archiving/hiding never mutates a
+  // shared row, so it can never affect what another user sees.
+  const [archiveContextMap, setArchiveContextMap] = useState<Map<string, AssetArchiveContext>>(new Map());
+  const [archivingAssetId, setArchivingAssetId] = useState<string | null>(null);
+  const [hidingAssetId, setHidingAssetId] = useState<string | null>(null);
+  // Level 2 modal — "Hidden" (was "Archived") — lists only rows the
+  // viewer has explicitly Hidden via archive_ui_visibility. Restore here
+  // is Unhide-only; it never touches true archive state.
+  const [showHiddenAssetsModal, setShowHiddenAssetsModal] = useState(false);
+  const [selectedHiddenAssetIds, setSelectedHiddenAssetIds] = useState<string[]>([]);
+  const [unhidingAssets, setUnhidingAssets] = useState(false);
+
+  const [modalConfig, setModalConfig] = useState<{
+    isOpen: boolean;
+    title: string;
+    message: string;
+    variant: 'info' | 'danger' | 'success';
+    onConfirm?: () => void;
+  }>({ isOpen: false, title: '', message: '', variant: 'info' });
+
+  const showAlert = (title: string, message: string, variant: 'info' | 'danger' | 'success' = 'info') => {
+    setModalConfig({ isOpen: true, title, message, variant, onConfirm: undefined });
+  };
+
+  const showConfirm = (
+    title: string,
+    message: string,
+    onConfirm: () => void,
+    variant: 'info' | 'danger' | 'success' = 'danger'
+  ) => {
+    setModalConfig({ isOpen: true, title, message, variant, onConfirm });
+  };
+const [activeTab, setActiveTab] = useState<AssetLibraryTab>('all');
+const [ownershipFilter, setOwnershipFilter] =
+  useState<OwnershipFilter>('all');
 function getEffectiveTab(row: AssetLibraryRow): AssetLibraryTab {
   if (row.asset_type === 'campaign_element') return 'campaign_element';
   if (row.resource_type) return row.resource_type as ResourceType;
@@ -173,10 +219,10 @@ const unifiedRows = useMemo<UnifiedAssetRow[]>(() => {
   );
 
   const mine = rows.map(row =>
-    fromMyRow(row, assignedMap, archivedMap)
+    fromMyRow(row, assignedMap, archiveContextMap)
   );
 
-  const shared = sharedRows.map(row => fromSharedRow(row, archivedMap));
+  const shared = sharedRows.map(row => fromSharedRow(row, archiveContextMap));
 
   if (ownershipFilter === 'mine') {
     return mine;
@@ -195,20 +241,30 @@ const unifiedRows = useMemo<UnifiedAssetRow[]>(() => {
   rows,
   sharedRows,
   assignedSummary,
-  archivedMap,
+  archiveContextMap,
   ownershipFilter,
 ]);
 
 // Archive is purely an organizational/visibility feature — it never
 // changes what data exists, only what's shown in the active list vs the
-// Archived modal below.
+// Level 1 Archive Tab / Level 2 Hidden modal below.
+//
+// Three-way split, driven by the central resolver's `level`:
+//   normal (or context not yet resolved) -> active list
+//   level1                                -> Archive Tab (visible)
+//   level2                                -> Hidden modal (Unhide only)
 const activeUnifiedRows = useMemo(
-  () => unifiedRows.filter(row => !row.archivedAt),
+  () => unifiedRows.filter(row => !row.archiveContext?.isArchived),
   [unifiedRows]
 );
 
-const archivedUnifiedRows = useMemo(
-  () => unifiedRows.filter(row => !!row.archivedAt),
+const level1UnifiedRows = useMemo(
+  () => unifiedRows.filter(row => row.archiveContext?.level === 'level1'),
+  [unifiedRows]
+);
+
+const level2UnifiedRows = useMemo(
+  () => unifiedRows.filter(row => row.archiveContext?.level === 'level2'),
   [unifiedRows]
 );
 
@@ -256,47 +312,73 @@ const filteredRows = useMemo(() => {
   activeTab,
   search,
 ]);
+  // loadArchiveContext is kept as a standalone helper (rather than
+  // inlined into fetchAssets) because handleArchiveAsset etc. below need
+  // the same resolve-then-cache pattern for a single-row optimistic
+  // update — but those use direct Map surgery instead of a full re-fetch,
+  // for the same "avoid unnecessary round trips" reason the batch
+  // resolver itself exists. This helper stays fetch-path only.
+  const loadArchiveContext = async (
+    myRows: AssetLibraryRow[],
+    shared: SharedAssetLibraryRow[]
+  ) => {
+    if (!user) {
+      setArchiveContextMap(new Map());
+      return;
+    }
+    const inputs = [
+      ...myRows.map(row => ({ id: row.id, assetType: row.asset_type })),
+      ...shared.map(row => ({ id: row.asset_id, assetType: row.asset_type })),
+    ];
+    try {
+      const contextMap = await getAssetArchiveContextsForViewer(inputs, user.id);
+      setArchiveContextMap(contextMap);
+      return contextMap;
+    } catch (err: any) {
+      console.error('[Assets] getAssetArchiveContextsForViewer failed:', err);
+      // Fail soft — an active list that briefly can't show archive state
+      // is much better than a page that won't load at all.
+      setArchiveContextMap(new Map());
+      return new Map<string, AssetArchiveContext>();
+    }
+  };
+
   const fetchAssets = async () => {
     if (!organizationId) return;
     setLoading(true);
     setError(null);
     try {
-      const [myData, sharedData, assignedData, archivedIds] = await Promise.all([
-  listAssetsByOrganization({
-    organizationId,
-  }),
+      const [myData, sharedData, assignedData] = await Promise.all([
+        listAssetsByOrganization({
+          organizationId,
+        }),
 
-  user
-    ? listSharedAssetsForCollaborator({
-        userId: user.id,
-        excludeOrganizationId: organizationId,
-      })
-    : Promise.resolve([]),
-  user
-    ? getAssignedAssetSummaryForOwner(user.id)
-    : Promise.resolve([]),  
-  user
-    ? getArchivedAssetIdsForUser(user.id)
-    : Promise.resolve(new Map<string, string>()),
-]);
+        user
+          ? listSharedAssetsForCollaborator({
+              userId: user.id,
+              excludeOrganizationId: organizationId,
+            })
+          : Promise.resolve([]),
+        user
+          ? getAssignedAssetSummaryForOwner(user.id)
+          : Promise.resolve([]),
+      ]);
 
-setRows(myData);
+      setRows(myData);
+      setSharedRows(sharedData);
+      setAssignedSummary(assignedData);
 
-setSharedRows(sharedData);
+      const contextMap = await loadArchiveContext(myData, sharedData);
 
-setAssignedSummary(assignedData);
-
-setArchivedMap(archivedIds);
-
-if (user) {
-  assetsPageCache.set(`${organizationId}:${user.id}`, {
-    rows: myData,
-    sharedRows: sharedData,
-    assignedSummary: assignedData,
-    archivedMap: archivedIds,
-  });
-  console.log('[Assets] Cache updated');
-}
+      if (user) {
+        assetsPageCache.set(`${organizationId}:${user.id}`, {
+          rows: myData,
+          sharedRows: sharedData,
+          assignedSummary: assignedData,
+          archiveContextMap: contextMap ?? new Map(),
+        });
+        console.log('[Assets] Cache updated');
+      }
     } catch (err: any) {
       setError(err.message || 'Could not load your Asset Library.');
     } finally {
@@ -314,7 +396,9 @@ if (user) {
       setRows(cached.data.rows);
       setSharedRows(cached.data.sharedRows);
       setAssignedSummary(cached.data.assignedSummary);
-      setArchivedMap(cached.data.archivedMap);
+      // Trusted directly from cache now, same as rows/sharedRows/
+      // assignedSummary — archiveContextMap is a first-class cached field.
+      setArchiveContextMap(cached.data.archiveContextMap);
       setLoading(false);
       return;
     }
@@ -327,17 +411,39 @@ if (user) {
   // anywhere. This only ever writes a row scoped to (asset_id, the
   // CURRENT user's id) — it can never affect another user's view of the
   // same asset, never touches sharing, assignments, or ownership.
+  //
+  // Optimistic update: since a freshly-archived Asset has no
+  // archive_ui_visibility row yet, it always lands at Level 1 —
+  // constructed directly here rather than re-running the full resolver
+  // for one row.
   const handleArchiveAsset = (row: UnifiedAssetRow) => {
     if (!user) return;
     showConfirm(
       'Archive Asset?',
-      'Archived assets will be hidden from your library. You can restore them anytime.',
+      'Archived assets will move to your Archive Tab. You can restore them anytime.',
       async () => {
         setArchivingAssetId(row.key);
         try {
           await archiveAssetForUser(row.key, user.id);
-          setArchivedMap(prev => new Map(prev).set(row.key, new Date().toISOString()));
-          updateCachedArchivedMap(`${organizationId}:${user.id}`, prev => new Map(prev).set(row.key, new Date().toISOString()));
+          // Single updater function, used for both local state and the
+          // cache mirror below, so the two can never drift apart.
+          const updater = (prev: Map<string, AssetArchiveContext>) => {
+            const next = new Map(prev);
+            const existing = next.get(row.key);
+            const otherReasons = (existing?.reasons ?? []).filter(r => r.sourceType !== 'personal');
+            next.set(row.key, {
+              assetId: row.key,
+              isArchived: true,
+              reasons: [{ sourceType: 'personal', sourceId: row.key, sourceName: null }, ...otherReasons],
+              isHiddenByViewer: false,
+              level: 'level1',
+            });
+            return next;
+          };
+          setArchiveContextMap(updater);
+          if (organizationId) {
+            updateCachedArchiveContextMap(`${organizationId}:${user.id}`, updater);
+          }
         } catch (err: any) {
           showAlert('Archive Failed', err.message || 'Could not archive this asset.', 'danger');
         } finally {
@@ -348,43 +454,105 @@ if (user) {
     );
   };
 
-  const openArchivedAssetsModal = () => {
-    setSelectedArchivedAssetIds([]);
-    setShowArchivedAssets(true);
+  // Level 1 -> restore the personal reason directly (this is the only
+  // reason a user can restore from this page; Campaign/Video reasons are
+  // restored from CampaignDetail/VideoDetail, not here — per LOCKED
+  // design, this page navigates to those, it doesn't restore them).
+  const handleRestorePersonalReason = async (row: UnifiedAssetRow) => {
+    if (!user) return;
+    try {
+      await restoreAssetForUser(row.key, user.id);
+      const updater = (prev: Map<string, AssetArchiveContext>) => {
+        const next = new Map(prev);
+        const existing = next.get(row.key);
+        if (!existing) return next;
+        const remainingReasons = existing.reasons.filter(r => r.sourceType !== 'personal');
+        next.set(row.key, {
+          ...existing,
+          reasons: remainingReasons,
+          isArchived: remainingReasons.length > 0,
+          level: remainingReasons.length > 0 ? 'level1' : 'normal',
+        });
+        return next;
+      };
+      setArchiveContextMap(updater);
+      if (organizationId) {
+        updateCachedArchiveContextMap(`${organizationId}:${user.id}`, updater);
+      }
+    } catch (err: any) {
+      showAlert('Restore Failed', err.message || 'Could not restore this asset.', 'danger');
+    }
   };
 
-  const toggleArchivedAssetSelection = (assetId: string) => {
-    setSelectedArchivedAssetIds(prev =>
+  // Level 1 -> Hide (writes ONLY archive_ui_visibility; never touches
+  // asset_user_states / videos.archived_at / campaigns.archived_at).
+  const handleHideAsset = async (row: UnifiedAssetRow) => {
+    if (!user) return;
+    setHidingAssetId(row.key);
+    try {
+      await hideAssetForUser(row.key, user.id);
+      const updater = (prev: Map<string, AssetArchiveContext>) => {
+        const next = new Map(prev);
+        const existing = next.get(row.key);
+        if (!existing) return next;
+        next.set(row.key, { ...existing, isHiddenByViewer: true, level: 'level2' });
+        return next;
+      };
+      setArchiveContextMap(updater);
+      if (organizationId) {
+        updateCachedArchiveContextMap(`${organizationId}:${user.id}`, updater);
+      }
+    } catch (err: any) {
+      showAlert('Hide Failed', err.message || 'Could not hide this asset.', 'danger');
+    } finally {
+      setHidingAssetId(null);
+    }
+  };
+
+  const openHiddenAssetsModal = () => {
+    setSelectedHiddenAssetIds([]);
+    setShowHiddenAssetsModal(true);
+  };
+
+  const toggleHiddenAssetSelection = (assetId: string) => {
+    setSelectedHiddenAssetIds(prev =>
       prev.includes(assetId) ? prev.filter(x => x !== assetId) : [...prev, assetId]
     );
   };
 
-  const handleRestoreSelectedAssets = async () => {
-    if (!user || selectedArchivedAssetIds.length === 0) return;
-    setRestoringAssets(true);
+  // Level 2 Restore = Unhide ONLY. Deletes the viewer's
+  // archive_ui_visibility row(s) — never restores true archive state.
+  // An Unhidden Asset with reasons still active drops back to Level 1,
+  // not to the active list — this is deliberate per LOCKED design.
+  const handleUnhideSelectedAssets = async () => {
+    if (!user || selectedHiddenAssetIds.length === 0) return;
+    setUnhidingAssets(true);
     try {
       await Promise.all(
-        selectedArchivedAssetIds.map(assetId => restoreAssetForUser(assetId, user.id))
+        selectedHiddenAssetIds.map(assetId => unhideAssetForUser(assetId, user.id))
       );
-      setArchivedMap(prev => {
+      const updater = (prev: Map<string, AssetArchiveContext>) => {
         const next = new Map(prev);
-        selectedArchivedAssetIds.forEach(assetId => next.delete(assetId));
-        return next;
-      });
-      if (organizationId) {
-        updateCachedArchivedMap(`${organizationId}:${user.id}`, prev => {
-          const next = new Map(prev);
-          selectedArchivedAssetIds.forEach(assetId => next.delete(assetId));
-          return next;
+        selectedHiddenAssetIds.forEach(assetId => {
+          const existing = next.get(assetId);
+          if (existing) {
+            next.set(assetId, { ...existing, isHiddenByViewer: false, level: 'level1' });
+          }
         });
+        return next;
+      };
+      setArchiveContextMap(updater);
+      if (organizationId) {
+        updateCachedArchiveContextMap(`${organizationId}:${user.id}`, updater);
       }
-      setSelectedArchivedAssetIds([]);
+      setSelectedHiddenAssetIds([]);
     } catch (err: any) {
-      showAlert('Restore Failed', err.message, 'danger');
+      showAlert('Unhide Failed', err.message, 'danger');
     } finally {
-      setRestoringAssets(false);
+      setUnhidingAssets(false);
     }
   };
+
 
   return (
     <div className="space-y-8">
@@ -411,13 +579,90 @@ if (user) {
             <Plus size={14} /> Import Asset
           </button>
           <button
-            onClick={openArchivedAssetsModal}
+            onClick={openHiddenAssetsModal}
             className="flex items-center gap-2 bg-zinc-900 hover:bg-zinc-800 border border-zinc-800 text-zinc-300 text-[10px] font-black uppercase tracking-widest px-4 py-2.5 rounded-xl transition-all"
           >
-            <Archive size={14} /> Archived{archivedUnifiedRows.length > 0 ? ` (${archivedUnifiedRows.length})` : ''}
+            <EyeOff size={14} /> Hidden{level2UnifiedRows.length > 0 ? ` (${level2UnifiedRows.length})` : ''}
           </button>
         </div>
       </header>
+
+      {/* Level 1 — Archive Tab. Only rendered when there's something in
+          it (Design Doc §9: "只在有內容時顯示"). One row per Asset even
+          when it has multiple reasons; each reason keeps its own
+          Restore/navigate action per LOCKED design. */}
+      {level1UnifiedRows.length > 0 && (
+        <section className="space-y-3">
+          <div className="flex items-center gap-2">
+            <Archive size={14} className="text-zinc-500" />
+            <h2 className="text-[10px] font-black uppercase tracking-widest text-zinc-400">
+              Archive Tab ({level1UnifiedRows.length})
+            </h2>
+          </div>
+          <div className="space-y-2">
+            {level1UnifiedRows.map(row => (
+              <div
+                key={row.key}
+                className="bg-zinc-900 border border-zinc-800 rounded-xl p-4 space-y-2"
+              >
+                <div className="flex items-center justify-between gap-3">
+                  <Link to={`/assets/${row.linkId}`} className="text-sm font-bold text-white truncate hover:text-zinc-300">
+                    {row.title}
+                  </Link>
+                  <button
+                    onClick={() => handleHideAsset(row)}
+                    disabled={hidingAssetId === row.key}
+                    className="flex items-center gap-1 text-[9px] font-black uppercase tracking-widest text-zinc-500 hover:text-white shrink-0 disabled:opacity-50"
+                  >
+                    {hidingAssetId === row.key ? <Loader2 size={10} className="animate-spin" /> : <EyeOff size={10} />}
+                    Hide
+                  </button>
+                </div>
+                <div className="space-y-1.5">
+                  {(row.archiveContext?.reasons ?? []).map(reason => (
+                    <div
+                      key={`${reason.sourceType}-${reason.sourceId}`}
+                      className="flex items-center justify-between gap-2 text-[10px]"
+                    >
+                      <span className="text-zinc-400">
+                        {reason.sourceType === 'personal' && 'Archived by You'}
+                        {reason.sourceType === 'video' && `Source Video Archived${reason.sourceName ? `: ${reason.sourceName}` : ''}`}
+                        {reason.sourceType === 'campaign' && `Campaign Archived${reason.sourceName ? `: ${reason.sourceName}` : ''}`}
+                      </span>
+                      {reason.sourceType === 'personal' && (
+                        <button
+                          onClick={() => handleRestorePersonalReason(row)}
+                          className="font-black uppercase tracking-widest text-white hover:text-zinc-300 shrink-0"
+                        >
+                          Restore
+                        </button>
+                      )}
+                      {reason.sourceType === 'video' && (
+                        <Link
+                          to={`/videos/${reason.sourceId}`}
+                          className="font-black uppercase tracking-widest text-white hover:text-zinc-300 shrink-0"
+                        >
+                          Go to Video
+                        </Link>
+                      )}
+                      {reason.sourceType === 'campaign' && (
+                        // ASSUMPTION FLAGGED — route not confirmed, see
+                        // AssetDetail.tsx header note.
+                        <Link
+                          to={`/campaigns/${reason.sourceId}`}
+                          className="font-black uppercase tracking-widest text-white hover:text-zinc-300 shrink-0"
+                        >
+                          Go to Campaign
+                        </Link>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              </div>
+            ))}
+          </div>
+        </section>
+      )}
 
       {organizationId && rows.length > 0 && (
         <div className="hidden md:block">
@@ -647,18 +892,21 @@ if (user) {
         />
       )}
 
-      {/* Archived assets modal — shows ONLY assets the CURRENT user has
-          personally archived. The same asset can be Active for one user
-          and Archived for another; this list never reflects anyone else's
-          state. */}
+      {/* Level 2 — Hidden modal. Shows ONLY assets the CURRENT viewer has
+          both (a) an active archive reason for AND (b) explicitly Hidden
+          via archive_ui_visibility. Restore here is Unhide-only — it
+          never touches asset_user_states / videos.archived_at /
+          campaigns.archived_at. Same per-user scoping as Level 1: the
+          same asset can be Level 1 for one viewer and Level 2 for
+          another. */}
       <AnimatePresence>
-        {showArchivedAssets && (
+        {showHiddenAssetsModal && (
           <motion.div
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
             className="fixed inset-0 z-50 bg-black/70 flex items-center justify-center p-4"
-            onClick={() => setShowArchivedAssets(false)}
+            onClick={() => setShowHiddenAssetsModal(false)}
           >
             <motion.div
               initial={{ opacity: 0, scale: 0.96 }}
@@ -669,10 +917,10 @@ if (user) {
             >
               <div className="flex justify-between items-center mb-4">
                 <h2 className="text-lg font-bold text-white flex items-center gap-2">
-                  <Archive size={16} className="text-zinc-500" /> Archived Assets
+                  <EyeOff size={16} className="text-zinc-500" /> Hidden Assets
                 </h2>
                 <button
-                  onClick={() => setShowArchivedAssets(false)}
+                  onClick={() => setShowHiddenAssetsModal(false)}
                   className="w-7 h-7 rounded-lg bg-zinc-900 border border-zinc-800 flex items-center justify-center text-zinc-500 hover:text-white transition-all"
                 >
                   <X size={14} />
@@ -680,25 +928,25 @@ if (user) {
               </div>
 
               <div className="flex-1 overflow-y-auto space-y-1 -mx-2 px-2">
-                {archivedUnifiedRows.length === 0 ? (
+                {level2UnifiedRows.length === 0 ? (
                   <p className="text-zinc-600 text-xs font-bold uppercase tracking-widest text-center py-10">
-                    No archived assets
+                    No hidden assets
                   </p>
                 ) : (
-                  archivedUnifiedRows.map(row => (
+                  level2UnifiedRows.map(row => (
                     <div
                       key={row.key}
                       className="flex items-center gap-3 p-2.5 rounded-xl hover:bg-zinc-900 transition-all"
                     >
                       <input
                         type="checkbox"
-                        checked={selectedArchivedAssetIds.includes(row.key)}
-                        onChange={() => toggleArchivedAssetSelection(row.key)}
+                        checked={selectedHiddenAssetIds.includes(row.key)}
+                        onChange={() => toggleHiddenAssetSelection(row.key)}
                         className="w-4 h-4 rounded accent-white shrink-0"
                       />
                       <Link
                         to={`/assets/${row.linkId}`}
-                        onClick={() => setShowArchivedAssets(false)}
+                        onClick={() => setShowHiddenAssetsModal(false)}
                         className="text-sm text-zinc-200 flex-1 truncate hover:text-white"
                       >
                         {row.title}
@@ -709,12 +957,12 @@ if (user) {
               </div>
 
               <button
-                disabled={selectedArchivedAssetIds.length === 0 || restoringAssets}
-                onClick={handleRestoreSelectedAssets}
+                disabled={selectedHiddenAssetIds.length === 0 || unhidingAssets}
+                onClick={handleUnhideSelectedAssets}
                 className="mt-4 w-full flex items-center justify-center gap-2 bg-white hover:bg-zinc-200 disabled:opacity-40 disabled:cursor-not-allowed text-zinc-950 px-5 py-3 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all"
               >
-                {restoringAssets ? <Loader2 size={14} className="animate-spin" /> : <ArchiveRestore size={14} />}
-                Restore Selected{selectedArchivedAssetIds.length > 0 ? ` (${selectedArchivedAssetIds.length})` : ''}
+                {unhidingAssets ? <Loader2 size={14} className="animate-spin" /> : <EyeOff size={14} />}
+                Unhide Selected{selectedHiddenAssetIds.length > 0 ? ` (${selectedHiddenAssetIds.length})` : ''}
               </button>
             </motion.div>
           </motion.div>
@@ -773,7 +1021,7 @@ if (user) {
 function fromMyRow(
   row: AssetLibraryRow,
   assignedMap: Map<string, number>,
-  archivedMap: Map<string, string>
+  archiveContextMap: Map<string, AssetArchiveContext>
 ): UnifiedAssetRow {
   return {
     key: row.id,
@@ -813,13 +1061,13 @@ isAssigned: assignedMap.has(row.id),
 assignedCollaboratorCount:
   assignedMap.get(row.id) ?? null,
 
-archivedAt: archivedMap.get(row.id) ?? null,
+archiveContext: archiveContextMap.get(row.id) ?? null,
   };
 }
 
 function fromSharedRow(
   row: SharedAssetLibraryRow,
-  archivedMap: Map<string, string>
+  archiveContextMap: Map<string, AssetArchiveContext>
 ): UnifiedAssetRow {
   return {
     key: row.asset_id,
@@ -850,6 +1098,6 @@ isAssigned: false,
 
 assignedCollaboratorCount: null,
 
-archivedAt: archivedMap.get(row.asset_id) ?? null,
+archiveContext: archiveContextMap.get(row.asset_id) ?? null,
   };
 }

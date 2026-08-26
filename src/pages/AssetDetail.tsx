@@ -57,6 +57,24 @@
  * info is still loading or failed to load, so the page never shows a
  * bare gap where this section would be.
  *
+ * UPDATE (Archive Resolver pass, Phase 1 — ARCHIVE_SYSTEM_DESIGN.md):
+ * replaced the old single-source `getAssetArchiveState` (asset_user_states
+ * only) with `getAssetArchiveContext` — the central resolver. This page
+ * no longer independently knows what "archived" means; it renders
+ * whatever reasons + level the resolver returns. A single Asset can now
+ * show more than one reason at once (e.g. "Archived by You" AND "Source
+ * Video Archived") — each with its own action, per LOCKED design:
+ *   - personal reason  -> Restore (clears asset_user_states directly)
+ *   - video reason     -> navigate to /videos/:id, no direct restore here
+ *   - campaign reason   -> navigate to /campaigns/:id, no direct restore here
+ * Level 2 (viewer has Hidden this from the Level 1 Archive Tab) shows an
+ * "Unhide" action instead of any of the above — Unhide never touches
+ * asset_user_states / videos.archived_at / campaigns.archived_at.
+ * ASSUMPTION FLAGGED: the Campaign navigate target below is
+ * `/campaigns/:id`, inferred from this file's existing `/videos/:id`
+ * pattern — I have not confirmed CampaignDetail's actual route path.
+ * Please correct if it differs before shipping.
+ *
  * No edit, no delete, no analytics, no attribution, no timeline, no
  * comments, no assignment/promotion relationships beyond the read-only
  * Sharing Information display above — explicitly out of scope for this
@@ -65,16 +83,16 @@
 
 import React, { useEffect, useState } from 'react';
 import { useParams, Link } from 'react-router-dom';
-import { ArrowLeft, Loader2, ExternalLink, Video as VideoIcon, ArchiveRestore, BarChart3 } from 'lucide-react';
+import { ArrowLeft, Loader2, ExternalLink, Video as VideoIcon, ArchiveRestore, EyeOff, BarChart3 } from 'lucide-react';
 import { useAuth } from '../lib/auth';
 import { getAssetDetail } from '../services/asset/getAssetDetail';
 import type { AssetDetail as AssetDetailData } from '../services/asset/getAssetDetail';
 import { getAssetSharingInfo } from '../services/asset/getAssetSharingInfo';
 import type { AssetSharingInfo } from '../services/asset/getAssetSharingInfo';
-import {
-  getAssetArchiveState,
-  restoreAssetForUser,
-} from '../services/asset/assetArchive';
+import { restoreAssetForUser } from '../services/asset/assetArchive';
+import { getAssetArchiveContext } from '../services/asset/getAssetArchiveContext';
+import type { AssetArchiveContext } from '../services/asset/getAssetArchiveContext';
+import { unhideAssetForUser } from '../services/asset/archiveUiVisibility';
 import { resolveAssetThumbnail, resolveElementThumbnail, getElementTypeLabel, RESOURCE_TYPE_LABELS, type ResourceType, type CampaignElementType } from '../lib/videoFormatters';
 
 export default function AssetDetail() {
@@ -90,11 +108,13 @@ export default function AssetDetail() {
   const [sharingInfo, setSharingInfo] = useState<AssetSharingInfo | null>(null);
   const [sharingError, setSharingError] = useState<string | null>(null);
 
-  // ---- Archive state — personal to the CURRENT user only (see
-  // services/asset/assetArchive.ts). Never affects sharing info above,
-  // never affects what any other user sees of this same asset.
-  const [archivedAt, setArchivedAt] = useState<string | null>(null);
-  const [restoring, setRestoring] = useState(false);
+  // ---- Archive context — resolved entirely through the central
+  // resolver (getAssetArchiveContext). This page never independently
+  // queries asset_user_states / videos / campaigns to determine archive
+  // reasons — see file header and getAssetArchiveContext.ts.
+  const [archiveContext, setArchiveContext] = useState<AssetArchiveContext | null>(null);
+  const [restoringPersonal, setRestoringPersonal] = useState(false);
+  const [unhiding, setUnhiding] = useState(false);
   const [archiveActionError, setArchiveActionError] = useState<string | null>(null);
 
   useEffect(() => {
@@ -105,9 +125,9 @@ export default function AssetDetail() {
       setError(null);
       setSharingError(null);
 
-      // Three independent, differently-scoped queries composed at the
-      // page level — same pattern as Assets.tsx's Promise.all([My,
-      // Shared, Assigned]). Archive state needs the viewer's id, same as
+      // Independent, differently-scoped queries composed at the page
+      // level — same pattern as Assets.tsx's Promise.all([My, Shared,
+      // Assigned]). Archive context needs the viewer's id, same as
       // sharing info; skip it (not fail) when there's no authenticated
       // user yet.
       const [assetResult, sharingResult, archiveResult] = await Promise.all([
@@ -122,7 +142,7 @@ export default function AssetDetail() {
             )
           : Promise.resolve({ ok: true as const, data: null }),
         user
-          ? getAssetArchiveState(id, user.id).then(
+          ? getAssetArchiveContext(id, user.id).then(
               data => ({ ok: true as const, data }),
               err => ({ ok: false as const, err })
             )
@@ -152,19 +172,14 @@ export default function AssetDetail() {
         console.error('[AssetDetail] getAssetSharingInfo failed:', sharingResult.err);
       } else if (sharingResult.data) {
         setSharingInfo(sharingResult.data);
-        // Phase 1 verification log — remove once Sharing Information UI
-        // is built on top of this in Phase 2. Confirms shape: viewer-
-        // filtered assignments[], each with sharedBy/viewerRole/
-        // collaboratorCount/collaborators, no status field anywhere.
-        
       }
 
-      // Archive state failure is logged but never blocks the page either
-      // — same treatment as sharing info above.
+      // Archive context failure is logged but never blocks the page
+      // either — same treatment as sharing info above.
       if (!archiveResult.ok) {
-        console.error('[AssetDetail] getAssetArchiveState failed:', archiveResult.err);
-      } else {
-        setArchivedAt(archiveResult.data);
+        console.error('[AssetDetail] getAssetArchiveContext failed:', archiveResult.err);
+      } else if (archiveResult.data) {
+        setArchiveContext(archiveResult.data);
       }
     })();
   }, [id, user]);
@@ -183,22 +198,52 @@ export default function AssetDetail() {
 
   const { asset, resource } = detail;
 
-  // Restore only ever acts on (asset.id, the CURRENT user's id) — it can
-  // never affect another user's view of this same asset, and never
-  // touches sharing, assignments, or ownership. Archiving itself is a
-  // list-page action (Assets.tsx); this page only shows the badge and
-  // lets the user undo it.
-  const handleRestore = async () => {
+  // Refetch the archive context after any action below, rather than
+  // hand-rolling optimistic reason-list surgery here — the resolver is
+  // the single source of truth for what reasons remain, and re-deriving
+  // that logic in this component is exactly what the architecture rule
+  // (file header) forbids.
+  const refetchArchiveContext = async () => {
+    if (!user || !id) return;
+    try {
+      const next = await getAssetArchiveContext(id, user.id);
+      setArchiveContext(next);
+    } catch (err: any) {
+      console.error('[AssetDetail] refetch getAssetArchiveContext failed:', err);
+    }
+  };
+
+  // Personal-reason restore only ever acts on (asset.id, the CURRENT
+  // user's id) — it can never affect another user's view of this same
+  // asset, and never touches sharing, assignments, or ownership.
+  const handleRestorePersonal = async () => {
     if (!user) return;
     setArchiveActionError(null);
-    setRestoring(true);
+    setRestoringPersonal(true);
     try {
       await restoreAssetForUser(asset.id, user.id);
-      setArchivedAt(null);
+      await refetchArchiveContext();
     } catch (err: any) {
       setArchiveActionError(err.message || 'Could not restore this asset.');
     } finally {
-      setRestoring(false);
+      setRestoringPersonal(false);
+    }
+  };
+
+  // Level 2 Unhide — ONLY clears this viewer's archive_ui_visibility row.
+  // Never touches asset_user_states / videos.archived_at /
+  // campaigns.archived_at. See archiveUiVisibility.ts.
+  const handleUnhide = async () => {
+    if (!user) return;
+    setArchiveActionError(null);
+    setUnhiding(true);
+    try {
+      await unhideAssetForUser(asset.id, user.id);
+      await refetchArchiveContext();
+    } catch (err: any) {
+      setArchiveActionError(err.message || 'Could not unhide this asset.');
+    } finally {
+      setUnhiding(false);
     }
   };
 
@@ -229,6 +274,9 @@ export default function AssetDetail() {
       ? RESOURCE_TYPE_LABELS[resource.resourceType as ResourceType] ?? resource.resourceType
       : asset.asset_type;
 
+  const isArchived = !!archiveContext?.isArchived;
+  const isLevel2 = archiveContext?.level === 'level2';
+
   return (
     <div className="space-y-6 max-w-4xl">
       <Link to="/assets" className="flex items-center gap-2 text-zinc-500 hover:text-white text-[10px] font-black uppercase tracking-widest">
@@ -241,9 +289,14 @@ export default function AssetDetail() {
       <div>
         <h1 className="text-2xl font-bold text-white flex items-center gap-2">
           {resource?.title || 'Untitled Asset'}
-          {archivedAt && (
+          {isArchived && !isLevel2 && (
             <span className="flex items-center gap-1 text-[9px] font-black uppercase tracking-widest text-amber-500 bg-amber-500/10 border border-amber-500/20 px-2 py-1 rounded-full">
               <ArchiveRestore size={10} /> Archived
+            </span>
+          )}
+          {isLevel2 && (
+            <span className="flex items-center gap-1 text-[9px] font-black uppercase tracking-widest text-zinc-500 bg-zinc-500/10 border border-zinc-500/20 px-2 py-1 rounded-full">
+              <EyeOff size={10} /> Archived · Hidden
             </span>
           )}
         </h1>
@@ -289,16 +342,70 @@ export default function AssetDetail() {
             <BarChart3 size={12} /> Asset Analytics 
           </Link>
 
-          {archivedAt && (
+          {/* ---- Archive reasons + actions — driven entirely by the
+              central resolver. Level 2 (Hidden) collapses to a single
+              Unhide action, per LOCKED design ("Level 2 Restore = Unhide
+              only", never a true-state restore). Level 1 lists every
+              applicable reason with its own action. */}
+          {isArchived && isLevel2 && (
             <button
-              onClick={handleRestore}
-              disabled={restoring}
+              onClick={handleUnhide}
+              disabled={unhiding}
               className="w-full flex items-center justify-center gap-2 text-[10px] font-black uppercase tracking-widest text-zinc-300 bg-zinc-900 hover:bg-zinc-800 border border-zinc-800 rounded-xl px-4 py-3 transition-all disabled:opacity-50"
             >
-              {restoring ? <Loader2 size={12} className="animate-spin" /> : <ArchiveRestore size={12} />}
-              {restoring ? 'Restoring...' : 'Restore from Archive'}
+              {unhiding ? <Loader2 size={12} className="animate-spin" /> : <EyeOff size={12} />}
+              {unhiding ? 'Unhiding...' : 'Unhide'}
             </button>
           )}
+
+          {isArchived && !isLevel2 && archiveContext && (
+            <div className="space-y-2">
+              {archiveContext.reasons.map(reason => (
+                <div
+                  key={`${reason.sourceType}-${reason.sourceId}`}
+                  className="flex items-center justify-between gap-2 bg-zinc-900 border border-zinc-800 rounded-xl px-4 py-3"
+                >
+                  <span className="text-[10px] font-black uppercase tracking-widest text-zinc-300">
+                    {reason.sourceType === 'personal' && 'Archived by You'}
+                    {reason.sourceType === 'video' && `Source Video Archived${reason.sourceName ? `: ${reason.sourceName}` : ''}`}
+                    {reason.sourceType === 'campaign' && `Campaign Archived${reason.sourceName ? `: ${reason.sourceName}` : ''}`}
+                  </span>
+
+                  {reason.sourceType === 'personal' && (
+                    <button
+                      onClick={handleRestorePersonal}
+                      disabled={restoringPersonal}
+                      className="flex items-center gap-1 text-[10px] font-black uppercase tracking-widest text-white bg-zinc-950 hover:bg-black border border-zinc-700 rounded-lg px-3 py-1.5 transition-all disabled:opacity-50 shrink-0"
+                    >
+                      {restoringPersonal ? <Loader2 size={10} className="animate-spin" /> : <ArchiveRestore size={10} />}
+                      Restore
+                    </button>
+                  )}
+
+                  {reason.sourceType === 'video' && (
+                    <Link
+                      to={`/videos/${reason.sourceId}`}
+                      className="text-[10px] font-black uppercase tracking-widest text-white bg-zinc-950 hover:bg-black border border-zinc-700 rounded-lg px-3 py-1.5 transition-all shrink-0"
+                    >
+                      Go to Video
+                    </Link>
+                  )}
+
+                  {reason.sourceType === 'campaign' && (
+                    /* ASSUMPTION FLAGGED — see file header UPDATE note:
+                       route path not confirmed. */
+                    <Link
+                      to={`/campaigns/${reason.sourceId}`}
+                      className="text-[10px] font-black uppercase tracking-widest text-white bg-zinc-950 hover:bg-black border border-zinc-700 rounded-lg px-3 py-1.5 transition-all shrink-0"
+                    >
+                      Go to Campaign
+                    </Link>
+                  )}
+                </div>
+              ))}
+            </div>
+          )}
+
           {archiveActionError && (
             <p className="text-[10px] text-red-500">{archiveActionError}</p>
           )}
