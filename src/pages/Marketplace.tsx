@@ -25,6 +25,11 @@ import {
   archivePromotionForUser,
   restorePromotionForUser,
 } from '../services/promotion/promotionArchive';
+import {
+  hidePromotionForUser,
+  unhidePromotionForUser,
+  getHiddenPromotionIdsForUser,
+} from '../services/promotion/archiveUiVisibility';
 import { marketplaceAssignmentsPageCache } from '../lib/marketplaceAssignmentsPageCache';
 import { marketplacePromotionsPageCache } from '../lib/marketplacePromotionsPageCache';
 import { marketplaceInvitationsPageCache } from '../lib/marketplaceInvitationsPageCache';
@@ -112,6 +117,16 @@ export default function Marketplace() {
   const [selectedArchivedPromotionIds, setSelectedArchivedPromotionIds] = useState<string[]>([]);
   const [restoringPromotions, setRestoringPromotions] = useState(false);
 
+  // Level 1 / Level 2 UI-visibility split for Promotion Surface A only.
+  // hiddenPromotionSet is a SUBSET of archivedPromotionMap's keys — it
+  // never adds or removes anything from archivedPromotionMap itself.
+  // promotionsView switches the INLINE view within the 'promotions' tab
+  // between My Promotions (active) and Level 1 (archived, not hidden);
+  // Level 2 (hidden) stays a modal, same as before.
+  const [hiddenPromotionSet, setHiddenPromotionSet] = useState<Set<string>>(new Set());
+  const [promotionsView, setPromotionsView] = useState<'active' | 'level1'>('active');
+  const [hidingPromotionId, setHidingPromotionId] = useState<string | null>(null);
+
   const [modalConfig, setModalConfig] = useState<{
     isOpen: boolean;
     title: string;
@@ -175,12 +190,14 @@ export default function Marketplace() {
 
   // ── Promotions tab loader ───────────────────────────────────────────────
   const loadPromotions = async (userId: string) => {
-    const [myPromos, archivedPromotionIds] = await Promise.all([
+    const [myPromos, archivedPromotionIds, hiddenPromotionIds] = await Promise.all([
       listMyPromotions(userId),
       getArchivedPromotionIdsForUser(userId),
+      getHiddenPromotionIdsForUser(userId),
     ]);
     setPromotions(myPromos);
     setArchivedPromotionMap(archivedPromotionIds);
+    setHiddenPromotionSet(hiddenPromotionIds);
   };
 
   // Bootstrap now just waits on useEffectiveIdentity() instead of doing its
@@ -306,6 +323,49 @@ export default function Marketplace() {
     );
   };
 
+  // Level 1 -> Level 2. UI-visibility only — never touches
+  // archivedPromotionMap / promotion_user_states.archived_at.
+  const handleHidePromotion = (promotion: PromotionSummary) => {
+    if (!userId || isReadOnly) return;
+    setHidingPromotionId(promotion.id);
+    hidePromotionForUser(promotion.id, userId)
+      .then(() => {
+        setHiddenPromotionSet(prev => new Set(prev).add(promotion.id));
+      })
+      .catch((err: any) => {
+        showAlert('Hide Failed', err.message || 'Could not hide this promotion.', 'danger');
+      })
+      .finally(() => {
+        setHidingPromotionId(null);
+      });
+  };
+
+  // Level 1 -> My Promotions. Single-promotion Restore, used by the
+  // inline Level 1 view. Clears BOTH archivedPromotionMap and (if
+  // present) hiddenPromotionSet — a Promotion can't stay "hidden" once
+  // it's no longer archived at all.
+  const handleRestoreSinglePromotion = async (promotionId: string) => {
+    if (!userId || isReadOnly) return;
+    setRestoringPromotions(true);
+    try {
+      await restorePromotionForUser(promotionId, userId);
+      setArchivedPromotionMap(prev => {
+        const next = new Map(prev);
+        next.delete(promotionId);
+        return next;
+      });
+      setHiddenPromotionSet(prev => {
+        const next = new Set(prev);
+        next.delete(promotionId);
+        return next;
+      });
+    } catch (err: any) {
+      showAlert('Restore Failed', err.message || 'Could not restore this promotion.', 'danger');
+    } finally {
+      setRestoringPromotions(false);
+    }
+  };
+
   const openArchivedPromotionsModal = () => {
     setSelectedArchivedPromotionIds([]);
     setShowArchivedPromotionsModal(true);
@@ -317,21 +377,24 @@ export default function Marketplace() {
     );
   };
 
-  const handleRestoreSelectedPromotions = async () => {
+ // Level 2 -> Level 1 ONLY. Per locked IA, Unhide never returns a
+  // Promotion to My Promotions — only deletes the archive_ui_visibility
+  // row, archivedPromotionMap (Surface A truth) is untouched.
+  const handleUnhideSelectedPromotions = async () => {
     if (!userId || isReadOnly || selectedArchivedPromotionIds.length === 0) return;
     setRestoringPromotions(true);
     try {
       await Promise.all(
-        selectedArchivedPromotionIds.map(promotionId => restorePromotionForUser(promotionId, userId))
+        selectedArchivedPromotionIds.map(promotionId => unhidePromotionForUser(promotionId, userId))
       );
-      setArchivedPromotionMap(prev => {
-        const next = new Map(prev);
+      setHiddenPromotionSet(prev => {
+        const next = new Set(prev);
         selectedArchivedPromotionIds.forEach(id => next.delete(id));
         return next;
       });
       setSelectedArchivedPromotionIds([]);
     } catch (err: any) {
-      showAlert('Restore Failed', err.message, 'danger');
+      showAlert('Unhide Failed', err.message, 'danger');
     } finally {
       setRestoringPromotions(false);
     }
@@ -339,6 +402,10 @@ export default function Marketplace() {
 
   const activePromotions = promotions.filter(p => !archivedPromotionMap.has(p.id));
   const archivedPromotions = promotions.filter(p => archivedPromotionMap.has(p.id));
+  // Level 1/2 are a UI-visibility split of the SAME archived set — never
+  // a second archive mechanism. Both stay subsets of archivedPromotions.
+  const level1Promotions = archivedPromotions.filter(p => !hiddenPromotionSet.has(p.id));
+  const level2Promotions = archivedPromotions.filter(p => hiddenPromotionSet.has(p.id));
 
   return (
     <div className="min-h-screen bg-zinc-950 text-zinc-100">
@@ -399,13 +466,24 @@ export default function Marketplace() {
             </button>
           )}
           {tab === 'promotions' && (
-            <button
-              onClick={openArchivedPromotionsModal}
-              className="flex items-center gap-2 bg-zinc-900 hover:bg-zinc-800 border border-zinc-800 text-zinc-300 text-xs font-bold uppercase tracking-wider px-4 py-2 rounded-lg"
-            >
-              <Archive size={14} />
-              Archived{archivedPromotions.length > 0 ? ` (${archivedPromotions.length})` : ''}
-            </button>
+            <>
+              <button
+                onClick={() => setPromotionsView(v => (v === 'active' ? 'level1' : 'active'))}
+                className="flex items-center gap-2 bg-zinc-900 hover:bg-zinc-800 border border-zinc-800 text-zinc-300 text-xs font-bold uppercase tracking-wider px-4 py-2 rounded-lg"
+              >
+                <Archive size={14} />
+                {promotionsView === 'active'
+                  ? `Archived${level1Promotions.length > 0 ? ` (${level1Promotions.length})` : ''}`
+                  : 'Back to My Promotions'}
+              </button>
+              <button
+                onClick={openArchivedPromotionsModal}
+                className="flex items-center gap-2 bg-zinc-900 hover:bg-zinc-800 border border-zinc-800 text-zinc-300 text-xs font-bold uppercase tracking-wider px-4 py-2 rounded-lg"
+              >
+                <Archive size={14} />
+                Hidden{level2Promotions.length > 0 ? ` (${level2Promotions.length})` : ''}
+              </button>
+            </>
           )}
           {!isReadOnly && (
             <button
@@ -495,7 +573,7 @@ export default function Marketplace() {
           </div>
         )}
 
-        {!loading && !error && tab === 'promotions' && (
+        {!loading && !error && tab === 'promotions' && promotionsView === 'active' && (
           <div className="space-y-3">
             {activePromotions.length === 0 && <EmptyState label="No promotions yet" />}
             {activePromotions.map(p => (
@@ -559,6 +637,65 @@ export default function Marketplace() {
                 )}
               </div>
             ))}
+          </div>
+        )}
+
+        {/* Level 1 — archived, not hidden. Restore returns to My
+            Promotions; Hide moves to Level 2 (the Hidden modal below).
+            Never shows anything from Level 2, and never shows anything
+            that isn't already in archivedPromotionMap (Surface A). */}
+        {!loading && !error && tab === 'promotions' && promotionsView === 'level1' && (
+          <div className="space-y-3">
+            {level1Promotions.length === 0 && <EmptyState label="No archived promotions" />}
+            {level1Promotions.map(p => {
+              const isBusy = restoringPromotions || hidingPromotionId === p.id;
+              return (
+                <div
+                  key={p.id}
+                  className="relative group w-full flex items-center justify-between text-left bg-zinc-900 border border-zinc-800 rounded-xl p-5 pr-32"
+                >
+                  <div className="absolute top-1/2 -translate-y-1/2 right-4 flex items-center gap-2">
+                    {!isReadOnly && (
+                      <>
+                        <button
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            handleRestoreSinglePromotion(p.id);
+                          }}
+                          disabled={isBusy}
+                          title="Restore"
+                          className="w-7 h-7 rounded-lg bg-zinc-950 border border-zinc-800 flex items-center justify-center text-zinc-600 hover:text-white transition-all disabled:opacity-50"
+                        >
+                          {restoringPromotions ? <Loader2 size={12} className="animate-spin" /> : <ArchiveRestore size={12} />}
+                        </button>
+                        <button
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            handleHidePromotion(p);
+                          }}
+                          disabled={isBusy}
+                          title="Hide"
+                          className="w-7 h-7 rounded-lg bg-zinc-950 border border-zinc-800 flex items-center justify-center text-zinc-600 hover:text-white transition-all disabled:opacity-50"
+                        >
+                          {hidingPromotionId === p.id ? <Loader2 size={12} className="animate-spin" /> : <Archive size={12} />}
+                        </button>
+                      </>
+                    )}
+                  </div>
+                  <div>
+                    <h3 className="font-bold text-white">{p.assignment?.title ?? p.campaign?.campaign_name ?? 'Promotion'}</h3>
+                    <p className="text-zinc-500 text-xs mt-1">
+                      Created {new Date(p.created_at).toLocaleDateString()}
+                    </p>
+                  </div>
+                  {p.status !== 'draft' && (
+                    <span className="text-[10px] font-bold uppercase tracking-widest text-zinc-500">
+                      {p.status}
+                    </span>
+                  )}
+                </div>
+              );
+            })}
           </div>
         )}
       </div>
@@ -661,9 +798,9 @@ export default function Marketplace() {
               className="bg-zinc-950 border border-zinc-800 rounded-2xl w-full max-w-md max-h-[80vh] flex flex-col p-6"
               onClick={e => e.stopPropagation()}
             >
-              <div className="flex justify-between items-center mb-4">
+             <div className="flex justify-between items-center mb-4">
                 <h2 className="text-lg font-bold text-white flex items-center gap-2">
-                  <Archive size={16} className="text-zinc-500" /> Archived Promotions
+                  <Archive size={16} className="text-zinc-500" /> Hidden Promotions
                 </h2>
                 <button
                   onClick={() => setShowArchivedPromotionsModal(false)}
@@ -674,12 +811,12 @@ export default function Marketplace() {
               </div>
 
               <div className="flex-1 overflow-y-auto space-y-1 -mx-2 px-2">
-                {archivedPromotions.length === 0 ? (
+                {level2Promotions.length === 0 ? (
                   <p className="text-zinc-600 text-xs font-bold uppercase tracking-widest text-center py-10">
-                    No archived promotions
+                    No hidden promotions
                   </p>
                 ) : (
-                  archivedPromotions.map(p => (
+                  level2Promotions.map(p => (
                     <div
                       key={p.id}
                       className="flex items-center gap-3 p-2.5 rounded-xl hover:bg-zinc-900 transition-all"
@@ -706,11 +843,11 @@ export default function Marketplace() {
 
               <button
                 disabled={isReadOnly || selectedArchivedPromotionIds.length === 0 || restoringPromotions}
-                onClick={handleRestoreSelectedPromotions}
+                onClick={handleUnhideSelectedPromotions}
                 className="mt-4 w-full flex items-center justify-center gap-2 bg-white hover:bg-zinc-200 disabled:opacity-40 disabled:cursor-not-allowed text-zinc-950 px-5 py-3 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all"
               >
                 {restoringPromotions ? <Loader2 size={14} className="animate-spin" /> : <ArchiveRestore size={14} />}
-                Restore Selected{selectedArchivedPromotionIds.length > 0 ? ` (${selectedArchivedPromotionIds.length})` : ''}
+                Unhide Selected{selectedArchivedPromotionIds.length > 0 ? ` (${selectedArchivedPromotionIds.length})` : ''}
               </button>
             </motion.div>
           </motion.div>

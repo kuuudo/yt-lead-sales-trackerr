@@ -3,9 +3,9 @@
 
 Status: **Assignment = LOCKED (mechanism; L1/L2 explicitly DEFERRED, not decided) · Asset = LOCKED (mechanism + L1/L2) · Video = LOCKED (mechanism + L1/L2) · Campaign = LOCKED (mechanism + L1/L2) · Promotion = LOCKED (mechanism + L1/L2 + Archive Impact)**
 
-**IMPLEMENTATION AUTHORIZED — Phase 1 (Asset) in progress.** See "Implementation Status" section below (inserted after §11 Cascade Matrix) for what's built, what's verified, and the current blocker.
+**IMPLEMENTATION AUTHORIZED — Phases 1–3 (Asset, Video, Campaign) COMPLETE. Phase 4 (Promotion) is next.** See "Implementation Status" section below (inserted after §11 Cascade Matrix) for what's built, what's verified, and current status.
 
-Investigation order: Assignment (LOCKED) → Asset (LOCKED) → Video (LOCKED mechanism + L1/L2) → Campaign (LOCKED mechanism + L1/L2) → Promotion (LOCKED mechanism + L1/L2 + Archive Impact) → Assignment L1/L2 decision (DEFERRED) → (doc finalized) → **Implementation (Phase 1 in progress)**
+Investigation order: Assignment (LOCKED) → Asset (LOCKED) → Video (LOCKED mechanism + L1/L2) → Campaign (LOCKED mechanism + L1/L2) → Promotion (LOCKED mechanism + L1/L2 + Archive Impact) → Assignment L1/L2 decision (DEFERRED) → (doc finalized) → **Implementation (Phases 1–3 complete; Phase 4 — Promotion — is next)**
 
 Design/investigation phase is closed — do not reopen any LOCKED entity's mechanism or L1/L2 design unless a genuine contradiction between this doc and the actual code/schema is found during implementation. The line below is historical (it governed the investigation phase) and is superseded by the Implementation Status section for anything about Phase 1+:
 
@@ -419,18 +419,24 @@ text---
 
 **No new implementation decisions beyond what §8/§12 already pinned** — Video's mechanism (global `archived_at`, no `*_user_states`) meant no Campaign-derived-Asset-style gating question arose the way it did for Asset in decision #3 above.
 
-### Phase 3 — Campaign: **INVESTIGATION / PREFLIGHT — implementation NOT started**
+### Phase 3 — Campaign: **COMPLETE** (deployed and manually tested successfully by product owner)
 
-This phase has not written any Campaign implementation code, migrations, resolver files, `archiveUiVisibility` files, or page patches. The current conversation performed a preflight audit only — inspecting `pages/Campaigns.tsx` and `pages/CampaignDetail.tsx` as actually uploaded (both previously inspected during the design/locking phase per the Codebase File Map below, re-confirmed unchanged in this pass) plus `App.tsx` for the confirmed `/campaigns/:id` route. See the dedicated Campaign preflight findings for the full audit — kept out of this status section to avoid duplicating detail that belongs in the implementation-plan handoff instead.
+**Built, typechecked, delivered as Ctrl+F/caveman-mode patches, manually applied by the product owner, deployed, and confirmed via manual end-to-end testing:**
 
-Key preflight facts worth recording here specifically because they affect implementation-phase scope:
-- Campaign has no page cache today (no `campaignsPageCache.ts` equivalent to `videosPageCache.ts`/`assetsPageCache.ts` exists or is imported by `Campaigns.tsx`). Building one is an implementation choice, not something the LOCKED design requires — flagged as an open question for the implementation plan, not decided here.
-- `services/campaign/saveCampaign.ts` was confirmed (again) to never touch `archived_at` — consistent with the existing Codebase File Map entry.
-- The known Campaign picker gap (`listCampaignsForOrg` not filtering archived Campaigns out of active pickers) remains unverified — that file has still not been uploaded/inspected in any conversation to date.
+- `services/campaign/getCampaignArchiveContext.ts` — central resolver, mirrors `getAssetArchiveContext.ts`/`getVideoArchiveContext.ts`'s shape but simplified for Campaign's single-reason model (no derived upstream reasons, no `*_user_states`). `getCampaignArchiveContext(campaignId, viewerId)` (CampaignDetail.tsx, single) and `getCampaignArchiveContextsForViewer(campaigns[], viewerId)` (Campaigns.tsx, batch — splits fetched archived Campaigns into Level 1 / Level 2 for the viewer).
+- `services/campaign/archiveUiVisibility.ts` — `hideCampaignForUser`, `unhideCampaignForUser` (DELETE-based, same convention as Asset/Video), `getHiddenCampaignIdsForUser`. Deliberately duplicated from the Video version rather than generalized.
+- `pages/Campaigns.tsx` — active list unchanged (was already correct); archived Campaigns now fetched eagerly so Level 1/Level 2 counts are accurate on load; new inline **Level 1 Archive Tab** (shown only when non-empty), one row per Campaign, **Restore** + **Hide** per row; existing "Archived" modal repointed to the **Level 2 Hidden surface** — header renamed `HIDDEN (n)`, bulk restore rewritten to **Unhide Selected** (never touches `archived_at`); `handleArchive` now refreshes the archived list so newly archived Campaigns appear in Level 1 immediately.
+- `pages/CampaignDetail.tsx` — consumes `getCampaignArchiveContext`; header shows **Restore Campaign + Hide** at Level 1, **Unhide only** at Level 2 (never both) — enforces "Level 2 Restore = Unhide only" at the single-entity level.
+- No new DB migration — `archive_ui_visibility` already allowed `entity_type='campaign'` per the Phase 1 migration's check constraint.
+- No new page cache — explicitly declined by product owner for this phase.
+
+**Verification performed this phase:** delivered as Ctrl+F caveman-mode patches (2 new files + patches across `Campaigns.tsx`/`CampaignDetail.tsx`), manually applied, deployed, and manually tested end-to-end by the product owner — confirmed success (archive → Level 1 → Hide → Level 2 → Unhide → Level 1 → Restore → back to Active). `campaigns.archived_at` confirmed never written by Hide/Unhide during testing.
+
+**Known open item, unchanged from preflight:** the Campaign picker gap (`listCampaignsForOrg` not filtering archived Campaigns out of active pickers) remains unverified — not blocking Phase 3 completion; still deferred.
 
 ### Next step
 
-Phase 3 (Campaign) implementation, once explicitly authorized in a future conversation — see the Campaign preflight handoff for the required file list and implementation plan.
+Phase 4 (Promotion) — preflight/audit in progress. Implementation patches follow only after product owner reviews and approves the audit, per the same process used for Campaign.
 
 ## 12. Cross-Entity Archive View Rules — **LOCKED**
 
@@ -716,10 +722,10 @@ Derived Asset/Campaign impact never forces Level 1 entry and never removes the P
 | Phase | Scope | Status |
 |-------|--------|--------|
 | 0 | This section LOCKED (done) | Done |
-| 1 | Assets.tsx + central resolver | **In progress — blocked on picker files, see §11a** |
-| 2 | Videos.tsx (Level 1/Level 2 design LOCKED in this doc) | Not started |
-| 3 | Campaigns / CampaignDetail (Level 1/Level 2 design LOCKED in this doc) | Not started |
-| 4 | Marketplace / PromotionDetail (Level 1/Level 2 + Archive Impact design LOCKED in this doc) | Not started |
+| 1 | Assets.tsx + central resolver | **Complete** — see §11a |
+| 2 | Videos.tsx (Level 1/Level 2 design LOCKED in this doc) | **Complete** — see §11a |
+| 3 | Campaigns / CampaignDetail (Level 1/Level 2 design LOCKED in this doc) | **Complete** — see §11a |
+| 4 | Marketplace / PromotionDetail (Level 1/Level 2 + Archive Impact design LOCKED in this doc) | **Preflight/audit in progress** |
 
 Do not decide other entities’ UX during Phase 1. Assignment Level 1/Level 2 is explicitly DEFERRED (product owner's call — not an open question, not skipped by omission).
 
@@ -913,10 +919,10 @@ All required Campaign files for locking were inspected. Remaining work is implem
 - Promotion — **LOCKED** (mechanism + Level 1/Level 2 + Archive Impact)
 
 **Level 1 / Level 2 UI status**:
-- Asset — LOCKED (design); **implementation in progress, see §11a**
-- Video — LOCKED (design only, implementation not started)
-- Campaign — LOCKED (design only, implementation not started)
-- Promotion — **LOCKED** (design only, implementation not started):
+- Asset — LOCKED; **implementation COMPLETE, see §11a**
+- Video — LOCKED; **implementation COMPLETE, see §11a**
+- Campaign — LOCKED; **implementation COMPLETE, see §11a**
+- Promotion — **LOCKED** (design only; **preflight/audit in progress, implementation not started**):
   - **Surface A (true personal archive):** Level 1 = Archived Promotions; Level 2 = existing ARCHIVED modal; Hide/Unhide via `archive_ui_visibility` entity_type='promotion'; Restore clears `promotion_user_states`
   - **Surface B (Archive Impact):** separate diagnostic surface for Promotions that contain archived Assets; does **not** use L1/L2; does **not** leave My Promotions; reasons from Asset resolver only
   - Hard rule: Archive Impact never replaces/filters/alters My Promotions; a Promotion in Impact remains independently in My Promotions unless personally archived
@@ -930,7 +936,7 @@ All required Campaign files for locking were inspected. Remaining work is implem
 - `archive_ui_visibility` is the sole shared persistence for Level 1 ↔ Level 2; reasons remain read-time derived. Built for `entity_type='asset'` in Phase 1 (see §11a); `video`/`campaign`/`promotion` values are allowed by the migration's check constraint already, ready for Phases 2–4.
 - Do not add `archive_level` / `archive_reason` / `archived_reason` / `archive_source_*` / `promotions.archived_at` columns. None added in Phase 1.
 
-**What the next conversation should do first**: Read this document in full, especially §11a (Implementation Status). Get the two picker files from the product owner (confirm exact filenames — see §11a) and finish Phase 1. Do not start Phase 2 (Video) before Phase 1 is fully closed out.
+**What the next conversation should do first**: Read this document in full, especially §11a (Implementation Status). Phases 1–3 (Asset, Video, Campaign) are complete and manually tested. Get the actual current Promotion files (`pages/PromotionDetail.tsx`, `pages/Marketplace.tsx`, `services/promotion/promotionArchive.ts`) from the product owner before writing any Promotion implementation code — do not guess at their current contents from the historical Codebase File Map entries below, which predate this implementation phase. The Asset picker gap and the Campaign picker gap (`listCampaignsForOrg`) both remain unverified/deferred, unchanged.
 
 **What it must not do**: Reopen any LOCKED entity or its L1/L2 design without proven contradiction; treat recommendations as locked decisions; invent archive_level / archive_reason columns; guess at picker file contents instead of asking for them.
 
@@ -939,10 +945,10 @@ All required Campaign files for locking were inspected. Remaining work is implem
 ## LAST CONVERSATION SUMMARY / CONTINUATION PROMPT
 CURRENT STATE:
 Assignment = LOCKED (mechanism); L1/L2 explicitly DEFERRED
-Asset = LOCKED (mechanism + L1/L2) — **IMPLEMENTATION IN PROGRESS, Phase 1**
-Video = LOCKED (mechanism + L1/L2) — implementation not started (Phase 2)
-Campaign = LOCKED (mechanism + L1/L2) — implementation not started (Phase 3)
-Promotion = LOCKED (mechanism + L1/L2 + Archive Impact) — implementation not started (Phase 4)
+Asset = LOCKED (mechanism + L1/L2) — **IMPLEMENTATION COMPLETE, Phase 1**
+Video = LOCKED (mechanism + L1/L2) — **IMPLEMENTATION COMPLETE, Phase 2**
+Campaign = LOCKED (mechanism + L1/L2) — **IMPLEMENTATION COMPLETE, Phase 3 — deployed, manually tested successfully**
+Promotion = LOCKED (mechanism + L1/L2 + Archive Impact) — **PREFLIGHT/AUDIT IN PROGRESS, Phase 4**
 
 CORE PRINCIPLE (LOCKED):
 Archive → Detect Impact → Explain Impact → Guide User → User explicitly performs Remove / Revoke
@@ -968,12 +974,20 @@ Explicit bans: no promotions.archived_at, no archive_reason/level/source columns
 
 PHASE 1 (Asset) — see §11a for full detail. Summary:
 - Built: migration for archive_ui_visibility, central resolver (getAssetArchiveContext.ts, single + batch), archiveUiVisibility.ts (hide/unhide, DELETE-based unhide), Assets.tsx (Archive Tab + Hidden modal), AssetDetail.tsx (multi-reason display), assetsPageCache.ts (archiveContextMap wired through).
-- Typechecked clean (strict mode), not run against real data/CI.
-- Blocked on: the two picker files — confirm exact filenames first (§11a flags a naming discrepancy between this doc's `listAssetsForCampaign` and a later message's `listAssetsForAssignmentPicker.ts`).
-- Also unconfirmed: `/campaigns/:id` route, assumed by analogy to `/videos/:id`.
+- Typechecked clean (strict mode). Confirmed COMPLETE by product owner.
+- `/campaigns/:id` route since confirmed directly against `App.tsx` — no longer an open item.
+
+PHASE 2 (Video) — see §11a for full detail. Summary:
+- Built: getVideoArchiveContext.ts (single + batch + loaded-data variant), archiveUiVisibility.ts (duplicated from Asset), Videos.tsx (Archive Tab + Hidden modal, Campaign-archived-as-excluding-condition), VideoDetail.tsx (multi-reason display, Go to Campaign action), videosPageCache.ts (archiveContextMap wired through).
+- Delivered as Ctrl+F/caveman patches, manually applied, re-verified against re-uploaded post-patch files. Confirmed COMPLETE by product owner.
+
+PHASE 3 (Campaign) — see §11a for full detail. Summary:
+- Built: getCampaignArchiveContext.ts (single + batch), archiveUiVisibility.ts (duplicated from Video), Campaigns.tsx (Level 1 Archive Tab inline + Level 2 Hidden modal, eager archived-list fetch), CampaignDetail.tsx (Restore+Hide at Level 1, Unhide-only at Level 2).
+- No migration needed (archive_ui_visibility already allows entity_type='campaign'). No page cache built (explicitly declined by product owner).
+- Delivered as Ctrl+F/caveman patches, manually applied, deployed, and manually tested end-to-end by product owner. Confirmed COMPLETE.
 
 NEXT:
-1. Get the two picker files (correct names) from product owner → finish Phase 1 picker filter.
-2. Confirm CampaignDetail route path.
-3. Then Phase 2 — Video.
+1. Promotion (Phase 4) preflight/audit — in progress. Requires actual current `pages/PromotionDetail.tsx`, `pages/Marketplace.tsx`, `services/promotion/promotionArchive.ts` from product owner before any implementation code is written.
+2. Promotion is more complex than Campaign: two independent surfaces — Surface A (true personal archive via `promotion_user_states`, uses Level 1/Level 2) and Surface B (Archive Impact from archived Assets, does NOT use Level 1/Level 2, does NOT leave My Promotions, no automatic Remove/Revoke). Do not conflate the two.
+3. Asset picker gap and Campaign picker gap (`listCampaignsForOrg`) both remain deferred/unverified — not part of Phase 4 scope unless product owner explicitly pulls them in.
 Assignment L1/L2 remains deferred — do not implement or re-raise unless product owner brings it up.

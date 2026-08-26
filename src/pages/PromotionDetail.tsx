@@ -57,9 +57,20 @@ import {
   type PromotionDetailData,
 } from '../services/promotion/getPromotionDetail';
 import {
-  getPromotionArchiveState,
   restorePromotionForUser,
 } from '../services/promotion/promotionArchive';
+import {
+  getPromotionArchiveContext,
+  type PromotionArchiveLevel,
+} from '../services/promotion/getPromotionArchiveContext';
+import {
+  hidePromotionForUser,
+  unhidePromotionForUser,
+} from '../services/promotion/archiveUiVisibility';
+import {
+  getPromotionAssetArchiveImpact,
+  type PromotionArchiveImpact,
+} from '../services/promotion/getPromotionAssetArchiveImpact';
 import { removeCollaborator } from '../services/assignment/removeCollaborator';
 import { restoreCollaborator } from '../services/assignment/restoreCollaborator';
 import { revokeAssetAccess, restoreAssetAccess } from '../services/assignment/assignmentAssetAccess';
@@ -120,9 +131,19 @@ export default function PromotionDetail() {
   // status, promotion_assets, or the other party's view of this same
   // promotion. Archiving itself is a list-page action (Marketplace.tsx);
   // this page only shows the badge and lets the user undo it.
-  const [archivedAt, setArchivedAt] = useState<string | null>(null);
+  const [archivedAt, setArchivedAt] = useState<boolean>(false);
+  const [archiveLevel, setArchiveLevel] = useState<PromotionArchiveLevel>('normal');
   const [restoring, setRestoring] = useState(false);
+  const [hiding, setHiding] = useState(false);
+  const [unhiding, setUnhiding] = useState(false);
   const [archiveActionError, setArchiveActionError] = useState<string | null>(null);
+
+  // Surface B — Archive Impact (diagnostic only). Computed by re-using
+  // the existing central Asset archive resolver per promoted asset — no
+  // second Asset archive calculation is introduced here. Never writes
+  // anything, never triggers automatic Remove/Revoke, and is completely
+  // independent of archivedAt/archiveLevel above (Surface A).
+  const [archiveImpact, setArchiveImpact] = useState<PromotionArchiveImpact | null>(null);
 
   // Phase 2A — Sponsor-only Remove Collaborator. isSponsor (LOCKED) is
   // a direct comparison against assignment.created_by_user_id, resolved
@@ -188,19 +209,39 @@ export default function PromotionDetail() {
         setLoading(false);
       }
 
-      // Independent, non-blocking fetch — same treatment as
+  // Independent, non-blocking fetch — same treatment as
       // AssetDetail.tsx's/AssignmentDetail.tsx's archive state: failure
-      // here never blocks the rest of the page from rendering.
+      // here never blocks the rest of the page from rendering. Uses the
+      // central Surface A resolver (isArchived + Level 1/Level 2).
       if (user) {
         try {
-          const state = await getPromotionArchiveState(id, user.id);
-          setArchivedAt(state);
+          const context = await getPromotionArchiveContext(id, user.id);
+          setArchivedAt(context.isArchived);
+          setArchiveLevel(context.level);
         } catch (err) {
-          console.error('[PromotionDetail] getPromotionArchiveState failed:', err);
+          console.error('[PromotionDetail] getPromotionArchiveContext failed:', err);
         }
       }
     })();
   }, [id, user]);
+
+  // Surface B — Archive Impact. Independent, non-blocking effect; never
+  // gates rendering of the rest of the page. Diagnostic-only: does not
+  // touch promotion_user_states or archive_ui_visibility, and never
+  // triggers automatic Remove/Revoke of anything.
+  useEffect(() => {
+    if (!user || !detail) return;
+    const assetIds = detail.assets.map(a => a.assetId);
+    if (assetIds.length === 0) {
+      setArchiveImpact({ archivedAssetCount: 0, impacts: [] });
+      return;
+    }
+    getPromotionAssetArchiveImpact(assetIds, user.id)
+      .then(setArchiveImpact)
+      .catch(err => {
+        console.error('[PromotionDetail] getPromotionAssetArchiveImpact failed:', err);
+      });
+  }, [user, detail]);
 
   // Sponsor Assign Tracking Domain — independent of the load effect
   // above. Only fetches when the viewer is actually the Sponsor and the
@@ -212,17 +253,52 @@ export default function PromotionDetail() {
   }, [isSponsor, detail?.promotion.organization_id]);
 
 
-  const handleRestore = async () => {
+ const handleRestore = async () => {
     if (!id || !user) return;
     setArchiveActionError(null);
     setRestoring(true);
     try {
       await restorePromotionForUser(id, user.id);
-      setArchivedAt(null);
+      setArchivedAt(false);
+      setArchiveLevel('normal');
     } catch (err: any) {
       setArchiveActionError(err.message || 'Could not restore this promotion.');
     } finally {
       setRestoring(false);
+    }
+  };
+
+  // Level 1 -> Level 2. Never touches promotion_user_states.archived_at —
+  // Hide is a UI-visibility action only (Surface A), not a Restore/Archive
+  // action, and has nothing to do with Surface B (Archive Impact).
+  const handleHide = async () => {
+    if (!id || !user) return;
+    setArchiveActionError(null);
+    setHiding(true);
+    try {
+      await hidePromotionForUser(id, user.id);
+      setArchiveLevel('level2');
+    } catch (err: any) {
+      setArchiveActionError(err.message || 'Could not hide this promotion.');
+    } finally {
+      setHiding(false);
+    }
+  };
+
+  // Level 2 -> Level 1 ONLY — per locked IA, Unhide never returns the
+  // Promotion to My Promotions. promotion_user_states.archived_at is
+  // untouched; only the archive_ui_visibility row is deleted.
+  const handleUnhide = async () => {
+    if (!id || !user) return;
+    setArchiveActionError(null);
+    setUnhiding(true);
+    try {
+      await unhidePromotionForUser(id, user.id);
+      setArchiveLevel('level1');
+    } catch (err: any) {
+      setArchiveActionError(err.message || 'Could not unhide this promotion.');
+    } finally {
+      setUnhiding(false);
     }
   };
 
@@ -508,7 +584,7 @@ export default function PromotionDetail() {
           {assignment?.title ?? 'Promotion'}
           {archivedAt && (
             <span className="flex items-center gap-1 text-[9px] font-black uppercase tracking-widest text-amber-500 bg-amber-500/10 border border-amber-500/20 px-2 py-1 rounded-full">
-              <ArchiveRestore size={10} /> Archived
+              <ArchiveRestore size={10} /> {archiveLevel === 'level2' ? 'Hidden' : 'Archived'}
             </span>
           )}
         </h1>
@@ -518,15 +594,39 @@ export default function PromotionDetail() {
           </span>
         )}
 
-        {archivedAt && (
-          <div className="mt-4">
+      {archivedAt && archiveLevel === 'level1' && (
+          <div className="mt-4 flex items-center gap-2">
             <button
               onClick={handleRestore}
-              disabled={restoring}
+              disabled={restoring || hiding}
               className="flex items-center gap-2 bg-zinc-900 hover:bg-zinc-800 border border-zinc-800 text-zinc-300 text-xs font-bold uppercase tracking-wider px-4 py-2 rounded-lg disabled:opacity-50"
             >
               {restoring ? <Loader2 className="animate-spin" size={14} /> : <ArchiveRestore size={14} />}
               {restoring ? 'Restoring...' : 'Restore Promotion'}
+            </button>
+            <button
+              onClick={handleHide}
+              disabled={restoring || hiding}
+              className="flex items-center gap-2 bg-zinc-900 hover:bg-zinc-800 border border-zinc-800 text-zinc-300 text-xs font-bold uppercase tracking-wider px-4 py-2 rounded-lg disabled:opacity-50"
+            >
+              {hiding ? <Loader2 className="animate-spin" size={14} /> : <ArchiveRestore size={14} />}
+              {hiding ? 'Hiding...' : 'Hide'}
+            </button>
+            {archiveActionError && (
+              <p className="text-[10px] text-red-500 mt-2">{archiveActionError}</p>
+            )}
+          </div>
+        )}
+
+        {archivedAt && archiveLevel === 'level2' && (
+          <div className="mt-4">
+            <button
+              onClick={handleUnhide}
+              disabled={unhiding}
+              className="flex items-center gap-2 bg-zinc-900 hover:bg-zinc-800 border border-zinc-800 text-zinc-300 text-xs font-bold uppercase tracking-wider px-4 py-2 rounded-lg disabled:opacity-50"
+            >
+              {unhiding ? <Loader2 className="animate-spin" size={14} /> : <ArchiveRestore size={14} />}
+              {unhiding ? 'Unhiding...' : 'Unhide'}
             </button>
             {archiveActionError && (
               <p className="text-[10px] text-red-500 mt-2">{archiveActionError}</p>
@@ -691,9 +791,31 @@ export default function PromotionDetail() {
 
           {/* Right column — Promoted Assets */}
           <div className="md:w-3/5">
-            <p className="text-[10px] font-black uppercase tracking-widest text-zinc-500 mb-3">
+       <p className="text-[10px] font-black uppercase tracking-widest text-zinc-500 mb-3">
               Promoted Assets
             </p>
+            {/* Surface B — Archive Impact. Diagnostic only: no
+                Hide/Unhide here, no automatic Remove/Revoke of any
+                collaborator, asset access, or tracking domain. This
+                Promotion remains fully in My Promotions regardless of
+                what's shown below. */}
+            {archiveImpact && archiveImpact.archivedAssetCount > 0 && (
+              <div className="mb-3 border border-amber-500/20 bg-amber-500/10 rounded-lg p-3">
+                <p className="text-[10px] font-black uppercase tracking-widest text-amber-500 mb-2">
+                  Archive Impact — {archiveImpact.archivedAssetCount} promoted asset{archiveImpact.archivedAssetCount > 1 ? 's are' : ' is'} archived
+                </p>
+                <ul className="space-y-1">
+                  {archiveImpact.impacts.map(({ assetId, context }) => (
+                    <li key={assetId} className="text-[11px] text-zinc-400">
+                      {context.reasons.map(r => r.sourceName ?? r.sourceType).join(', ') || 'Archived'}
+                    </li>
+                  ))}
+                </ul>
+                <p className="text-[9px] text-zinc-500 mt-2">
+                  This is informational only. Nothing was automatically removed or revoked.
+                </p>
+              </div>
+            )}
             {assets.length === 0 ? (
               <p className="text-sm text-zinc-500">No assets in this promotion.</p>
             ) : (
