@@ -8,10 +8,10 @@
 //
 // WHAT THIS FILE IS RIGHT NOW
 // ════════════════════════════
-// Table shell + column definitions ONLY. No Supabase queries, no
-// asset/redirect_link joins, no revenue wiring. Every row-producing function
-// below is a stub that returns an empty array. This matches the phase-1
-// instruction: "build the table structure first, no data wired."
+// Table shell + column definitions + filter shell. Filters are real React
+// state, wired to their controls — but since useAssetAnalyticsRows() is
+// still a stub returning [], nothing actually filters anything yet. No
+// Supabase queries, no asset/redirect_link joins, no revenue wiring.
 //
 // COLUMN PARITY WITH InDepthAnalytics
 // ════════════════════════════════════
@@ -25,39 +25,77 @@
 //
 // WHAT'S NEW VS InDepthAnalytics
 // ════════════════════════════════
-// 1. Leftmost identity cell is an ASSET (thumbnail/title/type badge), not a
-//    video. Sub-line shows which video is promoting it ("Promoted by ...").
-// 2. Row grain is ASSET × PROMOTING VIDEO, not just video. The same asset can
-//    appear on multiple rows (once per promoting video) and the same video
-//    can appear on multiple rows (once per asset it promotes).
-// 3. New "Asset Type" badge column — Campaign Element / Video Library /
+// 1. TWO identity cells per row, not one:
+//    - Asset (sticky leftmost) — thumbnail/title/type badge.
+//    - Content — the promoting video's own thumbnail/title. InDepthAnalytics
+//      only ever needs one identity cell (video = the row). Here the row is
+//      an (asset, promoting video) PAIR, so both identities need their own
+//      column — the sub-line approach from the previous pass under-
+//      represented the video, per product decision.
+// 2. Row grain is ASSET × PROMOTING VIDEO. The same asset can appear on
+//    multiple rows (once per promoting video) and the same video can appear
+//    on multiple rows (once per asset it promotes). Example: Video A
+//    promotes Asset B, Asset C, Asset D → 3 rows, each pairing Video A with
+//    a different asset.
+// 3. "Asset Type" badge column — Campaign Element / Promotional Video /
 //    Resource / Content Video.
-// 4. New "Asset Clicks" column — INTENTIONALLY UNDEFINED for now. See
+// 4. "Asset Clicks" column — INTENTIONALLY UNDEFINED for now. See
 //    ASSET_ANALYTICS_DESIGN.md § Open Question — Asset Clicks Definition.
 //    Rendered as a static placeholder, never fabricated from other columns.
+// 5. Promotions filter — NOT present in InDepthAnalytics (which has no
+//    concept of a promotion). Added here as its own dropdown, styled like
+//    the Campaign dropdown, because rows here can be scoped by promotion.
 //
-// EXPLICITLY NOT IN THIS PASS (see design doc "Deferred" list)
-// ════════════════════════════════════════════════════════════
-// - Filters (All/My/Shared/Assigned, asset-type pills, Campaign/Promotion
-//   selectors). Column header shell has a reserved slot; no logic yet.
+// FILTERS ADDED THIS PASS (state wired, not yet applied to data)
+// ══════════════════════════════════════════════════════════════
+// - Date Range (7/30/60/180/365 days, lifetime, custom) — same control/
+//   options as InDepthAnalytics' sidebar.
+// - Campaign dropdown — same as InDepthAnalytics.
+// - Promotions dropdown — new, same visual pattern as Campaign.
+// - Source toggle (total / pixel / stripe) — same as InDepthAnalytics header.
+// - Columns dropdown — visual shell present; toggle logic wired to
+//   visibleColumns state (mirrors InDepthAnalytics' DEFAULT_VISIBLE pattern).
+// - Platform pills (All + one per platform present in the data) — same
+//   pattern as InDepthAnalytics, reusing PLATFORM_CONFIG.
+// - Sort shortcuts (Revenue / Consultations / Purchases / Calls / Opt-ins) —
+//   same shortcut set as InDepthAnalytics, minus "Clicks" (InDepthAnalytics
+//   itself points that shortcut at a non-existent 'unique_clicks' key — not
+//   reproduced here to avoid carrying over a dead sort key).
+//
+// STILL RESERVED / NOT BUILT THIS PASS
+// ══════════════════════════════════════
+// - All/My/Shared/Assigned scope tabs and the four asset-type filter pills
+//   named in the original brief — scope rules unconfirmed against real data
+//   (ASSET_ANALYTICS_DESIGN.md §3). Reserved row kept below the filter bar.
 // - Any revenue/click computation.
 // - Double-counting/attribution resolution (Video B → Asset A → Video A
-//   scenario). That must be solved in the engine layer before this table's
-//   revenue columns can be trusted — do not backfill it here as a UI patch.
+//   scenario). Must be solved in the engine layer first — see
+//   ASSET_ANALYTICS_DESIGN.md §2.
 // ─────────────────────────────────────────────────────────────────────────────
 
-import React, { useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
+import { Campaign } from '../lib/supabase';
 
 import {
   TABLE_COLUMNS,
   COLUMN_LABELS,
   handleSortToggle,
+  getDateBounds,
   type MetricType,
+  type DateRange,
+  type CustomDateRange,
+  type RevenueView,
 } from '../lib/analyticsEngine';
 
 import {
+  PLATFORM_CONFIG,
+  type Platform,
+} from '../lib/platformParser';
+
+import {
   ChevronLeft, Filter, Columns, ChevronDown, ArrowUpDown, Boxes,
+  Calendar, Briefcase, Megaphone, Check,
 } from 'lucide-react';
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -86,11 +124,37 @@ const ASSET_TYPE_COLORS: Record<AssetTypeTag, string> = {
 };
 
 // ─────────────────────────────────────────────────────────────────────────────
+// Sort shortcuts — same set InDepthAnalytics exposes, minus the dead
+// 'unique_clicks' key (see header comment).
+// ─────────────────────────────────────────────────────────────────────────────
+
+const SORT_SHORTCUTS: { label: string; key: string }[] = [
+  { label: 'Revenue',       key: 'total_revenue' },
+  { label: 'Consultations', key: 'consultation_thankyou' },
+  { label: 'Purchases',     key: 'purchase_thankyou' },
+  { label: 'Calls',         key: 'call_booking_thankyou' },
+  { label: 'Opt-ins',       key: 'newsletter_thankyou' },
+];
+
+const DEFAULT_VISIBLE = new Set<string>([...TABLE_COLUMNS]);
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Local placeholder type — a promotion, only the fields this dropdown needs.
+// Once wired, this should come from wherever the app already types
+// promotions (e.g. lib/supabase.ts), not be redefined here.
+// ─────────────────────────────────────────────────────────────────────────────
+
+interface PromotionOption {
+  id:   string;
+  name: string;
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 // Row shape — ONE ROW = ONE (asset, promoting video) PAIR
 //
-// This mirrors ProcessedVideoRow from analyticsEngine.ts but swaps the video
-// identity for an asset identity, and keeps a reference to the promoting
-// video alongside it (a row needs both to be meaningful).
+// This mirrors ProcessedVideoRow from analyticsEngine.ts but splits identity
+// into two cells — Asset and Content (the promoting video) — since neither
+// alone represents the row.
 //
 // `metrics` reuses VideoMetricsResult's shape by structural typing — once
 // wired, whatever function computes this per (asset, video) pair should
@@ -106,13 +170,17 @@ interface AssetIdentity {
 }
 
 interface PromotingVideoIdentity {
-  id:    string;
-  title: string | undefined;
+  id:             string;
+  title:          string | undefined;
+  thumbnail_url?: string;
+  platform?:      string | null;
 }
 
 interface AssetAnalyticsRow {
   asset:           AssetIdentity;
   promoting_video: PromotingVideoIdentity;
+  campaign_id:     string | null;
+  promotion_id:    string | null;
   // Placeholder — see "Asset Clicks" note above. Left as `number | null` so
   // the UI can distinguish "not computed yet" (null → renders "—") from a
   // real zero once wired.
@@ -123,8 +191,8 @@ interface AssetAnalyticsRow {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// STUB data source — returns nothing. Replace with the real fetch/engine
-// call once ASSET_ANALYTICS_DESIGN.md's open questions are resolved.
+// STUB data sources — return nothing yet. Replace with real fetches/engine
+// calls once ASSET_ANALYTICS_DESIGN.md's open questions are resolved.
 // ─────────────────────────────────────────────────────────────────────────────
 
 function useAssetAnalyticsRows(): { rows: AssetAnalyticsRow[]; loading: boolean } {
@@ -138,6 +206,19 @@ function useAssetAnalyticsRows(): { rows: AssetAnalyticsRow[]; loading: boolean 
   return { rows: [], loading: false };
 }
 
+function useCampaignOptions(): Campaign[] {
+  // TODO(wiring phase): supabase.from('campaigns').select('*')...
+  return [];
+}
+
+function usePromotionOptions(): PromotionOption[] {
+  // TODO(wiring phase): supabase.from('promotions').select('id, promotion_name')...
+  // Ownership boundary for this list is itself an open question — see
+  // ASSET_ANALYTICS_DESIGN.md §3 "Ownership" (Top Promotions concern applies
+  // here too: don't scope by organization_id alone).
+  return [];
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 // Component
 // ─────────────────────────────────────────────────────────────────────────────
@@ -145,26 +226,209 @@ function useAssetAnalyticsRows(): { rows: AssetAnalyticsRow[]; loading: boolean 
 export default function AllAssetsAnalytics() {
   const navigate = useNavigate();
   const { rows, loading } = useAssetAnalyticsRows();
+  const campaigns  = useCampaignOptions();
+  const promotions = usePromotionOptions();
+
+  // ── Filter state ──────────────────────────────────────────────────────────
+  const [dateRange, setDateRange]         = useState<DateRange>('30days');
+  const [customRange, setCustomRange]     = useState<CustomDateRange | null>(null);
+  const [selectedCampaignId, setSelectedCampaignId]   = useState<string>('all');
+  const [selectedPromotionId, setSelectedPromotionId] = useState<string>('all');
+  const [activeSource, setActiveSource]   = useState<RevenueView>('total');
+  const [selectedPlatforms, setSelectedPlatforms] = useState<string[]>([]);
 
   const [sortConfig, setSortConfig] = useState<{ key: string; direction: 'asc' | 'desc' }>({
     key: 'total_revenue',
     direction: 'desc',
   });
 
+  // ── Columns dropdown state ──────────────────────────────────────────────
+  const [visibleColumns, setVisibleColumns] = useState<Set<string>>(new Set(DEFAULT_VISIBLE));
+  const [columnsOpen, setColumnsOpen] = useState(false);
+  const columnsRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    const handler = (e: MouseEvent) => {
+      if (columnsRef.current && !columnsRef.current.contains(e.target as Node)) {
+        setColumnsOpen(false);
+      }
+    };
+    document.addEventListener('mousedown', handler);
+    return () => document.removeEventListener('mousedown', handler);
+  }, []);
+
+  const toggleColumn = (key: string) => {
+    setVisibleColumns(prev => {
+      const next = new Set(prev);
+      if (next.has(key)) next.delete(key); else next.add(key);
+      return next;
+    });
+  };
+
   const handleSort = (key: string) => {
     setSortConfig(prev => handleSortToggle(prev, key));
   };
 
-  // No-op until rows exist — kept so the sort affordance is wired end-to-end
-  // and doesn't need to be revisited when data lands.
-  const sortedRows = useMemo(() => rows, [rows, sortConfig]);
+  // ── Date bounds — UI-only, same helper InDepthAnalytics uses ────────────
+  const dateRangeBounds = useMemo(() => getDateBounds(dateRange, customRange), [dateRange, customRange]);
+
+  // ── Platform filter (applied after fetch, pure UI — no-op while rows=[]) ─
+  const platformFilteredRows = useMemo(() => {
+    if (selectedPlatforms.length === 0) return rows;
+    return rows.filter(row => selectedPlatforms.includes(row.promoting_video.platform ?? 'youtube'));
+  }, [rows, selectedPlatforms]);
+
+  const presentPlatforms = useMemo(() => {
+    const seen = new Set<string>();
+    rows.forEach(row => seen.add(row.promoting_video.platform ?? 'youtube'));
+    return Array.from(seen).sort();
+  }, [rows]);
+
+  // Sort is a no-op until rows exist — kept wired end-to-end so it doesn't
+  // need to be revisited once data lands.
+  const sortedRows = useMemo(() => platformFilteredRows, [platformFilteredRows, sortConfig]);
+
+  const colSpan = 4 + TABLE_COLUMNS.length + 1; // Asset + Content + Type + Asset Clicks + metrics + trailing spacer
 
   return (
-    <div className="flex h-full bg-black">
+    <div className="flex h-screen bg-black text-zinc-300 overflow-hidden fixed inset-0 z-[100]">
+
+      {/* ── Sidebar ────────────────────────────────────────────────────── */}
+      <aside className="w-80 bg-zinc-950 border-r border-zinc-900 flex flex-col shrink-0 lg:relative z-50">
+        <div className="flex-1 overflow-y-auto px-6 py-6 custom-scrollbar space-y-8">
+
+          {/* Date range */}
+          <div>
+            <label className="text-[10px] font-black uppercase tracking-widest text-zinc-500 mb-3 block">
+              Date Range
+            </label>
+            <div className="relative">
+              <select
+                value={dateRange}
+                onChange={e => {
+                  const v = e.target.value as DateRange;
+                  setDateRange(v);
+                  if (v !== 'custom') setCustomRange(null);
+                }}
+                className="w-full bg-zinc-900 border border-zinc-800 rounded-xl px-4 py-2.5 text-[10px] font-bold uppercase tracking-widest outline-none focus:border-red-600 appearance-none cursor-pointer"
+              >
+                <option value="7days">Last 7 Days</option>
+                <option value="30days">Last 30 Days</option>
+                <option value="2months">Last 2 Months</option>
+                <option value="6months">Last 6 Months</option>
+                <option value="1year">Last Year</option>
+                <option value="all">Lifetime</option>
+                <option value="custom">Custom Range</option>
+              </select>
+              <Calendar size={12} className="absolute right-4 top-1/2 -translate-y-1/2 text-zinc-600 pointer-events-none" />
+            </div>
+
+            {dateRange === 'custom' && (
+              <div className="mt-3 grid grid-cols-2 gap-2">
+                <div>
+                  <label className="text-[8px] font-black uppercase tracking-widest text-zinc-600 mb-1.5 block">
+                    Start
+                  </label>
+                  <input
+                    type="date"
+                    value={typeof customRange?.start === 'string' ? customRange.start : ''}
+                    max={typeof customRange?.end === 'string' ? customRange.end : undefined}
+                    onChange={e => {
+                      const start = e.target.value;
+                      setCustomRange(prev => ({
+                        start,
+                        end: (typeof prev?.end === 'string' && prev.end) || start,
+                      }));
+                    }}
+                    className="w-full bg-zinc-900 border border-zinc-800 rounded-xl px-3 py-2 text-[10px] font-bold outline-none focus:border-red-600 [color-scheme:dark]"
+                  />
+                </div>
+                <div>
+                  <label className="text-[8px] font-black uppercase tracking-widest text-zinc-600 mb-1.5 block">
+                    End
+                  </label>
+                  <input
+                    type="date"
+                    value={typeof customRange?.end === 'string' ? customRange.end : ''}
+                    min={typeof customRange?.start === 'string' ? customRange.start : undefined}
+                    onChange={e => {
+                      const end = e.target.value;
+                      setCustomRange(prev => ({
+                        start: (typeof prev?.start === 'string' && prev.start) || end,
+                        end,
+                      }));
+                    }}
+                    className="w-full bg-zinc-900 border border-zinc-800 rounded-xl px-3 py-2 text-[10px] font-bold outline-none focus:border-red-600 [color-scheme:dark]"
+                  />
+                </div>
+              </div>
+            )}
+          </div>
+
+          {/* Campaign */}
+          <div>
+            <label className="text-[10px] font-black uppercase tracking-widest text-zinc-500 mb-3 block">
+              Campaign
+            </label>
+            <div className="relative">
+              <select
+                value={selectedCampaignId}
+                onChange={e => setSelectedCampaignId(e.target.value)}
+                className="w-full bg-zinc-900 border border-zinc-800 rounded-xl px-4 py-2.5 text-[10px] font-bold uppercase tracking-widest outline-none focus:border-red-600 appearance-none cursor-pointer truncate pr-10"
+              >
+                <option value="all">All Campaigns</option>
+                {campaigns.map(c => (
+                  <option key={c.id} value={c.id}>{c.campaign_name}</option>
+                ))}
+              </select>
+              <Briefcase size={12} className="absolute right-4 top-1/2 -translate-y-1/2 text-zinc-600 pointer-events-none" />
+            </div>
+          </div>
+
+          {/* Promotion — new, not present in InDepthAnalytics */}
+          <div>
+            <label className="text-[10px] font-black uppercase tracking-widest text-zinc-500 mb-3 block">
+              Promotion
+            </label>
+            <div className="relative">
+              <select
+                value={selectedPromotionId}
+                onChange={e => setSelectedPromotionId(e.target.value)}
+                className="w-full bg-zinc-900 border border-zinc-800 rounded-xl px-4 py-2.5 text-[10px] font-bold uppercase tracking-widest outline-none focus:border-red-600 appearance-none cursor-pointer truncate pr-10"
+              >
+                <option value="all">All Promotions</option>
+                {promotions.map(p => (
+                  <option key={p.id} value={p.id}>{p.name}</option>
+                ))}
+              </select>
+              <Megaphone size={12} className="absolute right-4 top-1/2 -translate-y-1/2 text-zinc-600 pointer-events-none" />
+            </div>
+          </div>
+
+          {/* Reserved — All/My/Shared/Assigned + asset-type pills. Scope
+              rules unconfirmed, see ASSET_ANALYTICS_DESIGN.md §3. */}
+          <div>
+            <label className="text-[10px] font-black uppercase tracking-widest text-zinc-700 mb-3 flex items-center gap-1.5">
+              <Boxes size={11} />
+              Scope (reserved)
+            </label>
+            <p className="text-[9px] text-zinc-700 leading-relaxed">
+              All / My / Shared / Assigned + per-type filters (Campaign
+              Elements, Promotional Videos, Resources, Content Videos) land
+              here once scope rules are confirmed against real data.
+            </p>
+          </div>
+
+        </div>
+      </aside>
+
+      {/* ── Main content ─────────────────────────────────────────────────── */}
       <div className="flex-1 flex flex-col h-full overflow-hidden bg-black relative">
 
         {/* ── Header ─────────────────────────────────────────────────────── */}
         <header className="bg-zinc-950 border-b border-zinc-900 px-8 shrink-0">
+
+          {/* Top row: nav + title + source toggle + columns + count */}
           <div className="h-20 flex items-center justify-between">
             <div className="flex items-center gap-6">
               <button
@@ -174,9 +438,8 @@ export default function AllAssetsAnalytics() {
                 <ChevronLeft size={20} />
               </button>
               <button
-                disabled
-                title="Filters — not yet wired (structure-only phase)"
-                className="p-3 bg-zinc-900 border border-zinc-800 rounded-2xl text-zinc-700 hidden lg:flex cursor-not-allowed"
+                title="Sidebar filters"
+                className="p-3 bg-zinc-900 border border-zinc-800 rounded-2xl text-zinc-400 hover:text-white transition-all hidden lg:flex"
               >
                 <Filter size={20} />
               </button>
@@ -191,159 +454,320 @@ export default function AllAssetsAnalytics() {
             </div>
 
             <div className="flex items-center gap-3">
-              {/* Columns dropdown — visual only for now, all TABLE_COLUMNS always on */}
-              <button
-                disabled
-                title="Column visibility toggle — not yet wired"
-                className="flex items-center gap-2 px-3 py-2 rounded-xl border text-[9px] font-black uppercase tracking-widest bg-zinc-900 border-zinc-800 text-zinc-700 cursor-not-allowed"
-              >
-                <Columns size={13} />
-                Columns
-                <ChevronDown size={11} />
-              </button>
+              {/* Source toggle */}
+              <div className="flex items-center gap-1 p-1 bg-zinc-900 border border-zinc-800 rounded-xl">
+                {(['total', 'pixel', 'stripe'] as RevenueView[]).map(v => (
+                  <button
+                    key={v}
+                    onClick={() => setActiveSource(v)}
+                    className={`px-3 py-1.5 rounded-lg text-[9px] font-black uppercase tracking-widest transition-all ${
+                      activeSource === v ? 'bg-zinc-700 text-white' : 'text-zinc-600 hover:text-zinc-400'
+                    }`}
+                  >
+                    {v}
+                  </button>
+                ))}
+              </div>
+
+              {/* Columns dropdown */}
+              <div className="relative" ref={columnsRef}>
+                <button
+                  onClick={() => setColumnsOpen(o => !o)}
+                  className={`flex items-center gap-2 px-3 py-2 rounded-xl border text-[9px] font-black uppercase tracking-widest transition-all ${
+                    columnsOpen
+                      ? 'bg-zinc-800 border-zinc-700 text-white'
+                      : 'bg-zinc-900 border-zinc-800 text-zinc-400 hover:text-white'
+                  }`}
+                >
+                  <Columns size={13} />
+                  Columns
+                  <ChevronDown size={11} className={`transition-transform ${columnsOpen ? 'rotate-180' : ''}`} />
+                </button>
+
+                {columnsOpen && (
+                  <div className="absolute right-0 top-full mt-2 w-64 bg-zinc-900 border border-zinc-800 rounded-2xl shadow-2xl z-50 overflow-hidden">
+                    <div className="px-4 pt-4 pb-4">
+                      <p className="text-[8px] font-black uppercase tracking-widest text-zinc-600 mb-2">
+                        Core Metrics
+                      </p>
+                      <div className="space-y-0.5">
+                        {TABLE_COLUMNS.map(key => (
+                          <button
+                            key={key}
+                            onClick={() => toggleColumn(key)}
+                            className="w-full flex items-center gap-3 px-2 py-2 rounded-lg hover:bg-zinc-800 transition-colors text-left"
+                          >
+                            <div className={`w-4 h-4 rounded border flex items-center justify-center shrink-0 transition-all ${
+                              visibleColumns.has(key)
+                                ? 'bg-red-600 border-red-600'
+                                : 'border-zinc-700 bg-zinc-950'
+                            }`}>
+                              {visibleColumns.has(key) && <Check size={9} className="text-white" />}
+                            </div>
+                            <span className="text-[10px] font-bold text-zinc-300 truncate">
+                              {COLUMN_LABELS[key as MetricType]}
+                            </span>
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                  </div>
+                )}
+              </div>
+
+              {/* Row count */}
+              <div className="px-4 py-2 bg-zinc-900/50 border border-zinc-900 rounded-xl">
+                <span className="text-[10px] font-black uppercase tracking-widest text-zinc-600">
+                  {sortedRows.length} Rows
+                </span>
+              </div>
             </div>
           </div>
 
-          {/* Reserved filter row — All/My/Shared/Assigned + asset-type pills +
-              Campaign/Promotion selectors land here once scope rules are
-              confirmed against real data (ASSET_ANALYTICS_DESIGN.md §6). */}
-          <div className="py-4 flex items-center gap-2 text-[9px] font-black uppercase tracking-widest text-zinc-700">
-            <Boxes size={12} />
-            Filters reserved — All / My / Shared / Assigned · Campaign Elements ·
-            Promotional Videos · Resources · Content Videos · Campaign · Promotion
+          {/* Second row: platform filter + quick sort */}
+          <div className="pb-4 flex flex-wrap items-center justify-between gap-3">
+
+            {/* Platform filter pills */}
+            <div className="flex flex-wrap items-center gap-1.5">
+              <button
+                onClick={() => setSelectedPlatforms([])}
+                className={`h-7 px-3 rounded-lg border text-[9px] font-black uppercase tracking-widest transition-all ${
+                  selectedPlatforms.length === 0
+                    ? 'bg-red-600 border-red-600 text-white'
+                    : 'border-zinc-800 bg-zinc-900 text-zinc-500 hover:border-zinc-600 hover:text-zinc-300'
+                }`}
+              >
+                All
+                <span className={`ml-1.5 text-[8px] px-1 py-0.5 rounded font-black ${
+                  selectedPlatforms.length === 0 ? 'bg-black/20 text-white' : 'bg-zinc-800 text-zinc-600'
+                }`}>
+                  {rows.length}
+                </span>
+              </button>
+
+              {presentPlatforms.map(p => {
+                const cfg    = PLATFORM_CONFIG[p as Platform];
+                const label  = cfg?.label ?? p;
+                const color  = cfg?.color ?? '#dc2626';
+                const active = selectedPlatforms.includes(p);
+                const count  = rows.filter(r => (r.promoting_video.platform ?? 'youtube') === p).length;
+                return (
+                  <button
+                    key={p}
+                    onClick={() =>
+                      setSelectedPlatforms(prev =>
+                        prev.includes(p) ? prev.filter(x => x !== p) : [...prev, p],
+                      )
+                    }
+                    style={active ? { backgroundColor: color, borderColor: color } : {}}
+                    className={`h-7 px-3 rounded-lg border text-[9px] font-black uppercase tracking-widest transition-all flex items-center gap-1.5 ${
+                      active
+                        ? 'text-white'
+                        : 'border-zinc-800 bg-zinc-900 text-zinc-500 hover:border-zinc-600 hover:text-zinc-300'
+                    }`}
+                  >
+                    {cfg?.icon && <span className="opacity-70 text-[10px]">{cfg.icon}</span>}
+                    {label}
+                    <span className={`text-[8px] px-1 py-0.5 rounded font-black ${
+                      active ? 'bg-black/20 text-white' : 'bg-zinc-800 text-zinc-600'
+                    }`}>
+                      {count}
+                    </span>
+                  </button>
+                );
+              })}
+            </div>
+
+            {/* Quick sort buttons */}
+            <div className="flex items-center gap-1.5">
+              <span className="text-[8px] font-black uppercase tracking-widest text-zinc-700 mr-1">
+                Sort
+              </span>
+              {SORT_SHORTCUTS.map(s => {
+                const active = sortConfig.key === s.key;
+                return (
+                  <button
+                    key={s.key}
+                    onClick={() => setSortConfig({ key: s.key, direction: 'desc' })}
+                    className={`h-7 px-3 rounded-lg border text-[9px] font-black uppercase tracking-widest transition-all ${
+                      active
+                        ? 'bg-red-600 border-red-600 text-white'
+                        : 'border-zinc-800 bg-zinc-900 text-zinc-500 hover:border-zinc-600 hover:text-zinc-300'
+                    }`}
+                  >
+                    {s.label}
+                  </button>
+                );
+              })}
+            </div>
+
           </div>
         </header>
 
         {/* ── Table ──────────────────────────────────────────────────────── */}
-        <div className="flex-1 overflow-auto">
-          <table className="w-full border-collapse">
-            <thead className="bg-zinc-950 sticky top-0 z-20 shadow-xl">
-              <tr>
-                {/* ── Asset identity column ─────────────────────────────── */}
-                <th className="px-6 py-5 text-left text-[10px] font-black uppercase tracking-widest text-zinc-600 border-b border-zinc-900 bg-zinc-950 min-w-[300px] sticky left-0 z-30">
-                  Asset
-                </th>
-
-                {/* ── Asset type badge column ───────────────────────────── */}
-                <th className="px-6 py-5 text-left text-[10px] font-black uppercase tracking-widest text-zinc-600 border-b border-zinc-900 bg-zinc-950 min-w-[140px]">
-                  Type
-                </th>
-
-                {/* ── Asset Clicks — placeholder, see header comment ───── */}
-                <th
-                  className="px-6 py-5 text-left text-[10px] font-black uppercase tracking-widest text-zinc-600 border-b border-zinc-900 bg-zinc-950 min-w-[110px]"
-                  title="Definition not yet locked — see ASSET_ANALYTICS_DESIGN.md"
-                >
-                  Asset Clicks
-                </th>
-
-                {/* ── Engine metric columns — identical to InDepthAnalytics ── */}
-                {TABLE_COLUMNS.map(key => (
-                  <th
-                    key={key}
-                    onClick={() => handleSort(key)}
-                    className="px-6 py-5 text-left text-[10px] font-black uppercase tracking-widest text-zinc-600 border-b border-zinc-900 bg-zinc-950 cursor-pointer hover:text-zinc-300 transition-colors whitespace-nowrap"
-                  >
-                    <div className="flex items-center gap-1.5">
-                      {COLUMN_LABELS[key as MetricType]}
-                      <ArrowUpDown
-                        size={10}
-                        className={sortConfig.key === key ? 'text-white' : 'text-zinc-700'}
-                      />
-                    </div>
+        <div className="flex-1 overflow-x-auto custom-scrollbar">
+          <div className="inline-block min-w-full align-middle h-full overflow-y-auto">
+            <table className="min-w-full divide-y divide-zinc-900 border-collapse">
+              <thead className="bg-zinc-950 sticky top-0 z-20 shadow-xl">
+                <tr>
+                  {/* ── Asset identity column (sticky) ────────────────────── */}
+                  <th className="px-6 py-5 text-left text-[10px] font-black uppercase tracking-widest text-zinc-600 border-b border-zinc-900 bg-zinc-950 min-w-[260px] sticky left-0 z-30">
+                    Asset
                   </th>
-                ))}
 
-                <th className="px-6 py-5 border-b border-zinc-900 bg-zinc-950" />
-              </tr>
-            </thead>
+                  {/* ── Content column — the promoting video ──────────────── */}
+                  <th className="px-6 py-5 text-left text-[10px] font-black uppercase tracking-widest text-zinc-600 border-b border-zinc-900 bg-zinc-950 min-w-[260px]">
+                    Content
+                  </th>
 
-            <tbody className="bg-black divide-y divide-zinc-900">
-              {loading && (
-                <tr>
-                  <td colSpan={3 + TABLE_COLUMNS.length + 1} className="px-6 py-16 text-center">
-                    <span className="text-[10px] font-black uppercase tracking-widest text-zinc-600">
-                      Loading…
-                    </span>
-                  </td>
-                </tr>
-              )}
+                  {/* ── Asset type badge column ────────────────────────────── */}
+                  <th className="px-6 py-5 text-left text-[10px] font-black uppercase tracking-widest text-zinc-600 border-b border-zinc-900 bg-zinc-950 min-w-[140px]">
+                    Type
+                  </th>
 
-              {!loading && sortedRows.length === 0 && (
-                <tr>
-                  <td colSpan={3 + TABLE_COLUMNS.length + 1} className="px-6 py-20 text-center">
-                    <div className="text-[11px] font-black uppercase tracking-widest text-zinc-600">
-                      No data wired yet
-                    </div>
-                    <div className="text-[10px] text-zinc-700 mt-2 max-w-md mx-auto">
-                      Table structure only — columns above are locked and match
-                      InDepthAnalytics. Row data (asset × promoting-video pairs,
-                      Asset Clicks, and the 14 metric columns) gets wired in
-                      the next phase once ASSET_ANALYTICS_DESIGN.md's open
-                      questions are resolved.
-                    </div>
-                  </td>
-                </tr>
-              )}
+                  {/* ── Asset Clicks — placeholder, see header comment ─────── */}
+                  <th
+                    className="px-6 py-5 text-left text-[10px] font-black uppercase tracking-widest text-zinc-600 border-b border-zinc-900 bg-zinc-950 min-w-[110px]"
+                    title="Definition not yet locked — see ASSET_ANALYTICS_DESIGN.md"
+                  >
+                    Asset Clicks
+                  </th>
 
-              {!loading && sortedRows.map(row => (
-                <tr
-                  key={`${row.asset.id}::${row.promoting_video.id}`}
-                  className="hover:bg-zinc-950 transition-colors group"
-                >
-                  {/* ── Asset identity cell ─────────────────────────────── */}
-                  <td className="px-6 py-4 whitespace-nowrap sticky left-0 z-10 bg-black group-hover:bg-zinc-950 transition-colors">
-                    <div className="flex items-center gap-3">
-                      <img
-                        src={row.asset.thumbnail_url}
-                        className="w-16 h-9 object-cover rounded-lg border border-zinc-800 shrink-0"
-                        alt=""
-                        onError={e => {
-                          const t = e.currentTarget;
-                          t.onerror = null;
-                          t.src = 'https://placehold.co/64x36/18181b/52525b?text=Asset';
-                        }}
-                      />
-                      <div className="max-w-[220px] min-w-0">
-                        <div className="text-xs font-bold truncate leading-snug">
-                          {row.asset.title ?? 'Untitled asset'}
-                        </div>
-                        <div className="text-[9px] text-zinc-600 font-bold uppercase tracking-widest mt-0.5 truncate">
-                          Promoted by {row.promoting_video.title ?? 'Untitled video'}
-                        </div>
-                      </div>
-                    </div>
-                  </td>
-
-                  {/* ── Asset type badge cell ───────────────────────────── */}
-                  <td className="px-6 py-4 whitespace-nowrap">
-                    <span
-                      className={`inline-flex items-center px-2 py-1 rounded-full border text-[8px] font-black uppercase tracking-widest ${ASSET_TYPE_COLORS[row.asset.asset_type]}`}
-                    >
-                      {ASSET_TYPE_LABELS[row.asset.asset_type]}
-                    </span>
-                  </td>
-
-                  {/* ── Asset Clicks cell ───────────────────────────────── */}
-                  <td className="px-6 py-4 whitespace-nowrap text-sm font-bold text-zinc-400 tabular-nums">
-                    {row.asset_clicks ?? '—'}
-                  </td>
-
-                  {/* ── Engine metric cells ─────────────────────────────── */}
-                  {TABLE_COLUMNS.map(key => (
-                    <td
+                  {/* ── Engine metric columns — identical to InDepthAnalytics ── */}
+                  {TABLE_COLUMNS.filter(key => visibleColumns.has(key)).map(key => (
+                    <th
                       key={key}
-                      className="px-6 py-4 whitespace-nowrap text-sm font-bold text-zinc-400 tabular-nums"
+                      onClick={() => handleSort(key)}
+                      className="px-6 py-5 text-left text-[10px] font-black uppercase tracking-widest text-zinc-600 border-b border-zinc-900 bg-zinc-950 cursor-pointer hover:text-zinc-300 transition-colors whitespace-nowrap"
                     >
-                      {row.metrics[key] ?? 0}
-                    </td>
+                      <div className="flex items-center gap-1.5">
+                        {COLUMN_LABELS[key as MetricType]}
+                        <ArrowUpDown
+                          size={10}
+                          className={sortConfig.key === key ? 'text-white' : 'text-zinc-700'}
+                        />
+                      </div>
+                    </th>
                   ))}
 
-                  <td className="px-6 py-4" />
+                  <th className="px-6 py-5 border-b border-zinc-900 bg-zinc-950" />
                 </tr>
-              ))}
-            </tbody>
-          </table>
+              </thead>
+
+              <tbody className="bg-black divide-y divide-zinc-900">
+                {loading && (
+                  <tr>
+                    <td colSpan={colSpan} className="px-6 py-16 text-center">
+                      <span className="text-[10px] font-black uppercase tracking-widest text-zinc-600">
+                        Loading…
+                      </span>
+                    </td>
+                  </tr>
+                )}
+
+                {!loading && sortedRows.length === 0 && (
+                  <tr>
+                    <td colSpan={colSpan} className="px-6 py-20 text-center">
+                      <div className="text-[11px] font-black uppercase tracking-widest text-zinc-600">
+                        No data wired yet
+                      </div>
+                      <div className="text-[10px] text-zinc-700 mt-2 max-w-md mx-auto">
+                        Table structure + filter shell only — columns and
+                        filters above are locked. Row data (asset × promoting-
+                        video pairs, Asset Clicks, and the 14 metric columns)
+                        gets wired in the next phase once
+                        ASSET_ANALYTICS_DESIGN.md's open questions are
+                        resolved.
+                      </div>
+                    </td>
+                  </tr>
+                )}
+
+                {!loading && sortedRows.map(row => (
+                  <tr
+                    key={`${row.asset.id}::${row.promoting_video.id}`}
+                    className="hover:bg-zinc-950 transition-colors group"
+                  >
+                    {/* ── Asset identity cell ─────────────────────────────── */}
+                    <td className="px-6 py-4 whitespace-nowrap sticky left-0 z-10 bg-black group-hover:bg-zinc-950 transition-colors">
+                      <div className="flex items-center gap-3">
+                        <img
+                          src={row.asset.thumbnail_url}
+                          className="w-16 h-9 object-cover rounded-lg border border-zinc-800 shrink-0"
+                          alt=""
+                          onError={e => {
+                            const t = e.currentTarget;
+                            t.onerror = null;
+                            t.src = 'https://placehold.co/64x36/18181b/52525b?text=Asset';
+                          }}
+                        />
+                        <div className="max-w-[190px] min-w-0">
+                          <div className="text-xs font-bold truncate leading-snug">
+                            {row.asset.title ?? 'Untitled asset'}
+                          </div>
+                          <div className="text-[9px] text-zinc-600 font-bold uppercase tracking-widest mt-0.5 truncate">
+                            Asset
+                          </div>
+                        </div>
+                      </div>
+                    </td>
+
+                    {/* ── Content cell — the promoting video ──────────────── */}
+                    <td className="px-6 py-4 whitespace-nowrap">
+                      <div className="flex items-center gap-3">
+                        <img
+                          src={row.promoting_video.thumbnail_url}
+                          className="w-16 h-9 object-cover rounded-lg border border-zinc-800 shrink-0"
+                          alt=""
+                          onError={e => {
+                            const t = e.currentTarget;
+                            t.onerror = null;
+                            t.src = `https://placehold.co/64x36/18181b/52525b?text=${encodeURIComponent(
+                              (row.promoting_video.platform ?? 'post').toUpperCase(),
+                            )}`;
+                          }}
+                        />
+                        <div className="max-w-[190px] min-w-0">
+                          <div className="text-xs font-bold truncate leading-snug">
+                            {row.promoting_video.title ?? 'Untitled video'}
+                          </div>
+                          <div className="text-[9px] text-zinc-600 font-bold uppercase tracking-widest mt-0.5 truncate">
+                            {row.promoting_video.platform ?? 'Content'}
+                          </div>
+                        </div>
+                      </div>
+                    </td>
+
+                    {/* ── Asset type badge cell ───────────────────────────── */}
+                    <td className="px-6 py-4 whitespace-nowrap">
+                      <span
+                        className={`inline-flex items-center px-2 py-1 rounded-full border text-[8px] font-black uppercase tracking-widest ${ASSET_TYPE_COLORS[row.asset.asset_type]}`}
+                      >
+                        {ASSET_TYPE_LABELS[row.asset.asset_type]}
+                      </span>
+                    </td>
+
+                    {/* ── Asset Clicks cell ───────────────────────────────── */}
+                    <td className="px-6 py-4 whitespace-nowrap text-sm font-bold text-zinc-400 tabular-nums">
+                      {row.asset_clicks ?? '—'}
+                    </td>
+
+                    {/* ── Engine metric cells ─────────────────────────────── */}
+                    {TABLE_COLUMNS.filter(key => visibleColumns.has(key)).map(key => (
+                      <td
+                        key={key}
+                        className="px-6 py-4 whitespace-nowrap text-sm font-bold text-zinc-400 tabular-nums"
+                      >
+                        {row.metrics[key] ?? 0}
+                      </td>
+                    ))}
+
+                    <td className="px-6 py-4" />
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
         </div>
       </div>
     </div>
