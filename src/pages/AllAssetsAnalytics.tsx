@@ -75,7 +75,7 @@
 
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Campaign } from '../lib/supabase';
+import { Campaign, supabase } from '../lib/supabase';
 
 import {
   TABLE_COLUMNS,
@@ -92,6 +92,11 @@ import {
   PLATFORM_CONFIG,
   type Platform,
 } from '../lib/platformParser';
+
+import {
+  getAssetAnalyticsRows,
+  type AssetAnalyticsTableRow,
+} from '../services/asset/getAssetAnalyticsRows';
 
 import {
   ChevronLeft, Filter, Columns, ChevronDown, ArrowUpDown, Boxes,
@@ -200,16 +205,187 @@ interface AssetAnalyticsRow {
 // calls once ASSET_ANALYTICS_DESIGN.md's open questions are resolved.
 // ─────────────────────────────────────────────────────────────────────────────
 
-function useAssetAnalyticsRows(): { rows: AssetAnalyticsRow[]; loading: boolean } {
-  // TODO(wiring phase): replace with real fetch —
-  //   1. Pull redirect_links WHERE asset_id IS NOT NULL for this org.
-  //   2. Group by (video_id, asset_id) → one row per pair.
-  //   3. Resolve asset identity (assets table) + promoting video identity.
-  //   4. Compute metrics per pair — NOT per video alone (see design doc,
-  //      this is the part that needs a new engine function, not a reuse of
-  //      processVideoMetrics() as-is, since that function is video-scoped).
-  return { rows: [], loading: false };
+/** Map engine asset_type → UI badge taxonomy (local labels only). */
+function toAssetTypeTag(assetType: string): AssetTypeTag {
+  if (assetType === 'campaign_element') return 'campaign_element';
+  if (assetType === 'resource') return 'resource';
+  if (assetType === 'video') return 'promotional_video';
+  return 'content_video';
 }
+
+/** Zero-filled 14-column metrics bag; overlay AssetMetrics onto compatible keys. */
+function toTableMetrics(
+  m: AssetAnalyticsTableRow['metrics'],
+): Record<MetricType, number | string> {
+  const base = {} as Record<MetricType, number | string>;
+  for (const key of TABLE_COLUMNS) {
+    base[key as MetricType] = 0;
+  }
+  // AssetMetrics is the 5-metric vocabulary from assetAnalyticsEngine.
+  // Map into the shared table columns without inventing funnel breakdowns.
+  if ('total_revenue' in base) base.total_revenue = m.revenue ?? 0;
+  if ('unique_clicks' in base) base.unique_clicks = m.clicks ?? 0;
+  return base;
+}
+
+async function resolveOrgAndViewer(): Promise<{ organizationId: string; viewerId: string }> {
+  const { data: auth, error: authError } = await supabase.auth.getUser();
+  if (authError || !auth.user) {
+    throw new Error('Not authenticated');
+  }
+  const viewerId = auth.user.id;
+
+  const { data: membership } = await supabase
+    .from('organization_members')
+    .select('organization_id')
+    .eq('user_id', viewerId)
+    .limit(1)
+    .maybeSingle();
+
+  if (membership?.organization_id) {
+    return { organizationId: membership.organization_id as string, viewerId };
+  }
+
+  const { data: asset } = await supabase
+    .from('assets')
+    .select('organization_id')
+    .limit(1)
+    .maybeSingle();
+
+  if (!asset?.organization_id) {
+    throw new Error('Could not resolve organizationId');
+  }
+  return { organizationId: asset.organization_id as string, viewerId };
+}
+
+/**
+ * Boundary adapter: verified orchestration → existing table row shape.
+ * Does not change engines. Display identity is enriched with a small bulk fetch.
+ */
+function useAssetAnalyticsRows(opts: {
+  dateRange: DateRange;
+  customRange: CustomDateRange | null;
+  activeSource: RevenueView;
+}): { rows: AssetAnalyticsRow[]; loading: boolean; error: string | null } {
+  const [rows, setRows] = useState<AssetAnalyticsRow[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    (async () => {
+      setLoading(true);
+      setError(null);
+      try {
+        const { organizationId, viewerId } = await resolveOrgAndViewer();
+
+        const source =
+          opts.activeSource === 'pixel' || opts.activeSource === 'stripe'
+            ? opts.activeSource
+            : 'total';
+
+        const result = await getAssetAnalyticsRows({
+          organizationId,
+          viewerId,
+          dateRange: opts.dateRange,
+          customRange: opts.customRange,
+          activeSource: source,
+        });
+
+        if (cancelled) return;
+
+        const assetIds = Array.from(new Set(result.rows.map((r) => r.asset_id)));
+        const videoIds = Array.from(new Set(result.rows.map((r) => r.video_id)));
+
+        const [videosRes, libraryRes] = await Promise.all([
+          videoIds.length
+            ? supabase
+                .from('videos')
+                .select('id, video_title, thumbnail_url, platform')
+                .in('id', videoIds)
+            : Promise.resolve({ data: [] as any[] }),
+          assetIds.length
+            ? supabase
+                .from('assets')
+                .select(
+                  'id, asset_type, videos(video_title, thumbnail_url, platform), asset_resources(title, thumbnail_url, platform), campaign_element_assets(display_name)',
+                )
+                .in('id', assetIds)
+            : Promise.resolve({ data: [] as any[] }),
+        ]);
+
+        const assetDisplay = new Map<
+          string,
+          { title?: string | null; thumbnail_url?: string | null; asset_type?: string }
+        >();
+        for (const row of libraryRes.data ?? []) {
+          const v = Array.isArray(row.videos) ? row.videos[0] : row.videos;
+          const res = row.asset_resources;
+          const el = Array.isArray(row.campaign_element_assets)
+            ? row.campaign_element_assets[0]
+            : row.campaign_element_assets;
+          assetDisplay.set(row.id, {
+            title: v?.video_title ?? res?.title ?? el?.display_name ?? null,
+            thumbnail_url: v?.thumbnail_url ?? res?.thumbnail_url ?? null,
+            asset_type: row.asset_type,
+          });
+        }
+
+        const videoDisplay = new Map<
+          string,
+          { title?: string | null; thumbnail_url?: string | null; platform?: string | null }
+        >();
+        for (const v of videosRes.data ?? []) {
+          videoDisplay.set(v.id, {
+            title: v.video_title,
+            thumbnail_url: v.thumbnail_url,
+            platform: v.platform,
+          });
+        }
+
+        const mapped: AssetAnalyticsRow[] = result.rows.map((r) => {
+          const a = assetDisplay.get(r.asset_id);
+          const v = videoDisplay.get(r.video_id);
+          return {
+            asset: {
+              id: r.asset_id,
+              title: a?.title ?? undefined,
+              thumbnail_url: a?.thumbnail_url ?? undefined,
+              asset_type: toAssetTypeTag(r.asset_type),
+            },
+            promoting_video: {
+              id: r.video_id,
+              title: v?.title ?? undefined,
+              thumbnail_url: v?.thumbnail_url ?? undefined,
+              platform: v?.platform ?? null,
+            },
+            campaign_id: r.campaignIds?.[0] ?? null,
+            promotion_id: r.promotionIds?.[0] ?? null,
+            asset_clicks: r.metrics.clicks ?? 0,
+            metrics: toTableMetrics(r.metrics),
+          };
+        });
+
+        setRows(mapped);
+      } catch (e: any) {
+        if (!cancelled) {
+          setError(e?.message ?? String(e));
+          setRows([]);
+        }
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [opts.dateRange, opts.customRange, opts.activeSource]);
+
+  return { rows, loading, error };
+}
+
 
 function useCampaignOptions(): Campaign[] {
   // TODO(wiring phase): supabase.from('campaigns').select('*')...
@@ -230,11 +406,8 @@ function usePromotionOptions(): PromotionOption[] {
 
 export default function AllAssetsAnalytics() {
   const navigate = useNavigate();
-  const { rows, loading } = useAssetAnalyticsRows();
-  const campaigns  = useCampaignOptions();
-  const promotions = usePromotionOptions();
 
-  // ── Filter state ──────────────────────────────────────────────────────────
+  // ── Filter state (before data hook so date/source drive fetch) ───────────
   const [dateRange, setDateRange]         = useState<DateRange>('30days');
   const [customRange, setCustomRange]     = useState<CustomDateRange | null>(null);
   const [selectedCampaignId, setSelectedCampaignId]   = useState<string>('all');
@@ -246,6 +419,14 @@ export default function AllAssetsAnalytics() {
     key: 'total_revenue',
     direction: 'desc',
   });
+
+  const { rows, loading, error } = useAssetAnalyticsRows({
+    dateRange,
+    customRange,
+    activeSource,
+  });
+  const campaigns  = useCampaignOptions();
+  const promotions = usePromotionOptions();
 
   // ── Columns dropdown state ──────────────────────────────────────────────
   const [visibleColumns, setVisibleColumns] = useState<Set<string>>(new Set(DEFAULT_VISIBLE));
@@ -295,9 +476,16 @@ export default function AllAssetsAnalytics() {
     return Array.from(seen).sort();
   }, [rows]);
 
-  // Sort is a no-op until rows exist — kept wired end-to-end so it doesn't
-  // need to be revisited once data lands.
-  const sortedRows = useMemo(() => platformFilteredRows, [platformFilteredRows, sortConfig]);
+  const sortedRows = useMemo(() => {
+    const key = sortConfig.key;
+    const dir = sortConfig.direction === 'asc' ? 1 : -1;
+    return [...platformFilteredRows].sort((a, b) => {
+      const av = Number(a.metrics[key as MetricType] ?? 0);
+      const bv = Number(b.metrics[key as MetricType] ?? 0);
+      if (av === bv) return 0;
+      return av > bv ? dir : -dir;
+    });
+  }, [platformFilteredRows, sortConfig]);
 
   const colSpan = 4 + TABLE_COLUMNS.length + 1; // Asset + Content + Type + Asset Clicks + metrics + trailing spacer
 
@@ -713,19 +901,30 @@ export default function AllAssetsAnalytics() {
                   </tr>
                 )}
 
-                {!loading && sortedRows.length === 0 && (
+                {!loading && error && (
+                  <tr>
+                    <td colSpan={colSpan} className="px-6 py-20 text-center">
+                      <div className="text-[11px] font-black uppercase tracking-widest text-red-500">
+                        Failed to load asset analytics
+                      </div>
+                      <div className="text-[10px] text-zinc-500 mt-2 max-w-md mx-auto">
+                        {error}
+                      </div>
+                    </td>
+                  </tr>
+                )}
+
+                {!loading && !error && sortedRows.length === 0 && (
                   <tr>
                     <td colSpan={colSpan} className="px-6 py-20 text-center">
                       <div className="text-[11px] font-black uppercase tracking-widest text-zinc-600">
-                        No data wired yet
+                        No asset × content pairs in this range
                       </div>
                       <div className="text-[10px] text-zinc-700 mt-2 max-w-md mx-auto">
-                        Table structure + filter shell only — columns and
-                        filters above are locked. Row data (asset × promoting-
-                        video pairs, Asset Clicks, and the 14 metric columns)
-                        gets wired in the next phase once
-                        ASSET_ANALYTICS_DESIGN.md's open questions are
-                        resolved.
+                        No org-scoped redirect_links with asset_id were found
+                        for the current filters. Zero-activity pairs still
+                        appear when links exist — empty here means no
+                        promotional asset links in scope.
                       </div>
                     </td>
                   </tr>
