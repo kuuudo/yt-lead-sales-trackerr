@@ -34,6 +34,7 @@ import {
   getPromotionArchiveImpactForViewer,
   type PromotionArchiveImpact,
 } from '../services/promotion/getPromotionArchiveImpactForViewer';
+import { getAssetTitlesBulk } from '../services/asset/getAssetTitlesBulk';
 import { marketplaceAssignmentsPageCache } from '../lib/marketplaceAssignmentsPageCache';
 import { marketplacePromotionsPageCache } from '../lib/marketplacePromotionsPageCache';
 import { marketplaceInvitationsPageCache } from '../lib/marketplaceInvitationsPageCache';
@@ -140,6 +141,10 @@ export default function Marketplace() {
   // Scoped to My Promotions (activePromotions) only.
   const [archiveImpactMap, setArchiveImpactMap] = useState<Map<string, PromotionArchiveImpact>>(new Map());
   const [loadingArchiveImpact, setLoadingArchiveImpact] = useState(false);
+  // Display-only. Populated from the asset ids already present in
+  // archiveImpactMap — never drives which promotions/assets are shown,
+  // only how each asset's row is labeled.
+  const [assetTitleMap, setAssetTitleMap] = useState<Map<string, string | null>>(new Map());
 
   const [modalConfig, setModalConfig] = useState<{
     isOpen: boolean;
@@ -443,6 +448,22 @@ export default function Marketplace() {
       });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [userId, tab, promotions, archivedPromotionMap]);
+
+  // Titles for the Archive Impact list — separate, non-blocking effect.
+  // Depends only on archiveImpactMap, so it never re-fires unless the
+  // underlying set of impacted assets actually changes.
+  useEffect(() => {
+    const allAssetIds = Array.from(archiveImpactMap.values()).flatMap(v => v.impacts.map(i => i.assetId));
+    if (allAssetIds.length === 0) {
+      setAssetTitleMap(new Map());
+      return;
+    }
+    getAssetTitlesBulk(allAssetIds)
+      .then(setAssetTitleMap)
+      .catch(err => {
+        console.error('[Marketplace] getAssetTitlesBulk failed:', err);
+      });
+  }, [archiveImpactMap]);
 
   return (
     <div className="min-h-screen bg-zinc-950 text-zinc-100">
@@ -795,7 +816,7 @@ export default function Marketplace() {
                         {impact?.impacts.map(({ assetId, context }) => (
                           <li key={assetId} className="flex items-center justify-between gap-2 text-[11px] text-zinc-400">
                             <span>
-                              Asset {assetId.slice(0, 8)} — Archived
+                              {assetTitleMap.get(assetId) || `Asset ${assetId.slice(0, 8)}`} — Archived
                               {context.reasons.length > 0 && (
                                 <span className="text-zinc-600">
                                   {' '}({context.reasons.map(r => r.sourceName ?? r.sourceType).join(', ')})
