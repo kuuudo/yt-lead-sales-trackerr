@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Briefcase, Mail, Rocket, Loader2, Plus, Archive, ArchiveRestore, X, BarChart2, Gamepad2 } from 'lucide-react';
+import { Briefcase, Mail, Rocket, Loader2, Plus, Archive, ArchiveRestore, X, BarChart2, Gamepad2, AlertTriangle } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { Modal } from '../components/Modal';
 import { useEffectiveIdentity } from '../lib/useEffectiveIdentity';
@@ -30,6 +30,10 @@ import {
   unhidePromotionForUser,
   getHiddenPromotionIdsForUser,
 } from '../services/promotion/archiveUiVisibility';
+import {
+  getPromotionArchiveImpactForViewer,
+  type PromotionArchiveImpact,
+} from '../services/promotion/getPromotionArchiveImpactForViewer';
 import { marketplaceAssignmentsPageCache } from '../lib/marketplaceAssignmentsPageCache';
 import { marketplacePromotionsPageCache } from '../lib/marketplacePromotionsPageCache';
 import { marketplaceInvitationsPageCache } from '../lib/marketplaceInvitationsPageCache';
@@ -124,8 +128,18 @@ export default function Marketplace() {
   // between My Promotions (active) and Level 1 (archived, not hidden);
   // Level 2 (hidden) stays a modal, same as before.
   const [hiddenPromotionSet, setHiddenPromotionSet] = useState<Set<string>>(new Set());
-  const [promotionsView, setPromotionsView] = useState<'active' | 'level1'>('active');
+  // 'impact' added — Surface B (Archive Impact). Purely additive: does
+  // not change 'active'/'level1' behavior or archivedPromotionMap/
+  // hiddenPromotionSet at all.
+  const [promotionsView, setPromotionsView] = useState<'active' | 'level1' | 'impact'>('active');
   const [hidingPromotionId, setHidingPromotionId] = useState<string | null>(null);
+
+  // Surface B — Archive Impact, Marketplace-level. Diagnostic only:
+  // never writes promotion_user_states or archive_ui_visibility, never
+  // Hides/Unhides/Restores, never triggers automatic Remove/Revoke.
+  // Scoped to My Promotions (activePromotions) only.
+  const [archiveImpactMap, setArchiveImpactMap] = useState<Map<string, PromotionArchiveImpact>>(new Map());
+  const [loadingArchiveImpact, setLoadingArchiveImpact] = useState(false);
 
   const [modalConfig, setModalConfig] = useState<{
     isOpen: boolean;
@@ -406,6 +420,29 @@ export default function Marketplace() {
   // a second archive mechanism. Both stay subsets of archivedPromotions.
   const level1Promotions = archivedPromotions.filter(p => !hiddenPromotionSet.has(p.id));
   const level2Promotions = archivedPromotions.filter(p => hiddenPromotionSet.has(p.id));
+  const archiveImpactCount = Array.from(archiveImpactMap.values()).filter(v => v.archivedAssetCount > 0).length;
+
+  // Surface B fetch — independent, non-blocking. Scoped to My
+  // Promotions (activePromotions) only, per the design doc's own
+  // example of Archive Impact shown alongside (never instead of) My
+  // Promotions. Never touches archivedPromotionMap / hiddenPromotionSet.
+  useEffect(() => {
+    if (!userId || tab !== 'promotions') return;
+    if (activePromotions.length === 0) {
+      setArchiveImpactMap(new Map());
+      return;
+    }
+    setLoadingArchiveImpact(true);
+    getPromotionArchiveImpactForViewer(activePromotions.map(p => p.id), userId)
+      .then(setArchiveImpactMap)
+      .catch(err => {
+        console.error('[Marketplace] getPromotionArchiveImpactForViewer failed:', err);
+      })
+      .finally(() => {
+        setLoadingArchiveImpact(false);
+      });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [userId, tab, promotions, archivedPromotionMap]);
 
   return (
     <div className="min-h-screen bg-zinc-950 text-zinc-100">
@@ -465,7 +502,7 @@ export default function Marketplace() {
               Archived{archivedAssignments.length > 0 ? ` (${archivedAssignments.length})` : ''}
             </button>
           )}
-          {tab === 'promotions' && (
+         {tab === 'promotions' && (
             <>
               <button
                 onClick={() => setPromotionsView(v => (v === 'active' ? 'level1' : 'active'))}
@@ -475,6 +512,19 @@ export default function Marketplace() {
                 {promotionsView === 'active'
                   ? `Archived${level1Promotions.length > 0 ? ` (${level1Promotions.length})` : ''}`
                   : 'Back to My Promotions'}
+              </button>
+              {/* Surface B — Archive Impact. Independent of the Surface A
+                  toggle above: a Promotion shown here always stays
+                  counted in My Promotions too, and never moves to
+                  Archived/Hidden because of this. */}
+              <button
+                onClick={() => setPromotionsView(v => (v === 'impact' ? 'active' : 'impact'))}
+                className="flex items-center gap-2 bg-zinc-900 hover:bg-zinc-800 border border-zinc-800 text-zinc-300 text-xs font-bold uppercase tracking-wider px-4 py-2 rounded-lg"
+              >
+                <AlertTriangle size={14} />
+                {promotionsView === 'impact'
+                  ? 'Back to My Promotions'
+                  : `Archive Impact${archiveImpactCount > 0 ? ` (${archiveImpactCount})` : ''}`}
               </button>
               <button
                 onClick={openArchivedPromotionsModal}
@@ -688,7 +738,7 @@ export default function Marketplace() {
                       Created {new Date(p.created_at).toLocaleDateString()}
                     </p>
                   </div>
-                  {p.status !== 'draft' && (
+                {p.status !== 'draft' && (
                     <span className="text-[10px] font-bold uppercase tracking-widest text-zinc-500">
                       {p.status}
                     </span>
@@ -696,6 +746,66 @@ export default function Marketplace() {
                 </div>
               );
             })}
+          </div>
+        )}
+
+        {/* Surface B — Archive Impact. Diagnostic/informational only: no
+            promotion_user_states writes, no archive_ui_visibility
+            writes, no Hide/Unhide/Restore, no automatic Remove/Revoke.
+            Every Promotion shown here is ALSO still in My Promotions —
+            this view never removes anything from that list. */}
+        {!loading && !error && tab === 'promotions' && promotionsView === 'impact' && (
+          <div className="space-y-3">
+            {loadingArchiveImpact && (
+              <p className="text-zinc-600 text-xs font-bold uppercase tracking-widest text-center py-6">
+                Checking promoted assets...
+              </p>
+            )}
+            {!loadingArchiveImpact &&
+              activePromotions.filter(p => (archiveImpactMap.get(p.id)?.archivedAssetCount ?? 0) > 0).length === 0 && (
+                <EmptyState label="No promotions contain archived assets" />
+              )}
+            {!loadingArchiveImpact &&
+              activePromotions
+                .filter(p => (archiveImpactMap.get(p.id)?.archivedAssetCount ?? 0) > 0)
+                .map(p => {
+                  const impact = archiveImpactMap.get(p.id);
+                  return (
+                    <div
+                      key={p.id}
+                      className="w-full bg-zinc-900 border border-amber-500/20 rounded-xl p-5"
+                    >
+                      <div className="flex items-center justify-between gap-3">
+                        <h3 className="font-bold text-white">
+                          {p.assignment?.title ?? p.campaign?.campaign_name ?? 'Promotion'}
+                        </h3>
+                        <button
+                          onClick={() => navigate(`/marketplace/promotions/${p.id}`)}
+                          title="Manage Promotion"
+                          className="w-7 h-7 rounded-lg bg-zinc-950 border border-zinc-800 flex items-center justify-center text-zinc-400 hover:text-white transition-all shrink-0"
+                        >
+                          <Gamepad2 size={14} />
+                        </button>
+                      </div>
+                      <p className="flex items-center gap-1.5 text-[10px] font-bold uppercase tracking-widest text-amber-500 mt-2">
+                        <AlertTriangle size={12} />
+                        Contains {impact?.archivedAssetCount ?? 0} archived asset{(impact?.archivedAssetCount ?? 0) > 1 ? 's' : ''}
+                      </p>
+                      <ul className="mt-2 space-y-1">
+                        {impact?.impacts.map(({ assetId, context }) => (
+                          <li key={assetId} className="text-[11px] text-zinc-400">
+                            Asset {assetId.slice(0, 8)} — Archived
+                            {context.reasons.length > 0 && (
+                              <span className="text-zinc-600">
+                                {' '}({context.reasons.map(r => r.sourceName ?? r.sourceType).join(', ')})
+                              </span>
+                            )}
+                          </li>
+                        ))}
+                      </ul>
+                    </div>
+                  );
+                })}
           </div>
         )}
       </div>
