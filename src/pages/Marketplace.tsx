@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Briefcase, Mail, Rocket, Loader2, Plus, Archive, ArchiveRestore, X, BarChart2, Gamepad2, AlertTriangle } from 'lucide-react';
+import { Briefcase, Mail, Rocket, Loader2, Plus, Archive, ArchiveRestore, X, BarChart2, Gamepad2, AlertTriangle, ExternalLink } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { Modal } from '../components/Modal';
 import { useEffectiveIdentity } from '../lib/useEffectiveIdentity';
@@ -793,13 +793,23 @@ export default function Marketplace() {
                       </p>
                       <ul className="mt-2 space-y-1">
                         {impact?.impacts.map(({ assetId, context }) => (
-                          <li key={assetId} className="text-[11px] text-zinc-400">
-                            Asset {assetId.slice(0, 8)} — Archived
-                            {context.reasons.length > 0 && (
-                              <span className="text-zinc-600">
-                                {' '}({context.reasons.map(r => r.sourceName ?? r.sourceType).join(', ')})
-                              </span>
-                            )}
+                          <li key={assetId} className="flex items-center justify-between gap-2 text-[11px] text-zinc-400">
+                            <span>
+                              Asset {assetId.slice(0, 8)} — Archived
+                              {context.reasons.length > 0 && (
+                                <span className="text-zinc-600">
+                                  {' '}({context.reasons.map(r => r.sourceName ?? r.sourceType).join(', ')})
+                                </span>
+                              )}
+                            </span>
+                            <button
+                              onClick={() => navigate(`/assets/${assetId}`)}
+                              title="Go to Asset"
+                              className="flex items-center gap-1 text-zinc-500 hover:text-white shrink-0"
+                            >
+                              <ExternalLink size={11} />
+                              Go to Asset
+                            </button>
                           </li>
                         ))}
                       </ul>
