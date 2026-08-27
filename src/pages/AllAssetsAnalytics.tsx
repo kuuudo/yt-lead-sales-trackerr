@@ -122,7 +122,12 @@ const ASSET_TYPE_COLORS: Record<AssetTypeTag, string> = {
   resource:          'bg-amber-500/10 border-amber-500/30 text-amber-400',
   content_video:     'bg-emerald-500/10 border-emerald-500/30 text-emerald-400',
 };
-
+const ALL_ASSET_TYPES: AssetTypeTag[] = [
+  'campaign_element',
+  'promotional_video',
+  'resource',
+  'content_video',
+];
 // ─────────────────────────────────────────────────────────────────────────────
 // Sort shortcuts — same set InDepthAnalytics exposes, minus the dead
 // 'unique_clicks' key (see header comment).
@@ -236,7 +241,7 @@ export default function AllAssetsAnalytics() {
   const [selectedPromotionId, setSelectedPromotionId] = useState<string>('all');
   const [activeSource, setActiveSource]   = useState<RevenueView>('total');
   const [selectedPlatforms, setSelectedPlatforms] = useState<string[]>([]);
-
+  const [selectedAssetTypes, setSelectedAssetTypes] = useState<AssetTypeTag[]>([]);
   const [sortConfig, setSortConfig] = useState<{ key: string; direction: 'asc' | 'desc' }>({
     key: 'total_revenue',
     direction: 'desc',
@@ -272,11 +277,17 @@ export default function AllAssetsAnalytics() {
   // ── Date bounds — UI-only, same helper InDepthAnalytics uses ────────────
   const dateRangeBounds = useMemo(() => getDateBounds(dateRange, customRange), [dateRange, customRange]);
 
+  // ── Asset type filter (applied after fetch, pure UI — no-op while rows=[]) ─
+  const typeFilteredRows = useMemo(() => {
+    if (selectedAssetTypes.length === 0) return rows;
+    return rows.filter(row => selectedAssetTypes.includes(row.asset.asset_type));
+  }, [rows, selectedAssetTypes]);
+
   // ── Platform filter (applied after fetch, pure UI — no-op while rows=[]) ─
   const platformFilteredRows = useMemo(() => {
-    if (selectedPlatforms.length === 0) return rows;
-    return rows.filter(row => selectedPlatforms.includes(row.promoting_video.platform ?? 'youtube'));
-  }, [rows, selectedPlatforms]);
+    if (selectedPlatforms.length === 0) return typeFilteredRows;
+    return typeFilteredRows.filter(row => selectedPlatforms.includes(row.promoting_video.platform ?? 'youtube'));
+  }, [typeFilteredRows, selectedPlatforms]);
 
   const presentPlatforms = useMemo(() => {
     const seen = new Set<string>();
@@ -405,17 +416,54 @@ export default function AllAssetsAnalytics() {
             </div>
           </div>
 
-          {/* Reserved — All/My/Shared/Assigned + asset-type pills. Scope
-              rules unconfirmed, see ASSET_ANALYTICS_DESIGN.md §3. */}
+          {/* Asset Type — real filter now. Multi-select pills, AND-combined
+              with the platform pills in the header. Counts computed off the
+              full unfiltered `rows`, same convention platform pills use. */}
           <div>
-            <label className="text-[10px] font-black uppercase tracking-widest text-zinc-700 mb-3 flex items-center gap-1.5">
+            <label className="text-[10px] font-black uppercase tracking-widest text-zinc-500 mb-3 flex items-center gap-1.5">
               <Boxes size={11} />
+              Asset Type
+            </label>
+            <div className="flex flex-wrap gap-1.5">
+              {ALL_ASSET_TYPES.map(t => {
+                const active = selectedAssetTypes.includes(t);
+                const count  = rows.filter(r => r.asset.asset_type === t).length;
+                return (
+                  <button
+                    key={t}
+                    onClick={() =>
+                      setSelectedAssetTypes(prev =>
+                        prev.includes(t) ? prev.filter(x => x !== t) : [...prev, t],
+                      )
+                    }
+                    className={`h-7 px-3 rounded-lg border text-[9px] font-black uppercase tracking-widest transition-all flex items-center gap-1.5 ${
+                      active
+                        ? ASSET_TYPE_COLORS[t].replace('/10', '/20')
+                        : 'border-zinc-800 bg-zinc-900 text-zinc-500 hover:border-zinc-600 hover:text-zinc-300'
+                    }`}
+                  >
+                    {ASSET_TYPE_LABELS[t]}
+                    <span className={`text-[8px] px-1 py-0.5 rounded font-black ${
+                      active ? 'bg-black/20' : 'bg-zinc-800 text-zinc-600'
+                    }`}>
+                      {count}
+                    </span>
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+
+          {/* Reserved — All/My/Shared/Assigned scope tabs. Ownership chain
+              (promotion creator → assignment → collaborator → marketer)
+              still unconfirmed, see ASSET_ANALYTICS_DESIGN.md §3. */}
+          <div>
+            <label className="text-[10px] font-black uppercase tracking-widest text-zinc-700 mb-3">
               Scope (reserved)
             </label>
             <p className="text-[9px] text-zinc-700 leading-relaxed">
-              All / My / Shared / Assigned + per-type filters (Campaign
-              Elements, Promotional Videos, Resources, Content Videos) land
-              here once scope rules are confirmed against real data.
+              All / My / Shared / Assigned land here once the ownership
+              boundary is confirmed against real data.
             </p>
           </div>
 
