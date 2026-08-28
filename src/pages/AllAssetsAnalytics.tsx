@@ -353,16 +353,18 @@ function useAssetAnalyticsRows(opts: {
             thumbnailUrl = resolveElementThumbnail(
               (el?.element_type ?? 'landing_page') as CampaignElementType,
             );
-          } else if (row.asset_type === 'resource' && res?.resource_type) {
+          } else if (row.asset_type === 'resource') {
             thumbnailUrl = resolveAssetThumbnail({
-              thumbnail_url: res.thumbnail_url ?? null,
-              resource_type: res.resource_type as ResourceType,
-              platform: res.platform ?? null,
+              thumbnail_url: res?.thumbnail_url ?? null,
+              resource_type: (res?.resource_type ?? 'other') as ResourceType,
+              platform: res?.platform ?? null,
             });
-          } else {
-            // Type 2 — video asset. Same as AssetPicker: raw thumbnail_url
-            // passthrough, no resolver needed for this type.
-            thumbnailUrl = v?.thumbnail_url ?? res?.thumbnail_url ?? null;
+            // Type 2 — video asset. Now uses resolveThumbnail() for the
+            // same platform-image fallback the Content column already gets.
+            thumbnailUrl = resolveThumbnail({
+              thumbnail_url: v?.thumbnail_url ?? res?.thumbnail_url ?? null,
+              platform: v?.platform ?? null,
+            });
           }
 
           assetDisplay.set(row.id, {
