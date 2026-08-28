@@ -370,6 +370,7 @@ function useAssetAnalyticsRows(opts: {
           assetDisplay.set(row.id, {
             title: v?.video_title ?? res?.title ?? el?.display_name ?? null,
             thumbnail_url: thumbnailUrl,
+            platform: row.asset_type === 'campaign_element' ? null : (v?.platform ?? res?.platform ?? null),
             asset_type: row.asset_type,
           });
         }
@@ -1052,7 +1053,9 @@ export default function AllAssetsAnalytics() {
                           onError={e => {
                             const t = e.currentTarget;
                             t.onerror = null;
-                            t.src = 'https://placehold.co/64x36/18181b/52525b?text=Asset';
+                            t.src = `https://placehold.co/64x36/18181b/52525b?text=${encodeURIComponent(
+                              (row.asset.platform ?? 'Asset').toUpperCase(),
+                            )}`;
                           }}
                         />
                         <div className="max-w-[190px] min-w-0">
