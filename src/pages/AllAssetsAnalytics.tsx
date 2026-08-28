@@ -103,6 +103,15 @@ import {
   Calendar, Briefcase, Megaphone, Check,
 } from 'lucide-react';
 
+import {
+  resolveThumbnail,
+  renderContentIdentity,
+  resolveAssetThumbnail,
+  resolveElementThumbnail,
+  type ResourceType,
+  type CampaignElementType,
+} from '../lib/videoFormatters';
+
 // ─────────────────────────────────────────────────────────────────────────────
 // Asset type taxonomy
 // Verbatim from the four categories named in ASSET_ANALYTICS_DESIGN.md
@@ -181,7 +190,7 @@ interface AssetIdentity {
 
 interface PromotingVideoIdentity {
   id:             string;
-  title:          string | undefined;
+  title:          React.ReactNode | undefined;
   thumbnail_url?: string;
   platform?:      string | null;
 }
@@ -295,21 +304,27 @@ function useAssetAnalyticsRows(opts: {
 
         if (cancelled) return;
 
+       
         const assetIds = Array.from(new Set(result.rows.map((r) => r.asset_id)));
         const videoIds = Array.from(new Set(result.rows.map((r) => r.video_id)));
 
+        // NOTE: videos fetched with '*' (not a narrow column list) because
+        // resolveThumbnail()/renderContentIdentity() are canonical helpers
+        // from videoFormatters.ts whose exact field dependencies aren't
+        // known from this file alone — same defensive posture InDepthAnalytics
+        // takes by passing a full Video row into these helpers.
         const [videosRes, libraryRes] = await Promise.all([
           videoIds.length
             ? supabase
                 .from('videos')
-                .select('id, video_title, thumbnail_url, platform')
+                .select('*')
                 .in('id', videoIds)
             : Promise.resolve({ data: [] as any[] }),
           assetIds.length
             ? supabase
                 .from('assets')
                 .select(
-                  'id, asset_type, videos(video_title, thumbnail_url, platform), asset_resources(title, thumbnail_url, platform), campaign_element_assets(display_name)',
+                  'id, asset_type, videos(video_title, thumbnail_url, platform), asset_resources(title, thumbnail_url, platform, resource_type), campaign_element_assets(display_name, element_type)',
                 )
                 .in('id', assetIds)
             : Promise.resolve({ data: [] as any[] }),
@@ -321,26 +336,50 @@ function useAssetAnalyticsRows(opts: {
         >();
         for (const row of libraryRes.data ?? []) {
           const v = Array.isArray(row.videos) ? row.videos[0] : row.videos;
-          const res = row.asset_resources;
+          // FIX: asset_resources was never normalized for array-vs-object
+          // like videos/campaign_element_assets already were — PostgREST
+          // embeds can come back as an array here too, which silently
+          // broke every Resource-type title/thumbnail.
+          const res = Array.isArray(row.asset_resources) ? row.asset_resources[0] : row.asset_resources;
           const el = Array.isArray(row.campaign_element_assets)
             ? row.campaign_element_assets[0]
             : row.campaign_element_assets;
+
+          // Thumbnail: same 3-way branch AssetPicker.tsx's fromMyRow() uses.
+          // No new resolution system — this is the existing canonical logic,
+          // just applied here instead of only in the picker components.
+          let thumbnailUrl: string | null = null;
+          if (row.asset_type === 'campaign_element') {
+            thumbnailUrl = resolveElementThumbnail(
+              (el?.element_type ?? 'landing_page') as CampaignElementType,
+            );
+          } else if (row.asset_type === 'resource' && res?.resource_type) {
+            thumbnailUrl = resolveAssetThumbnail({
+              thumbnail_url: res.thumbnail_url ?? null,
+              resource_type: res.resource_type as ResourceType,
+              platform: res.platform ?? null,
+            });
+          } else {
+            // Type 2 — video asset. Same as AssetPicker: raw thumbnail_url
+            // passthrough, no resolver needed for this type.
+            thumbnailUrl = v?.thumbnail_url ?? res?.thumbnail_url ?? null;
+          }
+
           assetDisplay.set(row.id, {
             title: v?.video_title ?? res?.title ?? el?.display_name ?? null,
-            thumbnail_url: v?.thumbnail_url ?? res?.thumbnail_url ?? null,
+            thumbnail_url: thumbnailUrl,
             asset_type: row.asset_type,
           });
         }
 
-        const videoDisplay = new Map<
-          string,
-          { title?: string | null; thumbnail_url?: string | null; platform?: string | null }
-        >();
+        const videoDisplay = new Map<string, { title: React.ReactNode; thumbnail_url?: string; platform?: string | null }>();
         for (const v of videosRes.data ?? []) {
           videoDisplay.set(v.id, {
-            title: v.video_title,
-            thumbnail_url: v.thumbnail_url,
-            platform: v.platform,
+            // Canonical helpers, same call signature InDepthAnalytics uses
+            // (resolveThumbnail(row.video) / renderContentIdentity(row.video)).
+            title: renderContentIdentity(v),
+            thumbnail_url: resolveThumbnail(v),
+            platform: v.platform ?? null,
           });
         }
 
@@ -366,8 +405,8 @@ function useAssetAnalyticsRows(opts: {
             metrics: toTableMetrics(r.metrics),
           };
         });
-
         setRows(mapped);
+
       } catch (e: any) {
         if (!cancelled) {
           setError(e?.message ?? String(e));

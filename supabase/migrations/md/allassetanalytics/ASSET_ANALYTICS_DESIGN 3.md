@@ -27,9 +27,10 @@ This doc is the durable source of truth for Asset Analytics architecture. Invest
 
 ```
 buildAssetAnalyticsRows()          → pure identity: (video_id, asset_id) + linkTypes
-assetAnalyticsEngine.ts            → metrics (clicks, sessions, conversions, revenue, rpc, 14 engine columns)
+assetAnalyticsEngine.ts            → metrics (AssetMetrics: clicks, sessions, conversions, revenue, rpc)
 └─ computeRelationships()        → per-(asset_id, promotingSourceId=video_id) metrics
-orchestration layer (MISSING)      → joins identity + relationships + archive context → final table rows
+getAssetAnalyticsRows.ts           → IMPLEMENTED orchestration: join identity + relationships + archive
+AllAssetsAnalytics useAssetAnalyticsRows → UI boundary adapter → table
 ```
 
 - Clicks: `events.asset_id` + `event_type` ∈ `CLICK_EVENT_MAP`, filterable by `(video_id, asset_id)`.
@@ -63,6 +64,18 @@ orchestration layer (MISSING)      → joins identity + relationships + archive 
 - Archive filtering / visibility decisions belong at the **orchestration or UI layer**, never inside `buildAssetAnalyticsRows` or `assetAnalyticsEngine`.
 - Reuse the same pattern already used by AssetPicker / listAssetsForAssignmentPicker / etc.
 
+### Archive integration status (precise)
+
+| Concern | Status |
+|---------|--------|
+| Resolvers exist and are correct | LOCKED |
+| Orchestration calls `getAssetArchiveContextsForViewer` and attaches context | **IMPLEMENTED** |
+| AllAssetsAnalytics hides/shows by Level 1/2 | **OPEN** (context available; product UX not wired) |
+| Attribution tables mutated by archive | **Never** — verified by resolver design |
+
+UI visibility decision belongs in page/orchestration consumer, same pattern as AssetPicker (`!isArchived` or level rules) — not inside engines.
+
+
 ### 7. Organization boundary (LOCKED)
 
 - Organization is a hard data boundary.
@@ -83,6 +96,35 @@ orchestration layer (MISSING)      → joins identity + relationships + archive 
 | Full 14-column funnel breakdown per pair | AssetMetrics is 5-field; table maps revenue/clicks, other funnel cols 0 |
 
 Pipeline (live):
+redirect_links (org-scoped, asset_id IS NOT NULL)
+↓  [identity layer]
+buildAssetAnalyticsRows()
+→ AssetAnalyticsRowIdentity[]  (video_id, asset_id, linkTypes[], campaignIds, promotionIds)
+↓
+distinct asset_ids
+↓  [metrics layer — in memory, shared event/purchase bags]
+computeAssetAnalytics(assetId) for each asset
+→ keep .relationships[]  (NOT discarded like getAssetAnalyticsBatch)
+↓  [orchestration join]
+for each identity: relationship where promotingSourceId === video_id
+→ metrics or zeros if unmatched
+↓  [archive layer — additive only]
+getAssetArchiveContextsForViewer({ id, assetType }[], viewerId)
+→ isArchived, level, reasons, isHiddenByViewer
+↓  [UI adapter]
+useAssetAnalyticsRows in AllAssetsAnalytics.tsx
+→ titles/thumbnails enrichment + map to table row shape
+↓
+AllAssetsAnalytics table shell
+**Data at each boundary**
+| Boundary | What moves |
+|----------|------------|
+| DB → identity | `redirect_links` rows only |
+| Identity → metrics | distinct `asset_id`s + pre-fetched events/purchases/provenance |
+| Metrics → join | `AssetRelationshipRow[]` keyed by `promotingSourceId` |
+| Join → archive | `asset_id`s + `asset_type`s + `viewerId` |
+| Archive → UI | full table rows with optional zero metrics |
+
 
 
 ## INVESTIGATE ONCE — REUSE EVERYWHERE
@@ -158,21 +200,18 @@ Counts observed: 83 rows / identities, 18 assets, 118 redirect_links, 13 matched
 
 ## 1. What's actually built right now
 
-`AllAssetsAnalytics.tsx` — table shell + filter shell. No Supabase queries, no revenue computation. Specifically:
+`AllAssetsAnalytics.tsx` — table shell + filter shell + **live data via orchestration**.
 
-- **Row grain — CONFIRMED**: one row = one **`(video_id, asset_id)`** pair, not one asset and not one video. "Video A promotes Asset A / Asset B / Asset C" → 3 independent rows: `(Video A, Asset A)`, `(Video A, Asset B)`, `(Video A, Asset C)`. If a different video later also promotes Asset B — `(Video C, Asset B)` — that is its own row; clicks/revenue must never be merged across the two videos promoting the same asset. `redirect_links` already carries both `video_id` and `asset_id` on the same row, so this is a real, queryable field today — not a new schema requirement.
-- **TWO identity columns, not one**: `Asset` (sticky leftmost — thumbnail/title) and `Content` (its own column — the promoting video's thumbnail/title/platform). Revised from the first pass, which put the video on a sub-line under the asset; you asked for it as its own column, matching how InDepthAnalytics gives the video full identity-cell treatment.
-- **Asset Type badge column**: `campaign_element | promotional_video | resource | content_video` — visual only, not yet checked against the real `assets.asset_type` enum (see §4 "Reminders").
-- **Asset Clicks column**: present, always renders `—`. Deliberately not fabricated from other columns. For Type 1/2 this is just the click metrics confirmed in §2. For Type 3 it's still unresolved — see §3.
-- **14 metric columns**: imported directly from `analyticsEngine.ts`'s `TABLE_COLUMNS` / `COLUMN_LABELS` — **not redeclared**. This is a hard guarantee that this table can never silently drift from InDepthAnalytics' column set. All cells currently render `0` because `metrics` is stub data.
-- **Data source**: `useAssetAnalyticsRows()` returns `{ rows: [], loading: false }` unconditionally. It's a named stub with a `TODO(wiring phase)` comment listing the 4 steps the real version needs (redirect_links grouping → asset identity resolution → per-pair metric computation).
-- **Filters — now built as a real shell, state wired, not yet applied to data** (mirrors InDepthAnalytics' sidebar/header exactly):
-  - Sidebar: Date Range (7/30/60/180/365 days, lifetime, custom), Campaign dropdown, **Promotion dropdown (new — not in InDepthAnalytics)**.
-  - Header: source toggle (total/pixel/stripe), Columns dropdown (toggles `visibleColumns`), row count.
-  - Second header row: platform pills (All + one per platform present in the data), sort shortcuts (Revenue / Consultations / Purchases / Calls / Opt-ins).
-  - Still reserved, not built: All/My/Shared/Assigned scope tabs + the four asset-type filter pills — scope rules unconfirmed against real data.
-  - `Campaign` and `PromotionOption` come from new stub hooks (`useCampaignOptions()`, `usePromotionOptions()`) that currently return `[]` — same "structure now, data later" pattern as the rows hook.
-  - **Promotions dropdown ownership boundary is itself unresolved** — see §4 "Ownership" below; don't scope its future query by `organization_id` alone without checking the Top Promotions concern first.
+- **Row grain — LOCKED + VERIFIED**: one row = one `(video_id, asset_id)` pair.
+- **TWO identity columns**: Asset (sticky) + Content (promoting video).
+- **Asset Type badge**: maps engine `asset_type` (`campaign_element` | `video` | `resource`) → UI tags (`campaign_element` | `promotional_video` | `resource` | `content_video`).
+- **Asset Clicks**: wired from `AssetMetrics.clicks` (0 for unmatched).
+- **14 metric columns**: still from `TABLE_COLUMNS` / `COLUMN_LABELS`. **Adapter maps** `AssetMetrics.revenue` → `total_revenue` (and clicks if column exists); other funnel columns remain 0 until a richer per-pair breakdown exists (OPEN product decision, not a join bug).
+- **Data source**: `useAssetAnalyticsRows({ dateRange, customRange, activeSource })` calls `getAssetAnalyticsRows` — **IMPLEMENTED + VERIFIED**. Zero-metric / unmatched rows are **kept**.
+- **Filters**: Date + source drive fetch. Asset-type + platform filter client-side on returned rows. **Campaign / Promotion option hooks still return `[]` (STUB).** Scope tabs still reserved.
+- **Archive**: context attached on each orchestration row; **UI Level 1/2 visibility filtering not product-wired yet (OPEN).**
+
+
 
 ## 2. Attribution mechanism — CONFIRMED for Type 1 & Type 2
 
@@ -264,60 +303,165 @@ Carried forward verbatim in spirit (condensed). Nothing below has been touched, 
 - `analyticsEngine.ts` is the trusted base (confirmed reused directly for this table's 14 columns). Whether `promotionAnalyticsEngine.ts` / `assetAnalyticsEngine.ts` / `campaignElementAnalyticsEngine.ts` already consume the same revenue primitive, or diverge, is unchecked.
 - No `revenueBoundary.ts` (or equivalent) exists yet — intentionally not created until the above is understood.
 
-## 5. Deferred / explicitly not in this pass
+## 5. Status by category
 
-- Any Supabase query or join — `useAssetAnalyticsRows()`, `useCampaignOptions()`, `usePromotionOptions()` are all stubs returning `[]`.
-- Filters *apply* to data (state exists and is wired to controls; nothing filters `rows` yet because `rows` is always empty).
-- All/My/Shared/Assigned scope tabs + per-asset-type filter pills.
-- Implementing §2e's aggregation fix (`video_id` added to `campaignElementAnalyticsEngine.ts`'s row types + composite-key accumulator) — design confirmed, code not touched.
-- Asset Clicks computation for Type 3 — still open, see §3.
-- Per-pair (video, asset) revenue computation — mechanism confirmed (§2), implementation not started.
-- Promotions-dropdown ownership boundary (which promotions populate the list for the current account owner).
+| Category | State |
+|----------|--------|
+| Architecture (types, grain, attribution, archive rules, org boundary) | **LOCKED** |
+| Orchestration `getAssetAnalyticsRows` | **IMPLEMENTED + VERIFIED** |
+| AllAssetsAnalytics data connection | **IMPLEMENTED** |
+| Real-data verification (83 rows sample) | **VERIFIED PASS** |
+| UI identity enrichment (titles/thumbs) | **OPEN (P1)** |
+| Campaign / Promotion filter options | **STUB / NOT STARTED** |
+| Archive Level 1/2 UI filtering | **OPEN** |
+| Full 14-column funnel per pair | **OPEN** (5-field AssetMetrics by design today) |
+| Revenue-truth across surfaces | **NOT STARTED** |
+| Scale optimization | **OPTIONAL / P3** |
 
-## 6. Next step (when you're ready)
+## 6. Next phase (not architecture)
 
-Per your plan: wire real rows into the table one asset type at a time, compare the numbers against InDepthAnalytics / Dashboard, and let discrepancies point at which Open Question above needs answering first. This doc gets updated in place as each one gets resolved — sections move from "Open Questions" into a "Locked" section the way `ARCHIVE_SYSTEM_DESIGN.md` does per-entity.
+P0 metric spot-checks → P1 identity enrichment UI → P2 filters/archive UX → P3 scale/revenue-truth.  
+See **NEXT INVESTIGATION QUEUE** at end of this document.
 
 ---
 
 ## LAST CONVERSATION SUMMARY / CONTINUATION PROMPT
 
-CURRENT STATE:
-- `AllAssetsAnalytics.tsx` — table shell + filter shell built, including real Asset Type filter pills (state + AND-combined with platform filter). Columns locked: Asset identity, **Content identity (own column — the promoting video)**, Asset Type badge, Asset Clicks placeholder, 14 engine metric columns reused from `analyticsEngine.ts`. Row grain **CONFIRMED** as `(video_id, asset_id)` pair — not `(asset, promoting video)` loosely, the exact FK pair.
-- Filters built as real state, wired to controls, not yet applied to data: Date Range, Campaign, Promotion, source toggle, Columns toggle, platform pills, asset-type pills, sort shortcuts. Scope tabs (All/My/Shared/Assigned) still reserved/not built — ownership chain unconfirmed.
-- No data wired — `useAssetAnalyticsRows()`, `useCampaignOptions()`, `usePromotionOptions()` are all stubs returning `[]`.
-- This doc created as the running spec/reminder file, parallel role to `ARCHIVE_SYSTEM_DESIGN.md`.
-- **Attribution mechanism for Type 1 (Campaign Element) and Type 2 (Video Library Asset) is now CONFIRMED (§2)**, from tracing `campaignElementAnalyticsEngine.ts` plus real query results against `events`/`redirect_links`: clicks via `events.asset_id` + `event_type` (`CLICK_EVENT_MAP`), revenue via `stripe_purchases` → `redirect_links` → `link_type` (`mapLinkTypeToRevenueType()`), both filterable by the `(video_id, asset_id)` pair since `redirect_links` and `events` both carry both columns. Same mechanism for both types — not two engines. One real code gap remains: `campaignElementAnalyticsEngine.ts`'s row types need `video_id` added and the accumulator needs to key on the composite pair (§2e) — not yet implemented.
-- **Type 3 (Resource Asset) is now LOCKED at code level (§3)**: `generateAssetRedirectLinks.ts` + `createAssetResource.ts` confirm resource redirects use the identical `createRedirectLink(..., allowDuplicate=true, {assetId,...})` path as Type 1/2, with `RESOURCE_TYPE_TO_LINK_TYPE` mapping resource_type → link_type (fallback `landing_page`). Resource assets are not click-only — revenue applies when the mapped link_type is revenue-bearing. A broader live-data sample of Resource events/purchases is still recommended but no longer blocking.
+CURRENT STATE (2026-08-28 checkpoint):
+- Architecture LOCKED in SOURCE OF TRUTH + CODE MAP + RISK AUDIT.
+- Orchestration implemented and real-data verified (83 identities, 13 matched, 70 unmatched **expected**, 0 duplicates).
+- AllAssetsAnalytics renders real rows.
+- Unmatched = link exists, no in-window activity — keep with zeros.
+- Engines frozen unless contradictory evidence.
+- Next work = P0/P1 queue only — **not** re-investigation of types/grain/attribution/archive.
 
-NEXT:
-1. Implement §2e (the `video_id` + composite-key fix) in `campaignElementAnalyticsEngine.ts` — the design is confirmed, this is the next concrete coding step for Type 1/2.
-2. Get a broader Type 3 sample (or read `tracker.ts` / `redirects.ts`, the click/redirect creation code path) to confirm or reject whether resource-asset clicks are really just `event_type = 'landing_page'` generically, before locking §3.
-3. Build the real `useAssetAnalyticsRows()` fetch — Type 1/2 first (mechanism confirmed), Type 3 once §3 locks.
-4. Compare resulting numbers against InDepthAnalytics for the same underlying videos — first real signal on whether double-counting is happening.
-5. Resolve the Promotions-dropdown ownership boundary before wiring `usePromotionOptions()` for real.
-6. Update this doc's §4 as each open question gets touched, moving resolved items up into §2/§3-style "Locked" sections.
+START PROMPT FOR FUTURE CLAUDE (copy-paste):
+
+Read ASSET_ANALYTICS_DESIGN 2.md first.
+Treat LOCKED / VERIFIED as source of truth.
+Do NOT re-investigate Type 1/2/3, row grain, attribution, archive resolvers,
+organization boundary, allowDuplicate, or unmatched-identity semantics
+unless new code or real data contradicts this document.
+Identify which primitives to reuse (buildAssetAnalyticsRows, assetAnalyticsEngine,
+getAssetAnalyticsRows, archive resolvers) before writing anything new.
+Only request files relevant to the current NEXT INVESTIGATION QUEUE item.
+Do not ask to resend the entire analytics architecture.
+
 
 ---
 
-## CODE MAP — Asset Analytics pipeline
+## CODE MAP — Asset Analytics pipeline (file-by-file)
 
-| File | Layer | Key API | Consumes | Returns | Reuse? | Modify? |
-|------|-------|---------|----------|---------|--------|---------|
-| `lib/buildAssetAnalyticsRows.ts` | Identity | `buildAssetAnalyticsRows(redirectLinks)` | Org-scoped `redirect_links` | `{ assetAnalyticsRows, ownCampaignRows, unclassified }` | **Yes** | Only if grain changes |
-| `lib/assetAnalyticsEngine.ts` | Metrics / attribution | `computeAssetAnalytics(input)` (sync), `computeRelationships` | Full `AssetAnalyticsEngineInput` | `AssetAnalyticsResult` incl. `relationships[]` | **Yes** | Frozen unless proven bug |
-| `services/asset/getAssetAnalyticsBatch.ts` | Batch metrics (ranking) | `getAssetAnalyticsBatch` | assetIds + org + date | `Map<assetId, AssetMetrics>` (discards relationships) | Top Assets | Do not use alone for AllAssets table |
-| `services/asset/getAssetAnalyticsRows.ts` | **Orchestration** | `getAssetAnalyticsRows(params)` | org, viewer, date, source | `AssetAnalyticsTableRow[]` + archive + unmatched count | **Yes** — AllAssets / similar tables | Fix only for signature/join bugs |
-| `services/asset/getAssetArchiveContext.ts` | Archive | `getAssetArchiveContextsForViewer({id, assetType}[], viewerId)` | asset ids + types + viewer | `Map<assetId, AssetArchiveContext>` | **Yes** | Frozen (read-only contract) |
-| `services/video/getVideoArchiveContext.ts` | Archive | video resolvers | video ids + viewer | Video archive context | InDepth / Type 2 provenance | Frozen |
-| `services/campaign/getCampaignArchiveContext.ts` | Archive | campaign resolvers | campaign ids | Campaign archive context | Type 1/2 provenance | Frozen |
-| `services/asset/generateAssetRedirectLinks.ts` | Redirect creation | `generateAssetRedirectLinks` | video + selected assets | inserts via `createRedirectLink(..., true, {assetId})` | Setup path | Frozen |
-| `lib/redirects.ts` | Redirect primitive | `createRedirectLink` | video, campaign, linkType, … | token / row | Shared | Frozen |
-| `lib/analyticsEngine.ts` | Shared primitives | `TABLE_COLUMNS`, `CLICK_EVENT_MAP`, date helpers | — | labels / click map | Column parity | Do not fork for assets |
-| `pages/AllAssetsAnalytics.tsx` | UI | `useAssetAnalyticsRows` adapter | orchestration result | table rows | This surface | Identity enrichment quality is P1 |
+### Identity layer
 
-**Layer rule:** identity → metrics → orchestration join → archive attach → UI. Never put archive or org invention inside the pure engines.
+| | |
+|--|--|
+| **File** | `lib/buildAssetAnalyticsRows.ts` |
+| **Purpose** | Answer: which `(video_id, asset_id)` promotional relationships **exist**? |
+| **Input** | `RedirectLinkAttributionRow[]` already scoped to **one** `organization_id` |
+| **Output** | `{ assetAnalyticsRows, ownCampaignRows, unclassified }` — multi-`link_type` collapsed into one identity with `linkTypes[]` |
+| **Called by** | `getAssetAnalyticsRows` |
+| **Must stay here** | Grouping / collapse / own vs asset split |
+| **Must NOT add** | Metrics, archive, viewer, org fetch, UI |
+| **Status** | LOCKED |
+| **Reuse** | Any asset×video analytics surface |
 
+### Metrics / attribution layer
+
+| | |
+|--|--|
+| **File** | `lib/assetAnalyticsEngine.ts` |
+| **Key APIs** | `computeAssetAnalytics(input)` (sync), internal `computeRelationships`, `classifyAsset`, `scopeToAsset` |
+| **Purpose** | Asset-scoped clicks/sessions/conversions/revenue/rpc + per-promoting-video `relationships[]` |
+| **Input** | Full `AssetAnalyticsEngineInput` (events, purchases, redirectLinks, provenance rows, org, assetType, date, source) |
+| **Output** | `AssetAnalyticsResult` including `relationships: { assetId, promotingSourceId, metrics, ... }[]` |
+| **Called by** | `getAssetAnalyticsRows`, `getAssetAnalyticsBatch`, single-asset services |
+| **Must stay here** | Metric math, relationship bucketing by `event.video_id` / purchase video |
+| **Must NOT add** | UI, archive filtering, multi-asset orchestration, identity grouping |
+| **Status** | LOCKED (frozen unless proven bug) |
+| **Note** | `AssetMetrics` is **5 fields**, not 14 funnel columns |
+
+| | |
+|--|--|
+| **File** | `services/asset/getAssetAnalyticsBatch.ts` |
+| **Purpose** | Batch fetch + per-asset **top-level** metrics for rankings (Top Assets) |
+| **Output** | `Map<assetId, AssetMetrics>` — **discards relationships** |
+| **Status** | IMPLEMENTED for ranking; **not** sufficient alone for AllAssets table grain |
+| **Reuse** | Top Assets / ranking widgets |
+
+| | |
+|--|--|
+| **File** | `lib/analyticsEngine.ts` |
+| **Purpose** | Shared `TABLE_COLUMNS`, `COLUMN_LABELS`, `CLICK_EVENT_MAP`, date bounds, video-level helpers |
+| **Must NOT** | Be forked for a second asset attribution model |
+| **Status** | LOCKED as column/click vocabulary source |
+
+| | |
+|--|--|
+| **File** | `lib/campaignElementAnalyticsEngine.ts` |
+| **Relevance** | Historical Type 1 path; aggregates by `asset_id` only (§2e gap). **AllAssets path uses `assetAnalyticsEngine` + relationships instead.** |
+| **Status** | Not required for current AllAssets grain; do not “fix” via this file unless product chooses |
+
+### Orchestration layer
+
+| | |
+|--|--|
+| **File** | `services/asset/getAssetAnalyticsRows.ts` |
+| **Purpose** | Canonical **(video, asset)** table pipeline: org fetch → identity → metrics w/ relationships → join → archive → rows |
+| **Input** | `{ organizationId, viewerId, dateRange, customRange?, activeSource?, assetIds? }` |
+| **Output** | `{ rows: AssetAnalyticsTableRow[], assetIds, unmatchedIdentityCount, debug }` |
+| **Steps** | (1) org-scoped redirect_links asset_id NOT NULL (2) buildAssetAnalyticsRows (3) distinct assets + types (4) batch-shaped event/purchase fetch (5) computeAssetAnalytics keep relationships (6) join `promotingSourceId === video_id` (7) archive contexts (8) zeros if unmatched |
+| **Called by** | `AllAssetsAnalytics` `useAssetAnalyticsRows` |
+| **Must stay here** | Join, unmatched policy, calling archive |
+| **Must NOT** | Reimplement metric formulas or identity grouping |
+| **Status** | **IMPLEMENTED + REAL-DATA VERIFIED** |
+| **Reuse** | AllAssets-like tables; adapt output shape at UI boundary |
+
+### Redirect creation (setup, not analytics)
+
+| | |
+|--|--|
+| **File** | `services/asset/generateAssetRedirectLinks.ts` |
+| **Purpose** | After video save, create asset-tagged redirects for selected assets |
+| **Key behavior** | `createRedirectLink(..., allowDuplicate=true, { assetId, promotionId, trackingDomainId })` for Type 1/2/3; Resource uses `RESOURCE_TYPE_TO_LINK_TYPE` |
+| **Status** | LOCKED |
+| **Analytics note** | Explains why asset-specific links exist; analytics **reads** `redirect_links`, does not create them |
+
+| | |
+|--|--|
+| **File** | `lib/redirects.ts` → `createRedirectLink` |
+| **Purpose** | Shared insert/dedupe primitive; asset path forces duplicate allow |
+| **Status** | LOCKED |
+
+### Archive layer
+
+| | |
+|--|--|
+| **File** | `services/asset/getAssetArchiveContext.ts` |
+| **APIs** | `getAssetArchiveContext`, `getAssetArchiveContextsForViewer(assets: {id, assetType}[], viewerId)` |
+| **Returns** | `isArchived`, `reasons[]`, `isHiddenByViewer`, `level` (`normal` \| `level1` \| `level2`) |
+| **Provenance** | Type1 campaign; Type2 video+campaign if Library-visible; Type3 **personal only** |
+| **Status** | LOCKED read-only resolvers; **wiring into orchestration = IMPLEMENTED**; **AllAssets UI filter = OPEN** |
+
+| | |
+|--|--|
+| **Files** | `services/video/getVideoArchiveContext.ts`, `services/campaign/getCampaignArchiveContext.ts`, per-entity `archiveUiVisibility` helpers |
+| **Purpose** | Same contract for video/campaign; Level from `archive_ui_visibility` only |
+| **Reuse** | InDepthAnalytics archive (video grain); do not invent Resource campaign archive |
+
+### UI layer
+
+| | |
+|--|--|
+| **File** | `pages/AllAssetsAnalytics.tsx` |
+| **Hook** | `useAssetAnalyticsRows` — boundary adapter (org resolve, call orchestration, enrich titles/thumbs, map metrics to table columns) |
+| **Status** | Data **CONNECTED**; identity enrichment quality **OPEN (P1)**; Campaign/Promotion options **STUB** |
+| **Must NOT** | Contain attribution math or archive reason derivation |
+
+| | |
+|--|--|
+| **File** | `pages/AssetAnalytics.tsx` / `pages/InDepthAnalytics.tsx` |
+| **Note** | Different grains (single asset / video). Reuse engine + archive resolvers; **do not** copy AllAssets row grain blindly. InDepth archive wiring still largely OPEN. |
 
 ## DO NOT REDISCOVER
 
