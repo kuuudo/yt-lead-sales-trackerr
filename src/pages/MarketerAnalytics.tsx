@@ -19,11 +19,12 @@ import LockedFilterBadge from '../components/analytics/LockedFilterBadge';
 
 const columns: ColumnDef<MockMarketer>[] = [
   {
-    key: 'name',
-    label: 'Marketer',
-    sortValue: r => r.name,
-    render: r => <span className="text-white">{r.name}</span>,
-  },
+  key: 'name',
+  label: 'Marketer',
+  interactive: true,
+  sortValue: r => r.name,
+  render: r => r.name,
+},
   {
     key: 'campaignName',
     label: 'Campaign',
@@ -148,38 +149,39 @@ export default function MarketerAnalytics() {
               if (state.expandedRowId === row.id) collapseExpand();
               else expandMarketer(row.id, row.name);
             }}
-            renderExpand={row => {
-              const promos = getPromotionsFor({
-                campaignId: state.campaignId ?? row.campaignId,
-                marketerId: row.id,
-              });
-              return (
-                <>
-                  <GrowNode label={row.name} sub="Selected marketer" accent="border-red-500/50" />
-                  <GrowConnector />
-                  {promos.map(p => (
-                    <React.Fragment key={p.id}>
-                      <GrowNode
-                        label={p.name}
-                        sub={`$${p.revenue.toLocaleString()}`}
-                        accent="border-zinc-600 hover:border-zinc-400"
-                        onClick={() => {
-                          expandMarketer(row.id, row.name);
-                          enterPromotionAnalytics();
-                        }}
-                      />
-                      <GrowConnector />
-                    </React.Fragment>
-                  ))}
-                  <GrowNode
-                    label="Open Promotion Analytics"
-                    sub="Full table"
-                    accent="border-violet-500/50 hover:border-violet-400"
-                    onClick={enterPromotionAnalytics}
-                  />
-                </>
-              );
+           renderGrowPath={row => {
+  const promos = getPromotionsFor({
+    campaignId: state.campaignId ?? row.campaignId,
+    marketerId: row.id,
+  });
+
+  return (
+    <>
+      {promos.map((p, i) => (
+        <React.Fragment key={p.id}>
+          {i > 0 && <GrowConnector />}
+          <GrowNode
+            label={p.name}
+            sub={`$${p.revenue.toLocaleString()}`}
+            onClick={() => {
+              expandMarketer(row.id, row.name);
+              enterPromotionAnalytics();
             }}
+          />
+        </React.Fragment>
+      ))}
+
+      <GrowConnector />
+
+      <GrowNode
+        label="Promotion Analytics"
+        sub="Full table"
+        accent="border-violet-500/50 hover:border-violet-400"
+        onClick={enterPromotionAnalytics}
+      />
+    </>
+  );
+}}
           />
         </div>
       </div>

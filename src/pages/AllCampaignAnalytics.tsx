@@ -15,8 +15,9 @@ const columns: ColumnDef<MockCampaign>[] = [
   {
     key: 'name',
     label: 'Campaign',
+    interactive: true,
     sortValue: r => r.name,
-    render: r => <span className="text-white">{r.name}</span>,
+    render: r => r.name,
     className: 'min-w-[260px]',
   },
   {
@@ -128,30 +129,30 @@ export default function AllCampaignAnalytics() {
               if (state.expandedRowId === row.id) collapseExpand();
               else expandCampaign(row.id, row.name);
             }}
-            renderExpand={() => (
-              <>
-                <GrowNode
-                  label="Content Analytics"
-                  sub="Tracked content performance"
-                  accent="border-blue-500/40 hover:border-blue-400"
-                  onClick={() => enterBranch('content')}
-                />
-                <GrowConnector />
-                <GrowNode
-                  label="Own Asset Analytics"
-                  sub="Owner assets only"
-                  accent="border-amber-500/40 hover:border-amber-400"
-                  onClick={() => enterBranch('own_assets')}
-                />
-                <GrowConnector />
-                <GrowNode
-                  label="Marketer Analytics"
-                  sub="Marketers in this campaign"
-                  accent="border-violet-500/40 hover:border-violet-400"
-                  onClick={() => enterBranch('marketers')}
-                />
-              </>
-            )}
+renderGrowPath={() => (
+  <>
+    <GrowNode
+      label="Content Analytics"
+      sub="Tracked content"
+      accent="border-blue-500/40 hover:border-blue-400"
+      onClick={() => enterBranch('content')}
+    />
+    <GrowConnector />
+    <GrowNode
+      label="Own Asset Analytics"
+      sub="Owner assets"
+      accent="border-amber-500/40 hover:border-amber-400"
+      onClick={() => enterBranch('own_assets')}
+    />
+    <GrowConnector />
+    <GrowNode
+      label="Marketer Analytics"
+      sub="Marketers"
+      accent="border-violet-500/40 hover:border-violet-400"
+      onClick={() => enterBranch('marketers')}
+    />
+  </>
+)}
           />
         </div>
       </div>
