@@ -197,6 +197,7 @@ interface PromotingVideoIdentity {
   thumbnail_url?: string;
   platform?:      string | null;
   created_at?:    string | null;
+  content_owner_name?: string | null;
 }
 
 interface AssetAnalyticsRow {
@@ -334,6 +335,20 @@ function useAssetAnalyticsRows(opts: {
             : Promise.resolve({ data: [] as any[] }),
         ]);
 
+        // Content Owner — same profiles.select('id, email, full_name').in('id', ...)
+        // pattern getPromotionLevelMetricsForOrg() (getTopPromotionsAnalytics.ts)
+        // already uses to resolve marketer identity. No new identity system.
+        const videoOwnerIds = Array.from(
+          new Set((videosRes.data ?? []).map((v: any) => v.user_id).filter(Boolean)),
+        );
+        const { data: ownerProfiles } = videoOwnerIds.length
+          ? await supabase
+              .from('profiles')
+              .select('id, email, full_name')
+              .in('id', videoOwnerIds)
+          : { data: [] as any[] };
+        const profileByUserId = new Map((ownerProfiles ?? []).map((p: any) => [p.id, p]));
+
         const assetDisplay = new Map<
         string,
         {
@@ -387,8 +402,9 @@ function useAssetAnalyticsRows(opts: {
           });
         }
 
-    const videoDisplay = new Map<string, { title: React.ReactNode; thumbnail_url?: string; platform?: string | null; created_at?: string | null }>();
+    const videoDisplay = new Map<string, { title: React.ReactNode; thumbnail_url?: string; platform?: string | null; created_at?: string | null; content_owner_name?: string | null }>();
     for (const v of videosRes.data ?? []) {
+      const ownerProfile = v.user_id ? profileByUserId.get(v.user_id) : null;
       videoDisplay.set(v.id, {
         // Canonical helpers, same call signature InDepthAnalytics uses
         // (resolveThumbnail(row.video) / renderContentIdentity(row.video)).
@@ -396,6 +412,7 @@ function useAssetAnalyticsRows(opts: {
         thumbnail_url: resolveThumbnail(v),
         platform: v.platform ?? null,
         created_at: v.created_at ?? null,
+        content_owner_name: ownerProfile?.full_name?.trim() || ownerProfile?.email || null,
       });
     }
 
@@ -417,6 +434,7 @@ function useAssetAnalyticsRows(opts: {
               thumbnail_url: v?.thumbnail_url ?? undefined,
               platform: v?.platform ?? null,
               created_at: v?.created_at ?? null,
+              content_owner_name: v?.content_owner_name ?? null,
             },
             campaign_id: r.campaignIds?.[0] ?? null,
             promotion_id: r.promotionIds?.[0] ?? null,
@@ -619,7 +637,7 @@ export default function AllAssetsAnalytics() {
     });
   }, [promotionFilteredRows, sortConfig]);
 
-  const colSpan = 4 + TABLE_COLUMNS.length + 1; // Asset + Content + Type + Asset Clicks + metrics + trailing spacer
+  const colSpan = 5 + TABLE_COLUMNS.length + 1; // Asset + Type + Content + Content Owner + Asset Clicks + metrics + trailing spacer
 
   return (
     <div className="flex h-screen bg-black text-zinc-300 overflow-hidden fixed inset-0 z-[100]">
@@ -993,6 +1011,11 @@ export default function AllAssetsAnalytics() {
                     Promoting Content
                   </th>
 
+                  {/* ── Content Owner column — owner of the promoting video ── */}
+                  <th className="px-6 py-5 text-left text-[10px] font-black uppercase tracking-widest text-zinc-600 border-b border-zinc-900 bg-zinc-950 min-w-[160px]">
+                    Content Owner
+                  </th>
+
                   {/* ── Asset Clicks — placeholder, see header comment ─────── */}
                   <th
                     className="px-6 py-5 text-left text-[10px] font-black uppercase tracking-widest text-zinc-600 border-b border-zinc-900 bg-zinc-950 min-w-[110px]"
@@ -1132,6 +1155,11 @@ export default function AllAssetsAnalytics() {
                           </div>
                         </div>
                       </div>
+                    </td>
+
+                    {/* ── Content Owner cell ──────────────────────────────── */}
+                    <td className="px-6 py-4 whitespace-nowrap text-sm font-bold text-zinc-400">
+                      {row.promoting_video.content_owner_name ?? '—'}
                     </td>
 
                     {/* ── Asset Clicks cell ───────────────────────────────── */}
