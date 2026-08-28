@@ -148,6 +148,7 @@ const ALL_ASSET_TYPES: AssetTypeTag[] = [
 // ─────────────────────────────────────────────────────────────────────────────
 
 const SORT_SHORTCUTS: { label: string; key: string }[] = [
+  { label: 'Recently Added', key: 'asset_created_at' },
   { label: 'Revenue',       key: 'total_revenue' },
   { label: 'Consultations', key: 'consultation_thankyou' },
   { label: 'Purchases',     key: 'purchase_thankyou' },
@@ -187,6 +188,7 @@ interface AssetIdentity {
   thumbnail_url?: string;
   asset_type:     AssetTypeTag;
   platform?:      string | null;
+  created_at?:    string | null;
 }
 
 interface PromotingVideoIdentity {
@@ -325,7 +327,7 @@ function useAssetAnalyticsRows(opts: {
             ? supabase
                 .from('assets')
                 .select(
-                  'id, asset_type, videos(video_title, thumbnail_url, platform), asset_resources(title, thumbnail_url, platform, resource_type), campaign_element_assets(display_name, element_type)',
+                  'id, asset_type, created_at, videos(video_title, thumbnail_url, platform), asset_resources(title, thumbnail_url, platform, resource_type), campaign_element_assets(display_name, element_type)',
                 )
                 .in('id', assetIds)
             : Promise.resolve({ data: [] as any[] }),
@@ -338,6 +340,7 @@ function useAssetAnalyticsRows(opts: {
           thumbnail_url?: string | null;
           asset_type?: string;
           platform?: string | null;
+          created_at?: string | null
         }
         >();
         for (const row of libraryRes.data ?? []) {
@@ -379,6 +382,7 @@ function useAssetAnalyticsRows(opts: {
             thumbnail_url: thumbnailUrl,
             platform: row.asset_type === 'campaign_element' ? null : (v?.platform ?? res?.platform ?? null),
             asset_type: row.asset_type,
+            created_at: row.created_at ?? null,
           });
         }
 
@@ -403,6 +407,7 @@ function useAssetAnalyticsRows(opts: {
               thumbnail_url: a?.thumbnail_url ?? undefined,
               asset_type: toAssetTypeTag(r.asset_type),
               platform: a?.platform ?? null,
+              created_at: a?.created_at ?? null,
             },
             promoting_video: {
               id: r.video_id,
@@ -595,6 +600,14 @@ export default function AllAssetsAnalytics() {
   const sortedRows = useMemo(() => {
     const key = sortConfig.key;
     const dir = sortConfig.direction === 'asc' ? 1 : -1;
+    if (key === 'asset_created_at') {
+      return [...promotionFilteredRows].sort((a, b) => {
+        const at = a.asset.created_at ? new Date(a.asset.created_at).getTime() : 0;
+        const bt = b.asset.created_at ? new Date(b.asset.created_at).getTime() : 0;
+        if (at === bt) return 0;
+        return at > bt ? dir : -dir;
+      });
+    }
     return [...promotionFilteredRows].sort((a, b) => {
       const av = Number(a.metrics[key as MetricType] ?? 0);
       const bv = Number(b.metrics[key as MetricType] ?? 0);
@@ -1053,7 +1066,10 @@ export default function AllAssetsAnalytics() {
                   >
                     {/* ── Asset identity cell ─────────────────────────────── */}
                     <td className="px-6 py-4 whitespace-nowrap sticky left-0 z-10 bg-black group-hover:bg-zinc-950 transition-colors">
-                      <div className="flex items-center gap-3">
+                      <div
+                        className="flex items-center gap-3 cursor-pointer"
+                        onClick={() => navigate(`/assets/${row.asset.id}`)}
+                      >
                         <img
                           src={row.asset.thumbnail_url}
                           className="w-16 h-9 object-cover rounded-lg border border-zinc-800 shrink-0"
@@ -1079,7 +1095,10 @@ export default function AllAssetsAnalytics() {
 
                     {/* ── Content cell — the promoting video ──────────────── */}
                     <td className="px-6 py-4 whitespace-nowrap">
-                      <div className="flex items-center gap-3">
+                      <div
+                        className="flex items-center gap-3 cursor-pointer"
+                        onClick={() => navigate(`/videos/${row.promoting_video.id}`)}
+                      >
                         <img
                           src={row.promoting_video.thumbnail_url}
                           className="w-16 h-9 object-cover rounded-lg border border-zinc-800 shrink-0"
