@@ -58,6 +58,7 @@ import AllAssetsAnalytics from './pages/AllAssetsAnalytics';
 import AllPromotionsAnalytics from './pages/AllPromotionsAnalytics';
 import AllCampaignAnalytics from './pages/AllCampaignAnalytics';
 import CampaignAnalytics from './pages/CampaignAnalytics';
+import AssetAnalyticsMock from './pages/AssetAnalyticsMock';
 function Navigation() {
   const { lang, toggleLanguage, t } = useLanguage();
   const { user, signOut } = useAuth();
@@ -548,6 +549,7 @@ function MainContent() {
         <Route path="/testimonialss" element={<PageWrapper><AdminTestimonials /></PageWrapper>} />
                 <Route path="/testimonials" element={<PageWrapper><Testimonials /></PageWrapper>} />
         <Route path="/website" element={<PageWrapper><Website /></PageWrapper>} />
+        <Route path="/assets/analytics" element={<PageWrapper><AssetAnalyticsMock /></PageWrapper>} />
       </Routes>
     </AnimatePresence>
   );
