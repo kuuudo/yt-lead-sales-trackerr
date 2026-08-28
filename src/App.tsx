@@ -55,6 +55,8 @@ import Testimonials from './pages/Testimonials';
 import Website from './pages/Website';
 import AllAssetsAnalytics from './pages/AllAssetsAnalytics';
 import AllPromotionsAnalytics from './pages/AllPromotionsAnalytics';
+import AllCampaignAnalytics from './pages/AllCampaignAnalytics';
+import CampaignAnalytics from './pages/CampaignAnalytics';
 function Navigation() {
   const { lang, toggleLanguage, t } = useLanguage();
   const { user, signOut } = useAuth();
@@ -89,6 +91,7 @@ function Navigation() {
   const links = [
     { to: '/dashboard', icon: LayoutDashboard, label: t.nav.dashboard },
     { to: '/campaigns', icon: Briefcase, label: t.nav.campaigns, children: [
+      { to: '/campaigns/analytics', label: 'Campaign Analytics' },
       { to: '/installation', label: t.nav.installation || 'Setup' },
     ] },
     { to: '/videos', icon: Video, label: t.nav.videos, children: [
@@ -509,7 +512,9 @@ function MainContent() {
         <Route path="/assets/:id/analytics" element={<PageWrapper><AssetAnalytics /></PageWrapper>} />
         <Route path="/assets/:id/analytics" element={<PageWrapper><AssetAnalytics /></PageWrapper>} />
         <Route path="/assets/analytics" element={<PageWrapper><AllAssetsAnalytics /></PageWrapper>} />
+        <Route path="/campaigns/analytics" element={<PageWrapper><AllCampaignAnalytics /></PageWrapper>} />
         <Route path="/campaigns/:id" element={<PageWrapper><CampaignDetail /></PageWrapper>} />
+        <Route path="/campaigns/:id/analytics" element={<PageWrapper><CampaignAnalytics /></PageWrapper>} />
         <Route path="/analytics" element={<PageWrapper><Analytics /></PageWrapper>} />
         <Route path="/analytics/indepth" element={<InDepthAnalytics />} />
         <Route path="/installation" element={<PageWrapper><Installation /></PageWrapper>} />
