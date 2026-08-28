@@ -1,6 +1,6 @@
 // lib/DrillDownContext.tsx
-// Horizontal L→R drill-down state for Analytics hierarchy.
-// Expand nodes live on the canvas; full tables are destinations only.
+// Drill-down context: locked filters + path.
+// Expansion is triggered FROM real analytics tables (hover ≠ expand).
 
 import React, { createContext, useCallback, useContext, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
@@ -10,11 +10,10 @@ export type BranchKind = 'content' | 'own_assets' | 'marketers';
 export interface PathNode {
   id: string;
   label: string;
-  kind: 'campaign' | 'branch' | 'marketer' | 'promotion' | 'asset';
+  kind: 'campaign' | 'branch' | 'marketer' | 'promotion';
 }
 
 export interface DrillDownState {
-  /** Ordered path — root left, deeper nodes right */
   path: PathNode[];
   campaignId: string | null;
   campaignName: string | null;
@@ -24,6 +23,8 @@ export interface DrillDownState {
   promotionId: string | null;
   promotionName: string | null;
   ownAssetsOnly: boolean;
+  /** Which row is expanded on the current table (middle-stage open) */
+  expandedRowId: string | null;
   locked: {
     campaign: boolean;
     marketer: boolean;
@@ -41,25 +42,27 @@ const EMPTY: DrillDownState = {
   promotionId: null,
   promotionName: null,
   ownAssetsOnly: false,
+  expandedRowId: null,
   locked: { campaign: false, marketer: false, promotion: false },
 };
 
 interface DrillDownContextValue {
   state: DrillDownState;
-  /** Select campaign on canvas — grows 3 branches to the right */
-  selectCampaign: (id: string, name: string) => void;
-  /** Select Content / Own Asset / Marketer branch */
-  selectBranch: (branch: BranchKind) => void;
-  /** Select a marketer — grows promotions to the right */
-  selectMarketer: (id: string, name: string) => void;
-  /** Select a promotion — grows assets to the right */
-  selectPromotion: (id: string, name: string) => void;
-  /** Open full destination table (Content / Own Assets / Asset Analytics) */
-  openDestination: (kind: 'content' | 'own_assets' | 'assets') => void;
-  /** Truncate path to index (breadcrumb / back) */
+  /** Click campaign row → open middle stage (3 branches). Does not leave Campaign Analytics. */
+  expandCampaign: (id: string, name: string) => void;
+  /** From campaign middle stage → enter a real destination */
+  enterBranch: (branch: BranchKind) => void;
+  /** Click marketer row → open promotion middle stage on Marketer Analytics */
+  expandMarketer: (id: string, name: string) => void;
+  /** From marketer middle stage → enter Promotion Analytics table */
+  enterPromotionAnalytics: () => void;
+  /** Click promotion row → open asset middle stage on Promotion Analytics */
+  expandPromotion: (id: string, name: string) => void;
+  /** From promotion middle stage → enter Asset Analytics table */
+  enterAssetAnalytics: () => void;
+  collapseExpand: () => void;
   goToPathIndex: (index: number) => void;
   clearAll: () => void;
-  /** Breadcrumb labels derived from path */
   breadcrumbs: { label: string; index: number }[];
 }
 
@@ -69,136 +72,168 @@ export function DrillDownProvider({ children }: { children: React.ReactNode }) {
   const navigate = useNavigate();
   const [state, setState] = useState<DrillDownState>(EMPTY);
 
-  const selectCampaign = useCallback((id: string, name: string) => {
+  const expandCampaign = useCallback((id: string, name: string) => {
     setState({
       ...EMPTY,
       path: [{ id, label: name, kind: 'campaign' }],
       campaignId: id,
       campaignName: name,
+      expandedRowId: id,
       locked: { campaign: true, marketer: false, promotion: false },
     });
   }, []);
 
-  const selectBranch = useCallback((branch: BranchKind) => {
-    setState(prev => {
-      if (!prev.campaignId) return prev;
-      const label =
-        branch === 'content'
-          ? 'Content Analytics'
-          : branch === 'own_assets'
-            ? 'Own Asset Analytics'
-            : 'Marketer Analytics';
-      // Keep only campaign, then this branch
-      const path: PathNode[] = [
-        { id: prev.campaignId, label: prev.campaignName ?? 'Campaign', kind: 'campaign' },
-        { id: branch, label, kind: 'branch' },
-      ];
-      return {
-        ...prev,
-        path,
-        branch,
-        marketerId: null,
-        marketerName: null,
-        promotionId: null,
-        promotionName: null,
-        ownAssetsOnly: branch === 'own_assets',
-        locked: { campaign: true, marketer: false, promotion: false },
-      };
-    });
-  }, []);
-
-  const selectMarketer = useCallback((id: string, name: string) => {
-    setState(prev => {
-      if (!prev.campaignId || prev.branch !== 'marketers') return prev;
-      const path: PathNode[] = [
-        { id: prev.campaignId, label: prev.campaignName ?? 'Campaign', kind: 'campaign' },
-        { id: 'marketers', label: 'Marketer Analytics', kind: 'branch' },
-        { id, label: name, kind: 'marketer' },
-      ];
-      return {
-        ...prev,
-        path,
-        marketerId: id,
-        marketerName: name,
-        promotionId: null,
-        promotionName: null,
-        ownAssetsOnly: false,
-        locked: { campaign: true, marketer: true, promotion: false },
-      };
-    });
-  }, []);
-
-  const selectPromotion = useCallback((id: string, name: string) => {
-    setState(prev => {
-      if (!prev.marketerId) return prev;
-      const path: PathNode[] = [
-        { id: prev.campaignId!, label: prev.campaignName ?? 'Campaign', kind: 'campaign' },
-        { id: 'marketers', label: 'Marketer Analytics', kind: 'branch' },
-        { id: prev.marketerId, label: prev.marketerName ?? 'Marketer', kind: 'marketer' },
-        { id, label: name, kind: 'promotion' },
-      ];
-      return {
-        ...prev,
-        path,
-        promotionId: id,
-        promotionName: name,
-        ownAssetsOnly: false,
-        locked: { campaign: true, marketer: true, promotion: true },
-      };
-    });
-  }, []);
-
-  const openDestination = useCallback(
-    (kind: 'content' | 'own_assets' | 'assets') => {
-      if (kind === 'content') {
-        navigate('/analytics/indepth');
-      } else {
-        // Own assets or promotion-scoped assets — real AllAssetsAnalytics later;
-        // for now mock destination page still acceptable, or /assets/analytics
-        navigate('/assets/analytics');
-      }
+  const enterBranch = useCallback(
+    (branch: BranchKind) => {
+      setState(prev => {
+        if (!prev.campaignId) return prev;
+        const label =
+          branch === 'content'
+            ? 'Content Analytics'
+            : branch === 'own_assets'
+              ? 'Own Asset Analytics'
+              : 'Marketer Analytics';
+        return {
+          ...prev,
+          path: [
+            { id: prev.campaignId, label: prev.campaignName ?? 'Campaign', kind: 'campaign' },
+            { id: branch, label, kind: 'branch' },
+          ],
+          branch,
+          marketerId: null,
+          marketerName: null,
+          promotionId: null,
+          promotionName: null,
+          ownAssetsOnly: branch === 'own_assets',
+          expandedRowId: null,
+          locked: { campaign: true, marketer: false, promotion: false },
+        };
+      });
+      if (branch === 'content') navigate('/analytics/indepth');
+      else if (branch === 'own_assets') navigate('/assets/analytics');
+      else navigate('/marketplace/marketer-analytics');
     },
     [navigate],
   );
 
-  const goToPathIndex = useCallback((index: number) => {
-    setState(prev => {
-      if (index < 0) return EMPTY;
-      const path = prev.path.slice(0, index + 1);
-      const campaign = path.find(n => n.kind === 'campaign');
-      const branchNode = path.find(n => n.kind === 'branch');
-      const marketer = path.find(n => n.kind === 'marketer');
-      const promotion = path.find(n => n.kind === 'promotion');
-      const branch =
-        branchNode?.id === 'content'
-          ? 'content'
-          : branchNode?.id === 'own_assets'
-            ? 'own_assets'
-            : branchNode?.id === 'marketers'
-              ? 'marketers'
-              : null;
-      return {
-        path,
-        campaignId: campaign?.id ?? null,
-        campaignName: campaign?.label ?? null,
-        branch,
-        marketerId: marketer?.id ?? null,
-        marketerName: marketer?.label ?? null,
-        promotionId: promotion?.id ?? null,
-        promotionName: promotion?.label ?? null,
-        ownAssetsOnly: branch === 'own_assets',
-        locked: {
-          campaign: !!campaign,
-          marketer: !!marketer,
-          promotion: !!promotion,
-        },
-      };
-    });
+  const expandMarketer = useCallback((id: string, name: string) => {
+    setState(prev => ({
+      ...prev,
+      path: [
+        ...(prev.campaignId
+          ? [{ id: prev.campaignId, label: prev.campaignName ?? 'Campaign', kind: 'campaign' as const }]
+          : []),
+        { id: 'marketers', label: 'Marketer Analytics', kind: 'branch' },
+        { id, label: name, kind: 'marketer' },
+      ],
+      marketerId: id,
+      marketerName: name,
+      promotionId: null,
+      promotionName: null,
+      expandedRowId: id,
+      ownAssetsOnly: false,
+      locked: {
+        campaign: !!prev.campaignId,
+        marketer: true,
+        promotion: false,
+      },
+    }));
   }, []);
 
-  const clearAll = useCallback(() => {
-    setState(EMPTY);
+  const enterPromotionAnalytics = useCallback(() => {
+    setState(prev => ({
+      ...prev,
+      expandedRowId: null,
+      path: [
+        ...(prev.campaignId
+          ? [{ id: prev.campaignId, label: prev.campaignName ?? 'Campaign', kind: 'campaign' as const }]
+          : []),
+        { id: 'marketers', label: 'Marketer Analytics', kind: 'branch' as const },
+        ...(prev.marketerId
+          ? [{ id: prev.marketerId, label: prev.marketerName ?? 'Marketer', kind: 'marketer' as const }]
+          : []),
+        { id: 'promotions', label: 'Promotion Analytics', kind: 'branch' as const },
+      ],
+    }));
+    navigate('/marketplace/promotions-analytics');
+  }, [navigate]);
+
+  const expandPromotion = useCallback((id: string, name: string) => {
+    setState(prev => ({
+      ...prev,
+      path: [
+        ...(prev.campaignId
+          ? [{ id: prev.campaignId, label: prev.campaignName ?? 'Campaign', kind: 'campaign' as const }]
+          : []),
+        ...(prev.marketerId
+          ? [
+              { id: 'marketers', label: 'Marketer Analytics', kind: 'branch' as const },
+              { id: prev.marketerId, label: prev.marketerName ?? 'Marketer', kind: 'marketer' as const },
+            ]
+          : []),
+        { id, label: name, kind: 'promotion' as const },
+      ],
+      promotionId: id,
+      promotionName: name,
+      expandedRowId: id,
+      locked: {
+        campaign: !!prev.campaignId,
+        marketer: !!prev.marketerId,
+        promotion: true,
+      },
+    }));
   }, []);
+
+  const enterAssetAnalytics = useCallback(() => {
+    setState(prev => ({ ...prev, expandedRowId: null }));
+    navigate('/assets/analytics');
+  }, [navigate]);
+
+  const collapseExpand = useCallback(() => {
+    setState(prev => ({ ...prev, expandedRowId: null }));
+  }, []);
+
+  const goToPathIndex = useCallback(
+    (index: number) => {
+      setState(prev => {
+        if (index < 0) return EMPTY;
+        const path = prev.path.slice(0, index + 1);
+        const campaign = path.find(n => n.kind === 'campaign');
+        const branchNode = path.find(n => n.kind === 'branch');
+        const marketer = path.find(n => n.kind === 'marketer');
+        const promotion = path.find(n => n.kind === 'promotion');
+        const branch =
+          branchNode?.id === 'content'
+            ? 'content'
+            : branchNode?.id === 'own_assets'
+              ? 'own_assets'
+              : branchNode?.id === 'marketers' || branchNode?.id === 'promotions'
+                ? 'marketers'
+                : null;
+        return {
+          ...prev,
+          path,
+          campaignId: campaign?.id ?? null,
+          campaignName: campaign?.label ?? null,
+          branch: branch as BranchKind | null,
+          marketerId: marketer?.id ?? null,
+          marketerName: marketer?.label ?? null,
+          promotionId: promotion?.id ?? null,
+          promotionName: promotion?.label ?? null,
+          ownAssetsOnly: branchNode?.id === 'own_assets',
+          expandedRowId: null,
+          locked: {
+            campaign: !!campaign,
+            marketer: !!marketer,
+            promotion: !!promotion,
+          },
+        };
+      });
+    },
+    [],
+  );
+
+  const clearAll = useCallback(() => setState(EMPTY), []);
 
   const breadcrumbs = useMemo(
     () => state.path.map((n, index) => ({ label: n.label, index })),
@@ -208,22 +243,26 @@ export function DrillDownProvider({ children }: { children: React.ReactNode }) {
   const value = useMemo(
     () => ({
       state,
-      selectCampaign,
-      selectBranch,
-      selectMarketer,
-      selectPromotion,
-      openDestination,
+      expandCampaign,
+      enterBranch,
+      expandMarketer,
+      enterPromotionAnalytics,
+      expandPromotion,
+      enterAssetAnalytics,
+      collapseExpand,
       goToPathIndex,
       clearAll,
       breadcrumbs,
     }),
     [
       state,
-      selectCampaign,
-      selectBranch,
-      selectMarketer,
-      selectPromotion,
-      openDestination,
+      expandCampaign,
+      enterBranch,
+      expandMarketer,
+      enterPromotionAnalytics,
+      expandPromotion,
+      enterAssetAnalytics,
+      collapseExpand,
       goToPathIndex,
       clearAll,
       breadcrumbs,

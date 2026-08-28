@@ -1,173 +1,186 @@
 // pages/AllPromotionsAnalytics.tsx
-// Promotion ranking. Scoped by locked Campaign + Marketer when present.
-import React, { useMemo, useState } from 'react';
+// Real Promotion Analytics table. Hover dim. Click → grow assets → enter Asset Analytics.
+
+import React, { useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { ChevronLeft, ArrowUpDown, Megaphone } from 'lucide-react';
-import { getPromotionsFor } from '../lib/mockAnalyticsData';
+import { ChevronLeft, X } from 'lucide-react';
+import {
+  getPromotionsFor,
+  getAssetsFor,
+  type MockPromotion,
+} from '../lib/mockAnalyticsData';
 import { useDrillDown } from '../lib/DrillDownContext';
-import AnalyticsBreadcrumb from '../components/analytics/AnalyticsBreadcrumb';
+import AnalyticsDrillDownTable, {
+  type ColumnDef,
+} from '../components/analytics/AnalyticsDrillDownTable';
+import { GrowConnector, GrowNode } from '../components/analytics/GrowBranch';
 import LockedFilterBadge from '../components/analytics/LockedFilterBadge';
 
-type SortKey = 'name' | 'campaignName' | 'marketerName' | 'clicks' | 'revenue' | 'purchases' | 'rpc';
+const columns: ColumnDef<MockPromotion>[] = [
+  {
+    key: 'name',
+    label: 'Promotion',
+    sortValue: r => r.name,
+    render: r => <span className="text-white">{r.name}</span>,
+  },
+  {
+    key: 'campaignName',
+    label: 'Campaign',
+    sortValue: r => r.campaignName,
+    render: r => r.campaignName,
+  },
+  {
+    key: 'marketerName',
+    label: 'Marketer',
+    sortValue: r => r.marketerName,
+    render: r => r.marketerName,
+  },
+  {
+    key: 'revenue',
+    label: 'Revenue',
+    sortValue: r => r.revenue,
+    render: r => `$${r.revenue.toLocaleString()}`,
+  },
+  {
+    key: 'clicks',
+    label: 'Clicks',
+    sortValue: r => r.clicks,
+    render: r => r.clicks.toLocaleString(),
+  },
+  {
+    key: 'purchases',
+    label: 'Purchases',
+    sortValue: r => r.purchases,
+    render: r => r.purchases,
+  },
+  {
+    key: 'rpc',
+    label: 'Revenue / Click',
+    sortValue: r => r.rpc,
+    render: r => `$${r.rpc.toFixed(2)}`,
+  },
+];
 
 export default function AllPromotionsAnalytics() {
   const navigate = useNavigate();
-  const { state, openAssetAnalytics } = useDrillDown();
-  const [sortKey, setSortKey] = useState<SortKey>('revenue');
-  const [sortDir, setSortDir] = useState<'asc' | 'desc'>('desc');
+  const {
+    state,
+    expandPromotion,
+    enterAssetAnalytics,
+    collapseExpand,
+    clearAll,
+    breadcrumbs,
+    goToPathIndex,
+  } = useDrillDown();
 
-  const base = getPromotionsFor({
-    campaignId: state.campaignId,
-    marketerId: state.marketerId,
-  });
-
-  const rows = useMemo(() => {
-    const dir = sortDir === 'asc' ? 1 : -1;
-    return [...base].sort((a, b) => {
-      if (sortKey === 'name' || sortKey === 'campaignName' || sortKey === 'marketerName') {
-        return String(a[sortKey]).localeCompare(String(b[sortKey])) * dir;
-      }
-      const av = a[sortKey] as number;
-      const bv = b[sortKey] as number;
-      if (av === bv) return 0;
-      return av > bv ? dir : -dir;
-    });
-  }, [base, sortKey, sortDir]);
-
-  const handleSort = (key: SortKey) => {
-    if (sortKey === key) setSortDir(d => (d === 'asc' ? 'desc' : 'asc'));
-    else {
-      setSortKey(key);
-      setSortDir('desc');
-    }
-  };
-
-  const money = (n: number) =>
-    `$${n.toLocaleString(undefined, { maximumFractionDigits: 0 })}`;
+  const rows = useMemo(
+    () =>
+      getPromotionsFor({
+        campaignId: state.campaignId,
+        marketerId: state.marketerId,
+      }),
+    [state.campaignId, state.marketerId],
+  );
 
   return (
     <div className="flex h-screen bg-black text-zinc-300 overflow-hidden fixed inset-0 z-[100]">
-      <aside className="w-80 bg-zinc-950 border-r border-zinc-900 flex flex-col shrink-0 hidden lg:flex">
-        <div className="flex-1 overflow-y-auto px-6 py-6 space-y-6">
+      <aside className="w-72 bg-zinc-950 border-r border-zinc-900 hidden lg:flex flex-col shrink-0">
+        <div className="p-6 space-y-4">
           {state.locked.campaign && state.campaignName && (
             <LockedFilterBadge label="Campaign" value={state.campaignName} />
           )}
           {state.locked.marketer && state.marketerName && (
             <LockedFilterBadge label="Marketer" value={state.marketerName} />
           )}
-          <p className="text-[9px] text-zinc-700 leading-relaxed">
-            Click a promotion to open Asset Analytics with Campaign + Marketer + Promotion locked.
-          </p>
         </div>
       </aside>
 
-      <div className="flex-1 flex flex-col h-full overflow-hidden bg-black relative">
-        <header className="bg-zinc-950 border-b border-zinc-900 px-8 shrink-0">
-          <div className="h-20 flex items-center justify-between gap-4">
-            <div className="flex items-center gap-6 min-w-0">
+      <div className="flex-1 flex flex-col h-full overflow-hidden">
+        <header className="bg-zinc-950 border-b border-zinc-900 px-6 shrink-0">
+          <div className="h-16 flex items-center justify-between gap-4">
+            <div className="flex items-center gap-4">
               <button
                 onClick={() => navigate(-1)}
-                className="p-3 bg-zinc-900 border border-zinc-800 rounded-2xl text-zinc-400 hover:text-white transition-all shrink-0"
+                className="p-2.5 bg-zinc-900 border border-zinc-800 rounded-xl text-zinc-400 hover:text-white"
               >
-                <ChevronLeft size={20} />
+                <ChevronLeft size={18} />
               </button>
-              <div className="min-w-0">
-                <h2 className="text-2xl font-black text-white uppercase tracking-tight">
+              <div>
+                <h2 className="text-lg font-black text-white uppercase tracking-tight">
                   Promotion Analytics
                 </h2>
-                <p className="text-[10px] text-zinc-600 font-bold uppercase tracking-widest mt-1">
-                  {state.marketerName
-                    ? `Promotions by ${state.marketerName}`
-                    : 'All promotions'}
+                <p className="text-[9px] text-zinc-600 font-bold uppercase tracking-widest">
+                  Hover to focus · Click to grow assets
                 </p>
               </div>
             </div>
-            <div className="px-4 py-2 bg-zinc-900/50 border border-zinc-900 rounded-xl shrink-0">
-              <span className="text-[10px] font-black uppercase tracking-widest text-zinc-600">
-                {rows.length} Promotions
-              </span>
+            {state.path.length > 0 && (
+              <button
+                onClick={clearAll}
+                className="flex items-center gap-1 px-3 py-1.5 rounded-lg border border-zinc-800 text-[9px] font-black uppercase tracking-widest text-zinc-500 hover:text-white"
+              >
+                <X size={12} /> Reset
+              </button>
+            )}
+          </div>
+          {breadcrumbs.length > 0 && (
+            <div className="pb-3 flex flex-wrap gap-1.5 items-center">
+              {breadcrumbs.map((b, i) => (
+                <React.Fragment key={i}>
+                  {i > 0 && <span className="text-zinc-700 text-[10px]">/</span>}
+                  <button
+                    type="button"
+                    onClick={() => goToPathIndex(b.index)}
+                    className={`text-[10px] font-black uppercase tracking-widest ${
+                      i === breadcrumbs.length - 1 ? 'text-white' : 'text-zinc-500 hover:text-zinc-300'
+                    }`}
+                  >
+                    {b.label}
+                  </button>
+                </React.Fragment>
+              ))}
             </div>
-          </div>
-          <div className="pb-4">
-            <AnalyticsBreadcrumb />
-          </div>
+          )}
         </header>
 
-        <div className="flex-1 overflow-x-auto custom-scrollbar">
-          <table className="min-w-full divide-y divide-zinc-900 border-collapse">
-            <thead className="bg-zinc-950 sticky top-0 z-20 shadow-xl">
-              <tr>
-                {(
-                  [
-                    { key: 'name' as SortKey, label: 'Promotion' },
-                    { key: 'campaignName' as SortKey, label: 'Campaign' },
-                    { key: 'marketerName' as SortKey, label: 'Marketer' },
-                    { key: 'clicks' as SortKey, label: 'Clicks' },
-                    { key: 'revenue' as SortKey, label: 'Revenue' },
-                    { key: 'purchases' as SortKey, label: 'Purchases' },
-                    { key: 'rpc' as SortKey, label: 'Revenue / Click' },
-                  ] as const
-                ).map(col => (
-                  <th
-                    key={col.key}
-                    onClick={() => handleSort(col.key)}
-                    className="px-6 py-5 text-left text-[10px] font-black uppercase tracking-widest text-zinc-600 border-b border-zinc-900 bg-zinc-950 cursor-pointer hover:text-zinc-300"
-                  >
-                    <div className="flex items-center gap-1.5">
-                      {col.label}
-                      <ArrowUpDown
-                        size={10}
-                        className={sortKey === col.key ? 'text-white' : 'text-zinc-700'}
+        <div className="flex-1 overflow-auto custom-scrollbar">
+          <AnalyticsDrillDownTable
+            columns={columns}
+            rows={rows}
+            expandedId={state.expandedRowId}
+            onRowClick={row => {
+              if (state.expandedRowId === row.id) collapseExpand();
+              else expandPromotion(row.id, row.name);
+            }}
+            renderExpand={row => {
+              const assets = getAssetsFor({
+                campaignId: state.campaignId ?? row.campaignId,
+                marketerId: state.marketerId ?? row.marketerId,
+                promotionId: row.id,
+              });
+              return (
+                <>
+                  <GrowNode label={row.name} sub="Selected promotion" accent="border-red-500/50" />
+                  <GrowConnector />
+                  {assets.slice(0, 5).map(a => (
+                    <React.Fragment key={a.id}>
+                      <GrowNode
+                        label={a.assetTitle}
+                        sub={`$${a.totalRevenue.toLocaleString()}`}
                       />
-                    </div>
-                  </th>
-                ))}
-              </tr>
-            </thead>
-            <tbody className="bg-black divide-y divide-zinc-900">
-              {rows.map(row => (
-                <tr
-                  key={row.id}
-                  onClick={() => openAssetAnalytics(row.id, row.name)}
-                  className="hover:bg-zinc-950 transition-colors group cursor-pointer"
-                >
-                  <td className="px-6 py-4 whitespace-nowrap">
-                    <div className="flex items-center gap-3">
-                      <div className="w-9 h-9 rounded-xl bg-zinc-900 border border-zinc-800 flex items-center justify-center">
-                        <Megaphone size={14} className="text-zinc-500" />
-                      </div>
-                      <span className="text-xs font-bold text-white">{row.name}</span>
-                    </div>
-                  </td>
-                  <td className="px-6 py-4 whitespace-nowrap text-sm font-bold text-zinc-400">
-                    {row.campaignName}
-                  </td>
-                  <td className="px-6 py-4 whitespace-nowrap text-sm font-bold text-zinc-400">
-                    {row.marketerName}
-                  </td>
-                  <td className="px-6 py-4 whitespace-nowrap text-sm font-bold text-zinc-400 tabular-nums">
-                    {row.clicks.toLocaleString()}
-                  </td>
-                  <td className="px-6 py-4 whitespace-nowrap text-sm font-bold text-zinc-400 tabular-nums">
-                    {money(row.revenue)}
-                  </td>
-                  <td className="px-6 py-4 whitespace-nowrap text-sm font-bold text-zinc-400 tabular-nums">
-                    {row.purchases}
-                  </td>
-                  <td className="px-6 py-4 whitespace-nowrap text-sm font-bold text-zinc-400 tabular-nums">
-                    ${row.rpc.toFixed(2)}
-                  </td>
-                </tr>
-              ))}
-              {rows.length === 0 && (
-                <tr>
-                  <td colSpan={7} className="px-6 py-16 text-center text-[10px] font-black uppercase tracking-widest text-zinc-600">
-                    No promotions in this scope
-                  </td>
-                </tr>
-              )}
-            </tbody>
-          </table>
+                      <GrowConnector />
+                    </React.Fragment>
+                  ))}
+                  <GrowNode
+                    label="Open Asset Analytics"
+                    sub="Full table"
+                    accent="border-red-500/50 hover:border-red-400"
+                    onClick={enterAssetAnalytics}
+                  />
+                </>
+              );
+            }}
+          />
         </div>
       </div>
     </div>
