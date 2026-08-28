@@ -876,3 +876,638 @@ Do not implement Promotion filtering "final" fixes, Asset grouping, or
 Shared/Assigned filters without first completing the corresponding
 investigation item above. Do not modify `+ Track New Content` without
 first tracing it per item F/8.
+
+
+
+Following i havent update to assetanalytic design yet, like its here, but its not in the right place,  we need to put it in the right place 
+
+# ASSET_ANALYTICS_DESIGN 5 — Update: Navigation, Date Range, Recently Added & Content Owner
+
+## 1. Asset / Video Navigation
+
+### Asset → AssetDetail
+
+**Confirmed route:**
+
+```text
+/assets/{asset_id}
+```
+
+From `Assets.tsx`, every asset row ultimately uses the real `asset_id` as its navigation ID:
+
+* "My" assets → `linkId = row.id`
+* "Shared" assets → `linkId = row.asset_id`
+
+Therefore, `AllAssetsAnalytics.tsx` should navigate directly to:
+
+```tsx
+navigate(`/assets/${row.asset.id}`)
+```
+
+### Video → VideoDetail
+
+**Confirmed route:**
+
+```text
+/videos/{video_id}
+```
+
+`Videos.tsx` already uses:
+
+```tsx
+<Link to={`/videos/${v.id}`}>
+```
+
+Therefore, `AllAssetsAnalytics.tsx` should navigate using:
+
+```tsx
+navigate(`/videos/${row.promoting_video.id}`)
+```
+
+### Implementation
+
+`AllAssetsAnalytics.tsx` already imports `useNavigate()`, so no additional router import is required.
+
+Make the **Asset** cell clickable:
+
+```tsx
+<div
+  className="flex items-center gap-3 cursor-pointer"
+  onClick={() => navigate(`/assets/${row.asset.id}`)}
+>
+```
+
+Make the **Content / Video** cell clickable:
+
+```tsx
+<div
+  className="flex items-center gap-3 cursor-pointer"
+  onClick={() => navigate(`/videos/${row.promoting_video.id}`)}
+>
+```
+
+### Design intent
+
+The analytics table should behave as a navigation surface:
+
+* Clicking an Asset → Asset Detail
+* Clicking the promoting Content / Video → Video Detail
+
+No new navigation architecture is needed.
+
+---
+
+# 2. Date Range — Investigation Result
+
+## Status: Wiring appears correct; engine/cache still needs verification
+
+`AllAssetsAnalytics.tsx` and `getAssetAnalyticsRows.ts` correctly pass the selected date range through the analytics pipeline.
+
+Current flow:
+
+```text
+Date Range UI
+    ↓
+dateRange / customRange
+    ↓
+getAssetAnalyticsRows()
+    ↓
+getDateBounds()
+    ↓
+startIso / endIso
+    ↓
+Events query
+    .gte(...)
+    .lte(...)
+    ↓
+Purchase filtering
+    inDateWindow(...)
+```
+
+Both event data and Stripe / pixel purchase data appear to respect the selected date window.
+
+Therefore, **do not patch `AllAssetsAnalytics.tsx` or `getAssetAnalyticsRows.ts` yet.**
+
+### Remaining investigation
+
+There are two remaining likely causes if the date selector still produces incorrect results:
+
+#### Candidate A — `getDateBounds()`
+
+Located in:
+
+```text
+assetAnalyticsEngine.ts
+```
+
+Need to inspect the actual function implementation and verify that:
+
+```text
+dateRange → correct start date
+dateRange → correct end date
+```
+
+are being calculated for every supported range.
+
+Potential bug example:
+
+```text
+UI changes date range
+        ↓
+getDateBounds()
+        ↓
+always returns the same date window
+```
+
+#### Candidate B — caching
+
+Potential cache files include:
+
+```text
+assetsPageCache.ts
+pageCache.ts
+```
+
+Need to verify whether `getAssetAnalyticsRows()` is called through a cache whose key does **not** include the selected date range.
+
+Potential bug:
+
+```text
+First request:
+campaign=A + dateRange=30d
+        ↓
+cache stores result
+
+User changes to:
+campaign=A + dateRange=7d
+        ↓
+same cache key
+        ↓
+old 30d result returned
+```
+
+### Required next investigation
+
+Inspect only:
+
+1. `getDateBounds()` from `assetAnalyticsEngine.ts`
+2. Whether `getAssetAnalyticsRows()` is wrapped by any caching layer
+3. Whether the cache key includes the date range
+
+Do not change the date-range implementation until this is confirmed.
+
+---
+
+# 3. Recently Added Sort
+
+## Goal
+
+Add a new sorting option:
+
+```text
+Recently Added
+```
+
+This should sort assets by:
+
+```text
+assets.created_at
+```
+
+rather than by an analytics metric.
+
+The sort should operate on the asset's actual creation timestamp.
+
+---
+
+## Required Data Flow
+
+The `created_at` value must travel through the entire asset-enrichment pipeline:
+
+```text
+assets.created_at
+        ↓
+Supabase select
+        ↓
+assetDisplay Map
+        ↓
+AssetIdentity
+        ↓
+row.asset.created_at
+        ↓
+Recently Added sorting
+```
+
+---
+
+## Patch A — Select `created_at`
+
+Find:
+
+```tsx
+'id, asset_type, videos(video_title, thumbnail_url, platform), asset_resources(title, thumbnail_url, platform, resource_type), campaign_element_assets(display_name, element_type)',
+```
+
+Change to:
+
+```tsx
+'id, asset_type, created_at, videos(video_title, thumbnail_url, platform), asset_resources(title, thumbnail_url, platform, resource_type), campaign_element_assets(display_name, element_type)',
+```
+
+---
+
+## Patch B — Preserve `created_at` in the asset enrichment map
+
+Existing:
+
+```tsx
+assetDisplay.set(row.id, {
+  title: v?.video_title ?? res?.title ?? el?.display_name ?? null,
+  thumbnail_url: thumbnailUrl,
+  platform: row.asset_type === 'campaign_element' ? null : (v?.platform ?? res?.platform ?? null),
+  asset_type: row.asset_type,
+});
+```
+
+Change to:
+
+```tsx
+assetDisplay.set(row.id, {
+  title: v?.video_title ?? res?.title ?? el?.display_name ?? null,
+  thumbnail_url: thumbnailUrl,
+  platform: row.asset_type === 'campaign_element' ? null : (v?.platform ?? res?.platform ?? null),
+  asset_type: row.asset_type,
+  created_at: row.created_at ?? null,
+});
+```
+
+Also update the corresponding Map type to include:
+
+```tsx
+created_at?: string | null;
+```
+
+---
+
+## Patch C — Add `created_at` to `AssetIdentity`
+
+Existing:
+
+```tsx
+interface AssetIdentity {
+  id:             string;
+  title:          string | undefined;
+  thumbnail_url?: string;
+  asset_type:     AssetTypeTag;
+  platform?:      string | null;
+}
+```
+
+Change to:
+
+```tsx
+interface AssetIdentity {
+  id:             string;
+  title:          string | undefined;
+  thumbnail_url?: string;
+  asset_type:     AssetTypeTag;
+  platform?:      string | null;
+  created_at?:    string | null;
+}
+```
+
+---
+
+## Patch D — Pass `created_at` into the row
+
+Existing:
+
+```tsx
+asset: {
+  id: r.asset_id,
+  title: a?.title ?? undefined,
+  thumbnail_url: a?.thumbnail_url ?? undefined,
+  asset_type: toAssetTypeTag(r.asset_type),
+  platform: a?.platform ?? null,
+},
+```
+
+Change to:
+
+```tsx
+asset: {
+  id: r.asset_id,
+  title: a?.title ?? undefined,
+  thumbnail_url: a?.thumbnail_url ?? undefined,
+  asset_type: toAssetTypeTag(r.asset_type),
+  platform: a?.platform ?? null,
+  created_at: a?.created_at ?? null,
+},
+```
+
+---
+
+## Patch E — Add date-aware sorting
+
+The existing sorting assumes every sort key is an analytics metric.
+
+That must change because:
+
+```text
+asset_created_at
+```
+
+is a date, not a metric.
+
+Replace the current `sortedRows` implementation with:
+
+```tsx
+const sortedRows = useMemo(() => {
+  const key = sortConfig.key;
+  const dir = sortConfig.direction === 'asc' ? 1 : -1;
+
+  if (key === 'asset_created_at') {
+    return [...promotionFilteredRows].sort((a, b) => {
+      const at = a.asset.created_at
+        ? new Date(a.asset.created_at).getTime()
+        : 0;
+
+      const bt = b.asset.created_at
+        ? new Date(b.asset.created_at).getTime()
+        : 0;
+
+      if (at === bt) return 0;
+
+      return at > bt ? dir : -dir;
+    });
+  }
+
+  return [...promotionFilteredRows].sort((a, b) => {
+    const av = Number(a.metrics[key as MetricType] ?? 0);
+    const bv = Number(b.metrics[key as MetricType] ?? 0);
+
+    if (av === bv) return 0;
+
+    return av > bv ? dir : -dir;
+  });
+}, [promotionFilteredRows, sortConfig]);
+```
+
+---
+
+## Patch F — Add the sorting option
+
+Existing:
+
+```tsx
+const SORT_SHORTCUTS: { label: string; key: string }[] = [
+  { label: 'Revenue', key: 'total_revenue' },
+```
+
+Change to:
+
+```tsx
+const SORT_SHORTCUTS: { label: string; key: string }[] = [
+  { label: 'Recently Added', key: 'asset_created_at' },
+  { label: 'Revenue', key: 'total_revenue' },
+```
+
+### Expected behavior
+
+When:
+
+```text
+Recently Added
+```
+
+is selected:
+
+* Descending → newest assets first
+* Ascending → oldest assets first
+
+Assets with missing `created_at` should sort as timestamp `0`, effectively placing them at the oldest end.
+
+---
+
+# 4. Content Owner
+
+## Status: Do NOT implement yet — ownership model confirmed, display source still needs investigation
+
+The current investigation found that `Videos.tsx` writes:
+
+```tsx
+user_id: user.id
+```
+
+when saving videos.
+
+This provides evidence that:
+
+```text
+videos.user_id = content creator / owner
+```
+
+However, this is currently confirmed only from the **write path**.
+
+We have not yet confirmed:
+
+1. How the existing UI displays a user's name from `user_id`
+2. Which table/profile contains the display name
+3. Whether the application already has a reusable user/member lookup
+4. Which existing page should be treated as the canonical implementation
+
+---
+
+# 5. Asset Owner vs Content Owner
+
+The existing architecture already distinguishes:
+
+```text
+Asset Ownership
+        ≠
+Shared Access
+```
+
+Therefore, the new analytics concept should preserve that distinction.
+
+For the Asset Analytics table:
+
+### Asset Owner
+
+Who owns the Asset itself.
+
+### Content Owner
+
+Who owns / created the promoting Video or Content.
+
+These should **not** automatically be treated as the same person.
+
+Example:
+
+```text
+Asset A
+Owner: Sam
+
+Video 1
+Content Owner: Sam
+
+Video 2
+Content Owner: Alex
+```
+
+Both videos can promote the same Asset while having different Content Owners.
+
+Therefore, **Content Owner must come from the promoting content/video**, not from the Asset ownership field.
+
+---
+
+# 6. Current AllAssetsAnalytics Scope
+
+Current investigation suggests that `getAssetAnalyticsRows.ts` is scoped primarily by:
+
+```text
+organization_id
+```
+
+and does not currently apply a:
+
+```text
+user_id
+```
+
+owner filter.
+
+This suggests that All Assets Analytics may currently include assets/content belonging to multiple members of the organization.
+
+However, this should be treated as **pending confirmation**, not yet a locked requirement.
+
+Before implementing the Content Owner filter, confirm the existing member/user display pattern.
+
+---
+
+# 7. Required Investigation Before Content Owner Implementation
+
+Find an existing page that already converts a `user_id` into a displayable member/user name.
+
+Likely candidates:
+
+```text
+pages/operator/Members.tsx
+```
+
+or:
+
+```text
+AssignmentDetail.tsx
+```
+
+The important thing to extract is only the relevant query/join pattern:
+
+```text
+user_id
+   ↓
+member/profile/user table
+   ↓
+display name / email
+```
+
+Once confirmed, reuse the same canonical pattern in Asset Analytics rather than creating a new user lookup architecture.
+
+---
+
+# 8. Implementation Order
+
+Do these in this order:
+
+### Step 1 — Navigation
+
+Implement:
+
+```text
+Asset → /assets/{asset_id}
+Video → /videos/{video_id}
+```
+
+This is fully confirmed and safe to implement.
+
+### Step 2 — Recently Added
+
+Implement:
+
+```text
+assets.created_at
+        ↓
+asset row
+        ↓
+Recently Added sort
+```
+
+This is fully traced and ready to patch.
+
+### Step 3 — Date Range
+
+Investigate:
+
+```text
+getDateBounds()
+```
+
+and:
+
+```text
+cache key / caching wrapper
+```
+
+Do not modify the date-range UI until the actual failure point is identified.
+
+### Step 4 — Content Owner
+
+First identify the existing:
+
+```text
+user_id → member/profile → display name
+```
+
+pattern.
+
+Then design:
+
+```text
+Content Owner column
++
+Content Owner filter
+```
+
+Only after the canonical member lookup is confirmed.
+
+---
+
+# 9. Current Status Summary
+
+| Item                         | Status                      | Action                   |
+| ---------------------------- | --------------------------- | ------------------------ |
+| Asset → AssetDetail          | ✅ Confirmed                 | Implement                |
+| Video → VideoDetail          | ✅ Confirmed                 | Implement                |
+| Date Range wiring            | ✅ Appears correct           | Investigate engine/cache |
+| `getDateBounds()`            | ⚠️ Not yet inspected        | Inspect                  |
+| Analytics caching            | ⚠️ Not yet confirmed        | Inspect                  |
+| Recently Added               | ✅ Fully designed            | Implement                |
+| `assets.created_at`          | ✅ Confirmed available       | Add to pipeline          |
+| Asset Owner vs Shared Access | ✅ Existing architecture     | Preserve                 |
+| Content Owner source         | ⚠️ Partially confirmed      | Investigate              |
+| Content Owner filter         | ⏸️ Pending                  | Do not implement yet     |
+| Multi-member analytics scope | ⚠️ Likely organization-wide | Confirm before changing  |
+
+## Core principle
+
+**Do not invent new architecture where the existing application already has a pattern.**
+
+For navigation, reuse the existing routes.
+
+For dates, trace the existing analytics pipeline before changing it.
+
+For Recently Added, reuse the existing sort system and add a date-specific branch.
+
+For Content Owner, reuse the application's existing `user_id → member/profile → display name` pattern.
+
+This keeps `AllAssetsAnalytics` consistent with the rest of the VSTRK application instead of creating isolated implementations.

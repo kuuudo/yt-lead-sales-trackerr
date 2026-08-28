@@ -196,6 +196,7 @@ interface PromotingVideoIdentity {
   title:          React.ReactNode | undefined;
   thumbnail_url?: string;
   platform?:      string | null;
+  created_at?:    string | null;
 }
 
 interface AssetAnalyticsRow {
@@ -386,16 +387,17 @@ function useAssetAnalyticsRows(opts: {
           });
         }
 
-        const videoDisplay = new Map<string, { title: React.ReactNode; thumbnail_url?: string; platform?: string | null }>();
-        for (const v of videosRes.data ?? []) {
-          videoDisplay.set(v.id, {
-            // Canonical helpers, same call signature InDepthAnalytics uses
-            // (resolveThumbnail(row.video) / renderContentIdentity(row.video)).
-            title: renderContentIdentity(v),
-            thumbnail_url: resolveThumbnail(v),
-            platform: v.platform ?? null,
-          });
-        }
+    const videoDisplay = new Map<string, { title: React.ReactNode; thumbnail_url?: string; platform?: string | null; created_at?: string | null }>();
+    for (const v of videosRes.data ?? []) {
+      videoDisplay.set(v.id, {
+        // Canonical helpers, same call signature InDepthAnalytics uses
+        // (resolveThumbnail(row.video) / renderContentIdentity(row.video)).
+        title: renderContentIdentity(v),
+        thumbnail_url: resolveThumbnail(v),
+        platform: v.platform ?? null,
+        created_at: v.created_at ?? null,
+      });
+    }
 
         const mapped: AssetAnalyticsRow[] = result.rows.map((r) => {
           const a = assetDisplay.get(r.asset_id);
@@ -414,6 +416,7 @@ function useAssetAnalyticsRows(opts: {
               title: v?.title ?? undefined,
               thumbnail_url: v?.thumbnail_url ?? undefined,
               platform: v?.platform ?? null,
+              created_at: v?.created_at ?? null,
             },
             campaign_id: r.campaignIds?.[0] ?? null,
             promotion_id: r.promotionIds?.[0] ?? null,
@@ -602,8 +605,8 @@ export default function AllAssetsAnalytics() {
     const dir = sortConfig.direction === 'asc' ? 1 : -1;
     if (key === 'asset_created_at') {
       return [...promotionFilteredRows].sort((a, b) => {
-        const at = a.asset.created_at ? new Date(a.asset.created_at).getTime() : 0;
-        const bt = b.asset.created_at ? new Date(b.asset.created_at).getTime() : 0;
+        const at = a.promoting_video.created_at ? new Date(a.promoting_video.created_at).getTime() : 0;
+        const bt = b.promoting_video.created_at ? new Date(b.promoting_video.created_at).getTime() : 0;
         if (at === bt) return 0;
         return at > bt ? dir : -dir;
       });
