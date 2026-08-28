@@ -186,6 +186,7 @@ interface AssetIdentity {
   title:          string | undefined;
   thumbnail_url?: string;
   asset_type:     AssetTypeTag;
+  platform?:      string | null;
 }
 
 interface PromotingVideoIdentity {
@@ -331,8 +332,13 @@ function useAssetAnalyticsRows(opts: {
         ]);
 
         const assetDisplay = new Map<
-          string,
-          { title?: string | null; thumbnail_url?: string | null; asset_type?: string }
+        string,
+        {
+          title?: string | null;
+          thumbnail_url?: string | null;
+          asset_type?: string;
+          platform?: string | null;
+        }
         >();
         for (const row of libraryRes.data ?? []) {
           const v = Array.isArray(row.videos) ? row.videos[0] : row.videos;
@@ -359,7 +365,8 @@ function useAssetAnalyticsRows(opts: {
               resource_type: (res?.resource_type ?? 'other') as ResourceType,
               platform: res?.platform ?? null,
             });
-            // Type 2 — video asset. Now uses resolveThumbnail() for the
+          } else {
+            // Type 2 — video asset. Uses resolveThumbnail() for the
             // same platform-image fallback the Content column already gets.
             thumbnailUrl = resolveThumbnail({
               thumbnail_url: v?.thumbnail_url ?? res?.thumbnail_url ?? null,
@@ -395,6 +402,7 @@ function useAssetAnalyticsRows(opts: {
               title: a?.title ?? undefined,
               thumbnail_url: a?.thumbnail_url ?? undefined,
               asset_type: toAssetTypeTag(r.asset_type),
+              platform: a?.platform ?? null,
             },
             promoting_video: {
               id: r.video_id,
