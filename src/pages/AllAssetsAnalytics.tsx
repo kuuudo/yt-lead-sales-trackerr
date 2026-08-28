@@ -76,7 +76,7 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Campaign, supabase } from '../lib/supabase';
-
+import { useAuth } from '../lib/auth';
 import {
   TABLE_COLUMNS,
   COLUMN_LABELS,
@@ -427,16 +427,66 @@ function useAssetAnalyticsRows(opts: {
 
 
 function useCampaignOptions(): Campaign[] {
-  // TODO(wiring phase): supabase.from('campaigns').select('*')...
-  return [];
+  // Same query InDepthAnalytics.tsx already uses — no new scope invented.
+  const { user } = useAuth();
+  const [campaigns, setCampaigns] = useState<Campaign[]>([]);
+
+  useEffect(() => {
+    if (!user?.id) return;
+    let cancelled = false;
+    supabase
+      .from('campaigns')
+      .select('*')
+      .eq('user_id', user.id)
+      .then(({ data }) => {
+        if (!cancelled) setCampaigns(data ?? []);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [user?.id]);
+
+  return campaigns;
 }
 
-function usePromotionOptions(): PromotionOption[] {
-  // TODO(wiring phase): supabase.from('promotions').select('id, promotion_name')...
-  // Ownership boundary for this list is itself an open question — see
-  // ASSET_ANALYTICS_DESIGN.md §3 "Ownership" (Top Promotions concern applies
-  // here too: don't scope by organization_id alone).
-  return [];
+function usePromotionOptions(rows: AssetAnalyticsRow[]): PromotionOption[] {
+  // Ownership boundary intentionally NOT decided here — see
+  // ASSET_ANALYTICS_DESIGN 3.md §3 "Ownership". Rather than guess a scope
+  // (organization_id alone is explicitly flagged there as wrong for
+  // Promotions), this derives options ONLY from promotion_ids already
+  // present in `rows` — i.e. whatever scope getAssetAnalyticsRows already
+  // enforced upstream. This never widens visibility beyond what's already
+  // on screen; it only attaches a display name to ids already there.
+  const [names, setNames] = useState<Map<string, string>>(new Map());
+
+  const presentPromotionIds = useMemo(() => {
+    const seen = new Set<string>();
+    rows.forEach(r => {
+      if (r.promotion_id) seen.add(r.promotion_id);
+    });
+    return Array.from(seen);
+  }, [rows]);
+
+  useEffect(() => {
+    if (presentPromotionIds.length === 0) {
+      setNames(new Map());
+      return;
+    }
+    let cancelled = false;
+    supabase
+      .from('promotions')
+      .select('id, promotion_name')
+      .in('id', presentPromotionIds)
+      .then(({ data }) => {
+        if (cancelled) return;
+        setNames(new Map((data ?? []).map((p: any) => [p.id, p.promotion_name as string])));
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [presentPromotionIds.join(',')]);
+
+  return presentPromotionIds.map(id => ({ id, name: names.get(id) ?? id }));
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -465,7 +515,7 @@ export default function AllAssetsAnalytics() {
     activeSource,
   });
   const campaigns  = useCampaignOptions();
-  const promotions = usePromotionOptions();
+  const promotions = usePromotionOptions(rows);
 
   // ── Columns dropdown state ──────────────────────────────────────────────
   const [visibleColumns, setVisibleColumns] = useState<Set<string>>(new Set(DEFAULT_VISIBLE));
@@ -515,16 +565,32 @@ export default function AllAssetsAnalytics() {
     return Array.from(seen).sort();
   }, [rows]);
 
+  // ── Campaign filter — real filter now. row.campaign_id was already
+  // being populated by the identity-enrichment layer (r.campaignIds?.[0]);
+  // it was computed but never consumed until this edit.
+  const campaignFilteredRows = useMemo(() => {
+    if (selectedCampaignId === 'all') return platformFilteredRows;
+    return platformFilteredRows.filter(row => row.campaign_id === selectedCampaignId);
+  }, [platformFilteredRows, selectedCampaignId]);
+
+  // ── Promotion filter — same shape as Campaign. See usePromotionOptions()
+  // above for why the OPTIONS list is scope-conservative; the filter
+  // itself is just an equality check on data already on each row.
+  const promotionFilteredRows = useMemo(() => {
+    if (selectedPromotionId === 'all') return campaignFilteredRows;
+    return campaignFilteredRows.filter(row => row.promotion_id === selectedPromotionId);
+  }, [campaignFilteredRows, selectedPromotionId]);
+
   const sortedRows = useMemo(() => {
     const key = sortConfig.key;
     const dir = sortConfig.direction === 'asc' ? 1 : -1;
-    return [...platformFilteredRows].sort((a, b) => {
+    return [...promotionFilteredRows].sort((a, b) => {
       const av = Number(a.metrics[key as MetricType] ?? 0);
       const bv = Number(b.metrics[key as MetricType] ?? 0);
       if (av === bv) return 0;
       return av > bv ? dir : -dir;
     });
-  }, [platformFilteredRows, sortConfig]);
+  }, [promotionFilteredRows, sortConfig]);
 
   const colSpan = 4 + TABLE_COLUMNS.length + 1; // Asset + Content + Type + Asset Clicks + metrics + trailing spacer
 
