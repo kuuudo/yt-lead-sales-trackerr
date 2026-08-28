@@ -1062,103 +1062,100 @@ Do not change the date-range implementation until this is confirmed.
 
 ## Goal
 
+# 3. Recently Added Sort
+
+## Goal
+
 Add a new sorting option:
 
 ```text
 Recently Added
 ```
 
-This should sort assets by:
+**Important:** In the Asset Analytics table, rows are represented at the **Asset × Promoting Video** grain.
+
+Therefore, `Recently Added` should sort by the **promoting video's creation timestamp**:
+
+```text
+videos.created_at
+```
+
+rather than:
 
 ```text
 assets.created_at
 ```
 
-rather than by an analytics metric.
+This means the sort answers:
 
-The sort should operate on the asset's actual creation timestamp.
+> "Which promoting content was added most recently?"
+
+rather than:
+
+> "Which underlying asset was added most recently?"
+
+This distinction is important because the same Asset can be promoted by multiple Videos.
+
+Example:
+
+```text
+Asset A
+├── Video 1 — created January
+└── Video 2 — created August
+
+Asset B
+└── Video 3 — created March
+```
+
+With `Recently Added` descending, the expected order is:
+
+```text
+Asset A — Video 2 — August
+Asset B — Video 3 — March
+Asset A — Video 1 — January
+```
+
+The row grain remains unchanged. **Do not aggregate the rows by Asset.**
 
 ---
 
 ## Required Data Flow
 
-The `created_at` value must travel through the entire asset-enrichment pipeline:
+The `created_at` value must travel through the promoting-video enrichment pipeline:
 
 ```text
-assets.created_at
+videos.created_at
         ↓
-Supabase select
+videosRes
         ↓
-assetDisplay Map
+videoDisplay Map
         ↓
-AssetIdentity
+PromotingVideoIdentity
         ↓
-row.asset.created_at
+row.promoting_video.created_at
         ↓
 Recently Added sorting
 ```
 
----
-
-## Patch A — Select `created_at`
-
-Find:
+No new database query is required because the existing `videosRes` query already uses:
 
 ```tsx
-'id, asset_type, videos(video_title, thumbnail_url, platform), asset_resources(title, thumbnail_url, platform, resource_type), campaign_element_assets(display_name, element_type)',
+select('*')
 ```
 
-Change to:
-
-```tsx
-'id, asset_type, created_at, videos(video_title, thumbnail_url, platform), asset_resources(title, thumbnail_url, platform, resource_type), campaign_element_assets(display_name, element_type)',
-```
+Therefore `v.created_at` is already available in memory.
 
 ---
 
-## Patch B — Preserve `created_at` in the asset enrichment map
+## Patch A — Add `created_at` to `PromotingVideoIdentity`
 
 Existing:
 
 ```tsx
-assetDisplay.set(row.id, {
-  title: v?.video_title ?? res?.title ?? el?.display_name ?? null,
-  thumbnail_url: thumbnailUrl,
-  platform: row.asset_type === 'campaign_element' ? null : (v?.platform ?? res?.platform ?? null),
-  asset_type: row.asset_type,
-});
-```
-
-Change to:
-
-```tsx
-assetDisplay.set(row.id, {
-  title: v?.video_title ?? res?.title ?? el?.display_name ?? null,
-  thumbnail_url: thumbnailUrl,
-  platform: row.asset_type === 'campaign_element' ? null : (v?.platform ?? res?.platform ?? null),
-  asset_type: row.asset_type,
-  created_at: row.created_at ?? null,
-});
-```
-
-Also update the corresponding Map type to include:
-
-```tsx
-created_at?: string | null;
-```
-
----
-
-## Patch C — Add `created_at` to `AssetIdentity`
-
-Existing:
-
-```tsx
-interface AssetIdentity {
+interface PromotingVideoIdentity {
   id:             string;
-  title:          string | undefined;
+  title:          React.ReactNode | undefined;
   thumbnail_url?: string;
-  asset_type:     AssetTypeTag;
   platform?:      string | null;
 }
 ```
@@ -1166,11 +1163,10 @@ interface AssetIdentity {
 Change to:
 
 ```tsx
-interface AssetIdentity {
+interface PromotingVideoIdentity {
   id:             string;
-  title:          string | undefined;
+  title:          React.ReactNode | undefined;
   thumbnail_url?: string;
-  asset_type:     AssetTypeTag;
   platform?:      string | null;
   created_at?:    string | null;
 }
@@ -1178,101 +1174,143 @@ interface AssetIdentity {
 
 ---
 
-## Patch D — Pass `created_at` into the row
+## Patch B — Preserve `created_at` in `videoDisplay`
 
 Existing:
 
 ```tsx
-asset: {
-  id: r.asset_id,
-  title: a?.title ?? undefined,
-  thumbnail_url: a?.thumbnail_url ?? undefined,
-  asset_type: toAssetTypeTag(r.asset_type),
-  platform: a?.platform ?? null,
+const videoDisplay = new Map<string, { title: React.ReactNode; thumbnail_url?: string; platform?: string | null }>();
+
+for (const v of videosRes.data ?? []) {
+  videoDisplay.set(v.id, {
+    // Canonical helpers, same call signature InDepthAnalytics uses
+    // (resolveThumbnail(row.video) / renderContentIdentity(row.video)).
+    title: renderContentIdentity(v),
+    thumbnail_url: resolveThumbnail(v),
+    platform: v.platform ?? null,
+  });
+}
+```
+
+Change to:
+
+```tsx
+const videoDisplay = new Map<string, {
+  title: React.ReactNode;
+  thumbnail_url?: string;
+  platform?: string | null;
+  created_at?: string | null;
+}>();
+
+for (const v of videosRes.data ?? []) {
+  videoDisplay.set(v.id, {
+    // Canonical helpers, same call signature InDepthAnalytics uses
+    // (resolveThumbnail(row.video) / renderContentIdentity(row.video)).
+    title: renderContentIdentity(v),
+    thumbnail_url: resolveThumbnail(v),
+    platform: v.platform ?? null,
+    created_at: v.created_at ?? null,
+  });
+}
+```
+
+No additional query is needed.
+
+---
+
+## Patch C — Pass `created_at` into the row
+
+Existing:
+
+```tsx
+promoting_video: {
+  id: r.video_id,
+  title: v?.title ?? undefined,
+  thumbnail_url: v?.thumbnail_url ?? undefined,
+  platform: v?.platform ?? null,
 },
 ```
 
 Change to:
 
 ```tsx
-asset: {
-  id: r.asset_id,
-  title: a?.title ?? undefined,
-  thumbnail_url: a?.thumbnail_url ?? undefined,
-  asset_type: toAssetTypeTag(r.asset_type),
-  platform: a?.platform ?? null,
-  created_at: a?.created_at ?? null,
+promoting_video: {
+  id: r.video_id,
+  title: v?.title ?? undefined,
+  thumbnail_url: v?.thumbnail_url ?? undefined,
+  platform: v?.platform ?? null,
+  created_at: v?.created_at ?? null,
 },
 ```
 
----
-
-## Patch E — Add date-aware sorting
-
-The existing sorting assumes every sort key is an analytics metric.
-
-That must change because:
+This completes the data flow:
 
 ```text
-asset_created_at
-```
-
-is a date, not a metric.
-
-Replace the current `sortedRows` implementation with:
-
-```tsx
-const sortedRows = useMemo(() => {
-  const key = sortConfig.key;
-  const dir = sortConfig.direction === 'asc' ? 1 : -1;
-
-  if (key === 'asset_created_at') {
-    return [...promotionFilteredRows].sort((a, b) => {
-      const at = a.asset.created_at
-        ? new Date(a.asset.created_at).getTime()
-        : 0;
-
-      const bt = b.asset.created_at
-        ? new Date(b.asset.created_at).getTime()
-        : 0;
-
-      if (at === bt) return 0;
-
-      return at > bt ? dir : -dir;
-    });
-  }
-
-  return [...promotionFilteredRows].sort((a, b) => {
-    const av = Number(a.metrics[key as MetricType] ?? 0);
-    const bv = Number(b.metrics[key as MetricType] ?? 0);
-
-    if (av === bv) return 0;
-
-    return av > bv ? dir : -dir;
-  });
-}, [promotionFilteredRows, sortConfig]);
+videos.created_at
+    ↓
+videoDisplay
+    ↓
+promoting_video
+    ↓
+row.promoting_video.created_at
 ```
 
 ---
 
-## Patch F — Add the sorting option
+## Patch D — Keep the existing sort key
+
+The existing shortcut:
+
+```tsx
+{ label: 'Recently Added', key: 'asset_created_at' }
+```
+
+can remain unchanged.
+
+The key is already used by the sort system. Its implementation simply changes from using the Asset timestamp to the Promoting Video timestamp.
+
+Therefore **do not rename the sort key** unless there is a separate reason to do so.
+
+---
+
+## Patch E — Fix the date-aware comparator
 
 Existing:
 
 ```tsx
-const SORT_SHORTCUTS: { label: string; key: string }[] = [
-  { label: 'Revenue', key: 'total_revenue' },
+if (key === 'asset_created_at') {
+  return [...promotionFilteredRows].sort((a, b) => {
+    const at = a.asset.created_at ? new Date(a.asset.created_at).getTime() : 0;
+    const bt = b.asset.created_at ? new Date(b.asset.created_at).getTime() : 0;
+    if (at === bt) return 0;
+    return at > bt ? dir : -dir;
+  });
+}
 ```
 
 Change to:
 
 ```tsx
-const SORT_SHORTCUTS: { label: string; key: string }[] = [
-  { label: 'Recently Added', key: 'asset_created_at' },
-  { label: 'Revenue', key: 'total_revenue' },
+if (key === 'asset_created_at') {
+  return [...promotionFilteredRows].sort((a, b) => {
+    const at = a.promoting_video.created_at
+      ? new Date(a.promoting_video.created_at).getTime()
+      : 0;
+    const bt = b.promoting_video.created_at
+      ? new Date(b.promoting_video.created_at).getTime()
+      : 0;
+
+    if (at === bt) return 0;
+    return at > bt ? dir : -dir;
+  });
+}
 ```
 
-### Expected behavior
+The normal metric sorting branch remains untouched.
+
+---
+
+## Expected behavior
 
 When:
 
@@ -1282,10 +1320,63 @@ Recently Added
 
 is selected:
 
-* Descending → newest assets first
-* Ascending → oldest assets first
+### Descending
 
-Assets with missing `created_at` should sort as timestamp `0`, effectively placing them at the oldest end.
+Newest promoting videos first:
+
+```text
+August video
+June video
+March video
+January video
+```
+
+### Ascending
+
+Oldest promoting videos first:
+
+```text
+January video
+March video
+June video
+August video
+```
+
+Rows without `videos.created_at` use timestamp `0` and therefore fall to the oldest end when sorting descending.
+
+---
+
+## Important distinction
+
+Do **not** add `assets.created_at` to this particular Recently Added pipeline unless another feature specifically needs the Asset's own creation date.
+
+There are now two different concepts:
+
+```text
+Asset created_at
+    = when the reusable Asset entered the asset library
+
+Video created_at
+    = when the promoting Content/Video was created
+```
+
+For this Asset Analytics table's `Recently Added` shortcut, use:
+
+```text
+videos.created_at
+```
+
+because the table's row grain is:
+
+```text
+Asset × Promoting Video
+```
+
+and not simply:
+
+```text
+Asset
+```
 
 ---
 

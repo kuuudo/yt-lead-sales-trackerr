@@ -524,7 +524,7 @@ export default function AllAssetsAnalytics() {
   const [selectedPlatforms, setSelectedPlatforms] = useState<string[]>([]);
   const [selectedAssetTypes, setSelectedAssetTypes] = useState<AssetTypeTag[]>([]);
   const [sortConfig, setSortConfig] = useState<{ key: string; direction: 'asc' | 'desc' }>({
-    key: 'total_revenue',
+    key: 'asset_created_at',
     direction: 'desc',
   });
 
