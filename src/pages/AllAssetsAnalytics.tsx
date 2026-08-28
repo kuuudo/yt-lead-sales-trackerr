@@ -100,7 +100,7 @@ import {
 
 import {
   ChevronLeft, Filter, Columns, ChevronDown, ArrowUpDown, Boxes,
-  Calendar, Briefcase, Megaphone, Check,
+  Calendar, Briefcase, Megaphone, Check, User,
 } from 'lucide-react';
 
 import {
@@ -197,6 +197,7 @@ interface PromotingVideoIdentity {
   thumbnail_url?: string;
   platform?:      string | null;
   created_at?:    string | null;
+  content_owner_id?: string | null;
   content_owner_name?: string | null;
 }
 
@@ -402,7 +403,7 @@ function useAssetAnalyticsRows(opts: {
           });
         }
 
-    const videoDisplay = new Map<string, { title: React.ReactNode; thumbnail_url?: string; platform?: string | null; created_at?: string | null; content_owner_name?: string | null }>();
+    const videoDisplay = new Map<string, { title: React.ReactNode; thumbnail_url?: string; platform?: string | null; created_at?: string | null; content_owner_id?: string | null; content_owner_name?: string | null }>();
     for (const v of videosRes.data ?? []) {
       const ownerProfile = v.user_id ? profileByUserId.get(v.user_id) : null;
       videoDisplay.set(v.id, {
@@ -412,6 +413,7 @@ function useAssetAnalyticsRows(opts: {
         thumbnail_url: resolveThumbnail(v),
         platform: v.platform ?? null,
         created_at: v.created_at ?? null,
+        content_owner_id: v.user_id ?? null,
         content_owner_name: ownerProfile?.full_name?.trim() || ownerProfile?.email || null,
       });
     }
@@ -434,6 +436,7 @@ function useAssetAnalyticsRows(opts: {
               thumbnail_url: v?.thumbnail_url ?? undefined,
               platform: v?.platform ?? null,
               created_at: v?.created_at ?? null,
+              content_owner_id: v?.content_owner_id ?? null,
               content_owner_name: v?.content_owner_name ?? null,
             },
             campaign_id: r.campaignIds?.[0] ?? null,
@@ -538,6 +541,7 @@ export default function AllAssetsAnalytics() {
   const [customRange, setCustomRange]     = useState<CustomDateRange | null>(null);
   const [selectedCampaignId, setSelectedCampaignId]   = useState<string>('all');
   const [selectedPromotionId, setSelectedPromotionId] = useState<string>('all');
+  const [selectedContentOwnerId, setSelectedContentOwnerId] = useState<string>('all');
   const [activeSource, setActiveSource]   = useState<RevenueView>('total');
   const [selectedPlatforms, setSelectedPlatforms] = useState<string[]>([]);
   const [selectedAssetTypes, setSelectedAssetTypes] = useState<AssetTypeTag[]>([]);
@@ -553,6 +557,25 @@ export default function AllAssetsAnalytics() {
   });
   const campaigns  = useCampaignOptions();
   const promotions = usePromotionOptions(rows);
+
+  // Content Marketer options — derived from rows already on screen, same
+  // conservative approach usePromotionOptions() uses. Keyed by
+  // content_owner_id (videos.user_id), never by display name, so two
+  // people sharing a name can't collide and a later name change can't
+  // break the filter.
+  const contentOwners = useMemo(() => {
+    const byId = new Map<string, string>();
+    rows.forEach(row => {
+      const id = row.promoting_video.content_owner_id;
+      if (!id) return;
+      if (!byId.has(id)) {
+        byId.set(id, row.promoting_video.content_owner_name || 'Unknown');
+      }
+    });
+    return Array.from(byId.entries())
+      .map(([id, name]) => ({ id, name }))
+      .sort((a, b) => a.name.localeCompare(b.name));
+  }, [rows]);
 
   // ── Columns dropdown state ──────────────────────────────────────────────
   const [visibleColumns, setVisibleColumns] = useState<Set<string>>(new Set(DEFAULT_VISIBLE));
@@ -618,26 +641,35 @@ export default function AllAssetsAnalytics() {
     return campaignFilteredRows.filter(row => row.promotion_id === selectedPromotionId);
   }, [campaignFilteredRows, selectedPromotionId]);
 
+  // ── Content Marketer filter — operates on videos.user_id via
+  // content_owner_id, never on the display name. Chained last, right
+  // before sort, so Recently Added / metric sorts always run on the
+  // fully-filtered set.
+  const contentOwnerFilteredRows = useMemo(() => {
+    if (selectedContentOwnerId === 'all') return promotionFilteredRows;
+    return promotionFilteredRows.filter(row => row.promoting_video.content_owner_id === selectedContentOwnerId);
+  }, [promotionFilteredRows, selectedContentOwnerId]);
+
   const sortedRows = useMemo(() => {
     const key = sortConfig.key;
     const dir = sortConfig.direction === 'asc' ? 1 : -1;
     if (key === 'asset_created_at') {
-      return [...promotionFilteredRows].sort((a, b) => {
+      return [...contentOwnerFilteredRows].sort((a, b) => {
         const at = a.promoting_video.created_at ? new Date(a.promoting_video.created_at).getTime() : 0;
         const bt = b.promoting_video.created_at ? new Date(b.promoting_video.created_at).getTime() : 0;
         if (at === bt) return 0;
         return at > bt ? dir : -dir;
       });
     }
-    return [...promotionFilteredRows].sort((a, b) => {
+    return [...contentOwnerFilteredRows].sort((a, b) => {
       const av = Number(a.metrics[key as MetricType] ?? 0);
       const bv = Number(b.metrics[key as MetricType] ?? 0);
       if (av === bv) return 0;
       return av > bv ? dir : -dir;
     });
-  }, [promotionFilteredRows, sortConfig]);
+  }, [contentOwnerFilteredRows, sortConfig]);
 
-  const colSpan = 5 + TABLE_COLUMNS.length + 1; // Asset + Type + Content + Content Owner + Asset Clicks + metrics + trailing spacer
+  const colSpan = 6 + TABLE_COLUMNS.length + 1; // Asset + Type + Content + Content Owner + Asset Clicks + Total Revenue (dup) + metrics + trailing spacer
 
   return (
     <div className="flex h-screen bg-black text-zinc-300 overflow-hidden fixed inset-0 z-[100]">
@@ -751,6 +783,28 @@ export default function AllAssetsAnalytics() {
                 ))}
               </select>
               <Megaphone size={12} className="absolute right-4 top-1/2 -translate-y-1/2 text-zinc-600 pointer-events-none" />
+            </div>
+          </div>
+
+          {/* Content Marketer — filters by videos.user_id (content_owner_id),
+              never by display name. Same identity resolved for the
+              Content Owner column. */}
+          <div>
+            <label className="text-[10px] font-black uppercase tracking-widest text-zinc-500 mb-3 block">
+              Content Marketer
+            </label>
+            <div className="relative">
+              <select
+                value={selectedContentOwnerId}
+                onChange={e => setSelectedContentOwnerId(e.target.value)}
+                className="w-full bg-zinc-900 border border-zinc-800 rounded-xl px-4 py-2.5 text-[10px] font-bold uppercase tracking-widest outline-none focus:border-red-600 appearance-none cursor-pointer truncate pr-10"
+              >
+                <option value="all">All Content Marketers</option>
+                {contentOwners.map(o => (
+                  <option key={o.id} value={o.id}>{o.name}</option>
+                ))}
+              </select>
+              <User size={12} className="absolute right-4 top-1/2 -translate-y-1/2 text-zinc-600 pointer-events-none" />
             </div>
           </div>
 
@@ -1024,6 +1078,14 @@ export default function AllAssetsAnalytics() {
                     Asset Clicks
                   </th>
 
+                  {/* ── Total Revenue ($) — presentation duplicate of the
+                      existing engine total_revenue column, pulled forward
+                      next to Asset Clicks. Same metric, same label source,
+                      no new calculation. ─────────────────────────────────── */}
+                  <th className="px-6 py-5 text-left text-[10px] font-black uppercase tracking-widest text-zinc-600 border-b border-zinc-900 bg-zinc-950 whitespace-nowrap">
+                    {COLUMN_LABELS['total_revenue' as MetricType]}
+                  </th>
+
                   {/* ── Engine metric columns — identical to InDepthAnalytics ── */}
                   {TABLE_COLUMNS.filter(key => visibleColumns.has(key)).map(key => (
                     <th
@@ -1165,6 +1227,12 @@ export default function AllAssetsAnalytics() {
                     {/* ── Asset Clicks cell ───────────────────────────────── */}
                     <td className="px-6 py-4 whitespace-nowrap text-sm font-bold text-zinc-400 tabular-nums">
                       {row.asset_clicks ?? '—'}
+                    </td>
+
+                    {/* ── Total Revenue ($) — duplicate presentation cell,
+                        same value as the engine total_revenue column below. */}
+                    <td className="px-6 py-4 whitespace-nowrap text-sm font-bold text-zinc-400 tabular-nums">
+                      {row.metrics['total_revenue' as MetricType] ?? 0}
                     </td>
 
                     {/* ── Engine metric cells ─────────────────────────────── */}
