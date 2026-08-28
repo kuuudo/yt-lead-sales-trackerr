@@ -983,14 +983,14 @@ export default function AllAssetsAnalytics() {
                     Asset
                   </th>
 
-                  {/* ── Content column — the promoting video ──────────────── */}
-                  <th className="px-6 py-5 text-left text-[10px] font-black uppercase tracking-widest text-zinc-600 border-b border-zinc-900 bg-zinc-950 min-w-[260px]">
-                    Content
-                  </th>
-
                   {/* ── Asset type badge column ────────────────────────────── */}
                   <th className="px-6 py-5 text-left text-[10px] font-black uppercase tracking-widest text-zinc-600 border-b border-zinc-900 bg-zinc-950 min-w-[140px]">
                     Type
+                  </th>
+
+                  {/* ── Content column — the promoting video ──────────────── */}
+                  <th className="px-6 py-5 text-left text-[10px] font-black uppercase tracking-widest text-zinc-600 border-b border-zinc-900 bg-zinc-950 min-w-[260px]">
+                    Promoting Content
                   </th>
 
                   {/* ── Asset Clicks — placeholder, see header comment ─────── */}
@@ -1096,6 +1096,15 @@ export default function AllAssetsAnalytics() {
                       </div>
                     </td>
 
+                    {/* ── Asset type badge cell ───────────────────────────── */}
+                    <td className="px-6 py-4 whitespace-nowrap">
+                      <span
+                        className={`inline-flex items-center px-2 py-1 rounded-full border text-[8px] font-black uppercase tracking-widest ${ASSET_TYPE_COLORS[row.asset.asset_type]}`}
+                      >
+                        {ASSET_TYPE_LABELS[row.asset.asset_type]}
+                      </span>
+                    </td>
+
                     {/* ── Content cell — the promoting video ──────────────── */}
                     <td className="px-6 py-4 whitespace-nowrap">
                       <div
@@ -1123,15 +1132,6 @@ export default function AllAssetsAnalytics() {
                           </div>
                         </div>
                       </div>
-                    </td>
-
-                    {/* ── Asset type badge cell ───────────────────────────── */}
-                    <td className="px-6 py-4 whitespace-nowrap">
-                      <span
-                        className={`inline-flex items-center px-2 py-1 rounded-full border text-[8px] font-black uppercase tracking-widest ${ASSET_TYPE_COLORS[row.asset.asset_type]}`}
-                      >
-                        {ASSET_TYPE_LABELS[row.asset.asset_type]}
-                      </span>
                     </td>
 
                     {/* ── Asset Clicks cell ───────────────────────────────── */}
