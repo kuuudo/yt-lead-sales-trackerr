@@ -24,3 +24,14 @@
     @apply text-3xl font-bold tracking-tighter text-white;
   }
 }
+
+@keyframes analyticsGrowIn {
+  from {
+    opacity: 0;
+    transform: translateX(-8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(0);
+  }
+}
