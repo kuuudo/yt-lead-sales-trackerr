@@ -18,6 +18,7 @@ import MobileRankingsButton from './components/MobileRankingsButton';
 import OnboardingOverlay from './components/onboarding/OnboardingOverlay';
 import LeaveTestimonialModal from './components/testimonial/LeaveTestimonialModal';
 import Auth from './pages/Auth';
+import { DrillDownProvider } from './lib/DrillDownContext';
 import Dashboard from './pages/Dashboard';
 import Campaigns from './pages/Campaigns';
 import Videos from './pages/Videos';
@@ -583,24 +584,27 @@ function PageWrapper({ children }: { children: React.ReactNode }) {
   );
 }
 
-export default function App() { 
-  return ( 
-    <Router> 
-      <AuthProvider> 
-        <ViewingProvider> 
-          <OnboardingOverlayProvider> 
+export default function App() {
+  return (
+    <Router>
+      <AuthProvider>
+        <ViewingProvider>
+          <OnboardingOverlayProvider>
             <TutorialProvider>
-              <div className="min-h-screen bg-zinc-950 text-zinc-100 selection:bg-red-500/30 selection:text-white font-sans antialiased"> 
-                <Navigation /> 
-                <ViewingBanner /> 
-                <MainContent /> 
-                <OnboardingOverlay />
-                <TutorialRunner />
-              </div> 
+              <DrillDownProvider>
+                <div className="min-h-screen bg-zinc-950 text-zinc-100 selection:bg-red-500/30 selection:text-white font-sans antialiased">
+                  <Navigation />
+                  <ViewingBanner />
+                  <MainContent />
+                  <OnboardingOverlay />
+                  <TutorialRunner />
+                </div>
+              </DrillDownProvider>
             </TutorialProvider>
-          </OnboardingOverlayProvider> 
-        </ViewingProvider> 
-      </AuthProvider> 
-    </Router> 
-  ); 
+          </OnboardingOverlayProvider>
+        </ViewingProvider>
+      </AuthProvider>
+    </Router>
+  );
 }
+
