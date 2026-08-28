@@ -661,6 +661,17 @@ export default function AllAssetsAnalytics() {
         return at > bt ? dir : -dir;
       });
     }
+    // asset_clicks lives on row.asset_clicks, not row.metrics (it's not a
+    // MetricType key), so it needs the same kind of special case as
+    // asset_created_at above rather than the generic metrics[key] branch.
+    if (key === 'asset_clicks') {
+      return [...contentOwnerFilteredRows].sort((a, b) => {
+        const av = Number(a.asset_clicks ?? 0);
+        const bv = Number(b.asset_clicks ?? 0);
+        if (av === bv) return 0;
+        return av > bv ? dir : -dir;
+      });
+    }
     return [...contentOwnerFilteredRows].sort((a, b) => {
       const av = Number(a.metrics[key as MetricType] ?? 0);
       const bv = Number(b.metrics[key as MetricType] ?? 0);
@@ -1070,20 +1081,42 @@ export default function AllAssetsAnalytics() {
                     Content Owner
                   </th>
 
-                  {/* ── Asset Clicks — placeholder, see header comment ─────── */}
+                  {/* ── Asset Clicks — now sortable via the existing
+                      handleSort/sortConfig mechanism (row.asset_clicks,
+                      special-cased in sortedRows since it isn't a
+                      MetricType key). Definition itself is unchanged —
+                      see ASSET_ANALYTICS_DESIGN.md. ─────────────────────── */}
                   <th
-                    className="px-6 py-5 text-left text-[10px] font-black uppercase tracking-widest text-zinc-600 border-b border-zinc-900 bg-zinc-950 min-w-[110px]"
-                    title="Definition not yet locked — see ASSET_ANALYTICS_DESIGN.md"
+                    onClick={() => handleSort('asset_clicks')}
+                    className="px-6 py-5 text-left text-[10px] font-black uppercase tracking-widest text-zinc-600 border-b border-zinc-900 bg-zinc-950 min-w-[110px] cursor-pointer hover:text-zinc-300 transition-colors"
                   >
-                    Asset Clicks
+                    <div className="flex items-center gap-1.5">
+                      Asset Clicks
+                      <ArrowUpDown
+                        size={10}
+                        className={sortConfig.key === 'asset_clicks' ? 'text-white' : 'text-zinc-700'}
+                      />
+                    </div>
                   </th>
 
                   {/* ── Total Revenue ($) — presentation duplicate of the
                       existing engine total_revenue column, pulled forward
                       next to Asset Clicks. Same metric, same label source,
-                      no new calculation. ─────────────────────────────────── */}
-                  <th className="px-6 py-5 text-left text-[10px] font-black uppercase tracking-widest text-zinc-600 border-b border-zinc-900 bg-zinc-950 whitespace-nowrap">
-                    {COLUMN_LABELS['total_revenue' as MetricType]}
+                      no new calculation. Now sortable via the same
+                      handleSort('total_revenue') key the engine column
+                      below uses — clicking either header sorts the same
+                      way, no second sort system. ─────────────────────────── */}
+                  <th
+                    onClick={() => handleSort('total_revenue')}
+                    className="px-6 py-5 text-left text-[10px] font-black uppercase tracking-widest text-zinc-600 border-b border-zinc-900 bg-zinc-950 whitespace-nowrap cursor-pointer hover:text-zinc-300 transition-colors"
+                  >
+                    <div className="flex items-center gap-1.5">
+                      {COLUMN_LABELS['total_revenue' as MetricType]}
+                      <ArrowUpDown
+                        size={10}
+                        className={sortConfig.key === 'total_revenue' ? 'text-white' : 'text-zinc-700'}
+                      />
+                    </div>
                   </th>
 
                   {/* ── Engine metric columns — identical to InDepthAnalytics ── */}
