@@ -1357,30 +1357,45 @@ export default function AllAssetsAnalytics() {
                     </td>
 
                     {visibleColumns.has('promotion') && (() => {
-                      // My/Assigned + NULL promotion_id is expected by design
-                      // (Track New Content never resolves a promotionContext
-                      // for same-org assets) — label it, don't show a bare
-                      // "—" that reads like a bug. Shared + NULL stays "—":
-                      // that remains a genuinely unresolved case.
+                      // Real promotion name stays plain text (unchanged).
+                      // My/Assigned + NULL render as a category badge — same
+                      // visual pattern as the Type column (ASSET_TYPE_COLORS),
+                      // just different colors so they're not mistaken for an
+                      // asset type. Shared + NULL stays plain "—" — genuinely
+                      // unresolved, not relabeled.
                       const isMy = organizationId != null && row.assetOrganizationId === organizationId;
-                      let label: string;
+
                       if (row.promotion_id) {
-                        label = promotionNameById.get(row.promotion_id) ?? row.promotion_id;
-                      } else if (isMy && row.isAssigned) {
-                        label = 'Assigned Asset';
-                      } else if (isMy) {
-                        label = 'My Asset';
-                      } else {
-                        label = '—';
+                        const name = promotionNameById.get(row.promotion_id) ?? row.promotion_id;
+                        return (
+                          <td className="px-6 py-4">
+                            <div className="max-w-[190px] truncate text-sm font-bold text-zinc-400" title={name}>
+                              {name}
+                            </div>
+                          </td>
+                        );
+                      }
+                      if (isMy && row.isAssigned) {
+                        return (
+                          <td className="px-6 py-4 whitespace-nowrap">
+                            <span className="inline-flex items-center px-2 py-1 rounded-full border text-[8px] font-black uppercase tracking-widest bg-cyan-500/10 border-cyan-500/30 text-cyan-400">
+                              Assigned Asset
+                            </span>
+                          </td>
+                        );
+                      }
+                      if (isMy) {
+                        return (
+                          <td className="px-6 py-4 whitespace-nowrap">
+                            <span className="inline-flex items-center px-2 py-1 rounded-full border text-[8px] font-black uppercase tracking-widest bg-rose-500/10 border-rose-500/30 text-rose-400">
+                              My Asset
+                            </span>
+                          </td>
+                        );
                       }
                       return (
                         <td className="px-6 py-4">
-                          <div
-                            className="max-w-[190px] truncate text-sm font-bold text-zinc-400"
-                            title={label}
-                          >
-                            {label}
-                          </div>
+                          <div className="max-w-[190px] truncate text-sm font-bold text-zinc-400">—</div>
                         </td>
                       );
                     })()}
