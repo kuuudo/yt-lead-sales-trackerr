@@ -513,14 +513,34 @@ function usePromotionOptions(rows: AssetAnalyticsRow[]): PromotionOption[] {
       return;
     }
     let cancelled = false;
-    supabase
-      .from('promotions')
-      .select('id, promotion_name')
-      .in('id', presentPromotionIds)
-      .then(({ data }) => {
-        if (cancelled) return;
-        setNames(new Map((data ?? []).map((p: any) => [p.id, p.promotion_name as string])));
-      });
+    // Confirmed source (getTopPromotionsAnalytics.ts TITLE NOTE):
+    // promotions has NO title column. Real name = assignments.title,
+    // fallback campaigns.campaign_name. Do not reintroduce promotion_name.
+    (async () => {
+      const { data: promoRows } = await supabase
+        .from('promotions')
+        .select('id, assignment_id, campaign_id')
+        .in('id', presentPromotionIds);
+
+      const assignmentIds = Array.from(new Set((promoRows ?? []).map((p: any) => p.assignment_id).filter(Boolean)));
+      const campaignIds = Array.from(new Set((promoRows ?? []).map((p: any) => p.campaign_id).filter(Boolean)));
+
+      const [{ data: assignmentRows }, { data: campaignRows }] = await Promise.all([
+        assignmentIds.length ? supabase.from('assignments').select('id, title').in('id', assignmentIds) : Promise.resolve({ data: [] as any[] }),
+        campaignIds.length ? supabase.from('campaigns').select('id, campaign_name').in('id', campaignIds) : Promise.resolve({ data: [] as any[] }),
+      ]);
+
+      if (cancelled) return;
+      const titleByAssignmentId = new Map((assignmentRows ?? []).map((a: any) => [a.id, a.title as string]));
+      const nameByCampaignId = new Map((campaignRows ?? []).map((c: any) => [c.id, c.campaign_name as string]));
+
+      const next = new Map<string, string>();
+      for (const p of promoRows ?? []) {
+        const name = (p.assignment_id && titleByAssignmentId.get(p.assignment_id)) ?? (p.campaign_id && nameByCampaignId.get(p.campaign_id)) ?? null;
+        if (name) next.set(p.id, name);
+      }
+      setNames(next);
+    })();
     return () => {
       cancelled = true;
     };
