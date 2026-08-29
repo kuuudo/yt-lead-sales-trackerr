@@ -1887,3 +1887,147 @@ otherwise) should be added to resolve NULL promotion_id cases.
   until the Picker/Videos.tsx trace closes this gap.
 - Promotion column text truncated to max-w-[190px] (matches Asset/Content
   columns) with full name on hover via title attribute.
+  ---
+
+## Session Addendum (2026-08-29, cont'd 3) — Promotion column source, My/Assigned/Shared model, Patch 1 status
+
+### CONFIRMED
+
+**1. Promotion column**
+- AllAssetsAnalytics has a Promotion column.
+- Canonical display-name source: `promotions.assignment_id → assignments.title`,
+  fallback `promotions.campaign_id → campaigns.campaign_name`.
+- `promotions.promotion_name` does not exist and is not used — confirmed
+  previous session, unchanged.
+- The Promotion column does not introduce a new promotion relationship; it
+  reads the existing `promotion_id` exactly as `getAssetAnalyticsRows.ts`
+  already produces it (Mechanism B, per the original Promotion ↔ Asset ↔
+  Content investigation addendum above).
+
+**2. redirect_links.promotion_id NULL semantics**
+- `generateAssetRedirectLinks.ts` is confirmed pass-through only:
+  `selected.promotionContext?.promotionId ?? null` — it never resolves or
+  guesses a promotion.
+- Track New Content (`Videos.tsx`, `categorizeAsset()` call site, hardcoded
+  `isAssignedOut: false`) does not distinguish My from Assigned when
+  deciding whether to resolve a `promotionContext` — only the org boundary
+  (shared vs not) matters for that decision. Both My and Assigned assets
+  are same-org → no `promotionContext` → `redirect_links.promotion_id = NULL`
+  by design. This is not a bug.
+- Shared assets are the case where a `promotionContext` (and therefore a
+  populated `promotion_id`) is expected.
+- A NULL `promotion_id` on a Shared asset remains unresolved/invalid — do
+  NOT fall back to `assignment_assets`, do NOT guess a promotion for it.
+  Keep showing `—`.
+
+**3. My / Assigned / Shared asset model**
+- `My = asset.organization_id === viewer organizationId`
+- `Shared = asset.organization_id !== viewer organizationId`
+- `Assigned` = annotation from `getAssignedAssetSummaryForOwner(viewerId)`,
+  applied as a filter over My rows (`mine.filter(r => r.isAssigned)`) —
+  confirmed both from `PromotedAssetPicker.tsx`'s comment ("Assigned remains
+  an ANNOTATION on My rows, never a third asset source") and its runtime
+  code.
+- Assigned is NOT mutually exclusive with My. A single asset can be both My
+  and Assigned at once. Do not implement `My OR Assigned` as exclusive
+  categories.
+- This model mirrors `Assets.tsx` / `PromotedAssetPicker.tsx` and is a
+  separate system from Marketplace's Promotion-scope tabs (My Promotions
+  etc.) — do not conflate the two.
+- `getAssignedAssetSummaryForOwner`: named export, call-site-confirmed
+  (not source-file-confirmed — the file itself was never uploaded/read)
+  import path `./getAssignedAssetSummaryForOwner` (sibling of
+  `getAssetArchiveContext.ts` in `services/asset/`), signature
+  `getAssignedAssetSummaryForOwner(userId: string) => Promise<AssignedAssetSummary[]>`,
+  where each element has at least `.assetId: string` and
+  `.collaboratorCount: number | null`. Accepted as sufficient call-site
+  evidence to proceed; not fully source-confirmed.
+
+**4. Patch 1 (data layer, getAssetAnalyticsRows.ts) — implementation status**
+Already completed:
+- Promotion name resolution fix (assignments.title / campaigns.campaign_name).
+- Promotion column (UI).
+- Promotion column visibility toggle — now defaults to visible, no longer
+  hidden by default.
+- PATCH 1B: `getAssignedAssetSummaryForOwner(viewerId)` added into the
+  existing `Promise.all([...])` alongside videos/resources/campaign-element
+  fetches (no extra round-trip); `assignedAssetIds` Set built from it.
+- PATCH 1C: `AssetAnalyticsTableRow` type carries two new raw facts —
+  `assetOrganizationId: string` and `isAssigned: boolean` — and `rows.push`
+  populates both. These are raw facts only, not UI labels; classification
+  into My/Assigned/Shared is left to `AllAssetsAnalytics.tsx`.
+
+Found and NOT yet fixed:
+- PATCH 1A was specified but never actually applied to the uploaded file.
+  `assetOrgIdById` is referenced (in the `rows.push` line added by 1C) but
+  never declared — this is the exact cause of the `TS2304: Cannot find
+  name 'assetOrgIdById'` error. The fix (declare
+  `const assetOrgIdById = new Map<string, string>()` alongside the existing
+  `assetTypeById` map, and populate it from `assetsData`'s already-fetched
+  `organization_id`) has been specified with exact Ctrl+F anchors but not
+  yet applied to the real repo file.
+
+**5. Shared-asset org-scoping investigation (resolved as likely-not-a-blocker)**
+- Earlier claim that `getAssetAnalyticsRows.ts`'s
+  `redirect_links.organization_id = organizationId` filter blocks cross-org
+  Shared assets was walked back as too hasty.
+- `redirect_links.organization_id` is evidenced (from
+  `getPromotionAnalytics.ts` and `generateAssetRedirectLinks.ts`'s
+  video-asset branch) to represent the promoter's org, not the promoted
+  asset's org — meaning Shared-asset rows likely already pass this filter
+  from the viewer's own org context. The subsequent `assets` lookup has no
+  org filter at all, so a cross-org asset row would come back fine too.
+- This is LIKELY, not fully proven — `createRedirectLink()` (in
+  `lib/redirects.ts`) has not been read, so a branch that copies the
+  asset's own org instead cannot be ruled out.
+- Decision: do not chase `lib/redirects.ts` right now. Do NOT modify
+  `redirect_links.organization_id`, `createRedirectLink()`, or the base
+  analytics query scope for this task. Proceed on the current architecture
+  and revisit only if the Shared filter tab turns up empty in real testing.
+
+### OPEN
+
+- `getAssignedAssetSummaryForOwner.ts` itself still not read from source —
+  return shape beyond `assetId`/`collaboratorCount`, extra params, and
+  error behavior are unconfirmed (call-site evidence only, accepted as
+  sufficient).
+- Whether `redirect_links.organization_id` can ever hold the asset's org
+  instead of the promoter's org (some untraced branch of
+  `createRedirectLink()`) — unconfirmed, deliberately not chased this
+  session.
+- `categorizeAsset()`'s own internal branching logic
+  (`services/redirect/getPromotedAssetDisplay.ts`) has still not been read
+  — its org-boundary behavior is inferred from the `Videos.tsx` call site
+  only, not from the function body.
+- `Assets.tsx` itself has still not been uploaded/read — the My/Assigned/
+  Shared model is trusted via `PromotedAssetPicker.tsx`'s self-consistent
+  mirror of it, not independently verified against the original.
+
+### DECISION / NEXT STEPS (only remaining implementation work)
+
+1. Apply PATCH 1A: declare and populate `assetOrgIdById` in
+   `getAssetAnalyticsRows.ts` (exact anchor already specified above)
+   — resolves the current `TS2304` build error. Nothing else in Patch 1
+   needs touching.
+2. In `AllAssetsAnalytics.tsx`, derive classification from the two raw
+   facts already on each row:
+   - `isMyAsset = row.assetOrganizationId === organizationId`
+   - `isSharedAsset = row.assetOrganizationId !== organizationId`
+   - `isAssignedAsset = row.isAssigned` (only meaningful when `isMyAsset`)
+3. Add the asset filter `All / My / Shared / Assigned` in
+   `AllAssetsAnalytics.tsx`, reusing the existing `useState` + `useMemo`
+   filter pattern already in that file (same mechanism as
+   `selectedPromotionId` / `campaignFilteredRows` etc.) — no new
+   filtering system.
+4. Update the Promotion column cell to branch on
+   `isMyAsset` / `isAssignedAsset` / `isSharedAsset` × `promotion_id`:
+   - My + NULL → "My Asset"
+   - Assigned + NULL → "Assigned Asset"
+   - Shared + promotion_id → resolved promotion name (unchanged)
+   - Shared + NULL → "—" (unchanged, still unresolved)
+
+Explicitly deferred / out of scope for the above:
+- No Archived filter — separate future task, do not mix in.
+- No changes to `redirect_links.organization_id` or `createRedirectLink()`.
+- No `assignment_assets` → promotion fallback logic.
+- No re-investigation of anything already CONFIRMED above.

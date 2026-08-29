@@ -57,6 +57,8 @@ import {
   type AssetForArchiveContext,
 } from './getAssetArchiveContext';
 
+import { getAssignedAssetSummaryForOwner } from './getAssignedAssetSummaryForOwner';
+
 // ---------------------------------------------------------------------------
 // Public types
 // ---------------------------------------------------------------------------
@@ -85,6 +87,13 @@ export interface AssetAnalyticsTableRow {
   metrics: AssetMetrics;
   /** Asset type from assets table (campaign_element | video | resource). */
   asset_type: string;
+  /** assets.organization_id — raw fact only, not a label. AllAssetsAnalytics.tsx
+   *  compares this to the viewer's organizationId to derive My vs Shared. */
+  assetOrganizationId: string;
+  /** From getAssignedAssetSummaryForOwner(viewerId) — true if this asset is
+   *  currently handed out to a collaborator. Annotation on top of My, not a
+   *  separate/exclusive category — see ASSET_ANALYTICS_DESIGN_6.md. */
+  isAssigned: boolean;
   archive: {
     isArchived: boolean;
     level: 'normal' | 'level1' | 'level2';
@@ -238,8 +247,10 @@ export async function getAssetAnalyticsRows(
   }
 
   const assetTypeById = new Map<string, string>();
+  const assetOrgIdById = new Map<string, string>();
   for (const a of assetsData ?? []) {
     assetTypeById.set((a as any).id, (a as any).asset_type);
+    assetOrgIdById.set((a as any).id, (a as any).organization_id);
   }
 
   // ── 4. Attribution bags (same pattern as getAssetAnalyticsBatch) ──────
@@ -298,13 +309,14 @@ export async function getAssetAnalyticsRows(
     new Map([...stripeByToken, ...stripeBySession].map((p) => [p.id, p])).values(),
   );
 
-  const [videosData, resourcesData, campaignElementAssetsData] = await Promise.all([
+  const [videosData, resourcesData, campaignElementAssetsData, assignedAssetSummary] = await Promise.all([
     supabase.from('videos').select(VIDEOS_COLUMNS).in('asset_id', distinctAssetIds),
     supabase.from('asset_resources').select(ASSET_RESOURCES_COLUMNS).in('asset_id', distinctAssetIds),
     supabase
       .from('campaign_element_assets')
       .select(CAMPAIGN_ELEMENT_ASSETS_COLUMNS)
       .in('asset_id', distinctAssetIds),
+    getAssignedAssetSummaryForOwner(viewerId),
   ]);
 
   if (videosData.error) throw new Error(`Failed to fetch videos: ${videosData.error.message}`);
@@ -320,6 +332,8 @@ export async function getAssetAnalyticsRows(
   const videos = (videosData.data ?? []) as AssetVideoRow[];
   const resources = (resourcesData.data ?? []) as AssetResourceRow[];
   const campaignElementAssets = (campaignElementAssetsData.data ?? []) as CampaignElementAssetRow[];
+
+  const assignedAssetIds = new Set(assignedAssetSummary.map((s) => s.assetId));
 
   // ── 5. Per-asset computeAssetAnalytics — KEEP relationships ───────────
   const relationshipsByAsset = new Map<string, AssetRelationshipRow[]>();
@@ -416,6 +430,8 @@ export async function getAssetAnalyticsRows(
       promotionIds: promotionIds ?? [],
       metrics,
       asset_type: assetTypeById.get(asset_id) ?? 'unknown',
+      assetOrganizationId: assetOrgIdById.get(asset_id) ?? '',
+      isAssigned: assignedAssetIds.has(asset_id),
       archive,
     });
   }

@@ -206,6 +206,12 @@ interface AssetAnalyticsRow {
   promoting_video: PromotingVideoIdentity;
   campaign_id:     string | null;
   promotion_id:    string | null;
+  // assets.organization_id, unchanged from the data layer. AllAssetsAnalytics
+  // compares this to organizationId (from the hook) to derive My vs Shared.
+  assetOrganizationId: string;
+  // From getAssignedAssetSummaryForOwner(viewerId) — annotation on top of
+  // My, never a separate/exclusive source. See ASSET_ANALYTICS_DESIGN_6.md.
+  isAssigned: boolean;
   // Placeholder — see "Asset Clicks" note above. Left as `number | null` so
   // the UI can distinguish "not computed yet" (null → renders "—") from a
   // real zero once wired.
@@ -285,6 +291,7 @@ function useAssetAnalyticsRows(opts: {
   const [rows, setRows] = useState<AssetAnalyticsRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [organizationId, setOrganizationId] = useState<string | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -294,6 +301,7 @@ function useAssetAnalyticsRows(opts: {
       setError(null);
       try {
         const { organizationId, viewerId } = await resolveOrgAndViewer();
+        if (!cancelled) setOrganizationId(organizationId);
 
         const source =
           opts.activeSource === 'pixel' || opts.activeSource === 'stripe'
@@ -441,6 +449,8 @@ function useAssetAnalyticsRows(opts: {
             },
             campaign_id: r.campaignIds?.[0] ?? null,
             promotion_id: r.promotionIds?.[0] ?? null,
+            assetOrganizationId: r.assetOrganizationId,
+            isAssigned: r.isAssigned,
             asset_clicks: r.metrics.clicks ?? 0,
             metrics: toTableMetrics(r.metrics),
           };
@@ -462,8 +472,9 @@ function useAssetAnalyticsRows(opts: {
     };
   }, [opts.dateRange, opts.customRange, opts.activeSource]);
 
-  return { rows, loading, error };
+  return { rows, loading, error, organizationId };
 }
+
 
 
 function useCampaignOptions(): Campaign[] {
@@ -565,12 +576,16 @@ export default function AllAssetsAnalytics() {
   const [activeSource, setActiveSource]   = useState<RevenueView>('total');
   const [selectedPlatforms, setSelectedPlatforms] = useState<string[]>([]);
   const [selectedAssetTypes, setSelectedAssetTypes] = useState<AssetTypeTag[]>([]);
+  // All/My/Shared/Assigned — asset-level ownership scope, per
+  // ASSET_ANALYTICS_DESIGN_6.md confirmed model. Distinct from Marketplace's
+  // Promotion-level scopes (My Promotions etc.) — do not conflate.
+  const [selectedAssetSource, setSelectedAssetSource] = useState<'all' | 'my' | 'shared' | 'assigned'>('all');
   const [sortConfig, setSortConfig] = useState<{ key: string; direction: 'asc' | 'desc' }>({
     key: 'asset_created_at',
     direction: 'desc',
   });
 
-  const { rows, loading, error } = useAssetAnalyticsRows({
+  const { rows, loading, error, organizationId } = useAssetAnalyticsRows({
     dateRange,
     customRange,
     activeSource,
@@ -628,11 +643,25 @@ export default function AllAssetsAnalytics() {
   // ── Date bounds — UI-only, same helper InDepthAnalytics uses ────────────
   const dateRangeBounds = useMemo(() => getDateBounds(dateRange, customRange), [dateRange, customRange]);
 
+  // ── Asset source filter — My/Shared/Assigned. My/Shared are mutually
+  // exclusive (org boundary); Assigned is an annotation on My, never a
+  // separate source — an asset can be My + Assigned at once.
+  const assetSourceFilteredRows = useMemo(() => {
+    if (selectedAssetSource === 'all' || !organizationId) return rows;
+    return rows.filter(row => {
+      const isMy = row.assetOrganizationId === organizationId;
+      if (selectedAssetSource === 'my') return isMy;
+      if (selectedAssetSource === 'shared') return !isMy;
+      if (selectedAssetSource === 'assigned') return isMy && row.isAssigned;
+      return true;
+    });
+  }, [rows, selectedAssetSource, organizationId]);
+
   // ── Asset type filter (applied after fetch, pure UI — no-op while rows=[]) ─
   const typeFilteredRows = useMemo(() => {
-    if (selectedAssetTypes.length === 0) return rows;
-    return rows.filter(row => selectedAssetTypes.includes(row.asset.asset_type));
-  }, [rows, selectedAssetTypes]);
+    if (selectedAssetTypes.length === 0) return assetSourceFilteredRows;
+    return assetSourceFilteredRows.filter(row => selectedAssetTypes.includes(row.asset.asset_type));
+  }, [assetSourceFilteredRows, selectedAssetTypes]);
 
   // ── Platform filter (applied after fetch, pure UI — no-op while rows=[]) ─
   const platformFilteredRows = useMemo(() => {
@@ -878,17 +907,38 @@ export default function AllAssetsAnalytics() {
             </div>
           </div>
 
-          {/* Reserved — All/My/Shared/Assigned scope tabs. Ownership chain
-              (promotion creator → assignment → collaborator → marketer)
-              still unconfirmed, see ASSET_ANALYTICS_DESIGN.md §3. */}
+          {/* Asset ownership scope — confirmed model, see
+              ASSET_ANALYTICS_DESIGN_6.md session addendum. Assigned is an
+              annotation on My, not a separate source (an asset can be
+              My + Assigned at once) — hence 4 buttons, not exclusive tabs
+              in the database sense, just a UI selector over the derived flags. */}
           <div>
-            <label className="text-[10px] font-black uppercase tracking-widest text-zinc-700 mb-3">
-              Scope (reserved)
+            <label className="text-[10px] font-black uppercase tracking-widest text-zinc-500 mb-3 block">
+              Scope
             </label>
-            <p className="text-[9px] text-zinc-700 leading-relaxed">
-              All / My / Shared / Assigned land here once the ownership
-              boundary is confirmed against real data.
-            </p>
+            <div className="flex flex-wrap gap-1.5">
+              {([
+                { key: 'all', label: 'All' },
+                { key: 'my', label: 'My' },
+                { key: 'shared', label: 'Shared' },
+                { key: 'assigned', label: 'Assigned' },
+              ] as const).map(opt => {
+                const active = selectedAssetSource === opt.key;
+                return (
+                  <button
+                    key={opt.key}
+                    onClick={() => setSelectedAssetSource(opt.key)}
+                    className={`h-7 px-3 rounded-lg border text-[9px] font-black uppercase tracking-widest transition-all ${
+                      active
+                        ? 'bg-red-600/20 border-red-600/40 text-red-400'
+                        : 'border-zinc-800 bg-zinc-900 text-zinc-500 hover:border-zinc-600 hover:text-zinc-300'
+                    }`}
+                  >
+                    {opt.label}
+                  </button>
+                );
+              })}
+            </div>
           </div>
 
         </div>
@@ -1306,16 +1356,34 @@ export default function AllAssetsAnalytics() {
                       {row.promoting_video.content_owner_name ?? '—'}
                     </td>
 
-                    {visibleColumns.has('promotion') && (
-                      <td className="px-6 py-4">
-                        <div
-                          className="max-w-[190px] truncate text-sm font-bold text-zinc-400"
-                          title={row.promotion_id ? (promotionNameById.get(row.promotion_id) ?? row.promotion_id) : undefined}
-                        >
-                          {row.promotion_id ? (promotionNameById.get(row.promotion_id) ?? row.promotion_id) : '—'}
-                        </div>
-                      </td>
-                    )}
+                    {visibleColumns.has('promotion') && (() => {
+                      // My/Assigned + NULL promotion_id is expected by design
+                      // (Track New Content never resolves a promotionContext
+                      // for same-org assets) — label it, don't show a bare
+                      // "—" that reads like a bug. Shared + NULL stays "—":
+                      // that remains a genuinely unresolved case.
+                      const isMy = organizationId != null && row.assetOrganizationId === organizationId;
+                      let label: string;
+                      if (row.promotion_id) {
+                        label = promotionNameById.get(row.promotion_id) ?? row.promotion_id;
+                      } else if (isMy && row.isAssigned) {
+                        label = 'Assigned Asset — no Promotion';
+                      } else if (isMy) {
+                        label = 'My Asset — no Promotion';
+                      } else {
+                        label = '—';
+                      }
+                      return (
+                        <td className="px-6 py-4">
+                          <div
+                            className="max-w-[190px] truncate text-sm font-bold text-zinc-400"
+                            title={label}
+                          >
+                            {label}
+                          </div>
+                        </td>
+                      );
+                    })()}
 
                     {/* ── Asset Clicks cell ───────────────────────────────── */}
                     <td className="px-6 py-4 whitespace-nowrap text-sm font-bold text-zinc-400 tabular-nums">
