@@ -58,6 +58,7 @@ import {
 } from './getAssetArchiveContext';
 
 import { getAssignedAssetSummaryForOwner } from './getAssignedAssetSummaryForOwner';
+import { listSharedAssetsForCollaborator } from './listSharedAssetsForCollaborator';
 
 // ---------------------------------------------------------------------------
 // Public types
@@ -205,7 +206,45 @@ export async function getAssetAnalyticsRows(
     throw new Error(`Failed to fetch redirect_links: ${redirectLinksError.message}`);
   }
 
-  const redirectLinks = (redirectLinksData ?? []) as RedirectLinkAttributionRow[];
+  const orgScopedRedirectLinks = (redirectLinksData ?? []) as RedirectLinkAttributionRow[];
+
+  // ── Shared-asset redirect_links — additive, does NOT touch the org-scoped
+  // fetch above. redirect_links.organization_id is stamped as the ASSET
+  // OWNER's org for any promotion-linked link (createRedirectLink,
+  // lib/redirects.ts), never the viewer's own org, so a Shared asset's
+  // redirect_links can never pass the org-scoped .eq() above. This uses the
+  // SAME canonical Shared-asset resolution Assets.tsx / PromotedAssetPicker.tsx
+  // already rely on (services/asset/listSharedAssetsForCollaborator.ts),
+  // rather than inventing a new relationship or weakening the org boundary.
+  const sharedAssets = await listSharedAssetsForCollaborator({
+    userId: viewerId,
+    excludeOrganizationId: organizationId,
+  });
+  const sharedAssetIds = sharedAssets.map((a) => a.asset_id);
+
+  let sharedRedirectLinks: RedirectLinkAttributionRow[] = [];
+  if (sharedAssetIds.length > 0) {
+    let sharedQuery = supabase
+      .from('redirect_links')
+      .select(REDIRECT_LINKS_COLUMNS)
+      .in('asset_id', sharedAssetIds);
+
+    if (assetIdsFilter && assetIdsFilter.length > 0) {
+      sharedQuery = sharedQuery.in('asset_id', assetIdsFilter);
+    }
+
+    const { data: sharedData, error: sharedError } = await sharedQuery;
+    if (sharedError) {
+      throw new Error(`Failed to fetch shared-asset redirect_links: ${sharedError.message}`);
+    }
+    sharedRedirectLinks = (sharedData ?? []) as RedirectLinkAttributionRow[];
+  }
+
+  const redirectLinks = Array.from(
+    new Map(
+      [...orgScopedRedirectLinks, ...sharedRedirectLinks].map((r) => [r.id, r]),
+    ).values(),
+  );
 
   if (redirectLinks.length === 0) {
     return {
