@@ -1307,8 +1307,13 @@ export default function AllAssetsAnalytics() {
                     </td>
 
                     {visibleColumns.has('promotion') && (
-                      <td className="px-6 py-4 whitespace-nowrap text-sm font-bold text-zinc-400">
-                        {row.promotion_id ? (promotionNameById.get(row.promotion_id) ?? row.promotion_id) : '—'}
+                      <td className="px-6 py-4">
+                        <div
+                          className="max-w-[190px] truncate text-sm font-bold text-zinc-400"
+                          title={row.promotion_id ? (promotionNameById.get(row.promotion_id) ?? row.promotion_id) : undefined}
+                        >
+                          {row.promotion_id ? (promotionNameById.get(row.promotion_id) ?? row.promotion_id) : '—'}
+                        </div>
                       </td>
                     )}
 
