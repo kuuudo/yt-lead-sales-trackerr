@@ -914,7 +914,7 @@ export default function AllAssetsAnalytics() {
               in the database sense, just a UI selector over the derived flags. */}
           <div>
             <label className="text-[10px] font-black uppercase tracking-widest text-zinc-500 mb-3 block">
-              Scope
+              Asset Scope
             </label>
             <div className="flex flex-wrap gap-1.5">
               {([
@@ -1367,9 +1367,9 @@ export default function AllAssetsAnalytics() {
                       if (row.promotion_id) {
                         label = promotionNameById.get(row.promotion_id) ?? row.promotion_id;
                       } else if (isMy && row.isAssigned) {
-                        label = 'Assigned Asset — no Promotion';
+                        label = 'Assigned Asset';
                       } else if (isMy) {
-                        label = 'My Asset — no Promotion';
+                        label = 'My Asset';
                       } else {
                         label = '—';
                       }
