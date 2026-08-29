@@ -577,6 +577,7 @@ export default function AllAssetsAnalytics() {
   });
   const campaigns  = useCampaignOptions();
   const promotions = usePromotionOptions(rows);
+  const promotionNameById = useMemo(() => new Map(promotions.map(p => [p.id, p.name])), [promotions]);
 
   // Content Marketer options — derived from rows already on screen, same
   // conservative approach usePromotionOptions() uses. Keyed by
@@ -700,7 +701,7 @@ export default function AllAssetsAnalytics() {
     });
   }, [contentOwnerFilteredRows, sortConfig]);
 
-  const colSpan = 6 + TABLE_COLUMNS.length + 1; // Asset + Type + Content + Content Owner + Asset Clicks + Total Revenue (dup) + metrics + trailing spacer
+  const colSpan = 6 + TABLE_COLUMNS.length + 1 + (visibleColumns.has('promotion') ? 1 : 0); // Asset + Type + Content + Content Owner + Asset Clicks + Total Revenue (dup) + metrics + trailing spacer + optional Promotion
 
   return (
     <div className="flex h-screen bg-black text-zinc-300 overflow-hidden fixed inset-0 z-[100]">
@@ -981,6 +982,20 @@ export default function AllAssetsAnalytics() {
                           </button>
                         ))}
                       </div>
+                      <p className="text-[8px] font-black uppercase tracking-widest text-zinc-600 mb-2 mt-4">
+                        Table Columns
+                      </p>
+                      <button
+                        onClick={() => toggleColumn('promotion')}
+                        className="w-full flex items-center gap-3 px-2 py-2 rounded-lg hover:bg-zinc-800 transition-colors text-left"
+                      >
+                        <div className={`w-4 h-4 rounded border flex items-center justify-center shrink-0 transition-all ${
+                          visibleColumns.has('promotion') ? 'bg-red-600 border-red-600' : 'border-zinc-700 bg-zinc-950'
+                        }`}>
+                          {visibleColumns.has('promotion') && <Check size={9} className="text-white" />}
+                        </div>
+                        <span className="text-[10px] font-bold text-zinc-300 truncate">Promotion</span>
+                      </button>
                     </div>
                   </div>
                 )}
@@ -1100,6 +1115,20 @@ export default function AllAssetsAnalytics() {
                   <th className="px-6 py-5 text-left text-[10px] font-black uppercase tracking-widest text-zinc-600 border-b border-zinc-900 bg-zinc-950 min-w-[160px]">
                     Content Owner
                   </th>
+
+                  {/* ── Promotion column — hidden by default. Uses
+                      row.promotion_id exactly as getAssetAnalyticsRows
+                      already exposes it (Mechanism B — see
+                      ASSET_ANALYTICS_DESIGN_6.md session addendum).
+                      This is NOT claimed to be the sole/authoritative
+                      promotion for this (video,asset) pair — open
+                      investigation still applies when promotion_id
+                      is NULL. ─────────────────────────────────────── */}
+                  {visibleColumns.has('promotion') && (
+                    <th className="px-6 py-5 text-left text-[10px] font-black uppercase tracking-widest text-zinc-600 border-b border-zinc-900 bg-zinc-950 min-w-[160px]">
+                      Promotion
+                    </th>
+                  )}
 
                   {/* ── Asset Clicks — now sortable via the existing
                       handleSort/sortConfig mechanism (row.asset_clicks,
@@ -1276,6 +1305,12 @@ export default function AllAssetsAnalytics() {
                     <td className="px-6 py-4 whitespace-nowrap text-sm font-bold text-zinc-400">
                       {row.promoting_video.content_owner_name ?? '—'}
                     </td>
+
+                    {visibleColumns.has('promotion') && (
+                      <td className="px-6 py-4 whitespace-nowrap text-sm font-bold text-zinc-400">
+                        {row.promotion_id ? (promotionNameById.get(row.promotion_id) ?? row.promotion_id) : '—'}
+                      </td>
+                    )}
 
                     {/* ── Asset Clicks cell ───────────────────────────────── */}
                     <td className="px-6 py-4 whitespace-nowrap text-sm font-bold text-zinc-400 tabular-nums">
