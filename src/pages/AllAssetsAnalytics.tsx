@@ -156,7 +156,7 @@ const SORT_SHORTCUTS: { label: string; key: string }[] = [
   { label: 'Opt-ins',       key: 'newsletter_thankyou' },
 ];
 
-const DEFAULT_VISIBLE = new Set<string>([...TABLE_COLUMNS]);
+const DEFAULT_VISIBLE = new Set<string>([...TABLE_COLUMNS, 'promotion']);
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Local placeholder type — a promotion, only the fields this dropdown needs.

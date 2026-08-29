@@ -1775,3 +1775,77 @@ responsive/modal patterns in the app before building anything new. Chart
 mobile treatment is inspect-first, no redesign unless a real problem is
 demonstrated. See the handoff prompt for full detail — not duplicated here to
 avoid drift between two copies of the same instructions.
+
+md
+---
+
+## Session Addendum — Promotion ↔ Asset ↔ Content Investigation (this session)
+
+### CONFIRMED
+
+- Asset ↔ Video: `videos.asset_id → assets.id` (Type 2 only). Unchanged, not in question.
+- Video ↔ Promotion (Mechanism B, currently used by AllAssetsAnalytics /
+  buildAssetAnalyticsRows / getAssetAnalyticsRows / journeyAnalyticsEngine):
+  `videos.id → redirect_links.video_id → redirect_links.promotion_id`
+- Promotion ↔ Asset pool (Mechanism A, currently used by getPromotionAnalytics.ts
+  and getTopPromotionsAnalytics.ts, called "locked" in both):
+  `promotions.assignment_id → assignment_assets.assignment_id → assignment_assets.asset_id`
+- These two mechanisms are NOT proven to always agree. AllAssetsAnalytics and
+  the individual/top Promotion Analytics surfaces do not currently share one
+  attribution path. This is not resolved by this session.
+- `assignment_assets` is dual-purpose: (1) authorization/revoke boundary
+  (addPromotionAsset.ts, assignment_asset_access_states), (2) the asset pool
+  used by Mechanism A. One asset can legitimately sit under multiple
+  assignment_assets rows (multiple assignments → potentially multiple
+  promotions for the same asset).
+- Promotion display name: `promotions` has no title column.
+  Canonical name = `promotions.assignment_id → assignments.title`,
+  fallback `promotions.campaign_id → campaigns.campaign_name`.
+  `promotions.promotion_name` does NOT exist / is not used anywhere else in
+  the codebase — AllAssetsAnalytics.tsx was the only place referencing it,
+  and that's why the Promotion filter was rendering the raw promotion id.
+  Fixed this session (usePromotionOptions).
+
+### OPEN INVESTIGATION — NOT CLOSED
+
+**Why can `redirect_links.asset_id` be populated while `redirect_links.promotion_id`
+is NULL?**
+
+Real examples on file:
+
+redirect_link A: promotion_id = 6264..., asset_id = d99e..., video_id = 31244...
+redirect_link B: promotion_id = NULL, asset_id = 83423..., video_id = 31244...
+
+
+We do NOT know why B has no promotion_id. The correct question is not
+"promotion_id is NULL so fall back to assignment_assets" — that has not been
+earned. The actual investigation, still open:
+
+1. Which flow/function created redirect_link B?
+2. What context did that flow have at creation time (was a promotion even
+   selected/known at that point)?
+3. Why did asset_id get populated but promotion_id did not — was promotion_id
+   optional-by-design there, or is it a bug/legacy gap?
+4. At creation time, which assignment(s) did asset `83423...` belong to?
+5. At creation time, who/what did video `31244...` belong to?
+6. Given 1–5, is there a UNIQUE promotion derivable for redirect_link B, or is
+   it genuinely ambiguous (asset in >1 assignment/promotion)?
+
+This requires locating the actual `+ Track New Content` / redirect_link
+creation code, which is not among the files traced so far. Until that's
+found and read, no fallback logic (assignment_assets-based inference or
+otherwise) should be added to resolve NULL promotion_id cases.
+
+### THIS SESSION'S DECISION
+
+- Added a Promotion column to AllAssetsAnalytics (hidden by default), reading
+  `row.promotion_id` exactly as getAssetAnalyticsRows already produces it
+  (Mechanism B — no new relationship, no new fallback).
+- Fixed the Promotion filter dropdown to resolve names via
+  `assignments.title` / `campaigns.campaign_name` instead of the
+  non-existent `promotions.promotion_name`.
+- Explicitly NOT claiming this column represents the single correct
+  Promotion for every (video_id, asset_id) row. When `promotion_id` is NULL,
+  or when an asset sits under multiple assignments, this column may be
+  incomplete or ambiguous — that's expected until the Open Investigation
+  above is closed.
