@@ -1128,13 +1128,6 @@ export default function AllAssetsAnalytics() {
       {/* ── Main content ─────────────────────────────────────────────────── */}
       <div className="flex-1 flex flex-col h-full overflow-hidden bg-black relative">
 
-        <button
-          onClick={() => setMobileMenuOpen(o => !o)}
-          className="lg:hidden fixed bottom-5 right-5 z-[9000] w-14 h-14 rounded-full bg-red-600 text-white flex items-center justify-center shadow-2xl"
-        >
-          <Menu size={22} />
-        </button>
-
         {mobileMenuOpen && (
           <div className="lg:hidden fixed inset-0 z-[9500] flex flex-col justify-end bg-black/70">
             <div
@@ -1421,6 +1414,26 @@ export default function AllAssetsAnalytics() {
                 </div>
               </div>
 
+              {/* Source */}
+              <div>
+                <label className="text-[10px] font-black uppercase tracking-widest text-zinc-500 mb-3 block">
+                  Source
+                </label>
+                <div className="flex items-center gap-1 p-1 bg-zinc-900 border border-zinc-800 rounded-xl w-fit">
+                  {(['total', 'pixel', 'stripe'] as RevenueView[]).map(v => (
+                    <button
+                      key={v}
+                      onClick={() => setActiveSource(v)}
+                      className={`px-3 py-1.5 rounded-lg text-[9px] font-black uppercase tracking-widest transition-all ${
+                        activeSource === v ? 'bg-zinc-700 text-white' : 'text-zinc-600 hover:text-zinc-400'
+                      }`}
+                    >
+                      {v}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
               {/* Columns */}
               <div>
                 <label className="text-[10px] font-black uppercase tracking-widest text-zinc-500 mb-3 block">
@@ -1511,7 +1524,7 @@ export default function AllAssetsAnalytics() {
               >
                 <Filter size={20} />
               </button>
-              <div className="block">
+              <div className="hidden lg:block">
                 <h2 className="text-2xl font-black text-white uppercase tracking-tight">
                   Asset Analytics
                 </h2>
@@ -1521,7 +1534,7 @@ export default function AllAssetsAnalytics() {
               </div>
             </div>
 
-            <div className="flex items-center gap-3">
+            <div className="hidden lg:flex items-center gap-3">
               {/* Source toggle */}
               <div className="flex items-center gap-1 p-1 bg-zinc-900 border border-zinc-800 rounded-xl">
                 {(['total', 'pixel', 'stripe'] as RevenueView[]).map(v => (
@@ -1604,6 +1617,14 @@ export default function AllAssetsAnalytics() {
                 </span>
               </div>
             </div>
+
+            {/* Mobile-only: ☰ moved to top right */}
+            <button
+              onClick={() => setMobileMenuOpen(o => !o)}
+              className="lg:hidden w-11 h-11 rounded-full bg-red-600 text-white flex items-center justify-center shadow-lg shrink-0"
+            >
+              <Menu size={20} />
+            </button>
           </div>
 
           {/* Second row: platform filter + quick sort */}
@@ -1684,6 +1705,30 @@ export default function AllAssetsAnalytics() {
             </div>
 
           </div>
+                  </header>
+
+        {/* ── Mobile-only decorative chart — placeholder bars, not wired to
+              real per-day data yet (rows here aren't bucketed by date).
+              Swap the `chartBars` array for real daily-revenue totals
+              later if needed. ─────────────────────────────────────────── */}
+        <div className="lg:hidden px-4 pt-4">
+          <div className="bg-zinc-950 border border-zinc-900 rounded-2xl p-5">
+            <div className="flex items-end gap-2.5 h-28">
+              {[35, 55, 45, 90, 65].map((h, i) => (
+                <div
+                  key={i}
+                  className="flex-1 rounded-t-md"
+                  style={{
+                    height: `${h}%`,
+                    background: 'linear-gradient(180deg, #7c3aed 0%, #3b82f6 100%)',
+                  }}
+                />
+              ))}
+            </div>
+          </div>
+        </div>
+
+        {/* ── Table ──────────────────────────────────────────────────────── */}
         </header>
 
         {/* ── Table ──────────────────────────────────────────────────────── */}
