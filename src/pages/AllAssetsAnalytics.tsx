@@ -742,14 +742,15 @@ export default function AllAssetsAnalytics() {
   // ASSET_ANALYTICS_DESIGN_6.md confirmed model. Distinct from Marketplace's
   // Promotion-level scopes (My Promotions etc.) — do not conflate.
   const [selectedAssetSource, setSelectedAssetSource] = useState<'all' | 'my' | 'shared' | 'assigned'>('all');
-  const [sortConfig, setSortConfig] = useState<{ key: string; direction: 'asc' | 'desc' }>({
-    key: 'asset_created_at',
-    direction: 'desc',
-  });
   const [hideArchivedAsset, setHideArchivedAsset] = useState(false);
   const [hideArchivedVideo, setHideArchivedVideo] = useState(false);
   const [hideArchivedCampaign, setHideArchivedCampaign] = useState(false);
   const [hideArchivedPromotion, setHideArchivedPromotion] = useState(false);
+  const [sortConfig, setSortConfig] = useState<{ key: string; direction: 'asc' | 'desc' }>({
+    key: 'asset_created_at',
+    direction: 'desc',
+  });
+  
   const { rows, loading, error, organizationId } = useAssetAnalyticsRows({
     dateRange,
     customRange,
@@ -916,13 +917,15 @@ export default function AllAssetsAnalytics() {
   // content_owner_id, never on the display name. Chained last, right
   // before sort, so Recently Added / metric sorts always run on the
   // fully-filtered set.
-  const archiveFilteredRows = useMemo(() => {
+  const contentOwnerFilteredRows = useMemo(() => {
     if (selectedContentOwnerId === 'all') return promotionFilteredRows;
     return promotionFilteredRows.filter(row => row.promoting_video.content_owner_id === selectedContentOwnerId);
   }, [promotionFilteredRows, selectedContentOwnerId]);
 
+  const archiveFilteredRows = useMemo(
+    () =>
       applyAnalyticsArchiveFilters(
-        archiveFilteredRows,
+        contentOwnerFilteredRows,
         (row) => ({
           assetArchived: row.archive.isArchived,
           videoArchived: row.videoArchive.isArchived,
@@ -937,7 +940,7 @@ export default function AllAssetsAnalytics() {
         },
       ),
     [
-      archiveFilteredRows,
+      contentOwnerFilteredRows,
       hideArchivedAsset,
       hideArchivedVideo,
       hideArchivedCampaign,
@@ -1599,6 +1602,45 @@ export default function AllAssetsAnalytics() {
                       }`}
                     >
                       {opt.label}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              {/* Entity Archive soft filters — default OFF (show archived). */}
+              <div>
+                <label className="text-[10px] font-black uppercase tracking-widest text-zinc-500 mb-3 block">
+                  Hide Archived
+                </label>
+                <div className="space-y-1.5">
+                  {([
+                    { key: 'asset', label: 'Asset', value: hideArchivedAsset, set: setHideArchivedAsset },
+                    { key: 'video', label: 'Content', value: hideArchivedVideo, set: setHideArchivedVideo },
+                    { key: 'campaign', label: 'Campaign', value: hideArchivedCampaign, set: setHideArchivedCampaign },
+                    { key: 'promotion', label: 'Promotion', value: hideArchivedPromotion, set: setHideArchivedPromotion },
+                  ] as const).map((opt) => (
+                    <button
+                      key={opt.key}
+                      type="button"
+                      onClick={() => opt.set(!opt.value)}
+                      className={`w-full flex items-center gap-3 px-3 py-2 rounded-lg border text-left transition-all ${
+                        opt.value
+                          ? 'bg-red-600/20 border-red-600/40 text-red-400'
+                          : 'border-zinc-800 bg-zinc-900 text-zinc-500 hover:border-zinc-600 hover:text-zinc-300'
+                      }`}
+                    >
+                      <div
+                        className={`w-4 h-4 rounded border flex items-center justify-center ${
+                          opt.value
+                            ? 'bg-red-600 border-red-600'
+                            : 'border-zinc-700 bg-zinc-950'
+                        }`}
+                      >
+                        {opt.value && <Check size={10} className="text-white" />}
+                      </div>
+                      <span className="text-[10px] font-black uppercase tracking-widest">
+                        {opt.label}
+                      </span>
                     </button>
                   ))}
                 </div>
