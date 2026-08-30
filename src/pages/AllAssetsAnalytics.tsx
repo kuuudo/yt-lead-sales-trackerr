@@ -637,7 +637,7 @@ export default function AllAssetsAnalytics() {
 
   // Lazy-load on first open only — never refetched just for switching tabs.
   useEffect(() => {
-    if (!promotionPanelOpen || assignmentGroups || assignmentGroupsLoading || !user?.id) return;
+    if ((!promotionPanelOpen && !mobileMenuOpen) || assignmentGroups || assignmentGroupsLoading || !user?.id) return;
     setAssignmentGroupsLoading(true);
     getPromotionAssignmentGroups(user.id)
       .then(setAssignmentGroups)
@@ -1192,36 +1192,113 @@ export default function AllAssetsAnalytics() {
                 </select>
               </div>
 
-              {/* Promotion — simplified inline list for the modal */}
+              {/* Promotion — All / Assigned to Me / Assigned by Me,
+                  Marketplace.tsx pill style, reusing the same
+                  promotionTab / assignmentGroups state the desktop
+                  panel already uses. */}
               <div>
                 <label className="text-[10px] font-black uppercase tracking-widest text-zinc-500 mb-3 block">
                   Promotion
                 </label>
-                <div className="flex flex-wrap gap-1.5">
-                  <button
-                    onClick={() => setSelectedPromotionId('all')}
-                    className={`h-7 px-3 rounded-lg border text-[9px] font-black uppercase tracking-widest ${
-                      selectedPromotionId === 'all'
-                        ? 'bg-red-600 border-red-600 text-white'
-                        : 'border-zinc-800 bg-zinc-900 text-zinc-500'
-                    }`}
-                  >
-                    All Promotions
-                  </button>
-                  {promotions.map(p => (
+
+                <div className="flex items-center gap-2 flex-wrap">
+                  {([
+                    { key: 'all', label: 'All' },
+                    { key: 'toMe', label: 'Assigned to Me' },
+                    { key: 'byMe', label: 'Assigned by Me' },
+                  ] as const).map(t => (
                     <button
-                      key={p.id}
-                      onClick={() => setSelectedPromotionId(p.id)}
-                      className={`h-7 px-3 rounded-lg border text-[9px] font-black uppercase tracking-widest truncate max-w-[160px] ${
-                        selectedPromotionId === p.id
-                          ? 'bg-red-600 border-red-600 text-white'
-                          : 'border-zinc-800 bg-zinc-900 text-zinc-500'
+                      key={t.key}
+                      onClick={() => {
+                        setPromotionTab(t.key);
+                        setSelectedPersonId(null);
+                        if (t.key === 'all') setSelectedPromotionId('all');
+                      }}
+                      className={`px-3 py-1.5 rounded-lg text-[10px] font-black uppercase tracking-widest transition-all ${
+                        promotionTab === t.key
+                          ? 'bg-red-600 text-white'
+                          : 'bg-zinc-900 border border-zinc-800 text-zinc-400 hover:text-white'
                       }`}
                     >
-                      {p.name}
+                      {t.label}
                     </button>
                   ))}
                 </div>
+
+                {promotionTab === 'all' && (
+                  <div className="flex items-center gap-2 flex-wrap mt-2">
+                    <button
+                      onClick={() => setSelectedPromotionId('all')}
+                      className={`px-3 py-1.5 rounded-lg text-[9px] font-black uppercase tracking-widest transition-all ${
+                        selectedPromotionId === 'all'
+                          ? 'bg-zinc-700 text-white'
+                          : 'bg-zinc-900 border border-zinc-800 text-zinc-500 hover:text-white'
+                      }`}
+                    >
+                      All Promotions
+                    </button>
+                    {promotions.map(p => (
+                      <button
+                        key={p.id}
+                        onClick={() => setSelectedPromotionId(p.id)}
+                        className={`px-3 py-1.5 rounded-lg text-[9px] font-black uppercase tracking-widest transition-all truncate max-w-[160px] ${
+                          selectedPromotionId === p.id
+                            ? 'bg-zinc-700 text-white'
+                            : 'bg-zinc-900 border border-zinc-800 text-zinc-500 hover:text-white'
+                        }`}
+                      >
+                        {p.name}
+                      </button>
+                    ))}
+                  </div>
+                )}
+
+                {(promotionTab === 'toMe' || promotionTab === 'byMe') && (
+                  <div className="flex items-center gap-2 flex-wrap mt-2">
+                    {assignmentGroupsLoading && (
+                      <span className="text-[10px] font-bold text-zinc-600 uppercase tracking-widest">Loading…</span>
+                    )}
+                    {!assignmentGroupsLoading && !selectedPerson && activeGroupList.length === 0 && (
+                      <span className="text-[10px] font-bold text-zinc-600 uppercase tracking-widest">Nobody here yet.</span>
+                    )}
+                    {!assignmentGroupsLoading && !selectedPerson && activeGroupList.map(group => (
+                      <button
+                        key={group.person.id}
+                        onClick={() => setSelectedPersonId(group.person.id)}
+                        className="px-3 py-1.5 rounded-lg text-[9px] font-black uppercase tracking-widest transition-all bg-zinc-900 border border-zinc-800 text-zinc-500 hover:text-white"
+                      >
+                        {group.person.name} ({group.promotions.length})
+                      </button>
+                    ))}
+                  </div>
+                )}
+
+                {(promotionTab === 'toMe' || promotionTab === 'byMe') && selectedPerson && (
+                  <div className="mt-2">
+                    <button
+                      onClick={() => setSelectedPersonId(null)}
+                      className="flex items-center gap-1.5 text-[9px] font-black uppercase tracking-widest text-zinc-500 hover:text-white transition-colors mb-1.5"
+                    >
+                      <ChevronLeft size={11} />
+                      {selectedPerson.person.name}
+                    </button>
+                    <div className="flex items-center gap-2 flex-wrap">
+                      {selectedPerson.promotions.map(p => (
+                        <button
+                          key={p.id}
+                          onClick={() => setSelectedPromotionId(p.id)}
+                          className={`px-3 py-1.5 rounded-lg text-[9px] font-black uppercase tracking-widest transition-all truncate max-w-[160px] ${
+                            selectedPromotionId === p.id
+                              ? 'bg-zinc-700 text-white'
+                              : 'bg-zinc-900 border border-zinc-800 text-zinc-500 hover:text-white'
+                          }`}
+                        >
+                          {promotionNameById.get(p.id) ?? (p.assignment?.title ?? p.id)}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                )}
               </div>
 
               {/* Content Marketer */}
