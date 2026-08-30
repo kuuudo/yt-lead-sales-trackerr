@@ -2290,8 +2290,23 @@ export default function AllAssetsAnalytics() {
                           <div className="text-xs font-bold truncate leading-snug">
                             {row.asset.title ?? 'Untitled asset'}
                           </div>
-                          <div className="text-[9px] text-zinc-600 font-bold uppercase tracking-widest mt-0.5 truncate">
-                            Asset
+                          <div className="text-[9px] text-zinc-600 font-bold uppercase tracking-widest mt-0.5 truncate flex items-center gap-1.5">
+                            <span>Asset</span>
+                            {row.archive.isArchived && (
+                              <span
+                                title={
+                                  row.archive.reasons?.length
+                                    ? row.archive.reasons
+                                        .map((r) => r.sourceName || r.sourceType)
+                                        .join(', ')
+                                    : 'Archived'
+                                }
+                                className="shrink-0 inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full bg-zinc-500/10 border border-zinc-500/30 text-[8px] font-black uppercase tracking-widest text-zinc-400"
+                              >
+                                <span className="w-1 h-1 rounded-full bg-zinc-400" />
+                                Archived
+                              </span>
+                            )}
                           </div>
                         </div>
                       </div>
@@ -2329,8 +2344,17 @@ export default function AllAssetsAnalytics() {
                           <div className="text-xs font-bold truncate leading-snug">
                             {row.promoting_video.title ?? 'Untitled video'}
                           </div>
-                          <div className="text-[9px] text-zinc-600 font-bold uppercase tracking-widest mt-0.5 truncate">
-                            {row.promoting_video.platform ?? 'Content'}
+                          <div className="text-[9px] text-zinc-600 font-bold uppercase tracking-widest mt-0.5 truncate flex items-center gap-1.5">
+                            <span>{row.promoting_video.platform ?? 'Content'}</span>
+                            {row.videoArchive.isArchived && (
+                              <span
+                                title="Content archived"
+                                className="shrink-0 inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full bg-zinc-500/10 border border-zinc-500/30 text-[8px] font-black uppercase tracking-widest text-zinc-400"
+                              >
+                                <span className="w-1 h-1 rounded-full bg-zinc-400" />
+                                Archived
+                              </span>
+                            )}
                           </div>
                         </div>
                       </div>
@@ -2354,8 +2378,19 @@ export default function AllAssetsAnalytics() {
                         const name = promotionNameById.get(row.promotion_id) ?? row.promotion_id;
                         return (
                           <td className="px-6 py-4">
-                            <div className="max-w-[190px] truncate text-sm font-bold text-zinc-400" title={name}>
-                              {name}
+                            <div className="max-w-[190px] flex items-center gap-1.5 min-w-0">
+                              <div className="truncate text-sm font-bold text-zinc-400" title={name}>
+                                {name}
+                              </div>
+                              {row.promotionArchive.isArchived && (
+                                <span
+                                  title="Promotion archived"
+                                  className="shrink-0 inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full bg-zinc-500/10 border border-zinc-500/30 text-[8px] font-black uppercase tracking-widest text-zinc-400"
+                                >
+                                  <span className="w-1 h-1 rounded-full bg-zinc-400" />
+                                  Archived
+                                </span>
+                              )}
                             </div>
                           </td>
                         );
@@ -2386,7 +2421,20 @@ export default function AllAssetsAnalytics() {
                     })()}
 
                     <td className="px-6 py-4 whitespace-nowrap text-sm font-bold text-zinc-400">
-                      {(row.campaign_id && campaignNameById.get(row.campaign_id)) || '—'}
+                      <div className="flex items-center gap-1.5 min-w-0">
+                        <span className="truncate">
+                          {(row.campaign_id && campaignNameById.get(row.campaign_id)) || '—'}
+                        </span>
+                        {row.campaignArchive.isArchived && (
+                          <span
+                            title="Campaign archived"
+                            className="shrink-0 inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full bg-zinc-500/10 border border-zinc-500/30 text-[8px] font-black uppercase tracking-widest text-zinc-400"
+                          >
+                            <span className="w-1 h-1 rounded-full bg-zinc-400" />
+                            Archived
+                          </span>
+                        )}
+                      </div>
                     </td>
 
                     {/* ── Asset Clicks cell ───────────────────────────────── */}
