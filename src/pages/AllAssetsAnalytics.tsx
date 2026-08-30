@@ -578,9 +578,25 @@ export default function AllAssetsAnalytics() {
   const [dateRange, setDateRange]         = useState<DateRange>('30days');
   const [customRange, setCustomRange]     = useState<CustomDateRange | null>(null);
   const [selectedCampaignId, setSelectedCampaignId]   = useState<string>('all');
-  const [selectedPromotionId, setSelectedPromotionId] = useState<string>('all');
+  const [selectedPromotionIds, setSelectedPromotionIds] = useState<string[]>([]);
+  const togglePromotionId = (id: string) => {
+    setSelectedPromotionIds(prev => (prev.includes(id) ? prev.filter(x => x !== id) : [...prev, id]));
+  };
   const [selectedContentOwnerId, setSelectedContentOwnerId] = useState<string>('all');
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
+  const [chartOpen, setChartOpen] = useState(true);
+
+  // Mobile landscape: hide header/chart/tabs entirely so the table/cards
+  // get the full screen. Only fires below the lg breakpoint — desktop
+  // (always "landscape" in the literal sense) is unaffected.
+  const [isMobileLandscape, setIsMobileLandscape] = useState(false);
+  useEffect(() => {
+    const mq = window.matchMedia('(max-width: 1023px) and (orientation: landscape)');
+    const update = () => setIsMobileLandscape(mq.matches);
+    update();
+    mq.addEventListener('change', update);
+    return () => mq.removeEventListener('change', update);
+  }, []);
   const [chartOpen, setChartOpen] = useState(true);
   const [mobileFiltersOpen, setMobileFiltersOpen] = useState(false);
   const [mobileTab, setMobileTab] = useState<'cards' | 'table'>('cards');
@@ -654,9 +670,11 @@ export default function AllAssetsAnalytics() {
   const selectedPerson = activeGroupList.find(g => g.person.id === selectedPersonId) ?? null;
 
   const selectedPromotionLabel =
-    selectedPromotionId === 'all'
+    selectedPromotionIds.length === 0
       ? 'All Promotions'
-      : promotionNameById.get(selectedPromotionId) ?? selectedPromotionId;
+      : selectedPromotionIds.length === 1
+        ? promotionNameById.get(selectedPromotionIds[0]) ?? selectedPromotionIds[0]
+        : `${selectedPromotionIds.length} Promotions`;
 
   // Content Marketer options — derived from rows already on screen, same
   // conservative approach usePromotionOptions() uses. Keyed by
@@ -751,9 +769,9 @@ export default function AllAssetsAnalytics() {
   // above for why the OPTIONS list is scope-conservative; the filter
   // itself is just an equality check on data already on each row.
   const promotionFilteredRows = useMemo(() => {
-    if (selectedPromotionId === 'all') return campaignFilteredRows;
-    return campaignFilteredRows.filter(row => row.promotion_id === selectedPromotionId);
-  }, [campaignFilteredRows, selectedPromotionId]);
+    if (selectedPromotionIds.length === 0) return campaignFilteredRows;
+    return campaignFilteredRows.filter(row => selectedPromotionIds.includes(row.promotion_id));
+  }, [campaignFilteredRows, selectedPromotionIds]);
 
   // ── Content Marketer filter — operates on videos.user_id via
   // content_owner_id, never on the display name. Chained last, right
@@ -931,7 +949,7 @@ export default function AllAssetsAnalytics() {
                           setPromotionTab(tab.key);
                           setSelectedPersonId(null);
                           if (tab.key === 'all') {
-                            setSelectedPromotionId('all');
+                            setSelectedPromotionIds([]);
                             setPromotionPanelOpen(false);
                           }
                         }}
@@ -947,7 +965,7 @@ export default function AllAssetsAnalytics() {
                   {promotionTab === 'all' && (
                     <div className="max-h-72 overflow-y-auto py-2">
                       <button
-                        onClick={() => { setSelectedPromotionId('all'); setPromotionPanelOpen(false); }}
+                        onClick={() => { setSelectedPromotionIds([]); setPromotionPanelOpen(false); }}
                         className="w-full text-left px-4 py-2 text-[10px] font-bold text-zinc-300 hover:bg-zinc-800 transition-colors"
                       >
                         All Promotions
@@ -955,7 +973,7 @@ export default function AllAssetsAnalytics() {
                       {promotions.map(p => (
                         <button
                           key={p.id}
-                          onClick={() => { setSelectedPromotionId(p.id); setPromotionPanelOpen(false); }}
+                          onClick={() => { setSelectedPromotionIds([p.id]); setPromotionPanelOpen(false); }}
                           className="w-full text-left px-4 py-2 text-[10px] font-bold text-zinc-300 hover:bg-zinc-800 transition-colors truncate"
                         >
                           {p.name}
@@ -1011,7 +1029,7 @@ export default function AllAssetsAnalytics() {
                             <button
                               key={p.id}
                               onClick={() => {
-                                setSelectedPromotionId(p.id);
+                                setSelectedPromotionIds([p.id]);
                                 setPromotionPanelOpen(false);
                                 setSelectedPersonId(null);
                               }}
@@ -1186,13 +1204,13 @@ export default function AllAssetsAnalytics() {
                 </select>
               </div>
 
-              {/* Promotion — All / Assigned to Me / Assigned by Me,
-                  Marketplace.tsx pill style, reusing the same
-                  promotionTab / assignmentGroups state the desktop
-                  panel already uses. */}
+                           {/* Promotion — All / Assigned to Me / Assigned by Me,
+                  Marketplace.tsx pill style. Multi-select: tapping a
+                  promotion toggles it in/out of selectedPromotionIds,
+                  panel stays open so you can pick several. */}
               <div>
                 <label className="text-[10px] font-black uppercase tracking-widest text-zinc-500 mb-3 block">
-                  Promotion
+                  Promotion {selectedPromotionIds.length > 0 && `(${selectedPromotionIds.length})`}
                 </label>
 
                 <div className="flex items-center gap-2 flex-wrap">
@@ -1206,7 +1224,6 @@ export default function AllAssetsAnalytics() {
                       onClick={() => {
                         setPromotionTab(t.key);
                         setSelectedPersonId(null);
-                        if (t.key === 'all') setSelectedPromotionId('all');
                       }}
                       className={`px-3 py-1.5 rounded-lg text-[10px] font-black uppercase tracking-widest transition-all ${
                         promotionTab === t.key
@@ -1217,30 +1234,29 @@ export default function AllAssetsAnalytics() {
                       {t.label}
                     </button>
                   ))}
+                  {selectedPromotionIds.length > 0 && (
+                    <button
+                      onClick={() => setSelectedPromotionIds([])}
+                      className="px-3 py-1.5 rounded-lg text-[10px] font-black uppercase tracking-widest transition-all text-zinc-500 hover:text-white"
+                    >
+                      Clear
+                    </button>
+                  )}
                 </div>
 
                 {promotionTab === 'all' && (
                   <div className="flex items-center gap-2 flex-wrap mt-2">
-                    <button
-                      onClick={() => setSelectedPromotionId('all')}
-                      className={`px-3 py-1.5 rounded-lg text-[9px] font-black uppercase tracking-widest transition-all ${
-                        selectedPromotionId === 'all'
-                          ? 'bg-zinc-700 text-white'
-                          : 'bg-zinc-900 border border-zinc-800 text-zinc-500 hover:text-white'
-                      }`}
-                    >
-                      All Promotions
-                    </button>
                     {promotions.map(p => (
                       <button
                         key={p.id}
-                        onClick={() => setSelectedPromotionId(p.id)}
-                        className={`px-3 py-1.5 rounded-lg text-[9px] font-black uppercase tracking-widest transition-all truncate max-w-[160px] ${
-                          selectedPromotionId === p.id
-                            ? 'bg-zinc-700 text-white'
+                        onClick={() => togglePromotionId(p.id)}
+                        className={`px-3 py-1.5 rounded-lg text-[9px] font-black uppercase tracking-widest transition-all truncate max-w-[160px] flex items-center gap-1.5 ${
+                          selectedPromotionIds.includes(p.id)
+                            ? 'bg-red-600 text-white'
                             : 'bg-zinc-900 border border-zinc-800 text-zinc-500 hover:text-white'
                         }`}
                       >
+                        {selectedPromotionIds.includes(p.id) && <Check size={10} />}
                         {p.name}
                       </button>
                     ))}
@@ -1280,13 +1296,14 @@ export default function AllAssetsAnalytics() {
                       {selectedPerson.promotions.map(p => (
                         <button
                           key={p.id}
-                          onClick={() => setSelectedPromotionId(p.id)}
-                          className={`px-3 py-1.5 rounded-lg text-[9px] font-black uppercase tracking-widest transition-all truncate max-w-[160px] ${
-                            selectedPromotionId === p.id
-                              ? 'bg-zinc-700 text-white'
+                          onClick={() => togglePromotionId(p.id)}
+                          className={`px-3 py-1.5 rounded-lg text-[9px] font-black uppercase tracking-widest transition-all truncate max-w-[160px] flex items-center gap-1.5 ${
+                            selectedPromotionIds.includes(p.id)
+                              ? 'bg-red-600 text-white'
                               : 'bg-zinc-900 border border-zinc-800 text-zinc-500 hover:text-white'
                           }`}
                         >
+                          {selectedPromotionIds.includes(p.id) && <Check size={10} />}
                           {promotionNameById.get(p.id) ?? (p.assignment?.title ?? p.id)}
                         </button>
                       ))}
@@ -1294,7 +1311,6 @@ export default function AllAssetsAnalytics() {
                   </div>
                 )}
               </div>
-
               {/* Content Marketer */}
               <div>
                 <label className="text-[10px] font-black uppercase tracking-widest text-zinc-500 mb-3 block">
@@ -1507,6 +1523,7 @@ export default function AllAssetsAnalytics() {
         )}
 
         {/* ── Header ─────────────────────────────────────────────────────── */}
+        {!isMobileLandscape && (
         <header className="bg-zinc-950 border-b border-zinc-900 px-8 shrink-0">
 
           {/* Top row: nav + title + source toggle + columns + count */}
@@ -1706,12 +1723,14 @@ export default function AllAssetsAnalytics() {
             </div>
 
           </div>
-                  </header>
+        </header>
+        )}
 
         {/* ── Mobile-only decorative chart — placeholder bars, not wired to
               real per-day data yet (rows here aren't bucketed by date).
               Swap the `chartBars` array for real daily-revenue totals
               later if needed. ─────────────────────────────────────────── */}
+        {!isMobileLandscape && (
         <div className="lg:hidden px-4 pt-4">
           <div className="bg-zinc-950 border border-zinc-900 rounded-2xl p-5">
             <div className="flex items-center justify-between mb-1">
@@ -1740,9 +1759,11 @@ export default function AllAssetsAnalytics() {
             )}
           </div>
         </div>
+        )}
 
         {/* ── Table ──────────────────────────────────────────────────────── */}
                 {/* ── Mobile view tabs — mobile only, desktop keeps the table ─────── */}
+        {!isMobileLandscape && (
         <div className="lg:hidden flex items-center gap-2 px-6 py-3 bg-zinc-950 border-b border-zinc-900">
           <button
             onClick={() => setMobileTab('cards')}
@@ -1761,6 +1782,7 @@ export default function AllAssetsAnalytics() {
             Table
           </button>
         </div>
+        )}
 
         {/* ── Mobile card list — mobile only, Cards tab ───────────────────── */}
         {mobileTab === 'cards' && (
