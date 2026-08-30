@@ -598,10 +598,12 @@ export default function Marketplace() {
           )}
          {tab === 'promotions' && (
             <>
-
-                  hover-opens via group/manage. Mobile: manageOpen click
-                  state covers it (no real :hover on touch). */}
-              <div className="relative group/manage" ref={manageRef}>
+    {/*
+      Desktop: hover-opens via group/manage.
+      Mobile: manageOpen click state covers it
+      (no real :hover on touch).
+    */}
+    <div className="relative group/manage" ref={manageRef}>
                 <button
                   onClick={() => setManageOpen(o => !o)}
                   className="flex items-center gap-2 bg-zinc-900 hover:bg-zinc-800 border border-zinc-800 text-zinc-300 text-xs font-bold uppercase tracking-wider px-4 py-2 rounded-lg"
