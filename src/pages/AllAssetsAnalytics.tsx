@@ -218,6 +218,11 @@ interface AssetAnalyticsRow {
   // From getAssignedAssetSummaryForOwner(viewerId) — annotation on top of
   // My, never a separate/exclusive source. See ASSET_ANALYTICS_DESIGN_6.md.
   isAssigned: boolean;
+    // From getAssetAnalyticsRows → getAssetArchiveContextsForViewer (Entity Archive only).
+  archive: {
+    isArchived: boolean;
+    reasons: { sourceType: string; sourceId: string; sourceName: string | null }[];
+  };
   // Placeholder — see "Asset Clicks" note above. Left as `number | null` so
   // the UI can distinguish "not computed yet" (null → renders "—") from a
   // real zero once wired.
@@ -457,6 +462,10 @@ function useAssetAnalyticsRows(opts: {
             promotion_id: r.promotionIds?.[0] ?? null,
             assetOrganizationId: r.assetOrganizationId,
             isAssigned: r.isAssigned,
+              archive: {
+              isArchived: !!r.archive?.isArchived,
+              reasons: r.archive?.reasons ?? [],
+            },
             asset_clicks: r.metrics.clicks ?? 0,
             metrics: toTableMetrics(r.metrics),
           };
