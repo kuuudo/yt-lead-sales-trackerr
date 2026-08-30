@@ -106,7 +106,7 @@ import {
 
 import {
   ChevronLeft, Filter, Columns, ChevronDown, ArrowUpDown, Boxes,
-  Calendar, Briefcase, Megaphone, Check, User, Puzzle,
+  Calendar, Briefcase, Megaphone, Check, User, Menu, X,
 } from 'lucide-react';
 
 import {
@@ -1132,8 +1132,288 @@ export default function AllAssetsAnalytics() {
           onClick={() => setMobileMenuOpen(o => !o)}
           className="lg:hidden fixed bottom-5 right-5 z-[9000] w-14 h-14 rounded-full bg-red-600 text-white flex items-center justify-center shadow-2xl"
         >
-          <Puzzle size={22} />
+          <Menu size={22} />
         </button>
+
+        {mobileMenuOpen && (
+          <div className="lg:hidden fixed inset-0 z-[9500] flex flex-col justify-end bg-black/70">
+            <div
+              className="max-h-[85vh] bg-zinc-950 border-t border-zinc-800 rounded-t-3xl overflow-y-auto custom-scrollbar px-6 pt-5 pb-8 space-y-8"
+            >
+              {/* Header row: title + close */}
+              <div className="flex items-center justify-between sticky top-0 bg-zinc-950 pb-3 -mt-5 pt-5 -mx-6 px-6 border-b border-zinc-900">
+                <span className="text-xs font-black uppercase tracking-widest text-white">Filters & Sort</span>
+                <button
+                  onClick={() => setMobileMenuOpen(false)}
+                  className="p-2 bg-zinc-900 border border-zinc-800 rounded-xl text-zinc-400"
+                >
+                  <X size={16} />
+                </button>
+              </div>
+
+              {/* Date Range */}
+              <div>
+                <label className="text-[10px] font-black uppercase tracking-widest text-zinc-500 mb-3 block">
+                  Date Range
+                </label>
+                <select
+                  value={dateRange}
+                  onChange={e => {
+                    const v = e.target.value as DateRange;
+                    setDateRange(v);
+                    if (v !== 'custom') setCustomRange(null);
+                  }}
+                  className="w-full bg-zinc-900 border border-zinc-800 rounded-xl px-4 py-2.5 text-[10px] font-bold uppercase tracking-widest outline-none focus:border-red-600 appearance-none cursor-pointer"
+                >
+                  <option value="7days">Last 7 Days</option>
+                  <option value="30days">Last 30 Days</option>
+                  <option value="2months">Last 2 Months</option>
+                  <option value="6months">Last 6 Months</option>
+                  <option value="1year">Last Year</option>
+                  <option value="all">Lifetime</option>
+                  <option value="custom">Custom Range</option>
+                </select>
+              </div>
+
+              {/* Campaign */}
+              <div>
+                <label className="text-[10px] font-black uppercase tracking-widest text-zinc-500 mb-3 block">
+                  Campaign
+                </label>
+                <select
+                  value={selectedCampaignId}
+                  onChange={e => setSelectedCampaignId(e.target.value)}
+                  className="w-full bg-zinc-900 border border-zinc-800 rounded-xl px-4 py-2.5 text-[10px] font-bold uppercase tracking-widest outline-none focus:border-red-600 appearance-none cursor-pointer truncate"
+                >
+                  <option value="all">All Campaigns</option>
+                  {campaigns.map(c => (
+                    <option key={c.id} value={c.id}>{c.campaign_name}</option>
+                  ))}
+                </select>
+              </div>
+
+              {/* Promotion — simplified inline list for the modal */}
+              <div>
+                <label className="text-[10px] font-black uppercase tracking-widest text-zinc-500 mb-3 block">
+                  Promotion
+                </label>
+                <div className="flex flex-wrap gap-1.5">
+                  <button
+                    onClick={() => setSelectedPromotionId('all')}
+                    className={`h-7 px-3 rounded-lg border text-[9px] font-black uppercase tracking-widest ${
+                      selectedPromotionId === 'all'
+                        ? 'bg-red-600 border-red-600 text-white'
+                        : 'border-zinc-800 bg-zinc-900 text-zinc-500'
+                    }`}
+                  >
+                    All Promotions
+                  </button>
+                  {promotions.map(p => (
+                    <button
+                      key={p.id}
+                      onClick={() => setSelectedPromotionId(p.id)}
+                      className={`h-7 px-3 rounded-lg border text-[9px] font-black uppercase tracking-widest truncate max-w-[160px] ${
+                        selectedPromotionId === p.id
+                          ? 'bg-red-600 border-red-600 text-white'
+                          : 'border-zinc-800 bg-zinc-900 text-zinc-500'
+                      }`}
+                    >
+                      {p.name}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              {/* Content Marketer */}
+              <div>
+                <label className="text-[10px] font-black uppercase tracking-widest text-zinc-500 mb-3 block">
+                  Content Marketer
+                </label>
+                <select
+                  value={selectedContentOwnerId}
+                  onChange={e => setSelectedContentOwnerId(e.target.value)}
+                  className="w-full bg-zinc-900 border border-zinc-800 rounded-xl px-4 py-2.5 text-[10px] font-bold uppercase tracking-widest outline-none focus:border-red-600 appearance-none cursor-pointer truncate"
+                >
+                  <option value="all">All Content Marketers</option>
+                  {contentOwners.map(o => (
+                    <option key={o.id} value={o.id}>{o.name}</option>
+                  ))}
+                </select>
+              </div>
+
+              {/* Asset Type */}
+              <div>
+                <label className="text-[10px] font-black uppercase tracking-widest text-zinc-500 mb-3 block">
+                  Asset Type
+                </label>
+                <div className="flex flex-wrap gap-1.5">
+                  {ALL_ASSET_TYPES.map(t => {
+                    const active = selectedAssetTypes.includes(t);
+                    const count  = rows.filter(r => r.asset.asset_type === t).length;
+                    return (
+                      <button
+                        key={t}
+                        onClick={() =>
+                          setSelectedAssetTypes(prev =>
+                            prev.includes(t) ? prev.filter(x => x !== t) : [...prev, t],
+                          )
+                        }
+                        className={`h-7 px-3 rounded-lg border text-[9px] font-black uppercase tracking-widest flex items-center gap-1.5 ${
+                          active
+                            ? ASSET_TYPE_COLORS[t].replace('/10', '/20')
+                            : 'border-zinc-800 bg-zinc-900 text-zinc-500'
+                        }`}
+                      >
+                        {ASSET_TYPE_LABELS[t]}
+                        <span className={`text-[8px] px-1 py-0.5 rounded font-black ${active ? 'bg-black/20' : 'bg-zinc-800 text-zinc-600'}`}>
+                          {count}
+                        </span>
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+
+              {/* Asset Scope */}
+              <div>
+                <label className="text-[10px] font-black uppercase tracking-widest text-zinc-500 mb-3 block">
+                  Asset Scope
+                </label>
+                <div className="flex flex-wrap gap-1.5">
+                  {([
+                    { key: 'all', label: 'All' },
+                    { key: 'my', label: 'My' },
+                    { key: 'shared', label: 'Shared' },
+                    { key: 'assigned', label: 'Assigned' },
+                  ] as const).map(opt => (
+                    <button
+                      key={opt.key}
+                      onClick={() => setSelectedAssetSource(opt.key)}
+                      className={`h-7 px-3 rounded-lg border text-[9px] font-black uppercase tracking-widest ${
+                        selectedAssetSource === opt.key
+                          ? 'bg-red-600/20 border-red-600/40 text-red-400'
+                          : 'border-zinc-800 bg-zinc-900 text-zinc-500'
+                      }`}
+                    >
+                      {opt.label}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              {/* Platform */}
+              <div>
+                <label className="text-[10px] font-black uppercase tracking-widest text-zinc-500 mb-3 block">
+                  Platform
+                </label>
+                <div className="flex flex-wrap gap-1.5">
+                  <button
+                    onClick={() => setSelectedPlatforms([])}
+                    className={`h-7 px-3 rounded-lg border text-[9px] font-black uppercase tracking-widest ${
+                      selectedPlatforms.length === 0
+                        ? 'bg-red-600 border-red-600 text-white'
+                        : 'border-zinc-800 bg-zinc-900 text-zinc-500'
+                    }`}
+                  >
+                    All
+                    <span className="ml-1.5 text-[8px] px-1 py-0.5 rounded font-black bg-black/20">{rows.length}</span>
+                  </button>
+                  {presentPlatforms.map(p => {
+                    const cfg = PLATFORM_CONFIG[p as Platform];
+                    const active = selectedPlatforms.includes(p);
+                    const count = rows.filter(r => (r.promoting_video.platform ?? 'youtube') === p).length;
+                    return (
+                      <button
+                        key={p}
+                        onClick={() =>
+                          setSelectedPlatforms(prev =>
+                            prev.includes(p) ? prev.filter(x => x !== p) : [...prev, p],
+                          )
+                        }
+                        style={active ? { backgroundColor: cfg?.color ?? '#dc2626', borderColor: cfg?.color ?? '#dc2626' } : {}}
+                        className={`h-7 px-3 rounded-lg border text-[9px] font-black uppercase tracking-widest flex items-center gap-1.5 ${
+                          active ? 'text-white' : 'border-zinc-800 bg-zinc-900 text-zinc-500'
+                        }`}
+                      >
+                        {cfg?.icon && <span className="opacity-70 text-[10px]">{cfg.icon}</span>}
+                        {cfg?.label ?? p}
+                        <span className="text-[8px] px-1 py-0.5 rounded font-black bg-black/20">{count}</span>
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+
+              {/* Columns */}
+              <div>
+                <label className="text-[10px] font-black uppercase tracking-widest text-zinc-500 mb-3 block">
+                  Columns
+                </label>
+                <div className="space-y-0.5">
+                  {TABLE_COLUMNS.map(key => (
+                    <button
+                      key={key}
+                      onClick={() => toggleColumn(key)}
+                      className="w-full flex items-center gap-3 px-2 py-2 rounded-lg hover:bg-zinc-800 text-left"
+                    >
+                      <div className={`w-4 h-4 rounded border flex items-center justify-center shrink-0 ${
+                        visibleColumns.has(key) ? 'bg-red-600 border-red-600' : 'border-zinc-700 bg-zinc-950'
+                      }`}>
+                        {visibleColumns.has(key) && <Check size={9} className="text-white" />}
+                      </div>
+                      <span className="text-[10px] font-bold text-zinc-300 truncate">
+                        {COLUMN_LABELS[key as MetricType]}
+                      </span>
+                    </button>
+                  ))}
+                  <button
+                    onClick={() => toggleColumn('promotion')}
+                    className="w-full flex items-center gap-3 px-2 py-2 rounded-lg hover:bg-zinc-800 text-left"
+                  >
+                    <div className={`w-4 h-4 rounded border flex items-center justify-center shrink-0 ${
+                      visibleColumns.has('promotion') ? 'bg-red-600 border-red-600' : 'border-zinc-700 bg-zinc-950'
+                    }`}>
+                      {visibleColumns.has('promotion') && <Check size={9} className="text-white" />}
+                    </div>
+                    <span className="text-[10px] font-bold text-zinc-300 truncate">Promotion</span>
+                  </button>
+                </div>
+              </div>
+
+              {/* Sort */}
+              <div>
+                <label className="text-[10px] font-black uppercase tracking-widest text-zinc-500 mb-3 block">
+                  Sort
+                </label>
+                <div className="flex flex-wrap gap-1.5">
+                  {SORT_SHORTCUTS.map(s => (
+                    <button
+                      key={s.key}
+                      onClick={() => setSortConfig({ key: s.key, direction: 'desc' })}
+                      className={`h-7 px-3 rounded-lg border text-[9px] font-black uppercase tracking-widest ${
+                        sortConfig.key === s.key
+                          ? 'bg-red-600 border-red-600 text-white'
+                          : 'border-zinc-800 bg-zinc-900 text-zinc-500'
+                      }`}
+                    >
+                      {s.label}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              {/* Row count + Apply */}
+              <div className="pt-2">
+                <button
+                  onClick={() => setMobileMenuOpen(false)}
+                  className="w-full py-3 rounded-xl bg-red-600 text-white text-[11px] font-black uppercase tracking-widest"
+                >
+                  Show {sortedRows.length} Rows
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
 
         {/* ── Header ─────────────────────────────────────────────────────── */}
         <header className="bg-zinc-950 border-b border-zinc-900 px-8 shrink-0">
@@ -1150,11 +1430,11 @@ export default function AllAssetsAnalytics() {
               <button
                 title="Sidebar filters"
                 onClick={() => setMobileFiltersOpen(o => !o)}
-                className="p-3 bg-zinc-900 border border-zinc-800 rounded-2xl text-zinc-400 hover:text-white transition-all flex"
+                className="hidden lg:flex p-3 bg-zinc-900 border border-zinc-800 rounded-2xl text-zinc-400 hover:text-white transition-all"
               >
                 <Filter size={20} />
               </button>
-              <div className={`${mobileMenuOpen ? 'block' : 'hidden'} lg:block`}>
+              <div className="block">
                 <h2 className="text-2xl font-black text-white uppercase tracking-tight">
                   Asset Analytics
                 </h2>
@@ -1250,7 +1530,7 @@ export default function AllAssetsAnalytics() {
           </div>
 
           {/* Second row: platform filter + quick sort */}
-          <div className={`${mobileMenuOpen ? 'flex' : 'hidden'} lg:flex pb-4 flex-wrap items-center justify-between gap-3`}>
+          <div className="hidden lg:flex pb-4 flex-wrap items-center justify-between gap-3">
 
             {/* Platform filter pills */}
             <div className="flex flex-wrap items-center gap-1.5">
