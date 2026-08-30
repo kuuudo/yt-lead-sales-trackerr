@@ -1326,10 +1326,6 @@ export default function AllAssetsAnalytics() {
                     Asset
                   </th>
 
-                  <th className="px-6 py-5 text-left text-[10px] font-black uppercase tracking-widest text-zinc-600 border-b border-zinc-900 bg-zinc-950 min-w-[140px]">
-                    Campaign
-                  </th>
-
                   {/* ── Asset type badge column ────────────────────────────── */}
                   <th className="px-6 py-5 text-left text-[10px] font-black uppercase tracking-widest text-zinc-600 border-b border-zinc-900 bg-zinc-950 min-w-[140px]">
                     Type
@@ -1358,6 +1354,11 @@ export default function AllAssetsAnalytics() {
                       Promotion
                     </th>
                   )}
+
+                  <th className="px-6 py-5 text-left text-[10px] font-black uppercase tracking-widest text-zinc-600 border-b border-zinc-900 bg-zinc-950 min-w-[140px]">
+                    Campaign
+                  </th>
+
 
                   {/* ── Asset Clicks — now sortable via the existing
                       handleSort/sortConfig mechanism (row.asset_clicks,
@@ -1492,10 +1493,6 @@ export default function AllAssetsAnalytics() {
                       </div>
                     </td>
 
-                    <td className="px-6 py-4 whitespace-nowrap text-sm font-bold text-zinc-400">
-                      {(row.campaign_id && campaignNameById.get(row.campaign_id)) || '—'}
-                    </td>
-
                     {/* ── Asset type badge cell ───────────────────────────── */}
                     <td className="px-6 py-4 whitespace-nowrap">
                       <span
@@ -1582,6 +1579,10 @@ export default function AllAssetsAnalytics() {
                         </td>
                       );
                     })()}
+
+                    <td className="px-6 py-4 whitespace-nowrap text-sm font-bold text-zinc-400">
+                      {(row.campaign_id && campaignNameById.get(row.campaign_id)) || '—'}
+                    </td>
 
                     {/* ── Asset Clicks cell ───────────────────────────────── */}
                     <td className="px-6 py-4 whitespace-nowrap text-sm font-bold text-zinc-400 tabular-nums">
