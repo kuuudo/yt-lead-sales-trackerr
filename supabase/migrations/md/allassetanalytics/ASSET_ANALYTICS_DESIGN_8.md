@@ -2423,3 +2423,119 @@ personal — the open ambiguity noted in earlier sessions about whether
 it should be personal was resolved **only** for this feature (by using
 `assignment.created_by_user_id` directly instead), not by changing
 `listOrgAssignments()` itself.
+
+
+## FUTURE — Asset Campaign Association & Asset Type Model
+
+### Decision for MVP
+
+**Do NOT change the Asset creation flows before MVP launch.**
+
+Currently, an Asset may exist without a `campaign_id`. Although this creates some organizational/analytics ambiguity, it is **not an MVP launch blocker**.
+
+Do not make Campaign mandatory for Import Asset yet.
+
+The priority is to launch the current system, test the real Asset creation flows, and observe the actual data produced by:
+
+* Campaign Element Asset
+* Import Asset
+* Video Library Asset
+
+After real-world testing, revisit whether Campaign should be mandatory for imported Assets.
+
+### Product Direction
+
+Long-term, the preferred analytics hierarchy is:
+
+```text
+Campaign
+│
+├── Content Analytics
+│
+├── Own Asset Analytics
+│
+└── Marketer Analytics
+      │
+      └── Promotion Analytics
+            │
+            └── Asset Analytics
+```
+
+This means Campaign association is highly desirable for Assets because it allows Assets to remain organized within the Campaign → Marketer → Promotion → Asset analytics hierarchy.
+
+However, this does **not** justify changing the existing data model before MVP without first verifying the current implementation.
+
+### Important Architecture Concern
+
+Do NOT assume:
+
+```text
+campaign_id IS NULL
+    → Asset Type = Resource Asset
+```
+
+unless the existing code explicitly defines Asset Type this way.
+
+Before changing this behavior, investigate all existing places where Asset Type / provenance is determined.
+
+Changing Campaign requirements could affect:
+
+* Asset creation
+* Asset type determination
+* Analytics
+* Campaign relationships
+* Video provenance
+* Promotion relationships
+* Existing Assets
+* Filters and grouping
+* RLS / authorization
+* Existing database records
+
+Therefore, this should be investigated after MVP rather than changed speculatively before launch.
+
+### Possible Future Model
+
+One possible future direction is:
+
+```text
+Import Asset
+    ├── Campaign association: optional
+    │
+    └── No Campaign association
+```
+
+If an imported Asset is associated with a Campaign, it can participate in Campaign-based analytics.
+
+If it is not associated with a Campaign, it may remain a standalone Asset.
+
+Another possible future direction is introducing a more explicit Asset Type / provenance field instead of inferring Asset Type from whether `campaign_id` is NULL.
+
+For example:
+
+```text
+Asset
+├── explicit type / provenance
+├── optional campaign_id
+└── other relationships
+```
+
+This would make the system easier to extend with additional Asset types in the future.
+
+### Future Investigation Checklist
+
+After MVP launch:
+
+1. Test every Asset creation path with real data.
+2. Record which fields are populated for each Asset.
+3. Inspect how the current code determines Asset Type.
+4. Search for any logic using `campaign_id IS NULL` as an implicit type discriminator.
+5. Check whether imported Assets without Campaigns actually cause analytics/navigation problems.
+6. Determine whether Campaign should become mandatory for Import Asset.
+7. If needed, design an explicit Asset Type / provenance model.
+8. Only then migrate or modify existing data.
+
+### MVP Rule
+
+**Do not fix this pre-launch unless real testing reveals a blocking bug.**
+
+This is a known future architecture/product decision, not current MVP scope.

@@ -106,7 +106,7 @@ import {
 
 import {
   ChevronLeft, Filter, Columns, ChevronDown, ArrowUpDown, Boxes,
-  Calendar, Briefcase, Megaphone, Check, User,
+  Calendar, Briefcase, Megaphone, Check, User, RotateCw,
 } from 'lucide-react';
 
 import {
@@ -580,6 +580,7 @@ export default function AllAssetsAnalytics() {
   const [selectedCampaignId, setSelectedCampaignId]   = useState<string>('all');
   const [selectedPromotionId, setSelectedPromotionId] = useState<string>('all');
   const [selectedContentOwnerId, setSelectedContentOwnerId] = useState<string>('all');
+  const [mobileFiltersOpen, setMobileFiltersOpen] = useState(false);
   const [activeSource, setActiveSource]   = useState<RevenueView>('total');
   const [selectedPlatforms, setSelectedPlatforms] = useState<string[]>([]);
   const [selectedAssetTypes, setSelectedAssetTypes] = useState<AssetTypeTag[]>([]);
@@ -795,7 +796,9 @@ export default function AllAssetsAnalytics() {
     <div className="flex h-screen bg-black text-zinc-300 overflow-hidden fixed inset-0 z-[100]">
 
       {/* ── Sidebar ────────────────────────────────────────────────────── */}
-      <aside className="w-80 bg-zinc-950 border-r border-zinc-900 flex flex-col shrink-0 lg:relative z-50">
+      <aside
+        className={`${mobileFiltersOpen ? 'flex' : 'hidden'} lg:flex w-80 bg-zinc-950 border-r border-zinc-900 flex-col shrink-0 fixed inset-y-0 left-0 lg:static z-50`}
+      >
         <div className="flex-1 overflow-y-auto px-6 py-6 custom-scrollbar space-y-8">
 
           {/* Date range */}
@@ -1136,7 +1139,8 @@ export default function AllAssetsAnalytics() {
               </button>
               <button
                 title="Sidebar filters"
-                className="p-3 bg-zinc-900 border border-zinc-800 rounded-2xl text-zinc-400 hover:text-white transition-all hidden lg:flex"
+                onClick={() => setMobileFiltersOpen(o => !o)}
+                className="p-3 bg-zinc-900 border border-zinc-800 rounded-2xl text-zinc-400 hover:text-white transition-all flex"
               >
                 <Filter size={20} />
               </button>
@@ -1314,6 +1318,14 @@ export default function AllAssetsAnalytics() {
 
           </div>
         </header>
+
+        <div className="hidden [@media(orientation:portrait)]:flex lg:hidden items-center gap-2 px-4 py-2 bg-zinc-900 border-b border-zinc-800 text-[10px] font-bold uppercase tracking-widest text-zinc-400">
+          <RotateCw size={12} />
+          Rotate your device to landscape for a better table view
+        </div>
+
+        {/* ── Table ──────────────────────────────────────────────────────── */}
+        <div className="flex-1 overflow-x-auto custom-scrollbar"></div>
 
         {/* ── Table ──────────────────────────────────────────────────────── */}
         <div className="flex-1 overflow-x-auto custom-scrollbar">
