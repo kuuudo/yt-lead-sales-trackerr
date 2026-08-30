@@ -580,8 +580,10 @@ export default function AllAssetsAnalytics() {
   const [selectedCampaignId, setSelectedCampaignId]   = useState<string>('all');
   const [selectedPromotionId, setSelectedPromotionId] = useState<string>('all');
   const [selectedContentOwnerId, setSelectedContentOwnerId] = useState<string>('all');
-    const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
+  const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [mobileFiltersOpen, setMobileFiltersOpen] = useState(false);
+  const [mobileTab, setMobileTab] = useState<'cards' | 'table'>('cards');
+  const [expandedCards, setExpandedCards] = useState<Set<string>>(new Set());
   const [activeSource, setActiveSource]   = useState<RevenueView>('total');
   const [selectedPlatforms, setSelectedPlatforms] = useState<string[]>([]);
   const [selectedAssetTypes, setSelectedAssetTypes] = useState<AssetTypeTag[]>([]);
@@ -1328,10 +1330,91 @@ export default function AllAssetsAnalytics() {
         </header>
 
         {/* ── Table ──────────────────────────────────────────────────────── */}
-        <div className="flex-1 overflow-x-auto custom-scrollbar"></div>
+                {/* ── Mobile view tabs — mobile only, desktop keeps the table ─────── */}
+        <div className="lg:hidden flex items-center gap-2 px-6 py-3 bg-zinc-950 border-b border-zinc-900">
+          <button
+            onClick={() => setMobileTab('cards')}
+            className={`px-4 py-1.5 rounded-lg text-[10px] font-black uppercase tracking-widest transition-all ${
+              mobileTab === 'cards' ? 'bg-red-600 text-white' : 'border border-zinc-800 text-zinc-500'
+            }`}
+          >
+            Cards
+          </button>
+          <button
+            onClick={() => setMobileTab('table')}
+            className={`px-4 py-1.5 rounded-lg text-[10px] font-black uppercase tracking-widest transition-all ${
+              mobileTab === 'table' ? 'bg-red-600 text-white' : 'border border-zinc-800 text-zinc-500'
+            }`}
+          >
+            Table
+          </button>
+        </div>
 
-        {/* ── Table ──────────────────────────────────────────────────────── */}
-        <div className="flex-1 overflow-x-auto custom-scrollbar">
+        {/* ── Mobile card list — mobile only, Cards tab ───────────────────── */}
+        {mobileTab === 'cards' && (
+          <div className="lg:hidden flex-1 overflow-y-auto px-4 py-3 space-y-3">
+            {!loading && sortedRows.map(row => {
+              const cardKey = `${row.asset.id}::${row.promoting_video.id}`;
+              const isExpanded = expandedCards.has(cardKey);
+              return (
+                <div key={cardKey} className="bg-zinc-950 border border-zinc-900 rounded-2xl p-4">
+                  <div className="flex items-center gap-3 mb-3">
+                    <img
+                      src={row.asset.thumbnail_url}
+                      className="w-10 h-10 object-cover rounded-lg border border-zinc-800 shrink-0"
+                      alt=""
+                      onError={e => {
+                        const t = e.currentTarget;
+                        t.onerror = null;
+                        t.src = `https://placehold.co/40x40/18181b/52525b?text=${encodeURIComponent(
+                          (row.asset.platform ?? 'Asset').toUpperCase(),
+                        )}`;
+                      }}
+                    />
+                    <div className="min-w-0 flex-1">
+                      <div className="text-xs font-bold truncate">{row.asset.title ?? 'Untitled asset'}</div>
+                      <span className={`inline-flex items-center mt-1 px-2 py-0.5 rounded-full border text-[8px] font-black uppercase tracking-widest ${ASSET_TYPE_COLORS[row.asset.asset_type]}`}>
+                        {ASSET_TYPE_LABELS[row.asset.asset_type]}
+                      </span>
+                    </div>
+                  </div>
+
+                  <div className="border-t border-zinc-900 pt-3 space-y-2">
+                    <div className="flex items-center justify-between text-[11px]">
+                      <span className="text-zinc-600 font-bold uppercase tracking-widest">Asset Clicks</span>
+                      <span className="text-zinc-300 font-bold tabular-nums">{row.asset_clicks ?? '—'}</span>
+                    </div>
+                    <div className="flex items-center justify-between text-[11px]">
+                      <span className="text-zinc-600 font-bold uppercase tracking-widest">Total Revenue ($)</span>
+                      <span className="text-zinc-300 font-bold tabular-nums">{row.metrics['total_revenue' as MetricType] ?? 0}</span>
+                    </div>
+
+                    {isExpanded && TABLE_COLUMNS.map(key => (
+                      <div key={key} className="flex items-center justify-between text-[11px]">
+                        <span className="text-zinc-600 font-bold uppercase tracking-widest">{COLUMN_LABELS[key as MetricType]}</span>
+                        <span className="text-zinc-300 font-bold tabular-nums">{row.metrics[key] ?? 0}</span>
+                      </div>
+                    ))}
+                  </div>
+
+                  <button
+                    onClick={() =>
+                      setExpandedCards(prev => {
+                        const next = new Set(prev);
+                        next.has(cardKey) ? next.delete(cardKey) : next.add(cardKey);
+                        return next;
+                      })
+                    }
+                    className="w-full mt-3 py-2 rounded-lg border border-zinc-800 text-zinc-500 text-[9px] font-black uppercase tracking-widest"
+                  >
+                    {isExpanded ? 'Hide extra metrics' : 'Show all metrics'}
+                  </button>
+                </div>
+              );
+            })}
+          </div>
+        )}
+        <div className={`${mobileTab === 'table' ? 'block' : 'hidden'} lg:block flex-1 overflow-x-auto custom-scrollbar`}>
           <div className="inline-block min-w-full align-middle h-full overflow-y-auto">
             <table className="min-w-full divide-y divide-zinc-900 border-collapse">
               <thead className="bg-zinc-950 sticky top-0 z-20 shadow-xl">
