@@ -99,6 +99,12 @@ import {
 } from '../services/asset/getAssetAnalyticsRows';
 
 import {
+  getPromotionAssignmentGroups,
+  type PromotionAssignmentGroups,
+  type AssignmentGroup,
+} from '../services/promotion/getPromotionAssignmentGroups';
+
+import {
   ChevronLeft, Filter, Columns, ChevronDown, ArrowUpDown, Boxes,
   Calendar, Briefcase, Megaphone, Check, User,
 } from 'lucide-react';
@@ -566,6 +572,7 @@ function usePromotionOptions(rows: AssetAnalyticsRow[]): PromotionOption[] {
 
 export default function AllAssetsAnalytics() {
   const navigate = useNavigate();
+  const { user } = useAuth();
 
   // ── Filter state (before data hook so date/source drive fetch) ───────────
   const [dateRange, setDateRange]         = useState<DateRange>('30days');
@@ -593,6 +600,50 @@ export default function AllAssetsAnalytics() {
   const campaigns  = useCampaignOptions();
   const promotions = usePromotionOptions(rows);
   const promotionNameById = useMemo(() => new Map(promotions.map(p => [p.id, p.name])), [promotions]);
+
+  // ── Promotion filter panel state ────────────────────────────────────────
+  // Button + panel replacing the old plain <select>, mirroring the Columns
+  // dropdown pattern below (same ref/outside-click hook). [All] behaves
+  // exactly as before. Assigned to Me / Assigned by Me add a person →
+  // promotions drill-down, sourced from getPromotionAssignmentGroups().
+  const [promotionPanelOpen, setPromotionPanelOpen] = useState(false);
+  const promotionPanelRef = useRef<HTMLDivElement>(null);
+  const [promotionTab, setPromotionTab] = useState<'all' | 'toMe' | 'byMe'>('all');
+  const [selectedPersonId, setSelectedPersonId] = useState<string | null>(null);
+  const [assignmentGroups, setAssignmentGroups] = useState<PromotionAssignmentGroups | null>(null);
+  const [assignmentGroupsLoading, setAssignmentGroupsLoading] = useState(false);
+
+  useEffect(() => {
+    const handler = (e: MouseEvent) => {
+      if (promotionPanelRef.current && !promotionPanelRef.current.contains(e.target as Node)) {
+        setPromotionPanelOpen(false);
+      }
+    };
+    document.addEventListener('mousedown', handler);
+    return () => document.removeEventListener('mousedown', handler);
+  }, []);
+
+  // Lazy-load on first open only — never refetched just for switching tabs.
+  useEffect(() => {
+    if (!promotionPanelOpen || assignmentGroups || assignmentGroupsLoading || !user?.id) return;
+    setAssignmentGroupsLoading(true);
+    getPromotionAssignmentGroups(user.id)
+      .then(setAssignmentGroups)
+      .catch(() => setAssignmentGroups({ assignedToMe: [], assignedByMe: [] }))
+      .finally(() => setAssignmentGroupsLoading(false));
+  }, [promotionPanelOpen, assignmentGroups, assignmentGroupsLoading, user?.id]);
+
+  const activeGroupList: AssignmentGroup[] =
+    promotionTab === 'toMe' ? assignmentGroups?.assignedToMe ?? []
+    : promotionTab === 'byMe' ? assignmentGroups?.assignedByMe ?? []
+    : [];
+
+  const selectedPerson = activeGroupList.find(g => g.person.id === selectedPersonId) ?? null;
+
+  const selectedPromotionLabel =
+    selectedPromotionId === 'all'
+      ? 'All Promotions'
+      : promotionNameById.get(selectedPromotionId) ?? selectedPromotionId;
 
   // Content Marketer options — derived from rows already on screen, same
   // conservative approach usePromotionOptions() uses. Keyed by
@@ -827,23 +878,139 @@ export default function AllAssetsAnalytics() {
             </div>
           </div>
 
-          {/* Promotion — new, not present in InDepthAnalytics */}
+          {/* Promotion — button + panel (mirrors Columns dropdown pattern).
+              [All] behaves exactly as the old <select> did. Assigned to Me /
+              Assigned by Me add a person → promotions drill-down, sourced
+              from getPromotionAssignmentGroups(). */}
           <div>
             <label className="text-[10px] font-black uppercase tracking-widest text-zinc-500 mb-3 block">
               Promotion
             </label>
-            <div className="relative">
-              <select
-                value={selectedPromotionId}
-                onChange={e => setSelectedPromotionId(e.target.value)}
-                className="w-full bg-zinc-900 border border-zinc-800 rounded-xl px-4 py-2.5 text-[10px] font-bold uppercase tracking-widest outline-none focus:border-red-600 appearance-none cursor-pointer truncate pr-10"
+            <div className="relative" ref={promotionPanelRef}>
+              <button
+                onClick={() => setPromotionPanelOpen(o => !o)}
+                className={`w-full flex items-center justify-between gap-2 px-4 py-2.5 rounded-xl border text-[10px] font-bold uppercase tracking-widest transition-all truncate ${
+                  promotionPanelOpen
+                    ? 'bg-zinc-800 border-zinc-700 text-white'
+                    : 'bg-zinc-900 border-zinc-800 text-zinc-400 hover:text-white'
+                }`}
               >
-                <option value="all">All Promotions</option>
-                {promotions.map(p => (
-                  <option key={p.id} value={p.id}>{p.name}</option>
-                ))}
-              </select>
-              <Megaphone size={12} className="absolute right-4 top-1/2 -translate-y-1/2 text-zinc-600 pointer-events-none" />
+                <span className="flex items-center gap-2 min-w-0 truncate">
+                  <Megaphone size={12} className="shrink-0 text-zinc-600" />
+                  <span className="truncate">{selectedPromotionLabel}</span>
+                </span>
+                <ChevronDown size={11} className={`shrink-0 transition-transform ${promotionPanelOpen ? 'rotate-180' : ''}`} />
+              </button>
+
+              {promotionPanelOpen && (
+                <div className="absolute left-0 top-full mt-2 w-72 bg-zinc-900 border border-zinc-800 rounded-2xl shadow-2xl z-50 overflow-hidden">
+                  <div className="flex items-center gap-1 px-3 pt-3 pb-2 border-b border-zinc-800">
+                    {([
+                      { key: 'all', label: 'All' },
+                      { key: 'toMe', label: 'Assigned to Me' },
+                      { key: 'byMe', label: 'Assigned by Me' },
+                    ] as const).map(tab => (
+                      <button
+                        key={tab.key}
+                        onClick={() => {
+                          setPromotionTab(tab.key);
+                          setSelectedPersonId(null);
+                          if (tab.key === 'all') {
+                            setSelectedPromotionId('all');
+                            setPromotionPanelOpen(false);
+                          }
+                        }}
+                        className={`px-2.5 py-1.5 rounded-lg text-[9px] font-black uppercase tracking-widest transition-all ${
+                          promotionTab === tab.key ? 'bg-zinc-700 text-white' : 'text-zinc-600 hover:text-zinc-400'
+                        }`}
+                      >
+                        {tab.label}
+                      </button>
+                    ))}
+                  </div>
+
+                  {promotionTab === 'all' && (
+                    <div className="max-h-72 overflow-y-auto py-2">
+                      <button
+                        onClick={() => { setSelectedPromotionId('all'); setPromotionPanelOpen(false); }}
+                        className="w-full text-left px-4 py-2 text-[10px] font-bold text-zinc-300 hover:bg-zinc-800 transition-colors"
+                      >
+                        All Promotions
+                      </button>
+                      {promotions.map(p => (
+                        <button
+                          key={p.id}
+                          onClick={() => { setSelectedPromotionId(p.id); setPromotionPanelOpen(false); }}
+                          className="w-full text-left px-4 py-2 text-[10px] font-bold text-zinc-300 hover:bg-zinc-800 transition-colors truncate"
+                        >
+                          {p.name}
+                        </button>
+                      ))}
+                    </div>
+                  )}
+
+                  {(promotionTab === 'toMe' || promotionTab === 'byMe') && (
+                    <div className="max-h-72 overflow-y-auto py-2">
+                      {assignmentGroupsLoading && (
+                        <div className="px-4 py-6 text-center text-[10px] font-bold text-zinc-600">
+                          Loading…
+                        </div>
+                      )}
+
+                      {!assignmentGroupsLoading && !selectedPerson && activeGroupList.length === 0 && (
+                        <div className="px-4 py-6 text-center text-[10px] font-bold text-zinc-600">
+                          Nothing here yet.
+                        </div>
+                      )}
+
+                      {!assignmentGroupsLoading && !selectedPerson && activeGroupList.map(group => (
+                        <button
+                          key={group.person.id}
+                          onClick={() => setSelectedPersonId(group.person.id)}
+                          className="w-full flex items-center justify-between gap-2 px-4 py-2.5 hover:bg-zinc-800 transition-colors text-left"
+                        >
+                          <span className="min-w-0">
+                            <span className="block text-[8px] font-black uppercase tracking-widest text-zinc-600">
+                              {promotionTab === 'toMe' ? 'Sponsor' : 'Marketer'}
+                            </span>
+                            <span className="block text-[10px] font-bold text-zinc-300 truncate">
+                              {group.person.name}
+                            </span>
+                          </span>
+                          <span className="shrink-0 text-[9px] font-bold text-zinc-500 whitespace-nowrap">
+                            {group.promotions.length} Promotion{group.promotions.length === 1 ? '' : 's'} →
+                          </span>
+                        </button>
+                      ))}
+
+                      {!assignmentGroupsLoading && selectedPerson && (
+                        <div>
+                          <button
+                            onClick={() => setSelectedPersonId(null)}
+                            className="w-full flex items-center gap-1.5 px-4 py-2 text-[9px] font-black uppercase tracking-widest text-zinc-500 hover:text-white transition-colors"
+                          >
+                            <ChevronLeft size={11} />
+                            {selectedPerson.person.name}
+                          </button>
+                          {selectedPerson.promotions.map(p => (
+                            <button
+                              key={p.id}
+                              onClick={() => {
+                                setSelectedPromotionId(p.id);
+                                setPromotionPanelOpen(false);
+                                setSelectedPersonId(null);
+                              }}
+                              className="w-full text-left px-4 py-2 text-[10px] font-bold text-zinc-300 hover:bg-zinc-800 transition-colors truncate"
+                            >
+                              {promotionNameById.get(p.id) ?? (p.assignment?.title ?? p.id)}
+                            </button>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  )}
+                </div>
+              )}
             </div>
           </div>
 
