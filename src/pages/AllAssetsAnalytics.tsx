@@ -97,7 +97,9 @@ import {
   getAssetAnalyticsRows,
   type AssetAnalyticsTableRow,
 } from '../services/asset/getAssetAnalyticsRows';
-
+import { getVideoArchiveContextsForViewer } from '../services/video/getVideoArchiveContext';
+import { getCampaignArchiveContextsForViewer } from '../services/campaign/getCampaignArchiveContext';
+import { getPromotionArchiveContextsForViewer } from '../services/promotion/getPromotionArchiveContext';
 import {
   getPromotionAssignmentGroups,
   type PromotionAssignmentGroups,
@@ -223,6 +225,18 @@ interface AssetAnalyticsRow {
     isArchived: boolean;
     reasons: { sourceType: string; sourceId: string; sourceName: string | null }[];
   };
+  // From getVideoArchiveContextsForViewer for promoting_video.id (Entity Archive only).
+  videoArchive: {
+    isArchived: boolean;
+  };
+  // From getCampaignArchiveContextsForViewer for campaign_id (Entity Archive only).
+  campaignArchive: {
+    isArchived: boolean;
+  };
+  // From getPromotionArchiveContextsForViewer (Surface A / personal only).
+  promotionArchive: {
+    isArchived: boolean;
+  };
   // Placeholder — see "Asset Clicks" note above. Left as `number | null` so
   // the UI can distinguish "not computed yet" (null → renders "—") from a
   // real zero once wired.
@@ -332,7 +346,94 @@ function useAssetAnalyticsRows(opts: {
        
         const assetIds = Array.from(new Set(result.rows.map((r) => r.asset_id)));
         const videoIds = Array.from(new Set(result.rows.map((r) => r.video_id)));
+        const videoArchiveById = await getVideoArchiveContextsForViewer(
+          videoIds.map((id) => ({ id })),
+          viewerId,
+        );
 
+        const campaignIds = Array.from(
+          new Set(
+            result.rows
+              .flatMap((r) => r.campaignIds ?? [])
+              .filter((id): id is string => !!id),
+          ),
+        );
+
+        let campaignArchiveById = new Map<
+          string,
+          { isArchived: boolean }
+        >();
+        if (campaignIds.length > 0) {
+          const { data: campaignRows, error: campaignArchiveError } = await supabase
+            .from('campaigns')
+            .select('id, archived_at')
+            .in('id', campaignIds);
+          if (campaignArchiveError) {
+            throw new Error(
+              `Failed to load campaigns for archive context: ${campaignArchiveError.message}`,
+            );
+          }
+          const campaignsForArchive = (campaignRows ?? []).map((c: any) => ({
+            id: c.id as string,
+            archivedAt: (c.archived_at as string | null) ?? null,
+          }));
+          const fullCampaignArchive = await getCampaignArchiveContextsForViewer(
+            campaignsForArchive,
+            viewerId,
+          );
+          campaignArchiveById = new Map(
+            Array.from(fullCampaignArchive.entries()).map(([id, ctx]) => [
+              id,
+              { isArchived: !!ctx.isArchived },
+            ]),
+          );
+        }
+
+                const promotionIds = Array.from(
+          new Set(
+            result.rows
+              .flatMap((r) => r.promotionIds ?? [])
+              .filter((id): id is string => !!id),
+          ),
+        );
+
+        let promotionArchiveById = new Map<string, { isArchived: boolean }>();
+        if (promotionIds.length > 0) {
+          const { data: promoStateRows, error: promoStateError } = await supabase
+            .from('promotion_user_states')
+            .select('promotion_id, archived_at')
+            .eq('user_id', viewerId)
+            .in('promotion_id', promotionIds);
+
+          if (promoStateError) {
+            throw new Error(
+              `Failed to load promotion archive states: ${promoStateError.message}`,
+            );
+          }
+
+          const archivedAtByPromotionId = new Map<string, string | null>(
+            (promoStateRows ?? []).map((row: any) => [
+              row.promotion_id as string,
+              (row.archived_at as string | null) ?? null,
+            ]),
+          );
+
+          const promotionsForArchive = promotionIds.map((id) => ({
+            id,
+            archivedAt: archivedAtByPromotionId.get(id) ?? null,
+          }));
+
+          const fullPromotionArchive = await getPromotionArchiveContextsForViewer(
+            promotionsForArchive,
+            viewerId,
+          );
+          promotionArchiveById = new Map(
+            Array.from(fullPromotionArchive.entries()).map(([id, ctx]) => [
+              id,
+              { isArchived: !!ctx.isArchived },
+            ]),
+          );
+        }
         // NOTE: videos fetched with '*' (not a narrow column list) because
         // resolveThumbnail()/renderContentIdentity() are canonical helpers
         // from videoFormatters.ts whose exact field dependencies aren't
@@ -466,6 +567,27 @@ function useAssetAnalyticsRows(opts: {
               isArchived: !!r.archive?.isArchived,
               reasons: r.archive?.reasons ?? [],
             },
+            videoArchive: {
+              isArchived: !!videoArchiveById.get(r.video_id)?.isArchived,
+            },
+
+            campaignArchive: {
+              isArchived: !!(
+                (r.campaignIds?.[0]
+                  ? campaignArchiveById.get(r.campaignIds[0])?.isArchived
+                  : false)
+              ),
+            },
+
+            promotionArchive: {
+              isArchived: !!(
+                r.promotionIds?.[0]
+                  ? promotionArchiveById.get(r.promotionIds[0])?.isArchived
+                  : false
+              ),
+            },
+
+
             asset_clicks: r.metrics.clicks ?? 0,
             metrics: toTableMetrics(r.metrics),
           };
