@@ -581,6 +581,7 @@ export default function AllAssetsAnalytics() {
   const [selectedPromotionId, setSelectedPromotionId] = useState<string>('all');
   const [selectedContentOwnerId, setSelectedContentOwnerId] = useState<string>('all');
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
+  const [chartOpen, setChartOpen] = useState(true);
   const [mobileFiltersOpen, setMobileFiltersOpen] = useState(false);
   const [mobileTab, setMobileTab] = useState<'cards' | 'table'>('cards');
   const [expandedCards, setExpandedCards] = useState<Set<string>>(new Set());
@@ -643,7 +644,7 @@ export default function AllAssetsAnalytics() {
       .then(setAssignmentGroups)
       .catch(() => setAssignmentGroups({ assignedToMe: [], assignedByMe: [] }))
       .finally(() => setAssignmentGroupsLoading(false));
-  }, [promotionPanelOpen, assignmentGroups, assignmentGroupsLoading, user?.id]);
+  }, [promotionPanelOpen, mobileMenuOpen, assignmentGroups, assignmentGroupsLoading, user?.id]);
 
   const activeGroupList: AssignmentGroup[] =
     promotionTab === 'toMe' ? assignmentGroups?.assignedToMe ?? []
@@ -1713,18 +1714,30 @@ export default function AllAssetsAnalytics() {
               later if needed. ─────────────────────────────────────────── */}
         <div className="lg:hidden px-4 pt-4">
           <div className="bg-zinc-950 border border-zinc-900 rounded-2xl p-5">
-            <div className="flex items-end gap-2.5 h-28">
-              {[35, 55, 45, 90, 65].map((h, i) => (
-                <div
-                  key={i}
-                  className="flex-1 rounded-t-md"
-                  style={{
-                    height: `${h}%`,
-                    background: 'linear-gradient(180deg, #7c3aed 0%, #3b82f6 100%)',
-                  }}
-                />
-              ))}
+            <div className="flex items-center justify-between mb-1">
+              <span className="text-[9px] font-black uppercase tracking-widest text-zinc-600">Trend</span>
+              <button
+                onClick={() => setChartOpen(o => !o)}
+                className="text-[9px] font-black uppercase tracking-widest text-zinc-500 hover:text-white transition-colors"
+              >
+                {chartOpen ? 'Hide' : 'Show'}
+              </button>
             </div>
+
+            {chartOpen && (
+              <div className="flex items-end gap-2.5 h-28 mt-3">
+                {[35, 55, 45, 90, 65].map((h, i) => (
+                  <div
+                    key={i}
+                    className="flex-1 rounded-t-md"
+                    style={{
+                      height: `${h}%`,
+                      background: 'linear-gradient(180deg, #7c3aed 0%, #3b82f6 100%)',
+                    }}
+                  />
+                ))}
+              </div>
+            )}
           </div>
         </div>
 
