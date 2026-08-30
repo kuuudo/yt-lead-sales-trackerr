@@ -182,15 +182,6 @@ export default function Marketplace() {
   // union of that direction's promotions, or just one person's once a
   // pill is selected — ids cross-checked against activePromotions so
   // existing archive filtering is never bypassed.
-  const filteredByAssign = useMemo(() => {
-    if (assignTab === 'all') return activePromotions;
-    const person = activeAssignGroupList.find(g => g.person.id === assignSelectedPersonId);
-    const scopedIds = new Set(
-      (person ? person.promotions : activeAssignGroupList.flatMap(g => g.promotions)).map(p => p.id)
-    );
-    return activePromotions.filter(p => scopedIds.has(p.id));
-  }, [assignTab, assignSelectedPersonId, activeAssignGroupList, activePromotions]);
-
   // ── Combined Archived / Archive Impact / Hidden menu ─────────────────────
   // Desktop: opens on hover (CSS group-hover). Mobile/touch: no real
   // :hover, so the click-toggled `manageOpen` state covers it — see the
@@ -488,7 +479,27 @@ export default function Marketplace() {
   const level1Promotions = archivedPromotions.filter(p => !hiddenPromotionSet.has(p.id));
   const level2Promotions = archivedPromotions.filter(p => hiddenPromotionSet.has(p.id));
   const archiveImpactCount = Array.from(archiveImpactMap.values()).filter(v => v.archivedAssetCount > 0).length;
+  const filteredByAssign = useMemo(() => {
+  if (assignTab === 'all') return activePromotions;
 
+  const person = activeAssignGroupList.find(
+    g => g.person.id === assignSelectedPersonId
+  );
+
+  const scopedIds = new Set(
+    (person
+      ? person.promotions
+      : activeAssignGroupList.flatMap(g => g.promotions)
+    ).map(p => p.id)
+  );
+
+  return activePromotions.filter(p => scopedIds.has(p.id));
+}, [
+  assignTab,
+  assignSelectedPersonId,
+  activeAssignGroupList,
+  activePromotions,
+]);
   // Surface B fetch — independent, non-blocking. Scoped to My
   // Promotions (activePromotions) only, per the design doc's own
   // example of Archive Impact shown alongside (never instead of) My
