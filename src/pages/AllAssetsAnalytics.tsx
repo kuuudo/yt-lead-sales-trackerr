@@ -597,10 +597,18 @@ export default function AllAssetsAnalytics() {
     customRange,
     activeSource,
   });
-  const campaigns  = useCampaignOptions();
-  const promotions = usePromotionOptions(rows);
-  const promotionNameById = useMemo(() => new Map(promotions.map(p => [p.id, p.name])), [promotions]);
+  const campaigns = useCampaignOptions();
 
+  const campaignNameById = useMemo(
+    () => new Map(campaigns.map(c => [c.id, c.campaign_name])),
+    [campaigns]
+  );
+
+  const promotions = usePromotionOptions(rows);
+  const promotionNameById = useMemo(
+    () => new Map(promotions.map(p => [p.id, p.name])),
+    [promotions]
+  );
   // ── Promotion filter panel state ────────────────────────────────────────
   // Button + panel replacing the old plain <select>, mirroring the Columns
   // dropdown pattern below (same ref/outside-click hook). [All] behaves
@@ -781,7 +789,7 @@ export default function AllAssetsAnalytics() {
     });
   }, [contentOwnerFilteredRows, sortConfig]);
 
-  const colSpan = 6 + TABLE_COLUMNS.length + 1 + (visibleColumns.has('promotion') ? 1 : 0); // Asset + Type + Content + Content Owner + Asset Clicks + Total Revenue (dup) + metrics + trailing spacer + optional Promotion
+  const colSpan = 7 + TABLE_COLUMNS.length + 1 + (visibleColumns.has('promotion') ? 1 : 0); // Asset + Type + Content + Content Owner + Asset Clicks + Total Revenue (dup) + metrics + trailing spacer + optional Promotion
 
   return (
     <div className="flex h-screen bg-black text-zinc-300 overflow-hidden fixed inset-0 z-[100]">
@@ -1318,6 +1326,10 @@ export default function AllAssetsAnalytics() {
                     Asset
                   </th>
 
+                  <th className="px-6 py-5 text-left text-[10px] font-black uppercase tracking-widest text-zinc-600 border-b border-zinc-900 bg-zinc-950 min-w-[140px]">
+                    Campaign
+                  </th>
+
                   {/* ── Asset type badge column ────────────────────────────── */}
                   <th className="px-6 py-5 text-left text-[10px] font-black uppercase tracking-widest text-zinc-600 border-b border-zinc-900 bg-zinc-950 min-w-[140px]">
                     Type
@@ -1478,6 +1490,10 @@ export default function AllAssetsAnalytics() {
                           </div>
                         </div>
                       </div>
+                    </td>
+
+                    <td className="px-6 py-4 whitespace-nowrap text-sm font-bold text-zinc-400">
+                      {(row.campaign_id && campaignNameById.get(row.campaign_id)) || '—'}
                     </td>
 
                     {/* ── Asset type badge cell ───────────────────────────── */}

@@ -1,6 +1,6 @@
 # ASSET ANALYTICS — SOURCE OF TRUTH
 
-Status: **Table Structure = LOCKED · Attribution (Type 1/2/3) = LOCKED · Row grain = LOCKED · Archive architecture = LOCKED · Organization boundary = LOCKED · Orchestration = IMPLEMENTED + REAL-DATA VERIFIED · AllAssetsAnalytics = CONNECTED TO REAL DATA · Identity enrichment (Phase 1) = IMPLEMENTED, NOT real-data verified · Campaign filter (Phase 2) = IMPLEMENTED, NOT real-data verified · Promotion filter (Phase 2) = INTERIM IMPLEMENTATION ONLY — correctness UNPROVEN, suspected wrong for multi-Promotion assets, DO NOT SIGN OFF · Asset source (My/Shared/Assigned) filter = NOT STARTED, investigation only · Asset grouping/merged display = NOT STARTED, presentation-layer only · Revenue Truth / double-counting model = NOT STARTED · Cross-org promoting-video RLS gap (sponsor viewer saw "Untitled video" / Content Owner "—") = FIXED & DB-VERIFIED 2026-08-29, new `videos` SELECT policy added, no application code changed · `redirect_links.promotion_id IS NULL` historical data = FORENSICALLY CLASSIFIED (28 zero-candidate / 46 one-candidate / 35 multi-candidate), 35-row set TEMPORARILY diagnostic-backfilled (NOT asserted as historical truth, rollback list retained) to confirm NULL is a contributing cause of Promotion Analytics symptoms · 46-row one-candidate set = DELIBERATELY NOT backfilled — decision changed from "maybe safe fallback" to "do not backtrack historical data at all" · Strategy as of 2026-08-30 = STOP historical backfill entirely → FIX FORWARD (guarantee correct `promotion_id` on all newly-created redirect_links, per asset category) → TEST MATRIX (see new section below) before any further historical-data decision · `Track New Content → Select Shared Asset → createRedirectLink()` invariant verification = NOT STARTED, this is the next investigation target**
+Status: **Table Structure = LOCKED · Attribution (Type 1/2/3) = LOCKED · Row grain = LOCKED · Archive architecture = LOCKED · Organization boundary = LOCKED · Orchestration = IMPLEMENTED + REAL-DATA VERIFIED · AllAssetsAnalytics = CONNECTED TO REAL DATA · Identity enrichment (Phase 1) = IMPLEMENTED, NOT real-data verified · Campaign filter (Phase 2) = IMPLEMENTED, NOT real-data verified · Promotion filter (Phase 2) = INTERIM IMPLEMENTATION ONLY — correctness UNPROVEN, suspected wrong for multi-Promotion assets, DO NOT SIGN OFF · Asset source (My/Shared/Assigned) filter = NOT STARTED, investigation only · Asset grouping/merged display = NOT STARTED, presentation-layer only · Revenue Truth / double-counting model = NOT STARTED · Cross-org promoting-video RLS gap (sponsor viewer saw "Untitled video" / Content Owner "—") = FIXED & DB-VERIFIED 2026-08-29, new `videos` SELECT policy added, no application code changed · `redirect_links.promotion_id IS NULL` historical data = FORENSICALLY CLASSIFIED (28 zero-candidate / 46 one-candidate / 35 multi-candidate), 35-row set TEMPORARILY diagnostic-backfilled (NOT asserted as historical truth, rollback list retained) to confirm NULL is a contributing cause of Promotion Analytics symptoms · 46-row one-candidate set = DELIBERATELY NOT backfilled — decision changed from "maybe safe fallback" to "do not backtrack historical data at all" · Strategy as of 2026-08-30 = STOP historical backfill entirely → FIX FORWARD (guarantee correct `promotion_id` on all newly-created redirect_links, per asset category) → TEST MATRIX (see new section below) before any further historical-data decision · `Track New Content → Select Shared Asset → createRedirectLink()` invariant verification = NOT STARTED, this is the next investigation target · Assigned to Me / Assigned by Me (Sponsor/Marketer direction filter) = IMPLEMENTED & DEPLOYED in both `AllAssetsAnalytics.tsx` and `Marketplace.tsx` "My Promotions" — see new addendum below; unrelated to and does not resolve the Promotion-filter-correctness work above**
 
 Investigation frozen. Orchestration verified. Real rows render in AllAssetsAnalytics. Next phase is UI/data-quality verification — not architecture.
 
@@ -2294,3 +2294,132 @@ integration/manual tests, not more archaeology):**
 The UI caller of `resolvePromotionContextForAsset()` — almost certainly
 `Videos.tsx`, possibly also `PromotedAssetPicker.tsx` — has never been
 uploaded/read. This is required before Section C's trace can proceed.
+
+## ADDENDUM — 2026-08-30: Assigned to Me / Assigned by Me (Sponsor/Marketer direction)
+
+Separate feature track from Sections A–E above (which are about
+`redirect_links.promotion_id` correctness). This track is about **who
+assigned a Promotion to whom**, surfaced as a filter in two places.
+DONE — deployed in both surfaces. Do not re-investigate the data model
+below unless schema changes; do not re-request the files in §F unless
+their code changes.
+
+### A. Confirmed data model (LOCKED, do not re-derive)
+
+- **Sponsor** = `promotions.owner_user_id` → `profiles`.
+- **Marketer / Collaborator** = `promotions.assignment_collaborator_id`
+  → `assignment_collaborators.id` → `assignment_collaborators.user_id`
+  → `profiles`.
+- **Assigned to Me** = promotions reached via the Collaborator branch —
+  `assignment_collaborator_id` is one of the viewer's own
+  `assignment_collaborators.id` rows (someone else assigned it to me).
+- **Assigned by Me** = promotions whose Assignment I personally created
+  — `assignments.created_by_user_id === viewer`. Deliberately the
+  **personal** boundary, not `listOrgAssignments()`'s org-wide scope
+  (precedent: this is the same boundary the app already uses to gate
+  Remove Collaborator).
+- No `role`/`is_sponsor`/`is_marketer` column exists anywhere — direction
+  is 100% inferred from the FKs above, never stored explicitly.
+- `promotion_assets` (not `assignment_assets`, not `redirect_links`) is
+  the source of truth for promotion↔asset — **irrelevant to this
+  feature**, since the direction filter is Promotion + person identity
+  only and deliberately loads zero asset data.
+
+### B. New file
+
+`src/services/promotion/getPromotionAssignmentGroups.ts` — composes
+`listMyPromotionsGrouped()` (below) with `listAssignmentCollaborators()`
+into:
+```ts
+{
+  assignedToMe: { person: {id,name,email}, promotions: PromotionSummary[] }[],
+  assignedByMe: { person: {id,name,email}, promotions: PromotionSummary[] }[],
+}
+```
+`assignedToMe` grouping reuses the `owner` join already on
+`PromotionSummary` (no extra fetch). `assignedByMe` grouping resolves
+Marketer identity by calling `listAssignmentCollaborators()` **once per
+distinct `assignment_id`** (de-duped, never once per promotion), then
+matches each promotion's `assignment_collaborator_id` back to the right
+roster row. Pure composition — no new table, no persisted classification.
+
+### C. Files modified
+
+- **`src/services/assignment/collaborationHub.ts`** — `PromotionSummary`
+  extended with `owner_user_id`, `assignment_id`,
+  `assignment_collaborator_id`, and `assignment: {id, title,
+  created_by_user_id} | null` (additive fields, existing consumers
+  unaffected). `listMyPromotions()`'s select expanded to fetch those
+  fields. New function `listMyPromotionsGrouped(userId)` splits that
+  function's existing `owner_user_id OR assignment_collaborator_id IN
+  (...)` clause into two explicit buckets (`assignedToMe`/`assignedByMe`)
+  instead of one flat OR'd list.
+- **`src/pages/AllAssetsAnalytics.tsx`** — the old plain `<select>`
+  Promotion filter replaced with a button + custom panel (mirrors the
+  existing Columns-dropdown ref/outside-click pattern). Panel has
+  `[All] [Assigned to Me] [Assigned by Me]` tabs; the two assignment
+  tabs lazy-load `getPromotionAssignmentGroups()` on first open and
+  drill **person → their promotions → click applies
+  `setSelectedPromotionId`** (this page's existing filter state,
+  untouched otherwise). `[All]` behavior is byte-for-byte unchanged.
+- **`src/pages/Marketplace.tsx`** ("My Promotions" tab) — went through
+  two UI iterations, second one is final:
+  1. *(superseded)* floating button + panel, same drill-down shape as
+     AllAssetsAnalytics, leaf action = `navigate()` to the Promotion.
+  2. **(current, deployed)** inline pill rows, matching the Assets
+     page's `ALL/MY/SHARED/ASSIGNED` pattern — `[All] [Assigned to Me]
+     [Assigned by Me]` pills always visible above the list; picking a
+     non-All direction reveals a second pill row of people (Sponsor
+     names under "to Me", Marketer names under "by Me"); picking a
+     person pill **filters the existing card grid in place**
+     (`filteredByAssign`, derived from `activePromotions` — Archived/
+     Archive Impact/Hidden views are untouched, they still key off
+     `activePromotions` directly, on purpose). No navigation, no modal.
+  - Also folded the separate `Archived` / `Archive Impact` / `Hidden`
+    buttons into one `Manage` dropdown (hover-opens on desktop via CSS
+    `group-hover`, click-toggles via `manageOpen` state on
+    mobile/touch). Since those buttons no longer double as their own
+    "back" control, added a small `← Back to My Promotions` strip above
+    the list whenever `promotionsView !== 'active'`.
+
+### D. Files fully read and confirmed for this track (do not re-request unless code changes)
+
+- **`getPromotionDetail.ts`** (`services/promotion/`) — read-only
+  loader for the single-Promotion detail page. Confirms the same
+  Sponsor/Collaborator resolution pattern as §A above (two-step fetch:
+  id → profile). Resolves `promotion_assets` (→ "what was actually
+  promoted"), `assignment_assets` + `assignment_asset_access_states`
+  (→ separate concept, "what's currently authorized," incl. revoke
+  state) as two **deliberately distinct** lists (`assets` vs
+  `assignedAssets` — never merge them), plus tracking-domain access
+  state. Not used by the direction-filter feature — assets are
+  irrelevant there — but this file is where the Sponsor/Collaborator
+  fetch pattern originates and is now reused verbatim in §B's new file.
+- **`addPromotionAsset.ts`** (`services/promotion/`) — Sponsor adds an
+  owned Asset to an existing Promotion; writes to **both**
+  `assignment_assets` and `promotion_assets` (not `promotion_assets`
+  alone) so the asset also shows under "Assigned Assets" and stays
+  revokable. Confirms `promotion_assets` (not `assignment_assets`) is
+  the DB-trigger-enforced source of truth for promotion↔asset.
+  Unrelated to the direction filter beyond confirming that boundary.
+- **`listAssignmentCollaborators.ts`** (`services/assignment/`) — full
+  collaborator roster for one Assignment (`id, user_id, status,
+  joined_at, name, email`), Sponsor-side view. Does **not** itself
+  authorize "may this caller see the roster" — that's left to the
+  page/caller. This is the function `getPromotionAssignmentGroups()`
+  calls once per distinct `assignment_id` for the `assignedByMe`
+  Marketer-name resolution in §B.
+- **`collaborationHub.ts`** — see §C above for what changed. Pre-existing
+  functions (`listOrgAssignments`, `listMyCollaborations`,
+  `listMyInvitations`, `listPromotedAssignmentIdsForUser`) are
+  unmodified.
+
+### F. Not touched by this track (confirm before assuming otherwise)
+
+`promotion_assets` / `assignment_assets` / `redirect_links` attribution
+logic (Sections A–C above) — completely untouched. No new database
+table. No new RLS. `listOrgAssignments()` still org-wide, not
+personal — the open ambiguity noted in earlier sessions about whether
+it should be personal was resolved **only** for this feature (by using
+`assignment.created_by_user_id` directly instead), not by changing
+`listOrgAssignments()` itself.
