@@ -613,12 +613,6 @@ export default function AllAssetsAnalytics() {
     direction: 'desc',
   });
 
-    // ── Archive filter — Asset only (Button 1). Default HIDES archived
-  // Assets (soft filter); toggle re-shows them. Uses row.archive.isArchived,
-  // which getAssetAnalyticsRows.ts already computes via the central
-  // getAssetArchiveContextsForViewer resolver — no new archive logic here.
-  const [showArchivedAssets, setShowArchivedAssets] = useState(false);
-
   const { rows, loading, error, organizationId } = useAssetAnalyticsRows({
     dateRange,
     customRange,
@@ -788,19 +782,11 @@ export default function AllAssetsAnalytics() {
     return promotionFilteredRows.filter(row => row.promoting_video.content_owner_id === selectedContentOwnerId);
   }, [promotionFilteredRows, selectedContentOwnerId]);
 
-  // ── Archive filter (Asset) — soft filter, chained last before sort.
-  // Never touches metrics/revenue math anywhere upstream — this only
-  // decides which rows render; the rows that remain keep their real numbers.
-  const archiveFilteredRows = useMemo(() => {
-    if (showArchivedAssets) return contentOwnerFilteredRows;
-    return contentOwnerFilteredRows.filter(row => !row.archive.isArchived);
-  }, [contentOwnerFilteredRows, showArchivedAssets]);
-
   const sortedRows = useMemo(() => {
     const key = sortConfig.key;
     const dir = sortConfig.direction === 'asc' ? 1 : -1;
     if (key === 'asset_created_at') {
-      return [...archiveFilteredRows].sort((a, b) => {
+      return [...contentOwnerFilteredRows].sort((a, b) => {
         const at = a.promoting_video.created_at ? new Date(a.promoting_video.created_at).getTime() : 0;
         const bt = b.promoting_video.created_at ? new Date(b.promoting_video.created_at).getTime() : 0;
         if (at === bt) return 0;
@@ -811,20 +797,34 @@ export default function AllAssetsAnalytics() {
     // MetricType key), so it needs the same kind of special case as
     // asset_created_at above rather than the generic metrics[key] branch.
     if (key === 'asset_clicks') {
-      return [...archiveFilteredRows].sort((a, b) => {
+      return [...contentOwnerFilteredRows].sort((a, b) => {
         const av = Number(a.asset_clicks ?? 0);
         const bv = Number(b.asset_clicks ?? 0);
         if (av === bv) return 0;
         return av > bv ? dir : -dir;
       });
     }
-    return [...archiveFilteredRows].sort((a, b) => {
+
+    // Asset column — groups identical assets together. Sorted by asset
+    // title (case-insensitive); ties broken by asset id so rows for the
+    // same asset always land next to each other.
+    if (key === 'asset') {
+      return [...contentOwnerFilteredRows].sort((a, b) => {
+        if (a.asset.id === b.asset.id) return 0;
+        const at = (a.asset.title ?? '').toLowerCase();
+        const bt = (b.asset.title ?? '').toLowerCase();
+        if (at !== bt) return at > bt ? dir : -dir;
+        return a.asset.id > b.asset.id ? dir : -dir;
+      });
+    }
+
+    return [...contentOwnerFilteredRows].sort((a, b) => {
       const av = Number(a.metrics[key as MetricType] ?? 0);
       const bv = Number(b.metrics[key as MetricType] ?? 0);
       if (av === bv) return 0;
       return av > bv ? dir : -dir;
     });
-  }, [archiveFilteredRows, sortConfig]);
+  }, [contentOwnerFilteredRows, sortConfig]);
 
   const colSpan = 7 + TABLE_COLUMNS.length + 1 + (visibleColumns.has('promotion') ? 1 : 0); // Asset + Type + Content + Content Owner + Asset Clicks + Total Revenue (dup) + metrics + trailing spacer + optional Promotion
 
@@ -1582,22 +1582,6 @@ export default function AllAssetsAnalytics() {
                 ))}
               </div>
 
-              {/* Show/Hide Archived Assets — Button 1 (Asset only). Reads
-                  row.archive.isArchived, already computed upstream. */}
-              <button
-                onClick={() => setShowArchivedAssets(v => !v)}
-                className={`flex items-center gap-2 px-3 py-2 rounded-xl border text-[9px] font-black uppercase tracking-widest transition-all ${
-                  showArchivedAssets
-                    ? 'bg-zinc-800 border-zinc-700 text-white'
-                    : 'bg-zinc-900 border-zinc-800 text-zinc-400 hover:text-white'
-                }`}
-              >
-                {showArchivedAssets ? 'Hide Archived' : 'Show Archived'}
-              </button>
-
-              {/* Columns dropdown */}
-              <div className="relative" ref={columnsRef}></div>
-
               {/* Columns dropdown */}
               <div className="relative" ref={columnsRef}>
                 <button
@@ -2065,11 +2049,6 @@ export default function AllAssetsAnalytics() {
                           <div className="text-[9px] text-zinc-600 font-bold uppercase tracking-widest mt-0.5 truncate">
                             Asset
                           </div>
-                          {row.archive.isArchived && (
-                            <span className="inline-flex items-center px-2 py-0.5 mt-1 rounded-full border text-[8px] font-black uppercase tracking-widest bg-zinc-500/10 border-zinc-500/30 text-zinc-400">
-                              Archived
-                            </span>
-                          )}
                         </div>
                       </div>
                       )}
