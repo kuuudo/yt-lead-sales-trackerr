@@ -804,6 +804,20 @@ export default function AllAssetsAnalytics() {
         return av > bv ? dir : -dir;
       });
     }
+
+    // Asset column — groups identical assets together. Sorted by asset
+    // title (case-insensitive); ties broken by asset id so rows for the
+    // same asset always land next to each other.
+    if (key === 'asset') {
+      return [...contentOwnerFilteredRows].sort((a, b) => {
+        if (a.asset.id === b.asset.id) return 0;
+        const at = (a.asset.title ?? '').toLowerCase();
+        const bt = (b.asset.title ?? '').toLowerCase();
+        if (at !== bt) return at > bt ? dir : -dir;
+        return a.asset.id > b.asset.id ? dir : -dir;
+      });
+    }
+
     return [...contentOwnerFilteredRows].sort((a, b) => {
       const av = Number(a.metrics[key as MetricType] ?? 0);
       const bv = Number(b.metrics[key as MetricType] ?? 0);
@@ -1853,9 +1867,18 @@ export default function AllAssetsAnalytics() {
             <table className="min-w-full divide-y divide-zinc-900 border-collapse">
               <thead className="bg-zinc-950 sticky top-0 z-20 shadow-xl">
                 <tr>
-                  {/* ── Asset identity column (sticky) ────────────────────── */}
-                  <th className="px-6 py-5 text-left text-[10px] font-black uppercase tracking-widest text-zinc-600 border-b border-zinc-900 bg-zinc-950 min-w-[260px] sticky left-0 z-30">
-                    Asset
+                  {/* ── Asset identity column (sticky) — sortable/groupable ── */}
+                  <th
+                    onClick={() => handleSort('asset')}
+                    className="px-6 py-5 text-left text-[10px] font-black uppercase tracking-widest text-zinc-600 border-b border-zinc-900 bg-zinc-950 min-w-[260px] sticky left-0 z-30 cursor-pointer hover:text-zinc-300 transition-colors"
+                  >
+                    <div className="flex items-center gap-1.5">
+                      Asset
+                      <ArrowUpDown
+                        size={10}
+                        className={sortConfig.key === 'asset' ? 'text-white' : 'text-zinc-700'}
+                      />
+                    </div>
                   </th>
 
                   {/* ── Asset type badge column ────────────────────────────── */}
@@ -1991,13 +2014,18 @@ export default function AllAssetsAnalytics() {
                   </tr>
                 )}
 
-                {!loading && sortedRows.map(row => (
+                {!loading && sortedRows.map((row, rowIndex) => {
+                  const prevRow = rowIndex > 0 ? sortedRows[rowIndex - 1] : null;
+                  const showAssetCell =
+                    sortConfig.key !== 'asset' || !prevRow || prevRow.asset.id !== row.asset.id;
+                  return (
                   <tr
                     key={`${row.asset.id}::${row.promoting_video.id}`}
                     className="hover:bg-zinc-950 transition-colors group"
                   >
                     {/* ── Asset identity cell ─────────────────────────────── */}
                     <td className="px-6 py-4 whitespace-nowrap sticky left-0 z-10 bg-black group-hover:bg-zinc-950 transition-colors">
+                      {showAssetCell && (
                       <div
                         className="flex items-center gap-3 cursor-pointer"
                         onClick={() => navigate(`/assets/${row.asset.id}`)}
@@ -2023,6 +2051,7 @@ export default function AllAssetsAnalytics() {
                           </div>
                         </div>
                       </div>
+                      )}
                     </td>
 
                     {/* ── Asset type badge cell ───────────────────────────── */}
@@ -2139,7 +2168,8 @@ export default function AllAssetsAnalytics() {
 
                     <td className="px-6 py-4" />
                   </tr>
-                ))}
+                  );
+                })}
               </tbody>
             </table>
           </div>
