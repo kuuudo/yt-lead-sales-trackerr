@@ -1128,7 +1128,7 @@ export default function AllAssetsAnalytics() {
 
         <button
           onClick={() => setMobileMenuOpen(o => !o)}
-          className="lg:hidden fixed bottom-6 right-4 z-50 w-14 h-14 rounded-full bg-red-600 text-white flex items-center justify-center shadow-2xl"
+          className="lg:hidden fixed bottom-5 right-5 z-[9000] w-14 h-14 rounded-full bg-red-600 text-white flex items-center justify-center shadow-2xl"
         >
           <Puzzle size={22} />
         </button>
