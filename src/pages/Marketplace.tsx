@@ -1,6 +1,6 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Briefcase, Mail, Rocket, Loader2, Plus, Archive, ArchiveRestore, X, BarChart2, Gamepad2, AlertTriangle, ExternalLink } from 'lucide-react';
+import { Briefcase, Mail, Rocket, Loader2, Plus, Archive, ArchiveRestore, X, BarChart2, Gamepad2, AlertTriangle, ExternalLink, Users, ChevronDown, ChevronLeft } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { Modal } from '../components/Modal';
 import { useEffectiveIdentity } from '../lib/useEffectiveIdentity';
@@ -35,6 +35,11 @@ import {
   type PromotionArchiveImpact,
 } from '../services/promotion/getPromotionArchiveImpactForViewer';
 import { getAssetTitlesBulk } from '../services/asset/getAssetTitlesBulk';
+import {
+  getPromotionAssignmentGroups,
+  type PromotionAssignmentGroups,
+  type AssignmentGroup,
+} from '../services/promotion/getPromotionAssignmentGroups';
 import { marketplaceAssignmentsPageCache } from '../lib/marketplaceAssignmentsPageCache';
 import { marketplacePromotionsPageCache } from '../lib/marketplacePromotionsPageCache';
 import { marketplaceInvitationsPageCache } from '../lib/marketplaceInvitationsPageCache';
@@ -145,6 +150,60 @@ export default function Marketplace() {
   // archiveImpactMap — never drives which promotions/assets are shown,
   // only how each asset's row is labeled.
   const [assetTitleMap, setAssetTitleMap] = useState<Map<string, string | null>>(new Map());
+
+  // ── Assigned to Me / Assigned by Me drill-down (My Promotions) ──────────
+  // Pure navigation, not a grid filter: the leaf action is "go to this
+  // promotion" — same destination as the existing Manage Promotion button
+  // — not "apply a filter." The card grid below is untouched by this panel.
+  const [assignPanelOpen, setAssignPanelOpen] = useState(false);
+  const assignPanelRef = useRef<HTMLDivElement>(null);
+  const [assignTab, setAssignTab] = useState<'all' | 'toMe' | 'byMe'>('all');
+  const [assignSelectedPersonId, setAssignSelectedPersonId] = useState<string | null>(null);
+  const [assignmentGroups, setAssignmentGroups] = useState<PromotionAssignmentGroups | null>(null);
+  const [assignmentGroupsLoading, setAssignmentGroupsLoading] = useState(false);
+
+  useEffect(() => {
+    const handler = (e: MouseEvent) => {
+      if (assignPanelRef.current && !assignPanelRef.current.contains(e.target as Node)) {
+        setAssignPanelOpen(false);
+      }
+    };
+    document.addEventListener('mousedown', handler);
+    return () => document.removeEventListener('mousedown', handler);
+  }, []);
+
+  useEffect(() => {
+    if (!assignPanelOpen || assignmentGroups || assignmentGroupsLoading || !userId) return;
+    setAssignmentGroupsLoading(true);
+    getPromotionAssignmentGroups(userId)
+      .then(setAssignmentGroups)
+      .catch(() => setAssignmentGroups({ assignedToMe: [], assignedByMe: [] }))
+      .finally(() => setAssignmentGroupsLoading(false));
+  }, [assignPanelOpen, assignmentGroups, assignmentGroupsLoading, userId]);
+
+  const activeAssignGroupList: AssignmentGroup[] =
+    assignTab === 'toMe' ? assignmentGroups?.assignedToMe ?? []
+    : assignTab === 'byMe' ? assignmentGroups?.assignedByMe ?? []
+    : [];
+
+  const selectedAssignPerson = activeAssignGroupList.find(g => g.person.id === assignSelectedPersonId) ?? null;
+
+  // ── Combined Archived / Archive Impact / Hidden menu ─────────────────────
+  // Desktop: opens on hover (CSS group-hover). Mobile/touch: no real
+  // :hover, so the click-toggled `manageOpen` state covers it — see the
+  // combined className on the panel below.
+  const [manageOpen, setManageOpen] = useState(false);
+  const manageRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    const handler = (e: MouseEvent) => {
+      if (manageRef.current && !manageRef.current.contains(e.target as Node)) {
+        setManageOpen(false);
+      }
+    };
+    document.addEventListener('mousedown', handler);
+    return () => document.removeEventListener('mousedown', handler);
+  }, []);
 
   const [modalConfig, setModalConfig] = useState<{
     isOpen: boolean;
@@ -525,35 +584,157 @@ export default function Marketplace() {
           )}
          {tab === 'promotions' && (
             <>
-              <button
-                onClick={() => setPromotionsView(v => (v === 'active' ? 'level1' : 'active'))}
-                className="flex items-center gap-2 bg-zinc-900 hover:bg-zinc-800 border border-zinc-800 text-zinc-300 text-xs font-bold uppercase tracking-wider px-4 py-2 rounded-lg"
-              >
-                <Archive size={14} />
-                {promotionsView === 'active'
-                  ? `Archived${level1Promotions.length > 0 ? ` (${level1Promotions.length})` : ''}`
-                  : 'Back to My Promotions'}
-              </button>
-              {/* Surface B — Archive Impact. Independent of the Surface A
-                  toggle above: a Promotion shown here always stays
-                  counted in My Promotions too, and never moves to
-                  Archived/Hidden because of this. */}
-              <button
-                onClick={() => setPromotionsView(v => (v === 'impact' ? 'active' : 'impact'))}
-                className="flex items-center gap-2 bg-zinc-900 hover:bg-zinc-800 border border-zinc-800 text-zinc-300 text-xs font-bold uppercase tracking-wider px-4 py-2 rounded-lg"
-              >
-                <AlertTriangle size={14} />
-                {promotionsView === 'impact'
-                  ? 'Back to My Promotions'
-                  : `Archive Impact${archiveImpactCount > 0 ? ` (${archiveImpactCount})` : ''}`}
-              </button>
-              <button
-                onClick={openArchivedPromotionsModal}
-                className="flex items-center gap-2 bg-zinc-900 hover:bg-zinc-800 border border-zinc-800 text-zinc-300 text-xs font-bold uppercase tracking-wider px-4 py-2 rounded-lg"
-              >
-                <Archive size={14} />
-                Hidden{level2Promotions.length > 0 ? ` (${level2Promotions.length})` : ''}
-              </button>
+              {/* Assigned to Me / Assigned by Me / All — placed exactly where
+                  Archived used to sit. Pure drill-down navigation — see
+                  state block above. */}
+              <div className="relative" ref={assignPanelRef}>
+                <button
+                  onClick={() => setAssignPanelOpen(o => !o)}
+                  className="flex items-center gap-2 bg-zinc-900 hover:bg-zinc-800 border border-zinc-800 text-zinc-300 text-xs font-bold uppercase tracking-wider px-4 py-2 rounded-lg"
+                >
+                  <Users size={14} />
+                  Assigned To/By
+                  <ChevronDown size={12} className={`transition-transform ${assignPanelOpen ? 'rotate-180' : ''}`} />
+                </button>
+
+                {assignPanelOpen && (
+                  <div className="absolute left-0 top-full mt-2 w-72 bg-zinc-900 border border-zinc-800 rounded-2xl shadow-2xl z-50 overflow-hidden">
+                    <div className="flex items-center gap-1 px-3 pt-3 pb-2 border-b border-zinc-800">
+                      {([
+                        { key: 'all', label: 'All' },
+                        { key: 'toMe', label: 'Assigned to Me' },
+                        { key: 'byMe', label: 'Assigned by Me' },
+                      ] as const).map(t => (
+                        <button
+                          key={t.key}
+                          onClick={() => {
+                            setAssignTab(t.key);
+                            setAssignSelectedPersonId(null);
+                            if (t.key === 'all') setAssignPanelOpen(false);
+                          }}
+                          className={`px-2.5 py-1.5 rounded-lg text-[9px] font-black uppercase tracking-widest transition-all ${
+                            assignTab === t.key ? 'bg-zinc-700 text-white' : 'text-zinc-600 hover:text-zinc-400'
+                          }`}
+                        >
+                          {t.label}
+                        </button>
+                      ))}
+                    </div>
+
+                    {(assignTab === 'toMe' || assignTab === 'byMe') && (
+                      <div className="max-h-72 overflow-y-auto py-2">
+                        {assignmentGroupsLoading && (
+                          <div className="px-4 py-6 text-center text-[10px] font-bold text-zinc-600">
+                            Loading…
+                          </div>
+                        )}
+
+                        {!assignmentGroupsLoading && !selectedAssignPerson && activeAssignGroupList.length === 0 && (
+                          <div className="px-4 py-6 text-center text-[10px] font-bold text-zinc-600">
+                            Nothing here yet.
+                          </div>
+                        )}
+
+                        {!assignmentGroupsLoading && !selectedAssignPerson && activeAssignGroupList.map(group => (
+                          <button
+                            key={group.person.id}
+                            onClick={() => setAssignSelectedPersonId(group.person.id)}
+                            className="w-full flex items-center justify-between gap-2 px-4 py-2.5 hover:bg-zinc-800 transition-colors text-left"
+                          >
+                            <span className="min-w-0">
+                              <span className="block text-[8px] font-black uppercase tracking-widest text-zinc-600">
+                                {assignTab === 'toMe' ? 'Sponsor' : 'Marketer'}
+                              </span>
+                              <span className="block text-[10px] font-bold text-zinc-300 truncate">
+                                {group.person.name}
+                              </span>
+                            </span>
+                            <span className="shrink-0 text-[9px] font-bold text-zinc-500 whitespace-nowrap">
+                              {group.promotions.length} Promotion{group.promotions.length === 1 ? '' : 's'} →
+                            </span>
+                          </button>
+                        ))}
+
+                        {!assignmentGroupsLoading && selectedAssignPerson && (
+                          <div>
+                            <button
+                              onClick={() => setAssignSelectedPersonId(null)}
+                              className="w-full flex items-center gap-1.5 px-4 py-2 text-[9px] font-black uppercase tracking-widest text-zinc-500 hover:text-white transition-colors"
+                            >
+                              <ChevronLeft size={11} />
+                              {selectedAssignPerson.person.name}
+                            </button>
+                            {selectedAssignPerson.promotions.map(p => (
+                              <button
+                                key={p.id}
+                                onClick={() => {
+                                  setAssignPanelOpen(false);
+                                  setAssignSelectedPersonId(null);
+                                  navigate(`/marketplace/promotions/${p.id}`);
+                                }}
+                                className="w-full text-left px-4 py-2 text-[10px] font-bold text-zinc-300 hover:bg-zinc-800 transition-colors truncate"
+                              >
+                                {p.assignment?.title ?? p.campaign?.campaign_name ?? 'Promotion'}
+                              </button>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+                    )}
+                  </div>
+                )}
+              </div>
+
+              {/* Combined Archived / Archive Impact / Hidden. Desktop:
+                  hover-opens via group/manage. Mobile: manageOpen click
+                  state covers it (no real :hover on touch). */}
+              <div className="relative group/manage" ref={manageRef}>
+                <button
+                  onClick={() => setManageOpen(o => !o)}
+                  className="flex items-center gap-2 bg-zinc-900 hover:bg-zinc-800 border border-zinc-800 text-zinc-300 text-xs font-bold uppercase tracking-wider px-4 py-2 rounded-lg"
+                >
+                  <Archive size={14} />
+                  Manage
+                  <ChevronDown size={12} className={`transition-transform ${manageOpen ? 'rotate-180' : ''}`} />
+                </button>
+
+                <div
+                  className={`absolute right-0 top-full mt-2 w-56 bg-zinc-900 border border-zinc-800 rounded-2xl shadow-2xl z-50 overflow-hidden py-2 ${
+                    manageOpen ? 'block' : 'hidden'
+                  } group-hover/manage:block`}
+                >
+                  <button
+                    onClick={() => {
+                      setPromotionsView(v => (v === 'level1' ? 'active' : 'level1'));
+                      setManageOpen(false);
+                    }}
+                    className="w-full flex items-center gap-2 px-4 py-2.5 text-xs font-bold uppercase tracking-wider text-zinc-300 hover:bg-zinc-800 text-left"
+                  >
+                    <Archive size={14} />
+                    Archived{level1Promotions.length > 0 ? ` (${level1Promotions.length})` : ''}
+                  </button>
+                  <button
+                    onClick={() => {
+                      setPromotionsView(v => (v === 'impact' ? 'active' : 'impact'));
+                      setManageOpen(false);
+                    }}
+                    className="w-full flex items-center gap-2 px-4 py-2.5 text-xs font-bold uppercase tracking-wider text-zinc-300 hover:bg-zinc-800 text-left"
+                  >
+                    <AlertTriangle size={14} />
+                    Archive Impact{archiveImpactCount > 0 ? ` (${archiveImpactCount})` : ''}
+                  </button>
+                  <button
+                    onClick={() => {
+                      openArchivedPromotionsModal();
+                      setManageOpen(false);
+                    }}
+                    className="w-full flex items-center gap-2 px-4 py-2.5 text-xs font-bold uppercase tracking-wider text-zinc-300 hover:bg-zinc-800 text-left"
+                  >
+                    <Archive size={14} />
+                    Hidden{level2Promotions.length > 0 ? ` (${level2Promotions.length})` : ''}
+                  </button>
+                </div>
+              </div>
             </>
           )}
           {!isReadOnly && (
@@ -642,6 +823,16 @@ export default function Marketplace() {
               </button>
             ))}
           </div>
+        )}
+
+        {!loading && !error && tab === 'promotions' && promotionsView !== 'active' && (
+          <button
+            onClick={() => setPromotionsView('active')}
+            className="flex items-center gap-2 text-zinc-500 hover:text-white text-xs font-bold uppercase tracking-wider mb-4"
+          >
+            <ChevronLeft size={14} />
+            Back to My Promotions
+          </button>
         )}
 
         {!loading && !error && tab === 'promotions' && promotionsView === 'active' && (
