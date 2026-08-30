@@ -87,7 +87,7 @@ import {
   type CustomDateRange,
   type RevenueView,
 } from '../lib/analyticsEngine';
-
+import { applyAnalyticsArchiveFilters } from '../lib/analyticsArchiveFilter';
 import {
   PLATFORM_CONFIG,
   type Platform,
@@ -233,6 +233,7 @@ interface AssetAnalyticsRow {
   campaignArchive: {
     isArchived: boolean;
   };
+
   // From getPromotionArchiveContextsForViewer (Surface A / personal only).
   promotionArchive: {
     isArchived: boolean;
@@ -388,6 +389,8 @@ function useAssetAnalyticsRows(opts: {
             ]),
           );
         }
+
+
 
                 const promotionIds = Array.from(
           new Set(
@@ -743,7 +746,10 @@ export default function AllAssetsAnalytics() {
     key: 'asset_created_at',
     direction: 'desc',
   });
-
+  const [hideArchivedAsset, setHideArchivedAsset] = useState(false);
+  const [hideArchivedVideo, setHideArchivedVideo] = useState(false);
+  const [hideArchivedCampaign, setHideArchivedCampaign] = useState(false);
+  const [hideArchivedPromotion, setHideArchivedPromotion] = useState(false);
   const { rows, loading, error, organizationId } = useAssetAnalyticsRows({
     dateRange,
     customRange,
@@ -908,16 +914,40 @@ export default function AllAssetsAnalytics() {
   // content_owner_id, never on the display name. Chained last, right
   // before sort, so Recently Added / metric sorts always run on the
   // fully-filtered set.
-  const contentOwnerFilteredRows = useMemo(() => {
+  const archiveFilteredRows = useMemo(() => {
     if (selectedContentOwnerId === 'all') return promotionFilteredRows;
     return promotionFilteredRows.filter(row => row.promoting_video.content_owner_id === selectedContentOwnerId);
   }, [promotionFilteredRows, selectedContentOwnerId]);
-
+  const archiveFilteredRows = useMemo(
+    () =>
+      applyAnalyticsArchiveFilters(
+        archiveFilteredRows,
+        (row) => ({
+          assetArchived: row.archive.isArchived,
+          videoArchived: row.videoArchive.isArchived,
+          campaignArchived: row.campaignArchive.isArchived,
+          promotionArchived: row.promotionArchive.isArchived,
+        }),
+        {
+          hideArchivedAsset,
+          hideArchivedVideo,
+          hideArchivedCampaign,
+          hideArchivedPromotion,
+        },
+      ),
+    [
+      archiveFilteredRows,
+      hideArchivedAsset,
+      hideArchivedVideo,
+      hideArchivedCampaign,
+      hideArchivedPromotion,
+    ],
+  );
   const sortedRows = useMemo(() => {
     const key = sortConfig.key;
     const dir = sortConfig.direction === 'asc' ? 1 : -1;
     if (key === 'asset_created_at') {
-      return [...contentOwnerFilteredRows].sort((a, b) => {
+      return [...archiveFilteredRows].sort((a, b) => {
         const at = a.promoting_video.created_at ? new Date(a.promoting_video.created_at).getTime() : 0;
         const bt = b.promoting_video.created_at ? new Date(b.promoting_video.created_at).getTime() : 0;
         if (at === bt) return 0;
@@ -928,7 +958,7 @@ export default function AllAssetsAnalytics() {
     // MetricType key), so it needs the same kind of special case as
     // asset_created_at above rather than the generic metrics[key] branch.
     if (key === 'asset_clicks') {
-      return [...contentOwnerFilteredRows].sort((a, b) => {
+      return [...archiveFilteredRows].sort((a, b) => {
         const av = Number(a.asset_clicks ?? 0);
         const bv = Number(b.asset_clicks ?? 0);
         if (av === bv) return 0;
@@ -940,7 +970,7 @@ export default function AllAssetsAnalytics() {
     // title (case-insensitive); ties broken by asset id so rows for the
     // same asset always land next to each other.
     if (key === 'asset') {
-      return [...contentOwnerFilteredRows].sort((a, b) => {
+      return [...archiveFilteredRows].sort((a, b) => {
         if (a.asset.id === b.asset.id) return 0;
         const at = (a.asset.title ?? '').toLowerCase();
         const bt = (b.asset.title ?? '').toLowerCase();
@@ -949,13 +979,13 @@ export default function AllAssetsAnalytics() {
       });
     }
 
-    return [...contentOwnerFilteredRows].sort((a, b) => {
+    return [...archiveFilteredRows].sort((a, b) => {
       const av = Number(a.metrics[key as MetricType] ?? 0);
       const bv = Number(b.metrics[key as MetricType] ?? 0);
       if (av === bv) return 0;
       return av > bv ? dir : -dir;
     });
-  }, [contentOwnerFilteredRows, sortConfig]);
+  }, [archiveFilteredRows, sortConfig]);
 
   const colSpan = 7 + TABLE_COLUMNS.length + 1 + (visibleColumns.has('promotion') ? 1 : 0); // Asset + Type + Content + Content Owner + Asset Clicks + Total Revenue (dup) + metrics + trailing spacer + optional Promotion
 
@@ -1283,6 +1313,46 @@ export default function AllAssetsAnalytics() {
                   </button>
                 );
               })}
+            </div>
+          </div>
+
+          {/* Entity Archive soft filters — default OFF (show archived). */}
+          <div>
+            <label className="text-[10px] font-black uppercase tracking-widest text-zinc-500 mb-3 block">
+              Hide Archived
+            </label>
+            <div className="space-y-1.5">
+              {([
+                { key: 'asset', label: 'Asset', value: hideArchivedAsset, set: setHideArchivedAsset },
+                { key: 'video', label: 'Content', value: hideArchivedVideo, set: setHideArchivedVideo },
+                { key: 'campaign', label: 'Campaign', value: hideArchivedCampaign, set: setHideArchivedCampaign },
+                { key: 'promotion', label: 'Promotion', value: hideArchivedPromotion, set: setHideArchivedPromotion },
+              ] as const).map((opt) => (
+                <button
+                  key={opt.key}
+                  type="button"
+                  onClick={() => opt.set(!opt.value)}
+                  className={`w-full flex items-center gap-3 px-3 py-2 rounded-lg border text-left transition-all ${
+                    opt.value
+                      ? 'bg-red-600/20 border-red-600/40 text-red-400'
+                      : 'border-zinc-800 bg-zinc-900 text-zinc-500 hover:border-zinc-600 hover:text-zinc-300'
+                  }`}
+                >
+                  <div
+                    className={`w-4 h-4 rounded border flex items-center justify-center ${
+                      opt.value
+                        ? 'bg-red-600 border-red-600'
+                        : 'border-zinc-700 bg-zinc-950'
+                    }`}
+                  >
+                    {opt.value && <Check size={10} className="text-white" />}
+                  </div>
+
+                  <span className="text-[10px] font-black uppercase tracking-widest">
+                    {opt.label}
+                  </span>
+                </button>
+              ))}
             </div>
           </div>
 
