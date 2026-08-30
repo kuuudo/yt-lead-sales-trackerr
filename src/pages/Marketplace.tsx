@@ -1,4 +1,4 @@
-import React, { useEffect, useState, useRef } from 'react';
+import React, { useEffect, useState, useRef, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Briefcase, Mail, Rocket, Loader2, Plus, Archive, ArchiveRestore, X, BarChart2, Gamepad2, AlertTriangle, ExternalLink, Users, ChevronDown, ChevronLeft } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
@@ -155,38 +155,41 @@ export default function Marketplace() {
   // Pure navigation, not a grid filter: the leaf action is "go to this
   // promotion" — same destination as the existing Manage Promotion button
   // — not "apply a filter." The card grid below is untouched by this panel.
-  const [assignPanelOpen, setAssignPanelOpen] = useState(false);
-  const assignPanelRef = useRef<HTMLDivElement>(null);
   const [assignTab, setAssignTab] = useState<'all' | 'toMe' | 'byMe'>('all');
   const [assignSelectedPersonId, setAssignSelectedPersonId] = useState<string | null>(null);
   const [assignmentGroups, setAssignmentGroups] = useState<PromotionAssignmentGroups | null>(null);
   const [assignmentGroupsLoading, setAssignmentGroupsLoading] = useState(false);
 
+  // Fetches once the Promotions tab is up and userId is known — no
+  // floating panel to lazy-trigger it anymore, so both person-pill rows
+  // have data ready the moment someone taps a direction.
   useEffect(() => {
-    const handler = (e: MouseEvent) => {
-      if (assignPanelRef.current && !assignPanelRef.current.contains(e.target as Node)) {
-        setAssignPanelOpen(false);
-      }
-    };
-    document.addEventListener('mousedown', handler);
-    return () => document.removeEventListener('mousedown', handler);
-  }, []);
-
-  useEffect(() => {
-    if (!assignPanelOpen || assignmentGroups || assignmentGroupsLoading || !userId) return;
+    if (tab !== 'promotions' || assignmentGroups || assignmentGroupsLoading || !userId) return;
     setAssignmentGroupsLoading(true);
     getPromotionAssignmentGroups(userId)
       .then(setAssignmentGroups)
       .catch(() => setAssignmentGroups({ assignedToMe: [], assignedByMe: [] }))
       .finally(() => setAssignmentGroupsLoading(false));
-  }, [assignPanelOpen, assignmentGroups, assignmentGroupsLoading, userId]);
+  }, [tab, assignmentGroups, assignmentGroupsLoading, userId]);
 
   const activeAssignGroupList: AssignmentGroup[] =
     assignTab === 'toMe' ? assignmentGroups?.assignedToMe ?? []
     : assignTab === 'byMe' ? assignmentGroups?.assignedByMe ?? []
     : [];
 
-  const selectedAssignPerson = activeAssignGroupList.find(g => g.person.id === assignSelectedPersonId) ?? null;
+  // What the "My Promotions" active-view grid actually renders. [All] is
+  // untouched (== activePromotions). Assigned to Me/by Me scope to the
+  // union of that direction's promotions, or just one person's once a
+  // pill is selected — ids cross-checked against activePromotions so
+  // existing archive filtering is never bypassed.
+  const filteredByAssign = useMemo(() => {
+    if (assignTab === 'all') return activePromotions;
+    const person = activeAssignGroupList.find(g => g.person.id === assignSelectedPersonId);
+    const scopedIds = new Set(
+      (person ? person.promotions : activeAssignGroupList.flatMap(g => g.promotions)).map(p => p.id)
+    );
+    return activePromotions.filter(p => scopedIds.has(p.id));
+  }, [assignTab, assignSelectedPersonId, activeAssignGroupList, activePromotions]);
 
   // ── Combined Archived / Archive Impact / Hidden menu ─────────────────────
   // Desktop: opens on hover (CSS group-hover). Mobile/touch: no real
@@ -584,108 +587,7 @@ export default function Marketplace() {
           )}
          {tab === 'promotions' && (
             <>
-              {/* Assigned to Me / Assigned by Me / All — placed exactly where
-                  Archived used to sit. Pure drill-down navigation — see
-                  state block above. */}
-              <div className="relative" ref={assignPanelRef}>
-                <button
-                  onClick={() => setAssignPanelOpen(o => !o)}
-                  className="flex items-center gap-2 bg-zinc-900 hover:bg-zinc-800 border border-zinc-800 text-zinc-300 text-xs font-bold uppercase tracking-wider px-4 py-2 rounded-lg"
-                >
-                  <Users size={14} />
-                  Assigned To/By
-                  <ChevronDown size={12} className={`transition-transform ${assignPanelOpen ? 'rotate-180' : ''}`} />
-                </button>
 
-                {assignPanelOpen && (
-                  <div className="absolute left-0 top-full mt-2 w-72 bg-zinc-900 border border-zinc-800 rounded-2xl shadow-2xl z-50 overflow-hidden">
-                    <div className="flex items-center gap-1 px-3 pt-3 pb-2 border-b border-zinc-800">
-                      {([
-                        { key: 'all', label: 'All' },
-                        { key: 'toMe', label: 'Assigned to Me' },
-                        { key: 'byMe', label: 'Assigned by Me' },
-                      ] as const).map(t => (
-                        <button
-                          key={t.key}
-                          onClick={() => {
-                            setAssignTab(t.key);
-                            setAssignSelectedPersonId(null);
-                            if (t.key === 'all') setAssignPanelOpen(false);
-                          }}
-                          className={`px-2.5 py-1.5 rounded-lg text-[9px] font-black uppercase tracking-widest transition-all ${
-                            assignTab === t.key ? 'bg-zinc-700 text-white' : 'text-zinc-600 hover:text-zinc-400'
-                          }`}
-                        >
-                          {t.label}
-                        </button>
-                      ))}
-                    </div>
-
-                    {(assignTab === 'toMe' || assignTab === 'byMe') && (
-                      <div className="max-h-72 overflow-y-auto py-2">
-                        {assignmentGroupsLoading && (
-                          <div className="px-4 py-6 text-center text-[10px] font-bold text-zinc-600">
-                            Loading…
-                          </div>
-                        )}
-
-                        {!assignmentGroupsLoading && !selectedAssignPerson && activeAssignGroupList.length === 0 && (
-                          <div className="px-4 py-6 text-center text-[10px] font-bold text-zinc-600">
-                            Nothing here yet.
-                          </div>
-                        )}
-
-                        {!assignmentGroupsLoading && !selectedAssignPerson && activeAssignGroupList.map(group => (
-                          <button
-                            key={group.person.id}
-                            onClick={() => setAssignSelectedPersonId(group.person.id)}
-                            className="w-full flex items-center justify-between gap-2 px-4 py-2.5 hover:bg-zinc-800 transition-colors text-left"
-                          >
-                            <span className="min-w-0">
-                              <span className="block text-[8px] font-black uppercase tracking-widest text-zinc-600">
-                                {assignTab === 'toMe' ? 'Sponsor' : 'Marketer'}
-                              </span>
-                              <span className="block text-[10px] font-bold text-zinc-300 truncate">
-                                {group.person.name}
-                              </span>
-                            </span>
-                            <span className="shrink-0 text-[9px] font-bold text-zinc-500 whitespace-nowrap">
-                              {group.promotions.length} Promotion{group.promotions.length === 1 ? '' : 's'} →
-                            </span>
-                          </button>
-                        ))}
-
-                        {!assignmentGroupsLoading && selectedAssignPerson && (
-                          <div>
-                            <button
-                              onClick={() => setAssignSelectedPersonId(null)}
-                              className="w-full flex items-center gap-1.5 px-4 py-2 text-[9px] font-black uppercase tracking-widest text-zinc-500 hover:text-white transition-colors"
-                            >
-                              <ChevronLeft size={11} />
-                              {selectedAssignPerson.person.name}
-                            </button>
-                            {selectedAssignPerson.promotions.map(p => (
-                              <button
-                                key={p.id}
-                                onClick={() => {
-                                  setAssignPanelOpen(false);
-                                  setAssignSelectedPersonId(null);
-                                  navigate(`/marketplace/promotions/${p.id}`);
-                                }}
-                                className="w-full text-left px-4 py-2 text-[10px] font-bold text-zinc-300 hover:bg-zinc-800 transition-colors truncate"
-                              >
-                                {p.assignment?.title ?? p.campaign?.campaign_name ?? 'Promotion'}
-                              </button>
-                            ))}
-                          </div>
-                        )}
-                      </div>
-                    )}
-                  </div>
-                )}
-              </div>
-
-              {/* Combined Archived / Archive Impact / Hidden. Desktop:
                   hover-opens via group/manage. Mobile: manageOpen click
                   state covers it (no real :hover on touch). */}
               <div className="relative group/manage" ref={manageRef}>
@@ -835,10 +737,62 @@ export default function Marketplace() {
           </button>
         )}
 
+        {/* Assigned to Me / Assigned by Me — inline pills, same two-row
+            pattern as the Assets page's scope tabs. Row 2 (people) only
+            appears once a direction is picked; clicking a person pill
+            again deselects it back to "everyone in this direction". */}
+        {!loading && !error && tab === 'promotions' && promotionsView === 'active' && (
+          <div className="mb-4">
+            <div className="flex items-center gap-2 flex-wrap">
+              {([
+                { key: 'all', label: 'All' },
+                { key: 'toMe', label: 'Assigned to Me' },
+                { key: 'byMe', label: 'Assigned by Me' },
+              ] as const).map(t => (
+                <button
+                  key={t.key}
+                  onClick={() => { setAssignTab(t.key); setAssignSelectedPersonId(null); }}
+                  className={`px-3 py-1.5 rounded-lg text-[10px] font-black uppercase tracking-widest transition-all ${
+                    assignTab === t.key
+                      ? 'bg-red-600 text-white'
+                      : 'bg-zinc-900 border border-zinc-800 text-zinc-400 hover:text-white'
+                  }`}
+                >
+                  {t.label}
+                </button>
+              ))}
+            </div>
+
+            {(assignTab === 'toMe' || assignTab === 'byMe') && (
+              <div className="flex items-center gap-2 flex-wrap mt-2">
+                {assignmentGroupsLoading && (
+                  <span className="text-[10px] font-bold text-zinc-600 uppercase tracking-widest">Loading…</span>
+                )}
+                {!assignmentGroupsLoading && activeAssignGroupList.length === 0 && (
+                  <span className="text-[10px] font-bold text-zinc-600 uppercase tracking-widest">Nobody here yet.</span>
+                )}
+                {!assignmentGroupsLoading && activeAssignGroupList.map(group => (
+                  <button
+                    key={group.person.id}
+                    onClick={() => setAssignSelectedPersonId(id => (id === group.person.id ? null : group.person.id))}
+                    className={`px-3 py-1.5 rounded-lg text-[9px] font-black uppercase tracking-widest transition-all ${
+                      assignSelectedPersonId === group.person.id
+                        ? 'bg-zinc-700 text-white'
+                        : 'bg-zinc-900 border border-zinc-800 text-zinc-500 hover:text-white'
+                    }`}
+                  >
+                    {group.person.name} ({group.promotions.length})
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
+
         {!loading && !error && tab === 'promotions' && promotionsView === 'active' && (
           <div className="space-y-3">
-            {activePromotions.length === 0 && <EmptyState label="No promotions yet" />}
-            {activePromotions.map(p => (
+            {filteredByAssign.length === 0 && <EmptyState label="No promotions yet" />}
+            {filteredByAssign.map(p => (
               <div
                 key={p.id}
                 className="relative group w-full flex items-center justify-between text-left bg-zinc-900 border border-zinc-800 rounded-xl p-5 pr-32"
