@@ -293,7 +293,7 @@ function useAssetAnalyticsRows(opts: {
   dateRange: DateRange;
   customRange: CustomDateRange | null;
   activeSource: RevenueView;
-}): { rows: AssetAnalyticsRow[]; loading: boolean; error: string | null } {
+}): { rows: AssetAnalyticsRow[]; loading: boolean; error: string | null; organizationId: string | null } {
   const [rows, setRows] = useState<AssetAnalyticsRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -1727,9 +1727,6 @@ export default function AllAssetsAnalytics() {
             </div>
           </div>
         </div>
-
-        {/* ── Table ──────────────────────────────────────────────────────── */}
-        </header>
 
         {/* ── Table ──────────────────────────────────────────────────────── */}
                 {/* ── Mobile view tabs — mobile only, desktop keeps the table ─────── */}
