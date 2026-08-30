@@ -597,7 +597,7 @@ export default function AllAssetsAnalytics() {
     mq.addEventListener('change', update);
     return () => mq.removeEventListener('change', update);
   }, []);
-  const [chartOpen, setChartOpen] = useState(true);
+
   const [mobileFiltersOpen, setMobileFiltersOpen] = useState(false);
   const [mobileTab, setMobileTab] = useState<'cards' | 'table'>('cards');
   const [expandedCards, setExpandedCards] = useState<Set<string>>(new Set());
