@@ -106,7 +106,7 @@ import {
 
 import {
   ChevronLeft, Filter, Columns, ChevronDown, ArrowUpDown, Boxes,
-  Calendar, Briefcase, Megaphone, Check, User, RotateCw,
+  Calendar, Briefcase, Megaphone, Check, User, Puzzle,
 } from 'lucide-react';
 
 import {
@@ -580,6 +580,7 @@ export default function AllAssetsAnalytics() {
   const [selectedCampaignId, setSelectedCampaignId]   = useState<string>('all');
   const [selectedPromotionId, setSelectedPromotionId] = useState<string>('all');
   const [selectedContentOwnerId, setSelectedContentOwnerId] = useState<string>('all');
+    const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [mobileFiltersOpen, setMobileFiltersOpen] = useState(false);
   const [activeSource, setActiveSource]   = useState<RevenueView>('total');
   const [selectedPlatforms, setSelectedPlatforms] = useState<string[]>([]);
@@ -1125,6 +1126,13 @@ export default function AllAssetsAnalytics() {
       {/* ── Main content ─────────────────────────────────────────────────── */}
       <div className="flex-1 flex flex-col h-full overflow-hidden bg-black relative">
 
+        <button
+          onClick={() => setMobileMenuOpen(o => !o)}
+          className="lg:hidden fixed bottom-6 right-4 z-50 w-14 h-14 rounded-full bg-red-600 text-white flex items-center justify-center shadow-2xl"
+        >
+          <Puzzle size={22} />
+        </button>
+
         {/* ── Header ─────────────────────────────────────────────────────── */}
         <header className="bg-zinc-950 border-b border-zinc-900 px-8 shrink-0">
 
@@ -1144,7 +1152,7 @@ export default function AllAssetsAnalytics() {
               >
                 <Filter size={20} />
               </button>
-              <div>
+              <div className={`${mobileMenuOpen ? 'block' : 'hidden'} lg:block`}>
                 <h2 className="text-2xl font-black text-white uppercase tracking-tight">
                   Asset Analytics
                 </h2>
@@ -1240,7 +1248,7 @@ export default function AllAssetsAnalytics() {
           </div>
 
           {/* Second row: platform filter + quick sort */}
-          <div className="pb-4 flex flex-wrap items-center justify-between gap-3">
+          <div className={`${mobileMenuOpen ? 'flex' : 'hidden'} lg:flex pb-4 flex-wrap items-center justify-between gap-3`}>
 
             {/* Platform filter pills */}
             <div className="flex flex-wrap items-center gap-1.5">
@@ -1318,11 +1326,6 @@ export default function AllAssetsAnalytics() {
 
           </div>
         </header>
-
-        <div className="hidden [@media(orientation:portrait)]:flex lg:hidden items-center gap-2 px-4 py-2 bg-zinc-900 border-b border-zinc-800 text-[10px] font-bold uppercase tracking-widest text-zinc-400">
-          <RotateCw size={12} />
-          Rotate your device to landscape for a better table view
-        </div>
 
         {/* ── Table ──────────────────────────────────────────────────────── */}
         <div className="flex-1 overflow-x-auto custom-scrollbar"></div>
