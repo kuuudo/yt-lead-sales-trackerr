@@ -907,7 +907,9 @@ export default function AllAssetsAnalytics() {
   // itself is just an equality check on data already on each row.
   const promotionFilteredRows = useMemo(() => {
     if (selectedPromotionIds.length === 0) return campaignFilteredRows;
-    return campaignFilteredRows.filter(row => selectedPromotionIds.includes(row.promotion_id));
+        return campaignFilteredRows.filter(
+      row => row.promotion_id != null && selectedPromotionIds.includes(row.promotion_id),
+    );
   }, [campaignFilteredRows, selectedPromotionIds]);
 
   // ── Content Marketer filter — operates on videos.user_id via
@@ -918,8 +920,7 @@ export default function AllAssetsAnalytics() {
     if (selectedContentOwnerId === 'all') return promotionFilteredRows;
     return promotionFilteredRows.filter(row => row.promoting_video.content_owner_id === selectedContentOwnerId);
   }, [promotionFilteredRows, selectedContentOwnerId]);
-  const archiveFilteredRows = useMemo(
-    () =>
+
       applyAnalyticsArchiveFilters(
         archiveFilteredRows,
         (row) => ({
