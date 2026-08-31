@@ -1,6 +1,6 @@
 # ASSET ANALYTICS — SOURCE OF TRUTH
 
-Status: **Table Structure = LOCKED · Attribution (Type 1/2/3) = LOCKED · Row grain = LOCKED · Archive architecture = LOCKED · Organization boundary = LOCKED · Orchestration = IMPLEMENTED + REAL-DATA VERIFIED · AllAssetsAnalytics = CONNECTED TO REAL DATA · Identity enrichment (Phase 1) = IMPLEMENTED, NOT real-data verified · Campaign filter (Phase 2) = IMPLEMENTED, NOT real-data verified · Promotion filter (Phase 2) = INTERIM IMPLEMENTATION ONLY — correctness UNPROVEN, suspected wrong for multi-Promotion assets, DO NOT SIGN OFF · Asset source (My/Shared/Assigned) filter = NOT STARTED, investigation only · Asset grouping/merged display = NOT STARTED, presentation-layer only · Revenue Truth / double-counting model = NOT STARTED · Cross-org promoting-video RLS gap (sponsor viewer saw "Untitled video" / Content Owner "—") = FIXED & DB-VERIFIED 2026-08-29, new `videos` SELECT policy added, no application code changed · `redirect_links.promotion_id IS NULL` historical data = FORENSICALLY CLASSIFIED (28 zero-candidate / 46 one-candidate / 35 multi-candidate), 35-row set TEMPORARILY diagnostic-backfilled (NOT asserted as historical truth, rollback list retained) to confirm NULL is a contributing cause of Promotion Analytics symptoms · 46-row one-candidate set = DELIBERATELY NOT backfilled — decision changed from "maybe safe fallback" to "do not backtrack historical data at all" · Strategy as of 2026-08-30 = STOP historical backfill entirely → FIX FORWARD (guarantee correct `promotion_id` on all newly-created redirect_links, per asset category) → TEST MATRIX (see new section below) before any further historical-data decision · `Track New Content → Select Shared Asset → createRedirectLink()` invariant verification = NOT STARTED, this is the next investigation target · Assigned to Me / Assigned by Me (Sponsor/Marketer direction filter) = IMPLEMENTED & DEPLOYED in both `AllAssetsAnalytics.tsx` and `Marketplace.tsx` "My Promotions" — see new addendum below; unrelated to and does not resolve the Promotion-filter-correctness work above**
+Status: **Table Structure = LOCKED · Attribution (Type 1/2/3) = LOCKED · Row grain = LOCKED · Archive architecture = LOCKED · Organization boundary = LOCKED · Orchestration = IMPLEMENTED + REAL-DATA VERIFIED · AllAssetsAnalytics = CONNECTED TO REAL DATA · Identity enrichment (Phase 1) = IMPLEMENTED, NOT real-data verified · Campaign filter (Phase 2) = IMPLEMENTED, NOT real-data verified · Promotion filter (Phase 2) = INTERIM IMPLEMENTATION ONLY — correctness UNPROVEN, suspected wrong for multi-Promotion assets, DO NOT SIGN OFF · Asset source (My/Shared/Assigned) filter = NOT STARTED, investigation only · Asset grouping/merged display = NOT STARTED, presentation-layer only · Revenue Truth / double-counting model = NOT STARTED · Cross-org promoting-video RLS gap (sponsor viewer saw "Untitled video" / Content Owner "—") = FIXED & DB-VERIFIED 2026-08-29, new `videos` SELECT policy added, no application code changed · `redirect_links.promotion_id IS NULL` historical data = FORENSICALLY CLASSIFIED (28 zero-candidate / 46 one-candidate / 35 multi-candidate), 35-row set TEMPORARILY diagnostic-backfilled (NOT asserted as historical truth, rollback list retained) to confirm NULL is a contributing cause of Promotion Analytics symptoms · 46-row one-candidate set = DELIBERATELY NOT backfilled — decision changed from "maybe safe fallback" to "do not backtrack historical data at all" · Strategy as of 2026-08-30 = STOP historical backfill entirely → FIX FORWARD (guarantee correct `promotion_id` on all newly-created redirect_links, per asset category) → TEST MATRIX (see new section below) before any further historical-data decision · `Track New Content → Select Shared Asset → createRedirectLink()` invariant verification = NOT STARTED, this is the next investigation target Assigned to Me / Assigned by Me (Sponsor/Marketer direction filter) = IMPLEMENTED & DEPLOYED in both `AllAssetsAnalytics.tsx` and `Marketplace.tsx` "My Promotions" — see new addendum below; unrelated to and does not resolve the Promotion-filter-correctness work above · Campaign column privacy split (Asset Campaign / Content Campaign, owner-lock display, Operator-Mode-aware) = IMPLEMENTED, session pass, NOT yet real-data verified — see new addendum below**
 
 Investigation frozen. Orchestration verified. Real rows render in AllAssetsAnalytics. Next phase is UI/data-quality verification — not architecture.
 
@@ -2424,7 +2424,119 @@ it should be personal was resolved **only** for this feature (by using
 `assignment.created_by_user_id` directly instead), not by changing
 `listOrgAssignments()` itself.
 
+## Campaign Column Privacy Split — Asset Campaign / Content Campaign (session addendum)
 
+Status: **IMPLEMENTED in `AllAssetsAnalytics.tsx` (session pass) · NOT yet real-data verified · isolated to this one file, no schema/engine change**
+
+### Problem
+
+The single "Campaign" column in `AllAssetsAnalytics.tsx` conflated two
+different relationships that happen to sit on the same row:
+
+- **Asset Campaign** — the campaign the promoted *asset* belongs to
+  (`row.campaign_id`, sourced from `r.campaignIds?.[0]`, i.e. asset-side
+  provenance — see Type 1/2/3 rules in §1 above).
+- **Content Campaign** — the campaign the *promoting video* itself
+  belongs to (`videos.campaign_id`, unrelated to the asset it's
+  promoting in this row).
+
+These can legitimately point at two different campaigns owned by two
+different users (sponsor vs. collaborator marketplace scenario). The
+old single column showed only Asset Campaign under a generic
+"Campaign" label and gave no privacy treatment — a non-owner viewer
+either saw the real campaign name or a bare `—`, both wrong.
+
+### Rule (LOCKED for this pass)
+
+For **either** column, independently:
+
+```ts
+if (effectiveViewerId === campaign.user_id) {
+  show(campaign.campaign_name);          // e.g. "vv"
+} else if (campaign exists) {
+  show(`🔒 ${ownerDisplayName}'s Campaign`); // e.g. "🔒 Web Mood's Campaign"
+} else {
+  show('No Campaign');                    // campaign_id genuinely null — not a privacy case
+}
+```
+
+`—` is never used for this column anymore. Null `campaign_id` (e.g.
+Type 3 Resource assets with no campaign, per §1) renders as literal
+**"No Campaign"** for every viewer — null is not a privacy case, so it
+must not get the lock treatment.
+
+### Effective viewer identity — Operator Mode
+
+Ownership comparisons use `effectiveViewerId`, **not** raw
+`useAuth().user.id`:
+
+```ts
+const { viewingMemberId, isReadOnly } = useViewing(); // lib/ViewingContext.tsx
+const effectiveViewerId = isReadOnly ? viewingMemberId : (user?.id ?? null);
+```
+
+`ViewingContext` only tracks *which* member's data to display
+client-side — authorization is still fully enforced server-side via
+RLS (`is_operator_for_user` / `resolve_member_organization`), unchanged
+by this work. See file header comment in `ViewingContext.tsx`.
+
+`useCampaignOptions()` (builds `campaignNameById`, the "do I own this
+campaign" map) now takes `effectiveViewerId` as a param instead of
+reading `useAuth()` internally, so the campaign-ownership check is
+correct in all four cases: normal sponsor view, normal collaborator
+view, Operator-viewing-sponsor, Operator-viewing-collaborator.
+
+### Owner-name resolution — privacy-safe by construction
+
+`useCampaignOwnerLabels(rows, ownedCampaignIds)` — new hook, scans
+**both** `row.campaign_id` and `row.promoting_video.content_campaign_id`
+for ids not in `ownedCampaignIds`, then:
+
+```ts
+supabase.from('campaigns').select('id, user_id').in('id', unownedCampaignIds)
+// → then profiles.select('id, email, full_name').in('id', ownerIds)
+```
+
+`campaign_name` is **never fetched** for a campaign the effective
+viewer doesn't own — the confidential name cannot reach the client for
+those ids, by construction, not by UI-side hiding. Same
+`profiles.select('id, email, full_name')` pattern already used for
+`content_owner_name` (§ UI Display / Identity Resolution above) — no
+new identity-resolution system introduced.
+
+One hook serves both columns — `campaignNameById` /
+`campaignOwnerLabelById` are generic maps keyed by `campaign.id`, with
+no notion of "asset side" vs "content side" baked in, so both cells
+read from the same two maps.
+
+### Data plumbing
+
+`videos.campaign_id` was already arriving in `videosRes.data` (that
+query is `select('*')`, per the embed-shape note in § UI Display /
+Identity Resolution above) — no new column added to that fetch. It
+just wasn't being read into `videoDisplay` / the row object before
+this pass. `PromotingVideoIdentity.content_campaign_id` is the new
+field carrying it.
+
+### Explicitly not touched
+
+`analyticsEngine.ts`, `assetAnalyticsEngine.ts`, `buildAssetAnalyticsRows.ts`,
+row grain, attribution, archive resolvers, promotion/assignment logic,
+database schema. This is a display-layer change in `AllAssetsAnalytics.tsx`
+only, reusing existing queries and existing identity-resolution
+patterns.
+
+### Still open
+
+- Real-data verification of the four Operator-Mode scenarios above —
+  same caveat as the rest of Phase 1/2 work in this doc.
+- Whether `useCampaignOptions()`'s Operator-Mode fix should also
+  propagate to the Campaign filter dropdown (currently out of scope —
+  only the two display cells were touched this pass).
+- `campaignArchive.isArchived` badge only ever reflected asset-side
+  `campaign_id` (per §6); it was **not** duplicated onto the new
+  Content Campaign cell, since no archive-context fetch exists for
+  `content_campaign_id` — left as a gap, not silently faked.
 ## FUTURE — Asset Campaign Association & Asset Type Model
 
 ### Decision for MVP

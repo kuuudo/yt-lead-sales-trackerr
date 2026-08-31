@@ -2217,12 +2217,12 @@ export default function AllAssetsAnalytics() {
                     </th>
                   )}
 
-                  <th className="px-6 py-5 text-left text-[10px] font-black uppercase tracking-widest text-zinc-600 border-b border-zinc-900 bg-zinc-950 min-w-[140px]">
-                    Asset Campaign
+                  <th className="px-6 py-5 text-left text-[10px] font-black uppercase tracking-widest text-zinc-600 border-b border-zinc-900 bg-zinc-950 min-w-[160px] max-w-[160px]">
+                    <span className="truncate block">Asset Campaign</span>
                   </th>
 
-                  <th className="px-6 py-5 text-left text-[10px] font-black uppercase tracking-widest text-zinc-600 border-b border-zinc-900 bg-zinc-950 min-w-[140px]">
-                    Content Campaign
+                  <th className="px-6 py-5 text-left text-[10px] font-black uppercase tracking-widest text-zinc-600 border-b border-zinc-900 bg-zinc-950 min-w-[160px] max-w-[160px]">
+                    <span className="truncate block">Content Campaign</span>
                   </th>
 
 
