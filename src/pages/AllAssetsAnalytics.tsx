@@ -463,6 +463,12 @@ function useAssetAnalyticsRows(opts: {
         // from videoFormatters.ts whose exact field dependencies aren't
         // known from this file alone — same defensive posture InDepthAnalytics
         // takes by passing a full Video row into these helpers.
+console.log('🔍 OPERATOR VIDEO DEBUG', {
+  videoIds,
+  organizationId,
+  viewerId,
+});
+
         const [videosRes, libraryRes] = await Promise.all([
           videoIds.length
             ? supabase
@@ -479,6 +485,17 @@ function useAssetAnalyticsRows(opts: {
                 .in('id', assetIds)
             : Promise.resolve({ data: [] as any[] }),
         ]);
+
+        console.log('🔍 VIDEOS QUERY RESULT', {
+          error: videosRes.error,
+          count: videosRes.data?.length,
+          videos: videosRes.data?.map((v: any) => ({
+            id: v.id,
+            title: v.video_title,
+            organization_id: v.organization_id,
+          })),
+        });
+
 
         // Content Owner — same profiles.select('id, email, full_name').in('id', ...)
         // pattern getPromotionLevelMetricsForOrg() (getTopPromotionsAnalytics.ts)
