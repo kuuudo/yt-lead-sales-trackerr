@@ -277,7 +277,19 @@ function toTableMetrics(
   return base;
 }
 
-async function resolveOrgAndViewer(): Promise<{ organizationId: string; viewerId: string }> {
+async function resolveOrgAndViewer(viewing?: {
+  viewingMemberId: string | null;
+  viewingOrgId: string | null;
+}): Promise<{ organizationId: string; viewerId: string }> {
+  // Operator read-only mode: viewingOrgId was already resolved server-side
+  // (resolve_member_organization, SECURITY DEFINER) when viewing mode was
+  // entered — see ViewingContext.tsx. Trust it directly and skip the
+  // self-lookup below, which would otherwise resolve the OPERATOR's own
+  // org instead of the viewed member's.
+  if (viewing?.viewingMemberId && viewing?.viewingOrgId) {
+    return { organizationId: viewing.viewingOrgId, viewerId: viewing.viewingMemberId };
+  }
+
   const { data: auth, error: authError } = await supabase.auth.getUser();
   if (authError || !auth.user) {
     throw new Error('Not authenticated');
@@ -315,6 +327,9 @@ function useAssetAnalyticsRows(opts: {
   dateRange: DateRange;
   customRange: CustomDateRange | null;
   activeSource: RevenueView;
+  viewingMemberId?: string | null;
+  viewingOrgId?: string | null;
+  isReadOnly?: boolean;
 }): { rows: AssetAnalyticsRow[]; loading: boolean; error: string | null; organizationId: string | null } {
   const [rows, setRows] = useState<AssetAnalyticsRow[]>([]);
   const [loading, setLoading] = useState(true);
@@ -328,7 +343,11 @@ function useAssetAnalyticsRows(opts: {
       setLoading(true);
       setError(null);
       try {
-        const { organizationId, viewerId } = await resolveOrgAndViewer();
+        const { organizationId, viewerId } = await resolveOrgAndViewer(
+          opts.isReadOnly
+            ? { viewingMemberId: opts.viewingMemberId ?? null, viewingOrgId: opts.viewingOrgId ?? null }
+            : undefined,
+        );
         if (!cancelled) setOrganizationId(organizationId);
 
         const source =
@@ -614,7 +633,7 @@ function useAssetAnalyticsRows(opts: {
     return () => {
       cancelled = true;
     };
-  }, [opts.dateRange, opts.customRange, opts.activeSource]);
+  }, [opts.dateRange, opts.customRange, opts.activeSource, opts.isReadOnly, opts.viewingMemberId, opts.viewingOrgId]);
 
   return { rows, loading, error, organizationId };
 }
@@ -766,7 +785,7 @@ function usePromotionOptions(rows: AssetAnalyticsRow[]): PromotionOption[] {
 export default function AllAssetsAnalytics() {
   const navigate = useNavigate();
   const { user } = useAuth();
-  const { viewingMemberId, isReadOnly } = useViewing();
+  const { viewingMemberId, viewingOrgId, isReadOnly } = useViewing();
   const effectiveViewerId = isReadOnly ? viewingMemberId : (user?.id ?? null);
   // ── Filter state (before data hook so date/source drive fetch) ───────────
   const [dateRange, setDateRange]         = useState<DateRange>('30days');
@@ -815,6 +834,9 @@ export default function AllAssetsAnalytics() {
     dateRange,
     customRange,
     activeSource,
+    viewingMemberId,
+    viewingOrgId,
+    isReadOnly,
   });
   const campaigns = useCampaignOptions(effectiveViewerId);
 
