@@ -24,12 +24,14 @@ export interface CreateAssetResourceInput {
   url: string;
   title: string | null;
   thumbnailUrl: string | null;
+  campaignId?: string | null;
 }
 
 export interface AssetResource {
   id: string;
   asset_id: string;
   organization_id: string;
+  campaign_id: string | null;
   resource_type: string;
   platform: string;
   url: string;
@@ -51,6 +53,7 @@ export async function createAssetResource({
   url,
   title,
   thumbnailUrl,
+  campaignId = null,
 }: CreateAssetResourceInput): Promise<AssetResource> {
   const { data, error } = await supabase
     .from('asset_resources')
@@ -62,6 +65,7 @@ export async function createAssetResource({
       url,
       title,
       thumbnail_url: thumbnailUrl,
+      campaign_id: campaignId,
     }])
     .select()
     .single();

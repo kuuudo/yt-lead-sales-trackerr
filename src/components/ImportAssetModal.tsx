@@ -7,7 +7,7 @@
  * UnmappedVideos.tsx was intentionally not consulted (different domain).
  */
 
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import { Loader2, Link2, X, Rocket } from 'lucide-react';
 import { importAsset } from '../services/asset/importAsset';
 import { identifyResource } from '../services/asset/identifyResource';
@@ -19,6 +19,7 @@ import {
 } from '../lib/videoFormatters';
 import { useOrganization } from '../lib/useOrganization';
 import type { AssetResource } from '../services/asset/createAssetResource';
+import { listCampaignsForAssetImport, type CampaignPickerOption } from '../services/campaign/listCampaignsForAssetImport';
 
 interface ImportAssetModalProps {
   onClose: () => void;
@@ -35,6 +36,15 @@ export function ImportAssetModal({ onClose, onImported }: ImportAssetModalProps)
   const [manualResourceType, setManualResourceType] = useState<ResourceType>('website');
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [campaigns, setCampaigns] = useState<CampaignPickerOption[]>([]);
+  const [campaignId, setCampaignId] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!organizationId) return;
+    listCampaignsForAssetImport(organizationId)
+      .then(setCampaigns)
+      .catch(() => setCampaigns([]));
+  }, [organizationId]);
 
   // Cheap + synchronous — recomputed on every keystroke. Only extractMetadata
   // (inside importAsset) is network-bound, deferred to submit.
@@ -56,6 +66,7 @@ export function ImportAssetModal({ onClose, onImported }: ImportAssetModalProps)
         assetName,
         manualResourceType: needsManualResourceType ? manualResourceType : undefined,
         organizationId,
+        campaignId,
       });
       onImported(assetResource);
       onClose();
@@ -113,6 +124,18 @@ export function ImportAssetModal({ onClose, onImported }: ImportAssetModalProps)
           placeholder="Optional — auto-filled from the link if left blank"
           className="w-full bg-zinc-950 border border-zinc-800 rounded-lg px-3 py-2 text-sm mb-4"
         />
+
+        <label className="block text-[10px] font-bold uppercase tracking-widest text-zinc-500 mb-2">Campaign</label>
+        <select
+          value={campaignId ?? ''}
+          onChange={e => setCampaignId(e.target.value || null)}
+          className="w-full bg-zinc-950 border border-zinc-800 rounded-lg px-3 py-2 text-sm mb-4"
+        >
+          <option value="">General Library</option>
+          {campaigns.map(c => (
+            <option key={c.id} value={c.id}>{c.campaign_name}</option>
+          ))}
+        </select>
 
         {needsManualResourceType && (
           <>

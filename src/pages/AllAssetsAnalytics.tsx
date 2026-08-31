@@ -2487,9 +2487,9 @@ export default function AllAssetsAnalytics() {
                       );
                     })()}
 
-                    <td className="px-6 py-4 whitespace-nowrap text-sm font-bold text-zinc-400">
+                    <td className="px-6 py-4 whitespace-nowrap text-sm font-bold text-zinc-400 w-[100px] max-w-[100px]">
                       <div className="flex items-center gap-1.5 min-w-0">
-                        <span className="truncate">
+                        <span className="truncate block">
                           {row.campaign_id
                             ? campaignNameById.get(row.campaign_id)
                               ?? (campaignOwnerLabelById.get(row.campaign_id)
@@ -2509,9 +2509,9 @@ export default function AllAssetsAnalytics() {
                       </div>
                     </td>
 
-                    <td className="px-6 py-4 whitespace-nowrap text-sm font-bold text-zinc-400">
+                    <td className="px-6 py-4 whitespace-nowrap text-sm font-bold text-zinc-400 w-[100px] max-w-[100px]">
                       <div className="flex items-center gap-1.5 min-w-0">
-                        <span className="truncate">
+                        <span className="truncate block">
                           {row.promoting_video.content_campaign_id
                             ? campaignNameById.get(row.promoting_video.content_campaign_id)
                               ?? (campaignOwnerLabelById.get(row.promoting_video.content_campaign_id)
