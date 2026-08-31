@@ -486,15 +486,27 @@ console.log('🔍 OPERATOR VIDEO DEBUG', {
             : Promise.resolve({ data: [] as any[] }),
         ]);
 
-        console.log('🔍 VIDEOS QUERY RESULT', {
-          error: videosRes.error,
-          count: videosRes.data?.length,
-          videos: videosRes.data?.map((v: any) => ({
-            id: v.id,
-            title: v.video_title,
-            organization_id: v.organization_id,
-          })),
-        });
+console.log('🔍 VIDEOS QUERY RESULT', {
+  error: videosRes.error,
+  requestedCount: videoIds.length,
+  returnedCount: videosRes.data?.length,
+  requestedIds: videoIds,
+  returnedIds: videosRes.data?.map((v: any) => v.id),
+  targetVideos: videosRes.data
+    ?.filter((v: any) =>
+      [
+        '10c461ef-99ba-48ea-af57-c9c9c048abbd',
+        '1bc729a4-bc3d-416a-9c42-46a4111d55eb',
+        '245fad54-ee00-4ebf-93e3-4f3d5dd14e87',
+        '5ce0d3e0-8b25-4553-a28a-5892ce96f10a',
+      ].includes(v.id)
+    )
+    .map((v: any) => ({
+      id: v.id,
+      title: v.video_title,
+      organization_id: v.organization_id,
+    })),
+});
 
 
         // Content Owner — same profiles.select('id, email, full_name').in('id', ...)
