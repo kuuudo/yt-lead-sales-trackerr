@@ -2486,7 +2486,7 @@ export default function AllAssetsAnalytics() {
                               ?? (campaignOwnerLabelById.get(row.campaign_id)
                                     ? `🔒 ${campaignOwnerLabelById.get(row.campaign_id)}'s Campaign`
                                     : '—')
-                            : '—'}
+                            : 'No Campaign'}
                         </span>
                         {row.campaignArchive.isArchived && (
                           <span
