@@ -2217,11 +2217,11 @@ export default function AllAssetsAnalytics() {
                     </th>
                   )}
 
-                  <th className="px-6 py-5 text-left text-[10px] font-black uppercase tracking-widest text-zinc-600 border-b border-zinc-900 bg-zinc-950 w-[100px] min-w-[100px] max-w-[100px]">
+                  <th className="px-6 py-5 text-left text-[10px] font-black uppercase tracking-widest text-zinc-600 border-b border-zinc-900 bg-zinc-950 w-[260px] min-w-[260px] max-w-[260px]">
                     <span className="truncate block">Asset Campaign</span>
                   </th>
 
-                  <th className="px-6 py-5 text-left text-[10px] font-black uppercase tracking-widest text-zinc-600 border-b border-zinc-900 bg-zinc-950 w-[100px] min-w-[100px] max-w-[100px]">
+                  <th className="px-6 py-5 text-left text-[10px] font-black uppercase tracking-widest text-zinc-600 border-b border-zinc-900 bg-zinc-950 w-[260px] min-w-[260px] max-w-[260px]">
                     <span className="truncate block">Content Campaign</span>
                   </th>
 
@@ -2487,7 +2487,7 @@ export default function AllAssetsAnalytics() {
                       );
                     })()}
 
-                    <td className="px-6 py-4 whitespace-nowrap text-sm font-bold text-zinc-400 w-[100px] max-w-[100px]">
+                    <td className="px-6 py-4 whitespace-nowrap text-sm font-bold text-zinc-400 w-[260px] max-w-[260px]">
                       <div className="flex items-center gap-1.5 min-w-0">
                         <span className="truncate block">
                           {row.campaign_id
@@ -2509,7 +2509,7 @@ export default function AllAssetsAnalytics() {
                       </div>
                     </td>
 
-                    <td className="px-6 py-4 whitespace-nowrap text-sm font-bold text-zinc-400 w-[100px] max-w-[100px]">
+                    <td className="px-6 py-4 whitespace-nowrap text-sm font-bold text-zinc-400 w-[260px] max-w-[260px]">
                       <div className="flex items-center gap-1.5 min-w-0">
                         <span className="truncate block">
                           {row.promoting_video.content_campaign_id
