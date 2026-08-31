@@ -1,9 +1,10 @@
 # ARCHIVE SYSTEM — SOURCE OF TRUTH
 
 
-Status: **Assignment = LOCKED (mechanism; L1/L2 explicitly DEFERRED, not decided) · Asset = LOCKED (mechanism + L1/L2) · Video = LOCKED (mechanism + L1/L2) · Campaign = LOCKED (mechanism + L1/L2) · Promotion = LOCKED (mechanism + L1/L2 + Archive Impact)**
+Status: **Assignment = LOCKED (mechanism; L1/L2 explicitly DEFERRED, not decided) · Asset = LOCKED (mechanism + L1/L2) · Video = LOCKED (mechanism + L1/L2) · Campaign = LOCKED (mechanism + L1/L2) · Promotion = LOCKED (mechanism + L1/L2 + Archive Impact) · Analytics Archive Contract (single-viewer) = LOCKED (P2)**
 
-**IMPLEMENTATION AUTHORIZED — Phases 1–4 (Asset, Video, Campaign, Promotion) COMPLETE.** See "Implementation Status" section below (inserted after §11 Cascade Matrix) for what's built, what's verified, and current status.
+
+**IMPLEMENTATION AUTHORIZED — Phases 1–4 (Asset, Video, Campaign, Promotion) COMPLETE. Analytics Archive Contract (P2) LOCKED for single-viewer charts — see §12b.** See "Implementation Status" / §11a for entity phases; §12b for analytics.
 
 Investigation order: Assignment (LOCKED) → Asset (LOCKED) → Video (LOCKED mechanism + L1/L2) → Campaign (LOCKED mechanism + L1/L2) → Promotion (LOCKED mechanism + L1/L2 + Archive Impact) → Assignment L1/L2 decision (DEFERRED) → (doc finalized) → **Implementation (Phases 1–4 complete)**
 
@@ -123,8 +124,9 @@ MVP scope: **mechanism is unchanged for both directions** (still writes to `asse
 
 ### Analytics policy
 
-- **Single-viewer contexts**: soft filter, "Archived" label (distinguishing "by owner" vs "by you" once built), optional "Hide Archived," historical numbers never suppressed.
-- **Org-shared/multi-viewer contexts**: **DEFERRED — Analytics Phase.** Deferred globally across all five entities at once (Promotion has the identical owner/collaborator structure), not solved per-entity, to avoid two different answers to the same structural question later.
+
+- **Single-viewer contexts**: soft filter, "Archived" label (distinguishing "by owner" vs "by you" once built), optional "Hide Archived," historical numbers never suppressed. **Concrete contract + implementation pattern: §12b Analytics Archive Contract (P2) — LOCKED.**
+- **Org-shared/multi-viewer contexts**: **DEFERRED.** Deferred globally across all five entities at once (Promotion has the identical owner/collaborator structure), not solved per-entity, to avoid two different answers to the same structural question later.
 
 ### Explicitly out of MVP
 
@@ -824,6 +826,85 @@ After implementation, the existing ARCHIVED modal becomes the **Level 2 surface*
 Cross-entity finalization (analytics multi-viewer, shared notification patterns, full implementation phases) occurs after product owner authorizes implementation. Known gaps (Asset picker `asset_user_states` filters, listCampaignsForOrg archived filter, etc.) remain deferred until implementation phase.
 
 ---
+## 12b. Analytics Archive Contract (P2) — **LOCKED (single-viewer)**
+
+**Status:** LOCKED for single-viewer analytics. Multi-viewer / org-shared analytics remains DEFERRED (same global deferral as Asset/Promotion analytics policy).
+
+**Purpose:** One reusable pattern so every future analytics chart can add Hide Archived + Archived badges **without** re-investigating cascade rules, resolvers, or DB schema.
+
+**Core principle (unchanged):** Archive never suppresses historical metrics at the query/engine layer. Soft filter only. Cascade Matrix (§11) still holds: archiving one entity does **not** write another entity’s archive state; analytics may show derived labels via resolvers’ `isArchived` / `reasons` only.
+
+---
+
+### 12b.1 What is in scope / out of scope
+
+| In scope (Entity Archive) | Out of scope (do not mix in) |
+|---|---|
+| Soft Hide Archived toggles per entity dimension the **page explicitly chooses** | Multi-viewer analytics |
+| Read-only **Archived** badges on identity cells | Marketer archive (entity not evaluated — §3) |
+| Reuse of central resolvers only | Promotion **Surface B** Archive Impact as an automatic filter on analytics rows |
+| In-memory filter **after** metrics are computed | Query-level exclusion of archived entities that would change totals |
+| | Writing `archive_ui_visibility` from analytics pages |
+| | New archive business rules or cascade logic in charts |
+
+**Hard rule:** Entity Archive filters and Archive Impact (Promotion Surface B) stay **completely separate**. Analytics Hide Archived uses Surface A / global / derived `isArchived` from resolvers only — never `getPromotionArchiveImpactForViewer` / `getPromotionAssetArchiveImpact` as a row filter unless a future product decision explicitly adds a separate optional Impact toggle (not implemented).
+
+---
+
+### 12b.2 Source of truth (do not reimplement)
+
+| Entity | Resolver (batch preferred) | `isArchived` meaning |
+|---|---|---|
+| Asset | `getAssetArchiveContextsForViewer` / `getAssetArchiveContext` | Personal + derived (Video/Campaign reasons merged) |
+| Video / Content | `getVideoArchiveContextsForViewer` / `getVideoArchiveContext` | Global `videos.archived_at` + Campaign-derived as defined by Video resolver |
+| Campaign | `getCampaignArchiveContextsForViewer` / `getCampaignArchiveContext` | Global `campaigns.archived_at` |
+| Promotion | `getPromotionArchiveContextsForViewer` / `getPromotionArchiveContext` | **Surface A only** — personal `promotion_user_states` |
+
+Charts must **not** invent cascade logic. They attach flags from these resolvers and pass booleans into the shared filter helper.
+
+**Campaign / Promotion batch preload pattern (as used in AllAssetsAnalytics):**
+
+- Campaign: load `campaigns.id, archived_at` for ids on the page → map to `{ id, archivedAt }` → `getCampaignArchiveContextsForViewer`.
+- Promotion: load `promotion_user_states` for `(viewerId, promotion_ids)` → map to `{ id, archivedAt }` → `getPromotionArchiveContextsForViewer`.
+
+This is data-feeding the LOCKED resolvers, not a new archive rule.
+
+---
+
+### 12b.3 Shared helper (new file)
+
+**File:** `src/lib/analyticsArchiveFilter.ts`
+
+**Rules for this file:**
+
+- Pure functions only — **no** Supabase, **no** resolvers inside the helper, **no** DB writes.
+- Does **not** define archive business rules; only filters rows that already carry archive flags.
+- Does **not** touch `archive_ui_visibility`.
+- Does **not** implement Marketer archive or Archive Impact.
+
+**Contract (conceptual):**
+
+```ts
+// Flags already resolved on the row (or mapped from row)
+type AnalyticsEntityArchiveFlags = {
+  assetArchived?: boolean;
+  videoArchived?: boolean;      // "Content" in AllAssetsAnalytics UI
+  campaignArchived?: boolean;
+  promotionArchived?: boolean;
+};
+
+type AnalyticsArchiveHideOptions = {
+  hideArchivedAsset?: boolean;
+  hideArchivedVideo?: boolean;
+  hideArchivedCampaign?: boolean;
+  hideArchivedPromotion?: boolean;
+};
+
+applyAnalyticsArchiveFilters(
+  rows,
+  getFlags,   // (row) => AnalyticsEntityArchiveFlags
+  options,    // which Hide toggles are ON
+): rows 
 
 ## Process rules for this document (do not skip)
 
@@ -1014,3 +1095,109 @@ NEXT:
 2. Asset picker gap and Campaign picker gap (`listCampaignsForOrg`) both remain deferred/unverified — pre-existing, not introduced by any phase, only in scope if the product owner explicitly pulls them in.
 3. Assignment Level 1/Level 2 remains an explicitly DEFERRED product decision, not an open bug.
 Assignment L1/L2 remains deferred — do not implement or re-raise unless product owner brings it up.
+
+12b.5 AllAssetsAnalytics reference implementation (pattern to copy)
+Data path:
+
+getAssetAnalyticsRows already attaches Asset archive context (archive.isArchived, reasons).
+Page hook loads Video + Campaign + Promotion archive maps via batch resolvers (see §12b.2).
+Each AssetAnalyticsRow carries:
+
+TypeScriptarchive: { isArchived: boolean; reasons: ... }   // Asset
+videoArchive: { isArchived: boolean }
+campaignArchive: { isArchived: boolean }
+promotionArchive: { isArchived: boolean }        // Surface A only
+
+After existing UI filters (scope, type, platform, campaign, promotion, content owner), call:
+
+TypeScriptapplyAnalyticsArchiveFilters(rows, (row) => ({
+  assetArchived: row.archive.isArchived,
+  videoArchived: row.videoArchive.isArchived,
+  campaignArchived: row.campaignArchive.isArchived,
+  promotionArchived: row.promotionArchive.isArchived,
+}), { hideArchivedAsset, hideArchivedVideo, hideArchivedCampaign, hideArchivedPromotion })
+
+Sort / table / cards consume the archive-filtered list.
+
+UI:
+
+Sidebar + mobile filters sheet: section Hide Archived with four toggles labeled Asset / Content / Campaign / Promotion (default OFF).
+Same four booleans shared across desktop and mobile.
+
+Badges (AllAssetsAnalytics only — product choice; optional on other charts):
+
+Style aligned with existing IN RANGE chip (small pill + dot).
+Archived is highest-priority status label on that identity when the entity is archived.
+Placement:
+Asset identity → row.archive.isArchived (tooltip may list reasons source names).
+Promoting Content → row.videoArchive.isArchived.
+Campaign column → row.campaignArchive.isArchived.
+Promotion column (when real promotion name shown) → row.promotionArchive.isArchived.
+
+Badges are read-only; they do not write archive state.
+
+
+12b.6 Checklist for adding archive to a new analytics chart
+
+Decide which Hide dimensions the page needs (product, not inference).
+Import applyAnalyticsArchiveFilters from lib/analyticsArchiveFilter.ts.
+Attach flags via existing batch resolvers only (no new cascade).
+Default all Hide toggles OFF.
+Apply soft filter after metrics and after other UI filters; before sort/display.
+Optional: Archived badges on identity cells (same visual language as AllAssetsAnalytics).
+Do not use Surface B Impact helpers as the main row filter.
+Do not suppress historical totals at the engine/query layer because of archive.
+
+
+12b.7 Explicit non-actions (analytics)
+
+No archived_at / *_user_states writes from analytics pages.
+No cascade filter that removes child rows because a parent Campaign/Video was archived except via resolver isArchived already including derived reasons on that entity.
+No Marketer archive until §3 evaluates Marketer as an archive subject.
+No multi-viewer “whose archive wins?” logic until that phase is unlocked.
+No automatic Hide of promotions that merely contain archived assets (that is Surface B Impact, not Entity Archive Hide).
+
+
+12b.8 Files touched by P2 (reference)
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+FileRolesrc/lib/analyticsArchiveFilter.tsShared pure filter helpersrc/pages/AllAssetsAnalytics.tsxFirst chart: 4 Hide toggles + resolver attach + badgesResolvers under services/*/get*ArchiveContext.tsUnchanged source of truth (consumed only)
+
+13–30. (Picker behavior, Search, Historical data beyond §12b, Restore UX copy, Permissions, RLS, further phases)
+Remaining cross-entity items (picker gaps, multi-viewer analytics, notification patterns) stay deferred unless product owner pulls them in. Known gaps (Asset picker asset_user_states filters, listCampaignsForOrg archived filter) unchanged by §12b.
+text---
+
+**Step D — NEXT at bottom (optional but useful)**
+
+**Ctrl+F:**
+```md
+NEXT:
+1. No Promotion work outstanding
+Replace that NEXT block with:
+MarkdownNEXT:
+1. No Promotion work outstanding. All 4 phases (Asset, Video, Campaign, Promotion) are implementation-complete.
+2. **Analytics Archive Contract (§12b) LOCKED (single-viewer).** Reference implementation: AllAssetsAnalytics (4 Hide Archived toggles + badges + `lib/analyticsArchiveFilter.ts`). Copy §12b.6 checklist for InDepthAnalytics / future charts — do not re-investigate cascade or invent new archive rules.
+3. Asset picker gap and Campaign picker gap (`listCampaignsForOrg`) both remain deferred/unverified — pre-existing, not introduced by any phase, only in scope if the product owner explicitly pulls them in.
+4. Assignment Level 1/Level 2 remains an explicitly DEFERRED product decision, not an open bug.
+5. Multi-viewer analytics archive behavior remains DEFERRED.
+
+After paste, Ctrl+F 12b. Analytics Archive — you should find the new section once.

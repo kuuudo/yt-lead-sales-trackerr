@@ -640,6 +640,59 @@ function useCampaignOptions(): Campaign[] {
   return campaigns;
 }
 
+function useCampaignOwnerLabels(
+  rows: AssetAnalyticsRow[],
+  ownedCampaignIds: Set<string>,
+): Map<string, string> {
+  // Only for campaigns the viewer does NOT own. Fetches id + user_id ONLY —
+  // never campaign_name — so the real name can never reach the client here.
+  const [labels, setLabels] = useState<Map<string, string>>(new Map());
+
+  const unownedCampaignIds = useMemo(() => {
+    const seen = new Set<string>();
+    rows.forEach(r => {
+      if (r.campaign_id && !ownedCampaignIds.has(r.campaign_id)) seen.add(r.campaign_id);
+    });
+    return Array.from(seen);
+  }, [rows, ownedCampaignIds]);
+
+  useEffect(() => {
+    if (unownedCampaignIds.length === 0) {
+      setLabels(new Map());
+      return;
+    }
+    let cancelled = false;
+    (async () => {
+      const { data: campaignRows } = await supabase
+        .from('campaigns')
+        .select('id, user_id')
+        .in('id', unownedCampaignIds);
+
+      const ownerIds = Array.from(
+        new Set((campaignRows ?? []).map((c: any) => c.user_id).filter(Boolean)),
+      );
+      // Same profiles.select('id, email, full_name') pattern as line ~470.
+      const { data: ownerProfiles } = ownerIds.length
+        ? await supabase.from('profiles').select('id, email, full_name').in('id', ownerIds)
+        : { data: [] as any[] };
+      const profileByUserId = new Map((ownerProfiles ?? []).map((p: any) => [p.id, p]));
+
+      if (cancelled) return;
+      const next = new Map<string, string>();
+      for (const c of campaignRows ?? []) {
+        const profile = c.user_id ? profileByUserId.get(c.user_id) : null;
+        const name = profile?.full_name?.trim() || profile?.email || null;
+        if (name) next.set(c.id, name);
+      }
+      setLabels(next);
+    })();
+    return () => { cancelled = true; };
+  }, [unownedCampaignIds.join(',')]);
+
+  return labels;
+}
+
+
 function usePromotionOptions(rows: AssetAnalyticsRow[]): PromotionOption[] {
   // Ownership boundary intentionally NOT decided here — see
   // ASSET_ANALYTICS_DESIGN 3.md §3 "Ownership". Rather than guess a scope
@@ -762,7 +815,8 @@ export default function AllAssetsAnalytics() {
     () => new Map(campaigns.map(c => [c.id, c.campaign_name])),
     [campaigns]
   );
-
+  const ownedCampaignIds = useMemo(() => new Set(campaigns.map(c => c.id)), [campaigns]);
+  const campaignOwnerLabelById = useCampaignOwnerLabels(rows, ownedCampaignIds);
   const promotions = usePromotionOptions(rows);
   const promotionNameById = useMemo(
     () => new Map(promotions.map(p => [p.id, p.name])),
@@ -2423,7 +2477,12 @@ export default function AllAssetsAnalytics() {
                     <td className="px-6 py-4 whitespace-nowrap text-sm font-bold text-zinc-400">
                       <div className="flex items-center gap-1.5 min-w-0">
                         <span className="truncate">
-                          {(row.campaign_id && campaignNameById.get(row.campaign_id)) || '—'}
+                          {row.campaign_id
+                            ? campaignNameById.get(row.campaign_id)
+                              ?? (campaignOwnerLabelById.get(row.campaign_id)
+                                    ? `🔒 ${campaignOwnerLabelById.get(row.campaign_id)}'s Campaign`
+                                    : '—')
+                            : '—'}
                         </span>
                         {row.campaignArchive.isArchived && (
                           <span
