@@ -609,7 +609,7 @@ export default function Marketplace() {
                   className="flex items-center gap-2 bg-zinc-900 hover:bg-zinc-800 border border-zinc-800 text-zinc-300 text-xs font-bold uppercase tracking-wider px-4 py-2 rounded-lg"
                 >
                   <Archive size={14} />
-                  Manage
+                  Archived
                   <ChevronDown size={12} className={`transition-transform ${manageOpen ? 'rotate-180' : ''}`} />
                 </button>
 
