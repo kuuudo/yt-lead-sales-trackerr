@@ -77,6 +77,7 @@ import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Campaign, supabase } from '../lib/supabase';
 import { useAuth } from '../lib/auth';
+import { useViewing } from '../lib/ViewingContext';
 import {
   TABLE_COLUMNS,
   COLUMN_LABELS,
@@ -617,35 +618,36 @@ function useAssetAnalyticsRows(opts: {
 
 
 
-function useCampaignOptions(): Campaign[] {
+function useCampaignOptions(viewerId: string | null): Campaign[] {
   // Same query InDepthAnalytics.tsx already uses — no new scope invented.
-  const { user } = useAuth();
+  // Takes the effective viewer id explicitly (Operator-Mode-aware) instead
+  // of reading useAuth() internally.
   const [campaigns, setCampaigns] = useState<Campaign[]>([]);
 
   useEffect(() => {
-    if (!user?.id) return;
+    if (!viewerId) return;
     let cancelled = false;
     supabase
       .from('campaigns')
       .select('*')
-      .eq('user_id', user.id)
+      .eq('user_id', viewerId)
       .then(({ data }) => {
         if (!cancelled) setCampaigns(data ?? []);
       });
     return () => {
       cancelled = true;
     };
-  }, [user?.id]);
+  }, [viewerId]);
 
   return campaigns;
 }
-
 function useCampaignOwnerLabels(
   rows: AssetAnalyticsRow[],
   ownedCampaignIds: Set<string>,
 ): Map<string, string> {
-  // Only for campaigns the viewer does NOT own. Fetches id + user_id ONLY —
-  // never campaign_name — so the real name can never reach the client here.
+  // Only for campaigns NOT in ownedCampaignIds (i.e. not owned by the
+  // effective viewer). Fetches id + user_id ONLY — never campaign_name —
+  // so the real name can never reach the client for these ids.
   const [labels, setLabels] = useState<Map<string, string>>(new Map());
 
   const unownedCampaignIds = useMemo(() => {
@@ -671,7 +673,8 @@ function useCampaignOwnerLabels(
       const ownerIds = Array.from(
         new Set((campaignRows ?? []).map((c: any) => c.user_id).filter(Boolean)),
       );
-      // Same profiles.select('id, email, full_name') pattern as line ~470.
+      // Same profiles.select('id, email, full_name') pattern already used
+      // for content_owner_name (line ~470).
       const { data: ownerProfiles } = ownerIds.length
         ? await supabase.from('profiles').select('id, email, full_name').in('id', ownerIds)
         : { data: [] as any[] };
@@ -691,8 +694,6 @@ function useCampaignOwnerLabels(
 
   return labels;
 }
-
-
 function usePromotionOptions(rows: AssetAnalyticsRow[]): PromotionOption[] {
   // Ownership boundary intentionally NOT decided here — see
   // ASSET_ANALYTICS_DESIGN 3.md §3 "Ownership". Rather than guess a scope
@@ -760,7 +761,8 @@ function usePromotionOptions(rows: AssetAnalyticsRow[]): PromotionOption[] {
 export default function AllAssetsAnalytics() {
   const navigate = useNavigate();
   const { user } = useAuth();
-
+  const { viewingMemberId, isReadOnly } = useViewing();
+  const effectiveViewerId = isReadOnly ? viewingMemberId : (user?.id ?? null);
   // ── Filter state (before data hook so date/source drive fetch) ───────────
   const [dateRange, setDateRange]         = useState<DateRange>('30days');
   const [customRange, setCustomRange]     = useState<CustomDateRange | null>(null);
@@ -809,14 +811,16 @@ export default function AllAssetsAnalytics() {
     customRange,
     activeSource,
   });
-  const campaigns = useCampaignOptions();
+  const campaigns = useCampaignOptions(effectiveViewerId);
 
   const campaignNameById = useMemo(
     () => new Map(campaigns.map(c => [c.id, c.campaign_name])),
     [campaigns]
   );
-  const ownedCampaignIds = useMemo(() => new Set(campaigns.map(c => c.id)), [campaigns]);
+
+    const ownedCampaignIds = useMemo(() => new Set(campaigns.map(c => c.id)), [campaigns]);
   const campaignOwnerLabelById = useCampaignOwnerLabels(rows, ownedCampaignIds);
+
   const promotions = usePromotionOptions(rows);
   const promotionNameById = useMemo(
     () => new Map(promotions.map(p => [p.id, p.name])),
