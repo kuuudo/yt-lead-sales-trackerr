@@ -17,9 +17,13 @@
  *      -> campaign_element_assets.asset_id
  *      -> campaign_id
  *
- * Resource Asset intentionally returns null.
+ * 3. Resource Asset
+ *    assets
+ *      -> asset_resources.asset_id
+ *      -> asset_resources.campaign_id
  *
- * Resource imports are library content, not campaign-owned assets.
+ * Resource Asset returns null only when campaign_id is unset (General
+ * Library) — no longer a blanket exclusion.
  */
 
 
@@ -29,6 +33,7 @@ import { supabase } from '../../lib/supabase';
 export type AssetCampaignSource =
   | 'video'
   | 'campaign_element'
+  | 'resource'
   | null;
 
 
@@ -146,6 +151,38 @@ export async function resolveAssetCampaign(
 
   // --------------------------------------------------
   // 4. Resource Asset
+  // --------------------------------------------------
+
+  if (asset.asset_type === 'resource') {
+
+    const { data: resource, error } =
+      await supabase
+        .from('asset_resources')
+        .select(`
+          campaign_id
+        `)
+        .eq('asset_id', assetId)
+        .maybeSingle();
+
+    if (error) {
+      throw new Error(
+        `Failed resolving resource asset: ${error.message}`
+      );
+    }
+
+    return {
+      assetId,
+      campaignId: resource?.campaign_id ?? null,
+      source: resource?.campaign_id
+        ? 'resource'
+        : null
+    };
+
+  }
+
+
+  // --------------------------------------------------
+  // 5. Fallback — unrecognized asset type
   // --------------------------------------------------
 
   return {

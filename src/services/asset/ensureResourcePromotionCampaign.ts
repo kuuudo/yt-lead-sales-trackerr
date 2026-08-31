@@ -5,9 +5,14 @@
  * broadening). Only accepts assets whose type is 'resource'.
  *
  * Flow:
+ * Flow:
  *   resource asset
  *     -> find organization_id (via resolveAssetType)
- *     -> find that organization's 'ONLY PROMOTE ASSET' system campaign
+ *     -> if asset_resources.campaign_id is already set, return it as-is
+ *        (a user-picked campaign always wins — never relinked to the
+ *        system campaign)
+ *     -> otherwise, find that organization's 'ONLY PROMOTE ASSET' system
+ *        campaign
  *     -> insert campaign_assets row if one doesn't already exist
  *     -> return campaign_id
  *
@@ -28,6 +33,22 @@ export async function ensureResourcePromotionCampaign(assetId: string): Promise<
     throw new Error(
       `ensureResourcePromotionCampaign called on non-resource asset ${assetId} (type: ${assetType})`
     );
+  }
+
+  // A user-picked campaign at import time always wins — never relink a
+  // campaign-attributed Resource Asset to the system campaign. Only
+  // campaign_id = NULL (General Library) falls through to the
+  // ONLY PROMOTE ASSET linking below.
+  const { data: existingResource, error: existingResourceErr } = await supabase
+    .from('asset_resources')
+    .select('campaign_id')
+    .eq('asset_id', assetId)
+    .maybeSingle();
+  if (existingResourceErr) {
+    throw new Error(`asset_resources lookup failed: ${existingResourceErr.message}`);
+  }
+  if (existingResource?.campaign_id) {
+    return existingResource.campaign_id;
   }
 
   const { data: systemCampaign, error: systemErr } = await supabase
