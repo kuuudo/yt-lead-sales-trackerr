@@ -36,6 +36,8 @@ export interface ImportAssetInput {
   /** Required only when identifyResource() returns resourceType: null. */
   manualResourceType?: ResourceType;
   organizationId: string;
+  /** Campaign to attribute this Resource Asset to. Omitted/null = General Library. */
+  campaignId?: string | null;
 }
 
 export interface ImportAssetResult {
@@ -47,6 +49,7 @@ export async function importAsset({
   assetName,
   manualResourceType,
   organizationId,
+  campaignId = null,
 }: ImportAssetInput): Promise<ImportAssetResult> {
   // 1. Validate — the ONLY step allowed to reject (Design Lock §1).
   const validation = validateUrl(url);
@@ -95,6 +98,7 @@ export async function importAsset({
     url: validation.url,
     title,
     thumbnailUrl,
+    campaignId,
   });
 
   return { assetResource };
