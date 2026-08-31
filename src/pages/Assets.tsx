@@ -578,12 +578,6 @@ const filteredRows = useMemo(() => {
           >
             <Plus size={14} /> Import Asset
           </button>
-          <button
-            onClick={openHiddenAssetsModal}
-            className="flex items-center gap-2 bg-zinc-900 hover:bg-zinc-800 border border-zinc-800 text-zinc-300 text-[10px] font-black uppercase tracking-widest px-4 py-2.5 rounded-xl transition-all"
-          >
-            <EyeOff size={14} /> Hidden{level2UnifiedRows.length > 0 ? ` (${level2UnifiedRows.length})` : ''}
-          </button>
         </div>
       </header>
 
@@ -663,7 +657,12 @@ const filteredRows = useMemo(() => {
   >
     Archived ({level1UnifiedRows.length})
   </button>
-
+  <button
+    onClick={openHiddenAssetsModal}
+    className="flex items-center gap-2 bg-zinc-900 hover:bg-zinc-800 border border-zinc-800 text-zinc-300 text-[10px] font-black uppercase tracking-widest px-3 py-1.5 rounded-lg transition-all"
+  >
+    <EyeOff size={14} /> Hidden{level2UnifiedRows.length > 0 ? ` (${level2UnifiedRows.length})` : ''}
+  </button>
 </div>
 <div className="flex items-center gap-2 flex-wrap">
   <button
