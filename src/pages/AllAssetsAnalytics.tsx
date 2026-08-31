@@ -208,6 +208,7 @@ interface PromotingVideoIdentity {
   created_at?:    string | null;
   content_owner_id?: string | null;
   content_owner_name?: string | null;
+  content_campaign_id?: string | null;
 }
 
 interface AssetAnalyticsRow {
@@ -527,7 +528,7 @@ function useAssetAnalyticsRows(opts: {
           });
         }
 
-    const videoDisplay = new Map<string, { title: React.ReactNode; thumbnail_url?: string; platform?: string | null; created_at?: string | null; content_owner_id?: string | null; content_owner_name?: string | null }>();
+    const videoDisplay = new Map<string, { title: React.ReactNode; thumbnail_url?: string; platform?: string | null; created_at?: string | null; content_owner_id?: string | null; content_owner_name?: string | null; content_campaign_id?: string | null }>();
     for (const v of videosRes.data ?? []) {
       const ownerProfile = v.user_id ? profileByUserId.get(v.user_id) : null;
       videoDisplay.set(v.id, {
@@ -539,6 +540,7 @@ function useAssetAnalyticsRows(opts: {
         created_at: v.created_at ?? null,
         content_owner_id: v.user_id ?? null,
         content_owner_name: ownerProfile?.full_name?.trim() || ownerProfile?.email || null,
+        content_campaign_id: v.campaign_id ?? null,
       });
     }
 
@@ -562,6 +564,7 @@ function useAssetAnalyticsRows(opts: {
               created_at: v?.created_at ?? null,
               content_owner_id: v?.content_owner_id ?? null,
               content_owner_name: v?.content_owner_name ?? null,
+              content_campaign_id: v?.content_campaign_id ?? null,
             },
             campaign_id: r.campaignIds?.[0] ?? null,
             promotion_id: r.promotionIds?.[0] ?? null,
@@ -654,6 +657,8 @@ function useCampaignOwnerLabels(
     const seen = new Set<string>();
     rows.forEach(r => {
       if (r.campaign_id && !ownedCampaignIds.has(r.campaign_id)) seen.add(r.campaign_id);
+      const contentCampaignId = r.promoting_video.content_campaign_id;
+      if (contentCampaignId && !ownedCampaignIds.has(contentCampaignId)) seen.add(contentCampaignId);
     });
     return Array.from(seen);
   }, [rows, ownedCampaignIds]);
@@ -1049,7 +1054,7 @@ export default function AllAssetsAnalytics() {
     });
   }, [archiveFilteredRows, sortConfig]);
 
-  const colSpan = 7 + TABLE_COLUMNS.length + 1 + (visibleColumns.has('promotion') ? 1 : 0); // Asset + Type + Content + Content Owner + Asset Clicks + Total Revenue (dup) + metrics + trailing spacer + optional Promotion
+  const colSpan = 8 + TABLE_COLUMNS.length + 1 + (visibleColumns.has('promotion') ? 1 : 0); // Asset + Type + Content + Content Owner + Asset Campaign + Content Campaign + Asset Clicks + Total Revenue (dup) + metrics + trailing spacer + optional Promotion
 
   return (
     <div className="flex h-screen bg-black text-zinc-300 overflow-hidden fixed inset-0 z-[100]">
@@ -2213,7 +2218,11 @@ export default function AllAssetsAnalytics() {
                   )}
 
                   <th className="px-6 py-5 text-left text-[10px] font-black uppercase tracking-widest text-zinc-600 border-b border-zinc-900 bg-zinc-950 min-w-[140px]">
-                    Campaign
+                    Asset Campaign
+                  </th>
+
+                  <th className="px-6 py-5 text-left text-[10px] font-black uppercase tracking-widest text-zinc-600 border-b border-zinc-900 bg-zinc-950 min-w-[140px]">
+                    Content Campaign
                   </th>
 
 
@@ -2497,6 +2506,19 @@ export default function AllAssetsAnalytics() {
                             Archived
                           </span>
                         )}
+                      </div>
+                    </td>
+
+                    <td className="px-6 py-4 whitespace-nowrap text-sm font-bold text-zinc-400">
+                      <div className="flex items-center gap-1.5 min-w-0">
+                        <span className="truncate">
+                          {row.promoting_video.content_campaign_id
+                            ? campaignNameById.get(row.promoting_video.content_campaign_id)
+                              ?? (campaignOwnerLabelById.get(row.promoting_video.content_campaign_id)
+                                    ? `🔒 ${campaignOwnerLabelById.get(row.promoting_video.content_campaign_id)}'s Campaign`
+                                    : 'No Campaign')
+                            : 'No Campaign'}
+                        </span>
                       </div>
                     </td>
 
