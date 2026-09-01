@@ -192,12 +192,19 @@ async function getSharedAssetRows(
   const searchLower = search?.trim().toLowerCase() || undefined;
   const wantsVideo = !filterType || filterType === 'video';
   const wantsResource = !filterType || filterType === 'resource';
+  const wantsCampaignElement = !filterType;
 
-  if (wantsVideo) {
-    console.time('[SharedAssets] step 4a: video assets query');
-    const { data: videoAssetRows, error: videoErr, status } = await supabase
-      .from('assets')
-      .select(`
+  // Fire all three independent asset queries in parallel — they don't
+  // depend on each other's results, so dispatch them together here and
+  // only await/process each at its original spot below. Same queries,
+  // same logs, same processing order (video -> resource -> campaign
+  // element) — just no longer waiting on one before starting the next.
+  const videoQueryPromise = wantsVideo
+    ? (async () => {
+        console.time('[SharedAssets] step 4a: video assets query');
+        const result = await supabase
+          .from('assets')
+          .select(`
     id,
     videos(
         asset_id,
@@ -206,10 +213,44 @@ async function getSharedAssetRows(
         platform
     )
 `)
+          .in('id', assetIds)
+          .eq('asset_type', 'video')
+          .neq('organization_id', excludeOrganizationId);
+        console.timeEnd('[SharedAssets] step 4a: video assets query');
+        return result;
+      })()
+    : null;
 
-      .in('id', assetIds)
-      .eq('asset_type', 'video')
-      .neq('organization_id', excludeOrganizationId);
+  const resourceQueryPromise = wantsResource
+    ? (async () => {
+        console.time('[SharedAssets] step 4b: resource assets query');
+        const result = await supabase
+          .from('assets')
+          .select('id, asset_resources!inner(title, thumbnail_url, platform, resource_type)')
+          .in('id', assetIds)
+          .eq('asset_type', 'resource')
+          .neq('organization_id', excludeOrganizationId);
+        console.timeEnd('[SharedAssets] step 4b: resource assets query');
+        return result;
+      })()
+    : null;
+
+  const elementQueryPromise = wantsCampaignElement
+    ? (async () => {
+        console.time('[SharedAssets] step 4c: campaign element assets query');
+        const result = await supabase
+          .from('assets')
+          .select('id, campaign_element_assets(display_name, element_type)')
+          .in('id', assetIds)
+          .eq('asset_type', 'campaign_element')
+          .neq('organization_id', excludeOrganizationId);
+        console.timeEnd('[SharedAssets] step 4c: campaign element assets query');
+        return result;
+      })()
+    : null;
+
+  if (wantsVideo) {
+    const { data: videoAssetRows, error: videoErr, status } = await videoQueryPromise!;
 console.log("videoAssetRows", videoAssetRows);
 console.log("videoErr", videoErr);
 console.log("video status", status);
@@ -217,7 +258,6 @@ console.log("videoAssetRows", videoAssetRows);
 console.log("videoErr", videoErr);
 console.log(videoAssetRows);
 console.log(JSON.stringify(videoAssetRows, null, 2));
-    console.timeEnd('[SharedAssets] step 4a: video assets query');
     if (videoErr) {
       throw new Error(`Failed to load shared video assets: ${videoErr.message}`);
     }
@@ -246,16 +286,9 @@ console.log(JSON.stringify(videoAssetRows, null, 2));
   }
 
   if (wantsResource) {
-    console.time('[SharedAssets] step 4b: resource assets query');
-    const { data: resourceAssetRows, error: resourceErr } = await supabase
-      .from('assets')
-      .select('id, asset_resources!inner(title, thumbnail_url, platform, resource_type)')
-      .in('id', assetIds)
-      .eq('asset_type', 'resource')
-      .neq('organization_id', excludeOrganizationId);
+    const { data: resourceAssetRows, error: resourceErr } = await resourceQueryPromise!;
 console.log("resourceAssetRows", resourceAssetRows);
 console.log("resourceErr", resourceErr);
-    console.timeEnd('[SharedAssets] step 4b: resource assets query');
     if (resourceErr) {
       throw new Error(`Failed to load shared resource assets: ${resourceErr.message}`);
     }
@@ -298,17 +331,8 @@ console.log("resourceErr", resourceErr);
   // of scope for this fix. Only fetched when no explicit filter is
   // requested, matching this function's existing "no filter = everything"
   // behavior for the other two branches.
-  const wantsCampaignElement = !filterType;
-
   if (wantsCampaignElement) {
-    console.time('[SharedAssets] step 4c: campaign element assets query');
-    const { data: elementAssetRows, error: elementErr } = await supabase
-      .from('assets')
-      .select('id, campaign_element_assets(display_name, element_type)')
-      .in('id', assetIds)
-      .eq('asset_type', 'campaign_element')
-      .neq('organization_id', excludeOrganizationId);
-    console.timeEnd('[SharedAssets] step 4c: campaign element assets query');
+    const { data: elementAssetRows, error: elementErr } = await elementQueryPromise!;
 
     if (elementErr) {
       throw new Error(`Failed to load shared campaign element assets: ${elementErr.message}`);
@@ -433,76 +457,98 @@ export async function listSharedAssetsForCollaborator({
   const myPromotions = await getMyPromotions(userId);
   console.timeEnd('[SharedAssets] step 1: getMyPromotions');
   console.log("myPromotions", myPromotions);
-  const promotionIds = myPromotions.map(p => p.id);
 
-  console.time('[SharedAssets] step 2: getAssetPromotionPairs');
-  const assetPromotionPairs = await getAssetPromotionPairs(promotionIds);
-  console.timeEnd('[SharedAssets] step 2: getAssetPromotionPairs');
-  console.log("assetPromotionPairs", assetPromotionPairs);
-
-  // promotion_id -> assignment_collaborator_id (needed to know WHICH
-  // collaborator's access state governs each promoted asset)
-  const promotionToCollaborator = new Map<string, string | null>();
-  for (const p of myPromotions) {
-    promotionToCollaborator.set(p.id, p.assignment_collaborator_id);
-  }
-
-  // asset_id -> assignment_collaborator_id (first match; same "first
-  // match" tolerance already used for assetToPromotion below)
-  const assetToCollaborator = new Map<string, string>();
-  for (const pair of assetPromotionPairs) {
-    if (!assetToCollaborator.has(pair.asset_id)) {
-      const collaboratorId = promotionToCollaborator.get(pair.promotion_id);
-      if (collaboratorId) assetToCollaborator.set(pair.asset_id, collaboratorId);
-    }
-  }
-
-  // Phase 2C: an asset revoked for THIS SPECIFIC collaborator must
-  // disappear from Shared Assets, symmetric with what Remove Collaborator
-  // already does — same "hide through a read-time filter, never delete
-  // promotion_assets/promotions" discipline. Filtered BEFORE resolving
-  // display metadata, so a revoked asset never even reaches
-  // getSharedAssetRows — cheaper, and it never enters the `rows` array
-  // to leak through downstream.
-  console.time('[SharedAssets] step 3: getRevokedAssetKeys');
-  const revokedKeys = await getRevokedAssetKeys(Array.from(new Set(assetToCollaborator.values())));
-  console.timeEnd('[SharedAssets] step 3: getRevokedAssetKeys');
-  const allAssetIds = Array.from(new Set(assetPromotionPairs.map(p => p.asset_id)));
-  const assetIds = allAssetIds.filter(assetId => {
-    const collaboratorId = assetToCollaborator.get(assetId);
-    return !(collaboratorId && revokedKeys.has(`${collaboratorId}:${assetId}`));
-  });
-  console.log("assetIds", assetIds);
-  console.time('[SharedAssets] step 4: getSharedAssetRows (all 3 sub-queries)');
-  const rows = await getSharedAssetRows(assetIds, excludeOrganizationId, filterType, search);
-  console.timeEnd('[SharedAssets] step 4: getSharedAssetRows (all 3 sub-queries)');
-
-  // asset_id -> promotion_id (first match; an asset promoted via multiple
-  // promotions is an edge case not resolved here)
-  const assetToPromotion = new Map<string, string>();
-  for (const pair of assetPromotionPairs) {
-    if (!assetToPromotion.has(pair.asset_id)) {
-      assetToPromotion.set(pair.asset_id, pair.promotion_id);
-    }
-  }
-
-  // promotion_id -> assignment_id
+  // promotion_id -> assignment_id, and the assignmentIds derived from it,
+  // only depend on myPromotions — available immediately, before the asset
+  // branch below even starts. That's what lets the sharer branch run in
+  // parallel with the asset branch instead of waiting behind it.
   const promotionToAssignment = new Map<string, string | null>();
   for (const p of myPromotions) {
     promotionToAssignment.set(p.id, p.assignment_id);
   }
-
   const assignmentIds = Array.from(
     new Set(myPromotions.map(p => p.assignment_id).filter((id): id is string => !!id))
   );
-  console.time('[SharedAssets] step 5: getAssignmentCreators');
-  const assignmentCreators = await getAssignmentCreators(assignmentIds);
-  console.timeEnd('[SharedAssets] step 5: getAssignmentCreators');
 
-  const sharerUserIds = Array.from(new Set(Array.from(assignmentCreators.values())));
-  console.time('[SharedAssets] step 6: getSharerProfiles');
-  const sharerProfiles = await getSharerProfiles(sharerUserIds);
-  console.timeEnd('[SharedAssets] step 6: getSharerProfiles');
+  // ---- Asset branch: getAssetPromotionPairs -> getRevokedAssetKeys -> getSharedAssetRows ----
+  // Each step here genuinely depends on the previous step's output, so
+  // this branch stays sequential internally — only parallelized against
+  // the sharer branch below, per the locked scope of this fix.
+  const assetBranch = (async () => {
+    const promotionIds = myPromotions.map(p => p.id);
+    console.time('[SharedAssets] step 2: getAssetPromotionPairs');
+    const assetPromotionPairs = await getAssetPromotionPairs(promotionIds);
+    console.timeEnd('[SharedAssets] step 2: getAssetPromotionPairs');
+    console.log("assetPromotionPairs", assetPromotionPairs);
+
+    // promotion_id -> assignment_collaborator_id (needed to know WHICH
+    // collaborator's access state governs each promoted asset)
+    const promotionToCollaborator = new Map<string, string | null>();
+    for (const p of myPromotions) {
+      promotionToCollaborator.set(p.id, p.assignment_collaborator_id);
+    }
+
+    // asset_id -> assignment_collaborator_id (first match; same "first
+    // match" tolerance already used for assetToPromotion below)
+    const assetToCollaborator = new Map<string, string>();
+    for (const pair of assetPromotionPairs) {
+      if (!assetToCollaborator.has(pair.asset_id)) {
+        const collaboratorId = promotionToCollaborator.get(pair.promotion_id);
+        if (collaboratorId) assetToCollaborator.set(pair.asset_id, collaboratorId);
+      }
+    }
+
+    // Phase 2C: an asset revoked for THIS SPECIFIC collaborator must
+    // disappear from Shared Assets, symmetric with what Remove Collaborator
+    // already does — same "hide through a read-time filter, never delete
+    // promotion_assets/promotions" discipline. Filtered BEFORE resolving
+    // display metadata, so a revoked asset never even reaches
+    // getSharedAssetRows — cheaper, and it never enters the `rows` array
+    // to leak through downstream.
+    console.time('[SharedAssets] step 3: getRevokedAssetKeys');
+    const revokedKeys = await getRevokedAssetKeys(Array.from(new Set(assetToCollaborator.values())));
+    console.timeEnd('[SharedAssets] step 3: getRevokedAssetKeys');
+    const allAssetIds = Array.from(new Set(assetPromotionPairs.map(p => p.asset_id)));
+    const assetIds = allAssetIds.filter(assetId => {
+      const collaboratorId = assetToCollaborator.get(assetId);
+      return !(collaboratorId && revokedKeys.has(`${collaboratorId}:${assetId}`));
+    });
+    console.log("assetIds", assetIds);
+    console.time('[SharedAssets] step 4: getSharedAssetRows (all 3 sub-queries)');
+    const rows = await getSharedAssetRows(assetIds, excludeOrganizationId, filterType, search);
+    console.timeEnd('[SharedAssets] step 4: getSharedAssetRows (all 3 sub-queries)');
+
+    // asset_id -> promotion_id (first match; an asset promoted via multiple
+    // promotions is an edge case not resolved here)
+    const assetToPromotion = new Map<string, string>();
+    for (const pair of assetPromotionPairs) {
+      if (!assetToPromotion.has(pair.asset_id)) {
+        assetToPromotion.set(pair.asset_id, pair.promotion_id);
+      }
+    }
+
+    return { rows, assetToPromotion };
+  })();
+
+  // ---- Sharer branch: getAssignmentCreators -> getSharerProfiles ----
+  // Only depends on assignmentIds (derived from myPromotions above), not on
+  // anything the asset branch produces — safe to run underneath it instead
+  // of sequentially after it.
+  const sharerBranch = (async () => {
+    console.time('[SharedAssets] step 5: getAssignmentCreators');
+    const assignmentCreators = await getAssignmentCreators(assignmentIds);
+    console.timeEnd('[SharedAssets] step 5: getAssignmentCreators');
+
+    const sharerUserIds = Array.from(new Set(Array.from(assignmentCreators.values())));
+    console.time('[SharedAssets] step 6: getSharerProfiles');
+    const sharerProfiles = await getSharerProfiles(sharerUserIds);
+    console.timeEnd('[SharedAssets] step 6: getSharerProfiles');
+
+    return { assignmentCreators, sharerUserIds, sharerProfiles };
+  })();
+
+  const [{ rows, assetToPromotion }, { assignmentCreators, sharerUserIds, sharerProfiles }] =
+    await Promise.all([assetBranch, sharerBranch]);
 
   console.log('[SharedAssets] counts', { finalRows: rows.length, assignmentIds: assignmentIds.length, sharerUserIds: sharerUserIds.length });
   console.timeEnd('[SharedAssets] TOTAL');
