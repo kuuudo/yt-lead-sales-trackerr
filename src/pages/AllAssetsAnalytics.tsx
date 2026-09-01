@@ -405,7 +405,6 @@ function useAssetAnalyticsRows(opts: {
         const videoIds = Array.from(new Set(result.rows.map((r) => r.video_id)));
         console.log(`[AllAssetsAnalytics] LOAD #${__runId} counts`, { assetIds: assetIds.length, videoIds: videoIds.length });
 
-        console.time(`[AllAssetsAnalytics] LOAD #${__runId} videoArchive`);
         const campaignIds = Array.from(
           new Set(
             result.rows
@@ -424,16 +423,19 @@ function useAssetAnalyticsRows(opts: {
 
         // ── C — videoArchive (independent of D, E, F) ──────────────────────
         const videoArchivePromise = (async () => {
-          return await getVideoArchiveContextsForViewer(
+          console.time(`[AllAssetsAnalytics] LOAD #${__runId} videoArchive`);
+          const result = await getVideoArchiveContextsForViewer(
             videoIds.map((id) => ({ id })),
             viewerId,
           );
+          console.timeEnd(`[AllAssetsAnalytics] LOAD #${__runId} videoArchive`);
+          return result;
         })();
-
         // ── D — campaignArchive (independent of C, E, F). Internal 2-step
         //        chain (campaigns query → getCampaignArchiveContextsForViewer)
         //        preserved exactly as before, just moved inside the IIFE. ──
         const campaignArchivePromise = (async () => {
+          console.time(`[AllAssetsAnalytics] LOAD #${__runId} campaignArchive`);
           let campaignArchiveById = new Map<string, { isArchived: boolean }>();
           if (campaignIds.length > 0) {
             const { data: campaignRows, error: campaignArchiveError } = await supabase
@@ -460,6 +462,7 @@ function useAssetAnalyticsRows(opts: {
               ]),
             );
           }
+          console.timeEnd(`[AllAssetsAnalytics] LOAD #${__runId} campaignArchive`);
           return campaignArchiveById;
         })();
 
@@ -468,6 +471,7 @@ function useAssetAnalyticsRows(opts: {
         //        getPromotionArchiveContextsForViewer) preserved exactly as
         //        before, just moved inside the IIFE. ─────────────────────
         const promotionArchivePromise = (async () => {
+          console.time(`[AllAssetsAnalytics] LOAD #${__runId} promotionArchive`);
           let promotionArchiveById = new Map<string, { isArchived: boolean }>();
           if (promotionIds.length > 0) {
             const { data: promoStateRows, error: promoStateError } = await supabase
@@ -505,6 +509,7 @@ function useAssetAnalyticsRows(opts: {
               ]),
             );
           }
+          console.timeEnd(`[AllAssetsAnalytics] LOAD #${__runId} promotionArchive`);
           return promotionArchiveById;
         })();
 
@@ -517,6 +522,7 @@ function useAssetAnalyticsRows(opts: {
         // known from this file alone — same defensive posture InDepthAnalytics
         // takes by passing a full Video row into these helpers.
         const videosAndAssetsPromise = (async () => {
+          console.time(`[AllAssetsAnalytics] LOAD #${__runId} videosAndAssets`);
 console.log('🔍 OPERATOR VIDEO DEBUG', {
   videoIds,
   organizationId,
@@ -573,6 +579,7 @@ console.log('🔍 VIDEOS QUERY RESULT', {
         // already uses to resolve marketer identity. No new identity system.
         const profilesPromise = (async () => {
           const { videosRes } = await videosAndAssetsPromise;
+          console.time(`[AllAssetsAnalytics] LOAD #${__runId} profiles`);
           const videoOwnerIds = Array.from(
             new Set((videosRes.data ?? []).map((v: any) => v.user_id).filter(Boolean)),
           );
@@ -582,6 +589,7 @@ console.log('🔍 VIDEOS QUERY RESULT', {
                 .select('id, email, full_name')
                 .in('id', videoOwnerIds)
             : { data: [] as any[] };
+          console.timeEnd(`[AllAssetsAnalytics] LOAD #${__runId} profiles`);
           return new Map((ownerProfiles ?? []).map((p: any) => [p.id, p]));
         })();
 
