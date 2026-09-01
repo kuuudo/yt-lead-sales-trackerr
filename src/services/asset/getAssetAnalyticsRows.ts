@@ -186,11 +186,15 @@ export async function getAssetAnalyticsRows(
     assetIds: assetIdsFilter,
   } = params;
 
+  console.log('[AssetAnalyticsRows] START');
+  console.time('[AssetAnalyticsRows] TOTAL');
+
   const { start, end } = getDateBounds(dateRange, customRange);
   const startIso = start.toISOString();
   const endIso = end.toISOString();
 
   // ── 1. Org-scoped redirect_links with asset_id IS NOT NULL ─────────────
+  console.time('[AssetAnalyticsRows] query A: orgRedirectLinks');
   let redirectQuery = supabase
     .from('redirect_links')
     .select(REDIRECT_LINKS_COLUMNS)
@@ -205,8 +209,10 @@ export async function getAssetAnalyticsRows(
   if (redirectLinksError) {
     throw new Error(`Failed to fetch redirect_links: ${redirectLinksError.message}`);
   }
+  console.timeEnd('[AssetAnalyticsRows] query A: orgRedirectLinks');
 
   const orgScopedRedirectLinks = (redirectLinksData ?? []) as RedirectLinkAttributionRow[];
+  console.log('[AssetAnalyticsRows] counts', { orgScopedRedirectLinks: orgScopedRedirectLinks.length });
 
   // ── Shared-asset redirect_links — additive, does NOT touch the org-scoped
   // fetch above. redirect_links.organization_id is stamped as the ASSET
@@ -216,6 +222,7 @@ export async function getAssetAnalyticsRows(
   // SAME canonical Shared-asset resolution Assets.tsx / PromotedAssetPicker.tsx
   // already rely on (services/asset/listSharedAssetsForCollaborator.ts),
   // rather than inventing a new relationship or weakening the org boundary.
+  console.time('[AssetAnalyticsRows] query B: sharedAssetResolution');
   const sharedAssets = await listSharedAssetsForCollaborator({
     userId: viewerId,
     excludeOrganizationId: organizationId,
@@ -239,12 +246,15 @@ export async function getAssetAnalyticsRows(
     }
     sharedRedirectLinks = (sharedData ?? []) as RedirectLinkAttributionRow[];
   }
+  console.timeEnd('[AssetAnalyticsRows] query B: sharedAssetResolution');
+  console.log('[AssetAnalyticsRows] counts', { sharedAssetIds: sharedAssetIds.length, sharedRedirectLinks: sharedRedirectLinks.length });
 
   const redirectLinks = Array.from(
     new Map(
       [...orgScopedRedirectLinks, ...sharedRedirectLinks].map((r) => [r.id, r]),
     ).values(),
   );
+  console.log('[AssetAnalyticsRows] counts', { redirectLinksTotal: redirectLinks.length });
 
   if (redirectLinks.length === 0) {
     return {
@@ -256,7 +266,10 @@ export async function getAssetAnalyticsRows(
   }
 
   // ── 2. Canonical identities ───────────────────────────────────────────
+  console.time('[AssetAnalyticsRows] buildAssetAnalyticsRows (CPU)');
   const { assetAnalyticsRows: identities } = buildAssetAnalyticsRows(redirectLinks);
+  console.timeEnd('[AssetAnalyticsRows] buildAssetAnalyticsRows (CPU)');
+  console.log('[AssetAnalyticsRows] counts', { identities: identities.length });
 
   if (identities.length === 0) {
     return {
@@ -276,6 +289,7 @@ export async function getAssetAnalyticsRows(
   );
 
   // ── 3. Asset types (needed for archive + computeAssetAnalytics) ───────
+  console.time('[AssetAnalyticsRows] query C: assets');
   const { data: assetsData, error: assetsError } = await supabase
     .from('assets')
     .select(ASSETS_COLUMNS)
@@ -284,6 +298,8 @@ export async function getAssetAnalyticsRows(
   if (assetsError) {
     throw new Error(`Failed to fetch assets: ${assetsError.message}`);
   }
+  console.timeEnd('[AssetAnalyticsRows] query C: assets');
+  console.log('[AssetAnalyticsRows] counts', { distinctAssetIds: distinctAssetIds.length, assetsReturned: (assetsData ?? []).length });
 
   const assetTypeById = new Map<string, string>();
   const assetOrgIdById = new Map<string, string>();
@@ -296,6 +312,7 @@ export async function getAssetAnalyticsRows(
   const engineRedirectLinks = redirectLinks as unknown as AssetRedirectLinkRow[];
   const tokens = engineRedirectLinks.map((r) => r.token).filter((t): t is string => !!t);
 
+  console.time('[AssetAnalyticsRows] query D: events');
   const { data: eventsData, error: eventsError } = await supabase
     .from('events')
     .select(EVENTS_COLUMNS)
@@ -306,7 +323,9 @@ export async function getAssetAnalyticsRows(
   if (eventsError) {
     throw new Error(`Failed to fetch events: ${eventsError.message}`);
   }
+  console.timeEnd('[AssetAnalyticsRows] query D: events');
   const events = (eventsData ?? []) as AssetEventRow[];
+  console.log('[AssetAnalyticsRows] counts', { events: events.length });
   const sessionIdsFromEvents = events
     .map((e) => e.session_id)
     .filter((s): s is string => !!s);
@@ -317,6 +336,7 @@ export async function getAssetAnalyticsRows(
       return t >= start && t <= end;
     });
 
+  console.time('[AssetAnalyticsRows] query E: stripe+pixelPurchases');
   const [stripeByToken, stripeBySession, pixelPurchases] = await Promise.all([
     tokens.length === 0
       ? Promise.resolve([] as AssetStripePurchaseRow[])
@@ -344,10 +364,13 @@ export async function getAssetAnalyticsRows(
         ).then(inDateWindow),
   ]);
 
+  console.timeEnd('[AssetAnalyticsRows] query E: stripe+pixelPurchases');
   const stripePurchases = Array.from(
     new Map([...stripeByToken, ...stripeBySession].map((p) => [p.id, p])).values(),
   );
+  console.log('[AssetAnalyticsRows] counts', { stripePurchases: stripePurchases.length, pixelPurchases: pixelPurchases.length });
 
+  console.time('[AssetAnalyticsRows] query F: videos+resources+elements+assigned');
   const [videosData, resourcesData, campaignElementAssetsData, assignedAssetSummary] = await Promise.all([
     supabase.from('videos').select(VIDEOS_COLUMNS).in('asset_id', distinctAssetIds),
     supabase.from('asset_resources').select(ASSET_RESOURCES_COLUMNS).in('asset_id', distinctAssetIds),
@@ -357,6 +380,7 @@ export async function getAssetAnalyticsRows(
       .in('asset_id', distinctAssetIds),
     getAssignedAssetSummaryForOwner(viewerId),
   ]);
+  console.timeEnd('[AssetAnalyticsRows] query F: videos+resources+elements+assigned');
 
   if (videosData.error) throw new Error(`Failed to fetch videos: ${videosData.error.message}`);
   if (resourcesData.error) {
@@ -375,6 +399,7 @@ export async function getAssetAnalyticsRows(
   const assignedAssetIds = new Set(assignedAssetSummary.map((s) => s.assetId));
 
   // ── 5. Per-asset computeAssetAnalytics — KEEP relationships ───────────
+  console.time('[AssetAnalyticsRows] computeAssetAnalytics loop (CPU)');
   const relationshipsByAsset = new Map<string, AssetRelationshipRow[]>();
 
   for (const assetId of distinctAssetIds) {
@@ -405,6 +430,7 @@ export async function getAssetAnalyticsRows(
     const result = computeAssetAnalytics(input);
     relationshipsByAsset.set(assetId, result.relationships ?? []);
   }
+  console.timeEnd('[AssetAnalyticsRows] computeAssetAnalytics loop (CPU)');
 
   // ── 6. Archive context (viewer-scoped) ────────────────────────────────
   const assetsForArchive: AssetForArchiveContext[] = distinctAssetIds
@@ -414,6 +440,7 @@ export async function getAssetAnalyticsRows(
       assetType: assetTypeById.get(id)!,
     }));
 
+  console.time('[AssetAnalyticsRows] query G: assetArchiveContext');
   let archiveByAssetId = new Map<string, AssetArchiveContext>();
   try {
     archiveByAssetId = await getAssetArchiveContextsForViewer(
@@ -426,6 +453,7 @@ export async function getAssetAnalyticsRows(
       err,
     );
   }
+  console.timeEnd('[AssetAnalyticsRows] query G: assetArchiveContext');
 
   // ── 7. Join identity × relationship × archive ─────────────────────────
   let unmatchedIdentityCount = 0;
@@ -474,6 +502,10 @@ export async function getAssetAnalyticsRows(
       archive,
     });
   }
+
+  console.log('[AssetAnalyticsRows] counts', { finalRows: rows.length, unmatchedIdentityCount });
+  console.timeEnd('[AssetAnalyticsRows] TOTAL');
+  console.log('[AssetAnalyticsRows] END');
 
   return {
     rows,
