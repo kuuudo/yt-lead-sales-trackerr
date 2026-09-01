@@ -898,9 +898,11 @@ if (effectiveOrgId && effectiveUserId) {
         setArchiving(true);
         try {
           const { error } = await supabase
-            .from('videos')
-            .update({ archived_at: new Date().toISOString() })
-            .eq('id', id!);
+            .from('video_user_states')
+            .upsert(
+              { video_id: id!, user_id: effectiveUserId!, archived_at: new Date().toISOString() },
+              { onConflict: 'video_id,user_id' }
+            );
           if (error) throw error;
           setArchiveContext(prev => {
             const base = prev ?? { videoId: id!, isArchived: false, reasons: [], isHiddenByViewer: false, level: 'normal' as const };
@@ -924,9 +926,11 @@ if (effectiveOrgId && effectiveUserId) {
     setRestoring(true);
     try {
       const { error } = await supabase
-        .from('videos')
-        .update({ archived_at: null })
-        .eq('id', id);
+        .from('video_user_states')
+        .upsert(
+          { video_id: id, user_id: effectiveUserId!, archived_at: null },
+          { onConflict: 'video_id,user_id' }
+        );
       if (error) throw error;
       setVideo(prev => (prev ? ({ ...prev, archived_at: null } as any) : prev));
       setArchiveContext(prev => {
