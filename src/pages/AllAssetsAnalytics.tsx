@@ -421,10 +421,10 @@ function useAssetAnalyticsRows(opts: {
         );
         console.log(`[AllAssetsAnalytics] LOAD #${__runId} counts`, { campaignIds: campaignIds.length });
 
-        let campaignArchiveById = new Map
-          string,
-          { isArchived: boolean }
-        >();
+let campaignArchiveById = new Map<
+  string,
+  { isArchived: boolean }
+>();
         if (campaignIds.length > 0) {
           console.time(`[AllAssetsAnalytics] LOAD #${__runId} campaignArchive`);
           const { data: campaignRows, error: campaignArchiveError } = await supabase
@@ -578,16 +578,16 @@ console.log('🔍 VIDEOS QUERY RESULT', {
         const profileByUserId = new Map((ownerProfiles ?? []).map((p: any) => [p.id, p]));
 
         console.time(`[AllAssetsAnalytics] LOAD #${__runId} transform`);
-        const assetDisplay = new Map
-        string,
-        {
-          title?: string | null;
-          thumbnail_url?: string | null;
-          asset_type?: string;
-          platform?: string | null;
-          created_at?: string | null
-        }
-        >();
+       const assetDisplay = new Map<
+  string,
+  {
+    title?: string | null;
+    thumbnail_url?: string | null;
+    asset_type?: string;
+    platform?: string | null;
+    created_at?: string | null;
+  }
+>();
         for (const row of libraryRes.data ?? []) {
           const v = Array.isArray(row.videos) ? row.videos[0] : row.videos;
           // FIX: asset_resources was never normalized for array-vs-object
