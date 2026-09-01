@@ -193,28 +193,33 @@ export async function getAssetAnalyticsRows(
   const startIso = start.toISOString();
   const endIso = end.toISOString();
 
-  // ── 1. Org-scoped redirect_links with asset_id IS NOT NULL ─────────────
-  console.time('[AssetAnalyticsRows] query A: orgRedirectLinks');
-  let redirectQuery = supabase
-    .from('redirect_links')
-    .select(REDIRECT_LINKS_COLUMNS)
-    .eq('organization_id', organizationId)
-    .not('asset_id', 'is', null);
+  // ── 1. Org-scoped redirect_links, and Shared-asset redirect_links ──────
+  // These two only depend on organizationId/viewerId/assetIdsFilter, not on
+  // each other's output — dispatched together and merged once both resolve.
+  const orgRedirectLinksPromise = (async () => {
+    console.time('[AssetAnalyticsRows] query A: orgRedirectLinks');
+    let redirectQuery = supabase
+      .from('redirect_links')
+      .select(REDIRECT_LINKS_COLUMNS)
+      .eq('organization_id', organizationId)
+      .not('asset_id', 'is', null);
 
-  if (assetIdsFilter && assetIdsFilter.length > 0) {
-    redirectQuery = redirectQuery.in('asset_id', assetIdsFilter);
-  }
+    if (assetIdsFilter && assetIdsFilter.length > 0) {
+      redirectQuery = redirectQuery.in('asset_id', assetIdsFilter);
+    }
 
-  const { data: redirectLinksData, error: redirectLinksError } = await redirectQuery;
-  if (redirectLinksError) {
-    throw new Error(`Failed to fetch redirect_links: ${redirectLinksError.message}`);
-  }
-  console.timeEnd('[AssetAnalyticsRows] query A: orgRedirectLinks');
+    const { data: redirectLinksData, error: redirectLinksError } = await redirectQuery;
+    if (redirectLinksError) {
+      throw new Error(`Failed to fetch redirect_links: ${redirectLinksError.message}`);
+    }
+    console.timeEnd('[AssetAnalyticsRows] query A: orgRedirectLinks');
 
-  const orgScopedRedirectLinks = (redirectLinksData ?? []) as RedirectLinkAttributionRow[];
-  console.log('[AssetAnalyticsRows] counts', { orgScopedRedirectLinks: orgScopedRedirectLinks.length });
+    const orgScopedRedirectLinks = (redirectLinksData ?? []) as RedirectLinkAttributionRow[];
+    console.log('[AssetAnalyticsRows] counts', { orgScopedRedirectLinks: orgScopedRedirectLinks.length });
+    return orgScopedRedirectLinks;
+  })();
 
-  // ── Shared-asset redirect_links — additive, does NOT touch the org-scoped
+  // Shared-asset redirect_links — additive, does NOT touch the org-scoped
   // fetch above. redirect_links.organization_id is stamped as the ASSET
   // OWNER's org for any promotion-linked link (createRedirectLink,
   // lib/redirects.ts), never the viewer's own org, so a Shared asset's
@@ -222,32 +227,40 @@ export async function getAssetAnalyticsRows(
   // SAME canonical Shared-asset resolution Assets.tsx / PromotedAssetPicker.tsx
   // already rely on (services/asset/listSharedAssetsForCollaborator.ts),
   // rather than inventing a new relationship or weakening the org boundary.
-  console.time('[AssetAnalyticsRows] query B: sharedAssetResolution');
-  const sharedAssets = await listSharedAssetsForCollaborator({
-    userId: viewerId,
-    excludeOrganizationId: organizationId,
-  });
-  const sharedAssetIds = sharedAssets.map((a) => a.asset_id);
+  const sharedRedirectLinksPromise = (async () => {
+    console.time('[AssetAnalyticsRows] query B: sharedAssetResolution');
+    const sharedAssets = await listSharedAssetsForCollaborator({
+      userId: viewerId,
+      excludeOrganizationId: organizationId,
+    });
+    const sharedAssetIds = sharedAssets.map((a) => a.asset_id);
 
-  let sharedRedirectLinks: RedirectLinkAttributionRow[] = [];
-  if (sharedAssetIds.length > 0) {
-    let sharedQuery = supabase
-      .from('redirect_links')
-      .select(REDIRECT_LINKS_COLUMNS)
-      .in('asset_id', sharedAssetIds);
+    let sharedRedirectLinks: RedirectLinkAttributionRow[] = [];
+    if (sharedAssetIds.length > 0) {
+      let sharedQuery = supabase
+        .from('redirect_links')
+        .select(REDIRECT_LINKS_COLUMNS)
+        .in('asset_id', sharedAssetIds);
 
-    if (assetIdsFilter && assetIdsFilter.length > 0) {
-      sharedQuery = sharedQuery.in('asset_id', assetIdsFilter);
+      if (assetIdsFilter && assetIdsFilter.length > 0) {
+        sharedQuery = sharedQuery.in('asset_id', assetIdsFilter);
+      }
+
+      const { data: sharedData, error: sharedError } = await sharedQuery;
+      if (sharedError) {
+        throw new Error(`Failed to fetch shared-asset redirect_links: ${sharedError.message}`);
+      }
+      sharedRedirectLinks = (sharedData ?? []) as RedirectLinkAttributionRow[];
     }
+    console.timeEnd('[AssetAnalyticsRows] query B: sharedAssetResolution');
+    console.log('[AssetAnalyticsRows] counts', { sharedAssetIds: sharedAssetIds.length, sharedRedirectLinks: sharedRedirectLinks.length });
+    return sharedRedirectLinks;
+  })();
 
-    const { data: sharedData, error: sharedError } = await sharedQuery;
-    if (sharedError) {
-      throw new Error(`Failed to fetch shared-asset redirect_links: ${sharedError.message}`);
-    }
-    sharedRedirectLinks = (sharedData ?? []) as RedirectLinkAttributionRow[];
-  }
-  console.timeEnd('[AssetAnalyticsRows] query B: sharedAssetResolution');
-  console.log('[AssetAnalyticsRows] counts', { sharedAssetIds: sharedAssetIds.length, sharedRedirectLinks: sharedRedirectLinks.length });
+  const [orgScopedRedirectLinks, sharedRedirectLinks] = await Promise.all([
+    orgRedirectLinksPromise,
+    sharedRedirectLinksPromise,
+  ]);
 
   const redirectLinks = Array.from(
     new Map(
@@ -288,47 +301,8 @@ export async function getAssetAnalyticsRows(
     new Set(identities.map((i) => i.asset_id).filter(Boolean)),
   );
 
-  // ── 3. Asset types (needed for archive + computeAssetAnalytics) ───────
-  console.time('[AssetAnalyticsRows] query C: assets');
-  const { data: assetsData, error: assetsError } = await supabase
-    .from('assets')
-    .select(ASSETS_COLUMNS)
-    .in('id', distinctAssetIds);
-
-  if (assetsError) {
-    throw new Error(`Failed to fetch assets: ${assetsError.message}`);
-  }
-  console.timeEnd('[AssetAnalyticsRows] query C: assets');
-  console.log('[AssetAnalyticsRows] counts', { distinctAssetIds: distinctAssetIds.length, assetsReturned: (assetsData ?? []).length });
-
-  const assetTypeById = new Map<string, string>();
-  const assetOrgIdById = new Map<string, string>();
-  for (const a of assetsData ?? []) {
-    assetTypeById.set((a as any).id, (a as any).asset_type);
-    assetOrgIdById.set((a as any).id, (a as any).organization_id);
-  }
-
-  // ── 4. Attribution bags (same pattern as getAssetAnalyticsBatch) ──────
   const engineRedirectLinks = redirectLinks as unknown as AssetRedirectLinkRow[];
   const tokens = engineRedirectLinks.map((r) => r.token).filter((t): t is string => !!t);
-
-  console.time('[AssetAnalyticsRows] query D: events');
-  const { data: eventsData, error: eventsError } = await supabase
-    .from('events')
-    .select(EVENTS_COLUMNS)
-    .in('asset_id', distinctAssetIds)
-    .gte('created_at', startIso)
-    .lte('created_at', endIso);
-
-  if (eventsError) {
-    throw new Error(`Failed to fetch events: ${eventsError.message}`);
-  }
-  console.timeEnd('[AssetAnalyticsRows] query D: events');
-  const events = (eventsData ?? []) as AssetEventRow[];
-  console.log('[AssetAnalyticsRows] counts', { events: events.length });
-  const sessionIdsFromEvents = events
-    .map((e) => e.session_id)
-    .filter((s): s is string => !!s);
 
   const inDateWindow = <T extends { created_at: string }>(rowsIn: T[]): T[] =>
     rowsIn.filter((p) => {
@@ -336,8 +310,67 @@ export async function getAssetAnalyticsRows(
       return t >= start && t <= end;
     });
 
+  // ── 3. Asset types (needed for archive + computeAssetAnalytics) ───────
+  // Only depends on distinctAssetIds — independent of D/E/F, dispatched
+  // alongside them below.
+  const assetsPromise = (async () => {
+    console.time('[AssetAnalyticsRows] query C: assets');
+    const { data: assetsData, error: assetsError } = await supabase
+      .from('assets')
+      .select(ASSETS_COLUMNS)
+      .in('id', distinctAssetIds);
+
+    if (assetsError) {
+      throw new Error(`Failed to fetch assets: ${assetsError.message}`);
+    }
+    console.timeEnd('[AssetAnalyticsRows] query C: assets');
+    console.log('[AssetAnalyticsRows] counts', { distinctAssetIds: distinctAssetIds.length, assetsReturned: (assetsData ?? []).length });
+
+    const assetTypeById = new Map<string, string>();
+    const assetOrgIdById = new Map<string, string>();
+    for (const a of assetsData ?? []) {
+      assetTypeById.set((a as any).id, (a as any).asset_type);
+      assetOrgIdById.set((a as any).id, (a as any).organization_id);
+    }
+
+    return { assetTypeById, assetOrgIdById };
+  })();
+
+  // ── 6. Archive context (viewer-scoped) — only needs assetTypeById from
+  // query C, not from D/E/F, so it's chained directly off query C and runs
+  // concurrently with D/E/F. Awaited later, right before the final join —
+  // the computeAssetAnalytics loop below does not read archive data.
+  const archivePromise = assetsPromise.then(async ({ assetTypeById }) => {
+    const assetsForArchive: AssetForArchiveContext[] = distinctAssetIds
+      .filter((id) => assetTypeById.has(id))
+      .map((id) => ({
+        id,
+        assetType: assetTypeById.get(id)!,
+      }));
+
+    console.time('[AssetAnalyticsRows] query G: assetArchiveContext');
+    let archiveByAssetId = new Map<string, AssetArchiveContext>();
+    try {
+      archiveByAssetId = await getAssetArchiveContextsForViewer(
+        assetsForArchive,
+        viewerId,
+      );
+    } catch (err) {
+      console.error(
+        '[getAssetAnalyticsRows] getAssetArchiveContextsForViewer failed',
+        err,
+      );
+    }
+    console.timeEnd('[AssetAnalyticsRows] query G: assetArchiveContext');
+
+    return archiveByAssetId;
+  });
+
+  // ── 4. Attribution bags (same pattern as getAssetAnalyticsBatch) ──────
+  // stripeByToken only needs `tokens` (already available above) — no
+  // dependency on C/D/F, dispatched immediately alongside them.
   console.time('[AssetAnalyticsRows] query E: stripe+pixelPurchases');
-  const [stripeByToken, stripeBySession, pixelPurchases] = await Promise.all([
+  const stripeByTokenPromise =
     tokens.length === 0
       ? Promise.resolve([] as AssetStripePurchaseRow[])
       : fetchByIn<AssetStripePurchaseRow>(
@@ -345,7 +378,34 @@ export async function getAssetAnalyticsRows(
           STRIPE_PURCHASES_COLUMNS,
           'redirect_link_token',
           tokens,
-        ).then(inDateWindow),
+        ).then(inDateWindow);
+
+  const eventsPromise = (async () => {
+    console.time('[AssetAnalyticsRows] query D: events');
+    const { data: eventsData, error: eventsError } = await supabase
+      .from('events')
+      .select(EVENTS_COLUMNS)
+      .in('asset_id', distinctAssetIds)
+      .gte('created_at', startIso)
+      .lte('created_at', endIso);
+
+    if (eventsError) {
+      throw new Error(`Failed to fetch events: ${eventsError.message}`);
+    }
+    console.timeEnd('[AssetAnalyticsRows] query D: events');
+    const events = (eventsData ?? []) as AssetEventRow[];
+    console.log('[AssetAnalyticsRows] counts', { events: events.length });
+    const sessionIdsFromEvents = events
+      .map((e) => e.session_id)
+      .filter((s): s is string => !!s);
+
+    return { events, sessionIdsFromEvents };
+  })();
+
+  // E's session-based branches only need sessionIdsFromEvents from query
+  // D — chained directly off the events promise rather than waiting for
+  // C/F to also finish.
+  const stripeBySessionPromise = eventsPromise.then(({ sessionIdsFromEvents }) =>
     sessionIdsFromEvents.length === 0
       ? Promise.resolve([] as AssetStripePurchaseRow[])
       : fetchByIn<AssetStripePurchaseRow>(
@@ -354,6 +414,9 @@ export async function getAssetAnalyticsRows(
           'session_id',
           sessionIdsFromEvents,
         ).then(inDateWindow),
+  );
+
+  const pixelPurchasesPromise = eventsPromise.then(({ sessionIdsFromEvents }) =>
     sessionIdsFromEvents.length === 0
       ? Promise.resolve([] as AssetPixelPurchaseRow[])
       : fetchByIn<AssetPixelPurchaseRow>(
@@ -362,41 +425,55 @@ export async function getAssetAnalyticsRows(
           'session_id',
           sessionIdsFromEvents,
         ).then(inDateWindow),
-  ]);
+  );
 
+  const videosResourcesElementsAssignedPromise = (async () => {
+    console.time('[AssetAnalyticsRows] query F: videos+resources+elements+assigned');
+    const [videosData, resourcesData, campaignElementAssetsData, assignedAssetSummary] = await Promise.all([
+      supabase.from('videos').select(VIDEOS_COLUMNS).in('asset_id', distinctAssetIds),
+      supabase.from('asset_resources').select(ASSET_RESOURCES_COLUMNS).in('asset_id', distinctAssetIds),
+      supabase
+        .from('campaign_element_assets')
+        .select(CAMPAIGN_ELEMENT_ASSETS_COLUMNS)
+        .in('asset_id', distinctAssetIds),
+      getAssignedAssetSummaryForOwner(viewerId),
+    ]);
+    console.timeEnd('[AssetAnalyticsRows] query F: videos+resources+elements+assigned');
+
+    if (videosData.error) throw new Error(`Failed to fetch videos: ${videosData.error.message}`);
+    if (resourcesData.error) {
+      throw new Error(`Failed to fetch asset_resources: ${resourcesData.error.message}`);
+    }
+    if (campaignElementAssetsData.error) {
+      throw new Error(
+        `Failed to fetch campaign_element_assets: ${campaignElementAssetsData.error.message}`,
+      );
+    }
+
+    const videos = (videosData.data ?? []) as AssetVideoRow[];
+    const resources = (resourcesData.data ?? []) as AssetResourceRow[];
+    const campaignElementAssets = (campaignElementAssetsData.data ?? []) as CampaignElementAssetRow[];
+    const assignedAssetIds = new Set(assignedAssetSummary.map((s) => s.assetId));
+
+    return { videos, resources, campaignElementAssets, assignedAssetIds };
+  })();
+
+  const [
+    { assetTypeById, assetOrgIdById },
+    { events },
+    [stripeByToken, stripeBySession, pixelPurchases],
+    { videos, resources, campaignElementAssets, assignedAssetIds },
+  ] = await Promise.all([
+    assetsPromise,
+    eventsPromise,
+    Promise.all([stripeByTokenPromise, stripeBySessionPromise, pixelPurchasesPromise]),
+    videosResourcesElementsAssignedPromise,
+  ]);
   console.timeEnd('[AssetAnalyticsRows] query E: stripe+pixelPurchases');
   const stripePurchases = Array.from(
     new Map([...stripeByToken, ...stripeBySession].map((p) => [p.id, p])).values(),
   );
   console.log('[AssetAnalyticsRows] counts', { stripePurchases: stripePurchases.length, pixelPurchases: pixelPurchases.length });
-
-  console.time('[AssetAnalyticsRows] query F: videos+resources+elements+assigned');
-  const [videosData, resourcesData, campaignElementAssetsData, assignedAssetSummary] = await Promise.all([
-    supabase.from('videos').select(VIDEOS_COLUMNS).in('asset_id', distinctAssetIds),
-    supabase.from('asset_resources').select(ASSET_RESOURCES_COLUMNS).in('asset_id', distinctAssetIds),
-    supabase
-      .from('campaign_element_assets')
-      .select(CAMPAIGN_ELEMENT_ASSETS_COLUMNS)
-      .in('asset_id', distinctAssetIds),
-    getAssignedAssetSummaryForOwner(viewerId),
-  ]);
-  console.timeEnd('[AssetAnalyticsRows] query F: videos+resources+elements+assigned');
-
-  if (videosData.error) throw new Error(`Failed to fetch videos: ${videosData.error.message}`);
-  if (resourcesData.error) {
-    throw new Error(`Failed to fetch asset_resources: ${resourcesData.error.message}`);
-  }
-  if (campaignElementAssetsData.error) {
-    throw new Error(
-      `Failed to fetch campaign_element_assets: ${campaignElementAssetsData.error.message}`,
-    );
-  }
-
-  const videos = (videosData.data ?? []) as AssetVideoRow[];
-  const resources = (resourcesData.data ?? []) as AssetResourceRow[];
-  const campaignElementAssets = (campaignElementAssetsData.data ?? []) as CampaignElementAssetRow[];
-
-  const assignedAssetIds = new Set(assignedAssetSummary.map((s) => s.assetId));
 
   // ── 5. Per-asset computeAssetAnalytics — KEEP relationships ───────────
   console.time('[AssetAnalyticsRows] computeAssetAnalytics loop (CPU)');
@@ -432,28 +509,9 @@ export async function getAssetAnalyticsRows(
   }
   console.timeEnd('[AssetAnalyticsRows] computeAssetAnalytics loop (CPU)');
 
-  // ── 6. Archive context (viewer-scoped) ────────────────────────────────
-  const assetsForArchive: AssetForArchiveContext[] = distinctAssetIds
-    .filter((id) => assetTypeById.has(id))
-    .map((id) => ({
-      id,
-      assetType: assetTypeById.get(id)!,
-    }));
-
-  console.time('[AssetAnalyticsRows] query G: assetArchiveContext');
-  let archiveByAssetId = new Map<string, AssetArchiveContext>();
-  try {
-    archiveByAssetId = await getAssetArchiveContextsForViewer(
-      assetsForArchive,
-      viewerId,
-    );
-  } catch (err) {
-    console.error(
-      '[getAssetAnalyticsRows] getAssetArchiveContextsForViewer failed',
-      err,
-    );
-  }
-  console.timeEnd('[AssetAnalyticsRows] query G: assetArchiveContext');
+  // ── 6. Archive context result — kicked off earlier alongside C/D/E/F;
+  // await here since the final join needs it (may already be resolved).
+  const archiveByAssetId = await archivePromise;
 
   // ── 7. Join identity × relationship × archive ─────────────────────────
   let unmatchedIdentityCount = 0;
