@@ -73,15 +73,15 @@ export async function getVideoArchiveContext(
 
   const reasons: VideoArchiveReason[] = [];
 
-  if (video.archived_at) {
-    reasons.push({ sourceType: 'video', sourceId: video.id, sourceName: video.video_title ?? null });
-  }
-
-  const [campaignReason, isHiddenByViewer] = await Promise.all([
+  const [personalArchivedAt, campaignReason, isHiddenByViewer] = await Promise.all([
+    getPersonalArchivedAt(videoId, viewerId),
     video.campaign_id ? getCampaignReason(video.campaign_id as string) : Promise.resolve(null),
     getIsHiddenByViewer(videoId, viewerId),
   ]);
 
+  if (personalArchivedAt) {
+    reasons.push({ sourceType: 'video', sourceId: video.id, sourceName: video.video_title ?? null });
+  }
   if (campaignReason) reasons.push(campaignReason);
 
   return buildContext(videoId, reasons, isHiddenByViewer);
@@ -105,9 +105,10 @@ export async function getVideoArchiveContextsForViewer(
 
   const videoIds = videosIn.map(v => v.id);
 
-  const [videoRows, hiddenSet] = await Promise.all([
+  const [videoRows, hiddenSet, personalMap] = await Promise.all([
     getVideoRowsBulk(videoIds),
     getHiddenVideoIdsBulk(videoIds, viewerId),
+    getPersonalArchivedAtBulk(videoIds, viewerId),
   ]);
 
   const campaignIds = new Set<string>();
@@ -123,7 +124,7 @@ export async function getVideoArchiveContextsForViewer(
     const row = videoRows.get(v.id);
 
     if (row) {
-      if (row.archived_at) {
+      if (personalMap.get(v.id)) {
         reasons.push({ sourceType: 'video', sourceId: row.id, sourceName: row.video_title });
       }
       if (row.campaign_id) {
@@ -170,14 +171,17 @@ export async function computeVideoArchiveContextsFromLoadedData(
 
   const campaignById = new Map(campaignRows.map(c => [c.id, c]));
   const videoIds = videoRows.map(v => v.id);
-  const hiddenSet = await getHiddenVideoIdsBulk(videoIds, viewerId);
+  const [hiddenSet, personalMap] = await Promise.all([
+    getHiddenVideoIdsBulk(videoIds, viewerId),
+    getPersonalArchivedAtBulk(videoIds, viewerId),
+  ]);
 
   const result = new Map<string, VideoArchiveContext>();
 
   for (const row of videoRows) {
     const reasons: VideoArchiveReason[] = [];
 
-    if (row.archived_at) {
+    if (personalMap.get(row.id)) {
       reasons.push({ sourceType: 'video', sourceId: row.id, sourceName: row.video_title });
     }
     if (row.campaign_id) {
@@ -233,6 +237,19 @@ async function getIsHiddenByViewer(videoId: string, viewerId: string): Promise<b
   return !!data;
 }
 
+
+async function getPersonalArchivedAt(videoId: string, viewerId: string): Promise<string | null> {
+  const { data, error } = await supabase
+    .from('video_user_states')
+    .select('archived_at')
+    .eq('video_id', videoId)
+    .eq('user_id', viewerId)
+    .maybeSingle();
+
+  if (error) throw new Error(`Failed to load personal video archive state: ${error.message}`);
+  return (data?.archived_at as string | null) ?? null;
+}
+
 // ── Bulk queries (getVideoArchiveContextsForViewer / computeVideoArchiveContextsFromLoadedData) ─
 
 interface VideoRow {
@@ -262,6 +279,19 @@ async function getHiddenVideoIdsBulk(videoIds: string[], viewerId: string): Prom
 
   if (error) throw new Error(`Failed to bulk-load archive_ui_visibility: ${error.message}`);
   return new Set((data ?? []).map((row: any) => row.entity_id as string));
+}
+
+
+async function getPersonalArchivedAtBulk(videoIds: string[], viewerId: string): Promise<Map<string, string>> {
+  const { data, error } = await supabase
+    .from('video_user_states')
+    .select('video_id, archived_at')
+    .eq('user_id', viewerId)
+    .in('video_id', videoIds)
+    .not('archived_at', 'is', null);
+
+  if (error) throw new Error(`Failed to bulk-load personal video archive state: ${error.message}`);
+  return new Map((data ?? []).map((row: any) => [row.video_id as string, row.archived_at as string]));
 }
 
 interface CampaignArchiveRow {
