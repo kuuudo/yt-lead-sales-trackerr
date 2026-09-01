@@ -297,6 +297,13 @@ function toTableMetrics(
   return base;
 }
 
+// ── TEMPORARY: load timing instrumentation ─────────────────────────────
+// Counts how many times the main loader effect fires this session, and
+// labels each run so we can tell "ran once but slow" apart from "ran
+// multiple times". Measurement only — does not change any behavior.
+// Safe to delete once the investigation is done.
+let __assetAnalyticsLoadCounter = 0;
+
 async function resolveOrgAndViewer(viewing?: {
   viewingMemberId: string | null;
   viewingOrgId: string | null;
@@ -358,16 +365,21 @@ function useAssetAnalyticsRows(opts: {
 
   useEffect(() => {
     let cancelled = false;
+    const __runId = ++__assetAnalyticsLoadCounter;
+    console.log(`[AllAssetsAnalytics] LOAD #${__runId} START`);
+    console.time(`[AllAssetsAnalytics] LOAD #${__runId} TOTAL`);
 
     (async () => {
       setLoading(true);
       setError(null);
       try {
+        console.time(`[AllAssetsAnalytics] LOAD #${__runId} resolveOrgAndViewer`);
         const { organizationId, viewerId } = await resolveOrgAndViewer(
           opts.isReadOnly
             ? { viewingMemberId: opts.viewingMemberId ?? null, viewingOrgId: opts.viewingOrgId ?? null }
             : undefined,
         );
+        console.timeEnd(`[AllAssetsAnalytics] LOAD #${__runId} resolveOrgAndViewer`);
         if (!cancelled) setOrganizationId(organizationId);
 
         const source =
@@ -375,6 +387,7 @@ function useAssetAnalyticsRows(opts: {
             ? opts.activeSource
             : 'total';
 
+        console.time(`[AllAssetsAnalytics] LOAD #${__runId} getAssetAnalyticsRows`);
         const result = await getAssetAnalyticsRows({
           organizationId,
           viewerId,
@@ -382,16 +395,22 @@ function useAssetAnalyticsRows(opts: {
           customRange: opts.customRange,
           activeSource: source,
         });
+        console.timeEnd(`[AllAssetsAnalytics] LOAD #${__runId} getAssetAnalyticsRows`);
+        console.log(`[AllAssetsAnalytics] LOAD #${__runId} counts`, { analyticsRows: result.rows.length });
 
         if (cancelled) return;
 
        
         const assetIds = Array.from(new Set(result.rows.map((r) => r.asset_id)));
         const videoIds = Array.from(new Set(result.rows.map((r) => r.video_id)));
+        console.log(`[AllAssetsAnalytics] LOAD #${__runId} counts`, { assetIds: assetIds.length, videoIds: videoIds.length });
+
+        console.time(`[AllAssetsAnalytics] LOAD #${__runId} videoArchive`);
         const videoArchiveById = await getVideoArchiveContextsForViewer(
           videoIds.map((id) => ({ id })),
           viewerId,
         );
+        console.timeEnd(`[AllAssetsAnalytics] LOAD #${__runId} videoArchive`);
 
         const campaignIds = Array.from(
           new Set(
@@ -400,12 +419,14 @@ function useAssetAnalyticsRows(opts: {
               .filter((id): id is string => !!id),
           ),
         );
+        console.log(`[AllAssetsAnalytics] LOAD #${__runId} counts`, { campaignIds: campaignIds.length });
 
-        let campaignArchiveById = new Map<
+        let campaignArchiveById = new Map
           string,
           { isArchived: boolean }
         >();
         if (campaignIds.length > 0) {
+          console.time(`[AllAssetsAnalytics] LOAD #${__runId} campaignArchive`);
           const { data: campaignRows, error: campaignArchiveError } = await supabase
             .from('campaigns')
             .select('id, archived_at')
@@ -429,6 +450,9 @@ function useAssetAnalyticsRows(opts: {
               { isArchived: !!ctx.isArchived },
             ]),
           );
+          console.timeEnd(`[AllAssetsAnalytics] LOAD #${__runId} campaignArchive`);
+        } else {
+          console.log(`[AllAssetsAnalytics] LOAD #${__runId} campaignArchive: skipped (0 campaigns)`);
         }
 
 
@@ -440,9 +464,11 @@ function useAssetAnalyticsRows(opts: {
               .filter((id): id is string => !!id),
           ),
         );
+        console.log(`[AllAssetsAnalytics] LOAD #${__runId} counts`, { promotionIds: promotionIds.length });
 
         let promotionArchiveById = new Map<string, { isArchived: boolean }>();
         if (promotionIds.length > 0) {
+          console.time(`[AllAssetsAnalytics] LOAD #${__runId} promotionArchive`);
           const { data: promoStateRows, error: promoStateError } = await supabase
             .from('promotion_user_states')
             .select('promotion_id, archived_at')
@@ -477,6 +503,9 @@ function useAssetAnalyticsRows(opts: {
               { isArchived: !!ctx.isArchived },
             ]),
           );
+          console.timeEnd(`[AllAssetsAnalytics] LOAD #${__runId} promotionArchive`);
+        } else {
+          console.log(`[AllAssetsAnalytics] LOAD #${__runId} promotionArchive: skipped (0 promotions)`);
         }
         // NOTE: videos fetched with '*' (not a narrow column list) because
         // resolveThumbnail()/renderContentIdentity() are canonical helpers
@@ -489,6 +518,7 @@ console.log('🔍 OPERATOR VIDEO DEBUG', {
   viewerId,
 });
 
+        console.time(`[AllAssetsAnalytics] LOAD #${__runId} videosAndAssets`);
         const [videosRes, libraryRes] = await Promise.all([
           videoIds.length
             ? supabase
@@ -505,6 +535,8 @@ console.log('🔍 OPERATOR VIDEO DEBUG', {
                 .in('id', assetIds)
             : Promise.resolve({ data: [] as any[] }),
         ]);
+        console.timeEnd(`[AllAssetsAnalytics] LOAD #${__runId} videosAndAssets`);
+        console.log(`[AllAssetsAnalytics] LOAD #${__runId} counts`, { videosReturned: videosRes.data?.length ?? 0, assetsReturned: libraryRes.data?.length ?? 0 });
 
 console.log('🔍 VIDEOS QUERY RESULT', {
   error: videosRes.error,
@@ -535,15 +567,18 @@ console.log('🔍 VIDEOS QUERY RESULT', {
         const videoOwnerIds = Array.from(
           new Set((videosRes.data ?? []).map((v: any) => v.user_id).filter(Boolean)),
         );
+        console.time(`[AllAssetsAnalytics] LOAD #${__runId} profiles`);
         const { data: ownerProfiles } = videoOwnerIds.length
           ? await supabase
               .from('profiles')
               .select('id, email, full_name')
               .in('id', videoOwnerIds)
           : { data: [] as any[] };
+        console.timeEnd(`[AllAssetsAnalytics] LOAD #${__runId} profiles`);
         const profileByUserId = new Map((ownerProfiles ?? []).map((p: any) => [p.id, p]));
 
-        const assetDisplay = new Map<
+        console.time(`[AllAssetsAnalytics] LOAD #${__runId} transform`);
+        const assetDisplay = new Map
         string,
         {
           title?: string | null;
@@ -667,15 +702,20 @@ console.log('🔍 VIDEOS QUERY RESULT', {
             metrics: toTableMetrics(r.metrics),
           };
         });
+        console.timeEnd(`[AllAssetsAnalytics] LOAD #${__runId} transform`);
+        console.log(`[AllAssetsAnalytics] LOAD #${__runId} counts`, { finalRows: mapped.length });
         setRows(mapped);
 
       } catch (e: any) {
+        console.log(`[AllAssetsAnalytics] LOAD #${__runId} ERROR`, e?.message ?? String(e));
         if (!cancelled) {
           setError(e?.message ?? String(e));
           setRows([]);
         }
       } finally {
         if (!cancelled) setLoading(false);
+        console.timeEnd(`[AllAssetsAnalytics] LOAD #${__runId} TOTAL`);
+        console.log(`[AllAssetsAnalytics] LOAD #${__runId} END`);
       }
     })();
 
