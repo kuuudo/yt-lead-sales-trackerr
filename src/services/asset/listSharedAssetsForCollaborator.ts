@@ -139,13 +139,18 @@ async function getMyAssignmentCollaboratorIds(userId: string): Promise<string[]>
 async function getMyPromotions(
   userId: string
 ): Promise<{ id: string; assignment_id: string | null; assignment_collaborator_id: string | null }[]> {
+  console.time('[SharedAssets] step 1a: getMyAssignmentCollaboratorIds');
   const myCollaboratorIds = await getMyAssignmentCollaboratorIds(userId);
+  console.timeEnd('[SharedAssets] step 1a: getMyAssignmentCollaboratorIds');
+  console.log('[SharedAssets] counts', { myCollaboratorIds: myCollaboratorIds.length });
   if (myCollaboratorIds.length === 0) return [];
 
+  console.time('[SharedAssets] step 1b: promotions query');
   const { data, error } = await supabase
     .from('promotions')
     .select('id, assignment_id, assignment_collaborator_id')
     .in('assignment_collaborator_id', myCollaboratorIds);
+  console.timeEnd('[SharedAssets] step 1b: promotions query');
 
   if (error) {
     throw new Error(`Failed to load promotions for user: ${error.message}`);
@@ -189,6 +194,7 @@ async function getSharedAssetRows(
   const wantsResource = !filterType || filterType === 'resource';
 
   if (wantsVideo) {
+    console.time('[SharedAssets] step 4a: video assets query');
     const { data: videoAssetRows, error: videoErr, status } = await supabase
       .from('assets')
       .select(`
@@ -211,6 +217,7 @@ console.log("videoAssetRows", videoAssetRows);
 console.log("videoErr", videoErr);
 console.log(videoAssetRows);
 console.log(JSON.stringify(videoAssetRows, null, 2));
+    console.timeEnd('[SharedAssets] step 4a: video assets query');
     if (videoErr) {
       throw new Error(`Failed to load shared video assets: ${videoErr.message}`);
     }
@@ -239,6 +246,7 @@ console.log(JSON.stringify(videoAssetRows, null, 2));
   }
 
   if (wantsResource) {
+    console.time('[SharedAssets] step 4b: resource assets query');
     const { data: resourceAssetRows, error: resourceErr } = await supabase
       .from('assets')
       .select('id, asset_resources!inner(title, thumbnail_url, platform, resource_type)')
@@ -247,6 +255,7 @@ console.log(JSON.stringify(videoAssetRows, null, 2));
       .neq('organization_id', excludeOrganizationId);
 console.log("resourceAssetRows", resourceAssetRows);
 console.log("resourceErr", resourceErr);
+    console.timeEnd('[SharedAssets] step 4b: resource assets query');
     if (resourceErr) {
       throw new Error(`Failed to load shared resource assets: ${resourceErr.message}`);
     }
@@ -292,12 +301,14 @@ console.log("resourceErr", resourceErr);
   const wantsCampaignElement = !filterType;
 
   if (wantsCampaignElement) {
+    console.time('[SharedAssets] step 4c: campaign element assets query');
     const { data: elementAssetRows, error: elementErr } = await supabase
       .from('assets')
       .select('id, campaign_element_assets(display_name, element_type)')
       .in('id', assetIds)
       .eq('asset_type', 'campaign_element')
       .neq('organization_id', excludeOrganizationId);
+    console.timeEnd('[SharedAssets] step 4c: campaign element assets query');
 
     if (elementErr) {
       throw new Error(`Failed to load shared campaign element assets: ${elementErr.message}`);
@@ -415,11 +426,18 @@ export async function listSharedAssetsForCollaborator({
   filterType,
   search,
 }: ListSharedAssetsForCollaboratorInput): Promise<SharedAssetLibraryRow[]> {
+  console.log('[SharedAssets] START');
+  console.time('[SharedAssets] TOTAL');
+
+  console.time('[SharedAssets] step 1: getMyPromotions');
   const myPromotions = await getMyPromotions(userId);
+  console.timeEnd('[SharedAssets] step 1: getMyPromotions');
   console.log("myPromotions", myPromotions);
   const promotionIds = myPromotions.map(p => p.id);
 
+  console.time('[SharedAssets] step 2: getAssetPromotionPairs');
   const assetPromotionPairs = await getAssetPromotionPairs(promotionIds);
+  console.timeEnd('[SharedAssets] step 2: getAssetPromotionPairs');
   console.log("assetPromotionPairs", assetPromotionPairs);
 
   // promotion_id -> assignment_collaborator_id (needed to know WHICH
@@ -446,14 +464,18 @@ export async function listSharedAssetsForCollaborator({
   // display metadata, so a revoked asset never even reaches
   // getSharedAssetRows — cheaper, and it never enters the `rows` array
   // to leak through downstream.
+  console.time('[SharedAssets] step 3: getRevokedAssetKeys');
   const revokedKeys = await getRevokedAssetKeys(Array.from(new Set(assetToCollaborator.values())));
+  console.timeEnd('[SharedAssets] step 3: getRevokedAssetKeys');
   const allAssetIds = Array.from(new Set(assetPromotionPairs.map(p => p.asset_id)));
   const assetIds = allAssetIds.filter(assetId => {
     const collaboratorId = assetToCollaborator.get(assetId);
     return !(collaboratorId && revokedKeys.has(`${collaboratorId}:${assetId}`));
   });
   console.log("assetIds", assetIds);
+  console.time('[SharedAssets] step 4: getSharedAssetRows (all 3 sub-queries)');
   const rows = await getSharedAssetRows(assetIds, excludeOrganizationId, filterType, search);
+  console.timeEnd('[SharedAssets] step 4: getSharedAssetRows (all 3 sub-queries)');
 
   // asset_id -> promotion_id (first match; an asset promoted via multiple
   // promotions is an edge case not resolved here)
@@ -473,10 +495,18 @@ export async function listSharedAssetsForCollaborator({
   const assignmentIds = Array.from(
     new Set(myPromotions.map(p => p.assignment_id).filter((id): id is string => !!id))
   );
+  console.time('[SharedAssets] step 5: getAssignmentCreators');
   const assignmentCreators = await getAssignmentCreators(assignmentIds);
+  console.timeEnd('[SharedAssets] step 5: getAssignmentCreators');
 
   const sharerUserIds = Array.from(new Set(Array.from(assignmentCreators.values())));
+  console.time('[SharedAssets] step 6: getSharerProfiles');
   const sharerProfiles = await getSharerProfiles(sharerUserIds);
+  console.timeEnd('[SharedAssets] step 6: getSharerProfiles');
+
+  console.log('[SharedAssets] counts', { finalRows: rows.length, assignmentIds: assignmentIds.length, sharerUserIds: sharerUserIds.length });
+  console.timeEnd('[SharedAssets] TOTAL');
+  console.log('[SharedAssets] END');
 
   return rows.map(row => {
     const promotionId = assetToPromotion.get(row.asset_id);
