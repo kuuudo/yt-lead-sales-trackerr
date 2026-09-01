@@ -70,7 +70,7 @@
 // - Any revenue/click computation.
 // - Double-counting/attribution resolution (Video B → Asset A → Video A
 //   scenario). Must be solved in the engine layer first — see
-//   ASSET_ANALYTICS_DESIGN.md §2.
+//   ASSET_ANALYTICS_DESIGN.md §2.。
 // ─────────────────────────────────────────────────────────────────────────────
 
 import React, { useEffect, useMemo, useRef, useState } from 'react';
