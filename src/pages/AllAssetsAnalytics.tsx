@@ -1092,6 +1092,29 @@ export default function AllAssetsAnalytics() {
         return at > bt ? dir : -dir;
       });
     }
+    // New "Asset Created At" column — sorts by the ASSET's own created_at,
+    // separate from the "asset_created_at" key above (which is actually the
+    // "Recently Added" shortcut and intentionally sorts by content date —
+    // left alone on purpose).
+    if (key === 'asset_created_at_col') {
+      return [...archiveFilteredRows].sort((a, b) => {
+        const at = a.asset.created_at ? new Date(a.asset.created_at).getTime() : 0;
+        const bt = b.asset.created_at ? new Date(b.asset.created_at).getTime() : 0;
+        if (at === bt) return 0;
+        return at > bt ? dir : -dir;
+      });
+    }
+    // New "Content Created At" column — same data as the "Recently Added"
+    // shortcut above, just its own key so this column's header can sort
+    // independently without relabeling that button.
+    if (key === 'content_created_at_col') {
+      return [...archiveFilteredRows].sort((a, b) => {
+        const at = a.promoting_video.created_at ? new Date(a.promoting_video.created_at).getTime() : 0;
+        const bt = b.promoting_video.created_at ? new Date(b.promoting_video.created_at).getTime() : 0;
+        if (at === bt) return 0;
+        return at > bt ? dir : -dir;
+      });
+    }
     // asset_clicks lives on row.asset_clicks, not row.metrics (it's not a
     // MetricType key), so it needs the same kind of special case as
     // asset_created_at above rather than the generic metrics[key] branch.
@@ -2267,8 +2290,17 @@ export default function AllAssetsAnalytics() {
 
                   {/* ── Asset Created At — hidden by default, toggled via Columns ── */}
                   {visibleColumns.has('asset_created_at') && (
-                    <th className="px-6 py-5 text-left text-[10px] font-black uppercase tracking-widest text-zinc-600 border-b border-zinc-900 bg-zinc-950 min-w-[140px]">
-                      Asset Created At
+                    <th
+                      onClick={() => handleSort('asset_created_at_col')}
+                      className="px-6 py-5 text-left text-[10px] font-black uppercase tracking-widest text-zinc-600 border-b border-zinc-900 bg-zinc-950 min-w-[140px] cursor-pointer hover:text-zinc-300 transition-colors"
+                    >
+                      <div className="flex items-center gap-1.5">
+                        Asset Created At
+                        <ArrowUpDown
+                          size={10}
+                          className={sortConfig.key === 'asset_created_at_col' ? 'text-white' : 'text-zinc-700'}
+                        />
+                      </div>
                     </th>
                   )}
 
@@ -2286,12 +2318,21 @@ export default function AllAssetsAnalytics() {
                     </th>
                   )}
 
-                  {/* ── Content Created At — hidden by default, toggled via Columns ── */}
-                  {visibleColumns.has('content_created_at') && (
-                    <th className="px-6 py-5 text-left text-[10px] font-black uppercase tracking-widest text-zinc-600 border-b border-zinc-900 bg-zinc-950 min-w-[140px]">
-                      Content Created At
-                    </th>
-                  )}
+                    {/* ── Content Created At — hidden by default, toggled via Columns ── */}
+                    {visibleColumns.has('content_created_at') && (
+                      <th
+                        onClick={() => handleSort('content_created_at_col')}
+                        className="px-6 py-5 text-left text-[10px] font-black uppercase tracking-widest text-zinc-600 border-b border-zinc-900 bg-zinc-950 min-w-[140px] cursor-pointer hover:text-zinc-300 transition-colors"
+                      >
+                        <div className="flex items-center gap-1.5">
+                          Content Created At
+                          <ArrowUpDown
+                            size={10}
+                            className={sortConfig.key === 'content_created_at_col' ? 'text-white' : 'text-zinc-700'}
+                          />
+                        </div>
+                      </th>
+                    )}
 
                   {/* ── Content Owner column — owner of the promoting video ── */}
                   {visibleColumns.has('content_owner') && (
