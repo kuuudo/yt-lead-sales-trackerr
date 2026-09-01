@@ -406,12 +406,6 @@ function useAssetAnalyticsRows(opts: {
         console.log(`[AllAssetsAnalytics] LOAD #${__runId} counts`, { assetIds: assetIds.length, videoIds: videoIds.length });
 
         console.time(`[AllAssetsAnalytics] LOAD #${__runId} videoArchive`);
-        const videoArchiveById = await getVideoArchiveContextsForViewer(
-          videoIds.map((id) => ({ id })),
-          viewerId,
-        );
-        console.timeEnd(`[AllAssetsAnalytics] LOAD #${__runId} videoArchive`);
-
         const campaignIds = Array.from(
           new Set(
             result.rows
@@ -419,124 +413,132 @@ function useAssetAnalyticsRows(opts: {
               .filter((id): id is string => !!id),
           ),
         );
-        console.log(`[AllAssetsAnalytics] LOAD #${__runId} counts`, { campaignIds: campaignIds.length });
 
-let campaignArchiveById = new Map<
-  string,
-  { isArchived: boolean }
->();
-        if (campaignIds.length > 0) {
-          console.time(`[AllAssetsAnalytics] LOAD #${__runId} campaignArchive`);
-          const { data: campaignRows, error: campaignArchiveError } = await supabase
-            .from('campaigns')
-            .select('id, archived_at')
-            .in('id', campaignIds);
-          if (campaignArchiveError) {
-            throw new Error(
-              `Failed to load campaigns for archive context: ${campaignArchiveError.message}`,
-            );
-          }
-          const campaignsForArchive = (campaignRows ?? []).map((c: any) => ({
-            id: c.id as string,
-            archivedAt: (c.archived_at as string | null) ?? null,
-          }));
-          const fullCampaignArchive = await getCampaignArchiveContextsForViewer(
-            campaignsForArchive,
-            viewerId,
-          );
-          campaignArchiveById = new Map(
-            Array.from(fullCampaignArchive.entries()).map(([id, ctx]) => [
-              id,
-              { isArchived: !!ctx.isArchived },
-            ]),
-          );
-          console.timeEnd(`[AllAssetsAnalytics] LOAD #${__runId} campaignArchive`);
-        } else {
-          console.log(`[AllAssetsAnalytics] LOAD #${__runId} campaignArchive: skipped (0 campaigns)`);
-        }
-
-
-
-                const promotionIds = Array.from(
+        const promotionIds = Array.from(
           new Set(
             result.rows
               .flatMap((r) => r.promotionIds ?? [])
               .filter((id): id is string => !!id),
           ),
         );
-        console.log(`[AllAssetsAnalytics] LOAD #${__runId} counts`, { promotionIds: promotionIds.length });
 
-        let promotionArchiveById = new Map<string, { isArchived: boolean }>();
-        if (promotionIds.length > 0) {
-          console.time(`[AllAssetsAnalytics] LOAD #${__runId} promotionArchive`);
-          const { data: promoStateRows, error: promoStateError } = await supabase
-            .from('promotion_user_states')
-            .select('promotion_id, archived_at')
-            .eq('user_id', viewerId)
-            .in('promotion_id', promotionIds);
-
-          if (promoStateError) {
-            throw new Error(
-              `Failed to load promotion archive states: ${promoStateError.message}`,
-            );
-          }
-
-          const archivedAtByPromotionId = new Map<string, string | null>(
-            (promoStateRows ?? []).map((row: any) => [
-              row.promotion_id as string,
-              (row.archived_at as string | null) ?? null,
-            ]),
-          );
-
-          const promotionsForArchive = promotionIds.map((id) => ({
-            id,
-            archivedAt: archivedAtByPromotionId.get(id) ?? null,
-          }));
-
-          const fullPromotionArchive = await getPromotionArchiveContextsForViewer(
-            promotionsForArchive,
+        // ── C — videoArchive (independent of D, E, F) ──────────────────────
+        const videoArchivePromise = (async () => {
+          return await getVideoArchiveContextsForViewer(
+            videoIds.map((id) => ({ id })),
             viewerId,
           );
-          promotionArchiveById = new Map(
-            Array.from(fullPromotionArchive.entries()).map(([id, ctx]) => [
+        })();
+
+        // ── D — campaignArchive (independent of C, E, F). Internal 2-step
+        //        chain (campaigns query → getCampaignArchiveContextsForViewer)
+        //        preserved exactly as before, just moved inside the IIFE. ──
+        const campaignArchivePromise = (async () => {
+          let campaignArchiveById = new Map<string, { isArchived: boolean }>();
+          if (campaignIds.length > 0) {
+            const { data: campaignRows, error: campaignArchiveError } = await supabase
+              .from('campaigns')
+              .select('id, archived_at')
+              .in('id', campaignIds);
+            if (campaignArchiveError) {
+              throw new Error(
+                `Failed to load campaigns for archive context: ${campaignArchiveError.message}`,
+              );
+            }
+            const campaignsForArchive = (campaignRows ?? []).map((c: any) => ({
+              id: c.id as string,
+              archivedAt: (c.archived_at as string | null) ?? null,
+            }));
+            const fullCampaignArchive = await getCampaignArchiveContextsForViewer(
+              campaignsForArchive,
+              viewerId,
+            );
+            campaignArchiveById = new Map(
+              Array.from(fullCampaignArchive.entries()).map(([id, ctx]) => [
+                id,
+                { isArchived: !!ctx.isArchived },
+              ]),
+            );
+          }
+          return campaignArchiveById;
+        })();
+
+        // ── E — promotionArchive (independent of C, D, F). Internal 2-step
+        //        chain (promotion_user_states query →
+        //        getPromotionArchiveContextsForViewer) preserved exactly as
+        //        before, just moved inside the IIFE. ─────────────────────
+        const promotionArchivePromise = (async () => {
+          let promotionArchiveById = new Map<string, { isArchived: boolean }>();
+          if (promotionIds.length > 0) {
+            const { data: promoStateRows, error: promoStateError } = await supabase
+              .from('promotion_user_states')
+              .select('promotion_id, archived_at')
+              .eq('user_id', viewerId)
+              .in('promotion_id', promotionIds);
+
+            if (promoStateError) {
+              throw new Error(
+                `Failed to load promotion archive states: ${promoStateError.message}`,
+              );
+            }
+
+            const archivedAtByPromotionId = new Map<string, string | null>(
+              (promoStateRows ?? []).map((row: any) => [
+                row.promotion_id as string,
+                (row.archived_at as string | null) ?? null,
+              ]),
+            );
+
+            const promotionsForArchive = promotionIds.map((id) => ({
               id,
-              { isArchived: !!ctx.isArchived },
-            ]),
-          );
-          console.timeEnd(`[AllAssetsAnalytics] LOAD #${__runId} promotionArchive`);
-        } else {
-          console.log(`[AllAssetsAnalytics] LOAD #${__runId} promotionArchive: skipped (0 promotions)`);
-        }
+              archivedAt: archivedAtByPromotionId.get(id) ?? null,
+            }));
+
+            const fullPromotionArchive = await getPromotionArchiveContextsForViewer(
+              promotionsForArchive,
+              viewerId,
+            );
+            promotionArchiveById = new Map(
+              Array.from(fullPromotionArchive.entries()).map(([id, ctx]) => [
+                id,
+                { isArchived: !!ctx.isArchived },
+              ]),
+            );
+          }
+          return promotionArchiveById;
+        })();
+
+        // ── F — videosAndAssets (independent of C, D, E). Existing internal
+        //        Promise.all([videos, assets]) preserved exactly as before,
+        //        just moved inside the IIFE. ──────────────────────────────
         // NOTE: videos fetched with '*' (not a narrow column list) because
         // resolveThumbnail()/renderContentIdentity() are canonical helpers
         // from videoFormatters.ts whose exact field dependencies aren't
         // known from this file alone — same defensive posture InDepthAnalytics
         // takes by passing a full Video row into these helpers.
+        const videosAndAssetsPromise = (async () => {
 console.log('🔍 OPERATOR VIDEO DEBUG', {
   videoIds,
   organizationId,
   viewerId,
 });
 
-        console.time(`[AllAssetsAnalytics] LOAD #${__runId} videosAndAssets`);
-        const [videosRes, libraryRes] = await Promise.all([
-          videoIds.length
-            ? supabase
-                .from('videos')
-                .select('*')
-                .in('id', videoIds)
-            : Promise.resolve({ data: [] as any[] }),
-          assetIds.length
-            ? supabase
-                .from('assets')
-                .select(
-                  'id, asset_type, created_at, videos(video_title, thumbnail_url, platform), asset_resources(title, thumbnail_url, platform, resource_type), campaign_element_assets(display_name, element_type)',
-                )
-                .in('id', assetIds)
-            : Promise.resolve({ data: [] as any[] }),
-        ]);
-        console.timeEnd(`[AllAssetsAnalytics] LOAD #${__runId} videosAndAssets`);
-        console.log(`[AllAssetsAnalytics] LOAD #${__runId} counts`, { videosReturned: videosRes.data?.length ?? 0, assetsReturned: libraryRes.data?.length ?? 0 });
+          const [videosRes, libraryRes] = await Promise.all([
+            videoIds.length
+              ? supabase
+                  .from('videos')
+                  .select('*')
+                  .in('id', videoIds)
+              : Promise.resolve({ data: [] as any[] }),
+            assetIds.length
+              ? supabase
+                  .from('assets')
+                  .select(
+                    'id, asset_type, created_at, videos(video_title, thumbnail_url, platform), asset_resources(title, thumbnail_url, platform, resource_type), campaign_element_assets(display_name, element_type)',
+                  )
+                  .in('id', assetIds)
+              : Promise.resolve({ data: [] as any[] }),
+          ]);
 
 console.log('🔍 VIDEOS QUERY RESULT', {
   error: videosRes.error,
@@ -560,22 +562,42 @@ console.log('🔍 VIDEOS QUERY RESULT', {
     })),
 });
 
+          return { videosRes, libraryRes };
+        })();
 
+        // ── G — profiles. Genuinely depends on F only (videoOwnerIds comes
+        //        from videosRes.data) — chained off videosAndAssetsPromise,
+        //        does NOT wait for C, D, or E. ──────────────────────────
         // Content Owner — same profiles.select('id, email, full_name').in('id', ...)
         // pattern getPromotionLevelMetricsForOrg() (getTopPromotionsAnalytics.ts)
         // already uses to resolve marketer identity. No new identity system.
-        const videoOwnerIds = Array.from(
-          new Set((videosRes.data ?? []).map((v: any) => v.user_id).filter(Boolean)),
-        );
-        console.time(`[AllAssetsAnalytics] LOAD #${__runId} profiles`);
-        const { data: ownerProfiles } = videoOwnerIds.length
-          ? await supabase
-              .from('profiles')
-              .select('id, email, full_name')
-              .in('id', videoOwnerIds)
-          : { data: [] as any[] };
-        console.timeEnd(`[AllAssetsAnalytics] LOAD #${__runId} profiles`);
-        const profileByUserId = new Map((ownerProfiles ?? []).map((p: any) => [p.id, p]));
+        const profilesPromise = (async () => {
+          const { videosRes } = await videosAndAssetsPromise;
+          const videoOwnerIds = Array.from(
+            new Set((videosRes.data ?? []).map((v: any) => v.user_id).filter(Boolean)),
+          );
+          const { data: ownerProfiles } = videoOwnerIds.length
+            ? await supabase
+                .from('profiles')
+                .select('id, email, full_name')
+                .in('id', videoOwnerIds)
+            : { data: [] as any[] };
+          return new Map((ownerProfiles ?? []).map((p: any) => [p.id, p]));
+        })();
+
+        const [
+          videoArchiveById,
+          campaignArchiveById,
+          promotionArchiveById,
+          { videosRes, libraryRes },
+          profileByUserId,
+        ] = await Promise.all([
+          videoArchivePromise,
+          campaignArchivePromise,
+          promotionArchivePromise,
+          videosAndAssetsPromise,
+          profilesPromise,
+        ]);
 
         console.time(`[AllAssetsAnalytics] LOAD #${__runId} transform`);
        const assetDisplay = new Map<
