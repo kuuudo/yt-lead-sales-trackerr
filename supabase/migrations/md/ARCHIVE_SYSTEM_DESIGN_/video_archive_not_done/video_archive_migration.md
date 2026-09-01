@@ -56,3 +56,99 @@ WebMood's AllAssetsAnalytics.tsx loads with nonzero rows, videoArchive.isArchive
 WebMood restores Video A → reflects correctly (not archived) after a full reload, for WebMood only.
 Two different users in the same org load Videos.tsx back-to-back → confirm no cross-contamination via videosPageCache (tests the step-3 cache-key fix).
 Navigate away and back (or hard reload) after any archive/restore action, in both Videos.tsx and VideoDetail.tsx — confirm state persists correctly from video_user_states, not just optimistic local state.
+
+
+Before we continue with the next patch, I need to correct one important product requirement from the previous plan.
+
+## IMPORTANT: Asset A must NOT inherit or display Video archive status
+
+Our actual model is:
+
+* Asset A can be promoted from **multiple videos**.
+* Example:
+
+  * Ali gives Asset A to WebMood.
+  * WebMood promotes Asset A using Video A.
+  * The same Asset A could also be promoted using Video B, Video C, etc.
+* If WebMood archives Video A, that must affect **WebMood's view of Video A only**.
+* It must NOT cause Asset A itself to become archived.
+* It must NOT cause Asset A's provenance to show `Source Video Archived`.
+* In fact, I do **not want Asset A / AssetDetail / asset provenance to display anything at all about a source video's archive state**.
+
+So I do NOT want to merely fix the previous `getAssetArchiveContext.ts` ownership leak by making `Source Video Archived` viewer-specific.
+
+I want to remove/stop the Asset provenance dependency on Video archive state entirely.
+
+### Before changing anything
+
+Please inspect the actual current `services/asset/getAssetArchiveContext.ts` and trace:
+
+1. Every place where `video.archived_at` or video archive state is read.
+2. Every place where that information becomes a provenance/archive reason such as:
+   `sourceType: 'video'`
+   or `Source Video Archived`.
+3. Confirm whether this affects:
+
+   * AssetDetail.tsx
+   * Assets.tsx / bulk provenance
+   * AllAssetsAnalytics.tsx
+   * any other asset archive UI.
+
+Do NOT modify code yet.
+
+I want you to report exactly:
+
+* what code currently causes `Source Video Archived` to appear for an Asset;
+* whether there are one or multiple paths;
+* what the smallest safe change would be to completely remove Video archive status from Asset provenance;
+* and confirm that removing this dependency will NOT affect:
+
+  * Video A's own archive state;
+  * Video archive behavior in Videos.tsx;
+  * VideoDetail.tsx;
+  * AllAssetsAnalytics.tsx's `videoArchive` field;
+  * campaign archive logic;
+  * promotion archive logic;
+  * asset's own personal archive state.
+
+### Current verified state
+
+The following is already working and should NOT be changed:
+
+1. `video_user_states` exists and matches `asset_user_states`:
+
+   * `(id, video_id, user_id, archived_at, created_at)`
+   * unique `(video_id, user_id)`
+   * RLS enabled
+   * SELECT / INSERT / UPDATE own-user policies
+   * no DELETE policy.
+
+2. `getVideoArchiveContext.ts` has already been migrated to read personal video archive state from `video_user_states`.
+
+3. `Videos.tsx` archive/restore writes have been migrated to `video_user_states`.
+
+4. `VideoDetail.tsx` archive/restore writes have been migrated to `video_user_states`.
+
+5. `Videos.tsx` cache key has been changed to include both:
+   `${effectiveOrgId}:${effectiveUserId}`
+
+6. Acceptance test already passed:
+
+   * WebMood archives Video A.
+   * WebMood's AllAssetsAnalytics shows Video A as archived.
+   * Ali's AllAssetsAnalytics shows Video A as NOT archived.
+   * VideoDetail archive/restore behavior is now also working.
+
+### Do NOT do
+
+Do not:
+
+* create another archive table;
+* modify `getVideoArchiveContext.ts`;
+* modify `AllAssetsAnalytics.tsx`;
+* modify `analyticsArchiveFilter.ts`;
+* add an ownership gate to `getAssetArchiveContext.ts` as a substitute for this requirement;
+* perform any backfill;
+* change campaign or promotion archive logic.
+
+First investigate `getAssetArchiveContext.ts` and report the exact current behavior and smallest safe fix. Do not edit until I approve the proposed change.

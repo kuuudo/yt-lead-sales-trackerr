@@ -62,8 +62,8 @@ textImported/Resource assets (Type 3) have **no campaign provenance** — confir
 
 | Mechanism | Entities | Storage | Scope |
 |---|---|---|---|
-| **Global** | Campaign, Video | `archived_at` column on the entity row itself | Shared fact — same answer for every viewer |
-| **Personal** | Asset, Assignment, Promotion | separate `*_user_states` table, `(entity_id, user_id)` unique | View-level annotation — one viewer's answer may differ from another's |
+| **Global** | Campaign | `archived_at` column on the entity row itself | Shared fact — same answer for every viewer |
+| **Personal** | Asset, Assignment, Promotion, Video *(migrated — see §8a)* | separate `*_user_states` table, `(entity_id, user_id)` unique | View-level annotation — one viewer's answer may differ from another's |
 
 This split is confirmed by code (three `*Archive.ts` service files inspected), not assumed.
 
@@ -154,9 +154,11 @@ Asset Archive remains Personal + Zero Outward Cascade. The following is **downst
 
 ---
 
-## 8. Video — **LOCKED**
+## 8. Video — **LOCKED** (mechanism section below is HISTORICAL — see §8a for the implemented, current mechanism)
 
-### Mechanism
+> **⚠ Superseded January–September 2026 migration:** everything in this §8 that says Video's archive mechanism is "Global" / stored on `videos.archived_at` describes the **original locked design**, not the current implementation. Video was migrated to a **Personal** mechanism (`video_user_states`), matching Asset/Assignment/Promotion. See **§8a** immediately following this section for the current mechanism, the reason for the change, and what's still deferred. This §8 body is preserved as historical record of the original design rationale (cascade rules, derived-impact rules, restore principles) — most of those rules are still conceptually accurate, only the storage location changed. Where a rule below specifically says `videos.archived_at` is *the* source of truth, read that as historical.
+
+### Mechanism (historical — see §8a for current)
 - Global: `videos.archived_at`.
 - Single write path: archive / restore only ever touch this column.
 - Confirmed by code: `VideoDetail.tsx` `handleArchive` / `handleRestore` write only `videos.archived_at`. No Asset writes.
@@ -217,8 +219,62 @@ Asset Archive remains Personal + Zero Outward Cascade. The following is **downst
 - `getAssetDetail.ts`: already resolves the linked video origin; natural place to feed a central context resolver.
 - Asset archive remains personal and zero-outward-cascade (already LOCKED); Video rules do not violate it.
 
-### Video does **not** adopt Promotion’s “Remove Collaborator first” prerequisite
+### Video does **not** adopt Promotion's "Remove Collaborator first" prerequisite
 Video is source content; requiring cleanup of all downstream Promotions would create unacceptable UX. Video may Archive directly + derived impact + optional Guide. This boundary was explicitly reconfirmed during the Promotion phase and remains LOCKED.
+
+---
+
+## 8a. Video Personal Archive Migration — **IMPLEMENTED** (supersedes §8's "Global" classification)
+
+### What changed and why
+Video archive was changed from **Global** (`videos.archived_at`, same answer for every viewer) to **Personal** (`video_user_states`, one row per `(video_id, user_id)`), matching the existing Asset/Assignment/Promotion pattern. Product requirement: if one user archives a Video, that must be that user's own view only — it must not appear archived to other users who can also see that Video (e.g. a different org member, or a viewer the Video was shared to).
+
+### New mechanism
+- Personal, scoped `(video_id, user_id)`, via `video_user_states`.
+- Schema (verified against live Supabase, matched byte-for-byte to `asset_user_states`'s actual columns/RLS via `information_schema` + `pg_policies` queries, not assumed):
+  - `id uuid primary key default gen_random_uuid()`
+  - `video_id uuid not null references videos(id)`
+  - `user_id uuid not null references auth.users(id)`
+  - `archived_at timestamptz` (nullable)
+  - `created_at timestamptz not null default now()`
+  - unique `(video_id, user_id)`
+  - RLS enabled; policies: SELECT/INSERT/UPDATE where `user_id = auth.uid()`; **no DELETE policy** — matches Asset's pattern exactly.
+- Restore clears `archived_at` to `null` via UPSERT — **never deletes the row**. Same convention as `asset_user_states`.
+
+### `videos.archived_at` — now legacy, explicitly not deleted
+- **Not the source of truth for personal Video archive anymore.** The column still physically exists in the `videos` table and is **not** dropped, **not** backfilled, and has **no new meaning invented for it**. It is simply unused by the current archive/restore write paths.
+- **Historical-data gap, intentionally deferred:** rows where `videos.archived_at IS NOT NULL` (archived under the old global mechanism) have **no corresponding `video_user_states` row**. As of this migration, those Videos read back as **NOT archived** for every viewer until a backfill is explicitly decided and run. No backfill SQL has been written. This is a known, visible, deliberate gap — not a bug.
+
+### Files that implement this (verification status noted per file)
+| File | Role | Verification status |
+|---|---|---|
+| `services/video/getVideoArchiveContext.ts` | All 3 entry points (`getVideoArchiveContext`, `getVideoArchiveContextsForViewer`, `computeVideoArchiveContextsFromLoadedData`) now source the `'video'` reason from `video_user_states` scoped to `viewerId`, via new helpers `getPersonalArchivedAt(Bulk)`. Campaign reason logic (still global, `campaigns.archived_at`) and `archive_ui_visibility`/hidden logic untouched. | Mechanically diffed + `tsc --strict` verified in sandbox against a copy matching the delivered patch; product owner confirmed live deployment + testing. |
+| `pages/Videos.tsx` | `handleArchiveVideo` / `handleRestoreVideoOwnArchive` write `video_user_states` via upsert (`onConflict: 'video_id,user_id'`). `videosPageCache` key changed from `effectiveOrgId` alone to `` `${effectiveOrgId}:${effectiveUserId}` `` (all 3 get/set call sites) since `archiveContextMap` now holds per-viewer data. | Mechanically diffed + syntax-checked in sandbox; product owner confirmed live deployment + testing (WebMood/Ali acceptance test passed — see below). |
+| `pages/VideoDetail.tsx` | `handleArchive` / `handleRestore` write `video_user_states` via the same upsert pattern. | **Not independently re-verified by inspecting the file** — product owner reports it deployed and passed testing, but the uploaded copy of this file in the conversation that produced this doc update was still the pre-migration version. Flagging this gap rather than asserting it as confirmed. |
+
+### Deployment-safety lesson (preserve — prevents repeating a real failure)
+An earlier attempt deployed code querying `video_user_states` **before the table existed** in Supabase. `getVideoArchiveContextsForViewer` threw inside `AllAssetsAnalytics.tsx`'s data-loading pipeline; that page's single try/catch converts any exception into `setRows([])`, silently wiping all rows with no visible error. Root cause confirmed via console-log gap analysis, not guessed.
+**Prevention rule:** database schema dependencies must be created and verified — `select * from video_user_states limit 1;` succeeding with no error — **before** deploying code that queries them. Table creation and code deploy must never be combined into one step that can be silently skipped.
+
+### Acceptance test — passed (live-tested by product owner)
+Scenario: Ali gives Asset A to WebMood. WebMood promotes Asset A using Video A. WebMood archives Video A in `Videos.tsx`.
+- WebMood's `AllAssetsAnalytics.tsx` → Video A shows archived. ✅ confirmed.
+- Ali's `AllAssetsAnalytics.tsx` → same Video A shows NOT archived. ✅ confirmed.
+- `AllAssetsAnalytics.tsx` continues to load normally (no regression of the earlier failure). ✅ confirmed.
+- `VideoDetail.tsx` archive/restore reported working by product owner. ⚠ not independently file-verified — see table above.
+
+### Deliberately NOT changed as part of this migration
+- `pages/AllAssetsAnalytics.tsx` — confirmed unchanged; generic consumer of the resolver, needed no edits.
+- `lib/analyticsArchiveFilter.ts` — confirmed unchanged; pure filter, no DB access.
+- `services/video/archiveUiVisibility.ts` — confirmed unchanged; this is the separate Level 1/Level 2 UI-visibility surface and must **not** be conceptually merged with `video_user_states`. It answers "is this hidden by this viewer," never "is this archived."
+- `services/asset/getAssetArchiveContext.ts` — **intentionally not changed**, and this is a known open gap, not an oversight: this file has two locations (`resolveProvenanceReasons` single-asset path, `getVideoProvenanceRowsBulk` batch path) that read `video.archived_at` directly with **zero viewer scoping**, gated only by `isLibraryVisible`. Confirmed still present as of this doc update. Practical effect: today, Ali could still see "Source Video Archived" on Asset A's provenance if WebMood's archive were read through this path instead of through `getVideoArchiveContext.ts` directly — this file was out of scope for the current mission but is a real, confirmed, not-yet-closed gap for a future Asset Analytics phase (which may need to represent multiple Videos promoting one Asset, each with independent viewer-specific archive state).
+
+### Known risks / deferred decisions (confirmed, not speculative)
+1. Historical `videos.archived_at IS NOT NULL` rows are not backfilled into `video_user_states` — deliberately deferred, not decided.
+2. `videos.archived_at` still physically exists on the `videos` table; not dropped.
+3. `getAssetArchiveContext.ts`'s two ungated video-provenance reads are unfixed (see above) — real, not hypothetical.
+4. `VideoDetail.tsx`'s current state was not independently file-verified in this documentation pass (see table above) — recommend re-upload for byte-level confirmation in a future session.
+5. Future Asset Analytics may need one Asset ↔ multiple Videos, each independently viewer-scoped — not built, not part of this migration.
 
 ---
 
@@ -731,7 +787,7 @@ Derived Asset/Campaign impact never forces Level 1 entry and never removes the P
 ### Provenance / “why is this archived?”
 
 - Do **not** add `archived_reason` / `archive_source_*` / `archive_level` / `archive_reason` columns on entity tables (including `videos`, `campaigns`, and `promotions`).
-- Source of truth remains: `campaigns.archived_at`, `videos.archived_at`, `asset_user_states`, `promotion_user_states`.
+- Source of truth: `campaigns.archived_at`, `video_user_states` (Video — migrated from `videos.archived_at`, see §8a), `asset_user_states`, `promotion_user_states`.
 - Central resolver (e.g. `getAssetArchiveContext` / shared archive context) is the single source for UI and Debug: personal/global state + list of derived impacts (type, sourceId, sourceName). Reasons are always read-time derived.
 - Do **not** create a second mutable impact table (avoids dual source of truth).
 - `archive_ui_visibility` answers only “Level 1 or Level 2 for this viewer?”; it never stores reasons.
@@ -778,7 +834,7 @@ PRIMARY KEY (entity_type, entity_id, user_id)
 
 | Concept | Source of Truth |
 |---------|-----------------|
-| True archive state | `campaigns.archived_at`, `videos.archived_at`, `asset_user_states.archived_at`, `promotion_user_states.archived_at` |
+| True archive state | `campaigns.archived_at`, `video_user_states.archived_at` (migrated from `videos.archived_at`, see §8a), `asset_user_states.archived_at`, `promotion_user_states.archived_at` |
 | Level 1 ↔ Level 2 UI position | `archive_ui_visibility` only |
 
 This table does **not** answer “is this item archived?”. It only answers “where does this viewer currently place an already-archived-condition item?”.
@@ -856,7 +912,7 @@ Cross-entity finalization (analytics multi-viewer, shared notification patterns,
 | Entity | Resolver (batch preferred) | `isArchived` meaning |
 |---|---|---|
 | Asset | `getAssetArchiveContextsForViewer` / `getAssetArchiveContext` | Personal + derived (Video/Campaign reasons merged) |
-| Video / Content | `getVideoArchiveContextsForViewer` / `getVideoArchiveContext` | Global `videos.archived_at` + Campaign-derived as defined by Video resolver |
+| Video / Content | `getVideoArchiveContextsForViewer` / `getVideoArchiveContext` | Personal `video_user_states` (migrated — see §8a) + Campaign-derived as defined by Video resolver |
 | Campaign | `getCampaignArchiveContextsForViewer` / `getCampaignArchiveContext` | Global `campaigns.archived_at` |
 | Promotion | `getPromotionArchiveContextsForViewer` / `getPromotionArchiveContext` | **Surface A only** — personal `promotion_user_states` |
 
@@ -925,10 +981,10 @@ Only files actually inspected in this investigation are listed. "Inspected" mean
 |---|---|---|---|---|---|
 | `pages/Campaigns.tsx` | Own local fetch/cache/archive handlers for Campaigns. Filters `is_system=false AND archived_at IS NULL` on fetch. Archive/restore write `campaigns.archived_at`. | Campaign | Full | Audit / Campaign | No — Campaign LOCKED |
 | `pages/CampaignDetail.tsx` | Restore + archived badge; saveCampaign; publish elements. No cascade. | Campaign | Full | Campaign | No — Campaign LOCKED |
-| `pages/Videos.tsx` | Video list, archive/restore handlers (global `archived_at`), own `videosPageCache`. Contains the confirmed unfiltered-campaign-dropdown picker bug. | Video, Campaign (picker bug) | Full | Audit / Video | Possibly — if picker-bug fix scope is revisited |
+| `pages/Videos.tsx` | Video list, archive/restore handlers (migrated to personal `video_user_states`, see §8a), own `videosPageCache` (key now includes `effectiveUserId`). Contains the confirmed unfiltered-campaign-dropdown picker bug. | Video, Campaign (picker bug) | Full — pre-migration version only; re-verify post-migration copy if inspected again | Audit / Video | Possibly — if picker-bug fix scope is revisited |
 | `pages/Assets.tsx` | In-page Asset list/picker, `archivedMap` construction via `getArchivedAssetIdsForUser`, own `assetsPageCache`. Correctly filters archived assets in its own picker. | Asset | Full | Audit / Asset | No — Asset LOCKED |
 | `pages/Marketplace.tsx` | Assignment + Promotion lists, two independent personal archive maps, own three page caches. | Assignment, Promotion | Full | Audit / Assignment | Possibly — Marketplace list filter for removed-collaborator historical Promotions |
-| `pages/VideoDetail.tsx` | Archive/restore write only `videos.archived_at`; library section gated on `added_to_library_at`; metrics, tracking links, edit modal. Full content inspected for Video lock. | Video | Full | Video | No — Video LOCKED |
+| `pages/VideoDetail.tsx` | Archive/restore reportedly migrated to personal `video_user_states` (see §8a) — **not independently file-verified**, product owner reported working; library section gated on `added_to_library_at`; metrics, tracking links, edit modal. | Video | Full — pre-migration version only; not re-inspected post-migration | Video | Possibly — re-upload to confirm migration |
 | `pages/PromotionDetail.tsx` | Personal archive badge + Restore; Sponsor-only Remove/Restore Collaborator, Revoke/Restore Access (asset + domain), Allow collaborator domains, Add Asset, Assign Tracking Domain. Full content inspected for Promotion lock. | Promotion | Full | Promotion | No — Promotion LOCKED |
 
 ### Services — Asset
@@ -1013,7 +1069,7 @@ All required Campaign files for locking were inspected. Remaining work is implem
 **Entity status**:
 - Assignment — **LOCKED** (mechanism); Level 1/Level 2 **explicitly DEFERRED** (product owner's call, not an open question)
 - Asset — **LOCKED** (mechanism + Level 1/Level 2)
-- Video — **LOCKED** (mechanism + Level 1/Level 2)
+- Video — **LOCKED** (mechanism + Level 1/Level 2); mechanism amended to Personal, see §8a
 - Campaign — **LOCKED** (mechanism + Level 1/Level 2)
 - Promotion — **LOCKED** (mechanism + Level 1/Level 2 + Archive Impact)
 

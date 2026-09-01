@@ -165,7 +165,27 @@ const SORT_SHORTCUTS: { label: string; key: string }[] = [
   { label: 'Opt-ins',       key: 'newsletter_thankyou' },
 ];
 
-const DEFAULT_VISIBLE = new Set<string>([...TABLE_COLUMNS, 'promotion']);
+const EXTRA_TABLE_COLUMNS: { key: string; label: string }[] = [
+  { key: 'type', label: 'Type' },
+  { key: 'promoting_content', label: 'Promoting Content' },
+  { key: 'content_owner', label: 'Content Owner' },
+  { key: 'asset_campaign', label: 'Asset Campaign' },
+  { key: 'content_campaign', label: 'Content Campaign' },
+  { key: 'asset_clicks', label: 'Asset Clicks' },
+];
+
+const NEW_DATE_COLUMNS: { key: string; label: string }[] = [
+  { key: 'asset_created_at', label: 'Asset Created At' },
+  { key: 'content_created_at', label: 'Content Created At' },
+];
+
+const DEFAULT_VISIBLE = new Set<string>([
+  ...TABLE_COLUMNS,
+  'promotion',
+  ...EXTRA_TABLE_COLUMNS.map(c => c.key),
+  // NEW_DATE_COLUMNS is NOT spread in here on purpose — that's what
+  // makes the 2 new date columns hidden by default.
+]);
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Local placeholder type — a promotion, only the fields this dropdown needs.
@@ -1845,17 +1865,20 @@ export default function AllAssetsAnalytics() {
                       </span>
                     </button>
                   ))}
-                  <button
-                    onClick={() => toggleColumn('promotion')}
-                    className="w-full flex items-center gap-3 px-2 py-2 rounded-lg hover:bg-zinc-800 text-left"
-                  >
-                    <div className={`w-4 h-4 rounded border flex items-center justify-center shrink-0 ${
-                      visibleColumns.has('promotion') ? 'bg-red-600 border-red-600' : 'border-zinc-700 bg-zinc-950'
-                    }`}>
-                      {visibleColumns.has('promotion') && <Check size={9} className="text-white" />}
-                    </div>
-                    <span className="text-[10px] font-bold text-zinc-300 truncate">Promotion</span>
-                  </button>
+                  {[...EXTRA_TABLE_COLUMNS, { key: 'promotion', label: 'Promotion' }, ...NEW_DATE_COLUMNS].map(col => (
+                    <button
+                      key={col.key}
+                      onClick={() => toggleColumn(col.key)}
+                      className="w-full flex items-center gap-3 px-2 py-2 rounded-lg hover:bg-zinc-800 text-left"
+                    >
+                      <div className={`w-4 h-4 rounded border flex items-center justify-center shrink-0 ${
+                        visibleColumns.has(col.key) ? 'bg-red-600 border-red-600' : 'border-zinc-700 bg-zinc-950'
+                      }`}>
+                        {visibleColumns.has(col.key) && <Check size={9} className="text-white" />}
+                      </div>
+                      <span className="text-[10px] font-bold text-zinc-300 truncate">{col.label}</span>
+                    </button>
+                  ))}
                 </div>
               </div>
 
@@ -1984,17 +2007,20 @@ export default function AllAssetsAnalytics() {
                       <p className="text-[8px] font-black uppercase tracking-widest text-zinc-600 mb-2 mt-4">
                         Table Columns
                       </p>
-                      <button
-                        onClick={() => toggleColumn('promotion')}
-                        className="w-full flex items-center gap-3 px-2 py-2 rounded-lg hover:bg-zinc-800 transition-colors text-left"
-                      >
-                        <div className={`w-4 h-4 rounded border flex items-center justify-center shrink-0 transition-all ${
-                          visibleColumns.has('promotion') ? 'bg-red-600 border-red-600' : 'border-zinc-700 bg-zinc-950'
-                        }`}>
-                          {visibleColumns.has('promotion') && <Check size={9} className="text-white" />}
-                        </div>
-                        <span className="text-[10px] font-bold text-zinc-300 truncate">Promotion</span>
-                      </button>
+                      {[...EXTRA_TABLE_COLUMNS, { key: 'promotion', label: 'Promotion' }, ...NEW_DATE_COLUMNS].map(col => (
+                        <button
+                          key={col.key}
+                          onClick={() => toggleColumn(col.key)}
+                          className="w-full flex items-center gap-3 px-2 py-2 rounded-lg hover:bg-zinc-800 transition-colors text-left"
+                        >
+                          <div className={`w-4 h-4 rounded border flex items-center justify-center shrink-0 transition-all ${
+                            visibleColumns.has(col.key) ? 'bg-red-600 border-red-600' : 'border-zinc-700 bg-zinc-950'
+                          }`}>
+                            {visibleColumns.has(col.key) && <Check size={9} className="text-white" />}
+                          </div>
+                          <span className="text-[10px] font-bold text-zinc-300 truncate">{col.label}</span>
+                        </button>
+                      ))}
                     </div>
                   </div>
                 )}
@@ -2239,20 +2265,40 @@ export default function AllAssetsAnalytics() {
                     </div>
                   </th>
 
+                  {/* ── Asset Created At — hidden by default, toggled via Columns ── */}
+                  {visibleColumns.has('asset_created_at') && (
+                    <th className="px-6 py-5 text-left text-[10px] font-black uppercase tracking-widest text-zinc-600 border-b border-zinc-900 bg-zinc-950 min-w-[140px]">
+                      Asset Created At
+                    </th>
+                  )}
+
                   {/* ── Asset type badge column ────────────────────────────── */}
-                  <th className="px-6 py-5 text-left text-[10px] font-black uppercase tracking-widest text-zinc-600 border-b border-zinc-900 bg-zinc-950 min-w-[140px]">
-                    Type
-                  </th>
+                  {visibleColumns.has('type') && (
+                    <th className="px-6 py-5 text-left text-[10px] font-black uppercase tracking-widest text-zinc-600 border-b border-zinc-900 bg-zinc-950 min-w-[140px]">
+                      Type
+                    </th>
+                  )}
 
                   {/* ── Content column — the promoting video ──────────────── */}
-                  <th className="px-6 py-5 text-left text-[10px] font-black uppercase tracking-widest text-zinc-600 border-b border-zinc-900 bg-zinc-950 min-w-[260px]">
-                    Promoting Content
-                  </th>
+                  {visibleColumns.has('promoting_content') && (
+                    <th className="px-6 py-5 text-left text-[10px] font-black uppercase tracking-widest text-zinc-600 border-b border-zinc-900 bg-zinc-950 min-w-[260px]">
+                      Promoting Content
+                    </th>
+                  )}
+
+                  {/* ── Content Created At — hidden by default, toggled via Columns ── */}
+                  {visibleColumns.has('content_created_at') && (
+                    <th className="px-6 py-5 text-left text-[10px] font-black uppercase tracking-widest text-zinc-600 border-b border-zinc-900 bg-zinc-950 min-w-[140px]">
+                      Content Created At
+                    </th>
+                  )}
 
                   {/* ── Content Owner column — owner of the promoting video ── */}
-                  <th className="px-6 py-5 text-left text-[10px] font-black uppercase tracking-widest text-zinc-600 border-b border-zinc-900 bg-zinc-950 min-w-[160px]">
-                    Content Owner
-                  </th>
+                  {visibleColumns.has('content_owner') && (
+                    <th className="px-6 py-5 text-left text-[10px] font-black uppercase tracking-widest text-zinc-600 border-b border-zinc-900 bg-zinc-950 min-w-[160px]">
+                      Content Owner
+                    </th>
+                  )}
 
                   {/* ── Promotion column — hidden by default. Uses
                       row.promotion_id exactly as getAssetAnalyticsRows
@@ -2268,32 +2314,37 @@ export default function AllAssetsAnalytics() {
                     </th>
                   )}
 
-                  <th className="px-6 py-5 text-left text-[10px] font-black uppercase tracking-widest text-zinc-600 border-b border-zinc-900 bg-zinc-950 w-[260px] min-w-[260px] max-w-[260px]">
-                    <span className="truncate block">Asset Campaign</span>
-                  </th>
+                  {visibleColumns.has('asset_campaign') && (
+                    <th className="px-6 py-5 text-left text-[10px] font-black uppercase tracking-widest text-zinc-600 border-b border-zinc-900 bg-zinc-950 w-[260px] min-w-[260px] max-w-[260px]">
+                      <span className="truncate block">Asset Campaign</span>
+                    </th>
+                  )}
 
-                  <th className="px-6 py-5 text-left text-[10px] font-black uppercase tracking-widest text-zinc-600 border-b border-zinc-900 bg-zinc-950 w-[260px] min-w-[260px] max-w-[260px]">
-                    <span className="truncate block">Content Campaign</span>
-                  </th>
-
+                  {visibleColumns.has('content_campaign') && (
+                    <th className="px-6 py-5 text-left text-[10px] font-black uppercase tracking-widest text-zinc-600 border-b border-zinc-900 bg-zinc-950 w-[260px] min-w-[260px] max-w-[260px]">
+                      <span className="truncate block">Content Campaign</span>
+                    </th>
+                  )}
 
                   {/* ── Asset Clicks — now sortable via the existing
                       handleSort/sortConfig mechanism (row.asset_clicks,
                       special-cased in sortedRows since it isn't a
                       MetricType key). Definition itself is unchanged —
                       see ASSET_ANALYTICS_DESIGN.md. ─────────────────────── */}
-                  <th
-                    onClick={() => handleSort('asset_clicks')}
-                    className="px-6 py-5 text-left text-[10px] font-black uppercase tracking-widest text-zinc-600 border-b border-zinc-900 bg-zinc-950 min-w-[110px] cursor-pointer hover:text-zinc-300 transition-colors"
-                  >
-                    <div className="flex items-center gap-1.5">
-                      Asset Clicks
-                      <ArrowUpDown
-                        size={10}
-                        className={sortConfig.key === 'asset_clicks' ? 'text-white' : 'text-zinc-700'}
-                      />
-                    </div>
-                  </th>
+                  {visibleColumns.has('asset_clicks') && (
+                    <th
+                      onClick={() => handleSort('asset_clicks')}
+                      className="px-6 py-5 text-left text-[10px] font-black uppercase tracking-widest text-zinc-600 border-b border-zinc-900 bg-zinc-950 min-w-[110px] cursor-pointer hover:text-zinc-300 transition-colors"
+                    >
+                      <div className="flex items-center gap-1.5">
+                        Asset Clicks
+                        <ArrowUpDown
+                          size={10}
+                          className={sortConfig.key === 'asset_clicks' ? 'text-white' : 'text-zinc-700'}
+                        />
+                      </div>
+                    </th>
+                  )}
 
                   {/* ── Total Revenue ($) — presentation duplicate of the
                       existing engine total_revenue column, pulled forward
@@ -2431,57 +2482,77 @@ export default function AllAssetsAnalytics() {
                       )}
                     </td>
 
+                    {/* ── Asset Created At cell — hidden by default ───────── */}
+                    {visibleColumns.has('asset_created_at') && (
+                      <td className="px-6 py-4 whitespace-nowrap text-sm font-bold text-zinc-400">
+                        {row.asset.created_at ? new Date(row.asset.created_at).toLocaleDateString() : '—'}
+                      </td>
+                    )}
+
                     {/* ── Asset type badge cell ───────────────────────────── */}
-                    <td className="px-6 py-4 whitespace-nowrap">
-                      <span
-                        className={`inline-flex items-center px-2 py-1 rounded-full border text-[8px] font-black uppercase tracking-widest ${ASSET_TYPE_COLORS[row.asset.asset_type]}`}
-                      >
-                        {ASSET_TYPE_LABELS[row.asset.asset_type]}
-                      </span>
-                    </td>
+                    {visibleColumns.has('type') && (
+                      <td className="px-6 py-4 whitespace-nowrap">
+                        <span
+                          className={`inline-flex items-center px-2 py-1 rounded-full border text-[8px] font-black uppercase tracking-widest ${ASSET_TYPE_COLORS[row.asset.asset_type]}`}
+                        >
+                          {ASSET_TYPE_LABELS[row.asset.asset_type]}
+                        </span>
+                      </td>
+                    )}
 
                     {/* ── Content cell — the promoting video ──────────────── */}
-                    <td className="px-6 py-4 whitespace-nowrap">
-                      <div
-                        className="flex items-center gap-3 cursor-pointer"
-                        onClick={() => navigate(`/videos/${row.promoting_video.id}`)}
-                      >
-                        <img
-                          src={row.promoting_video.thumbnail_url}
-                          className="w-16 h-9 object-cover rounded-lg border border-zinc-800 shrink-0"
-                          alt=""
-                          onError={e => {
-                            const t = e.currentTarget;
-                            t.onerror = null;
-                            t.src = `https://placehold.co/64x36/18181b/52525b?text=${encodeURIComponent(
-                              (row.promoting_video.platform ?? 'post').toUpperCase(),
-                            )}`;
-                          }}
-                        />
-                        <div className="max-w-[190px] min-w-0">
-                          <div className="text-xs font-bold truncate leading-snug">
-                            {row.promoting_video.title ?? 'Untitled video'}
-                          </div>
-                          <div className="text-[9px] text-zinc-600 font-bold uppercase tracking-widest mt-0.5 truncate flex items-center gap-1.5">
-                            <span>{row.promoting_video.platform ?? 'Content'}</span>
-                            {row.videoArchive.isArchived && (
-                              <span
-                                title="Content archived"
-                                className="shrink-0 inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full bg-zinc-500/10 border border-zinc-500/30 text-[8px] font-black uppercase tracking-widest text-zinc-400"
-                              >
-                                <span className="w-1 h-1 rounded-full bg-zinc-400" />
-                                Archived
-                              </span>
-                            )}
+                    {visibleColumns.has('promoting_content') && (
+                      <td className="px-6 py-4 whitespace-nowrap">
+                        <div
+                          className="flex items-center gap-3 cursor-pointer"
+                          onClick={() => navigate(`/videos/${row.promoting_video.id}`)}
+                        >
+                          <img
+                            src={row.promoting_video.thumbnail_url}
+                            className="w-16 h-9 object-cover rounded-lg border border-zinc-800 shrink-0"
+                            alt=""
+                            onError={e => {
+                              const t = e.currentTarget;
+                              t.onerror = null;
+                              t.src = `https://placehold.co/64x36/18181b/52525b?text=${encodeURIComponent(
+                                (row.promoting_video.platform ?? 'post').toUpperCase(),
+                              )}`;
+                            }}
+                          />
+                          <div className="max-w-[190px] min-w-0">
+                            <div className="text-xs font-bold truncate leading-snug">
+                              {row.promoting_video.title ?? 'Untitled video'}
+                            </div>
+                            <div className="text-[9px] text-zinc-600 font-bold uppercase tracking-widest mt-0.5 truncate flex items-center gap-1.5">
+                              <span>{row.promoting_video.platform ?? 'Content'}</span>
+                              {row.videoArchive.isArchived && (
+                                <span
+                                  title="Content archived"
+                                  className="shrink-0 inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full bg-zinc-500/10 border border-zinc-500/30 text-[8px] font-black uppercase tracking-widest text-zinc-400"
+                                >
+                                  <span className="w-1 h-1 rounded-full bg-zinc-400" />
+                                  Archived
+                                </span>
+                              )}
+                            </div>
                           </div>
                         </div>
-                      </div>
-                    </td>
+                      </td>
+                    )}
+
+                    {/* ── Content Created At cell — hidden by default ─────── */}
+                    {visibleColumns.has('content_created_at') && (
+                      <td className="px-6 py-4 whitespace-nowrap text-sm font-bold text-zinc-400">
+                        {row.promoting_video.created_at ? new Date(row.promoting_video.created_at).toLocaleDateString() : '—'}
+                      </td>
+                    )}
 
                     {/* ── Content Owner cell ──────────────────────────────── */}
-                    <td className="px-6 py-4 whitespace-nowrap text-sm font-bold text-zinc-400">
-                      {row.promoting_video.content_owner_name ?? '—'}
-                    </td>
+                    {visibleColumns.has('content_owner') && (
+                      <td className="px-6 py-4 whitespace-nowrap text-sm font-bold text-zinc-400">
+                        {row.promoting_video.content_owner_name ?? '—'}
+                      </td>
+                    )}
 
                     {visibleColumns.has('promotion') && (() => {
                       // Real promotion name stays plain text (unchanged).
@@ -2538,45 +2609,51 @@ export default function AllAssetsAnalytics() {
                       );
                     })()}
 
-                    <td className="px-6 py-4 whitespace-nowrap text-sm font-bold text-zinc-400 w-[260px] max-w-[260px]">
-                      <div className="flex items-center gap-1.5 min-w-0">
-                        <span className="truncate block">
-                          {row.campaign_id
-                            ? campaignNameById.get(row.campaign_id)
-                              ?? (campaignOwnerLabelById.get(row.campaign_id)
-                                    ? `🔒 ${campaignOwnerLabelById.get(row.campaign_id)}'s Campaign`
-                                    : '—')
-                            : 'No Campaign'}
-                        </span>
-                        {row.campaignArchive.isArchived && (
-                          <span
-                            title="Campaign archived"
-                            className="shrink-0 inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full bg-zinc-500/10 border border-zinc-500/30 text-[8px] font-black uppercase tracking-widest text-zinc-400"
-                          >
-                            <span className="w-1 h-1 rounded-full bg-zinc-400" />
-                            Archived
+                    {visibleColumns.has('asset_campaign') && (
+                      <td className="px-6 py-4 whitespace-nowrap text-sm font-bold text-zinc-400 w-[260px] max-w-[260px]">
+                        <div className="flex items-center gap-1.5 min-w-0">
+                          <span className="truncate block">
+                            {row.campaign_id
+                              ? campaignNameById.get(row.campaign_id)
+                                ?? (campaignOwnerLabelById.get(row.campaign_id)
+                                      ? `🔒 ${campaignOwnerLabelById.get(row.campaign_id)}'s Campaign`
+                                      : '—')
+                              : 'No Campaign'}
                           </span>
-                        )}
-                      </div>
-                    </td>
+                          {row.campaignArchive.isArchived && (
+                            <span
+                              title="Campaign archived"
+                              className="shrink-0 inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full bg-zinc-500/10 border border-zinc-500/30 text-[8px] font-black uppercase tracking-widest text-zinc-400"
+                            >
+                              <span className="w-1 h-1 rounded-full bg-zinc-400" />
+                              Archived
+                            </span>
+                          )}
+                        </div>
+                      </td>
+                    )}
 
-                    <td className="px-6 py-4 whitespace-nowrap text-sm font-bold text-zinc-400 w-[260px] max-w-[260px]">
-                      <div className="flex items-center gap-1.5 min-w-0">
-                        <span className="truncate block">
-                          {row.promoting_video.content_campaign_id
-                            ? campaignNameById.get(row.promoting_video.content_campaign_id)
-                              ?? (campaignOwnerLabelById.get(row.promoting_video.content_campaign_id)
-                                    ? `🔒 ${campaignOwnerLabelById.get(row.promoting_video.content_campaign_id)}'s Campaign`
-                                    : 'No Campaign')
-                            : 'No Campaign'}
-                        </span>
-                      </div>
-                    </td>
+                    {visibleColumns.has('content_campaign') && (
+                      <td className="px-6 py-4 whitespace-nowrap text-sm font-bold text-zinc-400 w-[260px] max-w-[260px]">
+                        <div className="flex items-center gap-1.5 min-w-0">
+                          <span className="truncate block">
+                            {row.promoting_video.content_campaign_id
+                              ? campaignNameById.get(row.promoting_video.content_campaign_id)
+                                ?? (campaignOwnerLabelById.get(row.promoting_video.content_campaign_id)
+                                      ? `🔒 ${campaignOwnerLabelById.get(row.promoting_video.content_campaign_id)}'s Campaign`
+                                      : 'No Campaign')
+                              : 'No Campaign'}
+                          </span>
+                        </div>
+                      </td>
+                    )}
 
                     {/* ── Asset Clicks cell ───────────────────────────────── */}
-                    <td className="px-6 py-4 whitespace-nowrap text-sm font-bold text-zinc-400 tabular-nums">
-                      {row.asset_clicks ?? '—'}
-                    </td>
+                    {visibleColumns.has('asset_clicks') && (
+                      <td className="px-6 py-4 whitespace-nowrap text-sm font-bold text-zinc-400 tabular-nums">
+                        {row.asset_clicks ?? '—'}
+                      </td>
+                    )}
 
                     {/* ── Total Revenue ($) — duplicate presentation cell,
                         same value as the engine total_revenue column below. */}
