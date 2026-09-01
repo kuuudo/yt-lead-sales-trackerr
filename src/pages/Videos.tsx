@@ -900,7 +900,7 @@ const hasBlockingPromotionIssue = Array.from(promotionContextByAssetId.entries()
 
   useEffect(() => {
     if (user && effectiveOrgId) {
-      const cached = videosPageCache.get(effectiveOrgId);
+      const cached = videosPageCache.get(`${effectiveOrgId}:${effectiveUserId}`);
       if (cached) {
         console.log('[Videos] Cache hit', new Date(cached.cachedAt).toLocaleTimeString());
         setVideos(cached.data.videos);
@@ -1001,7 +1001,7 @@ const hasBlockingPromotionIssue = Array.from(promotionContextByAssetId.entries()
           setArchiveContextMap(newArchiveContextMap);
 
           if (effectiveOrgId) {
-            videosPageCache.set(effectiveOrgId, { videos: vData || [], campaigns: cData, allLeadMagnets: lmData || [], archiveContextMap: newArchiveContextMap });
+            videosPageCache.set(`${effectiveOrgId}:${effectiveUserId}`, { videos: vData || [], campaigns: cData, allLeadMagnets: lmData || [], archiveContextMap: newArchiveContextMap });
             console.log('[Videos] Cache updated');
           }
         } else if (effectiveOrgId) {
@@ -1016,7 +1016,7 @@ const hasBlockingPromotionIssue = Array.from(promotionContextByAssetId.entries()
             effectiveUserId || ''
           );
           setArchiveContextMap(newArchiveContextMap);
-          videosPageCache.set(effectiveOrgId, { videos: vData || [], campaigns: cData, allLeadMagnets: [], archiveContextMap: newArchiveContextMap });
+          videosPageCache.set(`${effectiveOrgId}:${effectiveUserId}`, { videos: vData || [], campaigns: cData, allLeadMagnets: [], archiveContextMap: newArchiveContextMap });
           console.log('[Videos] Cache updated');
         }
       }
@@ -1282,9 +1282,11 @@ console.log(
         setArchivingVideoId(v.id);
         try {
           const { error } = await supabase
-            .from('videos')
-            .update({ archived_at: new Date().toISOString() })
-            .eq('id', v.id);
+            .from('video_user_states')
+            .upsert(
+              { video_id: v.id, user_id: effectiveUserId!, archived_at: new Date().toISOString() },
+              { onConflict: 'video_id,user_id' }
+            );
           if (error) throw error;
           // Phase 2 (Video Archive): keep the video in `videos` state (it
           // still belongs to the org) — just update its archived_at so the
@@ -1353,9 +1355,11 @@ console.log(
     if (isReadOnly) return;
     try {
       const { error } = await supabase
-        .from('videos')
-        .update({ archived_at: null })
-        .eq('id', videoId);
+        .from('video_user_states')
+        .upsert(
+          { video_id: videoId, user_id: effectiveUserId!, archived_at: null },
+          { onConflict: 'video_id,user_id' }
+        );
       if (error) throw error;
       setVideos(prev => prev.map(v => v.id === videoId ? { ...v, archived_at: null } as Video : v));
       setArchiveContextMap(prev => {
