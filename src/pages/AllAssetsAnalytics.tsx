@@ -701,9 +701,12 @@ function useCampaignOwnerLabels(
       if (cancelled) return;
       const next = new Map<string, string>();
       for (const c of campaignRows ?? []) {
-        const profile = c.user_id ? profileByUserId.get(c.user_id) : null;
-        const name = profile?.full_name?.trim() || profile?.email || null;
-        if (name) next.set(c.id, name);
+        // Other people's campaigns: always register an owner label so display
+        // never falls through to unresolvedCampaignNameById (real name leak).
+        if (!c.user_id) continue;
+        const profile = profileByUserId.get(c.user_id);
+        const name = profile?.full_name?.trim() || profile?.email || 'Someone';
+        next.set(c.id, name);
       }
       setLabels(next);
     })();
@@ -756,7 +759,11 @@ function useUnresolvedCampaignNames(
       if (cancelled) return;
       const next = new Map<string, string>();
       for (const c of (data ?? []) as any[]) {
-        if (c.campaign_name) next.set(c.id, c.campaign_name);
+        // Privacy: only surface real names for system / ownerless campaigns.
+        // Other people's campaigns must use campaignOwnerLabelById (🔒).
+        if (c.campaign_name && (c.is_system || c.user_id == null)) {
+          next.set(c.id, c.campaign_name);
+        }
       }
       setNames(next);
     })();
@@ -868,7 +875,103 @@ function useAssetCampaignFilterOptions(
   }, [meta, ownerNames, viewerId, rows]);
 }
 
- function usePromotionOptions(rows: AssetAnalyticsRow[]): PromotionOption[] {
+/**
+ * Content Campaign filter options — independent of Asset Campaign.
+ * Built ONLY from promoting_video.content_campaign_id present on rows.
+ * Same grouping shape as Asset Campaign (my / other owners / system).
+ * No campaign-free section (that is Asset-only).
+ */
+function useContentCampaignFilterOptions(
+  rows: AssetAnalyticsRow[],
+  viewerId: string | null,
+): AssetCampaignFilterOptions {
+  const [meta, setMeta] = useState<Map<string, { campaign_name: string; is_system: boolean; user_id: string | null; isArchived: boolean }>>(new Map());
+  const [ownerNames, setOwnerNames] = useState<Map<string, string>>(new Map());
+
+  const presentCampaignIds = useMemo(() => {
+    const seen = new Set<string>();
+    rows.forEach(r => {
+      const id = r.promoting_video.content_campaign_id;
+      if (id) seen.add(id);
+    });
+    return Array.from(seen);
+  }, [rows]);
+
+  useEffect(() => {
+    if (presentCampaignIds.length === 0) { setMeta(new Map()); return; }
+    let cancelled = false;
+    (async () => {
+      const { data } = await supabase
+        .from('campaigns')
+        .select('id, campaign_name, is_system, user_id, archived_at')
+        .in('id', presentCampaignIds);
+      if (cancelled) return;
+      const next = new Map<string, { campaign_name: string; is_system: boolean; user_id: string | null; isArchived: boolean }>();
+      for (const c of (data ?? []) as any[]) {
+        next.set(c.id, {
+          campaign_name: c.campaign_name,
+          is_system: !!c.is_system,
+          user_id: c.user_id ?? null,
+          isArchived: !!(c.archived_at),
+        });
+      }
+      setMeta(next);
+    })();
+    return () => { cancelled = true; };
+  }, [presentCampaignIds.join(',')]);
+
+  const otherOwnerIds = useMemo(() => {
+    const seen = new Set<string>();
+    meta.forEach(c => { if (!c.is_system && c.user_id && c.user_id !== viewerId) seen.add(c.user_id); });
+    return Array.from(seen);
+  }, [meta, viewerId]);
+
+  useEffect(() => {
+    if (otherOwnerIds.length === 0) { setOwnerNames(new Map()); return; }
+    let cancelled = false;
+    (async () => {
+      const { data } = await supabase.from('profiles').select('id, email, full_name').in('id', otherOwnerIds);
+      if (cancelled) return;
+      const next = new Map<string, string>();
+      for (const p of (data ?? []) as any[]) {
+        next.set(p.id, p.full_name?.trim() || p.email || 'Someone');
+      }
+      setOwnerNames(next);
+    })();
+    return () => { cancelled = true; };
+  }, [otherOwnerIds.join(',')]);
+
+  return useMemo(() => {
+    const myCampaigns: AssetCampaignFilterOptions['myCampaigns'] = [];
+    const systemCampaigns: AssetCampaignFilterOptions['systemCampaigns'] = [];
+    const ownerGroups = new Map<string, { ownerId: string; displayName: string; campaignIds: string[] }>();
+
+    meta.forEach((c, id) => {
+      if (c.is_system || !c.user_id) {
+        systemCampaigns.push({ id, name: c.campaign_name });
+        return;
+      }
+      if (c.user_id === viewerId) {
+        myCampaigns.push({ id, name: c.campaign_name, isArchived: c.isArchived });
+        return;
+      }
+      const displayName = ownerNames.get(c.user_id);
+      if (!displayName) return;
+      const existing = ownerGroups.get(c.user_id);
+      if (existing) existing.campaignIds.push(id);
+      else ownerGroups.set(c.user_id, { ownerId: c.user_id, displayName, campaignIds: [id] });
+    });
+
+    return {
+      myCampaigns: myCampaigns.sort((a, b) => a.name.localeCompare(b.name)),
+      otherOwners: Array.from(ownerGroups.values()).sort((a, b) => a.displayName.localeCompare(b.displayName)),
+      systemCampaigns,
+      hasCampaignFreeResources: false,
+    };
+  }, [meta, ownerNames, viewerId]);
+}
+
+function usePromotionOptions(rows: AssetAnalyticsRow[]): PromotionOption[] {
   // Ownership boundary intentionally NOT decided here — see
   // ASSET_ANALYTICS_DESIGN 3.md §3 "Ownership". Rather than guess a scope
   // (organization_id alone is explicitly flagged there as wrong for
@@ -1031,6 +1134,38 @@ export default function AllAssetsAnalytics() {
   }, []);
   const selectedAssetCampaignLabel =
     selectedAssetCampaignFilters.length === 0 ? 'All Asset Campaigns' : `${selectedAssetCampaignFilters.length} Selected`;
+
+  // ── Content Campaign filter — NEW, independent of Asset Campaign / Campaign.
+  // Source of truth: promoting_video.content_campaign_id only.
+  const contentCampaignFilterOptions = useContentCampaignFilterOptions(rows, effectiveViewerId);
+  const [selectedContentCampaignFilters, setSelectedContentCampaignFilters] = useState<AssetCampaignSelection[]>([]);
+  const contentCampaignSelectionKey = (s: AssetCampaignSelection) =>
+    s.type === 'campaign' ? `campaign:${s.id}` : s.type === 'owner' ? `owner:${s.ownerId}` : s.type;
+  const isContentCampaignSelected = (s: AssetCampaignSelection) => {
+    const key = contentCampaignSelectionKey(s);
+    return selectedContentCampaignFilters.some(x => contentCampaignSelectionKey(x) === key);
+  };
+  const toggleContentCampaignSelection = (s: AssetCampaignSelection) => {
+    const key = contentCampaignSelectionKey(s);
+    setSelectedContentCampaignFilters(prev =>
+      prev.some(x => contentCampaignSelectionKey(x) === key)
+        ? prev.filter(x => contentCampaignSelectionKey(x) !== key)
+        : [...prev, s],
+    );
+  };
+  const [contentCampaignPanelOpen, setContentCampaignPanelOpen] = useState(false);
+  const contentCampaignPanelRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    const handler = (e: MouseEvent) => {
+      if (contentCampaignPanelRef.current && !contentCampaignPanelRef.current.contains(e.target as Node)) {
+        setContentCampaignPanelOpen(false);
+      }
+    };
+    document.addEventListener('mousedown', handler);
+    return () => document.removeEventListener('mousedown', handler);
+  }, []);
+  const selectedContentCampaignLabel =
+    selectedContentCampaignFilters.length === 0 ? 'All Content Campaigns' : `${selectedContentCampaignFilters.length} Selected`;
 
    const promotions = usePromotionOptions(rows);
   const promotionNameById = useMemo(
@@ -1215,10 +1350,32 @@ export default function AllAssetsAnalytics() {
     });
   }, [contentOwnerFilteredRows, selectedAssetCampaignFilters, assetCampaignFilterOptions]);
 
+  // ── Content Campaign filter — OR multi-select on promoting_video.content_campaign_id
+  const contentCampaignFilteredRows = useMemo(() => {
+    if (selectedContentCampaignFilters.length === 0) return assetCampaignFilteredRows;
+
+    const wantAll = selectedContentCampaignFilters.some(s => s.type === 'all');
+    const wantedCampaignIds = new Set<string>();
+    selectedContentCampaignFilters.forEach(s => {
+      if (s.type === 'campaign') wantedCampaignIds.add(s.id);
+      if (s.type === 'owner') {
+        contentCampaignFilterOptions.otherOwners
+          .find(o => o.ownerId === s.ownerId)
+          ?.campaignIds.forEach(id => wantedCampaignIds.add(id));
+      }
+    });
+
+    return assetCampaignFilteredRows.filter(row => {
+      const cid = row.promoting_video.content_campaign_id;
+      if (wantAll) return cid != null;
+      return !!cid && wantedCampaignIds.has(cid);
+    });
+  }, [assetCampaignFilteredRows, selectedContentCampaignFilters, contentCampaignFilterOptions]);
+
    const archiveFilteredRows = useMemo(
      () =>
        applyAnalyticsArchiveFilters(
-        assetCampaignFilteredRows,
+        contentCampaignFilteredRows,
         (row) => ({
           assetArchived: row.archive.isArchived,
           videoArchived: row.videoArchive.isArchived,
@@ -1233,7 +1390,7 @@ export default function AllAssetsAnalytics() {
         },
       ),
     [
-      assetCampaignFilteredRows,
+      contentCampaignFilteredRows,
        hideArchivedAsset,
        hideArchivedVideo,
        hideArchivedCampaign,
@@ -1510,6 +1667,95 @@ export default function AllAssetsAnalytics() {
                           className="w-full flex items-center gap-2 text-left px-4 py-2 text-[10px] font-bold text-zinc-300 hover:bg-zinc-800 transition-colors truncate"
                         >
                           {isAssetCampaignSelected({ type: 'campaign', id: c.id })
+                            ? <Check size={11} className="shrink-0 text-red-500" />
+                            : <span className="w-[11px] shrink-0" />}
+                          {c.name}
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
+          </div>
+
+          {/* Content Campaign — independent of Asset Campaign / Campaign.
+              Source: promoting_video.content_campaign_id. Owner-group privacy. */}
+          <div>
+            <label className="text-[10px] font-black uppercase tracking-widest text-zinc-500 mb-3 block">
+              Content Campaign
+            </label>
+            <div className="relative" ref={contentCampaignPanelRef}>
+              <button
+                onClick={() => setContentCampaignPanelOpen(o => !o)}
+                className={`w-full flex items-center justify-between gap-2 px-4 py-2.5 rounded-xl border text-[10px] font-bold uppercase tracking-widest transition-all truncate ${
+                  contentCampaignPanelOpen
+                    ? 'bg-zinc-800 border-zinc-700 text-white'
+                    : 'bg-zinc-900 border-zinc-800 text-zinc-400 hover:text-white'
+                }`}
+              >
+                <span className="truncate">{selectedContentCampaignLabel}</span>
+                <ChevronDown size={11} className={`shrink-0 transition-transform ${contentCampaignPanelOpen ? 'rotate-180' : ''}`} />
+              </button>
+              {contentCampaignPanelOpen && (
+                <div className="absolute left-0 right-0 top-full mt-2 max-h-72 overflow-y-auto bg-zinc-900 border border-zinc-800 rounded-2xl shadow-2xl z-50">
+                  <div className="py-2 border-b border-zinc-800">
+                    <button
+                      onClick={() => setSelectedContentCampaignFilters([])}
+                      className="w-full flex items-center gap-2 text-left px-4 py-2 text-[10px] font-bold text-zinc-300 hover:bg-zinc-800 transition-colors"
+                    >
+                      {selectedContentCampaignFilters.length === 0
+                        ? <Check size={11} className="shrink-0 text-red-500" />
+                        : <span className="w-[11px] shrink-0" />}
+                      All Content Campaigns
+                    </button>
+                  </div>
+                  {contentCampaignFilterOptions.myCampaigns.length > 0 && (
+                    <div className="py-2 border-b border-zinc-800">
+                      <div className="px-4 pb-1 text-[8px] font-black uppercase tracking-widest text-zinc-600">My Campaigns</div>
+                      {contentCampaignFilterOptions.myCampaigns.map(c => (
+                        <button
+                          key={c.id}
+                          onClick={() => toggleContentCampaignSelection({ type: 'campaign', id: c.id })}
+                          className="w-full flex items-center gap-2 text-left px-4 py-2 text-[10px] font-bold text-zinc-300 hover:bg-zinc-800 transition-colors truncate"
+                        >
+                          {isContentCampaignSelected({ type: 'campaign', id: c.id })
+                            ? <Check size={11} className="shrink-0 text-red-500" />
+                            : <span className="w-[11px] shrink-0" />}
+                          {c.isArchived ? `${c.name} · Archived` : c.name}
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                  {contentCampaignFilterOptions.otherOwners.length > 0 && (
+                    <div className="py-2 border-b border-zinc-800">
+                      <div className="px-4 pb-1 text-[8px] font-black uppercase tracking-widest text-zinc-600">
+                        Other People's Campaigns
+                      </div>
+                      {contentCampaignFilterOptions.otherOwners.map(o => (
+                        <button
+                          key={o.ownerId}
+                          onClick={() => toggleContentCampaignSelection({ type: 'owner', ownerId: o.ownerId })}
+                          className="w-full flex items-center gap-2 text-left px-4 py-2 text-[10px] font-bold text-zinc-300 hover:bg-zinc-800 transition-colors truncate"
+                        >
+                          {isContentCampaignSelected({ type: 'owner', ownerId: o.ownerId })
+                            ? <Check size={11} className="shrink-0 text-red-500" />
+                            : <span className="w-[11px] shrink-0" />}
+                          {`🔒 ${o.displayName}'s Campaign`}
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                  {contentCampaignFilterOptions.systemCampaigns.length > 0 && (
+                    <div className="py-2">
+                      <div className="px-4 pb-1 text-[8px] font-black uppercase tracking-widest text-zinc-600">System / Promotion-only</div>
+                      {contentCampaignFilterOptions.systemCampaigns.map(c => (
+                        <button
+                          key={c.id}
+                          onClick={() => toggleContentCampaignSelection({ type: 'campaign', id: c.id })}
+                          className="w-full flex items-center gap-2 text-left px-4 py-2 text-[10px] font-bold text-zinc-300 hover:bg-zinc-800 transition-colors truncate"
+                        >
+                          {isContentCampaignSelected({ type: 'campaign', id: c.id })
                             ? <Check size={11} className="shrink-0 text-red-500" />
                             : <span className="w-[11px] shrink-0" />}
                           {c.name}
@@ -1954,6 +2200,176 @@ export default function AllAssetsAnalytics() {
                     </button>
                   ))}
                 </div>
+              </div>
+
+
+              {/* Content Campaign — mobile, independent of Asset Campaign */}
+              <div>
+                <label className="text-[10px] font-black uppercase tracking-widest text-zinc-500 mb-3 block">
+                  Content Campaign {selectedContentCampaignFilters.length > 0 && `(${selectedContentCampaignFilters.length})`}
+                </label>
+                <div className="flex items-center gap-2 flex-wrap">
+                  <button
+                    onClick={() => setSelectedContentCampaignFilters([])}
+                    className={`px-3 py-1.5 rounded-lg text-[9px] font-black uppercase tracking-widest transition-all flex items-center gap-1.5 ${
+                      selectedContentCampaignFilters.length === 0 ? 'bg-red-600 text-white' : 'bg-zinc-900 border border-zinc-800 text-zinc-500 hover:text-white'
+                    }`}
+                  >
+                    {selectedContentCampaignFilters.length === 0 && <Check size={10} />}
+                    All Content Campaigns
+                  </button>
+                  {selectedContentCampaignFilters.length > 0 && (
+                    <button
+                      onClick={() => setSelectedContentCampaignFilters([])}
+                      className="px-3 py-1.5 rounded-lg text-[10px] font-black uppercase tracking-widest text-zinc-500 hover:text-white"
+                    >
+                      Clear
+                    </button>
+                  )}
+                </div>
+
+                {contentCampaignFilterOptions.myCampaigns.length > 0 && (
+                  <div className="mt-2">
+                    <div className="text-[8px] font-black uppercase tracking-widest text-zinc-600 mb-1">My Campaigns</div>
+                    <div className="flex items-center gap-2 flex-wrap">
+                      {contentCampaignFilterOptions.myCampaigns.map(c => (
+                        <button
+                          key={c.id}
+                          onClick={() => toggleContentCampaignSelection({ type: 'campaign', id: c.id })}
+                          className={`px-3 py-1.5 rounded-lg text-[9px] font-black uppercase tracking-widest transition-all truncate max-w-[160px] flex items-center gap-1.5 ${
+                            isContentCampaignSelected({ type: 'campaign', id: c.id }) ? 'bg-red-600 text-white' : 'bg-zinc-900 border border-zinc-800 text-zinc-500 hover:text-white'
+                          }`}
+                        >
+                          {isContentCampaignSelected({ type: 'campaign', id: c.id }) && <Check size={10} />}
+                          {c.isArchived ? `${c.name} · Archived` : c.name}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                {contentCampaignFilterOptions.otherOwners.length > 0 && (
+                  <div className="mt-2">
+                    <div className="text-[8px] font-black uppercase tracking-widest text-zinc-600 mb-1">Other People's Campaigns</div>
+                    <div className="flex items-center gap-2 flex-wrap">
+                      {contentCampaignFilterOptions.otherOwners.map(o => (
+                        <button
+                          key={o.ownerId}
+                          onClick={() => toggleContentCampaignSelection({ type: 'owner', ownerId: o.ownerId })}
+                          className={`px-3 py-1.5 rounded-lg text-[9px] font-black uppercase tracking-widest transition-all truncate max-w-[180px] flex items-center gap-1.5 ${
+                            isContentCampaignSelected({ type: 'owner', ownerId: o.ownerId }) ? 'bg-red-600 text-white' : 'bg-zinc-900 border border-zinc-800 text-zinc-500 hover:text-white'
+                          }`}
+                        >
+                          {isContentCampaignSelected({ type: 'owner', ownerId: o.ownerId }) && <Check size={10} />}
+                          {`🔒 ${o.displayName}'s Campaign`}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                {contentCampaignFilterOptions.systemCampaigns.length > 0 && (
+                  <div className="mt-2">
+                    <div className="text-[8px] font-black uppercase tracking-widest text-zinc-600 mb-1">System / Promotion-only</div>
+                    <div className="flex items-center gap-2 flex-wrap">
+                      {contentCampaignFilterOptions.systemCampaigns.map(c => (
+                        <button
+                          key={c.id}
+                          onClick={() => toggleContentCampaignSelection({ type: 'campaign', id: c.id })}
+                          className={`px-3 py-1.5 rounded-lg text-[9px] font-black uppercase tracking-widest transition-all truncate max-w-[160px] flex items-center gap-1.5 ${
+                            isContentCampaignSelected({ type: 'campaign', id: c.id }) ? 'bg-red-600 text-white' : 'bg-zinc-900 border border-zinc-800 text-zinc-500 hover:text-white'
+                          }`}
+                        >
+                          {isContentCampaignSelected({ type: 'campaign', id: c.id }) && <Check size={10} />}
+                          {c.name}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                )}
+              </div>
+
+              {/* Content Campaign — independent, mobile pills */}
+              <div>
+                <label className="text-[10px] font-black uppercase tracking-widest text-zinc-500 mb-3 block">
+                  Content Campaign {selectedContentCampaignFilters.length > 0 && `(${selectedContentCampaignFilters.length})`}
+                </label>
+                <div className="flex items-center gap-2 flex-wrap">
+                  <button
+                    onClick={() => setSelectedContentCampaignFilters([])}
+                    className={`px-3 py-1.5 rounded-lg text-[9px] font-black uppercase tracking-widest transition-all flex items-center gap-1.5 ${
+                      selectedContentCampaignFilters.length === 0 ? 'bg-red-600 text-white' : 'bg-zinc-900 border border-zinc-800 text-zinc-500 hover:text-white'
+                    }`}
+                  >
+                    {selectedContentCampaignFilters.length === 0 && <Check size={10} />}
+                    All Content Campaigns
+                  </button>
+                  {selectedContentCampaignFilters.length > 0 && (
+                    <button
+                      onClick={() => setSelectedContentCampaignFilters([])}
+                      className="px-3 py-1.5 rounded-lg text-[10px] font-black uppercase tracking-widest text-zinc-500 hover:text-white"
+                    >
+                      Clear
+                    </button>
+                  )}
+                </div>
+                {contentCampaignFilterOptions.myCampaigns.length > 0 && (
+                  <div className="mt-2">
+                    <div className="text-[8px] font-black uppercase tracking-widest text-zinc-600 mb-1">My Campaigns</div>
+                    <div className="flex items-center gap-2 flex-wrap">
+                      {contentCampaignFilterOptions.myCampaigns.map(c => (
+                        <button
+                          key={c.id}
+                          onClick={() => toggleContentCampaignSelection({ type: 'campaign', id: c.id })}
+                          className={`px-3 py-1.5 rounded-lg text-[9px] font-black uppercase tracking-widest transition-all truncate max-w-[160px] flex items-center gap-1.5 ${
+                            isContentCampaignSelected({ type: 'campaign', id: c.id }) ? 'bg-red-600 text-white' : 'bg-zinc-900 border border-zinc-800 text-zinc-500 hover:text-white'
+                          }`}
+                        >
+                          {isContentCampaignSelected({ type: 'campaign', id: c.id }) && <Check size={10} />}
+                          {c.isArchived ? `${c.name} · Archived` : c.name}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                )}
+                {contentCampaignFilterOptions.otherOwners.length > 0 && (
+                  <div className="mt-2">
+                    <div className="text-[8px] font-black uppercase tracking-widest text-zinc-600 mb-1">Other People's Campaigns</div>
+                    <div className="flex items-center gap-2 flex-wrap">
+                      {contentCampaignFilterOptions.otherOwners.map(o => (
+                        <button
+                          key={o.ownerId}
+                          onClick={() => toggleContentCampaignSelection({ type: 'owner', ownerId: o.ownerId })}
+                          className={`px-3 py-1.5 rounded-lg text-[9px] font-black uppercase tracking-widest transition-all truncate max-w-[160px] flex items-center gap-1.5 ${
+                            isContentCampaignSelected({ type: 'owner', ownerId: o.ownerId }) ? 'bg-red-600 text-white' : 'bg-zinc-900 border border-zinc-800 text-zinc-500 hover:text-white'
+                          }`}
+                        >
+                          {isContentCampaignSelected({ type: 'owner', ownerId: o.ownerId }) && <Check size={10} />}
+                          {`🔒 ${o.displayName}'s Campaign`}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                )}
+                {contentCampaignFilterOptions.systemCampaigns.length > 0 && (
+                  <div className="mt-2">
+                    <div className="text-[8px] font-black uppercase tracking-widest text-zinc-600 mb-1">System / Promotion-only</div>
+                    <div className="flex items-center gap-2 flex-wrap">
+                      {contentCampaignFilterOptions.systemCampaigns.map(c => (
+                        <button
+                          key={c.id}
+                          onClick={() => toggleContentCampaignSelection({ type: 'campaign', id: c.id })}
+                          className={`px-3 py-1.5 rounded-lg text-[9px] font-black uppercase tracking-widest transition-all truncate max-w-[160px] flex items-center gap-1.5 ${
+                            isContentCampaignSelected({ type: 'campaign', id: c.id }) ? 'bg-red-600 text-white' : 'bg-zinc-900 border border-zinc-800 text-zinc-500 hover:text-white'
+                          }`}
+                        >
+                          {isContentCampaignSelected({ type: 'campaign', id: c.id }) && <Check size={10} />}
+                          {c.name}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                )}
               </div>
 
                             {/* Promotion — All / Assigned to Me / Assigned by Me,
