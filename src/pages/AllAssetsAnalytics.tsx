@@ -884,8 +884,15 @@ function useAssetCampaignFilterOptions(
 function useContentCampaignFilterOptions(
   rows: AssetAnalyticsRow[],
   viewerId: string | null,
+  organizationId: string | null,
 ): AssetCampaignFilterOptions {
-  const [meta, setMeta] = useState<Map<string, { campaign_name: string; is_system: boolean; user_id: string | null; isArchived: boolean }>>(new Map());
+  const [meta, setMeta] = useState<Map<string, {
+    campaign_name: string;
+    is_system: boolean;
+    user_id: string | null;
+    organization_id: string | null;
+    isArchived: boolean;
+  }>>(new Map());
   const [ownerNames, setOwnerNames] = useState<Map<string, string>>(new Map());
 
   const presentCampaignIds = useMemo(() => {
@@ -903,15 +910,22 @@ function useContentCampaignFilterOptions(
     (async () => {
       const { data } = await supabase
         .from('campaigns')
-        .select('id, campaign_name, is_system, user_id, archived_at')
+        .select('id, campaign_name, is_system, user_id, organization_id, archived_at')
         .in('id', presentCampaignIds);
       if (cancelled) return;
-      const next = new Map<string, { campaign_name: string; is_system: boolean; user_id: string | null; isArchived: boolean }>();
+      const next = new Map<string, {
+        campaign_name: string;
+        is_system: boolean;
+        user_id: string | null;
+        organization_id: string | null;
+        isArchived: boolean;
+      }>();
       for (const c of (data ?? []) as any[]) {
         next.set(c.id, {
           campaign_name: c.campaign_name,
           is_system: !!c.is_system,
           user_id: c.user_id ?? null,
+          organization_id: c.organization_id ?? null,
           isArchived: !!(c.archived_at),
         });
       }
@@ -920,11 +934,30 @@ function useContentCampaignFilterOptions(
     return () => { cancelled = true; };
   }, [presentCampaignIds.join(',')]);
 
+  // Owners for non-system campaigns + content owners on foreign system campaigns
+  // (so 🔒 groups can absorb other orgs' ONLY PROMOTE ASSET without naming them).
   const otherOwnerIds = useMemo(() => {
     const seen = new Set<string>();
-    meta.forEach(c => { if (!c.is_system && c.user_id && c.user_id !== viewerId) seen.add(c.user_id); });
+    meta.forEach((c, id) => {
+      const isSystemLike = c.is_system || !c.user_id;
+      const isOwnOrgSystem =
+        isSystemLike && organizationId != null && c.organization_id === organizationId;
+      if (isOwnOrgSystem) return;
+      if (!isSystemLike && c.user_id && c.user_id !== viewerId) {
+        seen.add(c.user_id);
+        return;
+      }
+      if (isSystemLike && !isOwnOrgSystem) {
+        rows.forEach(r => {
+          if (r.promoting_video.content_campaign_id === id) {
+            const oid = r.promoting_video.content_owner_id;
+            if (oid && oid !== viewerId) seen.add(oid);
+          }
+        });
+      }
+    });
     return Array.from(seen);
-  }, [meta, viewerId]);
+  }, [meta, viewerId, organizationId, rows]);
 
   useEffect(() => {
     if (otherOwnerIds.length === 0) { setOwnerNames(new Map()); return; }
@@ -943,32 +976,74 @@ function useContentCampaignFilterOptions(
 
   return useMemo(() => {
     const myCampaigns: AssetCampaignFilterOptions['myCampaigns'] = [];
-    const systemCampaigns: AssetCampaignFilterOptions['systemCampaigns'] = [];
+    // Dedupe system options by name — one "ONLY PROMOTE ASSET" for this org.
+    const systemByName = new Map<string, { id: string; name: string; campaignIds: string[] }>();
     const ownerGroups = new Map<string, { ownerId: string; displayName: string; campaignIds: string[] }>();
 
+    const addOwnerCampaign = (ownerId: string, campaignId: string) => {
+      const displayName = ownerNames.get(ownerId);
+      if (!displayName) return;
+      const existing = ownerGroups.get(ownerId);
+      if (existing) {
+        if (!existing.campaignIds.includes(campaignId)) existing.campaignIds.push(campaignId);
+      } else {
+        ownerGroups.set(ownerId, { ownerId, displayName, campaignIds: [campaignId] });
+      }
+    };
+
     meta.forEach((c, id) => {
-      if (c.is_system || !c.user_id) {
-        systemCampaigns.push({ id, name: c.campaign_name });
+      const isSystemLike = c.is_system || !c.user_id;
+      const isOwnOrgSystem =
+        isSystemLike && organizationId != null && c.organization_id === organizationId;
+
+      // Viewer org system only → System / Promotion-only (deduped by name).
+      if (isOwnOrgSystem) {
+        const name = c.campaign_name || 'System';
+        const existing = systemByName.get(name);
+        if (existing) {
+          if (!existing.campaignIds.includes(id)) existing.campaignIds.push(id);
+        } else {
+          systemByName.set(name, { id, name, campaignIds: [id] });
+        }
         return;
       }
+
+      // Foreign system / ownerless: never list real name — fold into 🔒 content owner groups.
+      if (isSystemLike) {
+        rows.forEach(r => {
+          if (r.promoting_video.content_campaign_id !== id) return;
+          const oid = r.promoting_video.content_owner_id;
+          if (oid && oid !== viewerId) addOwnerCampaign(oid, id);
+        });
+        return;
+      }
+
       if (c.user_id === viewerId) {
         myCampaigns.push({ id, name: c.campaign_name, isArchived: c.isArchived });
         return;
       }
-      const displayName = ownerNames.get(c.user_id);
-      if (!displayName) return;
-      const existing = ownerGroups.get(c.user_id);
-      if (existing) existing.campaignIds.push(id);
-      else ownerGroups.set(c.user_id, { ownerId: c.user_id, displayName, campaignIds: [id] });
+
+      if (c.user_id) addOwnerCampaign(c.user_id, id);
     });
+
+    // systemCampaigns UI still uses { id, name }; filter expand uses all ids sharing that name via options lookup.
+    const systemCampaigns = Array.from(systemByName.values()).map(s => ({
+      id: s.id,
+      name: s.name,
+      // campaignIds carried via parallel map below is not on the type — expand in filter by name match
+    }));
 
     return {
       myCampaigns: myCampaigns.sort((a, b) => a.name.localeCompare(b.name)),
       otherOwners: Array.from(ownerGroups.values()).sort((a, b) => a.displayName.localeCompare(b.displayName)),
       systemCampaigns,
       hasCampaignFreeResources: false,
+      // Internal: name → all own-org system campaign ids (for OR match when one option selected)
+      _systemIdsByName: Object.fromEntries(
+        Array.from(systemByName.entries()).map(([name, s]) => [name, s.campaignIds]),
+      ) as Record<string, string[]>,
     };
-  }, [meta, ownerNames, viewerId]);
+  }, [meta, ownerNames, viewerId, organizationId, rows]);
 }
 
 function usePromotionOptions(rows: AssetAnalyticsRow[]): PromotionOption[] {
@@ -1137,7 +1212,7 @@ export default function AllAssetsAnalytics() {
 
   // ── Content Campaign filter — NEW, independent of Asset Campaign / Campaign.
   // Source of truth: promoting_video.content_campaign_id only.
-  const contentCampaignFilterOptions = useContentCampaignFilterOptions(rows, effectiveViewerId);
+  const contentCampaignFilterOptions = useContentCampaignFilterOptions(rows, effectiveViewerId, organizationId);
   const [selectedContentCampaignFilters, setSelectedContentCampaignFilters] = useState<AssetCampaignSelection[]>([]);
   const contentCampaignSelectionKey = (s: AssetCampaignSelection) =>
     s.type === 'campaign' ? `campaign:${s.id}` : s.type === 'owner' ? `owner:${s.ownerId}` : s.type;
@@ -1356,8 +1431,17 @@ export default function AllAssetsAnalytics() {
 
     const wantAll = selectedContentCampaignFilters.some(s => s.type === 'all');
     const wantedCampaignIds = new Set<string>();
+    const systemIdsByName = (contentCampaignFilterOptions as any)._systemIdsByName as Record<string, string[]> | undefined;
+
     selectedContentCampaignFilters.forEach(s => {
-      if (s.type === 'campaign') wantedCampaignIds.add(s.id);
+      if (s.type === 'campaign') {
+        wantedCampaignIds.add(s.id);
+        // Own-org system option may represent multiple same-name ids — OR them all.
+        const sys = contentCampaignFilterOptions.systemCampaigns.find(c => c.id === s.id);
+        if (sys && systemIdsByName?.[sys.name]) {
+          systemIdsByName[sys.name].forEach(id => wantedCampaignIds.add(id));
+        }
+      }
       if (s.type === 'owner') {
         contentCampaignFilterOptions.otherOwners
           .find(o => o.ownerId === s.ownerId)
