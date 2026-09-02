@@ -1,162 +1,153 @@
-/**
- * TEMPORARY DEVELOPER VERIFICATION PAGE — DELETE AFTER VERIFICATION
- * ─────────────────────────────────────────────────────────────────
- * Route suggestion: /dev/asset-analytics-verify
- *
- * Purpose: one-click trigger for runAssetAnalyticsVerification() while
- * logged into the real app. Prints the full report to the browser console
- * and shows a compact summary on-page.
- *
- * Does NOT:
- *   - touch AllAssetsAnalytics.tsx
- *   - wire production analytics
- *   - modify engines / archive / redirects
- *
- * REMOVE:
- *   1. This file
- *   2. Its route registration
- *   3. services/asset/__verify_getAssetAnalyticsRows.ts
- */
+// ─────────────────────────────────────────────────────────────────────────────
+// AnalyticsTest.tsx — PHASE 0 SHELL ONLY
+//
+// Visual laboratory surface that mirrors AllAssetsAnalytics column language.
+// No data loading, no attribution, no metric aggregation in this phase.
+// ─────────────────────────────────────────────────────────────────────────────
 
 import React, { useState } from 'react';
-import {
-  runAssetAnalyticsVerification,
-  type VerificationReport,
-} from '../services/asset/__verify_getAssetAnalyticsRows';
+import { useNavigate } from 'react-router-dom';
+import { ChevronLeft } from 'lucide-react';
 
-export default function AssetAnalyticsVerify() {
-  const [running, setRunning] = useState(false);
-  const [report, setReport] = useState<VerificationReport | null>(null);
-  const [error, setError] = useState<string | null>(null);
+type RevenueView = 'total' | 'pixel' | 'stripe';
 
-  const run = async () => {
-    setRunning(true);
-    setError(null);
-    setReport(null);
-    try {
-      const result = await runAssetAnalyticsVerification();
-      setReport(result);
-      // Full report already console.logged inside the harness
-    } catch (e: any) {
-      const msg = e?.message ?? String(e);
-      setError(msg);
-      console.error('[AssetAnalyticsVerify] failed', e);
-    } finally {
-      setRunning(false);
-    }
-  };
+/** Same terminology / order as AllAssetsAnalytics production table. */
+const TABLE_HEADERS: string[] = [
+  'Asset',
+  'Type',
+  'Promoting Content',
+  'Content Owner',
+  'Promotion',
+  'Asset Campaign',
+  'Content Campaign',
+  'Asset Clicks',
+  'Total Revenue ($)',
+  'Landing Page Clicks',
+  'Direct Purchases',
+  'Lead Magnet Clicks',
+  'Newsletter Clicks',
+  'Newsletter Opt-ins',
+  'Call Booking Clicks',
+  'Call Bookings Confirmed',
+  'Consultation Page Clicks',
+  'Consultation Purchases',
+  'Direct Offer Sales ($)',
+  'Estimated Call Revenue ($)',
+  'Consultation Revenue ($)',
+  'Total Revenue ($)',
+  'Revenue Per Click ($)',
+];
+
+export default function AnalyticsTest() {
+  const navigate = useNavigate();
+  const [activeSource, setActiveSource] = useState<RevenueView>('total');
 
   return (
-    <div
-      style={{
-        minHeight: '100vh',
-        background: '#09090b',
-        color: '#e4e4e7',
-        fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace',
-        padding: 32,
-      }}
-    >
-      <div style={{ maxWidth: 900, margin: '0 auto' }}>
-        <p
-          style={{
-            color: '#f59e0b',
-            fontSize: 11,
-            fontWeight: 800,
-            letterSpacing: '0.12em',
-            textTransform: 'uppercase',
-            marginBottom: 8,
-          }}
-        >
-          Temporary · Developer only · Delete after verification
-        </p>
-        <h1 style={{ fontSize: 22, fontWeight: 800, margin: '0 0 8px' }}>
-          Asset Analytics — Real-Data Verification
-        </h1>
-        <p style={{ color: '#71717a', fontSize: 13, marginBottom: 24 }}>
-          Runs <code>getAssetAnalyticsRows()</code> against your live
-          authenticated Supabase session. Full report goes to the browser
-          console. Summary appears below.
-        </p>
-
-        <button
-          onClick={run}
-          disabled={running}
-          style={{
-            background: running ? '#3f3f46' : '#dc2626',
-            color: '#fff',
-            border: 'none',
-            borderRadius: 12,
-            padding: '12px 20px',
-            fontWeight: 800,
-            fontSize: 12,
-            letterSpacing: '0.08em',
-            textTransform: 'uppercase',
-            cursor: running ? 'wait' : 'pointer',
-          }}
-        >
-          {running ? 'Running…' : 'Run verification'}
-        </button>
-
-        {error && (
-          <pre
-            style={{
-              marginTop: 24,
-              padding: 16,
-              background: '#450a0a',
-              border: '1px solid #7f1d1d',
-              borderRadius: 12,
-              color: '#fecaca',
-              whiteSpace: 'pre-wrap',
-              fontSize: 12,
-            }}
-          >
-            {error}
-          </pre>
-        )}
-
-        {report && (
-          <div style={{ marginTop: 32 }}>
-            <h2 style={{ fontSize: 14, fontWeight: 800, marginBottom: 12 }}>
-              Summary — full detail is in the console
-            </h2>
-            <pre
-              style={{
-                padding: 16,
-                background: '#18181b',
-                border: '1px solid #27272a',
-                borderRadius: 12,
-                fontSize: 12,
-                lineHeight: 1.6,
-                overflow: 'auto',
-              }}
+    <div className="h-screen bg-black text-white flex flex-col overflow-hidden">
+      {/* ── Header ───────────────────────────────────────────────────────── */}
+      <header className="bg-zinc-950 border-b border-zinc-900 px-8 shrink-0">
+        <div className="h-20 flex items-center justify-between gap-4">
+          <div className="flex items-center gap-6 min-w-0">
+            <button
+              type="button"
+              onClick={() => navigate(-1)}
+              className="p-3 bg-zinc-900 border border-zinc-800 rounded-2xl text-zinc-400 hover:text-white transition-all flex items-center gap-2 cursor-pointer shrink-0"
             >
-{`A. Organization boundary: ${report.checks.organizationBoundary}
-B. Row identity: ${report.checks.rowIdentity}
-C. Type 1 (campaign_element): ${report.checks.type1}
-D. Type 2 (video): ${report.checks.type2}
-E. Type 3 (resource): ${report.checks.type3}
-F. Multi-link_type collapse: ${report.checks.multiLinkTypeCollapse}
-G. Metric attribution: ${report.checks.metricAttribution}
-H. Archive context: ${report.checks.archiveContext}
-I. Historical attribution: ${report.checks.historicalAttribution}
-J. Unmatched relationships: ${report.checks.unmatchedRelationships}
-K. Duplicate rows: ${report.checks.duplicateRows}
-L. Overall readiness: ${report.overall}
-
-rows: ${report.rowCount}
-assets: ${report.assetIds.length}
-redirect_links: ${report.debug.redirectLinkCount}
-identities: ${report.debug.identityCount}
-
-byType: ${JSON.stringify(report.samples.byType)}
-notes: ${report.notes.join(' | ') || '(none)'}`}
-            </pre>
-            <p style={{ color: '#71717a', fontSize: 11, marginTop: 12 }}>
-              Open DevTools → Console for the full JSON report (samples,
-              metric rows, archive rows, resource rows).
-            </p>
+              <ChevronLeft size={20} />
+            </button>
+            <div className="min-w-0">
+              <h2 className="text-2xl font-black text-white uppercase tracking-tight truncate">
+                Analytics Test
+              </h2>
+              <p className="text-[10px] text-zinc-600 font-bold uppercase tracking-widest mt-1">
+                Attribution laboratory shell — no live data yet
+              </p>
+            </div>
           </div>
-        )}
+
+          {/* ONLY control: TOTAL | PIXEL | STRIPE */}
+          <div className="flex items-center gap-1 p-1 bg-zinc-900 border border-zinc-800 rounded-xl shrink-0">
+            {(['total', 'pixel', 'stripe'] as RevenueView[]).map((v) => (
+              <button
+                key={v}
+                type="button"
+                onClick={() => setActiveSource(v)}
+                className={`px-3 py-1.5 rounded-lg text-[9px] font-black uppercase tracking-widest transition-all ${
+                  activeSource === v
+                    ? 'bg-zinc-700 text-white'
+                    : 'text-zinc-600 hover:text-zinc-400'
+                }`}
+              >
+                {v}
+              </button>
+            ))}
+          </div>
+        </div>
+      </header>
+
+      {/* ── Attribution debug strip (placeholders only) ─────────────────── */}
+      <div className="px-8 py-4 border-b border-zinc-900 bg-zinc-950/50 shrink-0">
+        <p className="text-[8px] font-black uppercase tracking-widest text-zinc-600 mb-3">
+          Attribution Debug (Phase 0 — empty)
+        </p>
+        <div className="flex flex-wrap gap-6">
+          {(
+            [
+              { label: 'Asset Revenue', value: '—' },
+              { label: 'Content Revenue', value: '—' },
+              { label: 'Unknown Revenue', value: '—' },
+              { label: 'Overlap', value: '—' },
+            ] as const
+          ).map((kpi) => (
+            <div key={kpi.label} className="min-w-[120px]">
+              <div className="text-[9px] font-black uppercase tracking-widest text-zinc-600">
+                {kpi.label}
+              </div>
+              <div className="text-sm font-bold text-zinc-500 tabular-nums mt-1">
+                {kpi.value}
+              </div>
+            </div>
+          ))}
+        </div>
+      </div>
+
+      {/* ── Table shell ──────────────────────────────────────────────────── */}
+      <div className="flex-1 overflow-x-auto custom-scrollbar">
+        <div className="inline-block min-w-full align-middle h-full overflow-y-auto">
+          <table className="min-w-full divide-y divide-zinc-900 border-collapse">
+            <thead className="bg-zinc-950 sticky top-0 z-20 shadow-xl">
+              <tr>
+                {TABLE_HEADERS.map((label, i) => (
+                  <th
+                    key={`${label}-${i}`}
+                    className={`px-6 py-5 text-left text-[10px] font-black uppercase tracking-widest text-zinc-600 border-b border-zinc-900 bg-zinc-950 whitespace-nowrap ${
+                      i === 0 ? 'min-w-[260px] sticky left-0 z-30' : ''
+                    }`}
+                  >
+                    {label}
+                  </th>
+                ))}
+              </tr>
+            </thead>
+            <tbody className="bg-black divide-y divide-zinc-900">
+              <tr>
+                <td
+                  colSpan={TABLE_HEADERS.length}
+                  className="px-6 py-20 text-center"
+                >
+                  <div className="text-[11px] font-black uppercase tracking-widest text-zinc-600">
+                    Phase 0 shell — no asset × content pairs loaded
+                  </div>
+                  <div className="text-[10px] text-zinc-700 mt-2 max-w-lg mx-auto">
+                    This page mirrors AllAssetsAnalytics column layout for comparison.
+                    Live attribution, purchases, and metrics arrive in a later phase.
+                    Source toggle ({activeSource}) is UI-only until then.
+                  </div>
+                </td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
       </div>
     </div>
   );
