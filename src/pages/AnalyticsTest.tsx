@@ -1,9 +1,9 @@
 // ─────────────────────────────────────────────────────────────────────────────
-// AnalyticsTest.tsx — PHASE 1: REAL DATA LOAD
+// AnalyticsTest.tsx — PHASE 2: real data + attribution classifier hypothesis
 //
-// Visual laboratory that mirrors AllAssetsAnalytics column language.
-// Loads real (asset × promoting video) rows via getAssetAnalyticsRows.
-// NO attribution classifier (Phase 2+). Debug KPIs remain placeholders.
+// Table remains primary (AllAssetsAnalytics-like).
+// Attribution is isolated in ../lib/attributeConversion.ts
+// Debug KPIs are real; overlap must stay 0 for exclusivity invariant.
 // ─────────────────────────────────────────────────────────────────────────────
 
 import React, { useEffect, useMemo, useState } from 'react';
@@ -14,6 +14,7 @@ import { useAuth } from '../lib/auth';
 import {
   TABLE_COLUMNS,
   COLUMN_LABELS,
+  getDateBounds,
   type MetricType,
   type RevenueView,
 } from '../lib/analyticsEngine';
@@ -21,6 +22,12 @@ import {
   getAssetAnalyticsRows,
   type AssetAnalyticsTableRow,
 } from '../services/asset/getAssetAnalyticsRows';
+import {
+  attributeConversion,
+  conversionKey,
+  type AttributionResult,
+  type ConversionEvidence,
+} from '../lib/attributeConversion';
 
 type AssetTypeTag = 'campaign_element' | 'promotional_video' | 'resource' | 'content_video';
 
@@ -45,7 +52,6 @@ function toAssetTypeTag(assetType: string): AssetTypeTag {
   return 'content_video';
 }
 
-/** Map AssetMetrics (5-key) into shared TABLE_COLUMNS shape — same bridge as production. */
 function toTableMetrics(
   m: AssetAnalyticsTableRow['metrics'],
 ): Record<MetricType, number | string> {
@@ -103,6 +109,10 @@ async function resolveOrgAndViewer(): Promise<{ organizationId: string; viewerId
   return { organizationId: asset.organization_id as string, viewerId };
 }
 
+function formatMoney(n: number): string {
+  return `$${n.toLocaleString(undefined, { maximumFractionDigits: 2 })}`;
+}
+
 export default function AnalyticsTest() {
   const navigate = useNavigate();
   const { user } = useAuth();
@@ -110,6 +120,8 @@ export default function AnalyticsTest() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [rows, setRows] = useState<DisplayRow[]>([]);
+  const [attributions, setAttributions] = useState<AttributionResult[]>([]);
+  const [selectedRowKey, setSelectedRowKey] = useState<string | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -117,13 +129,13 @@ export default function AnalyticsTest() {
     (async () => {
       setLoading(true);
       setError(null);
+      setSelectedRowKey(null);
       try {
         const { organizationId, viewerId } = await resolveOrgAndViewer();
 
         const source: 'total' | 'pixel' | 'stripe' =
           activeSource === 'pixel' || activeSource === 'stripe' ? activeSource : 'total';
 
-        // Same service + date preset path as AllAssetsAnalytics (no date picker UI).
         const result = await getAssetAnalyticsRows({
           organizationId,
           viewerId,
@@ -134,15 +146,146 @@ export default function AnalyticsTest() {
 
         if (cancelled) return;
 
+        const { start, end } = getDateBounds('30days', null);
+        const startIso = start.toISOString();
+        const endIso = end.toISOString();
+
+        const [stripeRes, pixelRes] = await Promise.all([
+          source === 'pixel'
+            ? Promise.resolve({ data: [] as any[], error: null })
+            : supabase
+                .from('stripe_purchases')
+                .select(
+                  'id, amount, session_id, video_id, redirect_link_token, organization_id, created_at',
+                )
+                .eq('organization_id', organizationId)
+                .gte('created_at', startIso)
+                .lte('created_at', endIso),
+          source === 'stripe'
+            ? Promise.resolve({ data: [] as any[], error: null })
+            : supabase
+                .from('pixel_purchases')
+                .select('id, amount, session_id, video_id, organization_id, created_at')
+                .eq('organization_id', organizationId)
+                .gte('created_at', startIso)
+                .lte('created_at', endIso),
+        ]);
+
+        if (stripeRes.error) throw new Error(stripeRes.error.message);
+        if (pixelRes.error) throw new Error(pixelRes.error.message);
+
+        const stripeRows = (stripeRes.data ?? []).filter(
+          (p: any) => parseFloat(String(p.amount ?? 0)) > 0,
+        );
+        const pixelRows = (pixelRes.data ?? []).filter(
+          (p: any) => parseFloat(String(p.amount ?? 0)) > 0,
+        );
+
+        const tokens = Array.from(
+          new Set(
+            stripeRows
+              .map((p: any) => p.redirect_link_token as string | null)
+              .filter((t): t is string => !!t),
+          ),
+        );
+
+        const sessionIds = Array.from(
+          new Set(
+            [
+              ...stripeRows.map((p: any) => p.session_id),
+              ...pixelRows.map((p: any) => p.session_id),
+            ].filter(Boolean),
+          ),
+        ) as string[];
+
+        const [linksRes, eventsRes] = await Promise.all([
+          tokens.length
+            ? supabase
+                .from('redirect_links')
+                .select('id, token, asset_id, video_id')
+                .in('token', tokens)
+            : Promise.resolve({ data: [] as any[], error: null }),
+          sessionIds.length
+            ? supabase
+                .from('events')
+                .select('session_id, asset_id, video_id, event_type, created_at')
+                .in('session_id', sessionIds)
+            : Promise.resolve({ data: [] as any[], error: null }),
+        ]);
+
+        if (linksRes.error) throw new Error(linksRes.error.message);
+        if (eventsRes.error) throw new Error(eventsRes.error.message);
+
+        const linkByToken = new Map(
+          (linksRes.data ?? []).map((l: any) => [l.token as string, l]),
+        );
+        const eventsBySession = new Map<string, any[]>();
+        for (const e of eventsRes.data ?? []) {
+          const sid = e.session_id as string;
+          if (!sid) continue;
+          const list = eventsBySession.get(sid) ?? [];
+          list.push(e);
+          eventsBySession.set(sid, list);
+        }
+
+        const classified: AttributionResult[] = [];
+
+        for (const p of stripeRows) {
+          const token = (p.redirect_link_token as string | null) ?? null;
+          const link = token ? linkByToken.get(token) : undefined;
+          const sessionEvents = p.session_id
+            ? eventsBySession.get(p.session_id) ?? []
+            : [];
+          const evidence: ConversionEvidence = {
+            source: 'stripe',
+            conversionId: p.id as string,
+            amount: parseFloat(String(p.amount ?? 0)),
+            sessionId: (p.session_id as string | null) ?? null,
+            videoId: (p.video_id as string | null) ?? null,
+            redirectLinkToken: token,
+            redirectLinkAssetId: (link?.asset_id as string | null) ?? null,
+            redirectLinkVideoId: (link?.video_id as string | null) ?? null,
+            sessionEventAssetIds: sessionEvents
+              .map((e) => e.asset_id as string | null)
+              .filter((id): id is string => !!id),
+            sessionEventVideoIds: sessionEvents
+              .map((e) => e.video_id as string | null)
+              .filter((id): id is string => !!id),
+          };
+          classified.push(attributeConversion(evidence));
+        }
+
+        for (const p of pixelRows) {
+          const sessionEvents = p.session_id
+            ? eventsBySession.get(p.session_id) ?? []
+            : [];
+          const evidence: ConversionEvidence = {
+            source: 'pixel',
+            conversionId: p.id as string,
+            amount: parseFloat(String(p.amount ?? 0)),
+            sessionId: (p.session_id as string | null) ?? null,
+            videoId: (p.video_id as string | null) ?? null,
+            redirectLinkToken: null,
+            redirectLinkAssetId: null,
+            redirectLinkVideoId: null,
+            sessionEventAssetIds: sessionEvents
+              .map((e) => e.asset_id as string | null)
+              .filter((id): id is string => !!id),
+            sessionEventVideoIds: sessionEvents
+              .map((e) => e.video_id as string | null)
+              .filter((id): id is string => !!id),
+          };
+          classified.push(attributeConversion(evidence));
+        }
+
+        if (!cancelled) setAttributions(classified);
+
         const assetIds = Array.from(new Set(result.rows.map((r) => r.asset_id)));
         const videoIds = Array.from(new Set(result.rows.map((r) => r.video_id)));
         const campaignIds = Array.from(
           new Set(
             result.rows
-              .flatMap((r) => [
-                r.assetCampaign?.campaignId ?? null,
-                // content campaign resolved from videos below
-              ])
+              .map((r) => r.assetCampaign?.campaignId ?? null)
               .filter((id): id is string => !!id),
           ),
         );
@@ -150,9 +293,12 @@ export default function AnalyticsTest() {
           new Set(result.rows.flatMap((r) => r.promotionIds ?? []).filter(Boolean)),
         );
 
-        const [videosRes, assetsRes, campaignsRes, promoRes, profilesRes] = await Promise.all([
+        const [videosRes, assetsRes, promoRes] = await Promise.all([
           videoIds.length
-            ? supabase.from('videos').select('id, video_title, user_id, campaign_id').in('id', videoIds)
+            ? supabase
+                .from('videos')
+                .select('id, video_title, user_id, campaign_id')
+                .in('id', videoIds)
             : Promise.resolve({ data: [] as any[], error: null }),
           assetIds.length
             ? supabase
@@ -162,13 +308,12 @@ export default function AnalyticsTest() {
                 )
                 .in('id', assetIds)
             : Promise.resolve({ data: [] as any[], error: null }),
-          campaignIds.length
-            ? supabase.from('campaigns').select('id, campaign_name').in('id', campaignIds)
-            : Promise.resolve({ data: [] as any[], error: null }),
           promotionIds.length
-            ? supabase.from('promotions').select('id, assignment_id, campaign_id').in('id', promotionIds)
+            ? supabase
+                .from('promotions')
+                .select('id, assignment_id, campaign_id')
+                .in('id', promotionIds)
             : Promise.resolve({ data: [] as any[], error: null }),
-          Promise.resolve({ data: [] as any[], error: null }),
         ]);
 
         if (videosRes.error) throw new Error(videosRes.error.message);
@@ -183,7 +328,6 @@ export default function AnalyticsTest() {
           : { data: [] as any[] };
         const profileById = new Map((profiles ?? []).map((p: any) => [p.id, p]));
 
-        // Content campaign ids from videos — fetch names (owned names only; no privacy panel in Phase 1)
         const contentCampaignIds = Array.from(
           new Set(
             (videosRes.data ?? [])
@@ -199,7 +343,6 @@ export default function AnalyticsTest() {
           (allCampaigns ?? []).map((c: any) => [c.id, c.campaign_name as string]),
         );
 
-        // Promotion display: assignment title preferred (same pattern as production)
         const assignmentIds = Array.from(
           new Set((promoRes.data ?? []).map((p: any) => p.assignment_id).filter(Boolean)),
         );
@@ -244,9 +387,6 @@ export default function AnalyticsTest() {
           );
         }
 
-        // campaignsRes was partial; prefer allCampaigns map
-        void campaignsRes;
-
         const mapped: DisplayRow[] = result.rows.map((r) => {
           const video = videoById.get(r.video_id);
           const owner = video?.user_id ? profileById.get(video.user_id) : null;
@@ -267,11 +407,8 @@ export default function AnalyticsTest() {
             assetType: toAssetTypeTag(r.asset_type),
             videoId: r.video_id,
             videoTitle: video?.video_title ?? 'Untitled video',
-            contentOwnerName:
-              owner?.full_name?.trim() || owner?.email || null,
-            promotionLabel: promoId
-              ? promotionNameById.get(promoId) ?? promoId
-              : null,
+            contentOwnerName: owner?.full_name?.trim() || owner?.email || null,
+            promotionLabel: promoId ? promotionNameById.get(promoId) ?? promoId : null,
             assetCampaignLabel,
             contentCampaignLabel: contentCampaignId
               ? campaignNameById.get(contentCampaignId) ?? contentCampaignId
@@ -286,6 +423,7 @@ export default function AnalyticsTest() {
         if (!cancelled) {
           setError(e?.message ?? String(e));
           setRows([]);
+          setAttributions([]);
         }
       } finally {
         if (!cancelled) setLoading(false);
@@ -297,84 +435,201 @@ export default function AnalyticsTest() {
     };
   }, [activeSource, user?.id]);
 
+  const attributionKpis = useMemo(() => {
+    let assetRevenue = 0;
+    let contentRevenue = 0;
+    let unknownRevenue = 0;
+    const byKey = new Map<string, AttributionResult>();
+
+    for (const a of attributions) {
+      const key = conversionKey(a.source, a.conversionId);
+      byKey.set(key, a);
+    }
+
+    const destinationsSeen = new Map<string, Set<string>>();
+    for (const a of byKey.values()) {
+      if (a.destination === 'asset') assetRevenue += a.amount;
+      else if (a.destination === 'content') contentRevenue += a.amount;
+      else unknownRevenue += a.amount;
+
+      const key = conversionKey(a.source, a.conversionId);
+      const set = destinationsSeen.get(key) ?? new Set();
+      set.add(a.destination);
+      destinationsSeen.set(key, set);
+    }
+
+    let overlap = 0;
+    destinationsSeen.forEach((set) => {
+      if (set.size > 1) overlap += 1;
+    });
+
+    return { assetRevenue, contentRevenue, unknownRevenue, overlap };
+  }, [attributions]);
+
+  const selectedRow = useMemo(() => {
+    if (!selectedRowKey) return null;
+    return rows.find((r) => `${r.assetId}::${r.videoId}` === selectedRowKey) ?? null;
+  }, [rows, selectedRowKey]);
+
+  const selectedRowAttributions = useMemo(() => {
+    if (!selectedRow) return [] as AttributionResult[];
+    return attributions.filter(
+      (a) =>
+        (a.assetId && a.assetId === selectedRow.assetId) ||
+        (a.videoId && a.videoId === selectedRow.videoId && a.destination !== 'asset'),
+    );
+  }, [attributions, selectedRow]);
+
   const metricKeys = useMemo(() => TABLE_COLUMNS as MetricType[], []);
 
   return (
     <div className="h-screen bg-black text-white flex flex-col overflow-hidden">
-      {/* ── Header ───────────────────────────────────────────────────────── */}
       <header className="bg-zinc-950 border-b border-zinc-900 px-8 shrink-0">
-        <div className="h-20 flex items-center justify-between gap-4">
-          <div className="flex items-center gap-6 min-w-0">
-            <button
-              type="button"
-              onClick={() => navigate(-1)}
-              className="p-3 bg-zinc-900 border border-zinc-800 rounded-2xl text-zinc-400 hover:text-white transition-all flex items-center gap-2 cursor-pointer shrink-0"
-            >
-              <ChevronLeft size={20} />
-            </button>
-            <div className="min-w-0">
-              <h2 className="text-2xl font-black text-white uppercase tracking-tight truncate">
-                Analytics Test
-              </h2>
-              <p className="text-[10px] text-zinc-600 font-bold uppercase tracking-widest mt-1">
-                Phase 1 — real asset rows · attribution not implemented
-              </p>
-            </div>
-          </div>
-
-          <div className="flex items-center gap-3 shrink-0">
-            <div className="px-3 py-2 bg-zinc-900/50 border border-zinc-900 rounded-xl">
-              <span className="text-[10px] font-black uppercase tracking-widest text-zinc-600">
-                {loading ? '…' : `${rows.length} Rows`}
-              </span>
-            </div>
-            <div className="flex items-center gap-1 p-1 bg-zinc-900 border border-zinc-800 rounded-xl">
-              {(['total', 'pixel', 'stripe'] as RevenueView[]).map((v) => (
-                <button
-                  key={v}
-                  type="button"
-                  onClick={() => setActiveSource(v)}
-                  className={`px-3 py-1.5 rounded-lg text-[9px] font-black uppercase tracking-widest transition-all ${
-                    activeSource === v
-                      ? 'bg-zinc-700 text-white'
-                      : 'text-zinc-600 hover:text-zinc-400'
-                  }`}
-                >
-                  {v}
-                </button>
-              ))}
-            </div>
+        <div className="h-16 flex items-center gap-6 min-w-0">
+          <button
+            type="button"
+            onClick={() => navigate(-1)}
+            className="p-3 bg-zinc-900 border border-zinc-800 rounded-2xl text-zinc-400 hover:text-white transition-all flex items-center gap-2 cursor-pointer shrink-0"
+          >
+            <ChevronLeft size={20} />
+          </button>
+          <div className="min-w-0">
+            <h2 className="text-2xl font-black text-white uppercase tracking-tight truncate">
+              Analytics Test
+            </h2>
+            <p className="text-[10px] text-zinc-600 font-bold uppercase tracking-widest mt-1">
+              Phase 2 — attribution hypothesis · table is primary
+            </p>
           </div>
         </div>
       </header>
 
-      {/* ── Attribution debug strip (placeholders — Phase 2+) ───────────── */}
-      <div className="px-8 py-4 border-b border-zinc-900 bg-zinc-950/50 shrink-0">
-        <p className="text-[8px] font-black uppercase tracking-widest text-zinc-600 mb-3">
-          Attribution Debug (not implemented)
-        </p>
-        <div className="flex flex-wrap gap-6">
-          {(
-            [
-              { label: 'Asset Revenue', value: '—' },
-              { label: 'Content Revenue', value: '—' },
-              { label: 'Unknown Revenue', value: '—' },
-              { label: 'Overlap', value: '—' },
-            ] as const
-          ).map((kpi) => (
-            <div key={kpi.label} className="min-w-[120px]">
-              <div className="text-[9px] font-black uppercase tracking-widest text-zinc-600">
-                {kpi.label}
-              </div>
-              <div className="text-sm font-bold text-zinc-500 tabular-nums mt-1">
-                {kpi.value}
-              </div>
-            </div>
+      {/* Source toggle below header — avoids left-nav overlap */}
+      <div className="relative z-30 px-8 py-3 border-b border-zinc-900 bg-zinc-950 flex flex-wrap items-center justify-between gap-3 shrink-0">
+        <div className="flex items-center gap-1 p-1 bg-zinc-900 border border-zinc-800 rounded-xl">
+          {(['total', 'pixel', 'stripe'] as RevenueView[]).map((v) => (
+            <button
+              key={v}
+              type="button"
+              onClick={() => setActiveSource(v)}
+              className={`px-4 py-2 rounded-lg text-[10px] font-black uppercase tracking-widest transition-all ${
+                activeSource === v
+                  ? 'bg-zinc-700 text-white'
+                  : 'text-zinc-600 hover:text-zinc-400'
+              }`}
+            >
+              {v}
+            </button>
           ))}
+        </div>
+        <div className="px-3 py-2 bg-zinc-900/50 border border-zinc-900 rounded-xl">
+          <span className="text-[10px] font-black uppercase tracking-widest text-zinc-600">
+            {loading ? '…' : `${rows.length} Rows`}
+          </span>
         </div>
       </div>
 
-      {/* ── Table ────────────────────────────────────────────────────────── */}
+      <div className="px-8 py-4 border-b border-zinc-900 bg-zinc-950/50 shrink-0">
+        <p className="text-[8px] font-black uppercase tracking-widest text-zinc-600 mb-3">
+          Attribution Debug
+        </p>
+        <div className="flex flex-wrap gap-6">
+          <div className="min-w-[120px]">
+            <div className="text-[9px] font-black uppercase tracking-widest text-zinc-600">
+              Asset Revenue
+            </div>
+            <div className="text-sm font-bold text-emerald-400 tabular-nums mt-1">
+              {loading ? '…' : formatMoney(attributionKpis.assetRevenue)}
+            </div>
+          </div>
+          <div className="min-w-[120px]">
+            <div className="text-[9px] font-black uppercase tracking-widest text-zinc-600">
+              Content Revenue
+            </div>
+            <div className="text-sm font-bold text-sky-400 tabular-nums mt-1">
+              {loading ? '…' : formatMoney(attributionKpis.contentRevenue)}
+            </div>
+          </div>
+          <div className="min-w-[120px]">
+            <div className="text-[9px] font-black uppercase tracking-widest text-zinc-600">
+              Unknown Revenue
+            </div>
+            <div className="text-sm font-bold text-zinc-400 tabular-nums mt-1">
+              {loading ? '…' : formatMoney(attributionKpis.unknownRevenue)}
+            </div>
+          </div>
+          <div className="min-w-[120px]">
+            <div className="text-[9px] font-black uppercase tracking-widest text-zinc-600">
+              Overlap
+            </div>
+            <div
+              className={`text-sm font-bold tabular-nums mt-1 ${
+                attributionKpis.overlap > 0 ? 'text-red-400' : 'text-zinc-400'
+              }`}
+            >
+              {loading ? '…' : attributionKpis.overlap}
+            </div>
+          </div>
+          <div className="min-w-[120px]">
+            <div className="text-[9px] font-black uppercase tracking-widest text-zinc-600">
+              Conversions classified
+            </div>
+            <div className="text-sm font-bold text-zinc-400 tabular-nums mt-1">
+              {loading ? '…' : attributions.length}
+            </div>
+          </div>
+        </div>
+        <p className="text-[9px] text-zinc-600 mt-3 max-w-3xl">
+          Hypothesis only: Stripe uses redirect_link_token → link.asset_id; Pixel uses
+          single-session asset_id consistency. UNKNOWN when evidence is insufficient.
+          Table metrics still come from getAssetAnalyticsRows (unchanged).
+        </p>
+      </div>
+
+      {selectedRow && (
+        <div className="px-8 py-3 border-b border-zinc-900 bg-zinc-900/40 shrink-0 max-h-40 overflow-y-auto">
+          <div className="flex items-center justify-between gap-2 mb-2">
+            <p className="text-[8px] font-black uppercase tracking-widest text-zinc-500">
+              Selected row evidence
+            </p>
+            <button
+              type="button"
+              onClick={() => setSelectedRowKey(null)}
+              className="text-[9px] font-black uppercase tracking-widest text-zinc-500 hover:text-white"
+            >
+              Clear
+            </button>
+          </div>
+          <div className="text-[10px] text-zinc-400 space-y-1 font-mono">
+            <div>
+              Asset: {selectedRow.assetTitle} ({selectedRow.assetId}) · Type:{' '}
+              {ASSET_TYPE_LABELS[selectedRow.assetType]}
+            </div>
+            <div>
+              Promoting: {selectedRow.videoTitle} · Asset Campaign:{' '}
+              {selectedRow.assetCampaignLabel} · Content Campaign:{' '}
+              {selectedRow.contentCampaignLabel}
+            </div>
+            {selectedRowAttributions.length === 0 && (
+              <div className="text-zinc-600">No classified conversions matched this row.</div>
+            )}
+            {selectedRowAttributions.slice(0, 8).map((a) => (
+              <div key={conversionKey(a.source, a.conversionId)} className="text-zinc-300">
+                [{a.source}] {a.conversionId.slice(0, 8)}… · {formatMoney(a.amount)} ·{' '}
+                <span className="text-white font-bold">{a.destination}</span> · {a.reason}
+                {a.sessionId ? ` · session ${a.sessionId.slice(0, 8)}…` : ''}
+                {a.redirectLinkToken ? ` · token ${a.redirectLinkToken.slice(0, 8)}…` : ''}
+              </div>
+            ))}
+            {selectedRowAttributions.length > 8 && (
+              <div className="text-zinc-600">
+                +{selectedRowAttributions.length - 8} more…
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
       <div className="flex-1 overflow-x-auto custom-scrollbar">
         <div className="inline-block min-w-full align-middle h-full overflow-y-auto">
           <table className="min-w-full divide-y divide-zinc-900 border-collapse">
@@ -433,7 +688,7 @@ export default function AnalyticsTest() {
                 <tr>
                   <td colSpan={9 + metricKeys.length} className="px-6 py-20 text-center">
                     <div className="text-[11px] font-black uppercase tracking-widest text-red-500">
-                      Failed to load asset analytics
+                      Failed to load
                     </div>
                     <div className="text-[10px] text-zinc-500 mt-2 max-w-md mx-auto">{error}</div>
                   </td>
@@ -446,69 +701,72 @@ export default function AnalyticsTest() {
                     <div className="text-[11px] font-black uppercase tracking-widest text-zinc-600">
                       No asset × content pairs in range
                     </div>
-                    <div className="text-[10px] text-zinc-700 mt-2 max-w-md mx-auto">
-                      No org-scoped redirect_links with asset_id for the last 30 days / current
-                      source mode.
-                    </div>
                   </td>
                 </tr>
               )}
 
               {!loading &&
                 !error &&
-                rows.map((row) => (
-                  <tr
-                    key={`${row.assetId}::${row.videoId}`}
-                    className="hover:bg-zinc-950 transition-colors"
-                  >
-                    <td className="px-6 py-4 whitespace-nowrap sticky left-0 z-10 bg-black">
-                      <div className="text-xs font-bold truncate max-w-[200px]">
-                        {row.assetTitle}
-                      </div>
-                      <div className="text-[9px] text-zinc-600 font-bold uppercase tracking-widest mt-0.5">
-                        Asset
-                      </div>
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap">
-                      <span
-                        className={`inline-flex items-center px-2 py-1 rounded-full border text-[8px] font-black uppercase tracking-widest ${ASSET_TYPE_COLORS[row.assetType]}`}
-                      >
-                        {ASSET_TYPE_LABELS[row.assetType]}
-                      </span>
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap">
-                      <div className="text-xs font-bold truncate max-w-[180px]">
-                        {row.videoTitle}
-                      </div>
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap text-sm font-bold text-zinc-400">
-                      {row.contentOwnerName ?? '—'}
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap text-sm font-bold text-zinc-400 max-w-[160px] truncate">
-                      {row.promotionLabel ?? '—'}
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap text-sm font-bold text-zinc-400 max-w-[180px] truncate">
-                      {row.assetCampaignLabel}
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap text-sm font-bold text-zinc-400 max-w-[180px] truncate">
-                      {row.contentCampaignLabel}
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap text-sm font-bold text-zinc-400 tabular-nums">
-                      {row.assetClicks}
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap text-sm font-bold text-zinc-400 tabular-nums">
-                      {row.metrics.total_revenue ?? 0}
-                    </td>
-                    {metricKeys.map((key) => (
-                      <td
-                        key={key}
-                        className="px-6 py-4 whitespace-nowrap text-sm font-bold text-zinc-400 tabular-nums"
-                      >
-                        {row.metrics[key] ?? 0}
+                rows.map((row) => {
+                  const rowKey = `${row.assetId}::${row.videoId}`;
+                  const active = selectedRowKey === rowKey;
+                  return (
+                    <tr
+                      key={rowKey}
+                      onClick={() => setSelectedRowKey(active ? null : rowKey)}
+                      className={`hover:bg-zinc-950 transition-colors cursor-pointer ${
+                        active ? 'bg-zinc-900/80' : ''
+                      }`}
+                    >
+                      <td className="px-6 py-4 whitespace-nowrap sticky left-0 z-10 bg-black">
+                        <div className="text-xs font-bold truncate max-w-[200px]">
+                          {row.assetTitle}
+                        </div>
+                        <div className="text-[9px] text-zinc-600 font-bold uppercase tracking-widest mt-0.5">
+                          Asset
+                        </div>
                       </td>
-                    ))}
-                  </tr>
-                ))}
+                      <td className="px-6 py-4 whitespace-nowrap">
+                        <span
+                          className={`inline-flex items-center px-2 py-1 rounded-full border text-[8px] font-black uppercase tracking-widest ${ASSET_TYPE_COLORS[row.assetType]}`}
+                        >
+                          {ASSET_TYPE_LABELS[row.assetType]}
+                        </span>
+                      </td>
+                      <td className="px-6 py-4 whitespace-nowrap">
+                        <div className="text-xs font-bold truncate max-w-[180px]">
+                          {row.videoTitle}
+                        </div>
+                      </td>
+                      <td className="px-6 py-4 whitespace-nowrap text-sm font-bold text-zinc-400">
+                        {row.contentOwnerName ?? '—'}
+                      </td>
+                      <td className="px-6 py-4 whitespace-nowrap text-sm font-bold text-zinc-400 max-w-[160px] truncate">
+                        {row.promotionLabel ?? '—'}
+                      </td>
+                      <td className="px-6 py-4 whitespace-nowrap text-sm font-bold text-zinc-400 max-w-[180px] truncate">
+                        {row.assetCampaignLabel}
+                      </td>
+                      <td className="px-6 py-4 whitespace-nowrap text-sm font-bold text-zinc-400 max-w-[180px] truncate">
+                        {row.contentCampaignLabel}
+                      </td>
+                      <td className="px-6 py-4 whitespace-nowrap text-sm font-bold text-zinc-400 tabular-nums">
+                        {row.assetClicks}
+                      </td>
+                      <td className="px-6 py-4 whitespace-nowrap text-sm font-bold text-zinc-400 tabular-nums">
+                        {row.metrics.total_revenue ?? 0}
+                      </td>
+                      {metricKeys.map((key) => (
+                        <td
+                          key={key}
+                          className="px-6 py-4 whitespace-nowrap text-sm font-bold text-zinc-400 tabular-nums"
+                        >
+                          {row.metrics[key] ?? 0}
+                        </td>
+                      ))}
+                    </tr>
+                  );
+                })}
             </tbody>
           </table>
         </div>
