@@ -884,6 +884,10 @@ function useUnresolvedCampaignNames(
       if (id && !campaignNameById.has(id) && !campaignOwnerLabelById.has(id)) {
         seen.add(id);
       }
+      const contentCampaignId = r.promoting_video.content_campaign_id;
+      if (contentCampaignId && !campaignNameById.has(contentCampaignId) && !campaignOwnerLabelById.has(contentCampaignId)) {
+        seen.add(contentCampaignId);
+      }
     });
     return Array.from(seen);
   }, [rows, campaignNameById, campaignOwnerLabelById]);
@@ -3206,7 +3210,7 @@ export default function AllAssetsAnalytics() {
                               ? campaignNameById.get(row.promoting_video.content_campaign_id)
                                 ?? (campaignOwnerLabelById.get(row.promoting_video.content_campaign_id)
                                       ? `🔒 ${campaignOwnerLabelById.get(row.promoting_video.content_campaign_id)}'s Campaign`
-                                      : 'No Campaign')
+                                      : unresolvedCampaignNameById.get(row.promoting_video.content_campaign_id) ?? 'No Campaign')
                               : 'No Campaign'}
                           </span>
                         </div>
