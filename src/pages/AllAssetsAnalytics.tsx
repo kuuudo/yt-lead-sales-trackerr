@@ -847,6 +847,56 @@ function useCampaignOwnerLabels(
 
   return labels;
 }
+
+/**
+ * Narrow fallback ONLY for campaign ids that `campaignNameById` (owned) and
+ * `campaignOwnerLabelById` (owner-name fallback) both fail to resolve — e.g.
+ * system campaigns like "ONLY PROMOTE ASSET" (`user_id IS NULL`, so they can
+ * never match either of those two lookups by construction). Does not touch,
+ * widen, or replace either existing query — purely additive, last resort.
+ */
+function useUnresolvedCampaignNames(
+  rows: AssetAnalyticsRow[],
+  campaignNameById: Map<string, string>,
+  campaignOwnerLabelById: Map<string, string>,
+): Map<string, string> {
+  const [names, setNames] = useState<Map<string, string>>(new Map());
+
+  const unresolvedCampaignIds = useMemo(() => {
+    const seen = new Set<string>();
+    rows.forEach(r => {
+      const id = r.campaign_id;
+      if (id && !campaignNameById.has(id) && !campaignOwnerLabelById.has(id)) {
+        seen.add(id);
+      }
+    });
+    return Array.from(seen);
+  }, [rows, campaignNameById, campaignOwnerLabelById]);
+
+  useEffect(() => {
+    if (unresolvedCampaignIds.length === 0) {
+      setNames(new Map());
+      return;
+    }
+    let cancelled = false;
+    (async () => {
+      const { data } = await supabase
+        .from('campaigns')
+        .select('id, campaign_name, is_system, user_id, organization_id')
+        .in('id', unresolvedCampaignIds);
+      if (cancelled) return;
+      const next = new Map<string, string>();
+      for (const c of (data ?? []) as any[]) {
+        if (c.campaign_name) next.set(c.id, c.campaign_name);
+      }
+      setNames(next);
+    })();
+    return () => { cancelled = true; };
+  }, [unresolvedCampaignIds.join(',')]);
+
+  return names;
+}
+
 function usePromotionOptions(rows: AssetAnalyticsRow[]): PromotionOption[] {
   // Ownership boundary intentionally NOT decided here — see
   // ASSET_ANALYTICS_DESIGN 3.md §3 "Ownership". Rather than guess a scope
@@ -976,6 +1026,7 @@ export default function AllAssetsAnalytics() {
 
     const ownedCampaignIds = useMemo(() => new Set(campaigns.map(c => c.id)), [campaigns]);
   const campaignOwnerLabelById = useCampaignOwnerLabels(rows, ownedCampaignIds);
+  const unresolvedCampaignNameById = useUnresolvedCampaignNames(rows, campaignNameById, campaignOwnerLabelById);
 
   const promotions = usePromotionOptions(rows);
   const promotionNameById = useMemo(
@@ -2738,7 +2789,7 @@ export default function AllAssetsAnalytics() {
                               ? campaignNameById.get(row.campaign_id)
                                 ?? (campaignOwnerLabelById.get(row.campaign_id)
                                       ? `🔒 ${campaignOwnerLabelById.get(row.campaign_id)}'s Campaign`
-                                      : '—')
+                                      : unresolvedCampaignNameById.get(row.campaign_id) ?? '—')
                               : row.isCampaignFreeResource
                                 ? 'Campaign-Free Resource Asset'
                                 : 'No Campaign'}
