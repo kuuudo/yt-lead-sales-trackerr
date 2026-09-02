@@ -83,6 +83,15 @@ export interface AssetAnalyticsTableRow {
   asset_id: string;
   linkTypes: string[];
   campaignIds: string[];
+  /** Canonical Asset Campaign — the asset's OWN provenance (videos.campaign_id /
+   *  campaign_element_assets.campaign_id / asset_resources.campaign_id),
+   *  NEVER redirect_links.campaign_id. Do not confuse with `campaignIds`
+   *  above (promotion/link context — kept for other consumers, not this). */
+  assetCampaign: {
+    campaignId: string | null;
+    source: 'video' | 'campaign_element' | 'resource' | null;
+    isCampaignFreeResource: boolean;
+  };
   promotionIds: string[];
   /** Metrics for this exact (video_id, asset_id) from computeRelationships. */
   metrics: AssetMetrics;
@@ -134,7 +143,7 @@ const CAMPAIGN_ELEMENT_ASSETS_COLUMNS =
   'id, asset_id, campaign_id, element_type, source_field, display_name';
 
 const VIDEOS_COLUMNS = 'id, asset_id, campaign_id';
-const ASSET_RESOURCES_COLUMNS = 'id, asset_id';
+const ASSET_RESOURCES_COLUMNS = 'id, asset_id, campaign_id';
 const ASSETS_COLUMNS = 'id, asset_type, organization_id';
 
 const IN_CHUNK_SIZE = 150;
@@ -455,14 +464,22 @@ export async function getAssetAnalyticsRows(
     const campaignElementAssets = (campaignElementAssetsData.data ?? []) as CampaignElementAssetRow[];
     const assignedAssetIds = new Set(assignedAssetSummary.map((s) => s.assetId));
 
-    return { videos, resources, campaignElementAssets, assignedAssetIds };
+    // Canonical Asset Campaign source for resource assets. Read separately
+    // from `resources` above so AssetResourceRow's existing shape (consumed
+    // by computeAssetAnalytics — untouched) never changes.
+    const resourceCampaignByAssetId = new Map<string, string | null>();
+    for (const r of (resourcesData.data ?? []) as { asset_id: string; campaign_id: string | null }[]) {
+      resourceCampaignByAssetId.set(r.asset_id, r.campaign_id ?? null);
+    }
+
+    return { videos, resources, campaignElementAssets, assignedAssetIds, resourceCampaignByAssetId };
   })();
 
   const [
     { assetTypeById, assetOrgIdById },
     { events },
     [stripeByToken, stripeBySession, pixelPurchases],
-    { videos, resources, campaignElementAssets, assignedAssetIds },
+    { videos, resources, campaignElementAssets, assignedAssetIds, resourceCampaignByAssetId },
   ] = await Promise.all([
     assetsPromise,
     eventsPromise,
@@ -474,6 +491,54 @@ export async function getAssetAnalyticsRows(
     new Map([...stripeByToken, ...stripeBySession].map((p) => [p.id, p])).values(),
   );
   console.log('[AssetAnalyticsRows] counts', { stripePurchases: stripePurchases.length, pixelPurchases: pixelPurchases.length });
+
+  // ── 4b. Canonical Asset Campaign — LOCKED definition. Mirrors
+  // resolveAssetCampaign.ts's per-asset-type mapping exactly (video →
+  // videos.campaign_id, campaign_element → campaign_element_assets.campaign_id,
+  // resource → asset_resources.campaign_id), just batched over data already
+  // fetched above instead of one Supabase round-trip per asset. NEVER
+  // derived from redirect_links.campaign_id. Never invents a fallback
+  // campaign — a null campaignId here is either a real data-integrity gap
+  // (video / campaign_element) or the expected legacy state (resource,
+  // pre-dating the "pick a campaign" UI) — the `isCampaignFreeResource`
+  // flag is only what tells those two apart downstream.
+  const videoCampaignByAssetId = new Map<string, string | null>();
+  for (const v of videos) {
+    if (v.asset_id) videoCampaignByAssetId.set(v.asset_id, v.campaign_id ?? null);
+  }
+  const elementCampaignByAssetId = new Map<string, string | null>();
+  for (const e of campaignElementAssets) {
+    if (e.asset_id) elementCampaignByAssetId.set(e.asset_id, e.campaign_id ?? null);
+  }
+
+  type AssetCampaignSource = 'video' | 'campaign_element' | 'resource' | null;
+const assetCampaignById = new Map<
+  string,
+  {
+    campaignId: string | null;
+    source: AssetCampaignSource;
+    isCampaignFreeResource: boolean;
+  }
+>();
+  for (const assetId of distinctAssetIds) {
+    const assetType = assetTypeById.get(assetId);
+    if (assetType === 'video') {
+      const campaignId = videoCampaignByAssetId.get(assetId) ?? null;
+      assetCampaignById.set(assetId, { campaignId, source: campaignId ? 'video' : null, isCampaignFreeResource: false });
+    } else if (assetType === 'campaign_element') {
+      const campaignId = elementCampaignByAssetId.get(assetId) ?? null;
+      assetCampaignById.set(assetId, { campaignId, source: campaignId ? 'campaign_element' : null, isCampaignFreeResource: false });
+    } else if (assetType === 'resource') {
+      const campaignId = resourceCampaignByAssetId.get(assetId) ?? null;
+      assetCampaignById.set(assetId, {
+        campaignId,
+        source: campaignId ? 'resource' : null,
+        isCampaignFreeResource: !campaignId,
+      });
+    } else {
+      assetCampaignById.set(assetId, { campaignId: null, source: null, isCampaignFreeResource: false });
+    }
+  }
 
   // ── 5. Per-asset computeAssetAnalytics — KEEP relationships ───────────
   console.time('[AssetAnalyticsRows] computeAssetAnalytics loop (CPU)');
@@ -552,6 +617,7 @@ export async function getAssetAnalyticsRows(
       asset_id,
       linkTypes: linkTypes ?? [],
       campaignIds: campaignIds ?? [],
+      assetCampaign: assetCampaignById.get(asset_id) ?? { campaignId: null, source: null, isCampaignFreeResource: false },
       promotionIds: promotionIds ?? [],
       metrics,
       asset_type: assetTypeById.get(asset_id) ?? 'unknown',

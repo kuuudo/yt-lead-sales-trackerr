@@ -235,6 +235,12 @@ interface AssetAnalyticsRow {
   asset:           AssetIdentity;
   promoting_video: PromotingVideoIdentity;
   campaign_id:     string | null;
+  // Locked definition: the asset's OWN campaign — never a promotion/
+  // redirect_links id. `campaign_id` above is now populated FROM this.
+  // Kept separate only so the resource legacy "no campaign" state can be
+  // told apart from a real data-integrity gap on video/campaign_element.
+  assetCampaignSource: 'video' | 'campaign_element' | 'resource' | null;
+  isCampaignFreeResource: boolean;
   promotion_id:    string | null;
   // assets.organization_id, unchanged from the data layer. AllAssetsAnalytics
   // compares this to organizationId (from the hook) to derive My vs Shared.
@@ -408,7 +414,7 @@ function useAssetAnalyticsRows(opts: {
         const campaignIds = Array.from(
           new Set(
             result.rows
-              .flatMap((r) => r.campaignIds ?? [])
+              .map((r) => r.assetCampaign?.campaignId ?? null)
               .filter((id): id is string => !!id),
           ),
         );
@@ -699,7 +705,11 @@ console.log('🔍 VIDEOS QUERY RESULT', {
               content_owner_name: v?.content_owner_name ?? null,
               content_campaign_id: v?.content_campaign_id ?? null,
             },
-            campaign_id: r.campaignIds?.[0] ?? null,
+            // Locked definition — asset's own provenance, never
+            // redirect_links.campaign_id / r.campaignIds.
+            campaign_id: r.assetCampaign?.campaignId ?? null,
+            assetCampaignSource: r.assetCampaign?.source ?? null,
+            isCampaignFreeResource: !!r.assetCampaign?.isCampaignFreeResource,
             promotion_id: r.promotionIds?.[0] ?? null,
             assetOrganizationId: r.assetOrganizationId,
             isAssigned: r.isAssigned,
@@ -713,8 +723,8 @@ console.log('🔍 VIDEOS QUERY RESULT', {
 
             campaignArchive: {
               isArchived: !!(
-                (r.campaignIds?.[0]
-                  ? campaignArchiveById.get(r.campaignIds[0])?.isArchived
+                (r.assetCampaign?.campaignId
+                  ? campaignArchiveById.get(r.assetCampaign.campaignId)?.isArchived
                   : false)
               ),
             },
@@ -2729,7 +2739,9 @@ export default function AllAssetsAnalytics() {
                                 ?? (campaignOwnerLabelById.get(row.campaign_id)
                                       ? `🔒 ${campaignOwnerLabelById.get(row.campaign_id)}'s Campaign`
                                       : '—')
-                              : 'No Campaign'}
+                              : row.isCampaignFreeResource
+                                ? 'Campaign-Free Resource Asset'
+                                : 'No Campaign'}
                           </span>
                           {row.campaignArchive.isArchived && (
                             <span

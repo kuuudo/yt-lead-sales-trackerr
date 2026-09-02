@@ -1,3 +1,25 @@
+          CAMPAIGN A
+                    │
+          ┌─────────┼─────────┐
+          ▼         ▼         ▼
+       Content    Own Asset  Marketer
+       Analytics  Analytics  Analytics
+                              │
+                         ← CLICK →
+                              │
+                              ▼
+                         ┌─────────┐
+                         │ Marketer│
+                         │    A    │
+                         └────┬────┘
+                              │
+                    ┌─────────┴─────────┐
+                    ▼                   ▼
+              Promotion A         Promotion B
+         ┌─────────┴─────────┐
+        ▼                    ▼
+        ASEET A             ASEET B 
+
 # ANALYTICS_DRILLDOWN_ARCHITECTURE.md
 
 Internal developer map for the **unified Analytics drill-down prototype** (UI / interaction phase).

@@ -200,3 +200,357 @@ For optimizing any future sheet (Analytics, InDepthAnalytics, other asset/analyt
 9. **Verify row counts/data** — confirm counts (rows, assets, videos, etc.) match pre-change values, and spot-check displayed data.
 10. **Compare critical path** — check whether the observed total matches the predicted `max()`/chained critical-path math; if it doesn't, the parallelization may not be working as intended even if the number went down.
 11. **Decide whether another pass is worth it** — weigh remaining time against MVP timeline; don't over-optimize past the point of diminishing returns.
+
+also i did some changes in allassetanalytics 
+
+
+Search within code
+ 
+‎src/pages/AllAssetsAnalytics.tsx‎
++135
+-113
+Lines changed: 135 additions & 113 deletions
+Original file line number	Diff line number	Diff line change
+@@ -406,137 +406,139 @@ function useAssetAnalyticsRows(opts: {
+        console.log(`[AllAssetsAnalytics] LOAD #${__runId} counts`, { assetIds: assetIds.length, videoIds: videoIds.length });
+
+        console.time(`[AllAssetsAnalytics] LOAD #${__runId} videoArchive`);
+        const videoArchiveById = await getVideoArchiveContextsForViewer(
+          videoIds.map((id) => ({ id })),
+          viewerId,
+        );
+        console.timeEnd(`[AllAssetsAnalytics] LOAD #${__runId} videoArchive`);
+        const campaignIds = Array.from(
+          new Set(
+            result.rows
+              .flatMap((r) => r.campaignIds ?? [])
+              .filter((id): id is string => !!id),
+          ),
+        );
+        console.log(`[AllAssetsAnalytics] LOAD #${__runId} counts`, { campaignIds: campaignIds.length });
+
+let campaignArchiveById = new Map<
+  string,
+  { isArchived: boolean }
+>();
+        if (campaignIds.length > 0) {
+          console.time(`[AllAssetsAnalytics] LOAD #${__runId} campaignArchive`);
+          const { data: campaignRows, error: campaignArchiveError } = await supabase
+            .from('campaigns')
+            .select('id, archived_at')
+            .in('id', campaignIds);
+          if (campaignArchiveError) {
+            throw new Error(
+              `Failed to load campaigns for archive context: ${campaignArchiveError.message}`,
+            );
+          }
+          const campaignsForArchive = (campaignRows ?? []).map((c: any) => ({
+            id: c.id as string,
+            archivedAt: (c.archived_at as string | null) ?? null,
+          }));
+          const fullCampaignArchive = await getCampaignArchiveContextsForViewer(
+            campaignsForArchive,
+            viewerId,
+          );
+          campaignArchiveById = new Map(
+            Array.from(fullCampaignArchive.entries()).map(([id, ctx]) => [
+              id,
+              { isArchived: !!ctx.isArchived },
+            ]),
+          );
+          console.timeEnd(`[AllAssetsAnalytics] LOAD #${__runId} campaignArchive`);
+        } else {
+          console.log(`[AllAssetsAnalytics] LOAD #${__runId} campaignArchive: skipped (0 campaigns)`);
+        }
+                const promotionIds = Array.from(
+        const promotionIds = Array.from(
+          new Set(
+            result.rows
+              .flatMap((r) => r.promotionIds ?? [])
+              .filter((id): id is string => !!id),
+          ),
+        );
+        console.log(`[AllAssetsAnalytics] LOAD #${__runId} counts`, { promotionIds: promotionIds.length });
+        let promotionArchiveById = new Map<string, { isArchived: boolean }>();
+        if (promotionIds.length > 0) {
+          console.time(`[AllAssetsAnalytics] LOAD #${__runId} promotionArchive`);
+          const { data: promoStateRows, error: promoStateError } = await supabase
+            .from('promotion_user_states')
+            .select('promotion_id, archived_at')
+            .eq('user_id', viewerId)
+            .in('promotion_id', promotionIds);
+          if (promoStateError) {
+            throw new Error(
+              `Failed to load promotion archive states: ${promoStateError.message}`,
+            );
+          }
+
+          const archivedAtByPromotionId = new Map<string, string | null>(
+            (promoStateRows ?? []).map((row: any) => [
+              row.promotion_id as string,
+              (row.archived_at as string | null) ?? null,
+            ]),
+        // ── C — videoArchive (independent of D, E, F) ──────────────────────
+        const videoArchivePromise = (async () => {
+          return await getVideoArchiveContextsForViewer(
+            videoIds.map((id) => ({ id })),
+            viewerId,
+          );
+        })();
+        // ── D — campaignArchive (independent of C, E, F). Internal 2-step
+        //        chain (campaigns query → getCampaignArchiveContextsForViewer)
+        //        preserved exactly as before, just moved inside the IIFE. ──
+        const campaignArchivePromise = (async () => {
+          let campaignArchiveById = new Map<string, { isArchived: boolean }>();
+          if (campaignIds.length > 0) {
+            const { data: campaignRows, error: campaignArchiveError } = await supabase
+              .from('campaigns')
+              .select('id, archived_at')
+              .in('id', campaignIds);
+            if (campaignArchiveError) {
+              throw new Error(
+                `Failed to load campaigns for archive context: ${campaignArchiveError.message}`,
+              );
+            }
+            const campaignsForArchive = (campaignRows ?? []).map((c: any) => ({
+              id: c.id as string,
+              archivedAt: (c.archived_at as string | null) ?? null,
+            }));
+            const fullCampaignArchive = await getCampaignArchiveContextsForViewer(
+              campaignsForArchive,
+              viewerId,
+            );
+            campaignArchiveById = new Map(
+              Array.from(fullCampaignArchive.entries()).map(([id, ctx]) => [
+                id,
+                { isArchived: !!ctx.isArchived },
+              ]),
+            );
+          }
+          return campaignArchiveById;
+        })();
+        // ── E — promotionArchive (independent of C, D, F). Internal 2-step
+        //        chain (promotion_user_states query →
+        //        getPromotionArchiveContextsForViewer) preserved exactly as
+        //        before, just moved inside the IIFE. ─────────────────────
+        const promotionArchivePromise = (async () => {
+          let promotionArchiveById = new Map<string, { isArchived: boolean }>();
+          if (promotionIds.length > 0) {
+            const { data: promoStateRows, error: promoStateError } = await supabase
+              .from('promotion_user_states')
+              .select('promotion_id, archived_at')
+              .eq('user_id', viewerId)
+              .in('promotion_id', promotionIds);
+            if (promoStateError) {
+              throw new Error(
+                `Failed to load promotion archive states: ${promoStateError.message}`,
+              );
+            }
+
+          const promotionsForArchive = promotionIds.map((id) => ({
+            id,
+            archivedAt: archivedAtByPromotionId.get(id) ?? null,
+          }));
+            const archivedAtByPromotionId = new Map<string, string | null>(
+              (promoStateRows ?? []).map((row: any) => [
+                row.promotion_id as string,
+                (row.archived_at as string | null) ?? null,
+              ]),
+            );
+
+          const fullPromotionArchive = await getPromotionArchiveContextsForViewer(
+            promotionsForArchive,
+            viewerId,
+          );
+          promotionArchiveById = new Map(
+            Array.from(fullPromotionArchive.entries()).map(([id, ctx]) => [
+            const promotionsForArchive = promotionIds.map((id) => ({
+              id,
+              { isArchived: !!ctx.isArchived },
+            ]),
+          );
+          console.timeEnd(`[AllAssetsAnalytics] LOAD #${__runId} promotionArchive`);
+        } else {
+          console.log(`[AllAssetsAnalytics] LOAD #${__runId} promotionArchive: skipped (0 promotions)`);
+        }
+              archivedAt: archivedAtByPromotionId.get(id) ?? null,
+            }));
+            const fullPromotionArchive = await getPromotionArchiveContextsForViewer(
+              promotionsForArchive,
+              viewerId,
+            );
+            promotionArchiveById = new Map(
+              Array.from(fullPromotionArchive.entries()).map(([id, ctx]) => [
+                id,
+                { isArchived: !!ctx.isArchived },
+              ]),
+            );
+          }
+          return promotionArchiveById;
+        })();
+        // ── F — videosAndAssets (independent of C, D, E). Existing internal
+        //        Promise.all([videos, assets]) preserved exactly as before,
+        //        just moved inside the IIFE. ──────────────────────────────
+        // NOTE: videos fetched with '*' (not a narrow column list) because
+        // resolveThumbnail()/renderContentIdentity() are canonical helpers
+        // from videoFormatters.ts whose exact field dependencies aren't
+        // known from this file alone — same defensive posture InDepthAnalytics
+        // takes by passing a full Video row into these helpers.
+        const videosAndAssetsPromise = (async () => {
+console.log('🔍 OPERATOR VIDEO DEBUG', {
+  videoIds,
+  organizationId,
+  viewerId,
+});
+
+        console.time(`[AllAssetsAnalytics] LOAD #${__runId} videosAndAssets`);
+        const [videosRes, libraryRes] = await Promise.all([
+          videoIds.length
+            ? supabase
+                .from('videos')
+                .select('*')
+                .in('id', videoIds)
+            : Promise.resolve({ data: [] as any[] }),
+          assetIds.length
+            ? supabase
+                .from('assets')
+                .select(
+                  'id, asset_type, created_at, videos(video_title, thumbnail_url, platform), asset_resources(title, thumbnail_url, platform, resource_type), campaign_element_assets(display_name, element_type)',
+                )
+                .in('id', assetIds)
+            : Promise.resolve({ data: [] as any[] }),
+        ]);
+        console.timeEnd(`[AllAssetsAnalytics] LOAD #${__runId} videosAndAssets`);
+        console.log(`[AllAssetsAnalytics] LOAD #${__runId} counts`, { videosReturned: videosRes.data?.length ?? 0, assetsReturned: libraryRes.data?.length ?? 0 });
+          const [videosRes, libraryRes] = await Promise.all([
+            videoIds.length
+              ? supabase
+                  .from('videos')
+                  .select('*')
+                  .in('id', videoIds)
+              : Promise.resolve({ data: [] as any[] }),
+            assetIds.length
+              ? supabase
+                  .from('assets')
+                  .select(
+                    'id, asset_type, created_at, videos(video_title, thumbnail_url, platform), asset_resources(title, thumbnail_url, platform, resource_type), campaign_element_assets(display_name, element_type)',
+                  )
+                  .in('id', assetIds)
+              : Promise.resolve({ data: [] as any[] }),
+          ]);
+
+console.log('🔍 VIDEOS QUERY RESULT', {
+  error: videosRes.error,
+@@ -560,22 +562,42 @@ console.log('🔍 VIDEOS QUERY RESULT', {
+    })),
+});
+
+          return { videosRes, libraryRes };
+        })();
+
+        // ── G — profiles. Genuinely depends on F only (videoOwnerIds comes
+        //        from videosRes.data) — chained off videosAndAssetsPromise,
+        //        does NOT wait for C, D, or E. ──────────────────────────
+        // Content Owner — same profiles.select('id, email, full_name').in('id', ...)
+        // pattern getPromotionLevelMetricsForOrg() (getTopPromotionsAnalytics.ts)
+        // already uses to resolve marketer identity. No new identity system.
+        const videoOwnerIds = Array.from(
+          new Set((videosRes.data ?? []).map((v: any) => v.user_id).filter(Boolean)),
+        );
+        console.time(`[AllAssetsAnalytics] LOAD #${__runId} profiles`);
+        const { data: ownerProfiles } = videoOwnerIds.length
+          ? await supabase
+              .from('profiles')
+              .select('id, email, full_name')
+              .in('id', videoOwnerIds)
+          : { data: [] as any[] };
+        console.timeEnd(`[AllAssetsAnalytics] LOAD #${__runId} profiles`);
+        const profileByUserId = new Map((ownerProfiles ?? []).map((p: any) => [p.id, p]));
+        const profilesPromise = (async () => {
+          const { videosRes } = await videosAndAssetsPromise;
+          const videoOwnerIds = Array.from(
+            new Set((videosRes.data ?? []).map((v: any) => v.user_id).filter(Boolean)),
+          );
+          const { data: ownerProfiles } = videoOwnerIds.length
+            ? await supabase
+                .from('profiles')
+                .select('id, email, full_name')
+                .in('id', videoOwnerIds)
+            : { data: [] as any[] };
+          return new Map((ownerProfiles ?? []).map((p: any) => [p.id, p]));
+        })();
+        const [
+          videoArchiveById,
+          campaignArchiveById,
+          promotionArchiveById,
+          { videosRes, libraryRes },
+          profileByUserId,
+        ] = await Promise.all([
+          videoArchivePromise,
+          campaignArchivePromise,
+          promotionArchivePromise,
+          videosAndAssetsPromise,
+          profilesPromise,
+        ]);
+
+        console.time(`[AllAssetsAnalytics] LOAD #${__runId} transform`);
+       const assetDisplay = new Map<
+
+
+
+
+
+
+
+
+
+
+
+havent doen yet 
+
+Part 1 — B / getAssetAnalyticsRows.ts: confirmed against playbook
+
+I read the actual file. Every optimization the playbook claims is present in the code exactly as described:
+
+Playbook claim	Verified in source
+Query A (orgRedirectLinks) + Query B (sharedAssetResolution) dispatched together, awaited via single Promise.all	Lines 199–220 (A) and 230–258 (B) are separate IIFEs; joined at Promise.all([orgRedirectLinksPromise, sharedRedirectLinksPromise]), line 260–263
+B's internal B1→B2 chain (listSharedAssetsForCollaborator → follow-up redirect_links query) kept sequential, not parallelized	Lines 232–253 — single IIFE, await listSharedAssetsForCollaborator(...) then the redirect_links query depends on its sharedAssetIds output. Untouched, correctly left sequential
+C (assets), D (events), F (videos+resources+elements+assigned) dispatched independently	assetsPromise (316), eventsPromise (383), videosResourcesElementsAssignedPromise (430) — all fire immediately, no cross-awaits
+E split: token-branch independent, session-branches chained off D	stripeByTokenPromise (373) fires immediately; stripeBySessionPromise / pixelPurchasesPromise (408, 419) are eventsPromise.then(...) — chained correctly
+G (archiveContext) chained off C only, awaited right before final join (not before compute loop)	archivePromise = assetsPromise.then(...) (343); await archivePromise sits at line 514, after the compute loop (479–510)
+
+I'm not re-proposing any of this. It's shipped and matches spec.
+
+Two things worth flagging — one is just a labeling note, one is a real new finding
+
+1. Labeling artifact (not a bug): console.time('[AssetAnalyticsRows] query E: stripe+pixelPurchases') starts at line 372, but its console.timeEnd is at line 472 — after the big Promise.all at 461–471 that also waits on C, D, and F. So the number your logs print as "query E" is actually measuring wall-clock time for the whole C+D+E+F parallel group, not E's own work. That's why it consistently comes out close to (slightly above) F's own printed time in your 3 runs — it isn't E being slow, it's the label wrapping more than just E. Worth knowing when reading future logs, no code implication.
+
+2. New finding: getAssignedAssetSummaryForOwner(viewerId) (line 439) is bundled inside F's internal Promise.all, alongside the videos/resources/campaign_element_assets queries. But it only depends on viewerId — a param available at the very top of the function, before Query A/B even fire. It's currently gated behind identity-building (which itself needs A+B to resolve) for no dependency reason. It could be dispatched at t=0, concurrently with Query A/B, instead of waiting until F starts.
+
+Caveat: this function has no individual timing — it's folded into F's Promise.all, so we don't know if it's a meaningful chunk of F's ~846–884ms or negligible next to the videos/resources queries. If it's not the slowest of F's four items, moving it earlier saves nothing (F's duration is bounded by its slowest member either way). So this is a real, previously-unflagged candidate, but its value is unquantified until it's instrumented separately — that itself would need to be a first step, not the fix.
+
+Part 2 — A / resolveOrgAndViewer: what needs separate timing
+
+Exact code (for identification only, not editing):
+
+const { data: auth, error: authError } = await supabase.auth.getUser();
+if (authError || !auth.user) {
+  throw new Error('Not authenticated');
+}
+const viewerId = auth.user.id;
+
+const { data: membership } = await supabase
+  .from('organization_members')
+  .select('organization_id')
+  .eq('user_id', viewerId)
+  .limit(1)
+  .maybeSingle();
+
+Two segments to separately time:
+
+supabase.auth.getUser() — the auth call. This is the one likely to spike if a token refresh round-trip is happening.
+The organization_members lookup — the DB query right after.
+
+There's also a third, rarely-hit fallback path a few lines further down (an assets table lookup, only reached if membership?.organization_id is falsy) — worth a third label too, mainly so we can confirm it's not silently being hit on every load (which would itself explain part of A's inflation).
+
+I won't touch this file. Let me know if you want me to draft the instrumentation as Ctrl+F blocks for your approval, or if you'd rather review the plan in prose first.
