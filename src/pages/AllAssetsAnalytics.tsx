@@ -213,6 +213,21 @@ interface AssetCampaignFilterOptions {
   hasCampaignFreeResources: boolean;
 }
 
+// ── Content Campaign filter — NEW, independent from AssetCampaignSelection/
+// AssetCampaignFilterOptions above. Source of truth is
+// row.promoting_video.content_campaign_id, never row.campaign_id. No
+// "campaign-free" bucket — not requested for Content Campaign.
+type ContentCampaignSelection =
+  | { type: 'all' }
+  | { type: 'campaign'; id: string }        // My Campaigns + System entries
+  | { type: 'owner'; ownerId: string };     // Other People's group
+
+interface ContentCampaignFilterOptions {
+  myCampaigns: { id: string; name: string; isArchived: boolean }[];
+  otherOwners: { ownerId: string; displayName: string; campaignIds: string[] }[];
+  systemCampaigns: { id: string; name: string }[];
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 // Row shape — ONE ROW = ONE (asset, promoting video) PAIR
 //
@@ -1018,6 +1033,105 @@ function useAssetCampaignFilterOptions(
   }, [meta, ownerNames, viewerId, rows]);
 }
 
+/**
+ * Independent data source for the NEW "Content Campaign" filter. Does not
+ * call, read, or share state with useAssetCampaignFilterOptions() above —
+ * that backs the Asset Campaign filter only. Source of truth is
+ * row.promoting_video.content_campaign_id, never row.campaign_id. Options
+ * are built ONLY from content_campaign_ids actually present on `rows`.
+ * Fetches archived_at directly (rather than reusing row.campaignArchive,
+ * which is scoped to Asset Campaign's campaign_id) since a row's Content
+ * Campaign archive state is independent of its Asset Campaign archive state.
+ */
+function useContentCampaignFilterOptions(
+  rows: AssetAnalyticsRow[],
+  viewerId: string | null,
+): ContentCampaignFilterOptions {
+  const [meta, setMeta] = useState<Map<string, { campaign_name: string; is_system: boolean; user_id: string | null; archived_at: string | null }>>(new Map());
+  const [ownerNames, setOwnerNames] = useState<Map<string, string>>(new Map());
+
+  const presentContentCampaignIds = useMemo(() => {
+    const seen = new Set<string>();
+    rows.forEach(r => { if (r.promoting_video.content_campaign_id) seen.add(r.promoting_video.content_campaign_id); });
+    return Array.from(seen);
+  }, [rows]);
+
+  useEffect(() => {
+    if (presentContentCampaignIds.length === 0) { setMeta(new Map()); return; }
+    let cancelled = false;
+    (async () => {
+      const { data } = await supabase
+        .from('campaigns')
+        .select('id, campaign_name, is_system, user_id, archived_at')
+        .in('id', presentContentCampaignIds);
+      if (cancelled) return;
+      const next = new Map<string, { campaign_name: string; is_system: boolean; user_id: string | null; archived_at: string | null }>();
+      for (const c of (data ?? []) as any[]) {
+        next.set(c.id, {
+          campaign_name: c.campaign_name,
+          is_system: !!c.is_system,
+          user_id: c.user_id ?? null,
+          archived_at: c.archived_at ?? null,
+        });
+      }
+      setMeta(next);
+    })();
+    return () => { cancelled = true; };
+  }, [presentContentCampaignIds.join(',')]);
+
+  const otherOwnerIds = useMemo(() => {
+    const seen = new Set<string>();
+    meta.forEach(c => { if (!c.is_system && c.user_id && c.user_id !== viewerId) seen.add(c.user_id); });
+    return Array.from(seen);
+  }, [meta, viewerId]);
+
+  useEffect(() => {
+    if (otherOwnerIds.length === 0) { setOwnerNames(new Map()); return; }
+    let cancelled = false;
+    (async () => {
+      // Same profiles.select pattern as useAssetCampaignFilterOptions — never
+      // fetches campaign_name for these ids, only who owns them.
+      const { data } = await supabase.from('profiles').select('id, email, full_name').in('id', otherOwnerIds);
+      if (cancelled) return;
+      const next = new Map<string, string>();
+      for (const p of (data ?? []) as any[]) {
+        next.set(p.id, p.full_name?.trim() || p.email || 'Someone');
+      }
+      setOwnerNames(next);
+    })();
+    return () => { cancelled = true; };
+  }, [otherOwnerIds.join(',')]);
+
+  return useMemo(() => {
+    const myCampaigns: ContentCampaignFilterOptions['myCampaigns'] = [];
+    const systemCampaigns: ContentCampaignFilterOptions['systemCampaigns'] = [];
+    const ownerGroups = new Map<string, { ownerId: string; displayName: string; campaignIds: string[] }>();
+
+    meta.forEach((c, id) => {
+      if (c.is_system) { systemCampaigns.push({ id, name: c.campaign_name }); return; }
+      if (c.user_id === viewerId) {
+        // My Campaigns: archived stays visible + selectable, never hidden.
+        myCampaigns.push({ id, name: c.campaign_name, isArchived: !!c.archived_at });
+        return;
+      }
+      // Other owner: archive status is intentionally never read here —
+      // privacy rule, must never leak through this filter.
+      if (!c.user_id) return;
+      const displayName = ownerNames.get(c.user_id);
+      if (!displayName) return; // resolves in once the profiles fetch lands
+      const existing = ownerGroups.get(c.user_id);
+      if (existing) existing.campaignIds.push(id);
+      else ownerGroups.set(c.user_id, { ownerId: c.user_id, displayName, campaignIds: [id] });
+    });
+
+    return {
+      myCampaigns: myCampaigns.sort((a, b) => a.name.localeCompare(b.name)),
+      otherOwners: Array.from(ownerGroups.values()).sort((a, b) => a.displayName.localeCompare(b.displayName)),
+      systemCampaigns,
+    };
+  }, [meta, ownerNames, viewerId]);
+}
+
  function usePromotionOptions(rows: AssetAnalyticsRow[]): PromotionOption[] {
   // Ownership boundary intentionally NOT decided here — see
   // ASSET_ANALYTICS_DESIGN 3.md §3 "Ownership". Rather than guess a scope
@@ -1181,6 +1295,39 @@ export default function AllAssetsAnalytics() {
   }, []);
   const selectedAssetCampaignLabel =
     selectedAssetCampaignFilters.length === 0 ? 'All Asset Campaigns' : `${selectedAssetCampaignFilters.length} Selected`;
+
+  // ── Content Campaign filter — NEW, independent from selectedAssetCampaignFilters/
+  // assetCampaignFilterOptions above. See useContentCampaignFilterOptions().
+  const contentCampaignFilterOptions = useContentCampaignFilterOptions(rows, effectiveViewerId);
+  const [selectedContentCampaignFilters, setSelectedContentCampaignFilters] = useState<ContentCampaignSelection[]>([]);
+  const contentCampaignSelectionKey = (s: ContentCampaignSelection) =>
+    s.type === 'campaign' ? `campaign:${s.id}` : s.type === 'owner' ? `owner:${s.ownerId}` : s.type;
+  const isContentCampaignSelected = (s: ContentCampaignSelection) => {
+    const key = contentCampaignSelectionKey(s);
+    return selectedContentCampaignFilters.some(x => contentCampaignSelectionKey(x) === key);
+  };
+  const toggleContentCampaignSelection = (s: ContentCampaignSelection) => {
+    const key = contentCampaignSelectionKey(s);
+    setSelectedContentCampaignFilters(prev =>
+      prev.some(x => contentCampaignSelectionKey(x) === key)
+        ? prev.filter(x => contentCampaignSelectionKey(x) !== key)
+        : [...prev, s],
+    );
+  };
+  const [contentCampaignPanelOpen, setContentCampaignPanelOpen] = useState(false);
+  const contentCampaignPanelRef = useRef<HTMLDivElement>(null);
+  const [contentCampaignOthersExpanded, setContentCampaignOthersExpanded] = useState(false);
+  useEffect(() => {
+    const handler = (e: MouseEvent) => {
+      if (contentCampaignPanelRef.current && !contentCampaignPanelRef.current.contains(e.target as Node)) {
+        setContentCampaignPanelOpen(false);
+      }
+    };
+    document.addEventListener('mousedown', handler);
+    return () => document.removeEventListener('mousedown', handler);
+  }, []);
+  const selectedContentCampaignLabel =
+    selectedContentCampaignFilters.length === 0 ? 'All Content Campaigns' : `${selectedContentCampaignFilters.length} Selected`;
 
    const promotions = usePromotionOptions(rows);
   const promotionNameById = useMemo(
