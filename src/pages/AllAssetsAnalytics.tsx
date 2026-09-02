@@ -1379,13 +1379,13 @@ export default function AllAssetsAnalytics() {
         },
       ),
     [
-      contentOwnerFilteredRows,
-      hideArchivedAsset,
-      hideArchivedVideo,
-      hideArchivedCampaign,
-      hideArchivedPromotion,
-    ],
-  );
+      assetCampaignFilteredRows,
+       hideArchivedAsset,
+       hideArchivedVideo,
+       hideArchivedCampaign,
+       hideArchivedPromotion,
+     ],
+   );
   const sortedRows = useMemo(() => {
     const key = sortConfig.key;
     const dir = sortConfig.direction === 'asc' ? 1 : -1;
