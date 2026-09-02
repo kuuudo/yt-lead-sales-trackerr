@@ -20,6 +20,25 @@
         ▼                    ▼
         ASEET A             ASEET B 
 
+                                 CAMPAIGN
+                            │
+             ┌──────────────┼──────────────┐
+             │              │              │
+             ▼              ▼              ▼
+         CONTENT       OWN ASSETS       MARKETERS
+                                             │
+                          ┌──────────────────┼───────────────┐
+                          │                  │               │
+                          ▼                  ▼               ▼
+                      MARKETER A        MARKETER B      MARKETER C
+                          │                  │               │
+                     ┌────┴────┐        ┌────┴────┐         │
+                     ▼         ▼        ▼         ▼         ▼
+                   PROMO A   PROMO B  PROMO C   PROMO D   PROMO E
+                     │         │        │         │         │
+                     ▼         ▼        ▼         ▼         ▼
+                   ASSETS    ASSETS   ASSETS    ASSETS    ASSETS
+
 # ANALYTICS_DRILLDOWN_ARCHITECTURE.md
 
 Internal developer map for the **unified Analytics drill-down prototype** (UI / interaction phase).
