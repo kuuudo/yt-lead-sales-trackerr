@@ -193,9 +193,24 @@ const DEFAULT_VISIBLE = new Set<string>([
 // promotions (e.g. lib/supabase.ts), not be redefined here.
 // ─────────────────────────────────────────────────────────────────────────────
 
-interface PromotionOption {
-  id:   string;
-  name: string;
+ interface PromotionOption {
+   id:   string;
+   name: string;
+ }
+
+// ── Asset Campaign filter — NEW, independent from PromotionOption/Campaign
+// above. Selections are OR'd together (true multi-select).
+type AssetCampaignSelection =
+  | { type: 'all' }
+  | { type: 'campaign'; id: string }        // My Campaigns + System entries
+  | { type: 'owner'; ownerId: string }      // Other People's group
+  | { type: 'campaignFree' };
+
+interface AssetCampaignFilterOptions {
+  myCampaigns: { id: string; name: string; isArchived: boolean }[];
+  otherOwners: { ownerId: string; displayName: string; campaignIds: string[] }[];
+  systemCampaigns: { id: string; name: string }[];
+  hasCampaignFreeResources: boolean;
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -894,10 +909,112 @@ function useUnresolvedCampaignNames(
     return () => { cancelled = true; };
   }, [unresolvedCampaignIds.join(',')]);
 
-  return names;
+   return names;
+ }
+ 
+/**
+ * Independent data source for the NEW "Asset Campaign" filter. Does not
+ * call, read, or share state with useCampaignOptions() or
+ * useCampaignOwnerLabels() above — those back the OLD Campaign filter only.
+ * Options are built ONLY from campaign_ids actually present on `rows`
+ * (never every campaign in the DB) — locked requirement #10.
+ */
+function useAssetCampaignFilterOptions(
+  rows: AssetAnalyticsRow[],
+  viewerId: string | null,
+): AssetCampaignFilterOptions {
+  const [meta, setMeta] = useState<Map<string, { campaign_name: string; is_system: boolean; user_id: string | null }>>(new Map());
+  const [ownerNames, setOwnerNames] = useState<Map<string, string>>(new Map());
+
+  const presentCampaignIds = useMemo(() => {
+    const seen = new Set<string>();
+    rows.forEach(r => { if (r.campaign_id) seen.add(r.campaign_id); });
+    return Array.from(seen);
+  }, [rows]);
+
+  useEffect(() => {
+    if (presentCampaignIds.length === 0) { setMeta(new Map()); return; }
+    let cancelled = false;
+    (async () => {
+      const { data } = await supabase
+        .from('campaigns')
+        .select('id, campaign_name, is_system, user_id')
+        .in('id', presentCampaignIds);
+      if (cancelled) return;
+      const next = new Map<string, { campaign_name: string; is_system: boolean; user_id: string | null }>();
+      for (const c of (data ?? []) as any[]) {
+        next.set(c.id, { campaign_name: c.campaign_name, is_system: !!c.is_system, user_id: c.user_id ?? null });
+      }
+      setMeta(next);
+    })();
+    return () => { cancelled = true; };
+  }, [presentCampaignIds.join(',')]);
+
+  const otherOwnerIds = useMemo(() => {
+    const seen = new Set<string>();
+    meta.forEach(c => { if (!c.is_system && c.user_id && c.user_id !== viewerId) seen.add(c.user_id); });
+    return Array.from(seen);
+  }, [meta, viewerId]);
+
+  useEffect(() => {
+    if (otherOwnerIds.length === 0) { setOwnerNames(new Map()); return; }
+    let cancelled = false;
+    (async () => {
+      // Same profiles.select pattern as useCampaignOwnerLabels — never
+      // fetches campaign_name for these ids, only who owns them.
+      const { data } = await supabase.from('profiles').select('id, email, full_name').in('id', otherOwnerIds);
+      if (cancelled) return;
+      const next = new Map<string, string>();
+      for (const p of (data ?? []) as any[]) {
+        next.set(p.id, p.full_name?.trim() || p.email || 'Someone');
+      }
+      setOwnerNames(next);
+    })();
+    return () => { cancelled = true; };
+  }, [otherOwnerIds.join(',')]);
+
+  return useMemo(() => {
+    const myCampaigns: AssetCampaignFilterOptions['myCampaigns'] = [];
+    const systemCampaigns: AssetCampaignFilterOptions['systemCampaigns'] = [];
+    const ownerGroups = new Map<string, { ownerId: string; displayName: string; campaignIds: string[] }>();
+
+    // Archive flag is a property of the campaign, not the row — any row
+    // sharing a campaign_id carries the same value, so read it off rows
+    // instead of fetching archive state again.
+    const archivedById = new Map<string, boolean>();
+    rows.forEach(r => {
+      if (r.campaign_id && !archivedById.has(r.campaign_id)) {
+        archivedById.set(r.campaign_id, r.campaignArchive.isArchived);
+      }
+    });
+
+    meta.forEach((c, id) => {
+      if (c.is_system) { systemCampaigns.push({ id, name: c.campaign_name }); return; }
+      if (c.user_id === viewerId) {
+        // My Campaigns: archived stays visible + selectable, never hidden.
+        myCampaigns.push({ id, name: c.campaign_name, isArchived: !!archivedById.get(id) });
+        return;
+      }
+      // Other owner: archive status is intentionally never read here —
+      // privacy rule, must never leak through this filter.
+      if (!c.user_id) return;
+      const displayName = ownerNames.get(c.user_id);
+      if (!displayName) return; // resolves in once the profiles fetch lands
+      const existing = ownerGroups.get(c.user_id);
+      if (existing) existing.campaignIds.push(id);
+      else ownerGroups.set(c.user_id, { ownerId: c.user_id, displayName, campaignIds: [id] });
+    });
+
+    return {
+      myCampaigns: myCampaigns.sort((a, b) => a.name.localeCompare(b.name)),
+      otherOwners: Array.from(ownerGroups.values()).sort((a, b) => a.displayName.localeCompare(b.displayName)),
+      systemCampaigns,
+      hasCampaignFreeResources: rows.some(r => r.isCampaignFreeResource),
+    };
+  }, [meta, ownerNames, viewerId, rows]);
 }
 
-function usePromotionOptions(rows: AssetAnalyticsRow[]): PromotionOption[] {
+ function usePromotionOptions(rows: AssetAnalyticsRow[]): PromotionOption[] {
   // Ownership boundary intentionally NOT decided here — see
   // ASSET_ANALYTICS_DESIGN 3.md §3 "Ownership". Rather than guess a scope
   // (organization_id alone is explicitly flagged there as wrong for
@@ -1026,9 +1143,42 @@ export default function AllAssetsAnalytics() {
 
     const ownedCampaignIds = useMemo(() => new Set(campaigns.map(c => c.id)), [campaigns]);
   const campaignOwnerLabelById = useCampaignOwnerLabels(rows, ownedCampaignIds);
-  const unresolvedCampaignNameById = useUnresolvedCampaignNames(rows, campaignNameById, campaignOwnerLabelById);
+   const unresolvedCampaignNameById = useUnresolvedCampaignNames(rows, campaignNameById, campaignOwnerLabelById);
+ 
+  // ── Asset Campaign filter — NEW, independent from selectedCampaignId/
+  // campaigns above. See useAssetCampaignFilterOptions().
+  const assetCampaignFilterOptions = useAssetCampaignFilterOptions(rows, effectiveViewerId);
+  const [selectedAssetCampaignFilters, setSelectedAssetCampaignFilters] = useState<AssetCampaignSelection[]>([]);
+  const assetCampaignSelectionKey = (s: AssetCampaignSelection) =>
+    s.type === 'campaign' ? `campaign:${s.id}` : s.type === 'owner' ? `owner:${s.ownerId}` : s.type;
+  const isAssetCampaignSelected = (s: AssetCampaignSelection) => {
+    const key = assetCampaignSelectionKey(s);
+    return selectedAssetCampaignFilters.some(x => assetCampaignSelectionKey(x) === key);
+  };
+  const toggleAssetCampaignSelection = (s: AssetCampaignSelection) => {
+    const key = assetCampaignSelectionKey(s);
+    setSelectedAssetCampaignFilters(prev =>
+      prev.some(x => assetCampaignSelectionKey(x) === key)
+        ? prev.filter(x => assetCampaignSelectionKey(x) !== key)
+        : [...prev, s],
+    );
+  };
+  const [assetCampaignPanelOpen, setAssetCampaignPanelOpen] = useState(false);
+  const assetCampaignPanelRef = useRef<HTMLDivElement>(null);
+  const [assetCampaignOthersExpanded, setAssetCampaignOthersExpanded] = useState(false);
+  useEffect(() => {
+    const handler = (e: MouseEvent) => {
+      if (assetCampaignPanelRef.current && !assetCampaignPanelRef.current.contains(e.target as Node)) {
+        setAssetCampaignPanelOpen(false);
+      }
+    };
+    document.addEventListener('mousedown', handler);
+    return () => document.removeEventListener('mousedown', handler);
+  }, []);
+  const selectedAssetCampaignLabel =
+    selectedAssetCampaignFilters.length === 0 ? 'All Asset Campaigns' : `${selectedAssetCampaignFilters.length} Selected`;
 
-  const promotions = usePromotionOptions(rows);
+   const promotions = usePromotionOptions(rows);
   const promotionNameById = useMemo(
     () => new Map(promotions.map(p => [p.id, p.name])),
     [promotions]
@@ -1182,15 +1332,39 @@ export default function AllAssetsAnalytics() {
   // content_owner_id, never on the display name. Chained last, right
   // before sort, so Recently Added / metric sorts always run on the
   // fully-filtered set.
-  const contentOwnerFilteredRows = useMemo(() => {
-    if (selectedContentOwnerId === 'all') return promotionFilteredRows;
-    return promotionFilteredRows.filter(row => row.promoting_video.content_owner_id === selectedContentOwnerId);
-  }, [promotionFilteredRows, selectedContentOwnerId]);
+   const contentOwnerFilteredRows = useMemo(() => {
+     if (selectedContentOwnerId === 'all') return promotionFilteredRows;
+     return promotionFilteredRows.filter(row => row.promoting_video.content_owner_id === selectedContentOwnerId);
+   }, [promotionFilteredRows, selectedContentOwnerId]);
+ 
+  // ── Asset Campaign filter — NEW, fully independent of campaignFilteredRows
+  // above (different state, different semantics, chained separately here).
+  const assetCampaignFilteredRows = useMemo(() => {
+    if (selectedAssetCampaignFilters.length === 0) return contentOwnerFilteredRows;
 
-  const archiveFilteredRows = useMemo(
-    () =>
-      applyAnalyticsArchiveFilters(
-        contentOwnerFilteredRows,
+    const wantAll = selectedAssetCampaignFilters.some(s => s.type === 'all');
+    const wantCampaignFree = wantAll || selectedAssetCampaignFilters.some(s => s.type === 'campaignFree');
+    const wantedCampaignIds = new Set<string>();
+    selectedAssetCampaignFilters.forEach(s => {
+      if (s.type === 'campaign') wantedCampaignIds.add(s.id);
+      if (s.type === 'owner') {
+        assetCampaignFilterOptions.otherOwners
+          .find(o => o.ownerId === s.ownerId)
+          ?.campaignIds.forEach(id => wantedCampaignIds.add(id));
+      }
+    });
+
+    return contentOwnerFilteredRows.filter(row => {
+      if (wantAll) return row.campaign_id != null || row.isCampaignFreeResource;
+      if (wantCampaignFree && row.isCampaignFreeResource) return true;
+      return !!row.campaign_id && wantedCampaignIds.has(row.campaign_id);
+    });
+  }, [contentOwnerFilteredRows, selectedAssetCampaignFilters, assetCampaignFilterOptions]);
+
+   const archiveFilteredRows = useMemo(
+     () =>
+       applyAnalyticsArchiveFilters(
+        assetCampaignFilteredRows,
         (row) => ({
           assetArchived: row.archive.isArchived,
           videoArchived: row.videoArchive.isArchived,
@@ -1374,11 +1548,127 @@ export default function AllAssetsAnalytics() {
                   <option key={c.id} value={c.id}>{c.campaign_name}</option>
                 ))}
               </select>
-              <Briefcase size={12} className="absolute right-4 top-1/2 -translate-y-1/2 text-zinc-600 pointer-events-none" />
+               <Briefcase size={12} className="absolute right-4 top-1/2 -translate-y-1/2 text-zinc-600 pointer-events-none" />
+             </div>
+           </div>
+ 
+          {/* Asset Campaign — NEW, independent filter. Mirrors the
+              Promotion button+panel pattern visually only; state/data are
+              entirely separate from the Campaign select above. */}
+          <div>
+            <label className="text-[10px] font-black uppercase tracking-widest text-zinc-500 mb-3 block">
+              Asset Campaign
+            </label>
+            <div className="relative" ref={assetCampaignPanelRef}>
+              <button
+                onClick={() => setAssetCampaignPanelOpen(o => !o)}
+                className={`w-full flex items-center justify-between gap-2 px-4 py-2.5 rounded-xl border text-[10px] font-bold uppercase tracking-widest transition-all truncate ${
+                  assetCampaignPanelOpen
+                    ? 'bg-zinc-800 border-zinc-700 text-white'
+                    : 'bg-zinc-900 border-zinc-800 text-zinc-400 hover:text-white'
+                }`}
+              >
+                <span className="flex items-center gap-2 min-w-0 truncate">
+                  <Briefcase size={12} className="shrink-0 text-zinc-600" />
+                  <span className="truncate">{selectedAssetCampaignLabel}</span>
+                </span>
+                <ChevronDown size={11} className={`shrink-0 transition-transform ${assetCampaignPanelOpen ? 'rotate-180' : ''}`} />
+              </button>
+
+              {assetCampaignPanelOpen && (
+                <div className="absolute left-0 top-full mt-2 w-72 bg-zinc-900 border border-zinc-800 rounded-2xl shadow-2xl z-50 overflow-hidden max-h-96 overflow-y-auto">
+                  <button
+                    onClick={() => toggleAssetCampaignSelection({ type: 'all' })}
+                    className="w-full flex items-center gap-2 text-left px-4 py-2.5 text-[10px] font-bold text-zinc-300 hover:bg-zinc-800 transition-colors border-b border-zinc-800"
+                  >
+                    {isAssetCampaignSelected({ type: 'all' })
+                      ? <Check size={11} className="shrink-0 text-red-500" />
+                      : <span className="w-[11px] shrink-0" />}
+                    All Asset Campaigns
+                  </button>
+
+                  {assetCampaignFilterOptions.myCampaigns.length > 0 && (
+                    <div className="py-2 border-b border-zinc-800">
+                      <div className="px-4 pb-1 text-[8px] font-black uppercase tracking-widest text-zinc-600">My Campaigns</div>
+                      {assetCampaignFilterOptions.myCampaigns.map(c => (
+                        <button
+                          key={c.id}
+                          onClick={() => toggleAssetCampaignSelection({ type: 'campaign', id: c.id })}
+                          className="w-full flex items-center gap-2 text-left px-4 py-2 text-[10px] font-bold text-zinc-300 hover:bg-zinc-800 transition-colors truncate"
+                        >
+                          {isAssetCampaignSelected({ type: 'campaign', id: c.id })
+                            ? <Check size={11} className="shrink-0 text-red-500" />
+                            : <span className="w-[11px] shrink-0" />}
+                          <span className="truncate">{c.name}</span>
+                          {c.isArchived && (
+                            <span className="shrink-0 text-[8px] font-black uppercase tracking-widest text-zinc-600">· Archived</span>
+                          )}
+                        </button>
+                      ))}
+                    </div>
+                  )}
+
+                  {assetCampaignFilterOptions.otherOwners.length > 0 && (
+                    <div className="py-2 border-b border-zinc-800">
+                      <button
+                        onClick={() => setAssetCampaignOthersExpanded(o => !o)}
+                        className="w-full flex items-center justify-between px-4 pb-1 text-[8px] font-black uppercase tracking-widest text-zinc-600"
+                      >
+                        Other People's Campaigns
+                        <ChevronDown size={10} className={`transition-transform ${assetCampaignOthersExpanded ? 'rotate-180' : ''}`} />
+                      </button>
+                      {assetCampaignOthersExpanded && assetCampaignFilterOptions.otherOwners.map(o => (
+                        <button
+                          key={o.ownerId}
+                          onClick={() => toggleAssetCampaignSelection({ type: 'owner', ownerId: o.ownerId })}
+                          className="w-full flex items-center gap-2 text-left px-4 py-2 text-[10px] font-bold text-zinc-300 hover:bg-zinc-800 transition-colors truncate"
+                        >
+                          {isAssetCampaignSelected({ type: 'owner', ownerId: o.ownerId })
+                            ? <Check size={11} className="shrink-0 text-red-500" />
+                            : <span className="w-[11px] shrink-0" />}
+                          🔒 {o.displayName}'s Campaign
+                        </button>
+                      ))}
+                    </div>
+                  )}
+
+                  {assetCampaignFilterOptions.hasCampaignFreeResources && (
+                    <div className="py-2 border-b border-zinc-800">
+                      <button
+                        onClick={() => toggleAssetCampaignSelection({ type: 'campaignFree' })}
+                        className="w-full flex items-center gap-2 text-left px-4 py-2 text-[10px] font-bold text-zinc-300 hover:bg-zinc-800 transition-colors"
+                      >
+                        {isAssetCampaignSelected({ type: 'campaignFree' })
+                          ? <Check size={11} className="shrink-0 text-red-500" />
+                          : <span className="w-[11px] shrink-0" />}
+                        Campaign-Free Resources
+                      </button>
+                    </div>
+                  )}
+
+                  {assetCampaignFilterOptions.systemCampaigns.length > 0 && (
+                    <div className="py-2">
+                      <div className="px-4 pb-1 text-[8px] font-black uppercase tracking-widest text-zinc-600">System / Promote-only</div>
+                      {assetCampaignFilterOptions.systemCampaigns.map(c => (
+                        <button
+                          key={c.id}
+                          onClick={() => toggleAssetCampaignSelection({ type: 'campaign', id: c.id })}
+                          className="w-full flex items-center gap-2 text-left px-4 py-2 text-[10px] font-bold text-zinc-300 hover:bg-zinc-800 transition-colors truncate"
+                        >
+                          {isAssetCampaignSelected({ type: 'campaign', id: c.id })
+                            ? <Check size={11} className="shrink-0 text-red-500" />
+                            : <span className="w-[11px] shrink-0" />}
+                          {c.name}
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              )}
             </div>
           </div>
 
-          {/* Promotion — button + panel (mirrors Columns dropdown pattern).
+           {/* Promotion — button + panel (mirrors Columns dropdown pattern).
               [All] behaves exactly as the old <select> did. Assigned to Me /
               Assigned by Me add a person → promotions drill-down, sourced
               from getPromotionAssignmentGroups(). */}
@@ -1705,13 +1995,114 @@ export default function AllAssetsAnalytics() {
                   className="w-full bg-zinc-900 border border-zinc-800 rounded-xl px-4 py-2.5 text-[10px] font-bold uppercase tracking-widest outline-none focus:border-red-600 appearance-none cursor-pointer truncate"
                 >
                   <option value="all">All Campaigns</option>
-                  {campaigns.map(c => (
-                    <option key={c.id} value={c.id}>{c.campaign_name}</option>
+                   {campaigns.map(c => (
+                     <option key={c.id} value={c.id}>{c.campaign_name}</option>
+                   ))}
+                 </select>
+               </div>
+ 
+              {/* Asset Campaign — NEW, independent filter, mobile pill style
+                  (mirrors mobile Promotion's toggle-pill pattern). */}
+              <div>
+                <label className="text-[10px] font-black uppercase tracking-widest text-zinc-500 mb-3 block">
+                  Asset Campaign {selectedAssetCampaignFilters.length > 0 && `(${selectedAssetCampaignFilters.length})`}
+                </label>
+                <div className="flex items-center gap-2 flex-wrap">
+                  <button
+                    onClick={() => toggleAssetCampaignSelection({ type: 'all' })}
+                    className={`px-3 py-1.5 rounded-lg text-[9px] font-black uppercase tracking-widest transition-all flex items-center gap-1.5 ${
+                      isAssetCampaignSelected({ type: 'all' }) ? 'bg-red-600 text-white' : 'bg-zinc-900 border border-zinc-800 text-zinc-500 hover:text-white'
+                    }`}
+                  >
+                    {isAssetCampaignSelected({ type: 'all' }) && <Check size={10} />}
+                    All Asset Campaigns
+                  </button>
+                  {selectedAssetCampaignFilters.length > 0 && (
+                    <button
+                      onClick={() => setSelectedAssetCampaignFilters([])}
+                      className="px-3 py-1.5 rounded-lg text-[10px] font-black uppercase tracking-widest text-zinc-500 hover:text-white"
+                    >
+                      Clear
+                    </button>
+                  )}
+                </div>
+
+                {assetCampaignFilterOptions.myCampaigns.length > 0 && (
+                  <div className="mt-2">
+                    <div className="text-[8px] font-black uppercase tracking-widest text-zinc-600 mb-1">My Campaigns</div>
+                    <div className="flex items-center gap-2 flex-wrap">
+                      {assetCampaignFilterOptions.myCampaigns.map(c => (
+                        <button
+                          key={c.id}
+                          onClick={() => toggleAssetCampaignSelection({ type: 'campaign', id: c.id })}
+                          className={`px-3 py-1.5 rounded-lg text-[9px] font-black uppercase tracking-widest transition-all truncate max-w-[160px] flex items-center gap-1.5 ${
+                            isAssetCampaignSelected({ type: 'campaign', id: c.id }) ? 'bg-red-600 text-white' : 'bg-zinc-900 border border-zinc-800 text-zinc-500 hover:text-white'
+                          }`}
+                        >
+                          {isAssetCampaignSelected({ type: 'campaign', id: c.id }) && <Check size={10} />}
+                          {c.name}{c.isArchived ? ' · Archived' : ''}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                {assetCampaignFilterOptions.otherOwners.length > 0 && (
+                  <div className="mt-2">
+                    <button
+                      onClick={() => setAssetCampaignOthersExpanded(o => !o)}
+                      className="text-[8px] font-black uppercase tracking-widest text-zinc-600 mb-1 flex items-center gap-1"
+                    >
+                      Other People's Campaigns
+                      <ChevronDown size={9} className={`transition-transform ${assetCampaignOthersExpanded ? 'rotate-180' : ''}`} />
+                    </button>
+                    {assetCampaignOthersExpanded && (
+                      <div className="flex items-center gap-2 flex-wrap">
+                        {assetCampaignFilterOptions.otherOwners.map(o => (
+                          <button
+                            key={o.ownerId}
+                            onClick={() => toggleAssetCampaignSelection({ type: 'owner', ownerId: o.ownerId })}
+                            className={`px-3 py-1.5 rounded-lg text-[9px] font-black uppercase tracking-widest transition-all truncate max-w-[160px] flex items-center gap-1.5 ${
+                              isAssetCampaignSelected({ type: 'owner', ownerId: o.ownerId }) ? 'bg-red-600 text-white' : 'bg-zinc-900 border border-zinc-800 text-zinc-500 hover:text-white'
+                            }`}
+                          >
+                            {isAssetCampaignSelected({ type: 'owner', ownerId: o.ownerId }) && <Check size={10} />}
+                            🔒 {o.displayName}'s Campaign
+                          </button>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                )}
+
+                <div className="flex items-center gap-2 flex-wrap mt-2">
+                  {assetCampaignFilterOptions.hasCampaignFreeResources && (
+                    <button
+                      onClick={() => toggleAssetCampaignSelection({ type: 'campaignFree' })}
+                      className={`px-3 py-1.5 rounded-lg text-[9px] font-black uppercase tracking-widest transition-all flex items-center gap-1.5 ${
+                        isAssetCampaignSelected({ type: 'campaignFree' }) ? 'bg-red-600 text-white' : 'bg-zinc-900 border border-zinc-800 text-zinc-500 hover:text-white'
+                      }`}
+                    >
+                      {isAssetCampaignSelected({ type: 'campaignFree' }) && <Check size={10} />}
+                      Campaign-Free Resources
+                    </button>
+                  )}
+                  {assetCampaignFilterOptions.systemCampaigns.map(c => (
+                    <button
+                      key={c.id}
+                      onClick={() => toggleAssetCampaignSelection({ type: 'campaign', id: c.id })}
+                      className={`px-3 py-1.5 rounded-lg text-[9px] font-black uppercase tracking-widest transition-all truncate max-w-[160px] flex items-center gap-1.5 ${
+                        isAssetCampaignSelected({ type: 'campaign', id: c.id }) ? 'bg-red-600 text-white' : 'bg-zinc-900 border border-zinc-800 text-zinc-500 hover:text-white'
+                      }`}
+                    >
+                      {isAssetCampaignSelected({ type: 'campaign', id: c.id }) && <Check size={10} />}
+                      {c.name}
+                    </button>
                   ))}
-                </select>
+                </div>
               </div>
 
-                           {/* Promotion — All / Assigned to Me / Assigned by Me,
+                            {/* Promotion — All / Assigned to Me / Assigned by Me,
                   Marketplace.tsx pill style. Multi-select: tapping a
                   promotion toggles it in/out of selectedPromotionIds,
                   panel stays open so you can pick several. */}
