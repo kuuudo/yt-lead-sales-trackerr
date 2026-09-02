@@ -122,175 +122,25 @@ import {
 } from '../lib/videoFormatters';
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Asset type taxonomy
-// Verbatim from the four categories named in ASSET_ANALYTICS_DESIGN.md
-// (Campaign Elements / Promotional Videos / Resources / Content Videos).
-// Kept as a local const here (not imported) because no shared assetTypes.ts
-// currently exists — flagged in the design doc as something to confirm
-// against the actual `assets.asset_type` enum before wiring.
-// ─────────────────────────────────────────────────────────────────────────────
+import {
+  type AssetTypeTag,
+  ASSET_TYPE_LABELS,
+  ASSET_TYPE_COLORS,
+  ALL_ASSET_TYPES,
+  type PromotionOption,
+  type AssetCampaignSelection,
+  type AssetCampaignFilterOptions,
+  type AssetIdentity,
+  type PromotingVideoIdentity,
+  type AssetAnalyticsRow,
+} from './analytics-lego/assetAnalyticsTypes';
+import {
+  SORT_SHORTCUTS,
+  EXTRA_TABLE_COLUMNS,
+  NEW_DATE_COLUMNS,
+  DEFAULT_VISIBLE,
+} from './analytics-lego/assetAnalyticsColumns';
 
-type AssetTypeTag = 'campaign_element' | 'promotional_video' | 'resource' | 'content_video';
-
-const ASSET_TYPE_LABELS: Record<AssetTypeTag, string> = {
-  campaign_element:  'Campaign Element',
-  promotional_video: 'Promotional Video',
-  resource:          'Resource',
-  content_video:     'Content Video',
-};
-
-const ASSET_TYPE_COLORS: Record<AssetTypeTag, string> = {
-  campaign_element:  'bg-violet-500/10 border-violet-500/30 text-violet-400',
-  promotional_video: 'bg-blue-500/10 border-blue-500/30 text-blue-400',
-  resource:          'bg-amber-500/10 border-amber-500/30 text-amber-400',
-  content_video:     'bg-emerald-500/10 border-emerald-500/30 text-emerald-400',
-};
-const ALL_ASSET_TYPES: AssetTypeTag[] = [
-  'campaign_element',
-  'promotional_video',
-  'resource',
-  'content_video',
-];
-// ─────────────────────────────────────────────────────────────────────────────
-// Sort shortcuts — same set InDepthAnalytics exposes, minus the dead
-// 'unique_clicks' key (see header comment).
-// ─────────────────────────────────────────────────────────────────────────────
-
-const SORT_SHORTCUTS: { label: string; key: string }[] = [
-  { label: 'Recently Added', key: 'asset_created_at' },
-  { label: 'Revenue',       key: 'total_revenue' },
-  { label: 'Consultations', key: 'consultation_thankyou' },
-  { label: 'Purchases',     key: 'purchase_thankyou' },
-  { label: 'Calls',         key: 'call_booking_thankyou' },
-  { label: 'Opt-ins',       key: 'newsletter_thankyou' },
-];
-
-const EXTRA_TABLE_COLUMNS: { key: string; label: string }[] = [
-  { key: 'type', label: 'Type' },
-  { key: 'promoting_content', label: 'Promoting Content' },
-  { key: 'content_owner', label: 'Content Owner' },
-  { key: 'asset_campaign', label: 'Asset Campaign' },
-  { key: 'content_campaign', label: 'Content Campaign' },
-  { key: 'asset_clicks', label: 'Asset Clicks' },
-];
-
-const NEW_DATE_COLUMNS: { key: string; label: string }[] = [
-  { key: 'asset_created_at', label: 'Asset Created At' },
-  { key: 'content_created_at', label: 'Content Created At' },
-];
-
-const DEFAULT_VISIBLE = new Set<string>([
-  ...TABLE_COLUMNS,
-  'promotion',
-  ...EXTRA_TABLE_COLUMNS.map(c => c.key),
-  // NEW_DATE_COLUMNS is NOT spread in here on purpose — that's what
-  // makes the 2 new date columns hidden by default.
-]);
-
-// ─────────────────────────────────────────────────────────────────────────────
-// Local placeholder type — a promotion, only the fields this dropdown needs.
-// Once wired, this should come from wherever the app already types
-// promotions (e.g. lib/supabase.ts), not be redefined here.
-// ─────────────────────────────────────────────────────────────────────────────
-
- interface PromotionOption {
-   id:   string;
-   name: string;
- }
-
-// ── Asset Campaign filter — NEW, independent from PromotionOption/Campaign
-// above. Selections are OR'd together (true multi-select).
-type AssetCampaignSelection =
-  | { type: 'all' }
-  | { type: 'campaign'; id: string }        // My Campaigns + System entries
-  | { type: 'owner'; ownerId: string }      // Other People's group
-  | { type: 'campaignFree' };
-
-interface AssetCampaignFilterOptions {
-  myCampaigns: { id: string; name: string; isArchived: boolean }[];
-  otherOwners: { ownerId: string; displayName: string; campaignIds: string[] }[];
-  systemCampaigns: { id: string; name: string }[];
-  hasCampaignFreeResources: boolean;
-}
-
-// ─────────────────────────────────────────────────────────────────────────────
-// Row shape — ONE ROW = ONE (asset, promoting video) PAIR
-//
-// This mirrors ProcessedVideoRow from analyticsEngine.ts but splits identity
-// into two cells — Asset and Content (the promoting video) — since neither
-// alone represents the row.
-//
-// `metrics` reuses VideoMetricsResult's shape by structural typing — once
-// wired, whatever function computes this per (asset, video) pair should
-// return the same shape processVideoMetrics() returns today, so
-// formatCellValue()/COLUMN_LABELS keep working unmodified.
-// ─────────────────────────────────────────────────────────────────────────────
-
-interface AssetIdentity {
-  id:             string;
-  title:          string | undefined;
-  thumbnail_url?: string;
-  asset_type:     AssetTypeTag;
-  platform?:      string | null;
-  created_at?:    string | null;
-}
-
-interface PromotingVideoIdentity {
-  id:             string;
-  title:          React.ReactNode | undefined;
-  thumbnail_url?: string;
-  platform?:      string | null;
-  created_at?:    string | null;
-  content_owner_id?: string | null;
-  content_owner_name?: string | null;
-  content_campaign_id?: string | null;
-}
-
-interface AssetAnalyticsRow {
-  asset:           AssetIdentity;
-  promoting_video: PromotingVideoIdentity;
-  campaign_id:     string | null;
-  // Locked definition: the asset's OWN campaign — never a promotion/
-  // redirect_links id. `campaign_id` above is now populated FROM this.
-  // Kept separate only so the resource legacy "no campaign" state can be
-  // told apart from a real data-integrity gap on video/campaign_element.
-  assetCampaignSource: 'video' | 'campaign_element' | 'resource' | null;
-  isCampaignFreeResource: boolean;
-  promotion_id:    string | null;
-  // assets.organization_id, unchanged from the data layer. AllAssetsAnalytics
-  // compares this to organizationId (from the hook) to derive My vs Shared.
-  assetOrganizationId: string;
-  // From getAssignedAssetSummaryForOwner(viewerId) — annotation on top of
-  // My, never a separate/exclusive source. See ASSET_ANALYTICS_DESIGN_6.md.
-  isAssigned: boolean;
-    // From getAssetAnalyticsRows → getAssetArchiveContextsForViewer (Entity Archive only).
-  archive: {
-    isArchived: boolean;
-    reasons: { sourceType: string; sourceId: string; sourceName: string | null }[];
-  };
-  // From getVideoArchiveContextsForViewer for promoting_video.id (Entity Archive only).
-  videoArchive: {
-    isArchived: boolean;
-  };
-  // From getCampaignArchiveContextsForViewer for campaign_id (Entity Archive only).
-  campaignArchive: {
-    isArchived: boolean;
-  };
-
-  // From getPromotionArchiveContextsForViewer (Surface A / personal only).
-  promotionArchive: {
-    isArchived: boolean;
-  };
-  // Placeholder — see "Asset Clicks" note above. Left as `number | null` so
-  // the UI can distinguish "not computed yet" (null → renders "—") from a
-  // real zero once wired.
-  asset_clicks:    number | null;
-  // Same 14-key shape as VideoMetricsResult. All zeroed for now via
-  // emptyVideoMetrics() equivalent — never fabricated.
-  metrics:         Record<MetricType, number | string>;
-}
-
-// ─────────────────────────────────────────────────────────────────────────────
 // STUB data sources — return nothing yet. Replace with real fetches/engine
 // calls once ASSET_ANALYTICS_DESIGN.md's open questions are resolved.
 // ─────────────────────────────────────────────────────────────────────────────
