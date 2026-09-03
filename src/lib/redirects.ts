@@ -31,6 +31,7 @@ export interface RedirectLink {
   promotion_id: string | null;
   asset_id: string | null;
   tracking_hostname: string | null;
+  bridge_token: string | null; 
 }
 
 export interface CreateRedirectLinkOptions {
@@ -209,6 +210,7 @@ if (trackingDomainId) {
       ...(leadMagnetId ? { lead_magnet_id: leadMagnetId } : {}),
       ...(promotionId ? { promotion_id: promotionId } : {}),
       ...(assetId ? { asset_id: assetId } : {}),
+      ...(assetId ? { bridge_token: generateToken() } : {}), 
     });
 
   if (error) {
@@ -250,6 +252,7 @@ export const logRedirectEvent = async (link: RedirectLink) => {
     redirect_link_id: link.id,
     tracking_hostname: link.tracking_hostname,
     link_type: link.link_type,
+    bridge_token: link.bridge_token, 
   });
 };
 
