@@ -1055,45 +1055,6 @@ Conversion table (must-have):
 
 
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 ColumnPurposeConversion / amount / sourceWhat money/eventDestination (asset / content / unknown)Q AReasonQ A debugAsset + typeQ B, CPromoting contentContextAsset CampaignQ D — never Content CampaignContent CampaignQ E — display only for contextPath summaryQ FSession / token (truncated)Traceability
 Optional second table — asset rollup (only if needed to compare to production):
 Asset · Type · Asset Campaign · Content Campaign · Clicks · Total revenue · RPC
