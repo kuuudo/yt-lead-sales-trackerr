@@ -6,11 +6,11 @@ import {
   syncSession,
   getVideoId,
   getCampaignId,
+  getPromotionId,
+  getAssetId,
   getFirstTouchVideoId,
   getFirstTouchCampaignId,
   getFirstTouchOrganizationId,
-  getFirstTouchPromotionId,
-  getFirstTouchAssetId,
   getFirstTouchTrackingHostname,
   getFirstTouchRedirectLinkId,
   getFirstTouchRedirectLinkToken,
@@ -167,19 +167,23 @@ export default function Track() {
         // ── Step 6: current vs first-touch before redirecting ────────────────
         const finalSessionId = localStorage.getItem('yt_tracker_session_id');
         // CURRENT attribution — the link just clicked (setAttribution already ran).
-        // Used for vt_vid / vt_cid so destination + thank-you pixel resolve pricing
-        // against the active journey, not a stale first-touch campaign.
+        // Used for vt_vid / vt_cid / vt_pid / vt_aid so destination + thank-you
+        // pixel resolve pricing AND identity (promotion/asset) against the
+        // touchpoint that was actually just clicked, not a stale first-touch
+        // campaign/promotion/asset from earlier in the same browser session.
         const currentVideoId =
           getVideoId() ?? (videoId as string | undefined) ?? null;
         const currentCampaignId =
           getCampaignId() ?? (campaignId as string | undefined) ?? null;
+        const currentPromotionId =
+          getPromotionId() ?? ((link as any).promotion_id as string | undefined) ?? null;
+        const currentAssetId =
+          getAssetId() ?? ((link as any).asset_id as string | undefined) ?? null;
         // FIRST-TOUCH — write-once. Used only for Stripe client_reference_id and
         // vt_first_touch_redirect_link_id so classic FT revenue attribution is preserved.
         const finalVideoId = getFirstTouchVideoId();
         const finalCampaignId = getFirstTouchCampaignId();
         const finalOrganizationId = getFirstTouchOrganizationId();
-        const finalPromotionId = getFirstTouchPromotionId();
-        const finalAssetId = getFirstTouchAssetId();
         const finalTrackingHostname = getFirstTouchTrackingHostname();
         const finalFirstTouchRedirectLinkId = getFirstTouchRedirectLinkId();
         const finalFirstTouchRedirectLinkToken = getFirstTouchRedirectLinkToken();
@@ -215,19 +219,22 @@ try {
 
   // ── PR C: first-touch attribution params ──────────────────────────────
   // Same purpose as vt_sid/vt_vid/vt_cid above — let the destination
-  // domain persist these into ITS OWN localStorage. All five are
-  // First Touch values (the funnel's original attribution), NOT the
-  // current link's own values.
+  // domain persist these into ITS OWN localStorage. vt_oid/vt_th remain
+  // First Touch values (the funnel's original attribution) — unchanged.
   if (finalOrganizationId) {
     url.searchParams.set('vt_oid', finalOrganizationId);
   }
 
-  if (finalPromotionId) {
-    url.searchParams.set('vt_pid', finalPromotionId);
+  // vt_pid / vt_aid: CURRENT touchpoint's promotion/asset — this click's
+  // own redirect_links row, NOT first-touch. A pixel_purchases row must be
+  // able to carry its own touchpoint's identity even when an earlier,
+  // different touchpoint exists in the same browser session.
+  if (currentPromotionId) {
+    url.searchParams.set('vt_pid', currentPromotionId);
   }
 
-  if (finalAssetId) {
-    url.searchParams.set('vt_aid', finalAssetId);
+  if (currentAssetId) {
+    url.searchParams.set('vt_aid', currentAssetId);
   }
 
   if (finalTrackingHostname) {

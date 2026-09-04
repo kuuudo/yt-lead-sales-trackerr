@@ -36,6 +36,7 @@ export default async function handler(
     amount,
     session_id,
     asset_id,
+    promotion_id,
     first_touch_redirect_link_id,
     redirect_link_id,
     conversion_id,
@@ -108,27 +109,37 @@ console.log('PIXEL BODY', {
     }
   }
 
-  // ── purchaseAssetId: event-specific asset for pixel_purchases ONLY ──────
-  // Kept separate from resolvedAssetId (which is first-touch-derived and
-  // stays scoped to the events-table logging block below, unchanged).
-  // Priority:
+  // ── purchaseAssetId / purchasePromotionId: CURRENT-touchpoint identity ──
+  // for pixel_purchases ONLY. Kept separate from resolvedAssetId /
+  // resolvedPromotionId (which are first-touch-derived and stay scoped to
+  // the events-table logging block below, unchanged).
+  //
+  // redirect_links is the source of truth for a touchpoint's identity —
+  // this is identity propagation, not attribution inference. Priority:
   //   1. redirect_link_id (the CURRENT click, e.g. this session's sales_call
-  //      or newsletter link) — most specific signal for which asset this
-  //      particular conversion actually belongs to.
-  //   2. client-sent asset_id (first-touch, from the pixel payload).
-  //   3. resolvedAssetId (first-touch, from the first_touch_redirect_link_id
-  //      lookup above).
+  //      or newsletter link) — the touchpoint this conversion actually
+  //      belongs to, looked up fresh against redirect_links.
+  //   2. client-sent asset_id / promotion_id — CURRENT values as of the
+  //      Track.tsx fix (vt_pid/vt_aid now carry the just-clicked link's own
+  //      promotion_id/asset_id, not first-touch). Covers pixels firing
+  //      without vt_rlid in scope (e.g. no localStorage yet).
+  //   3. resolvedAssetId / resolvedPromotionId — first-touch, from the
+  //      first_touch_redirect_link_id lookup above. Last-resort fallback
+  //      only, for legacy/cold payloads with no current-touchpoint signal
+  //      at all. Never used to override a real current-touchpoint value.
   let purchaseAssetId: string | null = null;
+  let purchasePromotionId: string | null = null;
 
   if (redirect_link_id) {
     const { data: currentLink } = await supabase
       .from('redirect_links')
-      .select('asset_id')
+      .select('asset_id, promotion_id')
       .eq('id', redirect_link_id)
       .maybeSingle();
 
     if (currentLink) {
       purchaseAssetId = currentLink.asset_id;
+      purchasePromotionId = currentLink.promotion_id;
     } else {
       console.warn(
         '[pixel] redirect_link_id provided but no matching redirect_links row:',
@@ -139,6 +150,9 @@ console.log('PIXEL BODY', {
 
   if (!purchaseAssetId) purchaseAssetId = asset_id ?? null;
   if (!purchaseAssetId) purchaseAssetId = resolvedAssetId;
+
+  if (!purchasePromotionId) purchasePromotionId = promotion_id ?? null;
+  if (!purchasePromotionId) purchasePromotionId = resolvedPromotionId;
 
   console.log("PIXEL STATE:", {
   session_id,
@@ -262,7 +276,7 @@ console.log('INSERT VALUES', {
   campaign_id: resolvedCampaignId ?? null,
   user_id: resolvedUserId,
   organization_id: resolvedOrganizationId ?? campaign?.organization_id ?? null,
-  promotion_id: resolvedPromotionId ?? null,
+  promotion_id: purchasePromotionId ?? null,
   asset_id: purchaseAssetId ?? null,
   amount: finalAmount,
   event_type: finalEventType,
@@ -279,7 +293,7 @@ const { error: purchaseError } =
       campaign_id: resolvedCampaignId ?? null,
       user_id: resolvedUserId,
       organization_id: resolvedOrganizationId ?? campaign?.organization_id ?? null,
-      promotion_id: resolvedPromotionId ?? null,
+      promotion_id: purchasePromotionId ?? null,
       asset_id: purchaseAssetId ?? null,
       amount: finalAmount,
       pricing_version_id: resolvedPricingVersionId,
