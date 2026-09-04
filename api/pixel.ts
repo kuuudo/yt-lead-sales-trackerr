@@ -35,6 +35,7 @@ export default async function handler(
     event_type,
     amount,
     session_id,
+    asset_id,
     first_touch_redirect_link_id,
     redirect_link_id,
     conversion_id,
@@ -106,6 +107,39 @@ console.log('PIXEL BODY', {
       if (!resolvedCampaignId) resolvedCampaignId = link.campaign_id;
     }
   }
+
+  // ── purchaseAssetId: event-specific asset for pixel_purchases ONLY ──────
+  // Kept separate from resolvedAssetId (which is first-touch-derived and
+  // stays scoped to the events-table logging block below, unchanged).
+  // Priority:
+  //   1. redirect_link_id (the CURRENT click, e.g. this session's sales_call
+  //      or newsletter link) — most specific signal for which asset this
+  //      particular conversion actually belongs to.
+  //   2. client-sent asset_id (first-touch, from the pixel payload).
+  //   3. resolvedAssetId (first-touch, from the first_touch_redirect_link_id
+  //      lookup above).
+  let purchaseAssetId: string | null = null;
+
+  if (redirect_link_id) {
+    const { data: currentLink } = await supabase
+      .from('redirect_links')
+      .select('asset_id')
+      .eq('id', redirect_link_id)
+      .maybeSingle();
+
+    if (currentLink) {
+      purchaseAssetId = currentLink.asset_id;
+    } else {
+      console.warn(
+        '[pixel] redirect_link_id provided but no matching redirect_links row:',
+        redirect_link_id
+      );
+    }
+  }
+
+  if (!purchaseAssetId) purchaseAssetId = asset_id ?? null;
+  if (!purchaseAssetId) purchaseAssetId = resolvedAssetId;
+
   console.log("PIXEL STATE:", {
   session_id,
   video_id,
@@ -229,6 +263,7 @@ console.log('INSERT VALUES', {
   user_id: resolvedUserId,
   organization_id: resolvedOrganizationId ?? campaign?.organization_id ?? null,
   promotion_id: resolvedPromotionId ?? null,
+  asset_id: purchaseAssetId ?? null,
   amount: finalAmount,
   event_type: finalEventType,
   session_id: session_id ?? null,
@@ -245,6 +280,7 @@ const { error: purchaseError } =
       user_id: resolvedUserId,
       organization_id: resolvedOrganizationId ?? campaign?.organization_id ?? null,
       promotion_id: resolvedPromotionId ?? null,
+      asset_id: purchaseAssetId ?? null,
       amount: finalAmount,
       pricing_version_id: resolvedPricingVersionId,
       event_type: finalEventType,
