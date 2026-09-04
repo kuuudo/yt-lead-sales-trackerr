@@ -183,7 +183,10 @@ export const generateAttributionPixel = (
     params.get('vt_first_touch_redirect_link_id') ||
     localStorage.getItem('yt_tracker_ft_redirect_link_id') ||
     null;
-  const redirectLinkId = params.get('vt_rlid') || null;
+  const redirectLinkId =
+    params.get('vt_rlid') ||
+    localStorage.getItem('yt_tracker_redirect_link_id') ||
+    null;
   if (sessionId) localStorage.setItem('yt_tracker_session_id', sessionId);
   if (videoId) localStorage.setItem('yt_tracker_video_id', videoId);
   if (campaignId) localStorage.setItem('yt_tracker_campaign_id', campaignId);
