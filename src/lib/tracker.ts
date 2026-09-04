@@ -324,6 +324,13 @@ export const trackEvent = async (
   const campaignId =
     meta?.campaign_id ?? getCampaignId() ?? undefined;
 
+  // Snapshot the page URL the event is actually being recorded from, at the
+  // moment of creation. This is the page the visitor is on when trackEvent()
+  // fires (e.g. the destination site after redirect) — not a stored/derived
+  // attribution value, so it does not touch first-touch/current-touch logic.
+  const currentUrl =
+    typeof window !== 'undefined' ? window.location.href : null;
+
   const payload: Record<string, unknown> = {
     session_id: sessionId,
     event_type: eventType,
@@ -331,6 +338,7 @@ export const trackEvent = async (
     ...(videoId ? { video_id: videoId } : {}),
     ...(campaignId ? { campaign_id: campaignId } : {}),
     organization_id: meta?.organization_id ?? null,
+    url: currentUrl,
   };
 
   console.debug('[tracker] trackEvent', payload);

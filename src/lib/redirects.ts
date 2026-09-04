@@ -235,7 +235,13 @@ export const resolveRedirectToken = async (
   return data as RedirectLink;
 };
 
-export const logRedirectEvent = async (link: RedirectLink) => {
+// `url` is the tracking URL the visitor actually loaded (e.g.
+// https://go.kaksidigitals.com/kVMt), captured by the caller BEFORE
+// `window.location.href` is reassigned for the redirect. This function is
+// invoked fire-and-forget after navigation has already started, so reading
+// window.location.href in here would capture the destination page instead —
+// hence it's passed in rather than read locally.
+export const logRedirectEvent = async (link: RedirectLink, url: string | null = null) => {
   const sessionId = getSessionId();
 
   if (!sessionId) return;
@@ -253,6 +259,7 @@ export const logRedirectEvent = async (link: RedirectLink) => {
     tracking_hostname: link.tracking_hostname,
     link_type: link.link_type,
     bridge_token: link.bridge_token, 
+    url,
   });
 };
 

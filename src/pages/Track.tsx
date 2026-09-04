@@ -43,6 +43,12 @@ export default function Track() {
     }
 
     const handleRedirect = async () => {
+      // Snapshot the tracking URL the visitor actually loaded (e.g.
+      // https://go.kaksidigitals.com/kVMt) before window.location.href is
+      // ever reassigned below. logRedirectEvent fires after navigation has
+      // already started, so this is the only reliable point to capture it.
+      const trackingPageUrl = window.location.href;
+
       try {
         // ── Step 0: verified-hostname guard (custom domains only) ─────────
         const currentHost = window.location.hostname;
@@ -282,7 +288,7 @@ try {
 window.location.href = url.toString();
 
         // Fire-and-forget click event after navigation starts.
-        logRedirectEvent(link).catch((e) =>
+        logRedirectEvent(link, trackingPageUrl).catch((e) =>
           console.error('[Track] ✗ logRedirectEvent failed:', e)
         );
 
