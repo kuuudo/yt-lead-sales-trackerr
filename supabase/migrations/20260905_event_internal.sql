@@ -24,3 +24,9 @@ CREATE INDEX idx_events_internal_session_id
 -- per your decision. Table currently has no RLS enabled (default
 -- Supabase behavior), same as leaving it unrestricted until you
 -- decide the Phase 2 access model.
+
+CREATE POLICY "Public can insert internal events"
+ON public.events_internal
+FOR INSERT
+TO public
+WITH CHECK (true);

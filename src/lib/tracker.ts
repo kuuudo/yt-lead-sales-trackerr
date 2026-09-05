@@ -370,6 +370,35 @@ export const trackEvent = async (
  * url. Does not read or write any FT_ prefix attribution localStorage keys.
  * Historical `events` rows are never touched by this function.
  */
+// Route → entity-id extraction for internal page views ONLY.
+// This reads the entity id straight out of the URL path segment
+// (e.g. /videos/:id) — it is NOT marketing attribution and never
+// reads localStorage / getVideoId() / getCampaignId() / FT_* keys.
+// If a path doesn't carry an id (e.g. /dashboard, /assets/analytics),
+// the corresponding field stays null.
+const extractInternalEntityIds = (path: string) => {
+  let video_id: string | null = null;
+  let campaign_id: string | null = null;
+  let asset_id: string | null = null;
+
+  const videoMatch = path.match(/^\/videos\/([^/]+)/);
+  if (videoMatch && videoMatch[1] !== 'analytics') {
+    video_id = videoMatch[1];
+  }
+
+  const campaignMatch = path.match(/^\/campaigns\/([^/]+)/);
+  if (campaignMatch && campaignMatch[1] !== 'analytics') {
+    campaign_id = campaignMatch[1];
+  }
+
+  const assetMatch = path.match(/^\/assets\/([^/]+)/);
+  if (assetMatch && assetMatch[1] !== 'analytics') {
+    asset_id = assetMatch[1];
+  }
+
+  return { video_id, campaign_id, asset_id };
+};
+
 export const trackInternalPageView = async (
   path: string,
   meta?: { organization_id?: string }
@@ -377,10 +406,19 @@ export const trackInternalPageView = async (
   const sessionId = getSessionId();
   if (!sessionId) return;
 
+  const currentUrl =
+    typeof window !== 'undefined' ? window.location.href : null;
+
+  const { video_id, campaign_id, asset_id } = extractInternalEntityIds(path);
+
   const payload: Record<string, unknown> = {
     session_id: sessionId,
     event_type: 'page_view',
     path,
+    url: currentUrl,
+    video_id,
+    campaign_id,
+    asset_id,
     organization_id: meta?.organization_id ?? null,
   };
 
