@@ -17,13 +17,23 @@
  *   nanoid — npm install nanoid
  */
 
-import React, { useCallback, useEffect } from 'react'
+import React, { useCallback, useEffect, useState, useRef } from 'react'
 import { useWorkspaceStore } from '../store/useWorkspaceStore'
 import { TOOLBAR_ITEMS, WIDGET_DEFAULTS } from '../widgets/WidgetRegistry'
 
 interface Props {
   userId: string | null
 }
+
+const DOMAINS = [
+  { id: 'campaigns', label: 'Campaigns' },
+  { id: 'content',   label: 'Content' },
+  { id: 'assets',    label: 'Assets' },
+  { id: 'collab',    label: 'Collab' },
+  { id: 'operator',  label: 'Operator' },
+]
+
+const SHAPE_TYPES = ['rectangle', 'circle', 'arrow']
 
 export default function WorkspaceToolbar({ userId }: Props) {
   const activeBoardId = useWorkspaceStore((s) => s.activeBoardId)
@@ -34,7 +44,11 @@ export default function WorkspaceToolbar({ userId }: Props) {
   const canRedo      = useWorkspaceStore((s) => s.canRedo)
   const undo         = useWorkspaceStore((s) => s.undo)
   const redo         = useWorkspaceStore((s) => s.redo)
-
+  const [activeDomain, setActiveDomain] = useState(DOMAINS[0].id)
+  const [shapeOpen, setShapeOpen] = useState(false)
+  const [addOpen, setAddOpen] = useState(false)
+  const shapeRef = useRef<HTMLDivElement>(null)
+  const addRef = useRef<HTMLDivElement>(null)
   // ── Keyboard shortcuts ────────────────────────────────────────────────────
   useEffect(() => {
     const handleKey = (e: KeyboardEvent) => {
@@ -61,7 +75,23 @@ export default function WorkspaceToolbar({ userId }: Props) {
     return () => window.removeEventListener('keydown', handleKey)
   }, [undo, redo])
 
+  useEffect(() => {
+    function handleOutside(e: MouseEvent) {
+      if (shapeRef.current && !shapeRef.current.contains(e.target as Node)) {
+        setShapeOpen(false)
+      }
+      if (addRef.current && !addRef.current.contains(e.target as Node)) {
+        setAddOpen(false)
+      }
+    }
+    document.addEventListener('mousedown', handleOutside)
+    return () => document.removeEventListener('mousedown', handleOutside)
+  }, [])
   // ── Widget creation ───────────────────────────────────────────────────────
+    const shapeItems = TOOLBAR_ITEMS.filter((item) => SHAPE_TYPES.includes(item.type))
+  const addMenuItems = TOOLBAR_ITEMS.filter(
+    (item) => item.type !== 'note' && !SHAPE_TYPES.includes(item.type)
+  )
   const handleAdd = useCallback(
     (type: string) => {
       if (!activeBoardId) return
@@ -104,7 +134,44 @@ export default function WorkspaceToolbar({ userId }: Props) {
   return (
     <div style={styles.wrapper}>
       <div style={styles.toolbar}>
-        {/* ── Undo / Redo ─────────────────────────────────────────────────── */}
+        <div ref={addRef} style={{ position: 'relative' }}>
+          <button style={styles.btn} onClick={() => setAddOpen((v) => !v)} title="Add widget">
+            <span style={styles.icon}>+</span>
+            <span style={styles.label}>Add</span>
+          </button>
+          {addOpen && (
+            <div style={styles.dropdown}>
+              {addMenuItems.map((item) => (
+                <button
+                  key={item.type}
+                  style={styles.dropdownItem}
+                  onClick={() => { handleAdd(item.type); setAddOpen(false) }}
+                >
+                  <span style={styles.icon}>{item.icon}</span>
+                  <span style={styles.label}>{item.label}</span>
+                </button>
+              ))}
+            </div>
+          )}
+        </div>
+
+        <div style={styles.divider} />
+
+        {DOMAINS.map((d) => (
+          <button
+            key={d.id}
+            style={{
+              ...styles.domainBtn,
+              ...(activeDomain === d.id ? styles.domainBtnActive : {}),
+            }}
+            onClick={() => setActiveDomain(d.id)}
+          >
+            {d.label}
+          </button>
+        ))}
+
+        <div style={styles.divider} />
+
         <button
           style={{
             ...styles.btn,
@@ -131,24 +198,45 @@ export default function WorkspaceToolbar({ userId }: Props) {
           <span style={styles.label}>Redo</span>
         </button>
 
+        <button
+          style={{ ...styles.btn, ...styles.btnDisabled }}
+          disabled
+          title="Select a widget on the canvas to delete (wiring pending)"
+        >
+          <span style={styles.icon}>🗑</span>
+          <span style={styles.label}>Delete</span>
+        </button>
+
         <div style={styles.divider} />
 
-        {/* ── Widget add buttons ───────────────────────────────────────────── */}
-        {TOOLBAR_ITEMS.map((item) => (
-          <button
-            key={item.type}
-            style={styles.btn}
-            onClick={() => handleAdd(item.type)}
-            title={`Add ${item.label}`}
-          >
-            <span style={styles.icon}>{item.icon}</span>
-            <span style={styles.label}>{item.label}</span>
+        <div ref={shapeRef} style={{ position: 'relative' }}>
+          <button style={styles.btn} onClick={() => setShapeOpen((v) => !v)} title="Shape">
+            <span style={styles.icon}>▭</span>
+            <span style={styles.label}>Shape ▾</span>
           </button>
-        ))}
+          {shapeOpen && (
+            <div style={styles.dropdown}>
+              {shapeItems.map((item) => (
+                <button
+                  key={item.type}
+                  style={styles.dropdownItem}
+                  onClick={() => { handleAdd(item.type); setShapeOpen(false) }}
+                >
+                  <span style={styles.icon}>{item.icon}</span>
+                  <span style={styles.label}>{item.label}</span>
+                </button>
+              ))}
+            </div>
+          )}
+        </div>
+
+        <button style={styles.btn} onClick={() => handleAdd('note')} title="Add Note">
+          <span style={styles.icon}>📝</span>
+          <span style={styles.label}>Note</span>
+        </button>
 
         <div style={styles.divider} />
 
-        {/* ── Save indicator ───────────────────────────────────────────────── */}
         <span style={styles.saveIndicator}>
           {isSaving ? (
             <span style={{ color: '#666' }}>Saving…</span>
@@ -218,5 +306,48 @@ const styles: Record<string, React.CSSProperties> = {
     minWidth: 52,
     textAlign: 'center',
     fontVariantNumeric: 'tabular-nums',
+  },
+  domainBtn: {
+    background: 'transparent',
+    border: 'none',
+    color: '#888',
+    fontSize: 12,
+    fontWeight: 500,
+    cursor: 'pointer',
+    padding: '6px 10px',
+    borderRadius: 7,
+    fontFamily: 'inherit',
+  },
+  domainBtnActive: {
+    background: '#2a2a3a',
+    color: '#c7d2fe',
+  },
+  dropdown: {
+    position: 'absolute',
+    bottom: '110%',
+    left: 0,
+    background: '#1a1a1a',
+    border: '1px solid #2a2a2a',
+    borderRadius: 8,
+    padding: 4,
+    display: 'flex',
+    flexDirection: 'column',
+    minWidth: 140,
+    boxShadow: '0 8px 24px rgba(0,0,0,0.5)',
+    zIndex: 300,
+  },
+  dropdownItem: {
+    display: 'flex',
+    alignItems: 'center',
+    gap: 8,
+    background: 'transparent',
+    border: 'none',
+    color: '#ccc',
+    fontSize: 12,
+    cursor: 'pointer',
+    padding: '8px 10px',
+    borderRadius: 6,
+    textAlign: 'left',
+    fontFamily: 'inherit',
   },
 }
