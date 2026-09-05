@@ -129,6 +129,7 @@ console.log('PIXEL BODY', {
   //      at all. Never used to override a real current-touchpoint value.
   let purchaseAssetId: string | null = null;
   let purchasePromotionId: string | null = null;
+  let currentLinkResolved = false;
 
   if (redirect_link_id) {
     const { data: currentLink } = await supabase
@@ -138,6 +139,7 @@ console.log('PIXEL BODY', {
       .maybeSingle();
 
     if (currentLink) {
+      currentLinkResolved = true;
       purchaseAssetId = currentLink.asset_id;
       purchasePromotionId = currentLink.promotion_id;
     } else {
@@ -148,11 +150,13 @@ console.log('PIXEL BODY', {
     }
   }
 
-  if (!purchaseAssetId) purchaseAssetId = asset_id ?? null;
-  if (!purchaseAssetId) purchaseAssetId = resolvedAssetId;
+    if (!currentLinkResolved) {
+    if (!purchaseAssetId) purchaseAssetId = asset_id ?? null;
+    if (!purchaseAssetId) purchaseAssetId = resolvedAssetId;
 
-  if (!purchasePromotionId) purchasePromotionId = promotion_id ?? null;
-  if (!purchasePromotionId) purchasePromotionId = resolvedPromotionId;
+    if (!purchasePromotionId) purchasePromotionId = promotion_id ?? null;
+    if (!purchasePromotionId) purchasePromotionId = resolvedPromotionId;
+  }
 
   console.log("PIXEL STATE:", {
   session_id,

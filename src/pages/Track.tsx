@@ -182,9 +182,9 @@ export default function Track() {
         const currentCampaignId =
           getCampaignId() ?? (campaignId as string | undefined) ?? null;
         const currentPromotionId =
-          getPromotionId() ?? ((link as any).promotion_id as string | undefined) ?? null;
+          ((link as any).promotion_id as string | undefined) ?? null;
         const currentAssetId =
-          getAssetId() ?? ((link as any).asset_id as string | undefined) ?? null;
+          ((link as any).asset_id as string | undefined) ?? null;
         // FIRST-TOUCH — write-once. Used only for Stripe client_reference_id and
         // vt_first_touch_redirect_link_id so classic FT revenue attribution is preserved.
         const finalVideoId = getFirstTouchVideoId();
