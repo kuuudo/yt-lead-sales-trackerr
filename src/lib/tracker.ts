@@ -363,6 +363,49 @@ export const trackEvent = async (
 };
 
 /**
+ * INTERNAL PAGE VIEW (VSTRK app navigation — Phase 1, forward-only)
+ *
+ * Writes to `events_internal`, NOT `events`. Deliberately does not
+ * reuse trackEvent()'s payload shape — no video_id, campaign_id, or
+ * url. Does not read or write any FT_ prefix attribution localStorage keys.
+ * Historical `events` rows are never touched by this function.
+ */
+export const trackInternalPageView = async (
+  path: string,
+  meta?: { organization_id?: string }
+) => {
+  const sessionId = getSessionId();
+  if (!sessionId) return;
+
+  const payload: Record<string, unknown> = {
+    session_id: sessionId,
+    event_type: 'page_view',
+    path,
+    organization_id: meta?.organization_id ?? null,
+  };
+
+  console.debug('[tracker] trackInternalPageView', payload);
+
+  try {
+    const { error } = await supabase
+      .from('events_internal')
+      .insert(payload);
+
+    if (error) {
+      console.error(
+        '[tracker] Error tracking internal page_view:',
+        error
+      );
+    }
+  } catch (err) {
+    console.error(
+      '[tracker] Failed to track internal page_view',
+      err
+    );
+  }
+};
+
+/**
  * LEAD CAPTURE (FIXED ATTRIBUTION CONSISTENCY)
  */
 export const captureEmail = async (email: string) => {
