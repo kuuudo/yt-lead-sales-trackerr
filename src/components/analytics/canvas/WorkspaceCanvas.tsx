@@ -111,7 +111,8 @@ export default function WorkspaceCanvas() {
   const ptr = useRef<PointerState>(initialPointerState())
   const activePointers = useRef<Map<number, { x: number; y: number }>>(new Map())
   const lastPinchDist = useRef<number | null>(null)
-  const [selectedId, setSelectedId] = useState<string | null>(null)
+  const selectedId = useWorkspaceStore((s) => s.selectedWidgetId)
+  const setSelectedId = useWorkspaceStore((s) => s.setSelectedWidgetId)
 
   const navigate = useNavigate()
 

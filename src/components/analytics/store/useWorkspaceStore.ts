@@ -72,6 +72,7 @@ export interface WorkspaceStore {
   widgetsByBoard: Record<string, Widget[]>
   transform: CanvasTransform
   isSaving: boolean
+  selectedWidgetId: string | null
 
   /**
    * Temporary widgets for the /workspace session canvas.
@@ -95,6 +96,7 @@ export interface WorkspaceStore {
   pan: (dx: number, dy: number) => void
   zoom: (delta: number, originX: number, originY: number) => void
   resetView: () => void
+  setSelectedWidgetId: (id: string | null) => void
 
   // ── Boards ─────────────────────────────────────────────────────────────────
   createBoard: (name: string, userId: string) => Promise<Board>
@@ -157,6 +159,7 @@ export const useWorkspaceStore = create<WorkspaceStore>((set, get) => ({
   widgetsByBoard: {},
   transform: INITIAL_TRANSFORM,
   isSaving: false,
+  selectedWidgetId: null,
   tempWidgets: [],   // ← NEW: session canvas state
 
   // ── History state ──────────────────────────────────────────────────────────
@@ -280,6 +283,7 @@ export const useWorkspaceStore = create<WorkspaceStore>((set, get) => ({
   },
 
   resetView: () => set({ transform: INITIAL_TRANSFORM }),
+  setSelectedWidgetId: (id) => set({ selectedWidgetId: id }),
 
   // ─────────────────────────────────────────────────────────────────────────
   // Boards

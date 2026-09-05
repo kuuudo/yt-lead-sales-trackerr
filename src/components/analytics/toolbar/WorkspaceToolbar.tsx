@@ -44,11 +44,15 @@ export default function WorkspaceToolbar({ userId }: Props) {
   const canRedo      = useWorkspaceStore((s) => s.canRedo)
   const undo         = useWorkspaceStore((s) => s.undo)
   const redo         = useWorkspaceStore((s) => s.redo)
+  const selectedWidgetId    = useWorkspaceStore((s) => s.selectedWidgetId)
+  const deleteWidget        = useWorkspaceStore((s) => s.deleteWidget)
+  const setSelectedWidgetId = useWorkspaceStore((s) => s.setSelectedWidgetId)
   const [activeDomain, setActiveDomain] = useState(DOMAINS[0].id)
   const [shapeOpen, setShapeOpen] = useState(false)
   const [addOpen, setAddOpen] = useState(false)
+  const [addSearch, setAddSearch] = useState('')
   const shapeRef = useRef<HTMLDivElement>(null)
-  const addRef = useRef<HTMLDivElement>(null)
+
   // ── Keyboard shortcuts ────────────────────────────────────────────────────
   useEffect(() => {
     const handleKey = (e: KeyboardEvent) => {
@@ -80,17 +84,15 @@ export default function WorkspaceToolbar({ userId }: Props) {
       if (shapeRef.current && !shapeRef.current.contains(e.target as Node)) {
         setShapeOpen(false)
       }
-      if (addRef.current && !addRef.current.contains(e.target as Node)) {
-        setAddOpen(false)
-      }
+
     }
     document.addEventListener('mousedown', handleOutside)
     return () => document.removeEventListener('mousedown', handleOutside)
   }, [])
   // ── Widget creation ───────────────────────────────────────────────────────
-    const shapeItems = TOOLBAR_ITEMS.filter((item) => SHAPE_TYPES.includes(item.type))
+  const shapeItems = TOOLBAR_ITEMS.filter((item) => SHAPE_TYPES.includes(item.type))
   const addMenuItems = TOOLBAR_ITEMS.filter(
-    (item) => item.type !== 'note' && !SHAPE_TYPES.includes(item.type)
+    (item) => item.type !== 'note' && item.type !== 'text' && !SHAPE_TYPES.includes(item.type)
   )
   const handleAdd = useCallback(
     (type: string) => {
@@ -134,26 +136,10 @@ export default function WorkspaceToolbar({ userId }: Props) {
   return (
     <div style={styles.wrapper}>
       <div style={styles.toolbar}>
-        <div ref={addRef} style={{ position: 'relative' }}>
-          <button style={styles.btn} onClick={() => setAddOpen((v) => !v)} title="Add widget">
-            <span style={styles.icon}>+</span>
-            <span style={styles.label}>Add</span>
-          </button>
-          {addOpen && (
-            <div style={styles.dropdown}>
-              {addMenuItems.map((item) => (
-                <button
-                  key={item.type}
-                  style={styles.dropdownItem}
-                  onClick={() => { handleAdd(item.type); setAddOpen(false) }}
-                >
-                  <span style={styles.icon}>{item.icon}</span>
-                  <span style={styles.label}>{item.label}</span>
-                </button>
-              ))}
-            </div>
-          )}
-        </div>
+        <button style={styles.btn} onClick={() => setAddOpen(true)} title="Add widget">
+          <span style={styles.icon}>+</span>
+          <span style={styles.label}>Add</span>
+        </button>
 
         <div style={styles.divider} />
 
@@ -199,9 +185,17 @@ export default function WorkspaceToolbar({ userId }: Props) {
         </button>
 
         <button
-          style={{ ...styles.btn, ...styles.btnDisabled }}
-          disabled
-          title="Select a widget on the canvas to delete (wiring pending)"
+          style={{
+            ...styles.btn,
+            ...(!selectedWidgetId ? styles.btnDisabled : {}),
+          }}
+          onClick={() => {
+            if (!selectedWidgetId) return
+            deleteWidget(selectedWidgetId)
+            setSelectedWidgetId(null)
+          }}
+          disabled={!selectedWidgetId}
+          title="Delete selected widget"
         >
           <span style={styles.icon}>🗑</span>
           <span style={styles.label}>Delete</span>
@@ -230,6 +224,11 @@ export default function WorkspaceToolbar({ userId }: Props) {
           )}
         </div>
 
+        <button style={styles.btn} onClick={() => handleAdd('text')} title="Add Text">
+          <span style={styles.icon}>T</span>
+          <span style={styles.label}>Text</span>
+        </button>
+
         <button style={styles.btn} onClick={() => handleAdd('note')} title="Add Note">
           <span style={styles.icon}>📝</span>
           <span style={styles.label}>Note</span>
@@ -245,6 +244,40 @@ export default function WorkspaceToolbar({ userId }: Props) {
           )}
         </span>
       </div>
+
+      {addOpen && (
+        <div style={styles.modalBackdrop} onClick={() => setAddOpen(false)}>
+          <div style={styles.modalPanel} onClick={(e) => e.stopPropagation()}>
+            <div style={styles.modalHeader}>
+              <span style={styles.modalTitle}>
+                Add {DOMAINS.find((d) => d.id === activeDomain)?.label} widget
+              </span>
+              <button style={styles.modalClose} onClick={() => setAddOpen(false)}>×</button>
+            </div>
+            <input
+              style={styles.modalSearch}
+              placeholder="Search widgets"
+              value={addSearch}
+              onChange={(e) => setAddSearch(e.target.value)}
+              autoFocus
+            />
+            <div style={styles.modalGrid}>
+              {addMenuItems
+                .filter((item) => item.label.toLowerCase().includes(addSearch.toLowerCase()))
+                .map((item) => (
+                  <button
+                    key={item.type}
+                    style={styles.modalCard}
+                    onClick={() => { handleAdd(item.type); setAddOpen(false); setAddSearch('') }}
+                  >
+                    <span style={{ fontSize: 20 }}>{item.icon}</span>
+                    <span style={styles.modalCardLabel}>{item.label}</span>
+                  </button>
+                ))}
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }
@@ -262,6 +295,8 @@ const styles: Record<string, React.CSSProperties> = {
     display: 'flex',
     alignItems: 'center',
     gap: 4,
+    maxWidth: '92vw',
+    overflowX: 'auto',
     background: '#1a1a1a',
     border: '1px solid #2a2a2a',
     borderRadius: 12,
@@ -349,5 +384,77 @@ const styles: Record<string, React.CSSProperties> = {
     borderRadius: 6,
     textAlign: 'left',
     fontFamily: 'inherit',
+  },
+  modalBackdrop: {
+    position: 'fixed',
+    inset: 0,
+    background: 'rgba(0,0,0,0.5)',
+    zIndex: 500,
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    pointerEvents: 'all',
+  },
+  modalPanel: {
+    width: 340,
+    maxWidth: '90vw',
+    maxHeight: '80vh',
+    overflowY: 'auto',
+    background: '#1a1a1a',
+    border: '1px solid #2a2a2a',
+    borderRadius: 12,
+    padding: '16px 18px',
+    boxShadow: '0 24px 64px rgba(0,0,0,0.5)',
+  },
+  modalHeader: {
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginBottom: 12,
+  },
+  modalTitle: {
+    fontSize: 15,
+    fontWeight: 600,
+    color: '#eee',
+  },
+  modalClose: {
+    background: 'transparent',
+    border: 'none',
+    color: '#888',
+    fontSize: 18,
+    cursor: 'pointer',
+    lineHeight: 1,
+  },
+  modalSearch: {
+    width: '100%',
+    boxSizing: 'border-box',
+    background: '#111',
+    border: '1px solid #2a2a2a',
+    borderRadius: 8,
+    padding: '8px 10px',
+    fontSize: 13,
+    color: '#eee',
+    marginBottom: 14,
+    outline: 'none',
+  },
+  modalGrid: {
+    display: 'grid',
+    gridTemplateColumns: '1fr 1fr',
+    gap: 8,
+  },
+  modalCard: {
+    display: 'flex',
+    flexDirection: 'column',
+    alignItems: 'flex-start',
+    gap: 6,
+    background: '#111',
+    border: '1px solid #2a2a2a',
+    borderRadius: 8,
+    padding: '10px 12px',
+    cursor: 'pointer',
+    color: '#ccc',
+  },
+  modalCardLabel: {
+    fontSize: 12,
   },
 }
