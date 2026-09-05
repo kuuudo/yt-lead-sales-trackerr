@@ -35,6 +35,16 @@ const DOMAINS = [
 
 const SHAPE_TYPES = ['rectangle', 'circle', 'arrow']
 
+// Temporary domain → widget-type mapping, kept local to the toolbar until
+// `domain` becomes a real field on WidgetRegistry entries.
+const DOMAIN_WIDGET_TYPES: Record<string, string[]> = {
+  campaigns: ['kpi', 'chart', 'line_chart'],
+  content:   ['dashboard', 'indepth_analytics'],
+  assets:    [],
+  collab:    [],
+  operator:  [],
+}
+
 export default function WorkspaceToolbar({ userId }: Props) {
   const activeBoardId = useWorkspaceStore((s) => s.activeBoardId)
   const addWidget    = useWorkspaceStore((s) => s.addWidget)
@@ -134,6 +144,7 @@ export default function WorkspaceToolbar({ userId }: Props) {
   )
 
   return (
+    <>
     <div style={styles.wrapper}>
       <div style={styles.toolbar}>
         <button style={styles.btn} onClick={() => setAddOpen(true)} title="Add widget">
@@ -150,7 +161,7 @@ export default function WorkspaceToolbar({ userId }: Props) {
               ...styles.domainBtn,
               ...(activeDomain === d.id ? styles.domainBtnActive : {}),
             }}
-            onClick={() => setActiveDomain(d.id)}
+            onClick={() => { setActiveDomain(d.id); setAddOpen(true) }}
           >
             {d.label}
           </button>
@@ -244,8 +255,9 @@ export default function WorkspaceToolbar({ userId }: Props) {
           )}
         </span>
       </div>
+    </div>
 
-      {addOpen && (
+    {addOpen && (
         <div style={styles.modalBackdrop} onClick={() => setAddOpen(false)}>
           <div style={styles.modalPanel} onClick={(e) => e.stopPropagation()}>
             <div style={styles.modalHeader}>
@@ -263,6 +275,7 @@ export default function WorkspaceToolbar({ userId }: Props) {
             />
             <div style={styles.modalGrid}>
               {addMenuItems
+                .filter((item) => DOMAIN_WIDGET_TYPES[activeDomain]?.includes(item.type))
                 .filter((item) => item.label.toLowerCase().includes(addSearch.toLowerCase()))
                 .map((item) => (
                   <button
@@ -278,7 +291,7 @@ export default function WorkspaceToolbar({ userId }: Props) {
           </div>
         </div>
       )}
-    </div>
+    </>
   )
 }
 
@@ -396,14 +409,15 @@ const styles: Record<string, React.CSSProperties> = {
     pointerEvents: 'all',
   },
   modalPanel: {
-    width: 340,
-    maxWidth: '90vw',
-    maxHeight: '80vh',
+    width: 'min(1100px, 92vw)',
+    height: 'min(820px, 90vh)',
+    display: 'flex',
+    flexDirection: 'column',
     overflowY: 'auto',
     background: '#1a1a1a',
     border: '1px solid #2a2a2a',
-    borderRadius: 12,
-    padding: '16px 18px',
+    borderRadius: 16,
+    padding: '24px 28px',
     boxShadow: '0 24px 64px rgba(0,0,0,0.5)',
   },
   modalHeader: {
@@ -439,8 +453,11 @@ const styles: Record<string, React.CSSProperties> = {
   },
   modalGrid: {
     display: 'grid',
-    gridTemplateColumns: '1fr 1fr',
-    gap: 8,
+    gridTemplateColumns: 'repeat(auto-fill, minmax(160px, 1fr))',
+    gap: 12,
+    alignContent: 'start',
+    flex: 1,
+    overflowY: 'auto',
   },
   modalCard: {
     display: 'flex',
