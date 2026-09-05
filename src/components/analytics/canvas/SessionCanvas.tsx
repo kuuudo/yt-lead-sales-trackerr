@@ -47,22 +47,58 @@ const scalePercent = Math.round(transform.scale * 100)
 
   const isPanning = useRef(false)
   const lastPos = useRef({ x: 0, y: 0 })
+  const activePointers = useRef<Map<number, { x: number; y: number }>>(new Map())
+  const lastPinchDist = useRef<number | null>(null)
 
   // ── Pan via mouse drag ─────────────────────────────────────────────────────
-  const onMouseDown = useCallback((e: React.MouseEvent) => {
+  const onPointerDown = useCallback((e: React.PointerEvent) => {
+    activePointers.current.set(e.pointerId, { x: e.clientX, y: e.clientY })
+
+    if (activePointers.current.size >= 2) {
+      lastPinchDist.current = null
+      isPanning.current = false
+      return
+    }
+
     // Only pan on middle-click or when no widget is being targeted
     if (e.button !== 1 && (e.target as HTMLElement).dataset.widget) return
     isPanning.current = true
     lastPos.current = { x: e.clientX, y: e.clientY }
   }, [])
 
-  const onMouseMove = useCallback((e: React.MouseEvent) => {
+  const onPointerMove = useCallback((e: React.PointerEvent) => {
+    if (activePointers.current.has(e.pointerId)) {
+      activePointers.current.set(e.pointerId, { x: e.clientX, y: e.clientY })
+    }
+
+    if (activePointers.current.size === 2) {
+      const pts = Array.from(activePointers.current.values())
+      const dx = pts[0].x - pts[1].x
+      const dy = pts[0].y - pts[1].y
+      const dist = Math.hypot(dx, dy)
+      const midX = (pts[0].x + pts[1].x) / 2
+      const midY = (pts[0].y + pts[1].y) / 2
+
+      if (lastPinchDist.current != null) {
+        if (dist > lastPinchDist.current) zoom(1, midX, midY)
+        else if (dist < lastPinchDist.current) zoom(-1, midX, midY)
+      }
+      lastPinchDist.current = dist
+      return
+    }
+
     if (!isPanning.current) return
     pan(e.clientX - lastPos.current.x, e.clientY - lastPos.current.y)
     lastPos.current = { x: e.clientX, y: e.clientY }
-  }, [pan])
+  }, [pan, zoom])
 
-  const onMouseUp = useCallback(() => { isPanning.current = false }, [])
+  const onPointerUp = useCallback((e: React.PointerEvent) => {
+    activePointers.current.delete(e.pointerId)
+    if (activePointers.current.size < 2) {
+      lastPinchDist.current = null
+    }
+    isPanning.current = false
+  }, [])
 
   // ── Zoom via wheel ─────────────────────────────────────────────────────────
   const onWheel = useCallback((e: React.WheelEvent) => {
@@ -72,11 +108,12 @@ const scalePercent = Math.round(transform.scale * 100)
 
 return (
   <div
-    style={{ ...styles.container, background: sessionColor }}
-    onMouseDown={onMouseDown}
-    onMouseMove={onMouseMove}
-    onMouseUp={onMouseUp}
-    onMouseLeave={onMouseUp}
+    style={{ ...styles.container, background: sessionColor, touchAction: 'none' }}
+    onPointerDown={onPointerDown}
+    onPointerMove={onPointerMove}
+    onPointerUp={onPointerUp}
+    onPointerCancel={onPointerUp}
+    onPointerLeave={onPointerUp}
     onWheel={onWheel}
   >
     <CanvasGrid transform={transform} />

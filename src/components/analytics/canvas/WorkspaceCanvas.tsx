@@ -52,7 +52,7 @@ const BG_COLORS = [
 ]
 // ─── Pointer Mode ─────────────────────────────────────────────────────────────
 
-type PointerMode = 'idle' | 'panning' | 'dragging-widget' | 'resizing-widget'
+type PointerMode = 'idle' | 'panning' | 'dragging-widget' | 'resizing-widget' | 'pinching'
 
 // Shared mutable ref — lives outside React state to avoid render cost
 interface PointerState {
@@ -109,6 +109,8 @@ const MAX_SCALE = 4.0
 export default function WorkspaceCanvas() {
   const containerRef = useRef<HTMLDivElement>(null)
   const ptr = useRef<PointerState>(initialPointerState())
+  const activePointers = useRef<Map<number, { x: number; y: number }>>(new Map())
+  const lastPinchDist = useRef<number | null>(null)
   const [selectedId, setSelectedId] = useState<string | null>(null)
 
   const navigate = useNavigate()
@@ -133,9 +135,30 @@ export default function WorkspaceCanvas() {
   const activeBoardId = useWorkspaceStore((s) => s.activeBoardId)
   // ─── Global mousemove ────────────────────────────────────────────────────
 
-  const handleMouseMove = useCallback(
-    (e: MouseEvent) => {
-      const p = ptr.current
+const handlePointerMove = useCallback(
+  (e: PointerEvent) => {
+    if (activePointers.current.has(e.pointerId)) {
+      activePointers.current.set(e.pointerId, { x: e.clientX, y: e.clientY })
+    }
+
+    if (activePointers.current.size === 2) {
+      const rect = containerRef.current?.getBoundingClientRect()
+      const pts = Array.from(activePointers.current.values())
+      const dx = pts[0].x - pts[1].x
+      const dy = pts[0].y - pts[1].y
+      const dist = Math.hypot(dx, dy)
+      const midX = (pts[0].x + pts[1].x) / 2 - (rect?.left ?? 0)
+      const midY = (pts[0].y + pts[1].y) / 2 - (rect?.top ?? 0)
+
+      if (lastPinchDist.current != null) {
+        if (dist > lastPinchDist.current) zoom(1, midX, midY)
+        else if (dist < lastPinchDist.current) zoom(-1, midX, midY)
+      }
+      lastPinchDist.current = dist
+      return
+    }
+
+    const p = ptr.current
       const dx = e.clientX - p.startX
       const dy = e.clientY - p.startY
 
@@ -201,7 +224,11 @@ export default function WorkspaceCanvas() {
 
   // ─── Global mouseup ──────────────────────────────────────────────────────
 
-  const handleMouseUp = useCallback(() => {
+const handlePointerUp = useCallback((e: PointerEvent) => {
+    activePointers.current.delete(e.pointerId)
+    if (activePointers.current.size < 2) {
+      lastPinchDist.current = null
+    }
     ptr.current = initialPointerState()
   }, [])
 
@@ -221,8 +248,17 @@ export default function WorkspaceCanvas() {
 
   // ─── Canvas mousedown (panning) ──────────────────────────────────────────
 
-  const handleCanvasMouseDown = useCallback((e: React.MouseEvent) => {
+const handleCanvasPointerDown = useCallback((e: React.PointerEvent) => {
     if (e.button !== 0) return
+
+    activePointers.current.set(e.pointerId, { x: e.clientX, y: e.clientY })
+
+    if (activePointers.current.size >= 2) {
+      ptr.current.mode = 'pinching'
+      lastPinchDist.current = null
+      return
+    }
+
     ptr.current.mode = 'panning'
     ptr.current.startX = e.clientX
     ptr.current.startY = e.clientY
@@ -235,7 +271,7 @@ export default function WorkspaceCanvas() {
 
   const handleWidgetDragStart = useCallback(
     (
-      e: React.MouseEvent,
+      e: React.PointerEvent,
       widgetId: string,
       widgetX: number,
       widgetY: number
@@ -256,7 +292,7 @@ export default function WorkspaceCanvas() {
 
   const handleWidgetResizeStart = useCallback(
     (
-      e: React.MouseEvent,
+      e: React.PointerEvent,
       widgetId: string,
       handle: ResizeHandle,
       currentWidth: number,
@@ -305,18 +341,20 @@ export default function WorkspaceCanvas() {
     const el = containerRef.current
     if (!el) return
 
-    window.addEventListener('mousemove', handleMouseMove)
-    window.addEventListener('mouseup', handleMouseUp)
+window.addEventListener('pointermove', handlePointerMove)
+    window.addEventListener('pointerup', handlePointerUp)
+    window.addEventListener('pointercancel', handlePointerUp)
     window.addEventListener('keydown', handleKeyDown)
     el.addEventListener('wheel', handleWheel, { passive: false })
 
     return () => {
-      window.removeEventListener('mousemove', handleMouseMove)
-      window.removeEventListener('mouseup', handleMouseUp)
+      window.removeEventListener('pointermove', handlePointerMove)
+      window.removeEventListener('pointerup', handlePointerUp)
+      window.removeEventListener('pointercancel', handlePointerUp)
       window.removeEventListener('keydown', handleKeyDown)
       el.removeEventListener('wheel', handleWheel)
     }
-  }, [handleMouseMove, handleMouseUp, handleKeyDown, handleWheel])
+  }, [handlePointerMove, handlePointerUp, handleKeyDown, handleWheel])
 
   // ─── Zoom button handlers ─────────────────────────────────────────────────
 
@@ -334,8 +372,8 @@ export default function WorkspaceCanvas() {
   return (
     <div
       ref={containerRef}
-      style={{ ...styles.container, background: activeBoardColor }}
-      onMouseDown={handleCanvasMouseDown}
+      style={{ ...styles.container, background: activeBoardColor, touchAction: 'none' }}
+      onPointerDown={handleCanvasPointerDown}
     >
       {/* Grid — rendered in screen space, tiles behind the canvas layer */}
       <CanvasGrid transform={transform} />

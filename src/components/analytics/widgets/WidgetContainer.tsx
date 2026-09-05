@@ -33,13 +33,13 @@ interface Props {
   selected: boolean
   onSelect: () => void
   onDragStart: (
-    e: React.MouseEvent,
+    e: React.PointerEvent,
     widgetId: string,
     widgetX: number,
     widgetY: number
   ) => void
   onResizeStart: (
-    e: React.MouseEvent,
+    e: React.PointerEvent,
     widgetId: string,
     handle: ResizeHandle,
     currentWidth: number,
@@ -77,24 +77,28 @@ export default function WidgetContainer({
     widget.type === 'text'
 
   // ── Drag handle (header) ────────────────────────────────────────────────
-  const handleHeaderMouseDown = useCallback(
-    (e: React.MouseEvent) => {
+  const handleHeaderPointerDown = useCallback(
+    (e: React.PointerEvent) => {
       if (editingTitle) return  // let the input handle it
       e.stopPropagation()
+      e.currentTarget.setPointerCapture(e.pointerId)
       onDragStart(e, widget.id, widget.x, widget.y)
     },
     [editingTitle, onDragStart, widget.id, widget.x, widget.y]
   )
 
   // ── Body mousedown — stop propagation, do not initiate drag ────────────
-  const handleBodyMouseDown = useCallback((e: React.MouseEvent) => {
+  const handleBodyPointerDown = useCallback((e: React.PointerEvent) => {
     e.stopPropagation()
     onSelect()
   }, [onSelect])
 
   // ── Resize handles ──────────────────────────────────────────────────────
-  const makeResizeHandler = (handle: ResizeHandle) => (e: React.MouseEvent) => {
+  const makeResizeHandler = (handle: ResizeHandle) => (e: React.PointerEvent) => {
+    // Resize stays desktop-only by design — ignore touch/pen input.
+    if (e.pointerType !== 'mouse') return
     e.stopPropagation()
+    e.currentTarget.setPointerCapture(e.pointerId)
     onResizeStart(
       e,
       widget.id,
@@ -172,7 +176,7 @@ export default function WidgetContainer({
       }}
       onMouseEnter={() => setHovered(true)}
       onMouseLeave={() => setHovered(false)}
-      onMouseDown={handleBodyMouseDown}
+      onPointerDown={handleBodyPointerDown}
     >
       {/* Header — drag handle + title + delete */}
       <div
@@ -190,7 +194,7 @@ export default function WidgetContainer({
               }
             : {}),
         }}
-        onMouseDown={handleHeaderMouseDown}
+        onPointerDown={handleHeaderPointerDown}
         onDoubleClick={handleTitleDoubleClick}
       >
         {editingTitle ? (
@@ -200,7 +204,7 @@ export default function WidgetContainer({
             onChange={(e) => setTitleDraft(e.target.value)}
             onBlur={commitTitleEdit}
             onKeyDown={handleTitleKeyDown}
-            onMouseDown={(e) => e.stopPropagation()}
+            onPointerDown={(e) => e.stopPropagation()}
             style={styles.titleInput}
             maxLength={80}
             autoFocus
@@ -212,7 +216,7 @@ export default function WidgetContainer({
         {showControls && !editingTitle && (
           <button
             style={styles.deleteBtn}
-            onMouseDown={(e) => { e.stopPropagation(); onDelete() }}
+            onPointerDown={(e) => { e.stopPropagation(); onDelete() }}
             title="Delete widget"
           >
             ×
@@ -248,7 +252,7 @@ export default function WidgetContainer({
             <div
               key={handle}
               style={{ ...styles.resizeHandle, ...pos }}
-              onMouseDown={makeResizeHandler(handle)}
+              onPointerDown={makeResizeHandler(handle)}
             />
           ))}
         </>
