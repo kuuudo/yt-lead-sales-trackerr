@@ -1,16 +1,48 @@
 import React, { useEffect, useState } from 'react';
-import { syncSession, trackEvent } from '../lib/tracker';
+import { syncSession, trackEvent, trackInternalPageView } from '../lib/tracker';
 import { translations, Language } from '../lib/i18n';
+import { useLocation } from 'react-router-dom';
 import { getVideoId, getCampaignId } from '../lib/tracker';
 
+// Phase 1 — forward-only internal/customer-facing split.
+// Prefix allowlist: only these paths route to events_internal.
+// Anything NOT in this list (including every customer-facing /
+// token route) falls through to the original trackEvent('page_view', ...)
+// path, unchanged from before this change.
+const INTERNAL_ROUTE_PREFIXES = [
+  '/dashboard',
+  '/campaigns',
+  '/videos',
+  '/assets',
+  '/unmapped-videos',
+  '/analytics',
+  '/installation',
+  '/settings',
+  '/pricing',
+  '/workspace',
+  '/marketplace',
+  '/operator',
+  '/testimonialss',
+];
+
+const isInternalRoute = (pathname: string): boolean =>
+  INTERNAL_ROUTE_PREFIXES.some((prefix) => pathname.startsWith(prefix));
+
 export const useTracker = () => {
+  const location = useLocation();
+
   useEffect(() => {
     const init = async () => {
       await syncSession();
-      await trackEvent('page_view', null, {
-  video_id: getVideoId() ?? undefined,
-  campaign_id: getCampaignId() ?? undefined,
-});
+
+      if (isInternalRoute(location.pathname)) {
+        await trackInternalPageView(location.pathname);
+      } else {
+        await trackEvent('page_view', null, {
+          video_id: getVideoId() ?? undefined,
+          campaign_id: getCampaignId() ?? undefined,
+        });
+      }
     };
     init();
   }, []);
