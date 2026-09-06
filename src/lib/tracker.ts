@@ -31,6 +31,11 @@ const FT_TRACKING_HOSTNAME_KEY  = 'yt_tracker_ft_tracking_hostname';
 // no other call site (installationHelpers.ts) still depends on them.
 const JOURNEY_KEY = 'yt_tracker_journey';
 const MAX_JOURNEY_LENGTH = 20;
+// V3 (events_journey) support — correlation id + parallel event id history.
+// Neither is read by validateJourneyContinuation()/resolveDestinationVideoId();
+// both are purely additive persistence for Track.tsx's events_journey insert.
+const JOURNEY_ID_KEY = 'yt_tracker_journey_id';
+const EVENT_IDS_KEY = 'yt_tracker_event_ids';
 
 /**
  * Attribution fields tracker.ts needs from a resolved redirect_links row.
@@ -221,6 +226,51 @@ const setJourney = (journey: JourneyNode[]): void => {
   }
 };
 
+/**
+ * V3 (events_journey) correlation id — NOT used to reconstruct a journey,
+ * only to (a) let a human visually group rows sharing one browser-side
+ * journey, and (b) mark same-origin continuity. Purchase-time lookup uses
+ * an events_journey row's own id (vt_ej_id), never journey_id — see
+ * FORWARD_VALIDATED_ATTRIBUTION_JOURNEY.md §19D.
+ */
+export const getJourneyId = (): string | null =>
+  localStorage.getItem(JOURNEY_ID_KEY);
+
+const setJourneyId = (id: string): void => {
+  try {
+    localStorage.setItem(JOURNEY_ID_KEY, id);
+  } catch (err) {
+    console.error('[tracker] setJourneyId: failed to write journey_id (storage blocked?)', err);
+  }
+};
+
+/**
+ * Parallel history to JourneyNode[] — the exact events.id produced by each
+ * hop's logRedirectEvent() insert, same order as the JourneyNode[] it
+ * corresponds to. Feeds events_journey.event_ids. Never timestamp-matched
+ * or reconstructed — only ever appended to by Track.tsx immediately after
+ * an events.id is known.
+ */
+export const getEventIds = (): string[] => {
+  try {
+    const raw = localStorage.getItem(EVENT_IDS_KEY);
+    if (!raw) return [];
+    const parsed = JSON.parse(raw);
+    return Array.isArray(parsed) ? (parsed as string[]) : [];
+  } catch (err) {
+    console.error('[tracker] getEventIds: failed to parse stored event ids', err);
+    return [];
+  }
+};
+
+export const setEventIds = (ids: string[]): void => {
+  try {
+    localStorage.setItem(EVENT_IDS_KEY, JSON.stringify(ids));
+  } catch (err) {
+    console.error('[tracker] setEventIds: failed to write event ids (storage blocked?)', err);
+  }
+};
+
 /** SELECT id FROM videos WHERE asset_id = promotedAssetId. Empty array if none or asset_id is null. */
 export const getPredictedNextVideoIds = async (
   promotedAssetId: string | null
@@ -331,6 +381,7 @@ export const appendJourneyNode = async (newNode: JourneyNode): Promise<void> => 
 
   if (!lastNode) {
     console.debug('[tracker] appendJourneyNode: journey empty, starting fresh', newNode);
+    setJourneyId(crypto.randomUUID());
     setJourney([newNode]);
     return;
   }
@@ -339,6 +390,7 @@ export const appendJourneyNode = async (newNode: JourneyNode): Promise<void> => 
 
   if (!isContinuation) {
     console.debug('[tracker] appendJourneyNode: not a validated continuation, resetting', { lastNode, newNode });
+    setJourneyId(crypto.randomUUID());
     setJourney([newNode]);
     return;
   }

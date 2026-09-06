@@ -188,6 +188,16 @@ export const generateAttributionPixel = (
     localStorage.getItem('yt_tracker_redirect_link_id') ||
     null;
 
+  // V3 (events_journey) — exact primary key of the events_journey row for
+  // the last VSTRK click this browser passed through. Pure passthrough,
+  // same URL-first/localStorage-fallback pattern as every field above.
+  // No validation or re-derivation happens here — see
+  // FORWARD_VALIDATED_ATTRIBUTION_JOURNEY.md §19F.
+  const eventsJourneyId =
+    params.get('vt_ej_id') ||
+    localStorage.getItem('yt_tracker_events_journey_id') ||
+    null;
+
   // Forward-validated journey (see FORWARD_VALIDATED_ATTRIBUTION_JOURNEY.md).
   // Carried through untouched from Track.tsx — this destination-side script
   // has no Supabase access and must NOT attempt to re-validate or re-derive
@@ -217,6 +227,7 @@ export const generateAttributionPixel = (
   if (trackingHostname) localStorage.setItem('yt_tracker_tracking_hostname', trackingHostname);
   if (firstTouchRedirectLinkId) localStorage.setItem('yt_tracker_ft_redirect_link_id', firstTouchRedirectLinkId);
   if (redirectLinkId) localStorage.setItem('yt_tracker_redirect_link_id', redirectLinkId);
+  if (eventsJourneyId) localStorage.setItem('yt_tracker_events_journey_id', eventsJourneyId);
   if (journey) localStorage.setItem('yt_tracker_journey', JSON.stringify(journey));
   const payload = {
     session_id: sessionId,
@@ -228,6 +239,7 @@ export const generateAttributionPixel = (
     tracking_hostname: trackingHostname,
     first_touch_redirect_link_id: firstTouchRedirectLinkId,
     redirect_link_id: redirectLinkId,
+    events_journey_id: eventsJourneyId,
     journey: journey ? JSON.stringify(journey) : null,
     event_type: CONFIG.event_type,
     conversion_id: conversionId

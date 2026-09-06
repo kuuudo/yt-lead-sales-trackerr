@@ -41,6 +41,7 @@ export default async function handler(
     redirect_link_id,
     conversion_id,
     journey,
+    events_journey_id,
   } = req.body;
 console.log('PIXEL BODY', {
   session_id,
@@ -387,8 +388,54 @@ const { data: insertedPurchase, error: purchaseError } =
     let attributionMatchMethod: string;
     let attributionResolutionStatus: string;
     let attributionJourneyDisplay: string | null = null;
-    if (parsedJourney && parsedJourney.length > 0) {
-      // Primary path: validated forward journey present.
+    // V3 (events_journey): resolve the exact row (if any) via its own primary
+    // key, propagated end-to-end as vt_ej_id → events_journey_id. Deliberately
+    // NOT a redirect_link_id lookup (shared across every visitor who clicks
+    // that link) and NOT a journey_id + ordering lookup (one journey_id can
+    // span multiple rows) — see FORWARD_VALIDATED_ATTRIBUTION_JOURNEY.md §19F.
+    let journeySnapshotFromEventsJourney:
+      { redirect_link_id: string; video_id: string; asset_id: string | null }[] | null = null;
+
+    if (events_journey_id) {
+      const { data: journeyRow, error: journeyRowErr } = await supabase
+        .from('events_journey')
+        .select('journey_snapshot')
+        .eq('id', events_journey_id)
+        .maybeSingle();
+
+      if (journeyRowErr) {
+        console.error('[pixel] events_journey lookup failed:', journeyRowErr);
+      } else if (journeyRow?.journey_snapshot) {
+        journeySnapshotFromEventsJourney = journeyRow.journey_snapshot;
+      }
+    }
+
+    if (journeySnapshotFromEventsJourney && journeySnapshotFromEventsJourney.length > 0) {
+      // Primary path (V3): exact events_journey row found — its
+      // journey_snapshot is the deterministic answer, no scanning needed.
+      attributionFirstTouchRedirectLinkId = journeySnapshotFromEventsJourney[0]?.redirect_link_id ?? null;
+      attributionJourneySnapshot = journeySnapshotFromEventsJourney as typeof parsedJourney;
+      attributionMatchMethod = 'forward_journey';
+      attributionResolutionStatus = 'resolved';
+
+      const journeyRedirectLinkIds = journeySnapshotFromEventsJourney.map((node) => node.redirect_link_id);
+      const { data: journeyLinkRows, error: journeyLinkErr } = await supabase
+        .from('redirect_links')
+        .select('id, token')
+        .in('id', journeyRedirectLinkIds);
+
+      if (journeyLinkErr) {
+        console.error('[pixel] Failed to look up tokens for journey_display:', journeyLinkErr);
+      } else if (journeyLinkRows) {
+        const tokenByRedirectLinkId = new Map(journeyLinkRows.map((row) => [row.id, row.token]));
+        const tokens = journeyRedirectLinkIds.map((id) => tokenByRedirectLinkId.get(id) ?? null);
+        if (tokens.every((t) => t !== null)) {
+          attributionJourneyDisplay = tokens.join(' → ');
+        }
+      }
+    } else if (parsedJourney && parsedJourney.length > 0) {
+      // Fallback: client-supplied journey present, no events_journey row
+      // found (or no vt_ej_id sent at all — e.g. legacy cached script).
       attributionFirstTouchRedirectLinkId = journeyFirstTouchRedirectLinkId;
       attributionJourneySnapshot = parsedJourney;
       attributionMatchMethod = 'forward_journey';

@@ -1,6 +1,6 @@
 # FORWARD-VALIDATED ATTRIBUTION JOURNEY
 
-**Status: V1 implemented (Phases 1–6). V2 (edge-based) proposed, not implemented. Phase 7 deferred.**
+**Status: V1 implemented (Phases 1–6, source-oriented, superseded). V2 implemented (edge-based destination resolution, Phases 1–6 extended) and real-world tested. V2 testing exposed a cross-origin gap that V2 cannot solve; this motivated V3 (persistent server-side journey history via `events_journey`) — PROPOSED, NOT IMPLEMENTED. Phase 7 still deferred, now blocked on V3 approval + implementation, not V2.**
 
 ---
 
@@ -31,7 +31,7 @@ Relevant entities: `videos`, `assets`, `campaign_element_assets`,
 
 ---
 
-## 2. Original V1 Architecture
+## 2. Original V1 Architecture (SUPERSEDED by V2 — see Section 8)
 
 A visitor clicks a VSTRK redirect link. The redirect link identifies the
 **source** video for that click only. The system stores a `JourneyNode`:
@@ -187,6 +187,24 @@ Key properties:
   via the service-role key in `api/pixel.ts`.
 - **No `content_a`/`content_b`/`content_c` columns exist or are proposed.**
 
+### 4A. Additional Migrations Applied (V2)
+
+Both confirmed applied to the live database:
+
+```sql
+CREATE INDEX idx_videos_youtube_video_id
+ON public.videos (youtube_video_id);
+```
+Additive only, supports Section 8B's destination-resolution lookup at redirect time. Does not
+modify or replace `videos_pkey`, `idx_videos_asset_id`, or `idx_videos_organization_id`.
+
+```sql
+ALTER TABLE public.pixel_purchase_attributions
+ADD COLUMN journey_display text;
+```
+Nullable, additive, no default. Supports Section 11's `journey_display` field. Existing rows
+got `NULL` until a new purchase populated it.
+
 ---
 
 ## 5. Fallback Architecture (Decision Already Made)
@@ -242,6 +260,39 @@ identifies the destination. This is the origin of the V2 proposal below.
 
 ---
 
+## 6B. Real-World Test — V2 (Edge-Based), Multi-Hop + Cross-Origin Failure
+
+**Setup (extends Section 6's data with a third hop):**
+- Video A (`為什麼你報價一出，客戶就消失？`): `videos.id = 66b840be-ae6c-4990-9fa3-c42fda55beb0`, `youtube_video_id = HkTaq25u55M`
+- Redirect `57y8`: `id = 3d78d839-c736-4e6f-92d2-83bbb9da6fd9`, `video_id` = Video A, `asset_id = 72d2cb4d-a7a5-4046-b209-707b86b124a5`, `destination_url = youtube.com/watch?v=g4Ycr2Vo5KY`
+- Video B (`Instantly ai 完整教學`): `videos.id = 19ded023-ae85-4af2-a2e9-f4b42fffc69f`, `youtube_video_id = g4Ycr2Vo5KY`, `asset_id = 72d2cb4d-...` (same asset as `57y8` promotes)
+- Redirect `d3es`: `id = 8eb7c1fd-10d6-46cb-b3a9-8aa740712c22`, `video_id` = Video B, `asset_id = cd08c4ec-48dd-493d-abbf-d274a98ac467`, `destination_url = youtube.com/watch?v=Gh8G2uZu9O4`
+- Video C (`我研究了 80+ 個 n8n...`): `videos.id = 3b9dbc2c-7516-4c27-8135-005f863eb4bd`, `youtube_video_id = Gh8G2uZu9O4`, `asset_id = cd08c4ec-...` (same asset as `d3es` promotes) — **this YouTube ID has 2 other `videos` rows across different orgs; `redirectAssetId` disambiguation (Section 8) correctly picked this exact row.**
+- Redirect `LnMI` (in Video C's YouTube description, custom domain `go.kaksidigitals.com`): `redirect_link_id = 4e56c143-755d-4868-9ad4-26258f4d3527`, destination = newsletter opt-in.
+
+**Part 1 result — `57y8` then `d3es`, both on `www.vstrk.com`:** Confirmed via console and the literal outbound `vt_journey` param that the browser-side journey correctly grew to two nodes:
+```json
+[
+  {"redirect_link_id":"3d78d839-...","video_id":"66b840be-...","asset_id":"72d2cb4d-...","destination_video_id":"19ded023-..."},
+  {"redirect_link_id":"8eb7c1fd-...","video_id":"19ded023-...","asset_id":"cd08c4ec-...","destination_video_id":"3b9dbc2c-..."}
+]
+```
+This proves: (a) `destination_video_id` resolution worked correctly including the multi-row disambiguation case, (b) the fast edge-equality continuation path fired correctly for `d3es` (its `video_id` matched `57y8`'s `destination_video_id`), (c) the browser journey **`A → B → C`** was fully intact at this point.
+
+**Part 2 result — `LnMI` clicked from Video C's description:** Checked directly via `new URLSearchParams(window.location.search).get('vt_journey')` on the newsletter page — it contained **only**:
+```json
+[{"redirect_link_id":"4e56c143-...","video_id":"3b9dbc2c-...","asset_id":"f28e2a0b-..."}]
+```
+The `A → B → C` history was gone. The resulting `pixel_purchase_attributions` row confirmed this downstream: `journey_snapshot = NULL`, `journey_display = NULL`, `match_method = redirect_link_id` (fallback), with `first_touch_redirect_link_id` pointing at `LnMI`'s own id — not `57y8`'s.
+
+**Root cause, confirmed from the `events` table's `tracking_hostname` column:** `57y8` and `d3es` both executed `Track.tsx` on `www.vstrk.com`. `LnMI` executed on `go.kaksidigitals.com` — a **different origin**. `getJourney()`/`appendJourneyNode()` in `tracker.ts` read/write `localStorage` only, and `localStorage` is browser-scoped per-origin. On `go.kaksidigitals.com`, `getJourney()` correctly returned `[]` (there was nothing there to return), so `appendJourneyNode()` correctly took its "journey empty, starting fresh" branch — **this was not a bug in the continuation-matching logic; the comparison never had a previous node to run against.**
+
+A second, independent reason this specific hop could never have worked even with a same-origin fix: `vt_journey` was appended to the *YouTube watch-page URL* by `Track.tsx`, but `LnMI` is a **separate, static link sitting in that video's description** — YouTube does not propagate query parameters from its own watch-page URL into other links rendered on the same page. `Track.tsx` also has no code path that reads an *incoming* `vt_journey` from `window.location.search` at all (only `installationHelpers.ts`'s destination-side pixel script does that).
+
+**Conclusion:** V2's browser-side edge model is proven correct end-to-end when all hops share an origin. It has no mechanism — and per Section 8B, no possible deterministic mechanism — for surviving a hop through content VSTRK doesn't control (a YouTube description). This is the motivating discovery for V3 (Section 19).
+
+---
+
 ## 7. Architecture Gap Discovered
 
 **Current model:** click → record current click's **source** as a
@@ -255,9 +306,7 @@ one click later, via asset membership — never via direct edge equality.
 
 ---
 
-## 8. Proposed V2 — Edge-Based Forward Journey
-
-**NOT IMPLEMENTED. Proposed only, pending approval.**
+## 8. V2 — Edge-Based Forward Journey (IMPLEMENTED, tested — see Section 6B)
 
 Every VSTRK redirect click represents an edge:
 
@@ -289,9 +338,62 @@ if previous.destination !== current.source:
 | What's captured per click | source only | source + destination (edge) |
 | Continuation test | asset-membership (previous node's asset_id → matching videos rows → is next video_id among them) | edge-equality (previous destination === current source) |
 
+### 8A. Actual Implemented Shape
+
+```ts
+interface JourneyNode {
+  redirect_link_id: string;
+  video_id: string;                    // source — unchanged, authoritative per redirect_links.video_id
+  asset_id: string | null;             // unchanged — still feeds the fallback path
+  destination_video_id: string | null; // NEW — set only when destination resolved unambiguously; null otherwise
+}
+```
+
+New function `resolveDestinationVideoId(destinationUrl, redirectAssetId)` in `tracker.ts`, reusing
+`platformParser.ts`'s existing `detectPlatform()`/`extractPostId()` unchanged (only `platform === 'youtube'`
+is handled currently; anything else returns `null` and falls through to the asset-based fallback, per
+Section 9's hybrid model).
+
+`validateJourneyContinuation()` is now a two-tier check:
+- **Primary (fast, no DB call):** `lastNode.destination_video_id !== null && newNode.video_id === lastNode.destination_video_id` → continuation.
+- **Fallback (unchanged):** if `destination_video_id` is `null`, the original asset-membership check
+  (`getPredictedNextVideoIds`) runs exactly as in V1.
+
+`Track.tsx` calls `resolveDestinationVideoId(link.destination_url, link.asset_id)` at click time,
+before calling `appendJourneyNode()`, and passes the result in as `destination_video_id`.
+
+### 8B. Destination Resolution — RESOLVED (was Section 10's open question)
+
+Confirmed via direct schema/data inspection:
+- `videos.youtube_video_id` is `text`, nullable, **no unique constraint** (only `videos_pkey`,
+  `idx_videos_asset_id`, `idx_videos_organization_id` existed before V2).
+- The same `youtube_video_id` legitimately backs **multiple** `videos` rows across different
+  orgs/campaigns/assets. Confirmed with real data — e.g. `Gh8G2uZu9O4` had 3 distinct `videos.id`
+  rows across 2 organizations. This is normal, not rare.
+
+**Approved and implemented disambiguation rule**, using `redirect_links.asset_id` (the asset that
+redirect promotes/points to — confirmed distinct from the source video's own `videos.asset_id`,
+hence named `redirectAssetId` in code, not `sourceAssetId`):
+
+1. Query `videos WHERE youtube_video_id = extractedId`.
+2. **0 rows** → not a tracked VSTRK video destination; return `null`. Existing Campaign Element
+   Asset / Asset Resource attribution handles it, untouched.
+3. **1 row** → resolve immediately.
+4. **2+ rows** → filter to rows where `videos.asset_id === redirectAssetId`.
+   - Exactly 1 match → resolve that row.
+   - 0 or 2+ matches → remain ambiguous, return `null` (falls back to asset-membership check, not guessed).
+
+Additive index (already applied to the live database — see Section 4A):
+```sql
+CREATE INDEX idx_videos_youtube_video_id ON public.videos (youtube_video_id);
+```
+
+Real-world proof this works: Section 6B's Video C had 3 `videos` rows sharing `youtube_video_id = Gh8G2uZu9O4`;
+the correct row was resolved via the `redirect_links.asset_id` match.
+
 ---
 
-## 9. Hybrid Fallback Model — Required, Not Optional
+## 9. Hybrid Fallback Model — Required, Not Optional (IMPLEMENTED as specified below)
 
 **V2 must NOT be documented or implemented as "delete the asset model."**
 The current asset-based logic exists for concrete, already-locked reasons:
@@ -312,14 +414,19 @@ The current asset-based logic exists for concrete, already-locked reasons:
   video → use the explicit source → destination edge test.
 - If destination **cannot** be reliably/unambiguously resolved → fall back
   to the existing asset-based continuation test.
-- If destination is **not a video at all** → handle per an explicit rule
-  that still needs approval (not yet decided — see Section 12).
+- If destination is **not a video at all** → `resolveDestinationVideoId` returns `null`
+  (platform isn't `youtube`, or `extractPostId` fails) — falls to the asset-based check exactly
+  like the ambiguous-multi-row case. No separate rule was needed; this is the same `null` path
+  as Section 8B's "0 rows" and "2+ ambiguous" cases.
 
 ---
 
-## 10. Destination Resolution — Open Question, Not Yet Approved
+## 10. Destination Resolution — RESOLVED, see Section 8B for the implemented rule
 
-Before any V2 implementation, need to inspect:
+This section is kept for historical record of the open questions as they stood before investigation.
+See Section 8B for the actual confirmed schema facts and the approved/implemented resolution rule.
+
+Before V2 implementation, needed to inspect:
 
 - `videos` table schema — does `youtube_video_id` exist? Is it unique?
 - Whether multiple `videos` rows (different orgs) can share the same
@@ -349,23 +456,30 @@ explicitly called out as important and unresolved.
 
 ---
 
-## 11. Human-Readable Attribution Data — New, Proposed Requirement
+## 11. Human-Readable Attribution Data — IMPLEMENTED (as `journey_display`, not `journey_tokens`/`journey_summary`)
 
-The machine-readable journey remains `journey_snapshot` (JSONB). **No
+The machine-readable journey remains `journey_snapshot` (JSONB), unchanged. **No
 `content_a`/`content_b`/`content_c` or `stop_1`/`stop_2`/`stop_3` columns —
-journeys must support arbitrary N-hop length.**
+journeys support arbitrary N-hop length, exactly as required.**
 
-New proposed (not implemented) convenience fields, so a human can read a
-journey directly in Supabase without decoding JSON:
+**Actual implemented field name: `journey_display`** (the two names proposed here originally,
+`journey_tokens`/`journey_summary`, were superseded during implementation discussion — `journey_display`
+was the name actually approved and migrated). Format: token chain only, e.g. `57y8 → d3es` — the
+"video title" variant (`journey_summary`) was discussed as optional and never built.
 
-- **`journey_tokens`** — e.g. `Y4iw → Ebid → 92kd`, where each token is one
-  redirect link representing one edge (`Y4iw` = A→B, `Ebid` = B→H, so
-  `Y4iw → Ebid` = A→B→H).
-- **`journey_summary`** — e.g. `Video A → Video B → Video H`.
+Built in `api/pixel.ts`, **at purchase time, not redirect time** (deliberately, to keep the
+redirect path lightweight): `parsedJourney`'s `redirect_link_id`s are looked up against
+`redirect_links` for their `token`s, joined with ` → `. Left `null` on any lookup problem or when
+no journey is present — never blocks the purchase/attribution write.
 
-These are proposed inspection/convenience fields only. **The canonical
-machine-readable data remains `journey_snapshot`.** If approved, these
-belong in `pixel_purchase_attributions`, not `pixel_purchases` (Section 12).
+**Known limitation surfaced by Section 6B's test:** this only works when `journey_snapshot` itself
+was successfully populated in the request. When the cross-origin gap (Section 6B) causes `journey`
+to arrive empty, `journey_display` is correctly left `null` too — this is the same underlying gap,
+not a separate bug in the display-field logic. See Section 19 for the proposed fix (`events_journey`).
+
+These remain proposed/optional and were never built: a `journey_summary` variant using video titles
+instead of tokens. **The canonical machine-readable data remains `journey_snapshot`.** `journey_display`
+lives in `pixel_purchase_attributions`, not `pixel_purchases` (Section 12).
 
 ---
 
@@ -393,14 +507,23 @@ human-readable fields (Section 11) belong in `pixel_purchase_attributions`.
 - **Phase 6** — implemented (lightweight fallback hierarchy, no inline
   heavy-resolver calls)
 
-**Phases 1–6 represent the current V1 source-oriented forward journey
-implementation. They are NOT proof that the final V2 edge-based
-architecture is complete** — the real-world test (Section 6) proved the
-transport pipeline works, but also exposed the V1/V2 gap (Section 7).
+**Phases 1–6 originally represented V1 (source-oriented). They were subsequently EXTENDED, not
+replaced, to implement V2 (edge-based destination resolution, Section 8) under the same phase
+numbers** — `destination_video_id`, `resolveDestinationVideoId`, the two-tier continuation check,
+and `journey_display` were all added within Phases 1–6's existing files/scope.
 
-- **Phase 7 — DEFERRED.** Reason: real-world testing exposed the
-  edge-vs-source architecture gap. Do not remove legacy `FT_*` code or
-  fallback code until V2 has been implemented and real-world tested.
+**V2 is implemented and real-world tested (Section 6B).** The test proved the edge model itself
+works correctly across same-origin hops, and also proved a real architectural boundary: journeys
+cannot deterministically survive a hop through a static YouTube description link to a different
+origin. This is NOT a bug in Phases 1–6 — it's a limit of what client-side localStorage can ever
+carry across an origin VSTRK doesn't control.
+
+- **Phase 7 — STILL NOT STARTED.** Originally deferred pending V2. V2 is now done, but Phase 7 is
+  now blocked on a *new* decision instead: whether to approve and implement V3 (Section 19,
+  persistent server-side journey history via `events_journey`), which is the proposed answer to
+  Section 6B's discovered gap. Do not remove legacy `FT_*` code or fallback code until V3 has been
+  approved, implemented, and real-world tested — the same "don't clean up until proven" rule that
+  applied to V2 now applies to V3.
 
 ---
 
@@ -465,25 +588,176 @@ separate future audit, not part of this feature.**
 
 ---
 
-## 17. Pending Decisions (Require Explicit Approval Before Implementation)
+## 17. Pending Decisions — V2 (ALL RESOLVED; kept for historical record)
 
-1. Whether `JourneyNode`'s shape changes to include a destination-side
-   field (breaks the currently-locked minimal shape).
-2. The exact destination-resolution mechanism (`destination_url` →
-   YouTube video ID → `videos.youtube_video_id` lookup) and how it handles
-   zero-match and multi-match cases.
-3. The exact rule for what happens when a redirect's destination is not a
-   video at all (most `RedirectLinkType` values).
-4. Whether multiple `videos` rows can share one `youtube_video_id` across
-   organizations, and if so, how the edge model disambiguates "which row is
-   B."
-5. Whether `journey_tokens` / `journey_summary` human-readable fields are
-   approved, and their exact format.
-6. Whether either human-readable field requires a migration.
+1. ~~Whether `JourneyNode`'s shape changes to include a destination-side field~~ — RESOLVED:
+   yes, `destination_video_id` added (Section 8A).
+2. ~~The exact destination-resolution mechanism~~ — RESOLVED (Section 8B): `youtube_video_id`
+   lookup + `redirect_links.asset_id` disambiguation for multi-row cases.
+3. ~~The exact rule for non-video destinations~~ — RESOLVED (Section 9): same `null` path as
+   ambiguous/unresolvable, falls to asset-membership.
+4. ~~Whether multiple `videos` rows can share one `youtube_video_id` across organizations~~ —
+   RESOLVED: confirmed yes, real data, disambiguated via `redirectAssetId` (Section 8B).
+5. ~~Whether `journey_tokens`/`journey_summary` are approved~~ — RESOLVED: `journey_display`
+   (tokens only) implemented; `journey_summary` (titles) never built.
+6. ~~Whether either human-readable field requires a migration~~ — RESOLVED: yes, applied
+   (Section 4A).
+
+## 17B. Pending Decisions — V3 (Require Explicit Approval Before Implementation)
+
+See Section 19 for full context on each.
+
+1. Whether `events_journey` rows are written synchronously (awaited, before redirect) to
+   capture the exact `events.id`, accepting added redirect-path latency — versus some other
+   mechanism not yet identified. **Not yet decided.**
+2. Whether `redirect_link_id` (already flowing through the existing pixel payload) is sufficient
+   as the deterministic key for `pixel_purchases`/`api/pixel.ts` to look up the matching
+   `events_journey` row, or whether a new column is genuinely needed. **Leaning yes, not
+   confirmed.**
+3. Exact `events_journey` schema — column list, JSONB shapes for `journey_snapshot` and
+   `event_ids`. Draft proposed in Section 19; not finalized.
+4. Confirmation that no deterministic mechanism exists to carry a journey across a static
+   YouTube-description hop to a different origin (Section 19, Tier 3) — accepted as an
+   architectural boundary, not something further engineering should try to solve
+   probabilistically (no IP/user-agent/timing/fingerprinting matching, ever).
 
 ---
 
-## 18. Rules for Future Claude Sessions
+## 19. V3 — Persistent Server-Side Journey History (PROPOSED, NOT IMPLEMENTED)
+
+Motivated entirely by Section 6B's discovery: the browser-side journey (V2, Section 8) is proven
+correct, but has no mechanism to survive a hop through content VSTRK doesn't control (a static
+YouTube description link, different origin). V3 does not replace the browser journey — it adds a
+persistent, server-side record alongside it.
+
+### 19A. Principle
+
+Browser localStorage (V2, unchanged)
+↓
+A → B → C (proven working, Section 6B Part 1)
+↓
+persistent server-side snapshot (V3, new)
+
+
+### 19B. New table: `events_journey`
+
+Not an edge log — each row is a **self-contained snapshot of the full journey as it existed at
+that click**, not just the newest edge. E.g.:
+
+row 1 (57y8): journey_snapshot = [A→B], event_ids = [EVENT_A]
+row 2 (d3es): journey_snapshot = [A→B, B→C], event_ids = [EVENT_A, EVENT_B]
+
+
+This avoids ever needing to walk backward through previous rows to reconstruct a chain — a single
+row read is the complete answer. Accepted tradeoff: intentional duplication of earlier nodes in
+later rows' snapshots — trivial cost given the existing `MAX_JOURNEY_LENGTH = 20` cap.
+
+Draft schema (NOT finalized — pending 17B):
+
+events_journey
+id uuid, pk
+journey_id uuid -- correlation/grouping only, see 19D — NOT the reconstruction mechanism
+event_ids jsonb -- ordered array of events.id, exact — never timestamp-matched
+journey_snapshot jsonb -- complete JourneyNode[] as of this click
+redirect_link_id uuid -- this click's redirect
+created_at timestamptz
+
+No separate join table for `event_ids` unless a concrete query need proves one necessary.
+
+### 19C. Exact `events.id` capture — no timestamp matching
+
+`redirects.ts`'s `logRedirectEvent()` currently does a bare `.insert()` — the inserted row's `id`
+is discarded. For V3, this needs `.select('id')` and to return that id to the caller, instead of
+`void`.
+
+Second required change: `Track.tsx` currently calls `logRedirectEvent` **fire-and-forget, after**
+`window.location.href` is set. If `events_journey.event_ids` needs the real inserted id, that call
+must move to **before** redirect (awaited). This is a genuine latency tradeoff against the
+repeated "keep the redirect path fast" requirement — pending decision 17B-1, not yet resolved.
+
+### 19D. `journey_id` — demoted to correlation/grouping only
+
+Unlike the earlier (superseded) proposal that treated `journey_id` as the primary reconstruction
+key via "find the previous row with this `journey_id`," V3 does not use it that way. The actual
+historical evidence is `journey_snapshot` + `event_ids` on a single row. `journey_id` only helps
+(a) `Track.tsx` recognize "this click continues that journey" when a same-origin/Tier-2 carry
+succeeds, so it can build on the previous snapshot, and (b) let a human visually group rows.
+Deleting `journey_id` would not break snapshot-per-row correctness — it is not load-bearing.
+
+Continuity tiers for `journey_id` (same tiers apply to the V2 browser journey itself):
+- **Tier 1 — same-origin localStorage.** Deterministic. Covers `57y8 → d3es` (Section 6B Part 1).
+- **Tier 2 — controlled URL propagation** (`vt_journey_id`, same pattern as existing `vt_journey`).
+  Only helps when VSTRK controls the very next page — does not help across a YouTube description.
+- **Tier 3 — YouTube description boundary. No deterministic mechanism exists or is being pursued.**
+  A static description link cannot receive a per-viewer identifier from the page it's rendered on.
+  IP, user-agent, timing, or "most recent compatible journey" matching are explicitly rejected as
+  solutions — they would misattribute different concurrent visitors. When no deterministic id is
+  recoverable, the click legitimately starts a new `journey_id`. **This is an architectural
+  boundary, not a bug** — see Section 6B.
+
+### 19E. The earlier journey is never lost or mutated at the Tier 3 boundary
+
+If `A → B → C` was already recorded (as row 2's `journey_snapshot` in `events_journey`), it remains
+intact and untouched. `LnMI` (no deterministic id available) starts a new `journey_id` with its own
+snapshot `[C → Newsletter]`. The system must never mutate the earlier row merely because a later
+cross-origin click couldn't be deterministically connected to it.
+
+### 19F. Purchase-time retrieval
+
+Proposed: `api/pixel.ts` looks up `events_journey` by `redirect_link_id` (already present in the
+existing pixel payload as `vt_rlid`/`redirect_link_id` — no new column needed on `pixel_purchases`,
+pending decision 17B-2) rather than trusting a client-supplied `vt_journey` blob. If found, that
+row's `journey_snapshot`/rebuilt `journey_display` is the deterministic answer — no scanning, no
+"most recent," no guessing. If the conversion's `redirect_link_id` isn't in `events_journey` (e.g.
+the Tier 3 gap swallowed the fuller history), the existing `first_touch_redirect_link_id`/legacy
+fallback applies exactly as today — not a heuristic substitute.
+
+This would also fix Section 6B's specific bug as a side effect, since it no longer depends on
+anything surviving in the browser by purchase time.
+
+### 19G. Explicitly separate from the existing evidence-gathering resolvers
+
+`resolveBridgeAttribution.ts` and `resolvePixelConversionProvenance.ts` remain untouched,
+deliberately probabilistic, offline/reconciliation tools — not fused into `events_journey`'s
+deterministic data. If a *probable* fuller path across a Tier 3 gap is ever wanted for human
+inspection, that is exactly what those existing tools are for; V3 does not blend that in.
+
+### 19H. Table boundaries, restated
+
+events = normal event stream (unchanged)
+events_journey = persistent journey snapshots / event relationships (NEW, proposed)
+pixel_purchases = conversion facts (unchanged)
+pixel_purchase_attributions = attribution result connecting a conversion to its journey (unchanged shape)
+
+No `token_1`/`token_2`/`stop_1`/`stop_2` columns anywhere. The journey is represented as an ordered
+collection (JSONB array), not as fixed columns.
+
+---
+
+## 20. Architecture Evolution / Superseded Decisions
+
+A concise record of how this design changed, since it changed more than once during debugging:
+
+1. **V1 (source-only `JourneyNode`, asset-membership continuation)** — implemented, superseded by V2.
+   Superseded because it never resolved a destination at click time, only reactively one click later.
+2. **V2 (edge-based, `destination_video_id` + two-tier continuation)** — implemented, real-world
+   tested, proven correct for same-origin hops (Section 6B). Not superseded — V3 adds to it, does
+   not replace it. Exposed the Tier 3 cross-origin gap it cannot itself solve.
+3. **An intermediate proposal — "`journey_id` + individual edge rows, reconstructed by walking
+   backward through matching `journey_id`s"** — was discussed and explicitly SUPERSEDED before
+   implementation. Rejected because backward reconstruction from edge rows was considered less
+   direct than snapshot-per-row, and because early versions of that proposal risked non-deterministic
+   membership ("most recent compatible edge") — explicitly disallowed.
+4. **V3 (current proposal) — snapshot-per-row `events_journey`, `event_ids` for exact deterministic
+   linkage to `events`, `journey_id` demoted to correlation-only** — NOT YET IMPLEMENTED. This
+   is the current source of truth for what Phase 7 is waiting on.
+
+**Do not read Sections 2–7 (V1) as current design.** They are retained for historical/testing
+context only, clearly superseded by Section 8 (V2, implemented) and Section 19 (V3, proposed).
+
+---
+
+## 21. Rules for Future Claude Sessions
 
 **NO FUTURE SESSION SHOULD START MODIFYING CODE IMMEDIATELY.**
 

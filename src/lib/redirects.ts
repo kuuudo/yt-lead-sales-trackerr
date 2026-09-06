@@ -241,26 +241,37 @@ export const resolveRedirectToken = async (
 // invoked fire-and-forget after navigation has already started, so reading
 // window.location.href in here would capture the destination page instead —
 // hence it's passed in rather than read locally.
-export const logRedirectEvent = async (link: RedirectLink, url: string | null = null) => {
+export const logRedirectEvent = async (link: RedirectLink, url: string | null = null): Promise<string | null> => {
   const sessionId = getSessionId();
 
-  if (!sessionId) return;
+  if (!sessionId) return null;
 
-  await supabase.from('events').insert({
-    session_id: sessionId,
-    video_id: link.video_id,
-    campaign_id: link.campaign_id,
-    event_type: link.link_type,
-    value: null,
-    organization_id: link.organization_id,
-    promotion_id: link.promotion_id,
-    asset_id: link.asset_id,
-    redirect_link_id: link.id,
-    tracking_hostname: link.tracking_hostname,
-    link_type: link.link_type,
-    bridge_token: link.bridge_token, 
-    url,
-  });
+  const { data, error } = await supabase
+    .from('events')
+    .insert({
+      session_id: sessionId,
+      video_id: link.video_id,
+      campaign_id: link.campaign_id,
+      event_type: link.link_type,
+      value: null,
+      organization_id: link.organization_id,
+      promotion_id: link.promotion_id,
+      asset_id: link.asset_id,
+      redirect_link_id: link.id,
+      tracking_hostname: link.tracking_hostname,
+      link_type: link.link_type,
+      bridge_token: link.bridge_token, 
+      url,
+    })
+    .select('id')
+    .single();
+
+  if (error) {
+    console.error('[logRedirectEvent] insert failed:', error.message);
+    return null;
+  }
+
+  return data?.id ?? null;
 };
 
 export const buildRedirectUrl = (link: RedirectLink): string => {

@@ -55,3 +55,26 @@ ALTER TABLE public.pixel_purchase_attributions
 ADD COLUMN journey_display text;
 
 Why: stores the Y4iw → Ebid → 7xK2-style token chain, built at purchase time in api/pixel.ts. Nullable, additive, no default needed — existing rows just get NULL until a new purchase populates it. Doesn't touch journey_snapshot or any other existing column.
+
+
+CREATE TABLE public.events_journey (
+  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+
+  journey_id uuid NOT NULL,
+
+  event_ids jsonb NOT NULL,
+
+  journey_snapshot jsonb NOT NULL,
+
+  redirect_link_id uuid REFERENCES public.redirect_links (id) ON DELETE SET NULL,
+
+  created_at timestamptz NOT NULL DEFAULT now()
+);
+
+CREATE INDEX idx_events_journey_journey_id
+  ON public.events_journey (journey_id);
+
+CREATE INDEX idx_events_journey_redirect_link_id
+  ON public.events_journey (redirect_link_id);
+
+ALTER TABLE public.events_journey ENABLE ROW LEVEL SECURITY;

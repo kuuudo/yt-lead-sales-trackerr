@@ -12,6 +12,9 @@ import {
   getPromotionId,
   getAssetId,
   getFirstTouchRedirectLinkToken,
+  getJourneyId,
+  getEventIds,
+  setEventIds,
 } from '../lib/tracker';
 import { supabase } from '../lib/supabase';
 import { Loader2, AlertCircle } from 'lucide-react';
@@ -254,6 +257,50 @@ export default function Track() {
             { currentVideoId, currentCampaignId, ftVideoId: finalVideoId });
         }
 
+        // ── Step 6B: persistent server-side journey snapshot (V3, events_journey) ──
+        // logRedirectEvent() moved here from fire-and-forget-after-redirect
+        // and is now awaited so its exact events.id is available to link into
+        // events_journey.event_ids. Does not change what it logs.
+        const eventId = await logRedirectEvent(link, trackingPageUrl);
+
+        let eventsJourneyId: string | null = null;
+
+        if (!eventId) {
+          console.warn('[Track] ⚠ logRedirectEvent returned no id — skipping events_journey insert');
+        } else {
+          const journeyId = getJourneyId();
+
+          if (!journeyId) {
+            console.warn('[Track] ⚠ no journey_id present — skipping events_journey insert', { eventId });
+          } else {
+            // journey (from Step 6 above) is this click's full, already-
+            // validated browser-side snapshot — self-contained per row, per
+            // FORWARD_VALIDATED_ATTRIBUTION_JOURNEY.md §19B. event_ids mirrors
+            // it 1:1: reset to just this hop's id when the journey itself
+            // just reset/started (length 1), otherwise extend the prior list.
+            const priorEventIds = journey.length > 1 ? getEventIds() : [];
+            const journeyEventIds = [...priorEventIds, eventId];
+
+            const { data: journeyRow, error: journeyInsertErr } = await supabase
+              .from('events_journey')
+              .insert({
+                journey_id: journeyId,
+                event_ids: journeyEventIds,
+                journey_snapshot: journey,
+                redirect_link_id: (link as any).id,
+              })
+              .select('id')
+              .single();
+
+            if (journeyInsertErr) {
+              console.error('[Track] ✗ events_journey insert failed:', journeyInsertErr.message);
+            } else {
+              setEventIds(journeyEventIds);
+              eventsJourneyId = journeyRow?.id ?? null;
+            }
+          }
+        }
+
 // ── Step 7: redirect with attribution params ─────────────────────────
 let url: URL;
 
@@ -317,6 +364,13 @@ try {
     url.searchParams.set('vt_journey', JSON.stringify(journey));
   }
 
+  // V3 (events_journey) — exact primary key of the row just inserted for
+  // this click (Step 6B), so a later purchase can look it up deterministically.
+  // Not the correlation journey_id — that stays browser-side only.
+  if (eventsJourneyId) {
+    url.searchParams.set('vt_ej_id', eventsJourneyId);
+  }
+
   // ── Composite client_reference_id for deterministic Stripe attribution ──
   // Format: "{token}__{session_id}__{video_id}__{redirect_link_id}__{redirect_link_token}"
   // The first three segments are UNCHANGED from the existing format — parts[0..2]
@@ -345,11 +399,6 @@ try {
 }
 
 window.location.href = url.toString();
-
-        // Fire-and-forget click event after navigation starts.
-        logRedirectEvent(link, trackingPageUrl).catch((e) =>
-          console.error('[Track] ✗ logRedirectEvent failed:', e)
-        );
 
       } catch (outerErr) {
         // Catch-all: should not reach here, but guarantees the spinner
