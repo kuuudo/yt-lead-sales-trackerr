@@ -316,7 +316,7 @@ console.log('INSERT VALUES', {
 });
 
 // Insert into pixel_purchases (conversion_id = idempotency key for thank-you pixels)
-const { error: purchaseError } =
+const { data: insertedPurchase, error: purchaseError } =
   await supabase
     .from('pixel_purchases')
     .insert({
@@ -332,7 +332,9 @@ const { error: purchaseError } =
       event_type: finalEventType,
       session_id: session_id ?? null,
       conversion_id: conversion_id ?? null,
-    });
+    })
+    .select('id')
+    .maybeSingle();
 
   if (purchaseError) {
     // Duplicate conversion_id (thank-you refresh) → success, no second row
@@ -360,6 +362,69 @@ const { error: purchaseError } =
       error: 'Database insert failed',
     });
   }
+
+  // ── Forward-validated journey attribution snapshot ───────────────────────
+  // Persistent snapshot/fallback layer (pixel_purchase_attributions), NOT
+  // the live reconstruction mechanism — the journey itself was already
+  // reconstructed and validated client-side in tracker.ts before this
+  // payload was ever sent. This block only records the outcome.
+  //
+  // Lightweight fallback only (approved, Option A). When there is no valid
+  // forward journey, this deliberately does NOT call
+  // resolveBridgeAttribution.ts / resolvePixelConversionProvenance.ts —
+  // both stay exactly as they are, untouched, reserved for a future
+  // offline/admin reconciliation pass. Those tools are explicitly
+  // evidence-gathering, not decision-making (see their own file headers:
+  // resolvePixelConversionProvenance.ts "NEVER picks a winner"), and need
+  // inputs (full session event/redirect-link arrays, caller-supplied
+  // candidate bridge event ids) that don't exist in this request. Calling
+  // them here would mean inventing the attribution decision they
+  // deliberately declined to make. This block only records what's already
+  // resolvable from data already present on this request.
+  if (insertedPurchase?.id) {
+    let attributionFirstTouchRedirectLinkId: string | null = null;
+    let attributionJourneySnapshot: typeof parsedJourney = null;
+    let attributionMatchMethod: string;
+    let attributionResolutionStatus: string;
+
+    if (parsedJourney && parsedJourney.length > 0) {
+      // Primary path: validated forward journey present.
+      attributionFirstTouchRedirectLinkId = journeyFirstTouchRedirectLinkId;
+      attributionJourneySnapshot = parsedJourney;
+      attributionMatchMethod = 'forward_journey';
+      attributionResolutionStatus = 'resolved';
+    } else if (first_touch_redirect_link_id) {
+      // Fallback: legacy raw field present, no journey to snapshot.
+      attributionFirstTouchRedirectLinkId = first_touch_redirect_link_id;
+      attributionMatchMethod = 'redirect_link_id';
+      attributionResolutionStatus = 'resolved';
+    } else {
+      // Nothing resolvable from this request. Recorded explicitly (not
+      // skipped) so a future offline pass can find and reconcile it.
+      attributionMatchMethod = 'unresolved';
+      attributionResolutionStatus = 'unresolved';
+    }
+
+    const { error: attributionError } = await supabase
+      .from('pixel_purchase_attributions')
+      .upsert(
+        {
+          pixel_purchase_id: insertedPurchase.id,
+          first_touch_redirect_link_id: attributionFirstTouchRedirectLinkId,
+          journey_snapshot: attributionJourneySnapshot,
+          match_method: attributionMatchMethod,
+          resolution_status: attributionResolutionStatus,
+        },
+        { onConflict: 'pixel_purchase_id' }
+      );
+
+    if (attributionError) {
+      // Must never block or roll back the purchase itself — pixel_purchases
+      // is already committed by this point.
+      console.error('[pixel] Failed to write pixel_purchase_attributions:', attributionError);
+    }
+  }
+
 
   // Also log event
   if (
