@@ -40,6 +40,7 @@ export default async function handler(
     first_touch_redirect_link_id,
     redirect_link_id,
     conversion_id,
+    journey,
   } = req.body;
 console.log('PIXEL BODY', {
   session_id,
@@ -49,7 +50,34 @@ console.log('PIXEL BODY', {
   first_touch_redirect_link_id,
   redirect_link_id,
 });
-  if (!token && !video_id && !campaign_id && !first_touch_redirect_link_id) {
+
+// ── Forward-validated journey (see FORWARD_VALIDATED_ATTRIBUTION_JOURNEY.md) ─
+// journey is JSON-stringified JourneyNode[] ({ redirect_link_id, video_id,
+// asset_id }) from installationHelpers.ts / Track.tsx. journey[0]'s
+// redirect_link_id supersedes first_touch_redirect_link_id below when
+// present; first_touch_redirect_link_id remains the fallback for
+// pre-upgrade cached scripts or direct API callers that send no journey.
+let parsedJourney: { redirect_link_id: string; video_id: string; asset_id: string | null }[] | null = null;
+if (typeof journey === 'string' && journey.length > 0) {
+  try {
+    const attempt = JSON.parse(journey);
+    if (Array.isArray(attempt)) parsedJourney = attempt;
+  } catch (e) {
+    console.warn('[pixel] journey field present but failed to parse:', e);
+  }
+} else if (Array.isArray(journey)) {
+  // Tolerate an already-parsed array too, in case a future caller sends
+  // journey natively rather than JSON-stringified.
+  parsedJourney = journey;
+}
+
+const journeyFirstTouchRedirectLinkId =
+  parsedJourney && parsedJourney.length > 0 ? parsedJourney[0].redirect_link_id : null;
+
+const effectiveFirstTouchRedirectLinkId =
+  journeyFirstTouchRedirectLinkId ?? first_touch_redirect_link_id ?? null;
+
+  if (!token && !video_id && !campaign_id && !effectiveFirstTouchRedirectLinkId) {
     return res.status(400).json({
       error: 'Missing token or video_id',
     });
@@ -73,11 +101,11 @@ console.log('PIXEL BODY', {
   // resolvedCampaignId / resolvedVideoId used for pricing_version lookup.
   // It may still supply organization_id / promotion_id / asset_id /
   // tracking_hostname when the body did not already carry them.
-  if (first_touch_redirect_link_id) {
+  if (effectiveFirstTouchRedirectLinkId) {
     const { data: ftLink } = await supabase
       .from('redirect_links')
       .select('video_id, campaign_id, organization_id, promotion_id, asset_id, tracking_hostname')
-      .eq('id', first_touch_redirect_link_id)
+      .eq('id', effectiveFirstTouchRedirectLinkId)
       .maybeSingle();
 
     if (ftLink) {
@@ -88,8 +116,8 @@ console.log('PIXEL BODY', {
       if (!resolvedTrackingHostname) resolvedTrackingHostname = ftLink.tracking_hostname;
     } else {
       console.warn(
-        '[pixel] first_touch_redirect_link_id provided but no matching redirect_links row:',
-        first_touch_redirect_link_id
+        '[pixel] effectiveFirstTouchRedirectLinkId provided but no matching redirect_links row:',
+        effectiveFirstTouchRedirectLinkId
       );
     }
   }

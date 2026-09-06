@@ -187,6 +187,27 @@ export const generateAttributionPixel = (
     params.get('vt_rlid') ||
     localStorage.getItem('yt_tracker_redirect_link_id') ||
     null;
+
+  // Forward-validated journey (see FORWARD_VALIDATED_ATTRIBUTION_JOURNEY.md).
+  // Carried through untouched from Track.tsx — this destination-side script
+  // has no Supabase access and must NOT attempt to re-validate or re-derive
+  // continuation itself. vt_journey (when present) is the freshest
+  // source-validated state; falls back to whatever this domain already has
+  // stored, exactly like every other field in this script.
+  let journey = null;
+  const journeyParam = params.get('vt_journey');
+  if (journeyParam) {
+    try {
+      const parsedJourney = JSON.parse(journeyParam);
+      if (Array.isArray(parsedJourney)) journey = parsedJourney;
+    } catch (e) {}
+  }
+  if (!journey) {
+    try {
+      const storedJourney = localStorage.getItem('yt_tracker_journey');
+      if (storedJourney) journey = JSON.parse(storedJourney);
+    } catch (e) {}
+  }
   if (sessionId) localStorage.setItem('yt_tracker_session_id', sessionId);
   if (videoId) localStorage.setItem('yt_tracker_video_id', videoId);
   if (campaignId) localStorage.setItem('yt_tracker_campaign_id', campaignId);
@@ -196,6 +217,7 @@ export const generateAttributionPixel = (
   if (trackingHostname) localStorage.setItem('yt_tracker_tracking_hostname', trackingHostname);
   if (firstTouchRedirectLinkId) localStorage.setItem('yt_tracker_ft_redirect_link_id', firstTouchRedirectLinkId);
   if (redirectLinkId) localStorage.setItem('yt_tracker_redirect_link_id', redirectLinkId);
+  if (journey) localStorage.setItem('yt_tracker_journey', JSON.stringify(journey));
   const payload = {
     session_id: sessionId,
     video_id: videoId,
@@ -206,6 +228,7 @@ export const generateAttributionPixel = (
     tracking_hostname: trackingHostname,
     first_touch_redirect_link_id: firstTouchRedirectLinkId,
     redirect_link_id: redirectLinkId,
+    journey: journey ? JSON.stringify(journey) : null,
     event_type: CONFIG.event_type,
     conversion_id: conversionId
   };

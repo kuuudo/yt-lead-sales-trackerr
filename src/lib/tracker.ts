@@ -25,6 +25,13 @@ const FT_REDIRECT_LINK_ID_KEY   = 'yt_tracker_ft_redirect_link_id';
 const FT_REDIRECT_LINK_TOKEN_KEY = 'yt_tracker_ft_redirect_link_token';
 const FT_TRACKING_HOSTNAME_KEY  = 'yt_tracker_ft_tracking_hostname';
 
+// Forward-Validated Attribution Journey (see FORWARD_VALIDATED_ATTRIBUTION_JOURNEY.md).
+// Single source of truth going forward — the FT_* keys above are kept
+// temporarily (still written by setAttribution()) until Phase 4/7 confirm
+// no other call site (installationHelpers.ts) still depends on them.
+const JOURNEY_KEY = 'yt_tracker_journey';
+const MAX_JOURNEY_LENGTH = 20;
+
 /**
  * Attribution fields tracker.ts needs from a resolved redirect_links row.
  * Deliberately NOT the full RedirectLink type — tracker.ts should not be
@@ -45,6 +52,20 @@ export interface AttributionContext {
    */
   redirect_link_token: string | null;
   tracking_hostname: string | null;
+}
+
+/**
+ * A single validated hop in the visitor's attribution journey. Deliberately
+ * minimal — campaign_id/organization_id/promotion_id/tracking_hostname/
+ * redirect_link_token are NOT stored per-node; they're recoverable by
+ * joining redirect_link_id back to redirect_links server-side (or, for the
+ * current click, already in scope) when actually needed. See Section 6 of
+ * FORWARD_VALIDATED_ATTRIBUTION_JOURNEY.md.
+ */
+export interface JourneyNode {
+  redirect_link_id: string;
+  video_id: string;
+  asset_id: string | null;
 }
 
 export const VTRACK_BASE_URL  = 'https://www.vstrk.com';
@@ -161,6 +182,114 @@ export const setAttribution = (attribution: AttributionContext) => {
       trackingHostname: localStorage.getItem(FT_TRACKING_HOSTNAME_KEY),
     },
   });
+};
+
+/**
+ * FORWARD-VALIDATED JOURNEY
+ * Replaces the write-once-forever FT_* mechanism above. journey[0] is First
+ * Touch, journey[journey.length - 1] is current touch — both derived reads,
+ * never independently stored. See FORWARD_VALIDATED_ATTRIBUTION_JOURNEY.md.
+ */
+
+/** Read and parse the current journey. Empty array if none stored or parse fails. */
+export const getJourney = (): JourneyNode[] => {
+  try {
+    const raw = localStorage.getItem(JOURNEY_KEY);
+    if (!raw) return [];
+    const parsed = JSON.parse(raw);
+    return Array.isArray(parsed) ? (parsed as JourneyNode[]) : [];
+  } catch (err) {
+    console.error('[tracker] getJourney: failed to parse stored journey', err);
+    return [];
+  }
+};
+
+const setJourney = (journey: JourneyNode[]): void => {
+  try {
+    localStorage.setItem(JOURNEY_KEY, JSON.stringify(journey));
+  } catch (err) {
+    console.error('[tracker] setJourney: failed to write journey (storage blocked?)', err);
+  }
+};
+
+/** SELECT id FROM videos WHERE asset_id = promotedAssetId. Empty array if none or asset_id is null. */
+export const getPredictedNextVideoIds = async (
+  promotedAssetId: string | null
+): Promise<string[]> => {
+  if (!promotedAssetId) return [];
+
+  const { data, error } = await supabase
+    .from('videos')
+    .select('id')
+    .eq('asset_id', promotedAssetId);
+
+  if (error || !data) {
+    console.error('[tracker] getPredictedNextVideoIds: query failed', error);
+    return [];
+  }
+
+  return data.map((row: { id: string }) => row.id);
+};
+
+/**
+ * Core continuation check: is newNode a legitimate continuation of lastNode
+ * via redirect_links.asset_id -> videos.asset_id? Fail-closed on ambiguity
+ * (null lastNode.asset_id, or no predicted videos) — the algorithm only
+ * confirms continuations, it never guesses one to keep a chain alive.
+ */
+export const validateJourneyContinuation = async (
+  lastNode: JourneyNode | null,
+  newNode: JourneyNode
+): Promise<boolean> => {
+  if (!lastNode) return false;
+  if (!lastNode.asset_id) return false;
+
+  const predictedVideoIds = await getPredictedNextVideoIds(lastNode.asset_id);
+  return predictedVideoIds.includes(newNode.video_id);
+};
+
+/**
+ * Single entry point for extending or resetting the journey. Direct
+ * replacement for the old FT-write-once logic (not for setAttribution()'s
+ * CURRENT-touch key writes, which are unrelated and unchanged).
+ */
+export const appendJourneyNode = async (newNode: JourneyNode): Promise<void> => {
+  const existingJourney = getJourney();
+  const lastNode = existingJourney.length > 0 ? existingJourney[existingJourney.length - 1] : null;
+
+  // Repeat click on the same redirect (double-click, back-then-reclick):
+  // adds no attribution information. No-op rather than append or reset.
+  if (lastNode && lastNode.redirect_link_id === newNode.redirect_link_id) {
+    console.debug('[tracker] appendJourneyNode: duplicate redirect_link_id, no-op', newNode);
+    return;
+  }
+
+  if (!lastNode) {
+    console.debug('[tracker] appendJourneyNode: journey empty, starting fresh', newNode);
+    setJourney([newNode]);
+    return;
+  }
+
+  const isContinuation = await validateJourneyContinuation(lastNode, newNode);
+
+  if (!isContinuation) {
+    console.debug('[tracker] appendJourneyNode: not a validated continuation, resetting', { lastNode, newNode });
+    setJourney([newNode]);
+    return;
+  }
+
+  const updated = [...existingJourney, newNode];
+
+  // Safety cap, not a design target (realistic funnels are 2-4 hops).
+  // Always keep journey[0] for First Touch integrity.
+  if (updated.length > MAX_JOURNEY_LENGTH) {
+    console.warn('[tracker] appendJourneyNode: journey exceeded max length, trimming', updated.length);
+    setJourney([updated[0], ...updated.slice(updated.length - (MAX_JOURNEY_LENGTH - 1))]);
+  } else {
+    setJourney(updated);
+  }
+
+  console.debug('[tracker] appendJourneyNode: continuation validated, appended', newNode);
 };
 
 export const getVideoId = (): string | null =>

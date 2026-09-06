@@ -4,16 +4,12 @@ import { resolveRedirectToken, logRedirectEvent, buildRedirectUrl } from '../lib
 import {
   setAttribution,
   syncSession,
+  getJourney,
+  appendJourneyNode,
   getVideoId,
   getCampaignId,
   getPromotionId,
   getAssetId,
-  getFirstTouchVideoId,
-  getFirstTouchCampaignId,
-  getFirstTouchOrganizationId,
-  getFirstTouchTrackingHostname,
-  getFirstTouchRedirectLinkId,
-  getFirstTouchRedirectLinkToken,
 } from '../lib/tracker';
 import { supabase } from '../lib/supabase';
 import { Loader2, AlertCircle } from 'lucide-react';
@@ -148,6 +144,16 @@ export default function Track() {
               'video_id =', localStorage.getItem('yt_tracker_video_id'),
               'campaign_id =', localStorage.getItem('yt_tracker_campaign_id'),
             );
+
+            // Forward-validated journey (replaces the old FT_* write-once
+            // logic below it — setAttribution() above is kept only for the
+            // CURRENT-touch keys, e.g. getVideoId()/getCampaignId(), which
+            // this feature does not change).
+            await appendJourneyNode({
+              redirect_link_id: (link as any).id,
+              video_id: videoId,
+              asset_id: (link as any).asset_id ?? null,
+            });
           } catch (attrErr) {
             console.error('[Track] ✗ setAttribution threw:', attrErr);
             // localStorage may be blocked (private browsing, storage quota) — log and continue
@@ -187,19 +193,51 @@ export default function Track() {
           ((link as any).asset_id as string | undefined) ?? null;
         // FIRST-TOUCH — write-once. Used only for Stripe client_reference_id and
         // vt_first_touch_redirect_link_id so classic FT revenue attribution is preserved.
-        const finalVideoId = getFirstTouchVideoId();
-        const finalCampaignId = getFirstTouchCampaignId();
-        const finalOrganizationId = getFirstTouchOrganizationId();
-        const finalTrackingHostname = getFirstTouchTrackingHostname();
-        const finalFirstTouchRedirectLinkId = getFirstTouchRedirectLinkId();
-        const finalFirstTouchRedirectLinkToken = getFirstTouchRedirectLinkToken();
+        // Forward-validated journey: first touch is journey[0], derived
+        // rather than independently stored (replaces the six
+        // getFirstTouch*() reads above). organization_id/tracking_hostname/
+        // token are not part of JourneyNode (see plan Section 6) — reuse
+        // this click's already-resolved `link` when journey[0] IS this
+        // click; otherwise first touch happened on an earlier redirect and
+        // those three fields need a small lookup against that original row.
+        const journey = getJourney();
+        const firstNode = journey.length > 0 ? journey[0] : null;
+
+        const finalVideoId = firstNode?.video_id ?? null;
+        const finalFirstTouchRedirectLinkId = firstNode?.redirect_link_id ?? null;
+
+        let finalOrganizationId: string | null = null;
+        let finalTrackingHostname: string | null = null;
+        let finalFirstTouchRedirectLinkToken: string | null = null;
+
+        if (firstNode) {
+          if (firstNode.redirect_link_id === (link as any).id) {
+            finalOrganizationId = (link as any).organization_id ?? null;
+            finalTrackingHostname = (link as any).tracking_hostname ?? null;
+            finalFirstTouchRedirectLinkToken = (link as any).token ?? null;
+          } else {
+            const { data: firstTouchLink, error: firstTouchLinkErr } = await supabase
+              .from('redirect_links')
+              .select('organization_id, tracking_hostname, token')
+              .eq('id', firstNode.redirect_link_id)
+              .maybeSingle();
+
+            if (firstTouchLinkErr) {
+              console.error('[Track] ✗ first-touch redirect_links lookup failed:', firstTouchLinkErr.message);
+            } else if (firstTouchLink) {
+              finalOrganizationId = firstTouchLink.organization_id ?? null;
+              finalTrackingHostname = firstTouchLink.tracking_hostname ?? null;
+              finalFirstTouchRedirectLinkToken = firstTouchLink.token ?? null;
+            }
+          }
+        }
 
         if (!finalSessionId || !currentVideoId || !currentCampaignId) {
           console.warn('[Track] ⚠ one or more localStorage keys missing before redirect:',
-            { finalSessionId, currentVideoId, currentCampaignId, finalVideoId, finalCampaignId });
+            { finalSessionId, currentVideoId, currentCampaignId, finalVideoId });
         } else {
           console.log('[Track] ✓ all localStorage keys present — ready to redirect',
-            { currentVideoId, currentCampaignId, ftVideoId: finalVideoId, ftCampaignId: finalCampaignId });
+            { currentVideoId, currentCampaignId, ftVideoId: finalVideoId });
         }
 
 // ── Step 7: redirect with attribution params ─────────────────────────
@@ -256,6 +294,13 @@ try {
   // vt_first_touch_redirect_link_id above.
   if ((link as any).id) {
     url.searchParams.set('vt_rlid', (link as any).id);
+  }
+
+  // Forward-validated journey — carried to the destination for
+  // installationHelpers.ts's embedded pixel script to read and pass through
+  // untouched (no re-validation client-side there; see plan Section 3/12).
+  if (journey.length > 0) {
+    url.searchParams.set('vt_journey', JSON.stringify(journey));
   }
 
   // ── Composite client_reference_id for deterministic Stripe attribution ──
