@@ -78,3 +78,75 @@ CREATE INDEX idx_events_journey_redirect_link_id
   ON public.events_journey (redirect_link_id);
 
 ALTER TABLE public.events_journey ENABLE ROW LEVEL SECURITY;
+
+CREATE POLICY "Allow client insert events_journey"
+ON public.events_journey
+FOR INSERT
+TO anon, authenticated
+WITH CHECK (true);
+
+
+CREATE OR REPLACE FUNCTION public.log_redirect_event(
+  p_session_id         uuid,
+  p_video_id           uuid,
+  p_campaign_id        uuid,
+  p_event_type         text,
+  p_organization_id    uuid,
+  p_promotion_id       uuid,
+  p_asset_id           uuid,
+  p_redirect_link_id   uuid,
+  p_tracking_hostname  text,
+  p_link_type          text,
+  p_bridge_token       text,
+  p_url                text
+)
+RETURNS uuid
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public
+AS $$
+DECLARE
+  new_id uuid;
+BEGIN
+  INSERT INTO public.events (
+    session_id,
+    video_id,
+    campaign_id,
+    event_type,
+    value,
+    organization_id,
+    promotion_id,
+    asset_id,
+    redirect_link_id,
+    tracking_hostname,
+    link_type,
+    bridge_token,
+    url
+  ) VALUES (
+    p_session_id,
+    p_video_id,
+    p_campaign_id,
+    p_event_type,
+    null,
+    p_organization_id,
+    p_promotion_id,
+    p_asset_id,
+    p_redirect_link_id,
+    p_tracking_hostname,
+    p_link_type,
+    p_bridge_token,
+    p_url
+  )
+  RETURNING id INTO new_id;
+
+  RETURN new_id;
+END;
+$$;
+
+GRANT EXECUTE ON FUNCTION public.log_redirect_event(
+  uuid, uuid, uuid, text, uuid, uuid, uuid, uuid, text, text, text, text
+) TO anon, authenticated;
+
+REVOKE EXECUTE ON FUNCTION public.log_redirect_event(
+  uuid, uuid, uuid, text, uuid, uuid, uuid, uuid, text, text, text, text
+) FROM PUBLIC;

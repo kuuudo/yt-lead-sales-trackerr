@@ -246,32 +246,27 @@ export const logRedirectEvent = async (link: RedirectLink, url: string | null = 
 
   if (!sessionId) return null;
 
-  const { data, error } = await supabase
-    .from('events')
-    .insert({
-      session_id: sessionId,
-      video_id: link.video_id,
-      campaign_id: link.campaign_id,
-      event_type: link.link_type,
-      value: null,
-      organization_id: link.organization_id,
-      promotion_id: link.promotion_id,
-      asset_id: link.asset_id,
-      redirect_link_id: link.id,
-      tracking_hostname: link.tracking_hostname,
-      link_type: link.link_type,
-      bridge_token: link.bridge_token, 
-      url,
-    })
-    .select('id')
-    .single();
+  const { data, error } = await supabase.rpc('log_redirect_event', {
+    p_session_id: sessionId,
+    p_video_id: link.video_id,
+    p_campaign_id: link.campaign_id,
+    p_event_type: link.link_type,
+    p_organization_id: link.organization_id,
+    p_promotion_id: link.promotion_id,
+    p_asset_id: link.asset_id,
+    p_redirect_link_id: link.id,
+    p_tracking_hostname: link.tracking_hostname,
+    p_link_type: link.link_type,
+    p_bridge_token: link.bridge_token,
+    p_url: url,
+  });
 
   if (error) {
     console.error('[logRedirectEvent] insert failed:', error.message);
     return null;
   }
 
-  return data?.id ?? null;
+  return data ?? null;
 };
 
 export const buildRedirectUrl = (link: RedirectLink): string => {
