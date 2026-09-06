@@ -281,23 +281,22 @@ export default function Track() {
             const priorEventIds = journey.length > 1 ? getEventIds() : [];
             const journeyEventIds = [...priorEventIds, eventId];
 
-            const { data: journeyRow, error: journeyInsertErr } = await supabase
-              .from('events_journey')
-              .insert({
-                journey_id: journeyId,
-                event_ids: journeyEventIds,
-                journey_snapshot: journey,
-                redirect_link_id: (link as any).id,
-              })
-              .select('id')
-              .single();
+const { data: journeyRowId, error: journeyInsertErr } = await supabase.rpc(
+  'log_events_journey',
+  {
+    p_journey_id: journeyId,
+    p_event_ids: journeyEventIds,
+    p_journey_snapshot: journey,
+    p_redirect_link_id: (link as any).id,
+  }
+);
 
-            if (journeyInsertErr) {
-              console.error('[Track] ✗ events_journey insert failed:', journeyInsertErr.message);
-            } else {
-              setEventIds(journeyEventIds);
-              eventsJourneyId = journeyRow?.id ?? null;
-            }
+if (journeyInsertErr) {
+  console.error('[Track] ✗ events_journey insert failed:', journeyInsertErr.message);
+} else {
+  setEventIds(journeyEventIds);
+  eventsJourneyId = journeyRowId ?? null;
+}
           }
         }
 

@@ -150,3 +150,42 @@ GRANT EXECUTE ON FUNCTION public.log_redirect_event(
 REVOKE EXECUTE ON FUNCTION public.log_redirect_event(
   uuid, uuid, uuid, text, uuid, uuid, uuid, uuid, text, text, text, text
 ) FROM PUBLIC;
+
+CREATE OR REPLACE FUNCTION public.log_events_journey(
+  p_journey_id        uuid,
+  p_event_ids         jsonb,
+  p_journey_snapshot  jsonb,
+  p_redirect_link_id  uuid
+)
+RETURNS uuid
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public
+AS $$
+DECLARE
+  new_id uuid;
+BEGIN
+  INSERT INTO public.events_journey (
+    journey_id,
+    event_ids,
+    journey_snapshot,
+    redirect_link_id
+  ) VALUES (
+    p_journey_id,
+    p_event_ids,
+    p_journey_snapshot,
+    p_redirect_link_id
+  )
+  RETURNING id INTO new_id;
+
+  RETURN new_id;
+END;
+$$;
+
+GRANT EXECUTE ON FUNCTION public.log_events_journey(
+  uuid, jsonb, jsonb, uuid
+) TO anon, authenticated;
+
+REVOKE EXECUTE ON FUNCTION public.log_events_journey(
+  uuid, jsonb, jsonb, uuid
+) FROM PUBLIC;
