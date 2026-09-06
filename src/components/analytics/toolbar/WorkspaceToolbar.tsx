@@ -58,7 +58,8 @@ export default function WorkspaceToolbar({ userId }: Props) {
   const deleteWidget        = useWorkspaceStore((s) => s.deleteWidget)
   const setSelectedWidgetId = useWorkspaceStore((s) => s.setSelectedWidgetId)
   const [activeDomain, setActiveDomain] = useState(DOMAINS[0].id)
-  const [shapeOpen, setShapeOpen] = useState(false)
+    const [shapeOpen, setShapeOpen] = useState(false)
+  const [shapeModalOpen, setShapeModalOpen] = useState(false)
   const [addOpen, setAddOpen] = useState(false)
   const [addSearch, setAddSearch] = useState('')
   const shapeRef = useRef<HTMLDivElement>(null)
@@ -214,26 +215,10 @@ export default function WorkspaceToolbar({ userId }: Props) {
 
         <div style={styles.divider} />
 
-        <div ref={shapeRef} style={{ position: 'relative' }}>
-          <button style={styles.btn} onClick={() => setShapeOpen((v) => !v)} title="Shape">
-            <span style={styles.icon}>▭</span>
-            <span style={styles.label}>Shape ▾</span>
-          </button>
-          {shapeOpen && (
-            <div style={styles.dropdown}>
-              {shapeItems.map((item) => (
-                <button
-                  key={item.type}
-                  style={styles.dropdownItem}
-                  onClick={() => { handleAdd(item.type); setShapeOpen(false) }}
-                >
-                  <span style={styles.icon}>{item.icon}</span>
-                  <span style={styles.label}>{item.label}</span>
-                </button>
-              ))}
-            </div>
-          )}
-        </div>
+        <button style={styles.btn} onClick={() => setShapeModalOpen(true)} title="Shape">
+          <span style={styles.icon}>▭</span>
+          <span style={styles.label}>Shape ▾</span>
+        </button>
 
         <button style={styles.btn} onClick={() => handleAdd('text')} title="Add Text">
           <span style={styles.icon}>T</span>
@@ -256,6 +241,30 @@ export default function WorkspaceToolbar({ userId }: Props) {
         </span>
       </div>
     </div>
+
+    {shapeModalOpen && (
+      <div style={styles.modalBackdrop} onClick={() => setShapeModalOpen(false)}>
+        <div style={styles.modalPanel} onClick={(e) => e.stopPropagation()}>
+          <div style={styles.modalHeader}>
+            <span style={styles.modalTitle}>Add shape</span>
+            <button style={styles.modalClose} onClick={() => setShapeModalOpen(false)}>×</button>
+          </div>
+          <div style={styles.modalGrid}>
+            {shapeItems.map((item) => (
+              <button
+                key={item.type}
+                style={styles.modalCard}
+                onClick={() => { handleAdd(item.type); setShapeModalOpen(false) }}
+              >
+                <span style={{ fontSize: 20 }}>{item.icon}</span>
+                <span style={styles.modalCardLabel}>{item.label}</span>
+              </button>
+            ))}
+          </div>
+        </div>
+      </div>
+    )}
+
 
     {addOpen && (
         <div style={styles.modalBackdrop} onClick={() => setAddOpen(false)}>
