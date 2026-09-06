@@ -6,10 +6,12 @@ import {
   syncSession,
   getJourney,
   appendJourneyNode,
+  resolveDestinationVideoId,
   getVideoId,
   getCampaignId,
   getPromotionId,
   getAssetId,
+  getFirstTouchRedirectLinkToken,
 } from '../lib/tracker';
 import { supabase } from '../lib/supabase';
 import { Loader2, AlertCircle } from 'lucide-react';
@@ -149,10 +151,22 @@ export default function Track() {
             // logic below it — setAttribution() above is kept only for the
             // CURRENT-touch keys, e.g. getVideoId()/getCampaignId(), which
             // this feature does not change).
+            //
+            // Edge model: resolve this click's destination BEFORE
+            // appending, so the NEXT click can use the fast
+            // destination-equality path instead of the asset-membership
+            // fallback. redirectAssetId is link.asset_id — the asset THIS
+            // redirect promotes, not necessarily the source video's own
+            // asset_id.
+            const destinationVideoId = await resolveDestinationVideoId(
+              (link as any).destination_url,
+              (link as any).asset_id ?? null
+            );
             await appendJourneyNode({
               redirect_link_id: (link as any).id,
               video_id: videoId,
               asset_id: (link as any).asset_id ?? null,
+              destination_video_id: destinationVideoId,
             });
           } catch (attrErr) {
             console.error('[Track] ✗ setAttribution threw:', attrErr);

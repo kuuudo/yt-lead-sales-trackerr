@@ -54,6 +54,8 @@ export interface AttributionContext {
   tracking_hostname: string | null;
 }
 
+import { detectPlatform, extractPostId } from './platformParser';
+
 /**
  * A single validated hop in the visitor's attribution journey. Deliberately
  * minimal — campaign_id/organization_id/promotion_id/tracking_hostname/
@@ -61,11 +63,18 @@ export interface AttributionContext {
  * joining redirect_link_id back to redirect_links server-side (or, for the
  * current click, already in scope) when actually needed. See Section 6 of
  * FORWARD_VALIDATED_ATTRIBUTION_JOURNEY.md.
+ *
+ * destination_video_id (edge model): the VSTRK videos.id this click's
+ * destination_url resolved to, when — and only when — resolution was
+ * unambiguous. null means "not a tracked video destination" OR "ambiguous,
+ * multiple videos rows share this YouTube ID and asset_id disambiguation
+ * did not narrow to exactly one." Never guessed.
  */
 export interface JourneyNode {
   redirect_link_id: string;
   video_id: string;
   asset_id: string | null;
+  destination_video_id: string | null;
 }
 
 export const VTRACK_BASE_URL  = 'https://www.vstrk.com';
@@ -217,18 +226,66 @@ export const getPredictedNextVideoIds = async (
   promotedAssetId: string | null
 ): Promise<string[]> => {
   if (!promotedAssetId) return [];
-
   const { data, error } = await supabase
     .from('videos')
     .select('id')
     .eq('asset_id', promotedAssetId);
-
   if (error || !data) {
     console.error('[tracker] getPredictedNextVideoIds: query failed', error);
     return [];
   }
-
   return data.map((row: { id: string }) => row.id);
+};
+
+/**
+ * Edge-based destination resolution (see FORWARD_VALIDATED_ATTRIBUTION_JOURNEY.md
+ * §"APPROVED HYBRID RESOLUTION MODEL"). Resolves redirect_links.destination_url
+ * to a single VSTRK videos.id, or null when it can't be resolved unambiguously.
+ *
+ * redirectAssetId = redirect_links.asset_id — the asset THIS redirect
+ * promotes/points to. NOT the source video's own videos.asset_id. Used
+ * only to disambiguate when the destination YouTube ID maps to multiple
+ * videos rows (confirmed in production — same YouTube content can be
+ * imported as separate videos rows across orgs/campaigns).
+ *
+ * Resolution rules — never guesses:
+ *   0 candidates    -> null (not a tracked VSTRK video destination)
+ *   1 candidate     -> that row's id
+ *   2+ candidates   -> filter by videos.asset_id === redirectAssetId
+ *     exactly 1 match -> that row's id
+ *     0 or 2+ matches -> null (ambiguous; caller falls back to the
+ *                        existing asset-membership check)
+ *
+ * Only youtube is handled for now (the tested/approved case). Any other
+ * platform, or an unparseable/non-video destination_url, returns null —
+ * which is correct: those destinations are left to the existing Campaign
+ * Element Asset / Asset Resource attribution, per approved product scope.
+ */
+export const resolveDestinationVideoId = async (
+  destinationUrl: string,
+  redirectAssetId: string | null
+): Promise<string | null> => {
+  const platform = detectPlatform(destinationUrl);
+  if (platform !== 'youtube') return null;
+
+  const youtubeVideoId = extractPostId(destinationUrl, platform);
+  if (!youtubeVideoId) return null;
+
+  const { data, error } = await supabase
+    .from('videos')
+    .select('id, asset_id')
+    .eq('youtube_video_id', youtubeVideoId);
+
+  if (error || !data || data.length === 0) return null;
+
+  if (data.length === 1) return data[0].id;
+
+  // 2+ rows share this YouTube ID — disambiguate via redirect_links.asset_id.
+  const assetMatches = data.filter((row) => row.asset_id === redirectAssetId);
+  if (assetMatches.length === 1) return assetMatches[0].id;
+
+  // 0 or 2+ asset matches — genuinely ambiguous. Never guess.
+  return null;
 };
 
 /**
@@ -242,8 +299,16 @@ export const validateJourneyContinuation = async (
   newNode: JourneyNode
 ): Promise<boolean> => {
   if (!lastNode) return false;
-  if (!lastNode.asset_id) return false;
 
+  // Primary fast path (edge model): exact destination match, no DB call.
+  if (lastNode.destination_video_id !== null) {
+    return newNode.video_id === lastNode.destination_video_id;
+  }
+
+  // Fallback (unchanged): asset-membership check — this is what preserves
+  // the cross-org case (Org B Video B -> Asset A -> Org A Video A) and
+  // covers ambiguous/non-video destinations.
+  if (!lastNode.asset_id) return false;
   const predictedVideoIds = await getPredictedNextVideoIds(lastNode.asset_id);
   return predictedVideoIds.includes(newNode.video_id);
 };

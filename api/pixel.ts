@@ -386,13 +386,34 @@ const { data: insertedPurchase, error: purchaseError } =
     let attributionJourneySnapshot: typeof parsedJourney = null;
     let attributionMatchMethod: string;
     let attributionResolutionStatus: string;
-
+    let attributionJourneyDisplay: string | null = null;
     if (parsedJourney && parsedJourney.length > 0) {
       // Primary path: validated forward journey present.
       attributionFirstTouchRedirectLinkId = journeyFirstTouchRedirectLinkId;
       attributionJourneySnapshot = parsedJourney;
       attributionMatchMethod = 'forward_journey';
       attributionResolutionStatus = 'resolved';
+
+      // journey_display: human-readable only — journey_snapshot above stays
+      // the source of truth. Built here (purchase time), not at redirect
+      // time, since it needs a token lookup and isn't latency-sensitive
+      // the way the redirect click is. e.g. "Y4iw → Ebid". Left null on
+      // any lookup problem — never blocks the purchase/attribution write.
+      const journeyRedirectLinkIds = parsedJourney.map((node) => node.redirect_link_id);
+      const { data: journeyLinkRows, error: journeyLinkErr } = await supabase
+        .from('redirect_links')
+        .select('id, token')
+        .in('id', journeyRedirectLinkIds);
+
+      if (journeyLinkErr) {
+        console.error('[pixel] Failed to look up tokens for journey_display:', journeyLinkErr);
+      } else if (journeyLinkRows) {
+        const tokenByRedirectLinkId = new Map(journeyLinkRows.map((row) => [row.id, row.token]));
+        const tokens = journeyRedirectLinkIds.map((id) => tokenByRedirectLinkId.get(id) ?? null);
+        if (tokens.every((t) => t !== null)) {
+          attributionJourneyDisplay = tokens.join(' → ');
+        }
+      }
     } else if (first_touch_redirect_link_id) {
       // Fallback: legacy raw field present, no journey to snapshot.
       attributionFirstTouchRedirectLinkId = first_touch_redirect_link_id;
@@ -412,6 +433,7 @@ const { data: insertedPurchase, error: purchaseError } =
           pixel_purchase_id: insertedPurchase.id,
           first_touch_redirect_link_id: attributionFirstTouchRedirectLinkId,
           journey_snapshot: attributionJourneySnapshot,
+          journey_display: attributionJourneyDisplay,
           match_method: attributionMatchMethod,
           resolution_status: attributionResolutionStatus,
         },

@@ -37,3 +37,21 @@ ALTER TABLE public.pixel_purchase_attributions ENABLE ROW LEVEL SECURITY;
 -- ever touches this table, nothing is exposed until you explicitly add a
 -- policy. Flag me if your project's convention is different (e.g. you
 -- expect an authenticated read path on this table soon) and I'll adjust.
+
+Good — noted, redirectAssetId it is. Here are the two exact migrations, shown before running either.
+
+Migration 1 — index for fast destination lookup at click time
+
+sql
+CREATE INDEX idx_videos_youtube_video_id
+ON public.videos (youtube_video_id);
+
+Why: resolveDestinationVideoId() will query videos WHERE youtube_video_id = X on every redirect click. Today that's a sequential scan (confirmed — only videos_pkey, idx_videos_asset_id, idx_videos_organization_id exist). Additive only, doesn't touch or replace any existing index.
+
+Migration 2 — human-readable journey display column
+
+sql
+ALTER TABLE public.pixel_purchase_attributions
+ADD COLUMN journey_display text;
+
+Why: stores the Y4iw → Ebid → 7xK2-style token chain, built at purchase time in api/pixel.ts. Nullable, additive, no default needed — existing rows just get NULL until a new purchase populates it. Doesn't touch journey_snapshot or any other existing column.
