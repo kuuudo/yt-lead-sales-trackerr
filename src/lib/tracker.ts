@@ -338,7 +338,7 @@ export const getPredictedNextVideoIds = async (
  * which is correct: those destinations are left to the existing Campaign
  * Element Asset / Asset Resource attribution, per approved product scope.
  *
- * DB access: SECURITY DEFINER RPC (anonymous-safe). videos RLS unchanged.
+ * DB. access: SECURITY DEFINER RPC (anonymous-safe). videos RLS unchanged.
  */
 export const resolveDestinationVideoId = async (
   destinationUrl: string,
