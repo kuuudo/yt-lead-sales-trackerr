@@ -272,19 +272,22 @@ export const setEventIds = (ids: string[]): void => {
 };
 
 /** SELECT id FROM videos WHERE asset_id = promotedAssetId. Empty array if none or asset_id is null. */
+/** SELECT id FROM videos WHERE asset_id = promotedAssetId. Empty array if none or asset_id is null. */
 export const getPredictedNextVideoIds = async (
   promotedAssetId: string | null
 ): Promise<string[]> => {
   if (!promotedAssetId) return [];
-  const { data, error } = await supabase
-    .from('videos')
-    .select('id')
-    .eq('asset_id', promotedAssetId);
+
+  const { data, error } = await supabase.rpc('get_predicted_next_videos', {
+    p_promoted_asset_id: promotedAssetId,
+  });
+
   if (error || !data) {
     console.error('[tracker] getPredictedNextVideoIds: query failed', error);
     return [];
   }
-  return data.map((row: { id: string }) => row.id);
+
+  return (data as { video_id: string }[]).map((row) => row.video_id);
 };
 
 /**
@@ -311,6 +314,32 @@ export const getPredictedNextVideoIds = async (
  * which is correct: those destinations are left to the existing Campaign
  * Element Asset / Asset Resource attribution, per approved product scope.
  */
+/**
+ * Edge-based destination resolution (see FORWARD_VALIDATED_ATTRIBUTION_JOURNEY.md
+ * §"APPROVED HYBRID RESOLUTION MODEL"). Resolves redirect_links.destination_url
+ * to a single VSTRK videos.id, or null when it can't be resolved unambiguously.
+ *
+ * redirectAssetId = redirect_links.asset_id — the asset THIS redirect
+ * promotes/points to. NOT the source video's own videos.asset_id. Used
+ * only to disambiguate when the destination YouTube ID maps to multiple
+ * videos rows (confirmed in production — same YouTube content can be
+ * imported as separate videos rows across orgs/campaigns).
+ *
+ * Resolution rules — never guesses:
+ *   0 candidates    -> null (not a tracked VSTRK video destination)
+ *   1 candidate     -> that row's id
+ *   2+ candidates   -> filter by videos.asset_id === redirectAssetId
+ *     exactly 1 match -> that row's id
+ *     0 or 2+ matches -> null (ambiguous; caller falls back to the
+ *                        existing asset-membership check)
+ *
+ * Only youtube is handled for now (the tested/approved case). Any other
+ * platform, or an unparseable/non-video destination_url, returns null —
+ * which is correct: those destinations are left to the existing Campaign
+ * Element Asset / Asset Resource attribution, per approved product scope.
+ *
+ * DB access: SECURITY DEFINER RPC (anonymous-safe). videos RLS unchanged.
+ */
 export const resolveDestinationVideoId = async (
   destinationUrl: string,
   redirectAssetId: string | null
@@ -321,23 +350,18 @@ export const resolveDestinationVideoId = async (
   const youtubeVideoId = extractPostId(destinationUrl, platform);
   if (!youtubeVideoId) return null;
 
-  const { data, error } = await supabase
-    .from('videos')
-    .select('id, asset_id')
-    .eq('youtube_video_id', youtubeVideoId);
+  const { data, error } = await supabase.rpc('resolve_destination_video', {
+    p_youtube_video_id: youtubeVideoId,
+    p_redirect_asset_id: redirectAssetId,
+  });
 
-  if (error || !data || data.length === 0) return null;
+  if (error) {
+    console.error('[tracker] resolveDestinationVideoId: rpc failed', error);
+    return null;
+  }
 
-  if (data.length === 1) return data[0].id;
-
-  // 2+ rows share this YouTube ID — disambiguate via redirect_links.asset_id.
-  const assetMatches = data.filter((row) => row.asset_id === redirectAssetId);
-  if (assetMatches.length === 1) return assetMatches[0].id;
-
-  // 0 or 2+ asset matches — genuinely ambiguous. Never guess.
-  return null;
+  return (data as string | null) ?? null;
 };
-
 /**
  * Core continuation check: is newNode a legitimate continuation of lastNode
  * via redirect_links.asset_id -> videos.asset_id? Fail-closed on ambiguity

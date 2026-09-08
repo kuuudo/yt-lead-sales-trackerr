@@ -381,3 +381,137 @@ ok now lets prove that my pixel_purchases can poitn back to video c, so we can f
 2efad37f-d191-4734-9be8-9e7a6d07ee75,,36c52ad6-026f-44a4-b9d6-7e30b689a6d1,3b9dbc2c-7516-4c27-8135-005f863eb4bd,6796ed7f-2226-4c6d-82f7-d293236b9a63,cd180432-44c5-4a20-b778-66b7753191f0,0,2026-09-06 17:03:56.878323+00,newsletter,9d9a8937-518f-4525-997e-7067d604238f,a778a5be-6bd3-41bc-8765-2bcf247f11ba,5bfeee61-093e-41db-9518-72115e35256a,6b04eb5a-a804-422c-b408-f56255bbb118,f28e2a0b-6858-42cc-ae42-a144bef6d85d     we grab session_id = 36c52ad6-026f-44a4-b9d6-7e30b689a6d1, a778a5be-6bd3-41bc-8765-2bcf247f11ba   i go to events, i make session_id = 36c52ad6-026f-44a4-b9d6-7e30b689a6d1,  i see 11 records(with same session_id, promotion_id, asset_id etc) , becase i was doing a lot of testing, is it a concern, like first session_id they are all the same?  or i should do the pixel_purchase_attribution so make sure once match the system know this shouldnt be matching pixel_purchases again, but any way, i fetch the newest,  i see id,session_id,video_id,campaign_id,event_type,value,created_at,lead_magnet_id,organization_id,promotion_id,asset_id,redirect_link_id,tracking_hostname,link_type,bridge_token,url
 7856bd41-4105-4e79-9974-9193f5319967,36c52ad6-026f-44a4-b9d6-7e30b689a6d1,3b9dbc2c-7516-4c27-8135-005f863eb4bd,6796ed7f-2226-4c6d-82f7-d293236b9a63,newsletter,,2026-09-06 17:03:03.824898+00,,9d9a8937-518f-4525-997e-7067d604238f,a778a5be-6bd3-41bc-8765-2bcf247f11ba,f28e2a0b-6858-42cc-ae42-a144bef6d85d,4e56c143-755d-4868-9ad4-26258f4d3527,go.kaksidigitals.com,newsletter,,https://go.kaksidigitals.com/LnMI   so i get the i grab the event id = 7856bd41-4105-4e79-9974-9193f5319967 i go to event journey ok here is the problem the row i should be matching is id,journey_id,event_ids,journey_snapshot,redirect_link_id,created_at
 1e8cd109-358c-42be-8ed3-e72bd1c53bde,9924bd96-1953-4515-9dd1-90f7d66ad505,"[""8c6c8ad7-8ada-4b04-8389-ee6d4a8f0133"", ""4f5998e7-a093-4563-9462-c05bb2c1971d""]","[{""asset_id"": ""72d2cb4d-a7a5-4046-b209-707b86b124a5"", ""video_id"": ""66b840be-ae6c-4990-9fa3-c42fda55beb0"", ""redirect_link_id"": ""3d78d839-c736-4e6f-92d2-83bbb9da6fd9"", ""destination_video_id"": ""19ded023-ae85-4af2-a2e9-f4b42fffc69f""}, {""asset_id"": ""cd08c4ec-48dd-493d-abbf-d274a98ac467"", ""video_id"": ""19ded023-ae85-4af2-a2e9-f4b42fffc69f"", ""redirect_link_id"": ""8eb7c1fd-10d6-46cb-b3a9-8aa740712c22"", ""destination_video_id"": ""3b9dbc2c-7516-4c27-8135-005f863eb4bd""}]",8eb7c1fd-10d6-46cb-b3a9-8aa740712c22,2026-09-06 16:59:56.107669+00     so i cant use event_id? to match     i mean i can probalby use 
+
+
+
+
+-----------------------
+newest test 
+
+let me do another test still the same process, so also want to prove previous video a--videob     video c--video d,  so if video b not equal to video c, so (not video a-video b-video d) but redo ,  video c--video d,  so i open 
+**為什麼你報價一出，客戶就消失？** i click Instantly ai 完整教學｜最強的冷郵件自動化系統  [https://www.vstrk.com/57y8](https://www.vstrk.com/57y8)      i click [Track] ① component mounted, token = 57y8
+index-BCTR3rYR.js:979 [Track] ② starting Promise.all — resolveRedirectToken + attr fetch
+content.js:1 Uncaught (in promise) Error: Uncaught Error: No Listener: tabs\:outgoing.message.ready
+[NEW] Explain Console errors by using Copilot in Edge: click  to explain an error. Learn moreDon’t show again
+index-BCTR3rYR.js:979 [Track] ③ attrRow fetched: {video\_id: '66b840be-ae6c-4990-9fa3-c42fda55beb0', campaign\_id: '5e4338e2-da32-4a5f-b132-020cc8d9595a'}
+index-BCTR3rYR.js:979 [Track] ④ resolveRedirectToken result: {id: '3d78d839-c736-4e6f-92d2-83bbb9da6fd9', token: '57y8', video\_id: '66b840be-ae6c-4990-9fa3-c42fda55beb0', campaign\_id: '5e4338e2-da32-4a5f-b132-020cc8d9595a', link\_type: 'landing\_page', …}
+index-BCTR3rYR.js:979 [Track] ④ attrRow result: {video\_id: '66b840be-ae6c-4990-9fa3-c42fda55beb0', campaign\_id: '5e4338e2-da32-4a5f-b132-020cc8d9595a'}
+index-BCTR3rYR.js:979 [Track] ⑤ extracted videoId = 66b840be-ae6c-4990-9fa3-c42fda55beb0 | campaignId = 5e4338e2-da32-4a5f-b132-020cc8d9595a
+index-BCTR3rYR.js:979 [Track] ⑥ setAttribution() called — localStorage check: video\_id = 66b840be-ae6c-4990-9fa3-c42fda55beb0 campaign\_id = 5e4338e2-da32-4a5f-b132-020cc8d9595a
+index-BCTR3rYR.js:679 ORG QUERY RESULT {success: true, error: null, data: {…}, count: null, status: 200, …}
+index-BCTR3rYR.js:679 ORG QUERY RESULT {success: true, error: null, data: {…}, count: null, status: 200, …}
+index-BCTR3rYR.js:979 [Track] ⑦ calling syncSession()...
+index-BCTR3rYR.js:979 [Track] ⑧ syncSession() resolved. localStorage check: session\_id = a49c4e92-e6b1-4163-917c-d0bc6f7faae9 video\_id = 66b840be-ae6c-4990-9fa3-c42fda55beb0 campaign\_id = 5e4338e2-da32-4a5f-b132-020cc8d9595a
+index-BCTR3rYR.js:979 [Track] ✓ all localStorage keys present — ready to redirect {currentVideoId: '66b840be-ae6c-4990-9fa3-c42fda55beb0', currentCampaignId: '5e4338e2-da32-4a5f-b132-020cc8d9595a', ftVideoId: '66b840be-ae6c-4990-9fa3-c42fda55beb0'}    then i click  video 3 🟢 我研究了 80+ 個 n8n，這 14 個才是真正能幫你獲得客戶的｜海外客戶開發｜一人公司經營 [https://www.vstrk.com/d3es](https://www.vstrk.com/d3es)      i see [Track] ① component mounted, token = d3es
+index-BCTR3rYR.js:979 [Track] ② starting Promise.all — resolveRedirectToken + attr fetch
+[NEW] Explain Console errors by using Copilot in Edge: click  to explain an error. Learn moreDon’t show again
+index-BCTR3rYR.js:679 ORG QUERY RESULT {success: true, error: null, data: {…}, count: null, status: 200, …}
+index-BCTR3rYR.js:979 [Track] ③ attrRow fetched: {video_id: '19ded023-ae85-4af2-a2e9-f4b42fffc69f', campaign_id: '5e4338e2-da32-4a5f-b132-020cc8d9595a'}
+index-BCTR3rYR.js:979 [Track] ④ resolveRedirectToken result: {id: '8eb7c1fd-10d6-46cb-b3a9-8aa740712c22', token: 'd3es', video_id: '19ded023-ae85-4af2-a2e9-f4b42fffc69f', campaign_id: '5e4338e2-da32-4a5f-b132-020cc8d9595a', link_type: 'landing_page', …}
+index-BCTR3rYR.js:979 [Track] ④ attrRow result: {video_id: '19ded023-ae85-4af2-a2e9-f4b42fffc69f', campaign_id: '5e4338e2-da32-4a5f-b132-020cc8d9595a'}
+index-BCTR3rYR.js:979 [Track] ⑤ extracted videoId = 19ded023-ae85-4af2-a2e9-f4b42fffc69f | campaignId = 5e4338e2-da32-4a5f-b132-020cc8d9595a
+index-BCTR3rYR.js:979 [Track] ⑥ setAttribution() called — localStorage check: video_id = 19ded023-ae85-4af2-a2e9-f4b42fffc69f campaign_id = 5e4338e2-da32-4a5f-b132-020cc8d9595a
+index-BCTR3rYR.js:679 ORG QUERY RESULT {success: true, error: null, data: {…}, count: null, status: 200, …}
+content.js:1 Uncaught (in promise) Error: Uncaught Error: No Listener: tabs:outgoing.message.ready
+index-BCTR3rYR.js:979 [Track] ⑦ calling syncSession()...
+index-BCTR3rYR.js:979 [Track] ⑧ syncSession() resolved. localStorage check: session_id = a49c4e92-e6b1-4163-917c-d0bc6f7faae9 video_id = 19ded023-ae85-4af2-a2e9-f4b42fffc69f campaign_id = 5e4338e2-da32-4a5f-b132-020cc8d9595a
+index-BCTR3rYR.js:979 [Track] ✓ all localStorage keys present — ready to redirect {currentVideoId: '19ded023-ae85-4af2-a2e9-f4b42fffc69f', currentCampaignId: '5e4338e2-da32-4a5f-b132-020cc8d9595a', ftVideoId: '66b840be-ae6c-4990-9fa3-c42fda55beb0'}
+index-BCTR3rYR.js:979 [Track] ⑨ redirecting to: https://www.youtube.com/watch?v=Gh8G2uZu9O4&vt_sid=a49c4e92-e6b1-4163-917c-d0bc6f7faae9&vt_vid=19ded023-ae85-4af2-a2e9-f4b42fffc69f&vt_cid=5e4338e2-da32-4a5f-b132-020cc8d9595a&vt_oid=62640339-150a-4e6a-bdf3-9f1896cc01e7&vt_aid=cd08c4ec-48dd-493d-abbf-d274a98ac467&vt_first_touch_redirect_link_id=3d78d839-c736-4e6f-92d2-83bbb9da6fd9&vt_rlid=8eb7c1fd-10d6-46cb-b3a9-8aa740712c22&vt_journey=%5B%7B%22redirect_link_id%22%3A%223d78d839-c736-4e6f-92d2-83bbb9da6fd9%22%2C%22video_id%22%3A%2266b840be-ae6c-4990-9fa3-c42fda55beb0%22%2C%22asset_id%22%3A%2272d2cb4d-a7a5-4046-b209-707b86b124a5%22%2C%22destination_video_id%22%3A%2219ded023-ae85-4af2-a2e9-f4b42fffc69f%22%7D%2C%7B%22redirect_link_id%22%3A%228eb7c1fd-10d6-46cb-b3a9-8aa740712c22%22%2C%22video_id%22%3A%2219ded023-ae85-4af2-a2e9-f4b42fffc69f%22%2C%22asset_id%22%3A%22cd08c4ec-48dd-493d-abbf-d274a98ac467%22%2C%22destination_video_id%22%3A%223b9dbc2c-7516-4c27-8135-005f863eb4bd%22%7D%5D&vt_ej_id=99840248-6d57-4112-8e6e-578316b5890f
+Navigated to https://www.youtube.com/watch?v=Gh8G2uZu9O4&vt_sid=a49c4e92-e6b1-4163-917c-d0bc6f7faae9&vt_vid=19ded023-ae85-4af2-a2e9-f4b42fffc69f&vt_cid=5e4338e2-da32-4a5f-b132-020cc8d9595a&vt_oid=62640339-150a-4e6a-bdf3-9f1896cc01e7&vt_aid=cd08c4ec-48dd-493d-abbf-d274a98ac467&vt_first_touch_redirect_link_id=3d78d839-c736-4e6f-92d2-83bbb9da6fd9&vt_rlid=8eb7c1fd-10d6-46cb-b3a9-8aa740712c22&vt_journey=%5B%7B%22redirect_link_id%22%3A%223d78d839-c736-4e6f-92d2-83bbb9da6fd9%22%2C%22video_id%22%3A%2266b840be-ae6c-4990-9fa3-c42fda55beb0%22%2C%22asset_id%22%3A%2272d2cb4d-a7a5-4046-b209-707b86b124a5%22%2C%22destination_video_id%22%3A%2219ded023-ae85-4af2-a2e9-f4b42fffc69f%22%7D%2C%7B%22redirect_link_id%22%3A%228eb7c1fd-10d6-46cb-b3a9-8aa740712c22%22%2C%22video_id%22%3A%2219ded023-ae85-4af2-a2e9-f4b42fffc69f%22%2C%22asset_id%22%3A%22cd08c4ec-48dd-493d-abbf-d274a98ac467%22%2C%22destination_video_id%22%3A%223b9dbc2c-7516-4c27-8135-005f863eb4bd%22%7D%5D&vt_ej_i    (so i hope above is the same result asa beofre, now is the critical part) i click 我的newsletter [https://go.kaksidigitals.com/LnMI](https://go.kaksidigitals.com/LnMI)   (noted i updated the global script in thei newsletter<script> 
+(function() { 
+  const p = new URLSearchParams(window.location.search); 
+ 
+  const sid = p.get('vt_sid'); 
+  const vid = p.get('vt_vid'); 
+  const cid = p.get('vt_cid'); 
+  const oid = p.get('vt_oid'); 
+  const pid = p.get('vt_pid'); 
+  const aid = p.get('vt_aid'); 
+  const th  = p.get('vt_th'); 
+  const ftRlid = p.get('vt_first_touch_redirect_link_id'); 
+  const rlid = p.get('vt_rlid'); 
+  const ejId = p.get('vt_ej_id'); 
+ 
+  if (sid) localStorage.setItem('yt_tracker_session_id', sid); 
+  if (vid) localStorage.setItem('yt_tracker_video_id', vid); 
+  if (cid) localStorage.setItem('yt_tracker_campaign_id', cid); 
+  if (oid) localStorage.setItem('yt_tracker_organization_id', oid); 
+  if (pid) localStorage.setItem('yt_tracker_promotion_id', pid); 
+  if (aid) localStorage.setItem('yt_tracker_asset_id', aid); 
+  if (th)  localStorage.setItem('yt_tracker_tracking_hostname', th); 
+  if (ftRlid) localStorage.setItem('yt_tracker_ft_redirect_link_id', ftRlid); 
+  if (rlid) localStorage.setItem('yt_tracker_redirect_link_id', rlid); 
+  if (ejId) localStorage.setItem('yt_tracker_events_journey_id', ejId); 
+ 
+  if (sid || vid || cid || oid || pid || aid || th || ftRlid || rlid || ejId) { 
+    const clean = new URL(window.location.href); 
+ 
+    clean.searchParams.delete('vt_sid'); 
+    clean.searchParams.delete('vt_vid'); 
+    clean.searchParams.delete('vt_cid'); 
+    clean.searchParams.delete('vt_oid'); 
+    clean.searchParams.delete('vt_pid'); 
+    clean.searchParams.delete('vt_aid'); 
+    clean.searchParams.delete('vt_th'); 
+    clean.searchParams.delete('vt_first_touch_redirect_link_id'); 
+    clean.searchParams.delete('vt_rlid'); 
+    clean.searchParams.delete('vt_ej_id'); 
+ 
+    window.history.replaceState({}, '', clean.toString()); 
+  } 
+})(); 
+</script>     so i see [Track] ① component mounted, token = LnMI
+index-BCTR3rYR.js:979 [Track] ⓪ non-platform host, checking verified\_tracking\_hostnames: go.kaksidigitals.com
+[NEW] Explain Console errors by using Copilot in Edge: click  to explain an error. Learn moreDon’t show again
+index-BCTR3rYR.js:979 [Track] ⓪ hostname verified, continuing: go.kaksidigitals.com
+index-BCTR3rYR.js:979 [Track] ② starting Promise.all — resolveRedirectToken + attr fetch
+content.js:1 Uncaught (in promise) Error: Uncaught Error: No Listener: tabs\:outgoing.message.ready
+index-BCTR3rYR.js:979 [Track] ③ attrRow fetched: {video\_id: '3b9dbc2c-7516-4c27-8135-005f863eb4bd', campaign\_id: '6796ed7f-2226-4c6d-82f7-d293236b9a63'}
+index-BCTR3rYR.js:979 [Track] ④ resolveRedirectToken result: {id: '4e56c143-755d-4868-9ad4-26258f4d3527', token: 'LnMI', video\_id: '3b9dbc2c-7516-4c27-8135-005f863eb4bd', campaign\_id: '6796ed7f-2226-4c6d-82f7-d293236b9a63', link\_type: 'newsletter', …}
+index-BCTR3rYR.js:979 [Track] ④ attrRow result: {video\_id: '3b9dbc2c-7516-4c27-8135-005f863eb4bd', campaign\_id: '6796ed7f-2226-4c6d-82f7-d293236b9a63'}
+index-BCTR3rYR.js:979 [Track] ⑤ extracted videoId = 3b9dbc2c-7516-4c27-8135-005f863eb4bd | campaignId = 6796ed7f-2226-4c6d-82f7-d293236b9a63
+index-BCTR3rYR.js:979 [Track] ⑥ setAttribution() called — localStorage check: video\_id = 3b9dbc2c-7516-4c27-8135-005f863eb4bd campaign\_id = 6796ed7f-2226-4c6d-82f7-d293236b9a63
+index-BCTR3rYR.js:979 [Track] ⑦ calling syncSession()...
+index-BCTR3rYR.js:979 [Track] ⑧ syncSession() resolved. localStorage check: session\_id = 36c52ad6-026f-44a4-b9d6-7e30b689a6d1 video\_id = 3b9dbc2c-7516-4c27-8135-005f863eb4bd campaign\_id = 6796ed7f-2226-4c6d-82f7-d293236b9a63
+index-BCTR3rYR.js:979 [Track] ✓ all localStorage keys present — ready to redirect {currentVideoId: '3b9dbc2c-7516-4c27-8135-005f863eb4bd', currentCampaignId: '6796ed7f-2226-4c6d-82f7-d293236b9a63', ftVideoId: '3b9dbc2c-7516-4c27-8135-005f863eb4bd'}
+index-BCTR3rYR.js:979 [Track] ⚠ no journey\_id present — skipping events\_journey insert {eventId: '1f87a224-1822-4fc3-bb84-8bb6be51ffe4'}     ok so lets see the results,    so i see id,journey\_id,event\_ids,journey\_snapshot,redirect\_link\_id,created\_at
+99840248-6d57-4112-8e6e-578316b5890f,cb54f681-6f18-40db-abf3-64fcd5796364,"[""780f432a-db59-4a82-943a-6ac1de996440"", ""91e4a416-7eff-47f4-a582-3cf8b9a66169""]","[{""asset\_id"": ""72d2cb4d-a7a5-4046-b209-707b86b124a5"", ""video\_id"": ""66b840be-ae6c-4990-9fa3-c42fda55beb0"", ""redirect\_link\_id"": ""3d78d839-c736-4e6f-92d2-83bbb9da6fd9"", ""destination\_video\_id"": ""19ded023-ae85-4af2-a2e9-f4b42fffc69f""}, {""asset\_id"": ""cd08c4ec-48dd-493d-abbf-d274a98ac467"", ""video\_id"": ""19ded023-ae85-4af2-a2e9-f4b42fffc69f"", ""redirect\_link\_id"": ""8eb7c1fd-10d6-46cb-b3a9-8aa740712c22"", ""destination\_video\_id"": ""3b9dbc2c-7516-4c27-8135-005f863eb4bd""}]",8eb7c1fd-10d6-46cb-b3a9-8aa740712c22,2026-09-07 09:37:08.790392+00    (so is it working )  (i havent click newsletter thankyou page yet) actually just let me press it why not so i see id,token,session\_id,video\_id,campaign\_id,user\_id,amount,created\_at,event\_type,organization\_id,promotion\_id,pricing\_version\_id,conversion\_id,asset\_id
+31ad5428-ce05-4b5c-ab17-9a0e1fca3c81,,36c52ad6-026f-44a4-b9d6-7e30b689a6d1,3b9dbc2c-7516-4c27-8135-005f863eb4bd,6796ed7f-2226-4c6d-82f7-d293236b9a63,cd180432-44c5-4a20-b778-66b7753191f0,0,2026-09-07 09:40:36.09714+00,newsletter,9d9a8937-518f-4525-997e-7067d604238f,a778a5be-6bd3-41bc-8765-2bcf247f11ba,5bfeee61-093e-41db-9518-72115e35256a,699203f9-a91d-458e-9a75-9276aed4bf10,f28e2a0b-6858-42cc-ae42-a144bef6d85d    id,session_id,video_id,campaign_id,event_type,value,created_at,lead_magnet_id,organization_id,promotion_id,asset_id,redirect_link_id,tracking_hostname,link_type,bridge_token,url
+1f87a224-1822-4fc3-bb84-8bb6be51ffe4,36c52ad6-026f-44a4-b9d6-7e30b689a6d1,3b9dbc2c-7516-4c27-8135-005f863eb4bd,6796ed7f-2226-4c6d-82f7-d293236b9a63,newsletter,,2026-09-07 09:38:30.328695+00,,9d9a8937-518f-4525-997e-7067d604238f,a778a5be-6bd3-41bc-8765-2bcf247f11ba,f28e2a0b-6858-42cc-ae42-a144bef6d85d,4e56c143-755d-4868-9ad4-26258f4d3527,go.kaksidigitals.com,newsletter,,https://go.kaksidigitals.com/LnMI
+ac09e1d1-1049-4f98-8bb4-a351968c47be,36c52ad6-026f-44a4-b9d6-7e30b689a6d1,3b9dbc2c-7516-4c27-8135-005f863eb4bd,6796ed7f-2226-4c6d-82f7-d293236b9a63,page_view,,2026-09-07 09:38:29.256243+00,,,,,,,,,https://go.kaksidigitals.com/LnMI
+91e4a416-7eff-47f4-a582-3cf8b9a66169,a49c4e92-e6b1-4163-917c-d0bc6f7faae9,19ded023-ae85-4af2-a2e9-f4b42fffc69f,5e4338e2-da32-4a5f-b132-020cc8d9595a,landing_page,,2026-09-07 09:37:08.024208+00,,62640339-150a-4e6a-bdf3-9f1896cc01e7,,cd08c4ec-48dd-493d-abbf-d274a98ac467,8eb7c1fd-10d6-46cb-b3a9-8aa740712c22,,landing_page,oRy6,https://www.vstrk.com/d3es
+c983b6e1-61ed-49d7-a7eb-bb20e79c3cb8,a49c4e92-e6b1-4163-917c-d0bc6f7faae9,66b840be-ae6c-4990-9fa3-c42fda55beb0,5e4338e2-da32-4a5f-b132-020cc8d9595a,page_view,,2026-09-07 09:37:06.160359+00,,,,,,,,,https://www.vstrk.com/d3es
+780f432a-db59-4a82-943a-6ac1de996440,a49c4e92-e6b1-4163-917c-d0bc6f7faae9,66b840be-ae6c-4990-9fa3-c42fda55beb0,5e4338e2-da32-4a5f-b132-020cc8d9595a,landing_page,,2026-09-07 09:36:11.416471+00,,62640339-150a-4e6a-bdf3-9f1896cc01e7,,72d2cb4d-a7a5-4046-b209-707b86b124a5,3d78d839-c736-4e6f-92d2-83bbb9da6fd9,,landing_page,tbBs,https://www.vstrk.com/57y8
+901a32c2-b79a-48f0-a27f-d38402c45e06,a49c4e92-e6b1-4163-917c-d0bc6f7faae9,66b840be-ae6c-4990-9fa3-c42fda55beb0,5e4338e2-da32-4a5f-b132-020cc8d9595a,page_view,,2026-09-07 09:36:10.464356+00,,,,,,,,,https://www.vstrk.com/57y8  
+
+[Track] ① component mounted, token = LnMI
+index-BCTR3rYR.js:979 [Track] ⓪ non-platform host, checking verified_tracking_hostnames: go.kaksidigitals.com
+[NEW] Explain Console errors by using Copilot in Edge: click  to explain an error. Learn moreDon’t show again
+index-BCTR3rYR.js:979 [Track] ⓪ hostname verified, continuing: go.kaksidigitals.com
+index-BCTR3rYR.js:979 [Track] ② starting Promise.all — resolveRedirectToken + attr fetch
+content.js:1 Uncaught (in promise) Error: Uncaught Error: No Listener: tabs:outgoing.message.ready
+index-BCTR3rYR.js:979 [Track] ③ attrRow fetched: {video_id: '3b9dbc2c-7516-4c27-8135-005f863eb4bd', campaign_id: '6796ed7f-2226-4c6d-82f7-d293236b9a63'}
+index-BCTR3rYR.js:979 [Track] ④ resolveRedirectToken result: {id: '4e56c143-755d-4868-9ad4-26258f4d3527', token: 'LnMI', video_id: '3b9dbc2c-7516-4c27-8135-005f863eb4bd', campaign_id: '6796ed7f-2226-4c6d-82f7-d293236b9a63', link_type: 'newsletter', …}
+index-BCTR3rYR.js:979 [Track] ④ attrRow result: {video_id: '3b9dbc2c-7516-4c27-8135-005f863eb4bd', campaign_id: '6796ed7f-2226-4c6d-82f7-d293236b9a63'}
+index-BCTR3rYR.js:979 [Track] ⑤ extracted videoId = 3b9dbc2c-7516-4c27-8135-005f863eb4bd | campaignId = 6796ed7f-2226-4c6d-82f7-d293236b9a63
+index-BCTR3rYR.js:979 [Track] ⑥ setAttribution() called — localStorage check: video_id = 3b9dbc2c-7516-4c27-8135-005f863eb4bd campaign_id = 6796ed7f-2226-4c6d-82f7-d293236b9a63
+index-BCTR3rYR.js:979 [Track] ⑦ calling syncSession()...
+index-BCTR3rYR.js:979 [Track] ⑧ syncSession() resolved. localStorage check: session_id = 36c52ad6-026f-44a4-b9d6-7e30b689a6d1 video_id = 3b9dbc2c-7516-4c27-8135-005f863eb4bd campaign_id = 6796ed7f-2226-4c6d-82f7-d293236b9a63
+index-BCTR3rYR.js:979 [Track] ✓ all localStorage keys present — ready to redirect {currentVideoId: '3b9dbc2c-7516-4c27-8135-005f863eb4bd', currentCampaignId: '6796ed7f-2226-4c6d-82f7-d293236b9a63', ftVideoId: '3b9dbc2c-7516-4c27-8135-005f863eb4bd'}
+index-BCTR3rYR.js:979 [Track] ⚠ no journey_id present — skipping    events_journey insert {eventId: '1f87a224-1822-4fc3-bb84-8bb6be51ffe4'}   SELECT
+  ppa.id,
+  ppa.pixel_purchase_id,
+  ppa.first_touch_redirect_link_id,
+  ppa.journey_snapshot,
+  ppa.journey_display,
+  ppa.match_method,
+  ppa.resolution_status,
+  ppa.created_at,
+  ppa.updated_at
+FROM public.pixel_purchase_attributions ppa
+WHERE ppa.pixel_purchase_id =
+  '31ad5428-ce05-4b5c-ab17-9a0e1fca3c81';   | id                                   | pixel_purchase_id                    | first_touch_redirect_link_id         | journey_snapshot | journey_display | match_method     | resolution_status | created_at                    | updated_at                    |
+| ------------------------------------ | ------------------------------------ | ------------------------------------ | ---------------- | --------------- | ---------------- | ----------------- | ----------------------------- | ----------------------------- |
+| 12c20e73-ade4-4ea9-94d3-eefe36c2cc3c | 31ad5428-ce05-4b5c-ab17-9a0e1fca3c81 | 4e56c143-755d-4868-9ad4-26258f4d3527 | null             | null            | redirect_link_id | resolved          | 2026-09-07 09:40:36.838742+00 | 2026-09-07 09:40:36.838742+00 |
+
+ok so can you explain in caveman mode is it working? remember we are solving pixel_purchases can chase back to the events, but events cant trace back to events_journey, so are we doing it right now? so im confused, am i tripping, so i see id,session_id,video_id,campaign_id,event_type,value,created_at,lead_magnet_id,organization_id,promotion_id,asset_id,redirect_link_id,tracking_hostname,link_type,bridge_token,url 1f87a224-1822-4fc3-bb84-8bb6be51ffe4,36c52ad6-026f-44a4-b9d6-7e30b689a6d1,3b9dbc2c-7516-4c27-8135-005f863eb4bd,6796ed7f-2226-4c6d-82f7-d293236b9a63,newsletter,,2026-09-07 09:38:30.328695+00,,9d9a8937-518f-4525-997e-7067d604238f,a778a5be-6bd3-41bc-8765-2bcf247f11ba,f28e2a0b-6858-42cc-ae42-a144bef6d85d,4e56c143-755d-4868-9ad4-26258f4d3527,go.kaksidigitals.com,newsletter,,https://go.kaksidigitals.com/LnMI ac09e1d1-1049-4f98-8bb4-a351968c47be,36c52ad6-026f-44a4-b9d6-7e30b689a6d1,3b9dbc2c-7516-4c27-8135-005f863eb4bd,6796ed7f-2226-4c6d-82f7-d293236b9a63,page_view,,2026-09-07 09:38:29.256243+00,,,,,,,,,https://go.kaksidigitals.com/LnMI events id is 1f87a224-1822-4fc3-bb84-8bb6be51ffe4 right, so in events_journey i see id,journey_id,event_ids,journey_snapshot,redirect_link_id,created_at 99840248-6d57-4112-8e6e-578316b5890f,cb54f681-6f18-40db-abf3-64fcd5796364,"[""780f432a-db59-4a82-943a-6ac1de996440"", ""91e4a416-7eff-47f4-a582-3cf8b9a66169""]","[{""asset_id"": ""72d2cb4d-a7a5-4046-b209-707b86b124a5"", ""video_id"": ""66b840be-ae6c-4990-9fa3-c42fda55beb0"", ""redirect_link_id"": ""3d78d839-c736-4e6f-92d2-83bbb9da6fd9"", ""destination_video_id"": ""19ded023-ae85-4af2-a2e9-f4b42fffc69f""}, {""asset_id"": ""cd08c4ec-48dd-493d-abbf-d274a98ac467"", ""video_id"": ""19ded023-ae85-4af2-a2e9-f4b42fffc69f"", ""redirect_link_id"": ""8eb7c1fd-10d6-46cb-b3a9-8aa740712c22"", ""destination_video_id"": ""3b9dbc2c-7516-4c27-8135-005f863eb4bd""}]",8eb7c1fd-10d6-46cb-b3a9-8aa740712c22,2026-09-07 09:37:08.790392+00 where is the events id, i see events_ids [ "780f432a-db59-4a82-943a-6ac1de996440", "91e4a416-7eff-47f4-a582-3cf8b9a66169" ] so its not correct? whats going on
