@@ -15,6 +15,7 @@ import {
   getJourneyId,
   getEventIds,
   setEventIds,
+  tryHydrateJourneyFromHandoff,
 } from '../lib/tracker';
 import { supabase } from '../lib/supabase';
 import { Loader2, AlertCircle } from 'lucide-react';
@@ -149,6 +150,22 @@ export default function Track() {
               'video_id =', localStorage.getItem('yt_tracker_video_id'),
               'campaign_id =', localStorage.getItem('yt_tracker_campaign_id'),
             );
+
+            // Cross-origin URL handoff: if this origin has no local journey
+            // yet but the incoming tracking URL carries vt_journey (e.g.
+            // go.example.com/LnMI?vt_journey=...&vt_jid=...), restore it
+            // BEFORE appendJourneyNode so continuation uses the same
+            // persistent journey_id. Same-origin localStorage wins when
+            // already non-empty. Malformed params are ignored safely.
+            {
+              const handoffParams = new URLSearchParams(window.location.search);
+              tryHydrateJourneyFromHandoff({
+                vt_journey: handoffParams.get('vt_journey'),
+                vt_jid: handoffParams.get('vt_jid'),
+                vt_eids: handoffParams.get('vt_eids'),
+                vt_ej_id: handoffParams.get('vt_ej_id'),
+              });
+            }
 
             // Forward-validated journey (replaces the old FT_* write-once
             // logic below it — setAttribution() above is kept only for the
@@ -359,8 +376,24 @@ try {
   // Forward-validated journey — carried to the destination for
   // installationHelpers.ts's embedded pixel script to read and pass through
   // untouched (no re-validation client-side there; see plan Section 3/12).
+  // When destination_url is itself a VSTRK tracking URL on another host
+  // (e.g. https://go.example.com/LnMI), these params also enable that host's
+  // Track.tsx to hydrate the same persistent journey before appendJourneyNode.
   if (journey.length > 0) {
     url.searchParams.set('vt_journey', JSON.stringify(journey));
+  }
+
+  // Persistent journey correlation id (additive handoff for cross-origin Track).
+  // Same meaning as localStorage yt_tracker_journey_id — not events_journey.id.
+  const outboundJourneyId = getJourneyId();
+  if (outboundJourneyId) {
+    url.searchParams.set('vt_jid', outboundJourneyId);
+  }
+
+  // Parallel events.id list for events_journey.event_ids continuity across hosts.
+  const outboundEventIds = getEventIds();
+  if (outboundEventIds.length > 0) {
+    url.searchParams.set('vt_eids', JSON.stringify(outboundEventIds));
   }
 
   // V3 (events_journey) — exact primary key of the row just inserted for

@@ -271,6 +271,113 @@ export const setEventIds = (ids: string[]): void => {
   }
 };
 
+/**
+ * Cross-origin journey handoff (URL → localStorage).
+ * Call from Track.tsx BEFORE appendJourneyNode().
+ *
+ * Precedence:
+ * - If localStorage already has a non-empty journey, do nothing (same-origin wins).
+ * - If empty and vt_journey parses to a valid JourneyNode[], hydrate journey
+ *   (+ optional vt_jid / vt_eids so events_journey can keep the same journey_id).
+ * - Malformed input → no-op, never throws.
+ *
+ * Returns true if hydration applied.
+ */
+export const tryHydrateJourneyFromHandoff = (params: {
+  vt_journey: string | null;
+  vt_jid?: string | null;
+  vt_eids?: string | null;
+  vt_ej_id?: string | null;
+}): boolean => {
+  try {
+    if (getJourney().length > 0) {
+      console.debug(
+        '[tracker] hydrate: local journey present — keeping localStorage (same-origin precedence)'
+      );
+      return false;
+    }
+
+    const raw = params.vt_journey;
+    if (!raw) return false;
+
+    let parsed: unknown;
+    try {
+      parsed = JSON.parse(raw);
+    } catch {
+      console.warn('[tracker] hydrate: vt_journey JSON parse failed — ignoring');
+      return false;
+    }
+
+    if (!Array.isArray(parsed) || parsed.length === 0) {
+      console.warn('[tracker] hydrate: vt_journey not a non-empty array — ignoring');
+      return false;
+    }
+
+    const nodes: JourneyNode[] = [];
+    for (const item of parsed) {
+      if (!item || typeof item !== 'object') {
+        console.warn('[tracker] hydrate: invalid node — ignoring handoff');
+        return false;
+      }
+      const n = item as Record<string, unknown>;
+      if (typeof n.redirect_link_id !== 'string' || typeof n.video_id !== 'string') {
+        console.warn(
+          '[tracker] hydrate: node missing redirect_link_id/video_id — ignoring handoff'
+        );
+        return false;
+      }
+      nodes.push({
+        redirect_link_id: n.redirect_link_id,
+        video_id: n.video_id,
+        asset_id: typeof n.asset_id === 'string' ? n.asset_id : null,
+        destination_video_id:
+          typeof n.destination_video_id === 'string' ? n.destination_video_id : null,
+      });
+    }
+
+    setJourney(nodes);
+
+    const jid = params.vt_jid;
+    if (typeof jid === 'string' && jid.length > 0) {
+      setJourneyId(jid);
+    }
+
+    const eidsRaw = params.vt_eids;
+    if (typeof eidsRaw === 'string' && eidsRaw.length > 0) {
+      try {
+        const eids = JSON.parse(eidsRaw);
+        if (Array.isArray(eids) && eids.every((x) => typeof x === 'string')) {
+          setEventIds(eids as string[]);
+        }
+      } catch {
+        console.warn(
+          '[tracker] hydrate: vt_eids parse failed — continuing without prior event ids'
+        );
+      }
+    }
+
+    const ej = params.vt_ej_id;
+    if (typeof ej === 'string' && ej.length > 0) {
+      try {
+        if (!localStorage.getItem('yt_tracker_events_journey_id')) {
+          localStorage.setItem('yt_tracker_events_journey_id', ej);
+        }
+      } catch {
+        /* storage blocked */
+      }
+    }
+
+    console.debug('[tracker] hydrate: restored journey from URL handoff', {
+      nodes: nodes.length,
+      journeyId: jid ?? null,
+    });
+    return true;
+  } catch (err) {
+    console.error('[tracker] hydrate: unexpected error — ignoring handoff', err);
+    return false;
+  }
+};
+
 /** SELECT id FROM videos WHERE asset_id = promotedAssetId. Empty array if none or asset_id is null. */
 /** SELECT id FROM videos WHERE asset_id = promotedAssetId. Empty array if none or asset_id is null. */
 export const getPredictedNextVideoIds = async (
