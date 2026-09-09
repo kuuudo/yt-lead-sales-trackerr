@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { useParams } from 'react-router-dom';
-import { resolveRedirectToken, logRedirectEvent, buildRedirectUrl, resolveDestinationTrackingHost } from '../lib/redirects';
+import { resolveRedirectToken, logRedirectEvent, buildRedirectUrl } from '../lib/redirects';
 import {
   setAttribution,
   syncSession,
@@ -322,15 +322,52 @@ if (journeyInsertErr) {
         // VSTRK → VSTRK same-host vs cross-host detection. Scope: journey
         // handoff params only. Does not affect non-VSTRK destinations
         // (YouTube, Stripe, landing pages), which keep vt_* unchanged below.
-        const destinationTrackingHost = await resolveDestinationTrackingHost(
-          (link as any).destination_url
-        );
+        //
+        // This compares the PREVIOUS video's tracking_hostname against the
+        // CURRENT video's tracking_hostname — the transition that actually
+        // just happened (B → C) — never the current video's own
+        // destination_url (that's a future, not-yet-known hop, C → next).
+        //
+        // `journey` (Step 6, above) already has C appended as its last node
+        // (appendJourneyNode ran in Step 4), so the previous node — B, if
+        // the journey continued — is journey[journey.length - 2].
+        //
+        // No previous node (fresh/reset journey) means there is no B → C
+        // transition to evaluate — NOT a cross-host transition. We leave
+        // isSameHostVstrkTransition = false in that case so the vt_* gate
+        // below falls through to its original, unchanged behavior (always
+        // include vt_*) instead of inferring cross-host from silence.
+        const previousNode =
+          journey.length >= 2 ? journey[journey.length - 2] : null;
+
+        let previousTrackingHost: string | null = null;
+
+        if (previousNode) {
+          const { data: previousLink, error: previousLinkErr } = await supabase
+            .from('redirect_links')
+            .select('tracking_hostname')
+            .eq('id', previousNode.redirect_link_id)
+            .maybeSingle();
+
+          if (previousLinkErr) {
+            console.error('[Track] ✗ previous redirect_links lookup failed:', previousLinkErr.message);
+          } else {
+            previousTrackingHost = previousLink?.tracking_hostname ?? 'www.vstrk.com';
+          }
+        }
+
+        // vstrk.com and www.vstrk.com (and, generally, any host vs its www.
+        // variant) are treated as the same tracking host for this comparison.
+        const normalizeVstrkHost = (host: string): string => host.replace(/^www\./, '');
+
         const currentTrackingHost = (link as any).tracking_hostname ?? 'www.vstrk.com';
         const isSameHostVstrkTransition =
-          destinationTrackingHost !== null && destinationTrackingHost === currentTrackingHost;
+          previousTrackingHost !== null &&
+          normalizeVstrkHost(previousTrackingHost) === normalizeVstrkHost(currentTrackingHost);
 
 console.log('[Track] HOST CHECK:', {
-  destinationTrackingHost,
+  previousNode,
+  previousTrackingHost,
   currentTrackingHost,
   isSameHostVstrkTransition,
 });
