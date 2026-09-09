@@ -956,3 +956,9 @@ export const generatePixelSnippet = (
   })();
 <\/script>`;
 };
+
+// ── Additive PoC: vt_visitor browser-identity bridge ──────────────────────
+// These are thin re-exports so Track.tsx can import them from tracker.
+// The real implementations live in visitorCookie.ts / visitorJourney.ts.
+export { getOrCreateVisitorId, getVisitorId } from './visitorCookie';
+export { associateVisitorWithJourney, getJourneyIdForVisitor } from './visitorJourney';
