@@ -151,19 +151,21 @@ export default function Track() {
               'campaign_id =', localStorage.getItem('yt_tracker_campaign_id'),
             );
 
-            // Cross-origin URL handoff: if this origin has no local journey
-            // yet but the incoming tracking URL carries vt_journey (e.g.
-            // go.example.com/LnMI?vt_journey=...&vt_jid=...), restore it
-            // BEFORE appendJourneyNode so continuation uses the same
-            // persistent journey_id. Same-origin localStorage wins when
-            // already non-empty. Malformed params are ignored safely.
+            // Cross-origin URL handoff: if the incoming tracking URL carries
+            // vt_journey (e.g. go.example.com/LnMI?vt_journey=...&vt_jid=...),
+            // restore it BEFORE appendJourneyNode so continuation uses the
+            // same persistent journey_id. Local (same-origin) data only wins
+            // when the incoming journey is NOT a valid continuation of the
+            // current video — see tryHydrateJourneyFromHandoff in tracker.ts.
+            // Malformed params are ignored safely.
             {
               const handoffParams = new URLSearchParams(window.location.search);
-              tryHydrateJourneyFromHandoff({
+              await tryHydrateJourneyFromHandoff({
                 vt_journey: handoffParams.get('vt_journey'),
                 vt_jid: handoffParams.get('vt_jid'),
                 vt_eids: handoffParams.get('vt_eids'),
                 vt_ej_id: handoffParams.get('vt_ej_id'),
+                currentVideoId: videoId ?? null,
               });
             }
 

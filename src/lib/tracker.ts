@@ -283,12 +283,30 @@ export const setEventIds = (ids: string[]): void => {
  *
  * Returns true if hydration applied.
  */
-export const tryHydrateJourneyFromHandoff = (params: {
+/**
+ * Cross-origin journey handoff (URL → localStorage).
+ * Call from Track.tsx BEFORE appendJourneyNode().
+ *
+ * Precedence:
+ * - If localStorage is empty, hydrate from a valid vt_journey (unchanged).
+ * - If localStorage already has a journey (e.g. stale/leftover data on this
+ *   origin), the incoming vt_journey is only adopted when the CURRENT video
+ *   is a valid continuation of the incoming journey's last node — the same
+ *   check appendJourneyNode() uses, just applied to the incoming last node
+ *   instead of the local one. No proof of continuation -> local wins,
+ *   exactly as before. Journey identity is decided by validated
+ *   video-to-video continuation, never by mere presence/absence of local data.
+ * - Malformed input → no-op, never throws.
+ *
+ * Returns true if hydration applied.
+ */
+export const tryHydrateJourneyFromHandoff = async (params: {
   vt_journey: string | null;
   vt_jid?: string | null;
   vt_eids?: string | null;
   vt_ej_id?: string | null;
-}): boolean => {
+  currentVideoId?: string | null;
+}): Promise<boolean> => {
   try {
 
     console.log('[tracker] HYDRATE INPUT:', {
@@ -296,15 +314,9 @@ export const tryHydrateJourneyFromHandoff = (params: {
   vt_jid: params.vt_jid,
   vt_eids: params.vt_eids,
   vt_ej_id: params.vt_ej_id,
+  currentVideoId: params.currentVideoId,
   existingJourney: getJourney(),
 });
-
-    if (getJourney().length > 0) {
-      console.debug(
-        '[tracker] hydrate: local journey present — keeping localStorage (same-origin precedence)'
-      );
-      return false;
-    }
 
     const raw = params.vt_journey;
     if (!raw) return false;
@@ -342,6 +354,37 @@ export const tryHydrateJourneyFromHandoff = (params: {
         destination_video_id:
           typeof n.destination_video_id === 'string' ? n.destination_video_id : null,
       });
+    }
+
+    const existingJourney = getJourney();
+
+    if (existingJourney.length > 0) {
+      // Local data already present (possibly stale). Only override it when
+      // the current video genuinely continues the INCOMING journey's last
+      // node — reusing validateJourneyContinuation exactly as
+      // appendJourneyNode() does, just against the incoming node instead of
+      // the local one. No proof -> local wins, same as before this fix.
+      const incomingLastNode = nodes[nodes.length - 1];
+      const isIncomingContinuation =
+        typeof params.currentVideoId === 'string' && params.currentVideoId.length > 0
+          ? await validateJourneyContinuation(incomingLastNode, {
+              redirect_link_id: incomingLastNode.redirect_link_id,
+              video_id: params.currentVideoId,
+              asset_id: null,
+              destination_video_id: null,
+            })
+          : false;
+
+      if (!isIncomingContinuation) {
+        console.debug(
+          '[tracker] hydrate: local journey present and incoming is not a valid continuation — keeping localStorage (same-origin precedence)'
+        );
+        return false;
+      }
+
+      console.debug(
+        '[tracker] hydrate: incoming journey validated as continuation — overriding stale local journey'
+      );
     }
 
     setJourney(nodes);
