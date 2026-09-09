@@ -1,5 +1,5 @@
 import { supabase } from './supabase';
-import { getSessionId } from './tracker';
+import { getSessionId, getJourney, getJourneyId, getEventIds } from './tracker';
 
 const generateToken = (): string => {
   const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789';
@@ -300,6 +300,79 @@ export const resolveDestinationTrackingHost = async (
   if (error || !data) return null;
 
   return data.tracking_hostname ?? 'www.vstrk.com';
+};
+
+// vstrk.com and www.vstrk.com (and, generally, any host vs its www.
+// variant) are treated as the same tracking host for this comparison.
+const normalizeVstrkHost = (host: string): string => host.replace(/^www\./, '');
+
+/**
+ * Cross-origin journey handoff — outbound side.
+ *
+ * Decides whether THIS click's destination is a different VSTRK tracking
+ * host than the page the visitor is on right now, and if so, serializes
+ * the existing browser-side journey into the destination URL's vt_*
+ * query params so the destination's Track.tsx can hydrate the same
+ * journey_id instead of starting a new one.
+ *
+ * Deliberately compares CURRENT host -> DESTINATION host (this link's own
+ * destination_url, resolved via resolveDestinationTrackingHost), never
+ * PREVIOUS node -> CURRENT host — that earlier transition already
+ * happened and both its ends already share localStorage; it says nothing
+ * about where the visitor is about to go next.
+ *
+ * - destinationHost === null means destination_url is not a VSTRK
+ *   tracking link at all (YouTube, Stripe, arbitrary landing page) —
+ *   existing behavior for those is preserved: vt_* is still attached.
+ * - destinationHost !== null and normalizes equal to currentTrackingHost
+ *   means same-host VSTRK -> VSTRK: skip vt_* entirely, destination
+ *   already has the journey in its own localStorage.
+ * - destinationHost !== null and normalizes different means cross-host
+ *   VSTRK -> VSTRK: attach vt_* so the destination can hydrate.
+ *
+ * Does not touch validateJourneyContinuation, appendJourneyNode, the
+ * events_journey schema, or any of the non-journey vt_* attribution
+ * params (vt_sid/vt_vid/vt_cid/vt_oid/vt_pid/vt_aid/vt_th/
+ * vt_first_touch_redirect_link_id/vt_rlid/client_reference_id) — those
+ * are set by the caller before/after this function runs and are
+ * untouched here.
+ */
+export const buildCrossOriginJourneyHandoff = async (
+  url: URL,
+  destinationUrl: string,
+  currentTrackingHost: string,
+  eventsJourneyId: string | null
+): Promise<URL> => {
+  const destinationHost = await resolveDestinationTrackingHost(destinationUrl);
+
+  const isSameHostVstrkTransition =
+    destinationHost !== null &&
+    normalizeVstrkHost(destinationHost) === normalizeVstrkHost(currentTrackingHost);
+
+  if (isSameHostVstrkTransition) {
+    return url;
+  }
+
+  const journey = getJourney();
+  if (journey.length > 0) {
+    url.searchParams.set('vt_journey', JSON.stringify(journey));
+  }
+
+  const journeyId = getJourneyId();
+  if (journeyId) {
+    url.searchParams.set('vt_jid', journeyId);
+  }
+
+  const eventIds = getEventIds();
+  if (eventIds.length > 0) {
+    url.searchParams.set('vt_eids', JSON.stringify(eventIds));
+  }
+
+  if (eventsJourneyId) {
+    url.searchParams.set('vt_ej_id', eventsJourneyId);
+  }
+
+  return url;
 };
 
 export const buildRedirectUrl = (link: RedirectLink): string => {

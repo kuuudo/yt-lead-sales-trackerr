@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { useParams } from 'react-router-dom';
-import { resolveRedirectToken, logRedirectEvent, buildRedirectUrl } from '../lib/redirects';
+import { resolveRedirectToken, logRedirectEvent, buildRedirectUrl, buildCrossOriginJourneyHandoff } from '../lib/redirects';
 import {
   setAttribution,
   syncSession,
@@ -325,53 +325,15 @@ if (journeyInsertErr) {
         // handoff params only. Does not affect non-VSTRK destinations
         // (YouTube, Stripe, landing pages), which keep vt_* unchanged below.
         //
-        // This compares the PREVIOUS video's tracking_hostname against the
-        // CURRENT video's tracking_hostname — the transition that actually
-        // just happened (B → C) — never the current video's own
-        // destination_url (that's a future, not-yet-known hop, C → next).
-        //
-        // `journey` (Step 6, above) already has C appended as its last node
-        // (appendJourneyNode ran in Step 4), so the previous node — B, if
-        // the journey continued — is journey[journey.length - 2].
-        //
-        // No previous node (fresh/reset journey) means there is no B → C
-        // transition to evaluate — NOT a cross-host transition. We leave
-        // isSameHostVstrkTransition = false in that case so the vt_* gate
-        // below falls through to its original, unchanged behavior (always
-        // include vt_*) instead of inferring cross-host from silence.
-        const previousNode =
-          journey.length >= 2 ? journey[journey.length - 2] : null;
-
-        let previousTrackingHost: string | null = null;
-
-        if (previousNode) {
-          const { data: previousLink, error: previousLinkErr } = await supabase
-            .from('redirect_links')
-            .select('tracking_hostname')
-            .eq('id', previousNode.redirect_link_id)
-            .maybeSingle();
-
-          if (previousLinkErr) {
-            console.error('[Track] ✗ previous redirect_links lookup failed:', previousLinkErr.message);
-          } else {
-            previousTrackingHost = previousLink?.tracking_hostname ?? 'www.vstrk.com';
-          }
-        }
-
-        // vstrk.com and www.vstrk.com (and, generally, any host vs its www.
-        // variant) are treated as the same tracking host for this comparison.
-        const normalizeVstrkHost = (host: string): string => host.replace(/^www\./, '');
-
+        // The actual host comparison (current host C vs destination host D,
+        // resolved from link.destination_url) happens inside
+        // buildCrossOriginJourneyHandoff() below, once `url` exists. We only
+        // need C's own host here.
         const currentTrackingHost = (link as any).tracking_hostname ?? 'www.vstrk.com';
-        const isSameHostVstrkTransition =
-          previousTrackingHost !== null &&
-          normalizeVstrkHost(previousTrackingHost) === normalizeVstrkHost(currentTrackingHost);
 
 console.log('[Track] HOST CHECK:', {
-  previousNode,
-  previousTrackingHost,
+  destinationUrl: (link as any).destination_url,
   currentTrackingHost,
-  isSameHostVstrkTransition,
 });
 
 let url: URL;
@@ -432,38 +394,24 @@ try {
   // Forward-validated journey — carried to the destination for
   // installationHelpers.ts's embedded pixel script to read and pass through
   // untouched (no re-validation client-side there; see plan Section 3/12).
-  // When destination_url is itself a VSTRK tracking URL on another host
-  // (e.g. https://go.example.com/LnMI), these params also enable that host's
-  // Track.tsx to hydrate the same persistent journey before appendJourneyNode.
-  // Skipped only for same-host VSTRK → VSTRK transitions (destination
-  // Track.tsx already has the journey in its own localStorage). Every
-  // other destination — cross-host VSTRK, YouTube, Stripe, landing pages —
-  // keeps this exactly as before.
-  if (!isSameHostVstrkTransition) {
-    if (journey.length > 0) {
-      url.searchParams.set('vt_journey', JSON.stringify(journey));
-    }
-
-    // Persistent journey correlation id (additive handoff for cross-origin Track).
-    // Same meaning as localStorage yt_tracker_journey_id — not events_journey.id.
-    const outboundJourneyId = getJourneyId();
-    if (outboundJourneyId) {
-      url.searchParams.set('vt_jid', outboundJourneyId);
-    }
-
-    // Parallel events.id list for events_journey.event_ids continuity across hosts.
-    const outboundEventIds = getEventIds();
-    if (outboundEventIds.length > 0) {
-      url.searchParams.set('vt_eids', JSON.stringify(outboundEventIds));
-    }
-
-    // V3 (events_journey) — exact primary key of the row just inserted for
-    // this click (Step 6B), so a later purchase can look it up deterministically.
-    // Not the correlation journey_id — that stays browser-side only.
-    if (eventsJourneyId) {
-      url.searchParams.set('vt_ej_id', eventsJourneyId);
-    }
-  }
+  // When THIS link's destination_url is itself a VSTRK tracking URL on
+  // another host (e.g. https://store.kaksidigitals.com/uONR), these params
+  // also enable that host's Track.tsx to hydrate the same persistent
+  // journey before appendJourneyNode. Skipped only for same-host
+  // VSTRK → VSTRK transitions (destination Track.tsx already has the
+  // journey in its own localStorage). Every other destination — cross-host
+  // VSTRK, YouTube, Stripe, landing pages — keeps this exactly as before.
+  //
+  // buildCrossOriginJourneyHandoff resolves link.destination_url's own
+  // tracking host (via resolveDestinationTrackingHost) and compares it
+  // against currentTrackingHost — this click's destination, not the
+  // journey's previous hop.
+  url = await buildCrossOriginJourneyHandoff(
+    url,
+    (link as any).destination_url,
+    currentTrackingHost,
+    eventsJourneyId
+  );
 
   // ── Composite client_reference_id for deterministic Stripe attribution ──
   // Format: "{token}__{session_id}__{video_id}__{redirect_link_id}__{redirect_link_token}"
