@@ -290,6 +290,15 @@ export const tryHydrateJourneyFromHandoff = (params: {
   vt_ej_id?: string | null;
 }): boolean => {
   try {
+
+    console.log('[tracker] HYDRATE INPUT:', {
+  vt_journey: params.vt_journey,
+  vt_jid: params.vt_jid,
+  vt_eids: params.vt_eids,
+  vt_ej_id: params.vt_ej_id,
+  existingJourney: getJourney(),
+});
+
     if (getJourney().length > 0) {
       console.debug(
         '[tracker] hydrate: local journey present — keeping localStorage (same-origin precedence)'
