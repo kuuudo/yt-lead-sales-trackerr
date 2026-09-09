@@ -329,6 +329,12 @@ if (journeyInsertErr) {
         const isSameHostVstrkTransition =
           destinationTrackingHost !== null && destinationTrackingHost === currentTrackingHost;
 
+console.log('[Track] HOST CHECK:', {
+  destinationTrackingHost,
+  currentTrackingHost,
+  isSameHostVstrkTransition,
+});
+
 let url: URL;
 
 try {
