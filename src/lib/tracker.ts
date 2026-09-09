@@ -528,6 +528,12 @@ export const appendJourneyNode = async (newNode: JourneyNode): Promise<void> => 
 
   const isContinuation = await validateJourneyContinuation(lastNode, newNode);
 
+console.log('[tracker] JOURNEY ID BEFORE APPEND:', getJourneyId(), {
+  lastNode,
+  newNode,
+  isContinuation,
+});
+
   if (!isContinuation) {
     console.debug('[tracker] appendJourneyNode: not a validated continuation, resetting', { lastNode, newNode });
     setJourneyId(crypto.randomUUID());
