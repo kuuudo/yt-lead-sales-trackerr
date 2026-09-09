@@ -269,6 +269,39 @@ export const logRedirectEvent = async (link: RedirectLink, url: string | null = 
   return data ?? null;
 };
 
+/**
+ * Cross-origin journey handoff — VSTRK → VSTRK detection only.
+ *
+ * If destinationUrl is itself a VSTRK tracking URL (its path is a single
+ * token that exists in redirect_links), returns that link's normalized
+ * tracking_hostname (NULL → 'www.vstrk.com', per the tracking_hostname
+ * invariant). Returns null when destinationUrl is NOT a VSTRK tracking
+ * link (YouTube, Stripe, arbitrary landing page) — callers leave those
+ * destinations' existing vt_* behavior untouched.
+ */
+export const resolveDestinationTrackingHost = async (
+  destinationUrl: string
+): Promise<string | null> => {
+  let destinationToken: string;
+  try {
+    const segments = new URL(destinationUrl).pathname.split('/').filter(Boolean);
+    if (segments.length !== 1) return null;
+    destinationToken = segments[0];
+  } catch {
+    return null;
+  }
+
+  const { data, error } = await supabase
+    .from('redirect_links')
+    .select('tracking_hostname')
+    .eq('token', destinationToken)
+    .maybeSingle();
+
+  if (error || !data) return null;
+
+  return data.tracking_hostname ?? 'www.vstrk.com';
+};
+
 export const buildRedirectUrl = (link: RedirectLink): string => {
   const isStripeLink = link.destination_url.includes('buy.stripe.com');
 

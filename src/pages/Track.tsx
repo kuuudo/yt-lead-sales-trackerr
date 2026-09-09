@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { useParams } from 'react-router-dom';
-import { resolveRedirectToken, logRedirectEvent, buildRedirectUrl } from '../lib/redirects';
+import { resolveRedirectToken, logRedirectEvent, buildRedirectUrl, resolveDestinationTrackingHost } from '../lib/redirects';
 import {
   setAttribution,
   syncSession,
@@ -317,7 +317,18 @@ if (journeyInsertErr) {
           }
         }
 
-// ── Step 7: redirect with attribution params ─────────────────────────
+        // ── Step 7: redirect with attribution params ─────────────────────────
+
+        // VSTRK → VSTRK same-host vs cross-host detection. Scope: journey
+        // handoff params only. Does not affect non-VSTRK destinations
+        // (YouTube, Stripe, landing pages), which keep vt_* unchanged below.
+        const destinationTrackingHost = await resolveDestinationTrackingHost(
+          (link as any).destination_url
+        );
+        const currentTrackingHost = (link as any).tracking_hostname ?? 'www.vstrk.com';
+        const isSameHostVstrkTransition =
+          destinationTrackingHost !== null && destinationTrackingHost === currentTrackingHost;
+
 let url: URL;
 
 try {
@@ -379,28 +390,34 @@ try {
   // When destination_url is itself a VSTRK tracking URL on another host
   // (e.g. https://go.example.com/LnMI), these params also enable that host's
   // Track.tsx to hydrate the same persistent journey before appendJourneyNode.
-  if (journey.length > 0) {
-    url.searchParams.set('vt_journey', JSON.stringify(journey));
-  }
+  // Skipped only for same-host VSTRK → VSTRK transitions (destination
+  // Track.tsx already has the journey in its own localStorage). Every
+  // other destination — cross-host VSTRK, YouTube, Stripe, landing pages —
+  // keeps this exactly as before.
+  if (!isSameHostVstrkTransition) {
+    if (journey.length > 0) {
+      url.searchParams.set('vt_journey', JSON.stringify(journey));
+    }
 
-  // Persistent journey correlation id (additive handoff for cross-origin Track).
-  // Same meaning as localStorage yt_tracker_journey_id — not events_journey.id.
-  const outboundJourneyId = getJourneyId();
-  if (outboundJourneyId) {
-    url.searchParams.set('vt_jid', outboundJourneyId);
-  }
+    // Persistent journey correlation id (additive handoff for cross-origin Track).
+    // Same meaning as localStorage yt_tracker_journey_id — not events_journey.id.
+    const outboundJourneyId = getJourneyId();
+    if (outboundJourneyId) {
+      url.searchParams.set('vt_jid', outboundJourneyId);
+    }
 
-  // Parallel events.id list for events_journey.event_ids continuity across hosts.
-  const outboundEventIds = getEventIds();
-  if (outboundEventIds.length > 0) {
-    url.searchParams.set('vt_eids', JSON.stringify(outboundEventIds));
-  }
+    // Parallel events.id list for events_journey.event_ids continuity across hosts.
+    const outboundEventIds = getEventIds();
+    if (outboundEventIds.length > 0) {
+      url.searchParams.set('vt_eids', JSON.stringify(outboundEventIds));
+    }
 
-  // V3 (events_journey) — exact primary key of the row just inserted for
-  // this click (Step 6B), so a later purchase can look it up deterministically.
-  // Not the correlation journey_id — that stays browser-side only.
-  if (eventsJourneyId) {
-    url.searchParams.set('vt_ej_id', eventsJourneyId);
+    // V3 (events_journey) — exact primary key of the row just inserted for
+    // this click (Step 6B), so a later purchase can look it up deterministically.
+    // Not the correlation journey_id — that stays browser-side only.
+    if (eventsJourneyId) {
+      url.searchParams.set('vt_ej_id', eventsJourneyId);
+    }
   }
 
   // ── Composite client_reference_id for deterministic Stripe attribution ──
