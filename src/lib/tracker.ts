@@ -59,6 +59,7 @@ export interface AttributionContext {
   tracking_hostname: string | null;
 }
 
+import { setStoredJourneyId } from './visitorCookie';
 import { detectPlatform, extractPostId } from './platformParser';
 
 /**
@@ -242,6 +243,12 @@ const setJourneyId = (id: string): void => {
   } catch (err) {
     console.error('[tracker] setJourneyId: failed to write journey_id (storage blocked?)', err);
   }
+  // vt_jid cookie mirrors JOURNEY_ID_KEY so a later VSTRK page (after a
+  // YouTube hop eats the URL vt_* params) can still find this journey_id.
+  // setStoredJourneyId no-ops when the value is unchanged, so a
+  // continuing journey (J1 → J1) never rewrites the cookie — only an
+  // actual journey_id change (new journey, or hydrate-from-handoff) does.
+  setStoredJourneyId(id);
 };
 
 /**
@@ -957,8 +964,10 @@ export const generatePixelSnippet = (
 <\/script>`;
 };
 
-// ── Additive PoC: vt_visitor browser-identity bridge ──────────────────────
-// These are thin re-exports so Track.tsx can import them from tracker.
-// The real implementations live in visitorCookie.ts / visitorJourney.ts.
-export { getOrCreateVisitorId, getVisitorId } from './visitorCookie';
-export { associateVisitorWithJourney, getJourneyIdForVisitor } from './visitorJourney';
+// ── vt_jid cross-origin journey-recovery pointer ───────────────────────────
+// Thin re-export so Track.tsx can read the recovery pointer without
+// importing visitorCookie.ts directly. The write side is internal —
+// setJourneyId() above calls setStoredJourneyId() at the single point
+// journey_id actually changes. event_journey remains the source of
+// truth; this cookie is only a pointer to journey_id.
+export { getStoredJourneyId } from './visitorCookie';

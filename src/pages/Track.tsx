@@ -5,7 +5,6 @@ import {
   logRedirectEvent,
   buildRedirectUrl,
   buildCrossOriginJourneyHandoff,
-  resolveDestinationTrackingHost,
 } from '../lib/redirects';
 import {
   setAttribution,
@@ -22,8 +21,7 @@ import {
   getEventIds,
   setEventIds,
   tryHydrateJourneyFromHandoff,
-  associateVisitorWithJourney,
-  getJourneyIdForVisitor,
+  getStoredJourneyId,
 } from '../lib/tracker';
 import { supabase } from '../lib/supabase';
 import { Loader2, AlertCircle } from 'lucide-react';
@@ -177,23 +175,24 @@ export default function Track() {
               });
             }
 
-            // ── vt_visitor inbound recovery (PoC, non-blocking) ──────────────
+                      // ── vt_jid inbound recovery (non-blocking) ────────────────────────
             // If URL handoff did not restore a journey (typical after YouTube)
-            // and a vt_visitor cookie is present, look up the previously
-            // associated journey_id in parallel. Existing continuation
-            // validation remains authoritative — this only surfaces the
-            // candidate. Does not block appendJourneyNode or the redirect.
+            // and a vt_jid cookie is present, surface it as the recovered
+            // candidate journey_id. Synchronous cookie read — no RPC/DB call.
+            // Existing continuation validation remains authoritative; this
+            // only logs the candidate and does not feed it into hydration yet.
             if (getJourney().length === 0) {
-              void getJourneyIdForVisitor().then((recoveredJourneyId) => {
-                if (recoveredJourneyId) {
-                  console.log(
-                    '[Track] vt_visitor recovered candidate journey_id (PoC):',
-                    recoveredJourneyId
-                  );
-                  // Future: feed recoveredJourneyId into existing hydrate
-                  // path once the bridge is proven end-to-end.
-                }
-              });
+              const recoveredJourneyId = getStoredJourneyId();
+              if (recoveredJourneyId) {
+                console.log(
+                  '[Track] vt_jid recovered candidate journey_id:',
+                  recoveredJourneyId
+                );
+                // Future: feed recoveredJourneyId into existing hydrate path
+                // (query event_journey WHERE journey_id = recoveredJourneyId
+                // ORDER BY created_at DESC LIMIT 1) once the bridge is
+                // proven end-to-end.
+              }
             }
 
             // Forward-validated journey (replaces the old FT_* write-once
@@ -346,25 +345,7 @@ if (journeyInsertErr) {
           }
         }
 
-        // ── Step 6C: vt_visitor bridge (outbound preparation) ────────────────
-        // Only when leaving VSTRK for a non-VSTRK destination (YouTube, Stripe,
-        // landing page…). Ensures a stable browser identity exists and links
-        // it to the current journey_id so a later static VSTRK landing can
-        // recover it. Fire-and-forget — never blocks the redirect.
-        // Same-origin / VSTRK→VSTRK paths skip this entirely.
-        {
-          const destinationHost = await resolveDestinationTrackingHost(
-            (link as any).destination_url
-          );
-          if (destinationHost === null) {
-            // Non-VSTRK destination → prepare the browser identity bridge.
-            const currentJourneyId = getJourneyId();
-            associateVisitorWithJourney(currentJourneyId);
-            console.log('[Track] vt_visitor prepared for external destination', {
-              journeyId: currentJourneyId,
-            });
-          }
-        }
+
 
         // ── Step 7: redirect with attribution params ─────────────────────────
 

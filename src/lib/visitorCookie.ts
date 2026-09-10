@@ -1,17 +1,22 @@
 /**
- * Minimal persistent browser-identity cookie for the cross-origin
- * YouTube gap PoC.
+ * Minimal journey-recovery pointer cookie for the cross-origin
+ * YouTube gap.
  *
- * vt_visitor = WHO IS THIS BROWSER?
- * (opaque UUID only — never journey data)
+ * vt_jid = the CURRENT journey_id (tracker.ts JOURNEY_ID_KEY), and
+ * nothing else. No visitor identity, no snapshot, no event ids.
+ * event_journey remains the source of truth — this cookie only lets a
+ * later VSTRK page find its way back to the right journey_id after a
+ * hop through YouTube destroys URL-based vt_* handoff params.
  *
  * Scoped to .kaksidigitals.com when on a kaksidigitals.com host so that
  * lucky.* and store.* share the same cookie. On other hosts we set a
  * host-only cookie (still useful for same-host return visits).
  */
 
-const COOKIE_NAME = 'vt_visitor';
+const COOKIE_NAME = 'vt_jid';
 const MAX_AGE_SECONDS = 60 * 60 * 24 * 365; // 1 year — persistent, not journey TTL
+
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
 function isKaksiHost(hostname: string): boolean {
   return (
@@ -48,40 +53,34 @@ function writeCookie(name: string, value: string, hostname: string): void {
 }
 
 /**
- * Returns the existing vt_visitor UUID or creates a new one.
- * The UUID is stable for the lifetime of the cookie.
- * Calling this also refreshes Max-Age (renewal).
+ * Read the recovery pointer without creating one. Returns null if
+ * absent or malformed (not a UUID).
  */
-export function getOrCreateVisitorId(): string {
-  const hostname =
-    typeof window !== 'undefined' ? window.location.hostname : '';
-  const existing = readCookie(COOKIE_NAME);
-  const isValid =
-    !!existing &&
-    /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(existing);
-  const id = isValid ? (existing as string) : crypto.randomUUID();
-
-  if (isValid) {
-    console.log('[VT_COOKIE] REUSED', { visitorId: id, hostname, action: 'expiration refreshed' });
-  } else {
-    console.log('[VT_COOKIE] CREATED', {
-      visitorId: id,
-      hostname,
-      reason: existing ? 'invalid/malformed cookie' : 'missing cookie',
-    });
-  }
-
-  // Always re-write so Max-Age is refreshed (renewal without changing the UUID).
-  writeCookie(COOKIE_NAME, id, hostname);
+export function getStoredJourneyId(): string | null {
+  const id = readCookie(COOKIE_NAME);
+  if (!id || !UUID_RE.test(id)) return null;
   return id;
 }
 
-/** Read without creating. Returns null if absent / malformed. */
-export function getVisitorId(): string | null {
-  const id = readCookie(COOKIE_NAME);
-  if (!id) return null;
-  if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(id)) {
-    return null;
+/**
+ * Point the cookie at journeyId. Call this ONLY from the single place
+ * journey_id itself changes (tracker.ts setJourneyId) — NOT on every
+ * page load or every outbound navigation. No-ops (skips the write)
+ * when the cookie already holds this exact value, so a continuing
+ * journey (J1 → J1) never rewrites the cookie.
+ */
+export function setStoredJourneyId(journeyId: string): void {
+  if (!journeyId || !UUID_RE.test(journeyId)) return;
+
+  const hostname =
+    typeof window !== 'undefined' ? window.location.hostname : '';
+  const existing = readCookie(COOKIE_NAME);
+
+  if (existing === journeyId) {
+    console.log('[VT_COOKIE] UNCHANGED', { journeyId, hostname });
+    return;
   }
-  return id;
+
+  writeCookie(COOKIE_NAME, journeyId, hostname);
+  console.log('[VT_COOKIE] SET', { journeyId, hostname, previous: existing });
 }
