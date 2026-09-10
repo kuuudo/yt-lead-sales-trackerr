@@ -970,4 +970,4 @@ export const generatePixelSnippet = (
 // setJourneyId() above calls setStoredJourneyId() at the single point
 // journey_id actually changes. event_journey remains the source of
 // truth; this cookie is only a pointer to journey_id.
-export { getStoredJourneyId } from './visitorCookie';
+export { getStoredJourneyId, setStoredRedirectToken } from './visitorCookie';

@@ -84,3 +84,23 @@ export function setStoredJourneyId(journeyId: string): void {
   writeCookie(COOKIE_NAME, journeyId, hostname);
   console.log('[VT_COOKIE] SET', { journeyId, hostname, previous: existing });
 }
+
+const TOKEN_COOKIE_NAME = 'vt_token';
+
+/**
+ * Phase 0 only. Always overwrite vt_token with the current redirect
+ * token — no continuation check, no comparison of meaning, just "this
+ * is the most recent token". Uses the same writeCookie/readCookie
+ * helpers and domain behavior as vt_jid above.
+ */
+export function setStoredRedirectToken(token: string): void {
+  if (!token) return;
+
+  const hostname =
+    typeof window !== 'undefined' ? window.location.hostname : '';
+  const existing = readCookie(TOKEN_COOKIE_NAME);
+
+  writeCookie(TOKEN_COOKIE_NAME, token, hostname);
+
+  console.log('[VT_COOKIE] TOKEN SET', { token, hostname, previous: existing });
+}

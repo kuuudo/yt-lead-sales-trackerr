@@ -22,7 +22,9 @@ import {
   setEventIds,
   tryHydrateJourneyFromHandoff,
   getStoredJourneyId,
+  setStoredRedirectToken,
 } from '../lib/tracker';
+
 import { supabase } from '../lib/supabase';
 import { Loader2, AlertCircle } from 'lucide-react';
 
@@ -49,6 +51,11 @@ export default function Track() {
       setError(true);
       return;
     }
+
+    // vt_token: always overwrite with the current redirect token, the
+    // instant it's known. No continuation check, no redirect_links
+    // lookup — Phase 0 only.
+    setStoredRedirectToken(token);
 
     const handleRedirect = async () => {
       // Snapshot the tracking URL the visitor actually loaded (e.g.
