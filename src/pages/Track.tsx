@@ -64,6 +64,10 @@ export default function Track() {
       // already started, so this is the only reliable point to capture it.
       const trackingPageUrl = window.location.href;
 
+      // Phase 3: declared here (function scope) so it's visible at Step 6B
+      // further down — see assignment sites below.
+      let crossOriginJourneyRecovered = false;
+
       try {
         // ── Step 0: verified-hostname guard (custom domains only) ─────────
         const currentHost = window.location.hostname;
@@ -170,7 +174,6 @@ export default function Track() {
             // slice can be missing older history. Gates the Step 6B
             // historical-merge query below so normal same-origin clicks
             // never hit the DB for this.
-            let crossOriginJourneyRecovered = false;
 
             // Cross-origin URL handoff: if the incoming tracking URL carries
             // vt_journey (e.g. go.example.com/LnMI?vt_journey=...&vt_jid=...),
