@@ -55,11 +55,20 @@ function writeCookie(name: string, value: string, hostname: string): void {
 export function getOrCreateVisitorId(): string {
   const hostname =
     typeof window !== 'undefined' ? window.location.hostname : '';
+  const existing = readCookie(COOKIE_NAME);
+  const isValid =
+    !!existing &&
+    /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(existing);
+  const id = isValid ? (existing as string) : crypto.randomUUID();
 
-  let id = readCookie(COOKIE_NAME);
-
-  if (!id || !/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(id)) {
-    id = crypto.randomUUID();
+  if (isValid) {
+    console.log('[VT_COOKIE] REUSED', { visitorId: id, hostname, action: 'expiration refreshed' });
+  } else {
+    console.log('[VT_COOKIE] CREATED', {
+      visitorId: id,
+      hostname,
+      reason: existing ? 'invalid/malformed cookie' : 'missing cookie',
+    });
   }
 
   // Always re-write so Max-Age is refreshed (renewal without changing the UUID).
