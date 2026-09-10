@@ -25,6 +25,7 @@ import {
   setStoredRedirectToken,
   getStoredRedirectToken,
   seedJourneyFromRecoveredNode,
+  restoreJourneyIdFromCookie,
 } from '../lib/tracker';
 
 import { supabase } from '../lib/supabase';
@@ -255,6 +256,14 @@ export default function Track() {
               asset_id: (link as any).asset_id ?? null,
               destination_video_id: destinationVideoId,
             });
+
+            // Phase 2: if this origin never had a journey_id locally
+            // (cross-origin recovery case), restore it from vt_jid so
+            // events_journey correlation resumes. No-op otherwise.
+            const cookieJourneyId = getStoredJourneyId();
+            if (cookieJourneyId) {
+              restoreJourneyIdFromCookie(cookieJourneyId);
+            }
 
             // Continuation decision (existing appendJourneyNode/
             // validateJourneyContinuation, above) is now complete — only

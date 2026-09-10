@@ -606,6 +606,18 @@ console.log('[tracker] JOURNEY ID BEFORE APPEND:', getJourneyId(), {
 };
 
 /**
+ * Phase 2: after a successful Phase 1 cross-origin continuation, this
+ * origin's localStorage has no journey_id yet (appendJourneyNode's
+ * continuation-success path never calls setJourneyId). Restore it from
+ * the vt_jid cookie value the caller already read. No-ops if a
+ * journey_id is already present — never overwrites a real local one.
+ */
+export const restoreJourneyIdFromCookie = (recoveredJourneyId: string): void => {
+  if (getJourneyId()) return;
+  setJourneyId(recoveredJourneyId);
+};
+
+/**
  * MVP cross-origin continuation recovery. Seeds a single recovered
  * JourneyNode (resolved by the caller via resolveRedirectToken +
  * resolveDestinationVideoId — the SAME functions already used for the
