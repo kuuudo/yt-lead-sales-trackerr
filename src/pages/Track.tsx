@@ -26,6 +26,8 @@ import {
   getStoredRedirectToken,
   seedJourneyFromRecoveredNode,
   restoreJourneyIdFromCookie,
+  fetchLatestJourneySnapshot,
+  mergeJourneySnapshot,
 } from '../lib/tracker';
 
 import { supabase } from '../lib/supabase';
@@ -162,6 +164,14 @@ export default function Track() {
               'campaign_id =', localStorage.getItem('yt_tracker_campaign_id'),
             );
 
+            // Phase 3: true when this origin's local journey came from a
+            // cross-origin recovery path rather than pure same-origin
+            // accumulation — the only case where the local `journey`
+            // slice can be missing older history. Gates the Step 6B
+            // historical-merge query below so normal same-origin clicks
+            // never hit the DB for this.
+            let crossOriginJourneyRecovered = false;
+
             // Cross-origin URL handoff: if the incoming tracking URL carries
             // vt_journey (e.g. go.example.com/LnMI?vt_journey=...&vt_jid=...),
             // restore it BEFORE appendJourneyNode so continuation uses the
@@ -171,13 +181,16 @@ export default function Track() {
             // Malformed params are ignored safely.
             {
               const handoffParams = new URLSearchParams(window.location.search);
-              await tryHydrateJourneyFromHandoff({
+              const hydrated = await tryHydrateJourneyFromHandoff({
                 vt_journey: handoffParams.get('vt_journey'),
                 vt_jid: handoffParams.get('vt_jid'),
                 vt_eids: handoffParams.get('vt_eids'),
                 vt_ej_id: handoffParams.get('vt_ej_id'),
                 currentVideoId: videoId ?? null,
               });
+              if (hydrated) {
+                crossOriginJourneyRecovered = true;
+              }
             }
 
             // ── vt_jid inbound recovery (non-blocking) ────────────────────────
@@ -226,6 +239,7 @@ export default function Track() {
                       previousVideoId: (previousLink as any).video_id,
                       previousDestinationVideoId,
                     });
+                    crossOriginJourneyRecovered = true;
                   } else {
                     console.warn('[Track] vt_token present but resolveRedirectToken found no link — skipping recovery', { previousToken });
                   }
@@ -379,12 +393,24 @@ export default function Track() {
             const priorEventIds = journey.length > 1 ? getEventIds() : [];
             const journeyEventIds = [...priorEventIds, eventId];
 
+            // Phase 3: on a cross-origin recovered journey, `journey` is only
+            // the local slice (recovered previous node + current node) —
+            // merge in the full historical snapshot so p_journey_snapshot
+            // reflects the complete journey, not just this origin's slice.
+            // Same-origin clicks already carry the full history in `journey`
+            // locally, so this never queries the DB on the normal path.
+            let journeySnapshot = journey;
+            if (crossOriginJourneyRecovered) {
+              const historicalSnapshot = await fetchLatestJourneySnapshot(journeyId);
+              journeySnapshot = mergeJourneySnapshot(historicalSnapshot, journey);
+            }
+
 const { data: journeyRowId, error: journeyInsertErr } = await supabase.rpc(
   'log_events_journey',
   {
     p_journey_id: journeyId,
     p_event_ids: journeyEventIds,
-    p_journey_snapshot: journey,
+    p_journey_snapshot: journeySnapshot,
     p_redirect_link_id: (link as any).id,
   }
 );

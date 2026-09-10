@@ -618,6 +618,64 @@ export const restoreJourneyIdFromCookie = (recoveredJourneyId: string): void => 
 };
 
 /**
+ * Phase 3: historical journey_snapshot reconstruction for cross-origin
+ * continuations. Reads the latest events_journey row for journeyId and
+ * returns its journey_snapshot, or [] if no row exists (genuinely new
+ * journey — never invents historical nodes). Read-only, single row,
+ * strictly scoped to journeyId so an unrelated journey's history can
+ * never leak in.
+ */
+export const fetchLatestJourneySnapshot = async (
+  journeyId: string
+): Promise<JourneyNode[]> => {
+  try {
+    const { data, error } = await supabase
+      .from('events_journey')
+      .select('journey_snapshot')
+      .eq('journey_id', journeyId)
+      .order('created_at', { ascending: false })
+      .limit(1)
+      .maybeSingle();
+
+    if (error) {
+      console.error('[tracker] fetchLatestJourneySnapshot: query failed', error.message);
+      return [];
+    }
+
+    const snapshot = data?.journey_snapshot;
+    return Array.isArray(snapshot) ? (snapshot as JourneyNode[]) : [];
+  } catch (err) {
+    console.error('[tracker] fetchLatestJourneySnapshot: threw', err);
+    return [];
+  }
+};
+
+/**
+ * Phase 3: merges the latest historical journey_snapshot with the
+ * current local journey, deduplicating by redirect_link_id (the same
+ * identity key appendJourneyNode() already uses for its own duplicate
+ * check). Historical nodes come first, in their existing order; any
+ * local node not already present by redirect_link_id is appended after,
+ * preserving local order. Never reorders or drops historical nodes.
+ */
+export const mergeJourneySnapshot = (
+  historical: JourneyNode[],
+  local: JourneyNode[]
+): JourneyNode[] => {
+  const seen = new Set(historical.map((n) => n.redirect_link_id));
+  const merged = [...historical];
+
+  for (const node of local) {
+    if (!seen.has(node.redirect_link_id)) {
+      merged.push(node);
+      seen.add(node.redirect_link_id);
+    }
+  }
+
+  return merged;
+};
+
+/**
  * MVP cross-origin continuation recovery. Seeds a single recovered
  * JourneyNode (resolved by the caller via resolveRedirectToken +
  * resolveDestinationVideoId — the SAME functions already used for the
