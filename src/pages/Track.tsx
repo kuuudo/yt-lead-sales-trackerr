@@ -23,6 +23,8 @@ import {
   tryHydrateJourneyFromHandoff,
   getStoredJourneyId,
   setStoredRedirectToken,
+  getStoredRedirectToken,
+  seedJourneyFromRecoveredNode,
 } from '../lib/tracker';
 
 import { supabase } from '../lib/supabase';
@@ -51,11 +53,6 @@ export default function Track() {
       setError(true);
       return;
     }
-
-    // vt_token: always overwrite with the current redirect token, the
-    // instant it's known. No continuation check, no redirect_links
-    // lookup — Phase 0 only.
-    setStoredRedirectToken(token);
 
     const handleRedirect = async () => {
       // Snapshot the tracking URL the visitor actually loaded (e.g.
@@ -182,7 +179,7 @@ export default function Track() {
               });
             }
 
-                      // ── vt_jid inbound recovery (non-blocking) ────────────────────────
+            // ── vt_jid inbound recovery (non-blocking) ────────────────────────
             // If URL handoff did not restore a journey (typical after YouTube)
             // and a vt_jid cookie is present, surface it as the recovered
             // candidate journey_id. Synchronous cookie read — no RPC/DB call.
@@ -195,10 +192,45 @@ export default function Track() {
                   '[Track] vt_jid recovered candidate journey_id:',
                   recoveredJourneyId
                 );
-                // Future: feed recoveredJourneyId into existing hydrate path
-                // (query event_journey WHERE journey_id = recoveredJourneyId
-                // ORDER BY created_at DESC LIMIT 1) once the bridge is
-                // proven end-to-end.
+              }
+            }
+
+            // ── vt_token cross-origin continuation recovery (MVP) ─────────────
+            // Only runs when localStorage has NO previous node — the
+            // same-origin fast path (existing local journey present) never
+            // reaches here. Resolves the PREVIOUS token via the same
+            // resolveRedirectToken/resolveDestinationVideoId already used
+            // below for the current click, builds one JourneyNode from it,
+            // and seeds it so the EXISTING appendJourneyNode()/
+            // validateJourneyContinuation() decide continuation below —
+            // no new validator, no new journey system.
+            if (getJourney().length === 0) {
+              const previousToken = getStoredRedirectToken();
+              if (previousToken) {
+                try {
+                  const previousLink = await resolveRedirectToken(previousToken);
+                  if (previousLink) {
+                    const previousDestinationVideoId = await resolveDestinationVideoId(
+                      (previousLink as any).destination_url,
+                      (previousLink as any).asset_id ?? null
+                    );
+                    seedJourneyFromRecoveredNode({
+                      redirect_link_id: (previousLink as any).id,
+                      video_id: (previousLink as any).video_id,
+                      asset_id: (previousLink as any).asset_id ?? null,
+                      destination_video_id: previousDestinationVideoId,
+                    });
+                    console.log('[Track] vt_token recovered previous node, seeded for continuation check', {
+                      previousToken,
+                      previousVideoId: (previousLink as any).video_id,
+                      previousDestinationVideoId,
+                    });
+                  } else {
+                    console.warn('[Track] vt_token present but resolveRedirectToken found no link — skipping recovery', { previousToken });
+                  }
+                } catch (recoverErr) {
+                  console.warn('[Track] vt_token recovery threw (non-fatal) — continuing without it', recoverErr);
+                }
               }
             }
 
@@ -223,6 +255,11 @@ export default function Track() {
               asset_id: (link as any).asset_id ?? null,
               destination_video_id: destinationVideoId,
             });
+
+            // Continuation decision (existing appendJourneyNode/
+            // validateJourneyContinuation, above) is now complete — only
+            // now does vt_token advance to the current token.
+            setStoredRedirectToken(token);
           } catch (attrErr) {
             console.error('[Track] ✗ setAttribution threw:', attrErr);
             // localStorage may be blocked (private browsing, storage quota) — log and continue

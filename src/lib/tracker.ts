@@ -605,6 +605,23 @@ console.log('[tracker] JOURNEY ID BEFORE APPEND:', getJourneyId(), {
   console.debug('[tracker] appendJourneyNode: continuation validated, appended', newNode);
 };
 
+/**
+ * MVP cross-origin continuation recovery. Seeds a single recovered
+ * JourneyNode (resolved by the caller via resolveRedirectToken +
+ * resolveDestinationVideoId — the SAME functions already used for the
+ * current click) into localStorage BEFORE appendJourneyNode() runs, so
+ * the EXISTING validateJourneyContinuation() makes the real decision,
+ * exactly as it would for a same-origin click. Only ever effective when
+ * getJourney() is already empty — refuses to clobber a real local journey.
+ */
+export const seedJourneyFromRecoveredNode = (node: JourneyNode): void => {
+  if (getJourney().length > 0) {
+    console.warn('[tracker] seedJourneyFromRecoveredNode: local journey already present — refusing to overwrite');
+    return;
+  }
+  setJourney([node]);
+};
+
 export const getVideoId = (): string | null =>
   localStorage.getItem(VIDEO_ID_KEY);
 
@@ -970,4 +987,4 @@ export const generatePixelSnippet = (
 // setJourneyId() above calls setStoredJourneyId() at the single point
 // journey_id actually changes. event_journey remains the source of
 // truth; this cookie is only a pointer to journey_id.
-export { getStoredJourneyId, setStoredRedirectToken } from './visitorCookie';
+export { getStoredJourneyId, setStoredRedirectToken, getStoredRedirectToken } from './visitorCookie';

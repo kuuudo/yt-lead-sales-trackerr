@@ -104,3 +104,8 @@ export function setStoredRedirectToken(token: string): void {
 
   console.log('[VT_COOKIE] TOKEN SET', { token, hostname, previous: existing });
 }
+
+/** Read the most recent redirect token without modifying it. Returns null if absent. */
+export function getStoredRedirectToken(): string | null {
+  return readCookie(TOKEN_COOKIE_NAME);
+}
