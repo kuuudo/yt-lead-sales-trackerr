@@ -12,7 +12,8 @@
  */
 
 import React, { useEffect, useState } from 'react';
-import { Loader2, AlertCircle } from 'lucide-react';
+import { AlertCircle } from 'lucide-react';
+import RelayLoadingScreen from '../components/RelayLoadingScreen';
 import { supabase } from '../lib/supabase';
 import {
   getStoredRedirectToken,
@@ -185,12 +186,5 @@ export default function PlatformContinuation() {
     );
   }
 
-  return (
-    <div className="min-h-screen bg-zinc-950 flex items-center justify-center flex-col gap-4">
-      <Loader2 className="text-zinc-500 animate-spin" size={28} />
-      <p className="text-zinc-600 text-[10px] font-bold uppercase tracking-widest">
-        Continuing…
-      </p>
-    </div>
-  );
+  return <RelayLoadingScreen />;
 }

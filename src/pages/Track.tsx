@@ -32,7 +32,8 @@ import {
 } from '../lib/tracker';
 
 import { supabase } from '../lib/supabase';
-import { Loader2, AlertCircle } from 'lucide-react';
+import { AlertCircle } from 'lucide-react';
+import RelayLoadingScreen from '../components/RelayLoadingScreen';
 import { loadProbeCandidates, buildProbeUrl, buildPlatformCandidateUrl } from '../lib/probeState';
 import { currentOriginCookieIsUsableHit } from '../lib/continuationPrecheck';
 
@@ -734,12 +735,5 @@ window.location.href = url.toString();
     );
   }
 
-  return (
-    <div className="min-h-screen bg-zinc-950 flex items-center justify-center flex-col gap-4">
-      <Loader2 className="text-red-600 animate-spin" size={32} />
-      <p className="text-zinc-500 text-[10px] font-bold uppercase tracking-widest">
-        Redirecting...
-      </p>
-    </div>
-  );
+  return <RelayLoadingScreen />;
 }

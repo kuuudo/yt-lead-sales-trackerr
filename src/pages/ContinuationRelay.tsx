@@ -12,7 +12,7 @@
 
 import React, { useEffect, useState } from 'react';
 import { useParams } from 'react-router-dom';
-import { Loader2, AlertCircle, ShieldCheck } from 'lucide-react';
+import { AlertCircle, ShieldCheck } from 'lucide-react';
 import { resolveContinuationRelay } from '../services/domain/brandedDomains';
 import { supabase } from '../lib/supabase';
 import { resolveRedirectToken } from '../lib/redirects';
@@ -29,7 +29,7 @@ import {
   MAX_PROBE_GROUPS,
 } from '../lib/probeState';
 import { isContinuationPrecheckHit } from '../lib/continuationPrecheck';
-
+import RelayLoadingScreen from '../components/RelayLoadingScreen';
 type RelayState =
   | { status: 'loading' }
   | {
@@ -236,14 +236,7 @@ export default function ContinuationRelay() {
   }, [relayToken]);
 
   if (state.status === 'loading' || state.status === 'redirecting') {
-    return (
-      <div className="min-h-screen bg-zinc-950 flex items-center justify-center flex-col gap-4">
-        <Loader2 className="text-zinc-500 animate-spin" size={28} />
-        <p className="text-zinc-600 text-[10px] font-bold uppercase tracking-widest">
-          {state.status === 'redirecting' ? 'Continuing…' : 'Resolving relay…'}
-        </p>
-      </div>
-    );
+    return <RelayLoadingScreen />;
   }
 
   if (state.status === 'error') {
