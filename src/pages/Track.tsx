@@ -196,18 +196,42 @@ export default function Track() {
               }
             }
 
+            // ── Phase 3B: lightweight pointer handoff from URL ───────────────
+            // Priority when local journey is empty:
+            //   1. URL query params (vt_token / vt_jid) — used after relay bounce
+            //   2. Existing Kaksi cookies (same helpers as before)
+            //   3. No recovery
+            // Does NOT overwrite a valid local journey (guard remains
+            // getJourney().length === 0). Does NOT go through the full
+            // vt_journey snapshot hydrator.
+            const handoffSearch = new URLSearchParams(window.location.search);
+            const urlVtToken = handoffSearch.get('vt_token');
+            const urlVtJid = handoffSearch.get('vt_jid');
+            const UUID_RE_TRACK =
+              /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+            const safeUrlVtToken =
+              typeof urlVtToken === 'string' &&
+              /^[A-Za-z0-9_-]{2,32}$/.test(urlVtToken)
+                ? urlVtToken
+                : null;
+            const safeUrlVtJid =
+              typeof urlVtJid === 'string' && UUID_RE_TRACK.test(urlVtJid)
+                ? urlVtJid
+                : null;
+
             // ── vt_jid inbound recovery (non-blocking) ────────────────────────
             // If URL handoff did not restore a journey (typical after YouTube)
-            // and a vt_jid cookie is present, surface it as the recovered
-            // candidate journey_id. Synchronous cookie read — no RPC/DB call.
-            // Existing continuation validation remains authoritative; this
-            // only logs the candidate and does not feed it into hydration yet.
+            // surface a recovered candidate journey_id from URL first, then
+            // cookie. Synchronous read — no RPC/DB call. Existing
+            // continuation validation remains authoritative; this only
+            // logs the candidate (restore happens after appendJourneyNode).
             if (getJourney().length === 0) {
-              const recoveredJourneyId = getStoredJourneyId();
+              const recoveredJourneyId = safeUrlVtJid ?? getStoredJourneyId();
               if (recoveredJourneyId) {
                 console.log(
                   '[Track] vt_jid recovered candidate journey_id:',
-                  recoveredJourneyId
+                  recoveredJourneyId,
+                  safeUrlVtJid ? '(from URL)' : '(from cookie)'
                 );
               }
             }
@@ -221,8 +245,9 @@ export default function Track() {
             // and seeds it so the EXISTING appendJourneyNode()/
             // validateJourneyContinuation() decide continuation below —
             // no new validator, no new journey system.
+            // Phase 3B: prefer URL vt_token over cookie when both present.
             if (getJourney().length === 0) {
-              const previousToken = getStoredRedirectToken();
+              const previousToken = safeUrlVtToken ?? getStoredRedirectToken();
               if (previousToken) {
                 try {
                   const previousLink = await resolveRedirectToken(previousToken);
@@ -239,6 +264,7 @@ export default function Track() {
                     });
                     console.log('[Track] vt_token recovered previous node, seeded for continuation check', {
                       previousToken,
+                      source: safeUrlVtToken ? 'url' : 'cookie',
                       previousVideoId: (previousLink as any).video_id,
                       previousDestinationVideoId,
                     });
@@ -249,6 +275,27 @@ export default function Track() {
                 } catch (recoverErr) {
                   console.warn('[Track] vt_token recovery threw (non-fatal) — continuing without it', recoverErr);
                 }
+              }
+            }
+
+            // Phase 3C: strip handoff params from the address bar so the
+            // user ultimately sees a clean /:token URL. replaceState only —
+            // no extra navigation. Safe with React Router because we are
+            // about to navigate away to the final destination anyway.
+            if (safeUrlVtToken || safeUrlVtJid) {
+              try {
+                const clean = new URL(window.location.href);
+                clean.searchParams.delete('vt_token');
+                clean.searchParams.delete('vt_jid');
+                // Preserve any other params that may be present.
+                window.history.replaceState(
+                  window.history.state,
+                  '',
+                  clean.pathname + (clean.search ? clean.search : '') + clean.hash
+                );
+                console.log('[Track] Phase 3C: stripped vt_token/vt_jid from URL');
+              } catch (cleanErr) {
+                console.warn('[Track] Phase 3C: URL cleanup failed (non-fatal)', cleanErr);
               }
             }
 
@@ -274,12 +321,13 @@ export default function Track() {
               destination_video_id: destinationVideoId,
             });
 
-            // Phase 2: if this origin never had a journey_id locally
-            // (cross-origin recovery case), restore it from vt_jid so
-            // events_journey correlation resumes. No-op otherwise.
-            const cookieJourneyId = getStoredJourneyId();
-            if (cookieJourneyId) {
-              restoreJourneyIdFromCookie(cookieJourneyId);
+            // Phase 2 / 3B: if this origin never had a journey_id locally
+            // (cross-origin recovery case), restore it from URL vt_jid
+            // first, then cookie, so events_journey correlation resumes.
+            // restoreJourneyIdFromCookie no-ops when a local id already exists.
+            const recoveredJidForRestore = safeUrlVtJid ?? getStoredJourneyId();
+            if (recoveredJidForRestore) {
+              restoreJourneyIdFromCookie(recoveredJidForRestore);
             }
 
             // Continuation decision (existing appendJourneyNode/

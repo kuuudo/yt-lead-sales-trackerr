@@ -4,18 +4,15 @@
  * Route: /r/:relayToken
  *
  * Phase 1: resolve branded_tracking_domains by (hostname, relay_token)
- *          and render infrastructure proof.
+ * Phase 2: read Kaksi cookies (diagnostics) + safe redirect to known target
+ * Phase 3A: append validated vt_jid / vt_token to the return URL so
+ *           www.vstrk.com Track.tsx can recover journey state
  *
- * Phase 2: independently prove the relay can:
- *   1. run on a custom tracking hostname
- *   2. read the existing Kaksi shared cookie (vt_token / vt_jid) read-only
- *   3. safely redirect back to a KNOWN VSTRK tracking token
- *
- * HARD SCOPE (Phase 2):
+ * HARD SCOPE:
  * - Accept only ?target=<short-token> (never a full URL)
  * - Validate target exists in redirect_links before any redirect
- * - Read existing cookies for diagnostics only — do NOT write cookies
- * - Do NOT pass vt_jid / vt_token on the outbound URL (that is Phase 3/4)
+ * - Read existing cookies — do NOT write cookies
+ * - Append vt_jid / vt_token only when present AND valid
  * - NEVER call appendJourneyNode, logRedirectEvent, setAttribution,
  *   syncSession, or any journey/analytics path
  * - NEVER accept return / next / url query parameters
@@ -26,7 +23,8 @@ import { useParams } from 'react-router-dom';
 import { Loader2, AlertCircle, ShieldCheck } from 'lucide-react';
 import { resolveContinuationRelay } from '../services/domain/brandedDomains';
 import { supabase } from '../lib/supabase';
-// Read-only cookie helpers — Phase 2 diagnostics only. No writes.
+import { resolveRedirectToken } from '../lib/redirects';
+// Read-only cookie helpers — no writes.
 import {
   getStoredRedirectToken,
   getStoredJourneyId,
@@ -49,10 +47,14 @@ type RelayState =
 /** Reject anything that looks like a URL or is outside the normal short-token shape. */
 const isSafeTargetToken = (raw: string | null): raw is string => {
   if (!raw) return false;
-  // Normal VSTRK tokens are short alphanumeric (e.g. "57y8", "w8ph").
-  // Explicitly reject schemes, slashes, dots that would form a URL.
   return /^[A-Za-z0-9_-]{2,32}$/.test(raw);
 };
+
+const UUID_RE =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+
+const isValidUuid = (raw: string | null): raw is string =>
+  typeof raw === 'string' && UUID_RE.test(raw);
 
 /**
  * Confirm the target is a real redirect_links.token.
@@ -110,11 +112,11 @@ export default function ContinuationRelay() {
         return;
       }
 
-      // ── 2. Read existing Kaksi cookies (diagnostics only — no writes) ───
-      const vtToken = getStoredRedirectToken();
-      const vtJid = getStoredJourneyId();
-      const vtTokenPresent = typeof vtToken === 'string' && vtToken.length > 0;
-      const vtJidPresent = typeof vtJid === 'string' && vtJid.length > 0;
+      // ── 2. Read existing Kaksi cookies (read-only) ──────────────────────
+      const rawVtToken = getStoredRedirectToken();
+      const rawVtJid = getStoredJourneyId();
+      const vtTokenPresent = typeof rawVtToken === 'string' && rawVtToken.length > 0;
+      const vtJidPresent = typeof rawVtJid === 'string' && rawVtJid.length > 0;
 
       console.log('[ContinuationRelay] relay resolved', {
         hostname: row.hostname,
@@ -128,7 +130,7 @@ export default function ContinuationRelay() {
       const params = new URLSearchParams(window.location.search);
       const rawTarget = params.get('target');
 
-      // No target → Phase-1 style success UI (still useful for isolated tests)
+      // No target → diagnostic UI only
       if (!rawTarget) {
         if (!cancelled) {
           setState({
@@ -169,17 +171,47 @@ export default function ContinuationRelay() {
 
       console.log('[ContinuationRelay] target validated:', rawTarget);
 
-      // ── 4. Safe redirect back to known VSTRK tracking URL ───────────────
-      // Platform host + validated token only. No arbitrary destinations.
-      // Phase 2 does NOT append vt_jid / vt_token to the URL.
-      const destination = `https://www.vstrk.com/${rawTarget}`;
+      // ── 4. Phase 3A: build return URL with optional handoff params ──────
+      // Destination is always the platform host + validated target.
+      // Append vt_jid / vt_token only when present AND valid.
+      const destination = new URL(`https://www.vstrk.com/${rawTarget}`);
 
-      if (!cancelled) {
-        setState({ status: 'redirecting', target: rawTarget });
+      // vt_token: must resolve to a real redirect_links row
+      if (vtTokenPresent && rawVtToken) {
+        try {
+          const previousLink = await resolveRedirectToken(rawVtToken);
+          if (previousLink) {
+            destination.searchParams.set('vt_token', rawVtToken);
+            console.log('[ContinuationRelay] appending vt_token (resolved)');
+          } else {
+            console.warn(
+              '[ContinuationRelay] vt_token present but did not resolve — omitting from URL'
+            );
+          }
+        } catch (err) {
+          console.warn(
+            '[ContinuationRelay] vt_token resolve threw — omitting from URL',
+            err
+          );
+        }
       }
 
+      // vt_jid: UUID shape only (no DB lookup on the relay)
+      if (vtJidPresent && isValidUuid(rawVtJid)) {
+        destination.searchParams.set('vt_jid', rawVtJid);
+        console.log('[ContinuationRelay] appending vt_jid (valid UUID)');
+      } else if (vtJidPresent) {
+        console.warn(
+          '[ContinuationRelay] vt_jid present but malformed UUID — omitting from URL'
+        );
+      }
+
+      if (cancelled) return;
+
+      setState({ status: 'redirecting', target: rawTarget });
+
       // replace() avoids leaving the relay in the browser history stack
-      window.location.replace(destination);
+      window.location.replace(destination.toString());
     };
 
     run();
@@ -212,7 +244,7 @@ export default function ContinuationRelay() {
     );
   }
 
-  // Phase 2 success UI when no ?target= was supplied (diagnostic mode)
+  // Diagnostic UI when no ?target= was supplied
   return (
     <div className="min-h-screen bg-zinc-950 flex items-center justify-center flex-col gap-4 px-6">
       <ShieldCheck className="text-green-500" size={32} />
@@ -227,7 +259,7 @@ export default function ContinuationRelay() {
         <p>vt_jid present: {state.vtJidPresent ? 'true' : 'false'}</p>
       </div>
       <p className="text-zinc-700 text-[10px] uppercase tracking-widest mt-4">
-        Phase 2 — cookie read + safe target redirect · no journey writes
+        Phase 3A — handoff params appended when valid · no journey writes
       </p>
     </div>
   );
