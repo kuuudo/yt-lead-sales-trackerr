@@ -220,10 +220,13 @@ export default function ContinuationRelay() {
         }
       }
 
-      // Exhausted or no probe state → clean platform target (normal Track)
-      console.log('[ContinuationRelay] probe exhausted or absent — clean target');
+      // Exhausted or no probe state → clean platform target with loop guard.
+      // vt_probe=exhausted tells Track not to start discovery again.
+      console.log('[ContinuationRelay] probe exhausted or absent — clean target (mark exhausted)');
       if (!cancelled) setState({ status: 'redirecting', target: rawTarget });
-      window.location.replace(buildCleanTargetUrl(rawTarget));
+      window.location.replace(
+        buildCleanTargetUrl(rawTarget, { probeExhausted: true })
+      );
     };
 
     run();

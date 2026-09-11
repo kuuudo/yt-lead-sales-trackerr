@@ -58,7 +58,18 @@ export function buildProbeUrl(
   return url.toString();
 }
 
-/** Clean platform return URL (no handoff params). */
-export function buildCleanTargetUrl(targetToken: string): string {
-  return `https://www.vstrk.com/${targetToken}`;
+/**
+ * Platform return URL after probe.
+ * When probeExhausted is true, attach vt_probe=exhausted so Track will not
+ * restart discovery on the clean landing (loop guard).
+ */
+export function buildCleanTargetUrl(
+  targetToken: string,
+  options?: { probeExhausted?: boolean }
+): string {
+  const url = new URL(`https://www.vstrk.com/${targetToken}`);
+  if (options?.probeExhausted) {
+    url.searchParams.set('vt_probe', 'exhausted');
+  }
+  return url.toString();
 }

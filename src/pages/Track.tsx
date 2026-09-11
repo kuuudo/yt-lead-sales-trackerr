@@ -152,12 +152,20 @@ export default function Track() {
             probeParams.get('vt_eids') ||
             probeParams.get('vt_ej_id')
           );
+          // Loop guard: relay returned after full MISS with vt_probe=exhausted
+          const probeExhausted = probeParams.get('vt_probe') === 'exhausted';
           const orgIdForProbe =
             typeof (link as any).organization_id === 'string'
               ? ((link as any).organization_id as string)
               : null;
 
-          if (isPlatformHost(currentHost) && !hasUrlHandoff && orgIdForProbe && token) {
+          if (
+            isPlatformHost(currentHost) &&
+            !hasUrlHandoff &&
+            !probeExhausted &&
+            orgIdForProbe &&
+            token
+          ) {
             try {
               const localCookieHit = await currentOriginCookieIsUsableHit(
                 token,
@@ -335,24 +343,25 @@ export default function Track() {
               }
             }
 
-            // Phase 3C: strip handoff params from the address bar so the
-            // user ultimately sees a clean /:token URL. replaceState only —
-            // no extra navigation. Safe with React Router because we are
-            // about to navigate away to the final destination anyway.
-            if (safeUrlVtToken || safeUrlVtJid) {
-              try {
-                const clean = new URL(window.location.href);
-                clean.searchParams.delete('vt_token');
-                clean.searchParams.delete('vt_jid');
-                // Preserve any other params that may be present.
-                window.history.replaceState(
-                  window.history.state,
-                  '',
-                  clean.pathname + (clean.search ? clean.search : '') + clean.hash
-                );
-                console.log('[Track] Phase 3C: stripped vt_token/vt_jid from URL');
-              } catch (cleanErr) {
-                console.warn('[Track] Phase 3C: URL cleanup failed (non-fatal)', cleanErr);
+            // Phase 3C: strip handoff / probe-exhaust params from the address bar.
+            // replaceState only — no extra navigation.
+            {
+              const clean = new URL(window.location.href);
+              const hadProbeMarker = clean.searchParams.get('vt_probe') === 'exhausted';
+              if (safeUrlVtToken || safeUrlVtJid || hadProbeMarker) {
+                try {
+                  clean.searchParams.delete('vt_token');
+                  clean.searchParams.delete('vt_jid');
+                  clean.searchParams.delete('vt_probe');
+                  window.history.replaceState(
+                    window.history.state,
+                    '',
+                    clean.pathname + (clean.search ? clean.search : '') + clean.hash
+                  );
+                  console.log('[Track] Phase 3C: stripped handoff/probe params from URL');
+                } catch (cleanErr) {
+                  console.warn('[Track] Phase 3C: URL cleanup failed (non-fatal)', cleanErr);
+                }
               }
             }
 
