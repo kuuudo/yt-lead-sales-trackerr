@@ -68,9 +68,14 @@ export default function Track() {
       // already started, so this is the only reliable point to capture it.
       const trackingPageUrl = window.location.href;
 
-      // Phase 3: declared here (function scope) so it's visible at Step 6B
+ // Phase 3: declared here (function scope) so it's visible at Step 6B
       // further down — see assignment sites below.
       let crossOriginJourneyRecovered = false;
+      // Phase 3E's continuationPrecheck HIT, hoisted out of that block's
+      // scope so the cookie-fallback recovery block below can see it.
+      // Layer 2 evidence only — validateJourneyContinuation() inside
+      // appendJourneyNode() remains the final authority.
+      let cookieContinuationHit = false;
 
       try {
         // ── Step 0: verified-hostname guard (custom domains only) ─────────
@@ -165,7 +170,8 @@ export default function Track() {
                 token,
                 getStoredRedirectToken
               );
-              if (localCookieHit) {
+               if (localCookieHit) {
+                cookieContinuationHit = true;
                 console.log(
                   '[Track] Phase 3E: current-origin cookie continuation HIT — skip probe'
                 );
@@ -354,11 +360,18 @@ export default function Track() {
               } catch (recoverErr) {
                 console.warn('[Track] vt_token (URL handoff) recovery threw (non-fatal) — continuing without it', recoverErr);
               }
-            } else if (getJourney().length === 0) {
-              // Cookie-only fallback (no URL handoff on this load): unchanged
-              // from prior behavior — only seed when there's no local journey
-              // to protect, since there's no relay-attested precheck backing
-              // a cookie-only vt_token the way there is for a URL handoff.
+            } else if (getJourney().length === 0 || cookieContinuationHit) {
+              // Cookie-only fallback. Now also fires when Phase 3E's
+              // continuationPrecheck already verified this cookie's
+              // previous token as a HIT (cookieContinuationHit) — not
+              // only when local journey happens to be empty. A verified
+              // HIT is relay-attested evidence, so on HIT we force-seed
+              // (same as the URL vt_token branch) instead of refusing
+              // just because a local journey happens to already exist.
+              // validateJourneyContinuation() inside appendJourneyNode()
+              // below is unchanged and still makes the final decision —
+              // if it disagrees, the existing reset-to-new-journey path
+              // still fires exactly as before.
               const previousToken = getStoredRedirectToken();
               if (previousToken) {
                 try {
@@ -368,17 +381,27 @@ export default function Track() {
                       (previousLink as any).destination_url,
                       (previousLink as any).asset_id ?? null
                     );
-                    seedJourneyFromRecoveredNode({
-                      redirect_link_id: (previousLink as any).id,
-                      video_id: (previousLink as any).video_id,
-                      asset_id: (previousLink as any).asset_id ?? null,
-                      destination_video_id: previousDestinationVideoId,
-                    });
+                    seedJourneyFromRecoveredNode(
+                      {
+                        redirect_link_id: (previousLink as any).id,
+                        video_id: (previousLink as any).video_id,
+                        asset_id: (previousLink as any).asset_id ?? null,
+                        destination_video_id: previousDestinationVideoId,
+                      },
+                      { force: cookieContinuationHit }
+                    );
+                    if (cookieContinuationHit) {
+                      const cookieJid = getStoredJourneyId();
+                      if (cookieJid) {
+                        bindRecoveredJourneyId(cookieJid);
+                      }
+                    }
                     console.log('[Track] vt_token recovered previous node, seeded for continuation check', {
                       previousToken,
                       source: 'cookie',
                       previousVideoId: (previousLink as any).video_id,
                       previousDestinationVideoId,
+                      forced: cookieContinuationHit,
                     });
                     crossOriginJourneyRecovered = true;
                   } else {
