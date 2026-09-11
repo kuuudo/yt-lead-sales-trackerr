@@ -28,6 +28,7 @@ import {
   buildCleanTargetUrl,
   MAX_PROBE_GROUPS,
 } from '../lib/probeState';
+import { isContinuationPrecheckHit } from '../lib/continuationPrecheck';
 
 type RelayState =
   | { status: 'loading' }
@@ -151,25 +152,33 @@ export default function ContinuationRelay() {
         return;
       }
 
-      // ── Cookie HIT? Build return URL with optional handoff params ──────
+      // ── Cookie candidate → continuation precheck → HIT / MISS ─────────
+      // Presence alone is not enough; vt_token must look like a valid
+      // continuation into the target token. Final authority remains
+      // appendJourneyNode / validateJourneyContinuation on Track.
       let handoffToken: string | null = null;
       let handoffJid: string | null = null;
 
       if (vtTokenPresent && rawVtToken) {
         try {
-          const previousLink = await resolveRedirectToken(rawVtToken);
-          if (previousLink) {
+          const contOk = await isContinuationPrecheckHit(rawVtToken, rawTarget);
+          if (contOk) {
             handoffToken = rawVtToken;
+            if (vtJidPresent && isValidUuid(rawVtJid)) {
+              handoffJid = rawVtJid;
+            }
+          } else {
+            console.log(
+              '[ContinuationRelay] cookie present but continuation precheck MISS',
+              { hasToken: true }
+            );
           }
         } catch {
-          /* omit */
+          /* omit — treat as MISS */
         }
       }
-      if (vtJidPresent && isValidUuid(rawVtJid)) {
-        handoffJid = rawVtJid;
-      }
 
-      const isHit = !!(handoffToken || handoffJid);
+      const isHit = !!handoffToken;
 
       if (isHit) {
         const destination = new URL(buildCleanTargetUrl(rawTarget));
@@ -182,7 +191,7 @@ export default function ContinuationRelay() {
       }
 
       // ── MISS: advance probe or fall back to clean target ───────────────
-      console.log('[ContinuationRelay] MISS — no usable cookie on this origin');
+      console.log('[ContinuationRelay] MISS — no continuation-valid cookie on this origin');
 
       const orgId = isSafeOrgId(rawOrg) ? rawOrg : null;
       const groupIndex = isSafeGroupIndex(rawGi);

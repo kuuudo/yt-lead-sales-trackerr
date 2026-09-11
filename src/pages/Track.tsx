@@ -33,6 +33,7 @@ import {
 import { supabase } from '../lib/supabase';
 import { Loader2, AlertCircle } from 'lucide-react';
 import { loadProbeCandidates, buildProbeUrl } from '../lib/probeState';
+import { currentOriginCookieIsUsableHit } from '../lib/continuationPrecheck';
 
 // Hosts that always serve the token-resolution flow without a
 // verified_tracking_hostnames check.
@@ -136,9 +137,12 @@ export default function Track() {
           return;
         }
 
-        // ── Phase 3E: bounded cookie-parent probe (platform only) ───────────
-        // Strict recovery gate — only when we cannot recover any other way.
-        // Existing URL handoff / local journey always win. Max 3 parent groups.
+        // ── Phase 3E Step 1: discovery gate (cookie + continuation precheck) ─
+        // Do NOT use getJourney().length as the probe signal.
+        // URL handoff already present → never probe.
+        // Current-origin cookie passes continuation precheck → no probe;
+        // existing seed/restore/append remains authoritative below.
+        // Otherwise → bounded branded cookie-parent probe (max 3).
         {
           const probeParams = new URLSearchParams(window.location.search);
           const hasUrlHandoff = !!(
@@ -153,28 +157,35 @@ export default function Track() {
               ? ((link as any).organization_id as string)
               : null;
 
-          if (
-            isPlatformHost(currentHost) &&
-            getJourney().length === 0 &&
-            !hasUrlHandoff &&
-            orgIdForProbe &&
-            token
-          ) {
+          if (isPlatformHost(currentHost) && !hasUrlHandoff && orgIdForProbe && token) {
             try {
-              const candidates = await loadProbeCandidates(orgIdForProbe);
-              if (candidates.length > 0) {
-                const first = candidates[0];
-                const probeUrl = buildProbeUrl(first, token, orgIdForProbe, 0);
-                console.log('[Track] Phase 3E: starting cookie-parent probe', {
-                  groups: candidates.length,
-                  firstHost: first.hostname,
-                });
-                window.location.replace(probeUrl);
-                return;
+              const localCookieHit = await currentOriginCookieIsUsableHit(
+                token,
+                getStoredRedirectToken
+              );
+              if (localCookieHit) {
+                console.log(
+                  '[Track] Phase 3E: current-origin cookie continuation HIT — skip probe'
+                );
+              } else {
+                const candidates = await loadProbeCandidates(orgIdForProbe);
+                if (candidates.length > 0) {
+                  const first = candidates[0];
+                  const probeUrl = buildProbeUrl(first, token, orgIdForProbe, 0);
+                  console.log('[Track] Phase 3E: starting cookie-parent probe', {
+                    groups: candidates.length,
+                    firstHost: first.hostname,
+                  });
+                  window.location.replace(probeUrl);
+                  return;
+                }
+                console.log(
+                  '[Track] Phase 3E: no probe candidates — continue normal Track'
+                );
               }
             } catch (probeErr) {
               console.warn(
-                '[Track] Phase 3E: probe candidate load failed — continuing normal Track',
+                '[Track] Phase 3E: discovery failed — continuing normal Track',
                 probeErr
               );
             }
