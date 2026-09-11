@@ -496,10 +496,8 @@ function MainContent() {
     <Routes>
         <Route path="/testimonials" element={<PageWrapper><Testimonials /></PageWrapper>} />
         <Route path="/website" element={<PageWrapper><Website /></PageWrapper>} />
-        {/* Phase 1 continuation relay — infrastructure only. Must be above /:token. */}
-        <Route path="/r/:relayToken" element={<ContinuationRelay />} />
-        <Route path="/r/platform" element={<PlatformContinuation />} />
-        <Route path="/r/:relayToken" element={<ContinuationRelay />} />
+        {/* Phase 1 continuation relay — infrastructure only. Must be above /:token,
+            and /r/platform must be above /r/:relayToken or it never matches. */}
         <Route path="/r/platform" element={<PlatformContinuation />} />
         <Route path="/r/:relayToken" element={<ContinuationRelay />} />
         <Route path="/track/:token" element={<Track />} />
@@ -530,8 +528,8 @@ function MainContent() {
         <Route path="/installation" element={<PageWrapper><Installation /></PageWrapper>} />
         <Route path="/settings" element={<PageWrapper><Settings /></PageWrapper>} />
         <Route path="/settings/tracking-domains" element={<PageWrapper><TrackingDomains /></PageWrapper>} />
-        {/* Phase 1 continuation relay — infrastructure only. Must be above /:token. */}
-        <Route path="/r/:relayToken" element={<ContinuationRelay />} />
+        {/* Phase 1 continuation relay — infrastructure only. Must be above /:token,
+            and /r/platform must be above /r/:relayToken or it never matches. */}
         <Route path="/r/platform" element={<PlatformContinuation />} />
         <Route path="/r/:relayToken" element={<ContinuationRelay />} />
         <Route path="/track/:token" element={<Track />} />
@@ -621,4 +619,3 @@ export default function App() {
     </Router>
   );
 }
-
