@@ -32,7 +32,7 @@ import {
 
 import { supabase } from '../lib/supabase';
 import { Loader2, AlertCircle } from 'lucide-react';
-import { loadProbeCandidates, buildProbeUrl } from '../lib/probeState';
+import { loadProbeCandidates, buildProbeUrl, buildPlatformCandidateUrl } from '../lib/probeState';
 import { currentOriginCookieIsUsableHit } from '../lib/continuationPrecheck';
 
 // Hosts that always serve the token-resolution flow without a
@@ -137,12 +137,11 @@ export default function Track() {
           return;
         }
 
-        // ── Phase 3E Step 1: discovery gate (cookie + continuation precheck) ─
-        // Do NOT use getJourney().length as the probe signal.
-        // URL handoff already present → never probe.
-        // Current-origin cookie passes continuation precheck → no probe;
-        // existing seed/restore/append remains authoritative below.
-        // Otherwise → bounded branded cookie-parent probe (max 3).
+        // ── Phase 3E discovery gate (Step 1 + Step 2) ───────────────────────
+        // 1) URL handoff / vt_probe=exhausted → never discover
+        // 2) Current-origin cookie + continuation precheck HIT → no bounce
+        // 3) If NOT platform → VSTRK platform candidate (/r/platform) first
+        // 4) If platform (or after platform MISS chains here) → branded ≤3
         {
           const probeParams = new URLSearchParams(window.location.search);
           const hasUrlHandoff = !!(
@@ -152,20 +151,13 @@ export default function Track() {
             probeParams.get('vt_eids') ||
             probeParams.get('vt_ej_id')
           );
-          // Loop guard: relay returned after full MISS with vt_probe=exhausted
           const probeExhausted = probeParams.get('vt_probe') === 'exhausted';
           const orgIdForProbe =
             typeof (link as any).organization_id === 'string'
               ? ((link as any).organization_id as string)
               : null;
 
-          if (
-            isPlatformHost(currentHost) &&
-            !hasUrlHandoff &&
-            !probeExhausted &&
-            orgIdForProbe &&
-            token
-          ) {
+          if (!hasUrlHandoff && !probeExhausted && orgIdForProbe && token) {
             try {
               const localCookieHit = await currentOriginCookieIsUsableHit(
                 token,
@@ -175,7 +167,14 @@ export default function Track() {
                 console.log(
                   '[Track] Phase 3E: current-origin cookie continuation HIT — skip probe'
                 );
+              } else if (!isPlatformHost(currentHost)) {
+                // Step 2: try VSTRK platform cookie before any branded relay
+                const platformUrl = buildPlatformCandidateUrl(token, orgIdForProbe);
+                console.log('[Track] Phase 3E Step 2: trying VSTRK platform candidate');
+                window.location.replace(platformUrl);
+                return;
               } else {
+                // Platform origin: branded external parents only (max 3)
                 const candidates = await loadProbeCandidates(orgIdForProbe);
                 if (candidates.length > 0) {
                   const first = candidates[0];

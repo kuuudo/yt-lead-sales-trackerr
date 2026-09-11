@@ -73,3 +73,15 @@ export function buildCleanTargetUrl(
   }
   return url.toString();
 }
+
+/** Fixed platform-only continuation entry (Step 2). Does not use branded relay_token. */
+export function buildPlatformCandidateUrl(
+  targetToken: string,
+  organizationId: string
+): string {
+  const url = new URL('https://www.vstrk.com/r/platform');
+  url.searchParams.set('target', targetToken);
+  url.searchParams.set('org', organizationId);
+  return url.toString();
+}
+
