@@ -18,6 +18,7 @@ import MobileRankingsButton from './components/MobileRankingsButton';
 import OnboardingOverlay from './components/onboarding/OnboardingOverlay';
 import LeaveTestimonialModal from './components/testimonial/LeaveTestimonialModal';
 import Auth from './pages/Auth';
+import ContinuationRelay from './pages/ContinuationRelay';
 import { DrillDownProvider } from './lib/DrillDownContext';
 import Dashboard from './pages/Dashboard';
 import Campaigns from './pages/Campaigns';
@@ -494,6 +495,8 @@ function MainContent() {
     <Routes>
         <Route path="/testimonials" element={<PageWrapper><Testimonials /></PageWrapper>} />
         <Route path="/website" element={<PageWrapper><Website /></PageWrapper>} />
+        {/* Phase 1 continuation relay — infrastructure only. Must be above /:token. */}
+        <Route path="/r/:relayToken" element={<ContinuationRelay />} />
         <Route path="/track/:token" element={<Track />} />
         <Route path="/:token" element={<Track />} />
         <Route path="*" element={<PageWrapper><Auth /></PageWrapper>} />
@@ -522,6 +525,8 @@ function MainContent() {
         <Route path="/installation" element={<PageWrapper><Installation /></PageWrapper>} />
         <Route path="/settings" element={<PageWrapper><Settings /></PageWrapper>} />
         <Route path="/settings/tracking-domains" element={<PageWrapper><TrackingDomains /></PageWrapper>} />
+        {/* Phase 1 continuation relay — infrastructure only. Must be above /:token. */}
+        <Route path="/r/:relayToken" element={<ContinuationRelay />} />
         <Route path="/track/:token" element={<Track />} />
         <Route path="/:token" element={<Track />} />
         <Route path="*" element={<Navigate to="/dashboard" replace />} />

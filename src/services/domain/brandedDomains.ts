@@ -14,6 +14,13 @@ export interface BrandedTrackingDomain {
   // exists purely so the DNS card can be rebuilt after a page refresh
   // instead of relying on ephemeral component state.
   verification_token: string | null;
+  /**
+   * Permanent opaque infrastructure token for the /r/:relayToken
+   * continuation relay. Generated once at domain creation (or via
+   * migration backfill). Not a redirect_links token. Never used for
+   * journey nodes, events, or attribution.
+   */
+  relay_token: string;
 }
 
 // SHA-256 hash of the verification token, hex-encoded. Uses the browser's
@@ -39,7 +46,7 @@ export const listBrandedDomains = async (
   const { data, error } = await supabase
     .from('branded_tracking_domains')
     .select(
-      'id, organization_id, hostname, status, is_default, verified_at, created_at, verification_token'
+      'id, organization_id, hostname, status, is_default, verified_at, created_at, verification_token, relay_token'
     )
     .eq('organization_id', organizationId)
     .order('created_at', { ascending: false });
@@ -61,6 +68,10 @@ export const listBrandedDomains = async (
  * claim a domain they don't control, since it only matters once actually
  * published in that domain's own DNS. The hash column and verify-domain.ts's
  * comparison logic are untouched — this is additive, not a security change.
+ *
+ * Phase 1: also generates a permanent relay_token (infrastructure only)
+ * used by the /r/:relayToken route. Distinct from verification_token and
+ * from any redirect_links.token.
  */
 export const addBrandedDomain = async (
   organizationId: string,
@@ -75,6 +86,10 @@ export const addBrandedDomain = async (
 
   const verificationToken = generateToken();
   const verification_token_hash = await hashToken(verificationToken);
+  // Permanent continuation-relay identity. Generated once; never rotated
+  // by normal application flow. Same generator style as verification token
+  // for consistency; uniqueness enforced by DB constraint.
+  const relay_token = generateToken();
 
   const { data, error } = await supabase
     .from('branded_tracking_domains')
@@ -85,9 +100,10 @@ export const addBrandedDomain = async (
       is_default: false,
       verification_token_hash,
       verification_token: verificationToken,
+      relay_token,
     })
     .select(
-      'id, organization_id, hostname, status, is_default, verified_at, created_at, verification_token'
+      'id, organization_id, hostname, status, is_default, verified_at, created_at, verification_token, relay_token'
     )
     .single();
 
@@ -252,4 +268,30 @@ export const listVerifiedBrandedDomains = async (
   }
 
   return data ?? [];
+};
+
+/**
+ * Phase 1 helper: resolve a continuation relay by exact hostname + relay_token.
+ * Returns the matching branded_tracking_domains row or null.
+ * Does NOT touch redirect_links, journey, events, or cookies.
+ */
+export const resolveContinuationRelay = async (
+  hostname: string,
+  relayToken: string
+): Promise<Pick<BrandedTrackingDomain, 'id' | 'hostname' | 'status' | 'relay_token'> | null> => {
+  if (!hostname || !relayToken) return null;
+
+  const { data, error } = await supabase
+    .from('branded_tracking_domains')
+    .select('id, hostname, status, relay_token')
+    .eq('hostname', hostname.toLowerCase())
+    .eq('relay_token', relayToken)
+    .maybeSingle();
+
+  if (error) {
+    console.error('[brandedDomains] resolveContinuationRelay failed:', error.message);
+    return null;
+  }
+
+  return data;
 };
