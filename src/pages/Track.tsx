@@ -26,6 +26,7 @@ import {
   getStoredRedirectToken,
   seedJourneyFromRecoveredNode,
   restoreJourneyIdFromCookie,
+  bindRecoveredJourneyId,
   fetchLatestJourneySnapshot,
   mergeJourneySnapshot,
 } from '../lib/tracker';
@@ -310,8 +311,54 @@ export default function Track() {
             // validateJourneyContinuation() decide continuation below —
             // no new validator, no new journey system.
             // Phase 3B: prefer URL vt_token over cookie when both present.
-            if (getJourney().length === 0) {
-              const previousToken = safeUrlVtToken ?? getStoredRedirectToken();
+            if (safeUrlVtToken) {
+              // Explicit relay handoff: ContinuationRelay / PlatformContinuation
+              // already ran continuationPrecheck and only attach vt_token to
+              // the return URL on a HIT. That recovered previous node is
+              // trusted over any stale local journey left on this origin —
+              // force-seed it, then bind the recovered journey_id BEFORE
+              // append so validateJourneyContinuation() (inside
+              // appendJourneyNode(), unchanged) evaluates against the
+              // correct previous node instead of a stale local one.
+              try {
+                const previousLink = await resolveRedirectToken(safeUrlVtToken);
+                if (previousLink) {
+                  const previousDestinationVideoId = await resolveDestinationVideoId(
+                    (previousLink as any).destination_url,
+                    (previousLink as any).asset_id ?? null
+                  );
+                  seedJourneyFromRecoveredNode(
+                    {
+                      redirect_link_id: (previousLink as any).id,
+                      video_id: (previousLink as any).video_id,
+                      asset_id: (previousLink as any).asset_id ?? null,
+                      destination_video_id: previousDestinationVideoId,
+                    },
+                    { force: true }
+                  );
+                  if (safeUrlVtJid) {
+                    bindRecoveredJourneyId(safeUrlVtJid);
+                  }
+                  console.log('[Track] vt_token (URL handoff) recovered previous node, force-seeded for continuation check', {
+                    previousToken: safeUrlVtToken,
+                    source: 'url',
+                    previousVideoId: (previousLink as any).video_id,
+                    previousDestinationVideoId,
+                    boundJourneyId: safeUrlVtJid ?? null,
+                  });
+                  crossOriginJourneyRecovered = true;
+                } else {
+                  console.warn('[Track] vt_token (URL handoff) present but resolveRedirectToken found no link — skipping recovery', { previousToken: safeUrlVtToken });
+                }
+              } catch (recoverErr) {
+                console.warn('[Track] vt_token (URL handoff) recovery threw (non-fatal) — continuing without it', recoverErr);
+              }
+            } else if (getJourney().length === 0) {
+              // Cookie-only fallback (no URL handoff on this load): unchanged
+              // from prior behavior — only seed when there's no local journey
+              // to protect, since there's no relay-attested precheck backing
+              // a cookie-only vt_token the way there is for a URL handoff.
+              const previousToken = getStoredRedirectToken();
               if (previousToken) {
                 try {
                   const previousLink = await resolveRedirectToken(previousToken);
@@ -328,7 +375,7 @@ export default function Track() {
                     });
                     console.log('[Track] vt_token recovered previous node, seeded for continuation check', {
                       previousToken,
-                      source: safeUrlVtToken ? 'url' : 'cookie',
+                      source: 'cookie',
                       previousVideoId: (previousLink as any).video_id,
                       previousDestinationVideoId,
                     });

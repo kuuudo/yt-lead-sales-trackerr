@@ -618,6 +618,22 @@ export const restoreJourneyIdFromCookie = (recoveredJourneyId: string): void => 
 };
 
 /**
+ * Unconditionally binds a relay-recovered journey_id BEFORE
+ * appendJourneyNode() runs. Used only by the URL vt_token handoff branch
+ * in Track.tsx, immediately after seedJourneyFromRecoveredNode(node,
+ * { force: true }) replaces a stale local journey with the relay-verified
+ * previous node — keeping the seeded journey and its journey_id
+ * consistent with each other before validateJourneyContinuation() (inside
+ * appendJourneyNode(), unchanged) makes the actual continuation decision.
+ * Unlike restoreJourneyIdFromCookie() above, this does not no-op when a
+ * local journey_id already exists — that's the point: it corrects a
+ * stale one instead of leaving it in place.
+ */
+export const bindRecoveredJourneyId = (id: string): void => {
+  setJourneyId(id);
+};
+
+/**
  * Phase 3: historical journey_snapshot reconstruction for cross-origin
  * continuations. Reads the latest events_journey row for journeyId and
  * returns its journey_snapshot, or [] if no row exists (genuinely new
@@ -684,8 +700,11 @@ export const mergeJourneySnapshot = (
  * exactly as it would for a same-origin click. Only ever effective when
  * getJourney() is already empty — refuses to clobber a real local journey.
  */
-export const seedJourneyFromRecoveredNode = (node: JourneyNode): void => {
-  if (getJourney().length > 0) {
+export const seedJourneyFromRecoveredNode = (
+  node: JourneyNode,
+  options?: { force?: boolean }
+): void => {
+  if (!options?.force && getJourney().length > 0) {
     console.warn('[tracker] seedJourneyFromRecoveredNode: local journey already present — refusing to overwrite');
     return;
   }
