@@ -32,6 +32,7 @@ import {
 
 import { supabase } from '../lib/supabase';
 import { Loader2, AlertCircle } from 'lucide-react';
+import { loadProbeCandidates, buildProbeUrl } from '../lib/probeState';
 
 // Hosts that always serve the token-resolution flow without a
 // verified_tracking_hostnames check.
@@ -133,6 +134,51 @@ export default function Track() {
           console.error('[Track] ✗ link is null/undefined — token not found or resolveRedirectToken failed');
           setError(true);
           return;
+        }
+
+        // ── Phase 3E: bounded cookie-parent probe (platform only) ───────────
+        // Strict recovery gate — only when we cannot recover any other way.
+        // Existing URL handoff / local journey always win. Max 3 parent groups.
+        {
+          const probeParams = new URLSearchParams(window.location.search);
+          const hasUrlHandoff = !!(
+            probeParams.get('vt_journey') ||
+            probeParams.get('vt_token') ||
+            probeParams.get('vt_jid') ||
+            probeParams.get('vt_eids') ||
+            probeParams.get('vt_ej_id')
+          );
+          const orgIdForProbe =
+            typeof (link as any).organization_id === 'string'
+              ? ((link as any).organization_id as string)
+              : null;
+
+          if (
+            isPlatformHost(currentHost) &&
+            getJourney().length === 0 &&
+            !hasUrlHandoff &&
+            orgIdForProbe &&
+            token
+          ) {
+            try {
+              const candidates = await loadProbeCandidates(orgIdForProbe);
+              if (candidates.length > 0) {
+                const first = candidates[0];
+                const probeUrl = buildProbeUrl(first, token, orgIdForProbe, 0);
+                console.log('[Track] Phase 3E: starting cookie-parent probe', {
+                  groups: candidates.length,
+                  firstHost: first.hostname,
+                });
+                window.location.replace(probeUrl);
+                return;
+              }
+            } catch (probeErr) {
+              console.warn(
+                '[Track] Phase 3E: probe candidate load failed — continuing normal Track',
+                probeErr
+              );
+            }
+          }
         }
 
         // ── Step 3: extract video_id + campaign_id ───────────────────────────

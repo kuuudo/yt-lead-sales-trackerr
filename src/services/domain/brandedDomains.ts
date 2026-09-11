@@ -1,4 +1,5 @@
 import { supabase } from '../../lib/supabase';
+import { countCookieParentGroups, getCookieParent } from '../../lib/cookieParent';
 
 export interface BrandedTrackingDomain {
   id: string;
@@ -90,6 +91,36 @@ export const addBrandedDomain = async (
   // by normal application flow. Same generator style as verification token
   // for consistency; uniqueness enforced by DB constraint.
   const relay_token = generateToken();
+
+  // Phase 3E product rule: max 3 distinct cookie-parent (eTLD+1) groups per org.
+  // Subdomains under the same parent still share one group and remain allowed.
+  {
+    const { data: existingRows, error: existingErr } = await supabase
+      .from('branded_tracking_domains')
+      .select('hostname')
+      .eq('organization_id', organizationId);
+
+    if (existingErr) {
+      console.error('[brandedDomains] cookie-parent check failed:', existingErr.message);
+      return null;
+    }
+
+    const existingHosts = (existingRows ?? []).map((r) => r.hostname as string);
+    const newParent = getCookieParent(hostname);
+    const alreadyHasParent = existingHosts.some(
+      (h) => getCookieParent(h) === newParent
+    );
+    if (!alreadyHasParent) {
+      const currentGroups = countCookieParentGroups(existingHosts);
+      if (currentGroups >= 3) {
+        console.error(
+          '[brandedDomains] rejected domain: organization already has 3 cookie-parent groups',
+          { organizationId, newParent, currentGroups }
+        );
+        return null;
+      }
+    }
+  }
 
   const { data, error } = await supabase
     .from('branded_tracking_domains')
