@@ -39,3 +39,19 @@ SET root_domain = CASE
   ELSE hostname
 END
 WHERE root_domain IS NULL;
+
+-- Additive migration: campaigns.root_domain
+--
+-- Scope: campaigns ONLY. Nullable, no default, no backfill — per explicit
+-- instruction, existing Campaigns must NOT be assigned a guessed
+-- root_domain from unrelated existing branded_tracking_domains rows.
+-- A Campaign's root_domain is only ever set going forward, the first
+-- time a Tracking Domain is created for it (see addBrandedDomain()).
+
+ALTER TABLE campaigns
+  ADD COLUMN IF NOT EXISTS root_domain text;
+
+-- Deliberately no UPDATE / backfill statement here.
+-- Deliberately no UNIQUE constraint here — "one root_domain per org" is
+-- enforced at the application layer in addBrandedDomain(), not via a DB
+-- constraint, per the smallest-change scope of this step.

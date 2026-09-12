@@ -82,15 +82,27 @@ export const listBrandedDomains = async (
  * Phase 1: also generates a permanent relay_token (infrastructure only)
  * used by the /r/:relayToken route. Distinct from verification_token and
  * from any redirect_links.token.
+ *
+ * Step 4: requires a campaignId. Enforces that the hostname's derived
+ * root_domain is compatible with that campaign's existing root_domain
+ * (establishing it on first use, rejecting mismatches), and that no
+ * other campaign in the same organization already owns that root_domain.
+ * Does not write campaign_id onto branded_tracking_domains.
  */
 export const addBrandedDomain = async (
   organizationId: string,
-  rawHostname: string
+  rawHostname: string,
+  campaignId: string
 ): Promise<{ domain: BrandedTrackingDomain; verificationToken: string } | null> => {
   const hostname = normalizeHostname(rawHostname);
 
   if (!hostname || hostname.includes(' ') || hostname.includes('/')) {
     console.error('[brandedDomains] invalid hostname:', rawHostname);
+    return null;
+  }
+
+  if (!campaignId) {
+    console.error('[brandedDomains] addBrandedDomain requires a campaignId');
     return null;
   }
 
@@ -105,6 +117,80 @@ export const addBrandedDomain = async (
   // creation so a family's root is a plain column read instead of a runtime
   // recomputation. Does not change getCookieParent() or the cap logic itself.
   const root_domain = getCookieParent(hostname);
+
+  // Campaign <-> root_domain validation (Step 4). Backend is the sole
+  // authority — this runs regardless of what the UI already filtered.
+  // Does NOT add campaign_id to branded_tracking_domains; the link is
+  // campaigns.root_domain == branded_tracking_domains.root_domain,
+  // scoped by organization_id, per locked architecture.
+  {
+    const { data: campaignRow, error: campaignErr } = await supabase
+      .from('campaigns')
+      .select('id, organization_id, root_domain, archived_at')
+      .eq('id', campaignId)
+      .maybeSingle();
+
+    if (campaignErr || !campaignRow) {
+      console.error('[brandedDomains] campaign lookup failed:', campaignErr?.message);
+      return null;
+    }
+
+    if (campaignRow.organization_id !== organizationId) {
+      console.error('[brandedDomains] rejected domain: campaign belongs to a different organization', {
+        campaignId,
+        organizationId,
+      });
+      return null;
+    }
+
+    if (campaignRow.archived_at) {
+      console.error('[brandedDomains] rejected domain: campaign is archived', { campaignId });
+      return null;
+    }
+
+    if (campaignRow.root_domain === null) {
+      // Case 4: another campaign in the same org must not already own this root_domain.
+      const { data: conflictingCampaigns, error: conflictErr } = await supabase
+        .from('campaigns')
+        .select('id')
+        .eq('organization_id', organizationId)
+        .eq('root_domain', root_domain)
+        .neq('id', campaignId);
+
+      if (conflictErr) {
+        console.error('[brandedDomains] root_domain conflict check failed:', conflictErr.message);
+        return null;
+      }
+
+      if ((conflictingCampaigns ?? []).length > 0) {
+        console.error('[brandedDomains] rejected domain: root_domain already owned by another campaign in this organization', {
+          organizationId,
+          root_domain,
+        });
+        return null;
+      }
+
+      // Case 1: establish this campaign's root_domain from its first Tracking Domain.
+      const { error: setRootErr } = await supabase
+        .from('campaigns')
+        .update({ root_domain })
+        .eq('id', campaignId);
+
+      if (setRootErr) {
+        console.error('[brandedDomains] failed to set campaign root_domain:', setRootErr.message);
+        return null;
+      }
+    } else if (campaignRow.root_domain !== root_domain) {
+      // Case 3: campaign already belongs to a different root-domain family.
+      console.error('[brandedDomains] rejected domain: campaign already has a different root_domain', {
+        campaignId,
+        existingRootDomain: campaignRow.root_domain,
+        newRootDomain: root_domain,
+      });
+      return null;
+    }
+    // else Case 2: same root_domain as the campaign already has — allowed, fall through.
+  }
 
   // Phase 3E product rule: max 3 distinct cookie-parent (eTLD+1) groups per org.
   // Subdomains under the same parent still share one group and remain allowed.

@@ -5,6 +5,7 @@ import { Globe, Plus, Trash2, Ban, Loader2, Copy, Check, ShieldCheck, ChevronDow
 // to this import line if that block gets restored.
 import { useOrganization } from '../lib/useOrganization';
 import { useViewing } from '../lib/ViewingContext';
+import { supabase } from '../lib/supabase';
 import {
   listBrandedDomains,
   addBrandedDomain,
@@ -24,6 +25,12 @@ export default function TrackingDomains() {
   const [loading, setLoading] = useState(true);
   const [newHostname, setNewHostname] = useState('');
   const [adding, setAdding] = useState(false);
+  // Step 4: eligible (non-archived) campaigns for the Campaign selector.
+  // Query pattern reused from pages/Campaigns.tsx's fetchCampaigns() —
+  // no new Campaign data-layer abstraction introduced.
+  const [campaigns, setCampaigns] = useState<{ id: string; campaign_name: string }[]>([]);
+  const [campaignsLoading, setCampaignsLoading] = useState(true);
+  const [selectedCampaignId, setSelectedCampaignId] = useState('');
   // Tracks which specific field was just copied, e.g. "abc123:txt" or
   // "abc123:cname" — scoped per domain+field since each pending domain
   // now renders its own persistent TXT/CNAME block.
@@ -155,12 +162,34 @@ export default function TrackingDomains() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [effectiveOrgId]);
 
+  // Step 4: eligible Campaign options for the selector. Same query
+  // shape as pages/Campaigns.tsx's fetchCampaigns() (organization_id +
+  // is_system=false + archived_at IS NULL). Deeper archive-visibility
+  // (archive_ui_visibility / Level 1 vs Level 2) is explicitly out of
+  // scope for this step per instruction.
+  useEffect(() => {
+    const fetchCampaigns = async () => {
+      if (!effectiveOrgId) return;
+      setCampaignsLoading(true);
+      const { data, error } = await supabase
+        .from('campaigns')
+        .select('id, campaign_name')
+        .eq('organization_id', effectiveOrgId)
+        .eq('is_system', false)
+        .is('archived_at', null)
+        .order('created_at', { ascending: false });
+      if (!error && data) setCampaigns(data);
+      setCampaignsLoading(false);
+    };
+    fetchCampaigns();
+  }, [effectiveOrgId]);
+
   const handleAdd = async () => {
-    if (isReadOnly || !effectiveOrgId || !newHostname.trim()) return;
+    if (isReadOnly || !effectiveOrgId || !newHostname.trim() || !selectedCampaignId) return;
     setAdding(true);
     setActionError(null);
 
-    const result = await addBrandedDomain(effectiveOrgId, newHostname);
+    const result = await addBrandedDomain(effectiveOrgId, newHostname, selectedCampaignId);
 
     if (!result) {
       setActionError('Failed to add domain. Check the hostname and try again.');
@@ -274,6 +303,25 @@ const handleVerify = async (domainId: string) => {
       {/* Add domain */}
       <div className="bg-zinc-900/50 border border-zinc-800 rounded-lg p-5 mb-6">
         <label className="text-[11px] font-bold uppercase tracking-widest text-zinc-400 mb-2 block">
+          Campaign
+        </label>
+        <select
+          value={selectedCampaignId}
+          onChange={(e) => setSelectedCampaignId(e.target.value)}
+          disabled={isReadOnly || campaignsLoading}
+          className="w-full bg-zinc-950 border border-zinc-800 rounded-md px-3 py-2 text-sm text-zinc-100 focus:outline-none focus:border-red-600 mb-4"
+        >
+          <option value="">
+            {campaignsLoading ? 'Loading campaigns…' : 'Select a campaign'}
+          </option>
+          {campaigns.map((c) => (
+            <option key={c.id} value={c.id}>
+              {c.campaign_name}
+            </option>
+          ))}
+        </select>
+
+        <label className="text-[11px] font-bold uppercase tracking-widest text-zinc-400 mb-2 block">
           Tracking domain
         </label>
         <div className="flex gap-3">
@@ -287,7 +335,7 @@ const handleVerify = async (domainId: string) => {
           />
           <button
             onClick={handleAdd}
-            disabled={adding || !newHostname.trim() || isReadOnly}
+            disabled={adding || !newHostname.trim() || !selectedCampaignId || isReadOnly}
             className="flex items-center gap-2 px-4 py-2 rounded-md bg-red-600 hover:bg-red-500 disabled:bg-zinc-800 disabled:text-zinc-600 text-white text-[11px] font-bold uppercase tracking-widest transition-colors"
           >
             {adding ? <Loader2 className="animate-spin" size={14} /> : <Plus size={14} />}
