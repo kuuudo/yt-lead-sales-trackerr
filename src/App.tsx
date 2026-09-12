@@ -61,6 +61,48 @@ import AllPromotionsAnalytics from './pages/AllPromotionsAnalytics';
 import AllCampaignAnalytics from './pages/AllCampaignAnalytics';
 import CampaignAnalytics from './pages/CampaignAnalytics';
 import AssetAnalyticsMock from './pages/AssetAnalyticsMock';
+// Top-level path segments that are "real" app pages (i.e. matched by an
+// explicit <Route> before the catch-all "/:token" route). If a single-segment
+// pathname is NOT in this set, react-router falls through to "/:token" and
+// renders the Track relay page — which should never show the app chrome.
+// Keep this in sync with the top-level routes registered in MainContent().
+const KNOWN_APP_PATHS = new Set([
+  'dashboard', 'campaigns', 'videos', 'assets', 'unmapped-videos',
+  'analytics', 'installation', 'settings', 'pricing', 'workspace',
+  'marketplace', 'operator', 'testimonials', 'testimonialss', 'website',
+  'analytics-test',
+]);
+
+// True for any route that is part of the external redirect/relay flow
+// (kaksidigitals.com/1234 -> vstrk.com/123 -> final destination):
+// /r/platform, /r/:relayToken, /track/:token, and the bare /:token
+// fallback. These are intentionally chrome-less — no nav bar, no banner.
+function isRelayRoute(pathname: string): boolean {
+  const segments = pathname.split('/').filter(Boolean);
+  if (segments.length === 0) return false;
+
+  if (segments[0] === 'r') return true; // /r/platform, /r/:relayToken
+  if (segments[0] === 'track') return true; // /track/:token
+
+  // Bare single-segment path that isn't a known app route -> caught by
+  // the "/:token" fallback route (Track).
+  return segments.length === 1 && !KNOWN_APP_PATHS.has(segments[0]);
+}
+
+// Renders the top nav + viewing banner everywhere EXCEPT the relay/token
+// redirect routes, without touching in-app navigation at all.
+function AppChrome() {
+  const location = useLocation();
+  if (isRelayRoute(location.pathname)) return null;
+
+  return (
+    <>
+      <Navigation />
+      <ViewingBanner />
+    </>
+  );
+}
+
 function Navigation() {
   const { lang, toggleLanguage, t } = useLanguage();
   const { user, signOut } = useAuth();
@@ -605,8 +647,7 @@ export default function App() {
             <TutorialProvider>
               <DrillDownProvider>
                 <div className="min-h-screen bg-zinc-950 text-zinc-100 selection:bg-red-500/30 selection:text-white font-sans antialiased">
-                  <Navigation />
-                  <ViewingBanner />
+                  <AppChrome />
                   <MainContent />
                   <OnboardingOverlay />
                   <TutorialRunner />
