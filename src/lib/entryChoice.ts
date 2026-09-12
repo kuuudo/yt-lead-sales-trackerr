@@ -72,5 +72,5 @@ export function setEntryChoice(choice: EntryChoice): void {
  * an explicit seam rather than a guess at unknown schema.
  */
 export function isEntryChoiceEnabled(): boolean {
-  return false;
+  return true;
 }

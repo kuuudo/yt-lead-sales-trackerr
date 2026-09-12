@@ -825,9 +825,6 @@ window.location.href = url.toString();
     return <EntryChoiceGate onChoose={onEntryChoice} />;
   }
 
-  if (awaitingEntryChoice) {
-    return <EntryChoiceGate onChoose={onEntryChoice} />;
-  }
 
   return <RelayLoadingScreen />;
 }
