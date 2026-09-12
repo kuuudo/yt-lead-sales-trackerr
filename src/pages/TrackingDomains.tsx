@@ -28,7 +28,7 @@ export default function TrackingDomains() {
   // Step 4: eligible (non-archived) campaigns for the Campaign selector.
   // Query pattern reused from pages/Campaigns.tsx's fetchCampaigns() —
   // no new Campaign data-layer abstraction introduced.
-  const [campaigns, setCampaigns] = useState<{ id: string; campaign_name: string }[]>([]);
+  const [campaigns, setCampaigns] = useState<{ id: string; campaign_name: string; root_domain: string | null }[]>([]);
   const [campaignsLoading, setCampaignsLoading] = useState(true);
   const [selectedCampaignId, setSelectedCampaignId] = useState('');
   // Tracks which specific field was just copied, e.g. "abc123:txt" or
@@ -173,7 +173,7 @@ export default function TrackingDomains() {
       setCampaignsLoading(true);
       const { data, error } = await supabase
         .from('campaigns')
-        .select('id, campaign_name')
+        .select('id, campaign_name, root_domain')
         .eq('organization_id', effectiveOrgId)
         .eq('is_system', false)
         .is('archived_at', null)
@@ -435,6 +435,17 @@ const handleVerify = async (domainId: string) => {
                 )}
               </div>
             </div>
+
+            {/* Campaign association, resolved via organization_id + root_domain
+                match against campaigns.root_domain — no campaign_id column,
+                no new query (reuses the campaigns list already fetched for
+                the Add Domain selector above). */}
+            <p className="text-zinc-500 text-[11px] mt-1">
+              Campaign: {campaigns.find((c) => c.root_domain === d.root_domain)?.campaign_name ?? '—'}
+              {d.root_domain && (
+                <span className="text-zinc-600"> · Root domain: {d.root_domain}</span>
+              )}
+            </p>
 
             {d.verification_token && (
               <div className="mt-3">
