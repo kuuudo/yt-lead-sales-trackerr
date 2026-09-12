@@ -302,14 +302,9 @@ const handleVerify = async (domainId: string) => {
 
       {/* Add domain */}
       <div className="bg-zinc-900/50 border border-zinc-800 rounded-lg p-5 mb-6">
-      <div className="flex items-center gap-2 mb-2">
-        <label className="text-[11px] font-bold uppercase tracking-widest text-zinc-400">
+        <label className="text-[11px] font-bold uppercase tracking-widest text-zinc-400 mb-2 block">
           Campaign
         </label>
-        <span className="text-[11px] text-zinc-600">
-          — One campaign can connect to only one domain.
-        </span>
-      </div>
         <select
           value={selectedCampaignId}
           onChange={(e) => setSelectedCampaignId(e.target.value)}
@@ -446,7 +441,7 @@ const handleVerify = async (domainId: string) => {
                 no new query (reuses the campaigns list already fetched for
                 the Add Domain selector above). */}
             <p className="text-zinc-500 text-[11px] mt-1">
-              Campaign: {campaigns.find((c) => c.root_domain === d.root_domain)?.campaign_name ?? '—'}
+              Campaign: {campaigns.find((c) => c.root_domain === d.root_domain)?.campaign_name ?? 'No campaign'}
               {d.root_domain && (
                 <span className="text-zinc-600"> · Root domain: {d.root_domain}</span>
               )}

@@ -36,6 +36,9 @@ import { AlertCircle } from 'lucide-react';
 import RelayLoadingScreen from '../components/RelayLoadingScreen';
 import { loadProbeCandidates, buildProbeUrl, buildPlatformCandidateUrl } from '../lib/probeState';
 import { currentOriginCookieIsUsableHit } from '../lib/continuationPrecheck';
+import { isEntryChoiceEnabled, getEntryChoice, setEntryChoice, type EntryChoice } from '../lib/entryChoice';
+import EntryChoiceGate from '../components/EntryChoiceGate';
+
 
 // Hosts that always serve the token-resolution flow without a
 // verified_tracking_hostnames check.
@@ -51,6 +54,15 @@ const isPlatformHost = (hostname: string): boolean => {
 export default function Track() {
   const { token } = useParams<{ token: string }>();
   const [error, setError] = useState(false);
+  // Entry Choice: only ever set to true when the gate needs to be shown
+  // (feature enabled, no choice recorded yet, not a Relay re-entry). See
+  // ../lib/entryChoice.ts for the semantics of the stored choice itself.
+  const [awaitingEntryChoice, setAwaitingEntryChoice] = useState(false);
+  // handleRedirect is defined inside the effect below (it closes over
+  // `token` and a handful of per-mount flags); this ref lets the gate's
+  // onChoose callback — which fires from a later render, after the user
+  // clicks — invoke that same function instead of duplicating it.
+  const handleRedirectRef = React.useRef<(skipDiscovery: boolean) => void>(() => {});
 
   useEffect(() => {
     console.log('[Track] ① component mounted, token =', token);
@@ -61,7 +73,13 @@ export default function Track() {
       return;
     }
 
-    const handleRedirect = async () => {
+    // skipDiscovery === true means the visitor's Entry Choice was "Yes, go
+    // directly": Phase 3E's discovery/bounce logic is skipped entirely, but
+    // every other step below (token resolution, attribution, journey
+    // handling, event logging, final redirect) runs exactly as it does
+    // today. skipDiscovery === false is both the "Continue" choice and the
+    // Entry-Choice-disabled default — Phase 3E runs unchanged either way.
+    const handleRedirect = async (skipDiscovery: boolean) => {
       // Snapshot the tracking URL the visitor actually loaded (e.g.
       // https://go.kaksidigitals.com/kVMt) before window.location.href is
       // ever reassigned below. logRedirectEvent fires after navigation has
@@ -149,7 +167,11 @@ export default function Track() {
         // 2) Current-origin cookie + continuation precheck HIT → no bounce
         // 3) If NOT platform → VSTRK platform candidate (/r/platform) first
         // 4) If platform (or after platform MISS chains here) → branded ≤3
-        {
+        //
+        // Entry Choice "direct": skip this entire block. Nothing below it
+        // (Steps 3-7) is affected — token resolution, attribution, journey
+        // handling, event logging, and the final redirect still run.
+        if (!skipDiscovery) {
           const probeParams = new URLSearchParams(window.location.search);
           const hasUrlHandoff = !!(
             probeParams.get('vt_journey') ||
@@ -744,8 +766,49 @@ window.location.href = url.toString();
       }
     };
 
-    handleRedirect();
+    handleRedirectRef.current = handleRedirect;
+
+    // ── Entry Choice gate ────────────────────────────────────────────────
+    // Feature-flagged, browser-local, and deliberately checked BEFORE
+    // handleRedirect() (and therefore before any network call) runs.
+    //
+    // isRelayReentry mirrors the hasUrlHandoff / probeExhausted check
+    // inside Phase 3E above — computed here too because this decision
+    // (show the gate at all) has to be made before Step 0/1 even start,
+    // not just before the Phase 3E block later in the same call.
+    const entryParams = new URLSearchParams(window.location.search);
+    const isRelayReentry = !!(
+      entryParams.get('vt_journey') ||
+      entryParams.get('vt_token') ||
+      entryParams.get('vt_jid') ||
+      entryParams.get('vt_eids') ||
+      entryParams.get('vt_ej_id') ||
+      entryParams.get('vt_probe') === 'exhausted'
+    );
+
+    if (isEntryChoiceEnabled() && !isRelayReentry) {
+      const existingChoice = getEntryChoice();
+      if (!existingChoice) {
+        // First time this browser (this origin) has hit the gate —
+        // render it and wait. handleRedirect is invoked from the gate's
+        // onChoose handler below, not from here.
+        setAwaitingEntryChoice(true);
+        return;
+      }
+      handleRedirect(existingChoice === 'direct');
+      return;
+    }
+
+    // Entry Choice off, or this mount is a Relay re-entry: unchanged
+    // behavior — run the existing flow exactly as before.
+    handleRedirect(false);
   }, [token]);
+
+  const onEntryChoice = (choice: EntryChoice) => {
+    setEntryChoice(choice);
+    setAwaitingEntryChoice(false);
+    handleRedirectRef.current(choice === 'direct');
+  };
 
   if (error) {
     return (
@@ -756,6 +819,14 @@ window.location.href = url.toString();
         </p>
       </div>
     );
+  }
+
+  if (awaitingEntryChoice) {
+    return <EntryChoiceGate onChoose={onEntryChoice} />;
+  }
+
+  if (awaitingEntryChoice) {
+    return <EntryChoiceGate onChoose={onEntryChoice} />;
   }
 
   return <RelayLoadingScreen />;

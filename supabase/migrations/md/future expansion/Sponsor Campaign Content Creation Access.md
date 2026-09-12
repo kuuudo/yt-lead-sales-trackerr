@@ -1,3 +1,30 @@
+
+
+actually i think it dos have to be that hard, we already have everything, just a few thing , 
+
+so we should have two modes, one mode is marketer can promote everything including all the links inside campaign,  basically its just the same as sponser +create new content  choose the shared campaign, so in marketer +track new content, when select cmapaign, it allow to show  the sponser's campaign (and sponse a's ONLY PROMOTE ASSET)  at any time, so its different then other thing in promotion only appear when select asset, this should appear in all time
+
+second mode is share campaign but no links inside the campaign, its basically the same as ONLY PROMOTE ASSET,  but this is slighly somplicated , so in marketer +track new content, select campaign, it should appear a sponse a's ONLY PROMOTE ASSET,this should appear in all time
+
+
+so here is something that need to be careful, 
+so marketer create a video  that select sposner's campaign, it should also need to select the promotion(so if multiple promotion sponse allow creative edit, marketer need to choose one only, if there is only one, then system just auto select,) (so in videos proably should add another collumn, call promotion) (so only allow creative edit mode or i dont know the better name will appear have promotion id)    basically should behave exactly as what should happen in sponser a promoting its own video, so it should appear in indephanalytics.tsx, (if promote links)if promtoe asset, it should appear in allassetanalytics,     
+
+but something is different , when marketer create the video, it should belong to the sponser, so organization_id should be the sponser not the marketer yes,  this is important, because like i said behave exactly like sposner is creating,    and only different is this video when created, should at the same time become a asset, (so basically the same as sponser press +asset in videos but this time should be simultanelsy, )
+and it should be treated as a shared asset,  and is already shared from sponser to the marketer and it should appear in the promotiondetail,(like before we need to forve people choose a promotion when +create video, if there is only one then system automatically create) same function as other asset, so sponser can revok everything, 
+
+and also important sponser cant archive this kind of asset, 
+
+so i think thats it, it should be easy to build
+
+we probably should add another column in videos, so even though organization id everything belong to sposner, but we need to add a column to know it is created by creativemode and created by marketer, so somethign like creativeeditmode_marketer_id?
+
+so like i said everything else should be the same, the video should appear in sponser's assign asset, should appear in content library, if promote camapign links, should appear in indepthanalytics, so i think most should be the same.... and should appear in marketer;s shared asset,   (so this also solved the problem that marketer cant add this asset in assignment, and sponser can share this asset) everything should be the same,  in allassetanalytic maybe need to add a filter like   createivemode_marketer    
+
+oh and becuase when it is +create video it is basically sposner creating video, so when select asset, it should show up sponser;s modal, actually no, it should not appear that, that would be invasion of privacy, okay this is tricky, it cant promote marketers asset too, becuase they are not shared to the sponser,  so maybe we should limit, it can only see the video turn asset, other asset that is shared in the promotion by the sposner, so i think this make sense, so remember when we are +create nw content when we select sponser's campaign, we are force to select promotion, or system automatically choose for us, that is the time we select promotion so yea we can only select the asset inside this promotion, and the video turn asset problem is also in sync, becuase i already said, when create +new content in this situation , video will automatially turn to asset and show up in promotiondetail, so this make sense,  we dont need campaign element asset, becuase if sposner allow, it can promote sposne's campaign link already, i think thats it for everything   
+
+
+so this is my idea, following are like previousanalysis could be ourdated
 # Future Expansion — Sponsor Campaign Content Creation Access
 
 ## Status
@@ -478,3 +505,5 @@ Alternative UI wording:
 **Allow marketer to create content in this Campaign**
 
 Do not call it simply "Share Campaign," because that implies broader Campaign access than intended.
+
+
