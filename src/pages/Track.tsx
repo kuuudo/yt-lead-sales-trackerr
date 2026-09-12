@@ -821,10 +821,12 @@ window.location.href = url.toString();
     );
   }
 
-  if (awaitingEntryChoice) {
-    return <EntryChoiceGate onChoose={onEntryChoice} />;
-  }
-
-
-  return <RelayLoadingScreen />;
+  return (
+    <>
+      <RelayLoadingScreen />
+      {awaitingEntryChoice && (
+        <EntryChoiceGate onChoose={onEntryChoice} />
+      )}
+    </>
+  );
 }

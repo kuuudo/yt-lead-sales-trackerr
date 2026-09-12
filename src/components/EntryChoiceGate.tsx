@@ -28,28 +28,30 @@ export default function EntryChoiceGate({ onChoose }: EntryChoiceGateProps) {
   };
 
   return (
-    <div className="min-h-screen bg-white flex items-center justify-center px-6">
-      <div className="w-full max-w-xs flex flex-col items-center gap-6">
-        <p className="text-zinc-900 text-base font-medium text-center">
-          First time here?
-        </p>
-        <div className="flex flex-col gap-2.5 w-full">
-          <button
-            type="button"
-            disabled={submitting}
-            onClick={() => handleClick('direct')}
-            className="w-full bg-zinc-900 text-zinc-50 rounded-lg py-3 text-sm font-medium transition-opacity disabled:opacity-50"
-          >
-            Yes, go directly
-          </button>
-          <button
-            type="button"
-            disabled={submitting}
-            onClick={() => handleClick('continue')}
-            className="w-full bg-transparent text-zinc-600 border border-zinc-300 rounded-lg py-3 text-sm font-medium transition-opacity disabled:opacity-50"
-          >
-            Continue
-          </button>
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm px-6">
+      <div className="w-full max-w-md rounded-2xl bg-white p-6 shadow-xl">
+        <div className="w-full max-w-xs mx-auto flex flex-col items-center gap-6">
+          <p className="text-zinc-900 text-base font-medium text-center">
+            First time here?
+          </p>
+          <div className="flex flex-col gap-2.5 w-full">
+            <button
+              type="button"
+              disabled={submitting}
+              onClick={() => handleClick('direct')}
+              className="w-full bg-zinc-900 text-zinc-50 rounded-lg py-3 text-sm font-medium transition-opacity disabled:opacity-50"
+            >
+              Yes, go directly
+            </button>
+            <button
+              type="button"
+              disabled={submitting}
+              onClick={() => handleClick('continue')}
+              className="w-full bg-transparent text-zinc-600 border border-zinc-300 rounded-lg py-3 text-sm font-medium transition-opacity disabled:opacity-50"
+            >
+              Continue
+            </button>
+          </div>
         </div>
       </div>
     </div>
