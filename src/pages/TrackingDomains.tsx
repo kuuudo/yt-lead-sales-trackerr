@@ -31,6 +31,13 @@ export default function TrackingDomains() {
   const [campaigns, setCampaigns] = useState<{ id: string; campaign_name: string; root_domain: string | null }[]>([]);
   const [campaignsLoading, setCampaignsLoading] = useState(true);
   const [selectedCampaignId, setSelectedCampaignId] = useState('');
+  // Feature 1/2: Remove/Connect root-domain controls. rootDomainActionId
+  // tracks which row has an action in flight (disables its own button
+  // only). connectChoice tracks the pending campaign selection per
+  // root_domain being connected (keyed by root_domain, since multiple
+  // rows can share one root_domain and should share one pending choice).
+  const [rootDomainActionId, setRootDomainActionId] = useState<string | null>(null);
+  const [connectChoice, setConnectChoice] = useState<Record<string, string>>({});
   // Tracks which specific field was just copied, e.g. "abc123:txt" or
   // "abc123:cname" — scoped per domain+field since each pending domain
   // now renders its own persistent TXT/CNAME block.
@@ -167,21 +174,23 @@ export default function TrackingDomains() {
   // is_system=false + archived_at IS NULL). Deeper archive-visibility
   // (archive_ui_visibility / Level 1 vs Level 2) is explicitly out of
   // scope for this step per instruction.
+  const fetchCampaigns = async () => {
+    if (!effectiveOrgId) return;
+    setCampaignsLoading(true);
+    const { data, error } = await supabase
+      .from('campaigns')
+      .select('id, campaign_name, root_domain')
+      .eq('organization_id', effectiveOrgId)
+      .eq('is_system', false)
+      .is('archived_at', null)
+      .order('created_at', { ascending: false });
+    if (!error && data) setCampaigns(data);
+    setCampaignsLoading(false);
+  };
+
   useEffect(() => {
-    const fetchCampaigns = async () => {
-      if (!effectiveOrgId) return;
-      setCampaignsLoading(true);
-      const { data, error } = await supabase
-        .from('campaigns')
-        .select('id, campaign_name, root_domain')
-        .eq('organization_id', effectiveOrgId)
-        .eq('is_system', false)
-        .is('archived_at', null)
-        .order('created_at', { ascending: false });
-      if (!error && data) setCampaigns(data);
-      setCampaignsLoading(false);
-    };
     fetchCampaigns();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [effectiveOrgId]);
 
   const handleAdd = async () => {
@@ -200,6 +209,89 @@ export default function TrackingDomains() {
     setNewHostname('');
     setAdding(false);
     await refresh();
+  };
+
+  // Feature 1: "Remove root domain from this Campaign". The ONLY effect
+  // is campaigns.root_domain -> NULL for that one campaign row.
+  // branded_tracking_domains is never read or written here.
+  const handleRemoveRootDomain = async (campaignId: string, rootDomain: string) => {
+    if (isReadOnly) return;
+    const confirmed = window.confirm(
+      `Remove ${rootDomain} from this campaign? Existing tracking domains under ${rootDomain} will remain active but will show as "No campaign" until reconnected.`
+    );
+    if (!confirmed) return;
+
+    setRootDomainActionId(campaignId);
+    setActionError(null);
+
+    const { error } = await supabase
+      .from('campaigns')
+      .update({ root_domain: null })
+      .eq('id', campaignId);
+
+    if (error) setActionError('Failed to remove root domain from campaign.');
+
+    setRootDomainActionId(null);
+    await fetchCampaigns();
+  };
+
+  // Feature 2: "Connect existing root domain". The ONLY effect is
+  // campaigns.root_domain -> rootDomain for the selected campaign.
+  // branded_tracking_domains is never read or written here. Backend is
+  // the final authority: re-checks the target campaign is in this org,
+  // not archived, currently has no root_domain, and that no other
+  // campaign in the org already owns this root_domain (race-safety —
+  // the UI already only offers campaigns with root_domain IS NULL, but
+  // this re-validates at write time rather than trusting client state).
+  const handleConnectRootDomain = async (rootDomain: string) => {
+    if (isReadOnly) return;
+    const campaignId = connectChoice[rootDomain];
+    if (!campaignId || !effectiveOrgId) return;
+
+    setRootDomainActionId(campaignId);
+    setActionError(null);
+
+    const { data: campaignRow, error: campaignErr } = await supabase
+      .from('campaigns')
+      .select('id, organization_id, root_domain, archived_at')
+      .eq('id', campaignId)
+      .maybeSingle();
+
+    if (campaignErr || !campaignRow || campaignRow.organization_id !== effectiveOrgId || campaignRow.archived_at) {
+      setActionError('Failed to connect root domain: campaign is no longer eligible.');
+      setRootDomainActionId(null);
+      return;
+    }
+
+    if (campaignRow.root_domain !== null) {
+      setActionError('Failed to connect root domain: campaign already has a different root domain.');
+      setRootDomainActionId(null);
+      return;
+    }
+
+    const { data: conflicting, error: conflictErr } = await supabase
+      .from('campaigns')
+      .select('id')
+      .eq('organization_id', effectiveOrgId)
+      .eq('root_domain', rootDomain)
+      .neq('id', campaignId);
+
+    if (conflictErr || (conflicting ?? []).length > 0) {
+      setActionError('Failed to connect root domain: another campaign already owns this root domain.');
+      setRootDomainActionId(null);
+      return;
+    }
+
+    const { error: updateErr } = await supabase
+      .from('campaigns')
+      .update({ root_domain: rootDomain })
+      .eq('id', campaignId);
+
+    if (updateErr) setActionError('Failed to connect root domain.');
+
+    setRootDomainActionId(null);
+    setConnectChoice((prev) => ({ ...prev, [rootDomain]: '' }));
+    await fetchCampaigns();
   };
 
   const handleSetDefault = async (domainId: string) => {
@@ -446,6 +538,47 @@ const handleVerify = async (domainId: string) => {
                 <span className="text-zinc-600"> · Root domain: {d.root_domain}</span>
               )}
             </p>
+            {!isReadOnly && d.root_domain && (() => {
+              const matchedCampaign = campaigns.find((c) => c.root_domain === d.root_domain);
+              if (matchedCampaign) {
+                return (
+                  <button
+                    onClick={() => handleRemoveRootDomain(matchedCampaign.id, d.root_domain)}
+                    disabled={rootDomainActionId === matchedCampaign.id}
+                    className="text-[10px] text-zinc-600 hover:text-red-500 underline mt-0.5"
+                  >
+                    Remove {d.root_domain} from this campaign
+                  </button>
+                );
+              }
+              const eligibleCampaigns = campaigns.filter((c) => c.root_domain === null);
+              if (eligibleCampaigns.length === 0) return null;
+              return (
+                <div className="flex items-center gap-2 mt-1">
+                  <select
+                    value={connectChoice[d.root_domain] ?? ''}
+                    onChange={(e) =>
+                      setConnectChoice((prev) => ({ ...prev, [d.root_domain]: e.target.value }))
+                    }
+                    className="bg-zinc-950 border border-zinc-800 rounded-md px-2 py-1 text-[10px] text-zinc-300"
+                  >
+                    <option value="">Connect an existing root domain…</option>
+                    {eligibleCampaigns.map((c) => (
+                      <option key={c.id} value={c.id}>
+                        {c.campaign_name}
+                      </option>
+                    ))}
+                  </select>
+                  <button
+                    onClick={() => handleConnectRootDomain(d.root_domain)}
+                    disabled={!connectChoice[d.root_domain] || rootDomainActionId === connectChoice[d.root_domain]}
+                    className="text-[10px] text-red-500 hover:text-red-400 underline disabled:text-zinc-700"
+                  >
+                    Connect
+                  </button>
+                </div>
+              );
+            })()}
 
             {d.verification_token && (
               <div className="mt-3">

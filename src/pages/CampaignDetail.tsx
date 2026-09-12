@@ -307,6 +307,17 @@ export default function CampaignDetail() {
               )}
             </h1>
             <p className="text-[10px] text-zinc-500 uppercase font-bold tracking-widest mt-1">Configure your conversion funnel intelligence</p>
+            {/* Read-only. root_domain is set/removed exclusively via
+                Settings → Tracking Domains (see TrackingDomains.tsx).
+                Deliberately placed outside <form onSubmit={handleSave}>
+                below — not part of formData's save payload, no input,
+                no select. saveCampaign() never receives or writes this
+                field. */}
+            <p className="text-[10px] text-zinc-600 mt-1">
+              {(formData as any).root_domain
+                ? `Root domain: ${(formData as any).root_domain}`
+                : 'No tracking root domain connected'}
+            </p>
           </div>
         </div>
         
