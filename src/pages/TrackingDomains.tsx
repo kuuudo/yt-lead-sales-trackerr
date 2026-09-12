@@ -302,9 +302,14 @@ const handleVerify = async (domainId: string) => {
 
       {/* Add domain */}
       <div className="bg-zinc-900/50 border border-zinc-800 rounded-lg p-5 mb-6">
-        <label className="text-[11px] font-bold uppercase tracking-widest text-zinc-400 mb-2 block">
+      <div className="flex items-center gap-2 mb-2">
+        <label className="text-[11px] font-bold uppercase tracking-widest text-zinc-400">
           Campaign
         </label>
+        <span className="text-[11px] text-zinc-600">
+          — One campaign can connect to only one domain.
+        </span>
+      </div>
         <select
           value={selectedCampaignId}
           onChange={(e) => setSelectedCampaignId(e.target.value)}
