@@ -22,6 +22,15 @@ export interface BrandedTrackingDomain {
    * journey nodes, events, or attribution.
    */
   relay_token: string;
+  /**
+   * Registrable/root domain (eTLD+1) derived from `hostname` at write
+   * time via the existing getCookieParent() logic — e.g. hostname
+   * "go.kaksidigitals.com" → root_domain "kaksidigitals.com". Purely a
+   * denormalized, queryable copy of what getCookieParent() already
+   * computes at runtime; does not replace or change that function.
+   * Not a foreign key — no separate root-domain entity is introduced.
+   */
+  root_domain: string;
 }
 
 // SHA-256 hash of the verification token, hex-encoded. Uses the browser's
@@ -47,7 +56,7 @@ export const listBrandedDomains = async (
   const { data, error } = await supabase
     .from('branded_tracking_domains')
     .select(
-      'id, organization_id, hostname, status, is_default, verified_at, created_at, verification_token, relay_token'
+      'id, organization_id, hostname, status, is_default, verified_at, created_at, verification_token, relay_token, root_domain'
     )
     .eq('organization_id', organizationId)
     .order('created_at', { ascending: false });
@@ -91,6 +100,11 @@ export const addBrandedDomain = async (
   // by normal application flow. Same generator style as verification token
   // for consistency; uniqueness enforced by DB constraint.
   const relay_token = generateToken();
+  // Root/registrable domain (eTLD+1), derived from the same getCookieParent()
+  // logic already used for the cookie-parent-group cap below. Stored once at
+  // creation so a family's root is a plain column read instead of a runtime
+  // recomputation. Does not change getCookieParent() or the cap logic itself.
+  const root_domain = getCookieParent(hostname);
 
   // Phase 3E product rule: max 3 distinct cookie-parent (eTLD+1) groups per org.
   // Subdomains under the same parent still share one group and remain allowed.
@@ -132,9 +146,10 @@ export const addBrandedDomain = async (
       verification_token_hash,
       verification_token: verificationToken,
       relay_token,
+      root_domain,
     })
     .select(
-      'id, organization_id, hostname, status, is_default, verified_at, created_at, verification_token, relay_token'
+      'id, organization_id, hostname, status, is_default, verified_at, created_at, verification_token, relay_token, root_domain'
     )
     .single();
 

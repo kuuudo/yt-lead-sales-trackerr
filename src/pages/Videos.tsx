@@ -2062,7 +2062,7 @@ console.log(
                       </div>
                       <button 
                         onClick={handleSave}
-                        disabled={saving || hasBlockingPromotionIssue}
+                        disabled={saving || resolvingPromotionContext || hasBlockingPromotionIssue}
                         data-tutorial-id="videos-save-to-list"
                         className="mt-auto w-full bg-red-600 text-white h-12 rounded-xl text-[10px] font-black uppercase tracking-widest flex items-center justify-center gap-2"
                       >
