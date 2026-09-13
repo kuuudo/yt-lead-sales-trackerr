@@ -1,6 +1,6 @@
 import React, { useEffect, useState, useRef, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Briefcase, Mail, Rocket, Loader2, Plus, Archive, ArchiveRestore, X, BarChart2, Gamepad2, AlertTriangle, ExternalLink, Users, ChevronDown, ChevronLeft } from 'lucide-react';
+import { Briefcase, Mail, Rocket, Loader2, Plus, Archive, ArchiveRestore, X, BarChart2, Gamepad2, Route, AlertTriangle, ExternalLink, Users, ChevronDown, ChevronLeft } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { Modal } from '../components/Modal';
 import { useEffectiveIdentity } from '../lib/useEffectiveIdentity';
@@ -808,7 +808,7 @@ export default function Marketplace() {
             {filteredByAssign.map(p => (
               <div
                 key={p.id}
-                className="relative group w-full flex items-center justify-between text-left bg-zinc-900 border border-zinc-800 rounded-xl p-5 pr-32"
+                className="relative group w-full flex items-center justify-between text-left bg-zinc-900 border border-zinc-800 rounded-xl p-5 pr-40"
               >
                 <div className="absolute top-1/2 -translate-y-1/2 right-4 flex items-center gap-2">
                   <button
@@ -820,6 +820,16 @@ export default function Marketplace() {
                     className="w-7 h-7 rounded-lg bg-zinc-950 border border-zinc-800 flex items-center justify-center text-zinc-400 hover:text-white transition-all"
                   >
                     <BarChart2 size={14} />
+                  </button>
+                  <button
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      navigate(`/marketplace/promotions/${p.id}/journey`);
+                    }}
+                    title="Promotion Journey Map"
+                    className="w-7 h-7 rounded-lg bg-zinc-950 border border-zinc-800 flex items-center justify-center text-zinc-400 hover:text-white transition-all"
+                  >
+                    <Route size={14} />
                   </button>
                   <button
                     onClick={(e) => {
