@@ -45,6 +45,7 @@ import MarketerAnalytics from './pages/MarketerAnalytics';
 import AssignmentDetail from './pages/AssignmentDetail';
 import CreateAssignment from './pages/CreateAssignment';
 import PromotionDetail from './pages/PromotionDetail';
+import PromotionJourneyMap from './pages/PromotionJourneyMap';
 import IndividualPromotionAnalytics from './pages/IndividualPromotionAnalytics';
 import TrackingDomainDetail from './pages/TrackingDomainDetail';
 import Overview from './pages/operator/Overview';
@@ -137,7 +138,7 @@ function Navigation() {
   const links = [
     { to: '/dashboard', icon: LayoutDashboard, label: t.nav.dashboard },
     { to: '/campaigns', icon: Briefcase, label: t.nav.campaigns, children: [
-      { to: '/pages/InDepthAnalytics', label: 'Campaign Analytics' },
+      { to: '/analytics/indepth', label: 'Campaign Analytics' },
       { to: '/installation', label: t.nav.installation || 'Setup' },
     ] },
     { to: '/videos', icon: Video, label: t.nav.videos, children: [
@@ -590,6 +591,7 @@ function MainContent() {
         <Route path="/marketplace/assignments/:assignmentId" element={<PageWrapper><AssignmentDetail /></PageWrapper>} />
         <Route path="/marketplace/promotions/:id" element={<PageWrapper><PromotionDetail /></PageWrapper>} />
         <Route path="/marketplace/promotions/:id/analytics" element={<PageWrapper><IndividualPromotionAnalytics /></PageWrapper>} />
+        <Route path="/marketplace/promotions/:promotionId/journey" element={<PromotionJourneyMap />} />
         <Route path="/marketplace/tracking-domains/:domainId" element={<PageWrapper><TrackingDomainDetail /></PageWrapper>} />
         <Route path="/operator" element={<PageWrapper><Overview /></PageWrapper>} />
         <Route path="/operator/members" element={<PageWrapper><Members /></PageWrapper>} />

@@ -643,6 +643,13 @@ export default function PromotionDetail() {
               <BarChart3 size={14} />
               View Analytics
             </Link>
+            <Link
+              to={`/marketplace/promotions/${id}/journey`}
+              className="inline-flex items-center gap-2 bg-zinc-900 hover:bg-zinc-800 border border-zinc-800 text-zinc-300 hover:text-white text-xs font-bold uppercase tracking-wider px-4 py-2 rounded-lg transition-colors"
+            >
+              <BarChart3 size={14} />
+              View Journey
+            </Link>
             <button
               onClick={() => startTutorial(promotionTutorial)}
               title="Take a tour of Promotion Detail"
