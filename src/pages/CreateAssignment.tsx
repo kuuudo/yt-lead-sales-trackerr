@@ -1,17 +1,10 @@
 import React, { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Loader2, Plus, X, Send, HelpCircle } from 'lucide-react';
+import { Loader2, Plus, Send, HelpCircle } from 'lucide-react';
 import { supabase } from '../lib/supabase';
 import { createAssignment } from '../services/assignment/createAssignment';
-import { inviteCollaborators } from '../services/assignment/inviteCollaborator';
+import { inviteCollaborator } from '../services/assignment/inviteCollaborator';
 import { useTutorial } from '../lib/tutorial-overlay';
-import {
-  listCampaignsForOrg,
-  listAssetsForCampaign,
-  type CampaignOption,
-  type AssetOption,
-} from '../services/assignment/listAssetsForAssignmentPicker';
-import { getElementTypeLabel, resolveThumbnail, resolveElementThumbnail } from '../lib/videoFormatters';
 import { AssetPicker } from '../services/assignment/AssetPicker';
 import {
   listVerifiedBrandedDomains,
@@ -29,11 +22,6 @@ export default function CreateAssignment() {
   const [title, setTitle] = useState('');
   const [description, setDescription] = useState('');
 
-  const [campaigns, setCampaigns] = useState<CampaignOption[]>([]);
-  const [selectedCampaignId, setSelectedCampaignId] = useState<string | null>(null);
-  const [assets, setAssets] = useState<AssetOption[]>([]);
-  const [selectedAssetIds, setSelectedAssetIds] = useState<Set<string>>(new Set());
-
   // --- New: Tracking Domains (Assignment configuration, NOT an Asset —
   // deliberately not routed through AssetPicker or any Asset-shaped
   // state. A plain checkbox list over the org's own verified domains). ---
@@ -46,18 +34,15 @@ export default function CreateAssignment() {
   const [librarySelectedAssetIds, setLibrarySelectedAssetIds] = useState<string[]>([]);
   const [draftLibrarySelection, setDraftLibrarySelection] = useState<string[]>([]);
 
-  const [emailInput, setEmailInput] = useState('');
-  const [emails, setEmails] = useState<string[]>([]);
+  const [email, setEmail] = useState('');
 
-  const [loadingCampaigns, setLoadingCampaigns] = useState(true);
-  const [loadingAssets, setLoadingAssets] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
     const init = async () => {
       const { data: { user } } = await supabase.auth.getUser();
-      if (!user) { setError('Not signed in'); setLoadingCampaigns(false); return; }
+      if (!user) { setError('Not signed in'); return; }
       setUserId(user.id);
 
       const { data: membership } = await supabase
@@ -69,33 +54,12 @@ export default function CreateAssignment() {
 
       if (!membership?.organization_id) {
         setError('No organization found for this user');
-        setLoadingCampaigns(false);
         return;
       }
       setOrganizationId(membership.organization_id);
-
-      try {
-        const orgCampaigns = await listCampaignsForOrg(membership.organization_id);
-        setCampaigns(orgCampaigns);
-        if (orgCampaigns.length > 0) setSelectedCampaignId(orgCampaigns[0].id);
-      } catch (e: any) {
-        setError(e.message);
-      } finally {
-        setLoadingCampaigns(false);
-      }
     };
     init();
   }, []);
-
-  useEffect(() => {
-    if (!selectedCampaignId || !userId) { setAssets([]); return; }
-    setLoadingAssets(true);
-    setSelectedAssetIds(new Set());
-    listAssetsForCampaign(selectedCampaignId, userId)
-      .then(setAssets)
-      .catch(e => setError(e.message))
-      .finally(() => setLoadingAssets(false));
-  }, [selectedCampaignId, userId]);
 
   // --- New: load this organization's verified Tracking Domains once
   // organizationId is known. Independent of Campaign/Asset selection —
@@ -108,15 +72,6 @@ export default function CreateAssignment() {
       .catch(e => setError(e.message))
       .finally(() => setLoadingDomains(false));
   }, [organizationId]);
-
-  const toggleAsset = (assetId: string) => {
-    setSelectedAssetIds(prev => {
-      const next = new Set(prev);
-      if (next.has(assetId)) next.delete(assetId);
-      else next.add(assetId);
-      return next;
-    });
-  };
 
   const toggleDomain = (domainId: string) => {
     setSelectedDomainIds(prev => {
@@ -143,32 +98,13 @@ export default function CreateAssignment() {
     setIsLibraryPickerOpen(false);
   };
 
-  const addEmail = () => {
-    const value = emailInput.trim().toLowerCase();
-    if (value && value.includes('@') && !emails.includes(value)) {
-      setEmails([...emails, value]);
-    }
-    setEmailInput('');
-  };
-
-  const removeEmail = (email: string) => {
-    setEmails(emails.filter(e => e !== email));
-  };
-
   const handleSubmit = async () => {
     if (!organizationId || !userId) return;
     setError(null);
 
-    // Combine both selection sources. De-duplicated in case the same asset_id
-    // is ever selectable via both paths (same org, could theoretically appear
-    // in both a Campaign's assets and the Library).
-    const combinedAssetIds = Array.from(
-      new Set([...selectedAssetIds, ...librarySelectedAssetIds])
-    );
-
     if (!title.trim()) return setError('Title is required');
-    if (combinedAssetIds.length === 0) return setError('Select at least one Asset');
-    if (emails.length === 0) return setError('Add at least one collaborator email');
+    if (librarySelectedAssetIds.length === 0) return setError('Select at least one Asset');
+    if (!email.trim()) return setError('Add a collaborator email');
 
     setSubmitting(true);
     try {
@@ -177,14 +113,11 @@ export default function CreateAssignment() {
         createdByUserId: userId,
         title,
         description: description || null,
-        assetIds: combinedAssetIds,
+        assetIds: librarySelectedAssetIds,
         domainIds: Array.from(selectedDomainIds),
       });
 
-      const { failed } = await inviteCollaborators(assignmentId, userId, emails);
-      if (failed.length > 0) {
-        console.warn('Some invitations failed:', failed);
-      }
+      await inviteCollaborator({ assignmentId, invitedByUserId: userId, invitedEmail: email });
 
       notifyTutorial('collab-assignment-created');
 
@@ -279,74 +212,7 @@ export default function CreateAssignment() {
         </div>
 
         <label className="block text-[10px] font-bold uppercase tracking-widest text-zinc-500 mb-2">
-          Campaign <span className="normal-case text-zinc-600">(filters the Asset list below only)</span>
-        </label>
-        {loadingCampaigns ? (
-          <div className="flex items-center gap-2 text-zinc-500 text-sm mb-6">
-            <Loader2 className="animate-spin" size={14} /> Loading campaigns…
-          </div>
-        ) : (
-          <select
-            value={selectedCampaignId ?? ''}
-            onChange={e => setSelectedCampaignId(e.target.value)}
-            className="w-full bg-zinc-900 border border-zinc-800 rounded-lg px-4 py-2 text-sm mb-6"
-          >
-            {campaigns.length === 0 && <option value="">No campaigns found</option>}
-            {campaigns.map(c => (
-              <option key={c.id} value={c.id}>{c.campaign_name ?? c.id}</option>
-            ))}
-          </select>
-        )}
-
-        <label className="block text-[10px] font-bold uppercase tracking-widest text-zinc-500 mb-2">
-          Authorized Assets
-        </label>
-        {loadingAssets ? (
-          <div className="flex items-center gap-2 text-zinc-500 text-sm mb-6">
-            <Loader2 className="animate-spin" size={14} /> Loading assets…
-          </div>
-        ) : (
-          <div className="space-y-2 mb-6">
-            {assets.length === 0 && (
-              <div className="text-zinc-600 text-sm border border-dashed border-zinc-800 rounded-lg p-4 text-center">
-                No assets in this Campaign
-              </div>
-            )}
-            {assets.map(asset => (
-              <label
-                key={asset.asset_id}
-                className="flex items-center gap-3 bg-zinc-900 border border-zinc-800 rounded-lg p-3 cursor-pointer hover:border-zinc-700"
-              >
-                <input
-                  type="checkbox"
-                  checked={selectedAssetIds.has(asset.asset_id)}
-                  onChange={() => toggleAsset(asset.asset_id)}
-                  className="accent-red-600"
-                />
-                <img
-                  src={asset.kind === 'campaign_element' ? resolveElementThumbnail(asset.element_type ?? '') : resolveThumbnail(asset)}
-                  alt=""
-                  className="w-16 h-9 object-cover rounded bg-zinc-950 shrink-0"
-                />
-                {asset.kind === 'video' ? (
-                  <span className="text-sm text-zinc-200">
-                    {asset.video_title ?? asset.asset_id}
-                  </span>
-                ) : (
-                  <span className="text-sm text-zinc-200">
-                    <span style={{ color: 'rgba(255, 69, 0, 0.7)' }}>{getElementTypeLabel(asset.element_type)}</span>
-                    <span className="text-zinc-600 mx-1">•</span>
-                    {asset.display_name}
-                  </span>
-                )}
-              </label>
-            ))}
-          </div>
-        )}
-
-        {/* --- New: Library Asset Picker (additive; existing Campaign flow above is unchanged) --- */}
-        <label className="block text-[10px] font-bold uppercase tracking-widest text-zinc-500 mb-2">
-          Choose Library Assets <span className="normal-case text-zinc-600">(optional, in addition to Campaign Assets above)</span>
+          Assets
         </label>
         <div className="flex items-center gap-3 mb-6">
           <button
@@ -400,36 +266,14 @@ export default function CreateAssignment() {
 
         <div data-tutorial-id="marketplace-invite-collaborators">
         <label className="block text-[10px] font-bold uppercase tracking-widest text-zinc-500 mb-2">
-          Invite Collaborators
+          Invite Collaborator
         </label>
-        <div className="flex gap-2 mb-3">
-          <input
-            value={emailInput}
-            onChange={e => setEmailInput(e.target.value)}
-            onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); addEmail(); } }}
-            placeholder="collaborator@email.com"
-            className="flex-1 bg-zinc-900 border border-zinc-800 rounded-lg px-4 py-2 text-sm"
-          />
-          <button
-            onClick={addEmail}
-            className="flex items-center gap-1 bg-zinc-800 hover:bg-zinc-700 text-white text-xs font-bold uppercase tracking-wider px-3 rounded-lg"
-          >
-            <Plus size={14} /> Add
-          </button>
-        </div>
-        <div className="flex flex-wrap gap-2 mb-8">
-          {emails.map(email => (
-            <span
-              key={email}
-              className="flex items-center gap-2 bg-zinc-900 border border-zinc-800 rounded-full px-3 py-1 text-xs text-zinc-300"
-            >
-              {email}
-              <button onClick={() => removeEmail(email)} className="text-zinc-500 hover:text-white">
-                <X size={12} />
-              </button>
-            </span>
-          ))}
-        </div>
+        <input
+          value={email}
+          onChange={e => setEmail(e.target.value)}
+          placeholder="collaborator@email.com"
+          className="w-full bg-zinc-900 border border-zinc-800 rounded-lg px-4 py-2 text-sm mb-8"
+        />
 
         </div>
 
