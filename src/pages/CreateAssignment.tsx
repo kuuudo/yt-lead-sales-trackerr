@@ -9,6 +9,18 @@ import { AssetPicker } from '../services/assignment/AssetPicker';
 
 type CreativeCreationMode = 'none' | 'campaign_asset_only' | 'campaign_links_and_assets';
 
+interface AssetPermissionState {
+  allowMarketerDomain: boolean;
+  allowSponsorDomain: boolean;
+  allowVstrkDomain: boolean;
+}
+
+const DEFAULT_PERMISSIONS: AssetPermissionState = {
+  allowMarketerDomain: false,
+  allowSponsorDomain: false,
+  allowVstrkDomain: false,
+};
+
 export default function CreateAssignment() {
   const navigate = useNavigate();
 
@@ -20,12 +32,12 @@ export default function CreateAssignment() {
   const [title, setTitle] = useState('');
   const [description, setDescription] = useState('');
 
-  // Assignment-level promotion method permissions (Sponsor intent only).
-  // Concrete domains are NOT selected here. Sponsor must never see
-  // Marketer domain names. Marketer chooses their actual branded domain later.
-  const [allowMarketerDomain, setAllowMarketerDomain] = useState(false);
-  const [allowSponsorDomain, setAllowSponsorDomain] = useState(false);
-  const [allowVstrkDomain, setAllowVstrkDomain] = useState(false);
+  // Per-asset promotion-method permissions.
+  // Keyed by asset_id. Only assets present in librarySelectedAssetIds
+  // should have entries; removing an asset removes its entry.
+  const [assetPermissions, setAssetPermissions] = useState<
+    Map<string, AssetPermissionState>
+  >(new Map());
 
   // Creative / Content Creation capability — Assignment-scoped.
   const [creativeCreationMode, setCreativeCreationMode] =
@@ -63,6 +75,19 @@ export default function CreateAssignment() {
     init();
   }, []);
 
+  // Keep assetPermissions Map in sync with librarySelectedAssetIds:
+  // - new asset → default false/false/false
+  // - removed asset → drop its entry
+  useEffect(() => {
+    setAssetPermissions(prev => {
+      const next = new Map<string, AssetPermissionState>();
+      for (const assetId of librarySelectedAssetIds) {
+        next.set(assetId, prev.get(assetId) ?? { ...DEFAULT_PERMISSIONS });
+      }
+      return next;
+    });
+  }, [librarySelectedAssetIds]);
+
   const openLibraryPicker = () => {
     setDraftLibrarySelection(librarySelectedAssetIds);
     setIsLibraryPickerOpen(true);
@@ -75,6 +100,19 @@ export default function CreateAssignment() {
   const confirmLibraryPicker = () => {
     setLibrarySelectedAssetIds(draftLibrarySelection);
     setIsLibraryPickerOpen(false);
+  };
+
+  const setAssetPermission = (
+    assetId: string,
+    key: keyof AssetPermissionState,
+    value: boolean
+  ) => {
+    setAssetPermissions(prev => {
+      const next = new Map(prev);
+      const current = next.get(assetId) ?? { ...DEFAULT_PERMISSIONS };
+      next.set(assetId, { ...current, [key]: value });
+      return next;
+    });
   };
 
   const handleSubmit = async () => {
@@ -92,14 +130,16 @@ export default function CreateAssignment() {
         createdByUserId: userId,
         title,
         description: description || null,
-        assetIds: librarySelectedAssetIds,
-        // No concrete domainIds — Sponsor no longer selects hostnames here.
-        // Existing assignment_tracking_domains infrastructure is unchanged
-        // and can still be populated later (Accept / Promotion setup / Assign Domain).
+        assetPermissions: librarySelectedAssetIds.map(assetId => {
+          const p = assetPermissions.get(assetId) ?? DEFAULT_PERMISSIONS;
+          return {
+            assetId,
+            allowMarketerDomain: p.allowMarketerDomain,
+            allowSponsorDomain: p.allowSponsorDomain,
+            allowVstrkDomain: p.allowVstrkDomain,
+          };
+        }),
         domainIds: [],
-        allowMarketerDomain,
-        allowSponsorDomain,
-        allowVstrkDomain,
         creativeCreationMode:
           creativeCreationMode === 'none' ? null : creativeCreationMode,
       });
@@ -210,46 +250,66 @@ export default function CreateAssignment() {
           </div>
         )}
 
-        {/* Promotion methods — abstract capabilities only. No hostnames. */}
-        <div data-tutorial-id="marketplace-promotion-methods" className="mb-6">
-          <label className="block text-[10px] font-bold uppercase tracking-widest text-zinc-500 mb-2">
-            How should the marketer promote this asset?
-          </label>
-          <div className="space-y-2">
-            <label className="flex items-center gap-3 bg-zinc-900 border border-zinc-800 rounded-lg p-3 cursor-pointer hover:border-zinc-700">
-              <input
-                type="checkbox"
-                checked={allowMarketerDomain}
-                onChange={e => setAllowMarketerDomain(e.target.checked)}
-                className="accent-red-600"
-              />
-              <span className="text-sm text-zinc-200">Marketer&apos;s tracking domain</span>
+        {/* Per-asset promotion methods — only after Assets are selected.
+            Each Asset gets its own independent checkbox group. */}
+        {librarySelectedAssetIds.length > 0 && (
+          <div data-tutorial-id="marketplace-promotion-methods" className="mb-6 space-y-4">
+            <label className="block text-[10px] font-bold uppercase tracking-widest text-zinc-500">
+              How should the marketer promote each asset?
             </label>
-            <label className="flex items-center gap-3 bg-zinc-900 border border-zinc-800 rounded-lg p-3 cursor-pointer hover:border-zinc-700">
-              <input
-                type="checkbox"
-                checked={allowSponsorDomain}
-                onChange={e => setAllowSponsorDomain(e.target.checked)}
-                className="accent-red-600"
-              />
-              <span className="text-sm text-zinc-200">Sponsor&apos;s tracking domain</span>
-            </label>
-            <label className="flex items-center gap-3 bg-zinc-900 border border-zinc-800 rounded-lg p-3 cursor-pointer hover:border-zinc-700">
-              <input
-                type="checkbox"
-                checked={allowVstrkDomain}
-                onChange={e => setAllowVstrkDomain(e.target.checked)}
-                className="accent-red-600"
-              />
-              <span className="text-sm text-zinc-200">VSTRK tracking domain</span>
-            </label>
+            {librarySelectedAssetIds.map(assetId => {
+              const p = assetPermissions.get(assetId) ?? DEFAULT_PERMISSIONS;
+              return (
+                <div
+                  key={assetId}
+                  className="bg-zinc-900 border border-zinc-800 rounded-lg p-4 space-y-2"
+                >
+                  <p className="text-xs font-bold text-zinc-300 truncate mb-1">
+                    Asset {assetId.slice(0, 8)}…
+                  </p>
+                  <label className="flex items-center gap-3 cursor-pointer hover:text-white">
+                    <input
+                      type="checkbox"
+                      checked={p.allowMarketerDomain}
+                      onChange={e =>
+                        setAssetPermission(assetId, 'allowMarketerDomain', e.target.checked)
+                      }
+                      className="accent-red-600"
+                    />
+                    <span className="text-sm text-zinc-200">Marketer&apos;s tracking domain</span>
+                  </label>
+                  <label className="flex items-center gap-3 cursor-pointer hover:text-white">
+                    <input
+                      type="checkbox"
+                      checked={p.allowSponsorDomain}
+                      onChange={e =>
+                        setAssetPermission(assetId, 'allowSponsorDomain', e.target.checked)
+                      }
+                      className="accent-red-600"
+                    />
+                    <span className="text-sm text-zinc-200">Sponsor&apos;s tracking domain</span>
+                  </label>
+                  <label className="flex items-center gap-3 cursor-pointer hover:text-white">
+                    <input
+                      type="checkbox"
+                      checked={p.allowVstrkDomain}
+                      onChange={e =>
+                        setAssetPermission(assetId, 'allowVstrkDomain', e.target.checked)
+                      }
+                      className="accent-red-600"
+                    />
+                    <span className="text-sm text-zinc-200">VSTRK tracking domain</span>
+                  </label>
+                </div>
+              );
+            })}
+            <p className="text-[10px] text-zinc-600">
+              The marketer chooses their actual branded domain later, when they set up the assignment.
+            </p>
           </div>
-          <p className="text-[10px] text-zinc-600 mt-2">
-            The marketer chooses their actual branded domain later, when they set up the assignment.
-          </p>
-        </div>
+        )}
 
-        {/* Creative / Content Creation capability */}
+        {/* Creative / Content Creation capability — Assignment-level */}
         <div data-tutorial-id="marketplace-content-creation" className="mb-6">
           <label className="block text-[10px] font-bold uppercase tracking-widest text-zinc-500 mb-2">
             Content Creation

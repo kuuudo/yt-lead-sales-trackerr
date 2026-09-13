@@ -22,14 +22,15 @@
  *   - Sending invitations (see inviteCollaborator.ts — called separately,
  *     once an assignmentId exists).
  *
- * UPDATE (Create Assignment v2):
- *   - Added Assignment-level promotion method permissions:
- *     allow_marketer_domain, allow_sponsor_domain, allow_vstrk_domain
- *   - Added creative_creation_mode
+ * UPDATE (Create Assignment v2 — corrected grain):
+ *   - creative_creation_mode lives on assignments (Assignment-level).
+ *   - allow_marketer_domain / allow_sponsor_domain / allow_vstrk_domain
+ *     live on assignment_assets (per asset_id within the Assignment).
  *   - Create Assignment UI no longer selects concrete Sponsor hostnames.
  *     domainIds may still be supplied by later flows; empty is the normal
  *     Create Assignment path. assignment_tracking_domains infrastructure
  *     is unchanged.
+ *   - The mistakenly-added assignments.allow_* columns are NOT written.
  */
 
 import { supabase } from '../../lib/supabase';
@@ -37,32 +38,33 @@ import { resolvePromotionCampaign } from '../asset/resolvePromotionCampaign';
 import { resolveAssetType } from '../asset/resolveAssetType';
 import { ensureResourcePromotionCampaign } from '../asset/ensureResourcePromotionCampaign';
 
+export interface AssetPromotionPermission {
+  assetId: string;
+  allowMarketerDomain: boolean;
+  allowSponsorDomain: boolean;
+  allowVstrkDomain: boolean;
+}
+
 export interface CreateAssignmentInput {
   organizationId: string;
   createdByUserId: string;
   title: string;
   description?: string | null;
-  assetIds: string[];
   /**
-   * Assignment-level configuration, NOT Asset authorization — a
-   * completely separate concern from assetIds above. Optional; an
-   * empty/omitted array is a valid state (Assignment created with no
-   * Tracking Domains shared). See assignment_tracking_domains.
-   *
-   * Create Assignment v2 no longer writes concrete domains from the
-   * Sponsor UI. domainIds may still be supplied by later flows
-   * (Accept / Promotion setup / Assign Domain). Empty is the normal
-   * Create Assignment path.
+   * Per-asset promotion-method permissions. assetIds are derived from this
+   * list. Each entry becomes one assignment_assets row with its three
+   * allow_* flags.
+   */
+  assetPermissions: AssetPromotionPermission[];
+  /**
+   * Assignment-level configuration, NOT Asset authorization.
+   * Create Assignment v2 normally passes []. Concrete domains may still
+   * be attached later via Assign Tracking Domain / Accept flows.
+   * See assignment_tracking_domains.
    */
   domainIds?: string[];
-  /** Sponsor allows Marketer to use their own branded tracking domain. */
-  allowMarketerDomain?: boolean;
-  /** Sponsor allows use of Sponsor tracking domains for this Assignment. */
-  allowSponsorDomain?: boolean;
-  /** Sponsor allows VSTRK tracking domain as a promotion method. */
-  allowVstrkDomain?: boolean;
   /**
-   * Content creation capability for this Assignment.
+   * Content creation capability for this Assignment (Assignment-level).
    * null / omitted / 'none' = no content creation capability.
    */
   creativeCreationMode?: 'none' | 'campaign_asset_only' | 'campaign_links_and_assets' | null;
@@ -77,19 +79,19 @@ export async function createAssignment({
   createdByUserId,
   title,
   description = null,
-  assetIds,
+  assetPermissions,
   domainIds = [],
-  allowMarketerDomain = false,
-  allowSponsorDomain = false,
-  allowVstrkDomain = false,
   creativeCreationMode = null,
 }: CreateAssignmentInput): Promise<CreateAssignmentResult> {
   if (!title.trim()) {
     throw new Error('Assignment title is required');
   }
-  if (assetIds.length === 0) {
+  if (!assetPermissions || assetPermissions.length === 0) {
     throw new Error('At least one Asset must be selected');
   }
+
+  const assetIds = assetPermissions.map(p => p.assetId);
+
   // --------------------------------------------------
   // Rule A:
   //
@@ -108,9 +110,6 @@ export async function createAssignment({
       continue;
     }
 
-    // No existing provenance anywhere — the only asset type allowed to
-    // recover from this is a Resource Asset, which gets a system-campaign
-    // home created on demand (idempotent — safe if called again later).
     const { assetType } = await resolveAssetType(assetId);
 
     if (assetType === 'resource') {
@@ -132,11 +131,12 @@ export async function createAssignment({
       description,
       status: 'active',
       visibility: 'private',
-      allow_marketer_domain: allowMarketerDomain,
-      allow_sponsor_domain: allowSponsorDomain,
-      allow_vstrk_domain: allowVstrkDomain,
       creative_creation_mode:
         creativeCreationMode === 'none' ? null : creativeCreationMode,
+      // Do NOT write assignments.allow_marketer_domain /
+      // allow_sponsor_domain / allow_vstrk_domain — those columns were
+      // added by mistake and remain unused. Permissions live on
+      // assignment_assets.
     })
     .select('id')
     .single();
@@ -147,22 +147,25 @@ export async function createAssignment({
 
   const { error: assetsErr } = await supabase
     .from('assignment_assets')
-    .insert(assetIds.map(assetId => ({ assignment_id: assignment.id, asset_id: assetId })));
+    .insert(
+      assetPermissions.map(p => ({
+        assignment_id: assignment.id,
+        asset_id: p.assetId,
+        allow_marketer_domain: p.allowMarketerDomain,
+        allow_sponsor_domain: p.allowSponsorDomain,
+        allow_vstrk_domain: p.allowVstrkDomain,
+      }))
+    );
 
   if (assetsErr) {
-    // Compensate: the Assignment has no invitations/collaborators yet
-    // (this is the very first write in its lifecycle), so it's safe to
-    // delete outright — same pattern as createVideo.ts / createPromotion.ts.
     await supabase.from('assignments').delete().eq('id', assignment.id);
     throw new Error(`Failed to attach assets to Assignment: ${assetsErr.message}`);
   }
 
   // --------------------------------------------------
-  // Tracking Domains: Assignment configuration, NOT Asset authorization.
-  // Deliberately a separate insert into its own table
-  // (assignment_tracking_domains), not folded into assignment_assets
-  // above. Zero domains selected is valid — this block is skipped
-  // entirely in that case. Create Assignment v2 normally passes [].
+  // Tracking Domains: optional concrete Sponsor domain grants.
+  // Zero domains is valid — block skipped. Create Assignment v2
+  // normally passes [].
   // --------------------------------------------------
 
   if (domainIds.length > 0) {
@@ -176,8 +179,6 @@ export async function createAssignment({
       );
 
     if (domainsErr) {
-      // Same compensation reasoning as the assets insert above: no
-      // invitations/collaborators exist yet, safe to delete outright.
       await supabase.from('assignments').delete().eq('id', assignment.id);
       throw new Error(`Failed to attach tracking domains to Assignment: ${domainsErr.message}`);
     }
