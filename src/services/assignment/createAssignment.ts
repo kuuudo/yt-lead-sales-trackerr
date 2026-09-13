@@ -20,30 +20,16 @@
  *
  * NOT responsible for:
  *   - Sending invitations (see inviteCollaborator.ts — called separately,
- *     once an assignmentId exists)..
+ *     once an assignmentId exists).
  *
- * UPDATE (Gate 1 / Gate 2 provenance alignment): Rule A previously used
- * resolveAssetCampaign() alone, which rejected any asset with no existing
- * campaign relationship — including Resource Assets, which intentionally
- * have no native campaign provenance (see asset_resources). This meant a
- * valid, promotable Resource Asset could never even enter an Assignment,
- * even though getAssignmentDetail.ts (Gate 2, at START PROMOTING time)
- * already knows how to give Resource Assets a campaign home via
- * ensureResourcePromotionCampaign().
- *
- * Gate 1 now shares the exact same resolver functions as Gate 2:
- *   1. resolvePromotionCampaign(assetId) — read-only, checks
- *      campaign_assets, then the asset's own type-specific source of
- *      truth (videos.campaign_id / campaign_element_assets.campaign_id).
- *   2. If that returns null AND the asset is a Resource Asset —
- *      ensureResourcePromotionCampaign(assetId) is called, which
- *      idempotently links it to the organization's 'ONLY PROMOTE ASSET'
- *      system campaign and returns that campaign_id.
- *   3. If still null (non-resource asset with no provenance anywhere) —
- *      reject, same as before.
- *
- * This does not change asset creation, asset schema, createVideo.ts, or
- * addToLibrary.ts — only what Gate 1 is willing to accept.
+ * UPDATE (Create Assignment v2):
+ *   - Added Assignment-level promotion method permissions:
+ *     allow_marketer_domain, allow_sponsor_domain, allow_vstrk_domain
+ *   - Added creative_creation_mode
+ *   - Create Assignment UI no longer selects concrete Sponsor hostnames.
+ *     domainIds may still be supplied by later flows; empty is the normal
+ *     Create Assignment path. assignment_tracking_domains infrastructure
+ *     is unchanged.
  */
 
 import { supabase } from '../../lib/supabase';
@@ -62,8 +48,24 @@ export interface CreateAssignmentInput {
    * completely separate concern from assetIds above. Optional; an
    * empty/omitted array is a valid state (Assignment created with no
    * Tracking Domains shared). See assignment_tracking_domains.
+   *
+   * Create Assignment v2 no longer writes concrete domains from the
+   * Sponsor UI. domainIds may still be supplied by later flows
+   * (Accept / Promotion setup / Assign Domain). Empty is the normal
+   * Create Assignment path.
    */
   domainIds?: string[];
+  /** Sponsor allows Marketer to use their own branded tracking domain. */
+  allowMarketerDomain?: boolean;
+  /** Sponsor allows use of Sponsor tracking domains for this Assignment. */
+  allowSponsorDomain?: boolean;
+  /** Sponsor allows VSTRK tracking domain as a promotion method. */
+  allowVstrkDomain?: boolean;
+  /**
+   * Content creation capability for this Assignment.
+   * null / omitted / 'none' = no content creation capability.
+   */
+  creativeCreationMode?: 'none' | 'campaign_asset_only' | 'campaign_links_and_assets' | null;
 }
 
 export interface CreateAssignmentResult {
@@ -77,6 +79,10 @@ export async function createAssignment({
   description = null,
   assetIds,
   domainIds = [],
+  allowMarketerDomain = false,
+  allowSponsorDomain = false,
+  allowVstrkDomain = false,
+  creativeCreationMode = null,
 }: CreateAssignmentInput): Promise<CreateAssignmentResult> {
   if (!title.trim()) {
     throw new Error('Assignment title is required');
@@ -126,6 +132,11 @@ export async function createAssignment({
       description,
       status: 'active',
       visibility: 'private',
+      allow_marketer_domain: allowMarketerDomain,
+      allow_sponsor_domain: allowSponsorDomain,
+      allow_vstrk_domain: allowVstrkDomain,
+      creative_creation_mode:
+        creativeCreationMode === 'none' ? null : creativeCreationMode,
     })
     .select('id')
     .single();
@@ -151,8 +162,7 @@ export async function createAssignment({
   // Deliberately a separate insert into its own table
   // (assignment_tracking_domains), not folded into assignment_assets
   // above. Zero domains selected is valid — this block is skipped
-  // entirely in that case, same as how librarySelectedAssetIds being
-  // empty is a normal, expected state on the UI side.
+  // entirely in that case. Create Assignment v2 normally passes [].
   // --------------------------------------------------
 
   if (domainIds.length > 0) {
