@@ -137,7 +137,7 @@ function Navigation() {
   const links = [
     { to: '/dashboard', icon: LayoutDashboard, label: t.nav.dashboard },
     { to: '/campaigns', icon: Briefcase, label: t.nav.campaigns, children: [
-      { to: '/campaigns/analytics', label: 'Campaign Analytics' },
+      { to: '/pages/InDepthAnalytics', label: 'Campaign Analytics' },
       { to: '/installation', label: t.nav.installation || 'Setup' },
     ] },
     { to: '/videos', icon: Video, label: t.nav.videos, children: [
