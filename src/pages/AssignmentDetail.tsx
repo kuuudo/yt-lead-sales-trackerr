@@ -18,6 +18,21 @@ export default function AssignmentDetail() {
   const [starting, setStarting] = useState(false);
 
   const [selectedAssetIds, setSelectedAssetIds] = useState<Set<string>>(new Set());
+
+  // Path B: actual usage per selected asset (not permission).
+  // Defaults: marketer=false, sponsor=null, vstrk=false. Allowed ≠ used.
+  type AssetUsageState = {
+    useMarketerDomain: boolean;
+    selectedSponsorDomainId: string | null;
+    useVstrkDomain: boolean;
+  };
+  const DEFAULT_USAGE: AssetUsageState = {
+    useMarketerDomain: false,
+    selectedSponsorDomainId: null,
+    useVstrkDomain: false,
+  };
+  const [assetUsageById, setAssetUsageById] = useState<Map<string, AssetUsageState>>(new Map());
+
   const { notify: notifyTutorial } = useTutorial();
   const load = async () => {
     if (!assignmentId) return;
@@ -64,6 +79,24 @@ export default function AssignmentDetail() {
       else next.add(assetId);
       return next;
     });
+    setAssetUsageById(prev => {
+      const next = new Map(prev);
+      if (next.has(assetId)) next.delete(assetId);
+      else next.set(assetId, { ...DEFAULT_USAGE });
+      return next;
+    });
+  };
+
+  const setAssetUsage = (
+    assetId: string,
+    patch: Partial<AssetUsageState>
+  ) => {
+    setAssetUsageById(prev => {
+      const next = new Map(prev);
+      const current = next.get(assetId) ?? { ...DEFAULT_USAGE };
+      next.set(assetId, { ...current, ...patch });
+      return next;
+    });
   };
 
   const handleStartPromoting = async () => {
@@ -84,11 +117,22 @@ export default function AssignmentDetail() {
   setStarting(true);
     setError(null);
     try {
+      const p_asset_usage = Array.from(selectedAssetIds).map(assetId => {
+        const u = assetUsageById.get(assetId) ?? DEFAULT_USAGE;
+        return {
+          asset_id: assetId,
+          use_marketer_domain: u.useMarketerDomain,
+          selected_sponsor_domain_id: u.selectedSponsorDomainId,
+          use_vstrk_domain: u.useVstrkDomain,
+        };
+      });
+
       const { data: promotionId, error: rpcError } = await supabase.rpc('create_promotion', {
         p_organization_id: data.assignment.organization_id,
         p_campaign_id: promotionCampaignId,
         p_asset_ids: Array.from(selectedAssetIds),
         p_assignment_collaborator_id: data.myCollaboratorId,
+        p_asset_usage,
       });
 
       if (rpcError || !promotionId) {
@@ -242,47 +286,114 @@ export default function AssignmentDetail() {
         </label>
 
         <div className="space-y-2 mb-6" data-tutorial-id="assignment-select-assets">
-          {assignmentAssets.map(asset => (
-            <label
-              key={asset.asset_id}
-              className="flex items-center gap-3 bg-zinc-900 border border-zinc-800 rounded-lg p-3 cursor-pointer hover:border-zinc-700"
-            >
-              <input
-                type="checkbox"
-                checked={selectedAssetIds.has(asset.asset_id)}
-                onChange={() => toggleAsset(asset.asset_id)}
-                className="accent-red-600"
-              />
+          {assignmentAssets.map(asset => {
+            const selected = selectedAssetIds.has(asset.asset_id);
+            const usage = assetUsageById.get(asset.asset_id) ?? DEFAULT_USAGE;
+            return (
+              <div
+                key={asset.asset_id}
+                className="bg-zinc-900 border border-zinc-800 rounded-lg p-3 hover:border-zinc-700"
+              >
+                <label className="flex items-center gap-3 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={selected}
+                    onChange={() => toggleAsset(asset.asset_id)}
+                    className="accent-red-600"
+                  />
 
-              <img
-                src={
-                  asset.kind === 'campaign_element'
-                    ? resolveElementThumbnail(asset.element_type ?? '')
-                    : resolveThumbnail(asset)
-                }
-                alt=""
-                className="w-16 h-9 object-cover rounded bg-zinc-950 shrink-0"
-              />
+                  <img
+                    src={
+                      asset.kind === 'campaign_element'
+                        ? resolveElementThumbnail(asset.element_type ?? '')
+                        : resolveThumbnail(asset)
+                    }
+                    alt=""
+                    className="w-16 h-9 object-cover rounded bg-zinc-950 shrink-0"
+                  />
 
-              <span className="text-sm text-zinc-200">
-                {asset.kind === 'campaign_element' ? (
-                  <>
-                    <span style={{ color: 'rgba(255, 69, 0, 0.7)' }}>
-                      {asset.element_type
-                        ? getElementTypeLabel(asset.element_type)
-                        : 'Asset'}
-                    </span>
+                  <span className="text-sm text-zinc-200">
+                    {asset.kind === 'campaign_element' ? (
+                      <>
+                        <span style={{ color: 'rgba(255, 69, 0, 0.7)' }}>
+                          {asset.element_type
+                            ? getElementTypeLabel(asset.element_type)
+                            : 'Asset'}
+                        </span>
 
-                    <span className="text-zinc-600 mx-1">•</span>
+                        <span className="text-zinc-600 mx-1">•</span>
 
-                    {asset.display_name}
-                  </>
-                ) : (
-                  asset.video_title ?? asset.asset_id
+                        {asset.display_name}
+                      </>
+                    ) : (
+                      asset.video_title ?? asset.asset_id
+                    )}
+                  </span>
+                </label>
+
+                {selected && (
+                  <div className="mt-3 ml-8 space-y-2 border-t border-zinc-800 pt-3">
+                    <p className="text-[10px] font-bold uppercase tracking-widest text-zinc-500">
+                      Promotion methods
+                    </p>
+                    {asset.allow_marketer_domain && (
+                      <label className="flex items-center gap-2 cursor-pointer">
+                        <input
+                          type="checkbox"
+                          checked={usage.useMarketerDomain}
+                          onChange={e =>
+                            setAssetUsage(asset.asset_id, {
+                              useMarketerDomain: e.target.checked,
+                            })
+                          }
+                          className="accent-red-600"
+                        />
+                        <span className="text-xs text-zinc-300">Use my tracking domain</span>
+                      </label>
+                    )}
+                    {asset.allow_sponsor_domain && (
+                      <div className="space-y-1">
+                        <label className="block text-[10px] font-bold uppercase tracking-widest text-zinc-500">
+                          Sponsor tracking domain
+                        </label>
+                        <select
+                          value={usage.selectedSponsorDomainId ?? ''}
+                          onChange={e =>
+                            setAssetUsage(asset.asset_id, {
+                              selectedSponsorDomainId: e.target.value || null,
+                            })
+                          }
+                          className="w-full bg-zinc-950 border border-zinc-800 rounded-lg px-3 py-2 text-xs text-zinc-100"
+                        >
+                          <option value="">None</option>
+                          {data.trackingDomains.map(d => (
+                            <option key={d.id} value={d.id}>
+                              {d.hostname}
+                            </option>
+                          ))}
+                        </select>
+                      </div>
+                    )}
+                    {asset.allow_vstrk_domain && (
+                      <label className="flex items-center gap-2 cursor-pointer">
+                        <input
+                          type="checkbox"
+                          checked={usage.useVstrkDomain}
+                          onChange={e =>
+                            setAssetUsage(asset.asset_id, {
+                              useVstrkDomain: e.target.checked,
+                            })
+                          }
+                          className="accent-red-600"
+                        />
+                        <span className="text-xs text-zinc-300">Use VSTRK</span>
+                      </label>
+                    )}
+                  </div>
                 )}
-              </span>
-            </label>
-          ))}
+              </div>
+            );
+          })}
         </div>
 
         <button
