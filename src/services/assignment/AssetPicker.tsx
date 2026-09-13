@@ -79,10 +79,20 @@ import {
   type CampaignElementType,
 } from '../../lib/videoFormatters';
 
+/** Display fields for one selected asset — derived from AssetPicker's internal row. */
+export interface AssetPickerSelectedItem {
+  assetId: string;
+  title: string;
+  thumbnail: string | null;
+}
+
 export interface AssetPickerProps {
   organizationId: string;
-  /** Called every time the selection changes, with the full current set of selected asset IDs. */
-  onSelectionChange: (selectedAssetIds: string[]) => void;
+  /**
+   * Called every time the selection changes, with the full current set of
+   * selected assets (id + title + thumbnail for parent display cards).
+   */
+  onSelectionChange: (selectedAssets: AssetPickerSelectedItem[]) => void;
   /** Optional: pre-select assets (e.g. when re-opening a draft). */
   initialSelectedAssetIds?: string[];
 }
@@ -258,7 +268,13 @@ export function AssetPicker({
       } else {
         next.set(row.assetId, row);
       }
-      onSelectionChange(Array.from(next.keys()));
+      onSelectionChange(
+        Array.from(next.values()).map(row => ({
+          assetId: row.assetId,
+          title: row.title,
+          thumbnail: row.thumbnail,
+        }))
+      );
       return next;
     });
   }
