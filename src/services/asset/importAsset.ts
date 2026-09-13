@@ -27,6 +27,7 @@ import { identifyResource } from './identifyResource';
 import { extractMetadata } from './extractMetadata';
 import { createAsset } from './createAsset';
 import { createAssetResource, type AssetResource } from './createAssetResource';
+import { listCampaignsForAssetImport } from '../campaign/listCampaignsForAssetImport';
 import type { ResourceType } from '../../lib/videoFormatters';
 
 export interface ImportAssetInput {
@@ -36,8 +37,8 @@ export interface ImportAssetInput {
   /** Required only when identifyResource() returns resourceType: null. */
   manualResourceType?: ResourceType;
   organizationId: string;
-  /** Campaign to attribute this Resource Asset to. Omitted/null = General Library. */
-  campaignId?: string | null;
+  /** Campaign this Resource Asset belongs to. Required — LOCKED RULE: every Asset must belong to exactly one Campaign. */
+  campaignId: string;
 }
 
 export interface ImportAssetResult {
@@ -49,12 +50,24 @@ export async function importAsset({
   assetName,
   manualResourceType,
   organizationId,
-  campaignId = null,
+  campaignId,
 }: ImportAssetInput): Promise<ImportAssetResult> {
   // 1. Validate — the ONLY step allowed to reject (Design Lock §1).
   const validation = validateUrl(url);
   if (!validation.valid) {
     throw new Error(validation.reason);
+  }
+
+  // 1b. Campaign is required (LOCKED RULE) and must belong to this
+  // organization. Enforced here — not only in the UI — since this is the
+  // single entry point for Import Asset regardless of caller. Reuses the
+  // existing org-scoped campaign query rather than a new one.
+  if (!campaignId) {
+    throw new Error('A Campaign is required to import an Asset.');
+  }
+  const orgCampaigns = await listCampaignsForAssetImport(organizationId);
+  if (!orgCampaigns.some(c => c.id === campaignId)) {
+    throw new Error('Selected Campaign is invalid or does not belong to this organization.');
   }
 
   // 2. Identify — never throws.

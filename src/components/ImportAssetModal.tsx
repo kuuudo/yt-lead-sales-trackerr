@@ -58,6 +58,7 @@ export function ImportAssetModal({ onClose, onImported }: ImportAssetModalProps)
 
   const handleImport = async () => {
     if (!organizationId) return;
+    if (!campaignId) { setError('Please select a Campaign.'); return; }
     setSubmitting(true);
     setError(null);
     try {
@@ -131,7 +132,7 @@ export function ImportAssetModal({ onClose, onImported }: ImportAssetModalProps)
           onChange={e => setCampaignId(e.target.value || null)}
           className="w-full bg-zinc-950 border border-zinc-800 rounded-lg px-3 py-2 text-sm mb-4"
         >
-          <option value="">General Library</option>
+          <option value="" disabled>Select a Campaign</option>
           {campaigns.map(c => (
             <option key={c.id} value={c.id}>{c.campaign_name}</option>
           ))}
@@ -158,7 +159,7 @@ export function ImportAssetModal({ onClose, onImported }: ImportAssetModalProps)
         <button
           data-tutorial-id="import-asset-submit"
           onClick={handleImport}
-          disabled={submitting || !url.trim()}
+          disabled={submitting || !url.trim() || !campaignId}
           className="w-full flex items-center justify-center gap-2 bg-red-600 hover:bg-red-500 disabled:opacity-50 text-white text-xs font-bold uppercase tracking-wider px-4 py-3 rounded-lg"
         >
           {submitting ? <Loader2 className="animate-spin" size={14} /> : <Rocket size={14} />}

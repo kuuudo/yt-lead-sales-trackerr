@@ -24,7 +24,8 @@ export interface CreateAssetResourceInput {
   url: string;
   title: string | null;
   thumbnailUrl: string | null;
-  campaignId?: string | null;
+  /** Required — LOCKED RULE: every Asset must belong to exactly one Campaign. */
+  campaignId: string;
 }
 
 export interface AssetResource {
@@ -53,8 +54,12 @@ export async function createAssetResource({
   url,
   title,
   thumbnailUrl,
-  campaignId = null,
+  campaignId,
 }: CreateAssetResourceInput): Promise<AssetResource> {
+  if (!campaignId) {
+    throw new Error('campaignId is required — every Asset must belong to exactly one Campaign.');
+  }
+
   const { data, error } = await supabase
     .from('asset_resources')
     .insert([{
