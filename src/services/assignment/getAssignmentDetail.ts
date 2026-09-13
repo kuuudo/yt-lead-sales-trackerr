@@ -32,6 +32,15 @@
  * This does NOT change asset creation, asset schema, createVideo.ts, or
  * addToLibrary.ts. Those remain untouched — this file only widens what
  * START PROMOTING is able to recognize as a valid promotion campaign.
+ *
+ * UPDATE (Path B — Start Promoting usage gates):
+ * AssignmentAssetOption now surfaces assignment_assets.allow_marketer_domain,
+ * allow_sponsor_domain, allow_vstrk_domain (Sponsor capability only; not
+ * actual usage). trackingDomains: when the viewer is an active collaborator,
+ * the list is revoke-filtered via listAssignmentTrackingDomainsForCollaborator
+ * so Sponsor-domain pickers cannot offer revoked domains; when not a
+ * collaborator, the unfiltered Assignment-wide list is returned (unchanged
+ * for Sponsor-facing read-only display).
  */
 
 import { supabase } from '../../lib/supabase';
@@ -53,6 +62,10 @@ export interface AssignmentAssetOption {
   display_name?: string;
   element_type?: CampaignElementType;
   resource_type?: ResourceType;
+  /** Sponsor capability on this Assignment×Asset — not actual usage. */
+  allow_marketer_domain: boolean;
+  allow_sponsor_domain: boolean;
+  allow_vstrk_domain: boolean;
 }
 
 export interface CampaignGroup {
@@ -201,7 +214,7 @@ export async function getAssignmentDetail(
     { data: invitation, error: invitationErr },
     { data: collaborator, error: collaboratorErr },
     { data: assignmentAssetRows, error: assetsErr },
-    trackingDomains,
+    allTrackingDomains,
   ] = await Promise.all([
     supabase
       .from('assignment_invitations')
@@ -220,9 +233,9 @@ export async function getAssignmentDetail(
       .maybeSingle(),
     supabase
       .from('assignment_assets')
-      .select('asset_id')
+      .select('asset_id, allow_marketer_domain, allow_sponsor_domain, allow_vstrk_domain')
       .eq('assignment_id', assignmentId),
-    // Shared implementation — see listAssignmentTrackingDomains() above.
+    // Assignment-wide list first; may be revoke-filtered below for collaborators.
     listAssignmentTrackingDomains(assignmentId),
   ]);
 
@@ -230,7 +243,25 @@ export async function getAssignmentDetail(
   if (collaboratorErr) throw new Error(`Collaborator query failed: ${collaboratorErr.message}`);
   if (assetsErr) throw new Error(`Assignment assets query failed: ${assetsErr.message}`);
 
+  // Marketer (active collaborator): selectable Sponsor domains must exclude
+  // domains revoked for this collaborator. Non-collaborator (e.g. Sponsor
+  // viewing the Assignment): keep the unfiltered Assignment-wide list.
+  const trackingDomains =
+    collaborator?.id
+      ? await listAssignmentTrackingDomainsForCollaborator(assignmentId, collaborator.id)
+      : allTrackingDomains;
+
   const assetIds = (assignmentAssetRows ?? []).map(r => r.asset_id);
+  const allowByAssetId = new Map(
+    (assignmentAssetRows ?? []).map((r: any) => [
+      r.asset_id as string,
+      {
+        allow_marketer_domain: !!r.allow_marketer_domain,
+        allow_sponsor_domain: !!r.allow_sponsor_domain,
+        allow_vstrk_domain: !!r.allow_vstrk_domain,
+      },
+    ])
+  );
 
   let assignmentAssets: AssignmentAssetOption[] = [];
   let campaignGroups: CampaignGroup[] = [];
@@ -267,6 +298,11 @@ export async function getAssignmentDetail(
     const resourceByAsset = new Map((resourceRows ?? []).map(r => [r.asset_id, r]));
 
     const toAssetOption = (assetId: string): AssignmentAssetOption => {
+      const allows = allowByAssetId.get(assetId) ?? {
+        allow_marketer_domain: false,
+        allow_sponsor_domain: false,
+        allow_vstrk_domain: false,
+      };
       const element = elementByAsset.get(assetId);
       if (element) {
         return {
@@ -276,6 +312,7 @@ export async function getAssignmentDetail(
           thumbnail_url: resolveElementThumbnail(element.element_type),
           display_name: element.display_name,
           element_type: element.element_type,
+          ...allows,
         };
       }
       const video = videoByAsset.get(assetId);
@@ -285,6 +322,7 @@ export async function getAssignmentDetail(
           kind: 'video',
           video_title: video.video_title ?? null,
           thumbnail_url: video.thumbnail_url ?? null,
+          ...allows,
         };
       }
       const resource = resourceByAsset.get(assetId);
@@ -299,6 +337,7 @@ export async function getAssignmentDetail(
             platform: resource.platform,
           }),
           resource_type: resource.resource_type,
+          ...allows,
         };
       }
       return {
@@ -306,6 +345,7 @@ export async function getAssignmentDetail(
         kind: 'video',
         video_title: null,
         thumbnail_url: null,
+        ...allows,
       };
     };
 
