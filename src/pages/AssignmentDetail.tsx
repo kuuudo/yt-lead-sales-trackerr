@@ -6,6 +6,10 @@ import { getAssignmentDetail, type AssignmentDetailData } from '../services/assi
 import { acceptInvitation } from '../services/assignment/acceptInvitation';
 import { useTutorial } from '../lib/tutorial-overlay';
 import { getElementTypeLabel, resolveThumbnail, resolveElementThumbnail } from '../lib/videoFormatters';
+import {
+  listVerifiedBrandedDomains,
+  type VerifiedDomainOption,
+} from '../services/domain/brandedDomains';
 
 export default function AssignmentDetail() {
   const { assignmentId } = useParams<{ assignmentId: string }>();
@@ -19,19 +23,17 @@ export default function AssignmentDetail() {
 
   const [selectedAssetIds, setSelectedAssetIds] = useState<Set<string>>(new Set());
 
-  // Path B: actual usage per selected asset (not permission).
-  // Defaults: marketer=false, sponsor=null, vstrk=false. Allowed ≠ used.
+  // Path B: actual usage per selected asset.
+  // Marketer/VSTRK usage is LOCKED from allow_* (Sponsor decision).
+  // Only selectedSponsorDomainId is Marketer-chosen (when allow_sponsor_domain).
   type AssetUsageState = {
     useMarketerDomain: boolean;
     selectedSponsorDomainId: string | null;
     useVstrkDomain: boolean;
   };
-  const DEFAULT_USAGE: AssetUsageState = {
-    useMarketerDomain: false,
-    selectedSponsorDomainId: null,
-    useVstrkDomain: false,
-  };
   const [assetUsageById, setAssetUsageById] = useState<Map<string, AssetUsageState>>(new Map());
+  // Sponsor org verified domains — NOT assignment_tracking_domains.
+  const [sponsorVerifiedDomains, setSponsorVerifiedDomains] = useState<VerifiedDomainOption[]>([]);
 
   const { notify: notifyTutorial } = useTutorial();
   const load = async () => {
@@ -59,6 +61,24 @@ export default function AssignmentDetail() {
 
   useEffect(() => { load(); }, [assignmentId]);
 
+  // Sponsor branded domains for the Assignment org (Sponsor), not Marketer org.
+  useEffect(() => {
+    if (!data?.myCollaboratorId || !data.assignment.organization_id) {
+      setSponsorVerifiedDomains([]);
+      return;
+    }
+    let cancelled = false;
+    listVerifiedBrandedDomains(data.assignment.organization_id)
+      .then(domains => {
+        if (!cancelled) setSponsorVerifiedDomains(domains);
+      })
+      .catch(e => {
+        console.error('Failed to load Sponsor verified domains', e);
+        if (!cancelled) setSponsorVerifiedDomains([]);
+      });
+    return () => { cancelled = true; };
+  }, [data?.myCollaboratorId, data?.assignment.organization_id]);
+
   const handleAccept = async (invitationId: string) => {
     setAccepting(true);
     try {
@@ -73,6 +93,7 @@ export default function AssignmentDetail() {
   };
 
   const toggleAsset = (assetId: string) => {
+    const asset = data?.assignmentAssets.find(a => a.asset_id === assetId);
     setSelectedAssetIds(prev => {
       const next = new Set(prev);
       if (next.has(assetId)) next.delete(assetId);
@@ -81,20 +102,27 @@ export default function AssignmentDetail() {
     });
     setAssetUsageById(prev => {
       const next = new Map(prev);
-      if (next.has(assetId)) next.delete(assetId);
-      else next.set(assetId, { ...DEFAULT_USAGE });
+      if (next.has(assetId)) {
+        next.delete(assetId);
+      } else {
+        // Locked methods follow Sponsor allow_*; sponsor domain choice starts null.
+        next.set(assetId, {
+          useMarketerDomain: !!asset?.allow_marketer_domain,
+          selectedSponsorDomainId: null,
+          useVstrkDomain: !!asset?.allow_vstrk_domain,
+        });
+      }
       return next;
     });
   };
 
-  const setAssetUsage = (
-    assetId: string,
-    patch: Partial<AssetUsageState>
-  ) => {
+  // Only Sponsor-domain selection is mutable by Marketer.
+  const setSelectedSponsorDomain = (assetId: string, domainId: string | null) => {
     setAssetUsageById(prev => {
       const next = new Map(prev);
-      const current = next.get(assetId) ?? { ...DEFAULT_USAGE };
-      next.set(assetId, { ...current, ...patch });
+      const current = next.get(assetId);
+      if (!current) return prev;
+      next.set(assetId, { ...current, selectedSponsorDomainId: domainId });
       return next;
     });
   };
@@ -118,12 +146,16 @@ export default function AssignmentDetail() {
     setError(null);
     try {
       const p_asset_usage = Array.from(selectedAssetIds).map(assetId => {
-        const u = assetUsageById.get(assetId) ?? DEFAULT_USAGE;
+        const asset = data.assignmentAssets.find(a => a.asset_id === assetId);
+        const u = assetUsageById.get(assetId);
         return {
           asset_id: assetId,
-          use_marketer_domain: u.useMarketerDomain,
-          selected_sponsor_domain_id: u.selectedSponsorDomainId,
-          use_vstrk_domain: u.useVstrkDomain,
+          // Locked from Sponsor allow_* — never trust a stale toggle.
+          use_marketer_domain: !!asset?.allow_marketer_domain,
+          selected_sponsor_domain_id: asset?.allow_sponsor_domain
+            ? (u?.selectedSponsorDomainId ?? null)
+            : null,
+          use_vstrk_domain: !!asset?.allow_vstrk_domain,
         };
       });
 
@@ -288,7 +320,7 @@ export default function AssignmentDetail() {
         <div className="space-y-2 mb-6" data-tutorial-id="assignment-select-assets">
           {assignmentAssets.map(asset => {
             const selected = selectedAssetIds.has(asset.asset_id);
-            const usage = assetUsageById.get(asset.asset_id) ?? DEFAULT_USAGE;
+            const usage = assetUsageById.get(asset.asset_id) ?? { useMarketerDomain: !!asset.allow_marketer_domain, selectedSponsorDomainId: null, useVstrkDomain: !!asset.allow_vstrk_domain };
             return (
               <div
                 key={asset.asset_id}
@@ -331,24 +363,21 @@ export default function AssignmentDetail() {
                   </span>
                 </label>
 
-                {selected && (
+                {selected && (asset.allow_marketer_domain || asset.allow_sponsor_domain || asset.allow_vstrk_domain) && (
                   <div className="mt-3 ml-8 space-y-2 border-t border-zinc-800 pt-3">
                     <p className="text-[10px] font-bold uppercase tracking-widest text-zinc-500">
                       Promotion methods
                     </p>
                     {asset.allow_marketer_domain && (
-                      <label className="flex items-center gap-2 cursor-pointer">
+                      <label className="flex items-center gap-2 opacity-90">
                         <input
                           type="checkbox"
-                          checked={usage.useMarketerDomain}
-                          onChange={e =>
-                            setAssetUsage(asset.asset_id, {
-                              useMarketerDomain: e.target.checked,
-                            })
-                          }
+                          checked={true}
+                          disabled
                           className="accent-red-600"
                         />
                         <span className="text-xs text-zinc-300">Use my tracking domain</span>
+                        <span className="text-[9px] uppercase tracking-widest text-zinc-600">Locked</span>
                       </label>
                     )}
                     {asset.allow_sponsor_domain && (
@@ -359,14 +388,12 @@ export default function AssignmentDetail() {
                         <select
                           value={usage.selectedSponsorDomainId ?? ''}
                           onChange={e =>
-                            setAssetUsage(asset.asset_id, {
-                              selectedSponsorDomainId: e.target.value || null,
-                            })
+                            setSelectedSponsorDomain(asset.asset_id, e.target.value || null)
                           }
                           className="w-full bg-zinc-950 border border-zinc-800 rounded-lg px-3 py-2 text-xs text-zinc-100"
                         >
                           <option value="">None</option>
-                          {data.trackingDomains.map(d => (
+                          {sponsorVerifiedDomains.map(d => (
                             <option key={d.id} value={d.id}>
                               {d.hostname}
                             </option>
@@ -375,18 +402,15 @@ export default function AssignmentDetail() {
                       </div>
                     )}
                     {asset.allow_vstrk_domain && (
-                      <label className="flex items-center gap-2 cursor-pointer">
+                      <label className="flex items-center gap-2 opacity-90">
                         <input
                           type="checkbox"
-                          checked={usage.useVstrkDomain}
-                          onChange={e =>
-                            setAssetUsage(asset.asset_id, {
-                              useVstrkDomain: e.target.checked,
-                            })
-                          }
+                          checked={true}
+                          disabled
                           className="accent-red-600"
                         />
                         <span className="text-xs text-zinc-300">Use VSTRK</span>
+                        <span className="text-[9px] uppercase tracking-widest text-zinc-600">Locked</span>
                       </label>
                     )}
                   </div>

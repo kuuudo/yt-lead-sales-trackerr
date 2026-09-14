@@ -345,3 +345,292 @@ COMMIT;
 --
 -- Or: Supabase Dashboard → Project Settings → API → Reload schema
 -- =============================================================================
+
+-- Path B correction: selected_sponsor_domain_id must belong to the
+-- Assignment's Sponsor organization (verified branded_tracking_domains),
+-- NOT assignment_tracking_domains (Create Assignment no longer writes those).
+-- Same 5-argument signature → CREATE OR REPLACE (no DROP / no overload).
+
+CREATE OR REPLACE FUNCTION public.create_promotion(
+  p_organization_id uuid,
+  p_campaign_id uuid,
+  p_asset_ids uuid[],
+  p_assignment_collaborator_id uuid DEFAULT NULL::uuid,
+  p_asset_usage jsonb DEFAULT NULL::jsonb
+)
+RETURNS uuid
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path TO 'public'
+AS $function$
+declare
+  v_promotion_id uuid;
+  v_assignment_id uuid;
+  v_collaborator_user_id uuid;
+  v_collaborator_status text;
+  v_assignment_org uuid;
+  v_campaign_org uuid;
+  v_owner_user_id uuid;
+  v_missing_assignment_assets uuid[];
+  v_missing_org_assets uuid[];
+  v_usage_rec record;
+  v_allow_marketer boolean;
+  v_allow_sponsor boolean;
+  v_allow_vstrk boolean;
+  v_domain_org uuid;
+  v_domain_status text;
+begin
+  if p_asset_ids is null or array_length(p_asset_ids, 1) is null then
+    raise exception 'create_promotion requires at least one asset_id';
+  end if;
+
+  if p_assignment_collaborator_id is not null then
+
+    if not exists (
+      select 1 from assignment_collaborators
+      where id = p_assignment_collaborator_id
+    ) then
+      raise exception 'assignment_collaborator_id % not found', p_assignment_collaborator_id;
+    end if;
+
+    select ac.user_id, ac.status, ac.assignment_id, a.organization_id
+    into v_collaborator_user_id, v_collaborator_status, v_assignment_id, v_assignment_org
+    from assignment_collaborators ac
+    join assignments a on a.id = ac.assignment_id
+    where ac.id = p_assignment_collaborator_id;
+
+    if v_collaborator_user_id is distinct from auth.uid() then
+      raise exception 'assignment_collaborator_id % does not belong to caller', p_assignment_collaborator_id;
+    end if;
+
+    if v_collaborator_status is distinct from 'active' then
+      raise exception 'Collaborator status is ''%'', not active', v_collaborator_status;
+    end if;
+
+    if v_assignment_org is distinct from p_organization_id then
+      raise exception 'Assignment % does not belong to organization %', v_assignment_id, p_organization_id;
+    end if;
+
+  else
+    if not exists (
+      select 1 from organization_members
+      where user_id = auth.uid() and organization_id = p_organization_id
+    ) then
+      raise exception 'Not authorized: caller is not a member of organization %', p_organization_id;
+    end if;
+  end if;
+
+  select organization_id into v_campaign_org
+  from campaigns where id = p_campaign_id;
+
+  select owner_id
+  into v_owner_user_id
+  from organizations
+  where id = p_organization_id;
+
+  if v_owner_user_id is null then
+    raise exception 'Organization % not found', p_organization_id;
+  end if;
+
+  if v_campaign_org is null then
+    raise exception 'Campaign % not found', p_campaign_id;
+  end if;
+
+  if v_campaign_org is distinct from p_organization_id then
+    raise exception 'Campaign % does not belong to organization %', p_campaign_id, p_organization_id;
+  end if;
+
+  if p_assignment_collaborator_id is not null then
+
+    select array_agg(a)
+    into v_missing_assignment_assets
+    from unnest(p_asset_ids) as a
+    where not exists (
+      select 1 from assignment_assets
+      where assignment_id = v_assignment_id and asset_id = a
+    )
+    or exists (
+      select 1 from assignment_asset_access_states
+      where assignment_collaborator_id = p_assignment_collaborator_id
+        and asset_id = a
+        and revoked_at is not null
+    );
+
+    if v_missing_assignment_assets is not null
+     and array_length(v_missing_assignment_assets, 1) > 0 then
+      raise exception 'Asset(s) not authorized, or access has been revoked, for this Assignment: %', v_missing_assignment_assets;
+    end if;
+
+  else
+    select array_agg(a)
+    into v_missing_org_assets
+    from unnest(p_asset_ids) as a
+    where not exists (
+      select 1 from assets
+      where id = a and organization_id = p_organization_id
+    );
+
+    if v_missing_org_assets is not null
+     and array_length(v_missing_org_assets, 1) > 0 then
+      raise exception 'Asset(s) do not belong to organization %: %', p_organization_id, v_missing_org_assets;
+    end if;
+  end if;
+
+  -- Path B usage validation (collaborator + payload)
+  if p_assignment_collaborator_id is not null
+     and p_asset_usage is not null then
+
+    if jsonb_typeof(p_asset_usage) is distinct from 'array' then
+      raise exception 'p_asset_usage must be a JSON array';
+    end if;
+
+    if exists (
+      select 1
+      from jsonb_array_elements(p_asset_usage) as elem
+      group by (elem->>'asset_id')::uuid
+      having count(*) > 1
+    ) then
+      raise exception 'p_asset_usage contains duplicate asset_id';
+    end if;
+
+    if exists (
+      select 1
+      from jsonb_array_elements(p_asset_usage) as elem
+      where (elem->>'asset_id') is null
+         or not ((elem->>'asset_id')::uuid = any (p_asset_ids))
+    ) then
+      raise exception 'p_asset_usage contains asset_id not in p_asset_ids';
+    end if;
+
+    for v_usage_rec in
+      select
+        (elem->>'asset_id')::uuid as asset_id,
+        coalesce((elem->>'use_marketer_domain')::boolean, false) as use_marketer_domain,
+        case
+          when elem->>'selected_sponsor_domain_id' is null
+            or elem->>'selected_sponsor_domain_id' = ''
+            or elem->>'selected_sponsor_domain_id' = 'null'
+          then null
+          else (elem->>'selected_sponsor_domain_id')::uuid
+        end as selected_sponsor_domain_id,
+        coalesce((elem->>'use_vstrk_domain')::boolean, false) as use_vstrk_domain
+      from jsonb_array_elements(p_asset_usage) as elem
+    loop
+      select
+        aa.allow_marketer_domain,
+        aa.allow_sponsor_domain,
+        aa.allow_vstrk_domain
+      into
+        v_allow_marketer,
+        v_allow_sponsor,
+        v_allow_vstrk
+      from assignment_assets aa
+      where aa.assignment_id = v_assignment_id
+        and aa.asset_id = v_usage_rec.asset_id;
+
+      if not found then
+        raise exception 'Usage asset % is not on assignment %', v_usage_rec.asset_id, v_assignment_id;
+      end if;
+
+      if v_usage_rec.use_marketer_domain and not coalesce(v_allow_marketer, false) then
+        raise exception 'use_marketer_domain not allowed for asset % (assignment_assets.allow_marketer_domain=false)', v_usage_rec.asset_id;
+      end if;
+
+      if v_usage_rec.use_vstrk_domain and not coalesce(v_allow_vstrk, false) then
+        raise exception 'use_vstrk_domain not allowed for asset % (assignment_assets.allow_vstrk_domain=false)', v_usage_rec.asset_id;
+      end if;
+
+      if v_usage_rec.selected_sponsor_domain_id is not null then
+        if not coalesce(v_allow_sponsor, false) then
+          raise exception 'selected_sponsor_domain_id not allowed for asset % (assignment_assets.allow_sponsor_domain=false)', v_usage_rec.asset_id;
+        end if;
+
+        -- Sponsor org ownership + verified (NOT assignment_tracking_domains)
+        select btd.organization_id, btd.status
+        into v_domain_org, v_domain_status
+        from branded_tracking_domains btd
+        where btd.id = v_usage_rec.selected_sponsor_domain_id;
+
+        if not found then
+          raise exception 'selected_sponsor_domain_id % does not exist', v_usage_rec.selected_sponsor_domain_id;
+        end if;
+
+        if v_domain_org is distinct from v_assignment_org then
+          raise exception 'selected_sponsor_domain_id % does not belong to Sponsor organization %',
+            v_usage_rec.selected_sponsor_domain_id, v_assignment_org;
+        end if;
+
+        if v_domain_status is distinct from 'verified' then
+          raise exception 'selected_sponsor_domain_id % is not verified (status=%)',
+            v_usage_rec.selected_sponsor_domain_id, v_domain_status;
+        end if;
+      end if;
+    end loop;
+  end if;
+
+  insert into promotions (
+    organization_id,
+    campaign_id,
+    owner_user_id,
+    assignment_id,
+    assignment_collaborator_id,
+    status
+  )
+  values (
+    p_organization_id,
+    p_campaign_id,
+    v_owner_user_id,
+    v_assignment_id,
+    p_assignment_collaborator_id,
+    'draft'
+  )
+  returning id into v_promotion_id;
+
+  if p_assignment_collaborator_id is not null
+     and p_asset_usage is not null then
+
+    insert into promotion_assets (
+      promotion_id,
+      asset_id,
+      use_marketer_domain,
+      selected_sponsor_domain_id,
+      use_vstrk_domain
+    )
+    select
+      v_promotion_id,
+      a,
+      coalesce(u.use_marketer_domain, false),
+      u.selected_sponsor_domain_id,
+      coalesce(u.use_vstrk_domain, false)
+    from unnest(p_asset_ids) as a
+    left join lateral (
+      select
+        coalesce((elem->>'use_marketer_domain')::boolean, false) as use_marketer_domain,
+        case
+          when elem->>'selected_sponsor_domain_id' is null
+            or elem->>'selected_sponsor_domain_id' = ''
+            or elem->>'selected_sponsor_domain_id' = 'null'
+          then null
+          else (elem->>'selected_sponsor_domain_id')::uuid
+        end as selected_sponsor_domain_id,
+        coalesce((elem->>'use_vstrk_domain')::boolean, false) as use_vstrk_domain
+      from jsonb_array_elements(p_asset_usage) as elem
+      where (elem->>'asset_id')::uuid = a
+    ) u on true;
+
+  else
+    insert into promotion_assets (promotion_id, asset_id)
+    select v_promotion_id, a
+    from unnest(p_asset_ids) as a;
+  end if;
+
+  return v_promotion_id;
+end;
+$function$;
+
+-- Grants unchanged (same signature) — re-assert for safety
+GRANT EXECUTE ON FUNCTION public.create_promotion(uuid, uuid, uuid[], uuid, jsonb) TO PUBLIC;
+GRANT EXECUTE ON FUNCTION public.create_promotion(uuid, uuid, uuid[], uuid, jsonb) TO postgres WITH GRANT OPTION;
+GRANT EXECUTE ON FUNCTION public.create_promotion(uuid, uuid, uuid[], uuid, jsonb) TO anon;
+GRANT EXECUTE ON FUNCTION public.create_promotion(uuid, uuid, uuid[], uuid, jsonb) TO authenticated;
+GRANT EXECUTE ON FUNCTION public.create_promotion(uuid, uuid, uuid[], uuid, jsonb) TO service_role;
