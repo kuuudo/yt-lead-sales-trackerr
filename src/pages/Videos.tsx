@@ -85,11 +85,13 @@ import { categorizeAsset } from '../services/redirect/getPromotedAssetDisplay';
 import { resolveAssetType } from '../services/asset/resolveAssetType';
 import {
   listCreativeEligibleCampaignsForMarketer,
+  listEligiblePromotionsForMarketer,
   loadPromotionAssetsForCreative,
   flattenCreativePromotions,
   type CreativeEligibleCampaign,
   type CreativeEligiblePromotion,
   type CreativePromotionAssetRow,
+  type EligiblePromotion,
 } from '../services/promotion/listCreativeEligibleCampaigns';
 type VideoStatus = Video['status'];
 
@@ -616,6 +618,7 @@ const hasBlockingPromotionIssue = Array.from(promotionContextByAssetId.entries()
 
   // ── Creative Creation Phase 1 (UI only; ownership write path unchanged) ──
   const [creativeEligibleCampaigns, setCreativeEligibleCampaigns] = useState<CreativeEligibleCampaign[]>([]);
+  const [eligiblePromotions, setEligiblePromotions] = useState<EligiblePromotion[]>([]);
   const [selectedCreativePromotionId, setSelectedCreativePromotionId] = useState<string | null>(null);
   const [creativeAssetUsageRows, setCreativeAssetUsageRows] = useState<CreativePromotionAssetRow[]>([]);
   const [showCreativeAssetsModal, setShowCreativeAssetsModal] = useState(false);
@@ -825,16 +828,17 @@ const hasBlockingPromotionIssue = Array.from(promotionContextByAssetId.entries()
     setSelectedAssetDomainByAssetId(new Map());
   };
 
-  const allCreativePromotions = flattenCreativePromotions(creativeEligibleCampaigns);
+  const hasPromotionContext = !!selectedCreativePromotionId;
+  const selectedEligiblePromotion =
+    eligiblePromotions.find(p => p.promotionId === selectedCreativePromotionId) ?? null;
 
-  const applyCreativePromotion = async (
-    campaign: CreativeEligibleCampaign,
-    promotion: CreativeEligiblePromotion
-  ) => {
+  const applyEligiblePromotion = async (promotion: EligiblePromotion) => {
     setLoadingCreativePromotion(true);
     setSelectedCreativePromotionId(promotion.promotionId);
-    // Route A/B convergence: always sync Campaign selector to this Promotion's campaign
-    setFormData(prev => ({ ...prev, campaign_id: campaign.campaignId }));
+    // Auto-fill Creative Campaign when present; otherwise leave campaign as-is / optional
+    if (promotion.creativeMode && promotion.campaignId) {
+      setFormData(prev => ({ ...prev, campaign_id: promotion.campaignId as string }));
+    }
     try {
       const rows = await loadPromotionAssetsForCreative(
         promotion.promotionId,
@@ -866,37 +870,33 @@ const hasBlockingPromotionIssue = Array.from(promotionContextByAssetId.entries()
       setPromotionContextByAssetId(ctxMap);
       setChosenPromotionByAssetId(chosenMap);
 
-      // Global video tracking domain: prefer first sponsor hostname domain id, else leave vstrk
-      const firstSponsor = rows.find(r => r.selected_sponsor_domain_id);
-      if (firstSponsor?.selected_sponsor_domain_id) {
-        setSelectedTrackingDomainId(firstSponsor.selected_sponsor_domain_id);
-        try {
-          const allSponsor = await listVerifiedBrandedDomains(campaign.sponsorOrganizationId);
-          setCreativeDomainOptions(
-            allSponsor.filter(d =>
-              rows.some(r => r.selected_sponsor_domain_id === d.id)
-            )
-          );
-        } catch {
-          setCreativeDomainOptions([]);
-        }
-      } else {
-        setSelectedTrackingDomainId(null);
-        setCreativeDomainOptions([]);
-      }
-
-      // Per-asset link domain defaults from Path B usage (not free pick of all domains)
+      // Link domain defaults: prefer Sponsor selected, else marketer selected, else vstrk if use_vstrk
       const assetDomainMap = new Map<string, string | null>();
       for (const r of rows) {
         if (r.selected_sponsor_domain_id) {
           assetDomainMap.set(r.asset_id, r.selected_sponsor_domain_id);
-        } else if (r.use_vstrk_domain || r.allow_vstrk_domain) {
-          assetDomainMap.set(r.asset_id, null); // vstrk.com
+        } else if (r.selected_marketer_domain_id) {
+          assetDomainMap.set(r.asset_id, r.selected_marketer_domain_id);
+        } else if (r.use_vstrk_domain) {
+          assetDomainMap.set(r.asset_id, null);
         } else {
           assetDomainMap.set(r.asset_id, null);
         }
       }
       setSelectedAssetDomainByAssetId(assetDomainMap);
+
+      // Global tracking domain: prefer first sponsor domain on assets
+      const firstSponsor = rows.find(r => r.selected_sponsor_domain_id);
+      if (firstSponsor?.selected_sponsor_domain_id) {
+        setSelectedTrackingDomainId(firstSponsor.selected_sponsor_domain_id);
+        setCreativeDomainOptions(
+          firstSponsor.selected_sponsor_hostname
+            ? [{ id: firstSponsor.selected_sponsor_domain_id, hostname: firstSponsor.selected_sponsor_hostname } as any]
+            : []
+        );
+      } else {
+        setCreativeDomainOptions([]);
+      }
 
       setCreativeAssetsModalCount(rows.length);
       setShowCreativeAssetsModal(true);
@@ -910,26 +910,34 @@ const hasBlockingPromotionIssue = Array.from(promotionContextByAssetId.entries()
     }
   };
 
-  const handleCreativePromotionPick = async (promotionId: string) => {
+  const handlePromotionPick = async (promotionId: string) => {
     if (!promotionId) {
       clearCreativeSelection();
       return;
     }
-    const flat = allCreativePromotions.find(p => p.promotionId === promotionId);
-    if (!flat) return;
-    const campaign = creativeEligibleCampaigns.find(c => c.campaignId === flat.campaignId);
-    if (!campaign) return;
-    const promotion: CreativeEligiblePromotion = {
-      promotionId: flat.promotionId,
-      assignmentId: flat.assignmentId,
-      assignmentCollaboratorId: flat.assignmentCollaboratorId,
-      campaignId: flat.campaignId,
-      label: flat.label,
-    };
-    await applyCreativePromotion(campaign, promotion);
+    const promo = eligiblePromotions.find(p => p.promotionId === promotionId);
+    if (!promo) return;
+    await applyEligiblePromotion(promo);
   };
 
-  const handleCreativeCampaignChange = async (campaignId: string) => {
+  const applyCreativePromotion = async (
+    campaign: CreativeEligibleCampaign,
+    promotion: CreativeEligiblePromotion
+  ) => {
+    const eligible: EligiblePromotion = {
+      promotionId: promotion.promotionId,
+      assignmentId: promotion.assignmentId,
+      assignmentCollaboratorId: promotion.assignmentCollaboratorId,
+      campaignId: campaign.campaignId,
+      campaignName: campaign.campaignName,
+      sponsorOrganizationId: campaign.sponsorOrganizationId,
+      label: promotion.label,
+      creativeMode: campaign.mode,
+    };
+    await applyEligiblePromotion(eligible);
+  };
+
+  const handleCreativeCampaignChange = async  const handleCreativeCampaignChange = async (campaignId: string) => {
     setFormData(prev => ({ ...prev, campaign_id: campaignId }));
     clearCreativeSelection();
     if (!campaignId) return;
@@ -1056,16 +1064,25 @@ const hasBlockingPromotionIssue = Array.from(promotionContextByAssetId.entries()
   useEffect(() => {
     if (!user?.id || isReadOnly) {
       setCreativeEligibleCampaigns([]);
+      setEligiblePromotions([]);
       return;
     }
     let cancelled = false;
-    listCreativeEligibleCampaignsForMarketer(user.id)
-      .then(list => {
-        if (!cancelled) setCreativeEligibleCampaigns(list);
+    Promise.all([
+      listEligiblePromotionsForMarketer(user.id),
+      listCreativeEligibleCampaignsForMarketer(user.id),
+    ])
+      .then(([promos, camps]) => {
+        if (cancelled) return;
+        setEligiblePromotions(promos);
+        setCreativeEligibleCampaigns(camps);
       })
       .catch(err => {
-        console.error('[Videos] creative eligibility failed', err);
-        if (!cancelled) setCreativeEligibleCampaigns([]);
+        console.error('[Videos] promotion eligibility failed', err);
+        if (!cancelled) {
+          setEligiblePromotions([]);
+          setCreativeEligibleCampaigns([]);
+        }
       });
     return () => { cancelled = true; };
   }, [user?.id, isReadOnly]);
@@ -1860,155 +1877,34 @@ console.log(
 
                       <div className="space-y-1 md:col-span-2" data-tutorial-id="videos-creative-promotion">
                         <label className="label-caps">Promotion</label>
-                        {!formData.campaign_id && allCreativePromotions.length === 0 ? (
-                          <p className="text-[10px] text-zinc-600 italic">
-                            Select a campaign, or a Creative Promotion when available.
-                          </p>
-                        ) : !formData.campaign_id && allCreativePromotions.length > 0 ? (
-                          <select
-                            value={selectedCreativePromotionId ?? ''}
-                            onChange={e => { handleCreativePromotionPick(e.target.value).catch(console.error); }}
-                            className="w-full bg-zinc-950 border border-zinc-900 rounded-xl p-3 text-[11px] font-bold uppercase outline-none focus:border-red-600 appearance-none"
-                          >
-                            <option value="">Select a creative promotion (optional)</option>
-                            {allCreativePromotions.map(p => (
-                              <option key={p.promotionId} value={p.promotionId}>
-                                {p.label} · {p.campaignName}
-                              </option>
-                            ))}
-                          </select>
-                        ) : isCreativeCampaign && selectedCreativeCampaign ? (
-                          selectedCreativeCampaign.promotions.length === 0 ? (
-                            <p className="text-xs text-amber-500 font-bold">No eligible Promotion for this campaign.</p>
-                          ) : selectedCreativeCampaign.promotions.length === 1 ? (
-                            <p className="text-xs text-zinc-400">
-                              {selectedCreativeCampaign.promotions[0].label}
-                              {loadingCreativePromotion && ' · Loading assets…'}
-                            </p>
-                          ) : (
-                            <select
-                              value={selectedCreativePromotionId ?? ''}
-                              onChange={e => {
-                                const promo = selectedCreativeCampaign.promotions.find(p => p.promotionId === e.target.value);
-                                if (!promo) return;
-                                applyCreativePromotion(selectedCreativeCampaign, promo).catch(console.error);
-                              }}
-                              className="w-full bg-zinc-950 border border-zinc-900 rounded-xl p-3 text-[11px] font-bold uppercase outline-none focus:border-red-600 appearance-none"
-                            >
-                              <option value="">Select a promotion</option>
-                              {selectedCreativeCampaign.promotions.map(p => (
-                                <option key={p.promotionId} value={p.promotionId}>{p.label}</option>
-                              ))}
-                            </select>
-                          )
-                        ) : (
-                          <p className="text-[10px] text-zinc-600 italic">
-                            Promotion applies only when using a Creative Campaign.
+                        <select
+                          value={selectedCreativePromotionId ?? ''}
+                          onChange={e => {
+                            handlePromotionPick(e.target.value).catch(console.error);
+                          }}
+                          className="w-full bg-zinc-950 border border-zinc-900 rounded-xl p-3 text-[11px] font-bold uppercase outline-none focus:border-red-600 appearance-none"
+                        >
+                          <option value="">Select a promotion (optional)</option>
+                          {eligiblePromotions.map(p => (
+                            <option key={p.promotionId} value={p.promotionId}>
+                              {p.label}
+                              {p.campaignName ? ` · ${p.campaignName}` : ''}
+                              {p.creativeMode ? ' · Creative' : ''}
+                            </option>
+                          ))}
+                        </select>
+                        {loadingCreativePromotion && (
+                          <p className="text-[9px] text-zinc-500">Loading promotion assets…</p>
+                        )}
+                        {selectedEligiblePromotion?.creativeMode && (
+                          <p className="text-[9px] font-bold uppercase tracking-widest text-zinc-500">
+                            Creative · {selectedEligiblePromotion.creativeMode === 'campaign_asset_only'
+                              ? 'Assets only (no campaign links)'
+                              : 'Campaign links + assets'}
                           </p>
                         )}
                       </div>
-                      <div className="space-y-1" data-tutorial-id="videos-objectives">
-                        <label className="label-caps">Goals / Objectives</label>
-                        <div className="flex flex-wrap gap-2 pt-1">
-                          {(['sales', 'newsletter', 'calls', 'consult', 'viral'] as const).map(obj => (
-                            <button
-                              key={obj}
-                              type="button"
-                              onClick={() => {
-                                const newObj = formData.objectives.includes(obj as any)
-                                  ? formData.objectives.filter(o => o !== (obj as any))
-                                  : [...formData.objectives, obj as any];
-                                if (newObj.length > 0) setFormData({ ...formData, objectives: newObj });
-                              }}
-                              className={`px-3 py-1.5 rounded-lg text-[9px] font-black uppercase tracking-widest border transition-all ${
-                                formData.objectives.includes(obj as any)
-                                  ? 'bg-red-600 border-red-600 text-white shadow-[0_0_10px_rgba(220,38,38,0.3)]'
-                                  : 'bg-zinc-900 border-zinc-800 text-zinc-500 hover:border-zinc-700'
-                              }`}
-                            >
-                              {getObjectiveLabel(obj as any)}
-                            </button>
-                          ))}
-                        </div>
-                      </div>
-                    </div>
 
-                    <div className="space-y-4 pt-2 border-t border-zinc-900" data-tutorial-id="videos-lead-magnet">
-                      <label className="flex items-center gap-3 cursor-pointer group">
-                        <div className="relative flex items-center justify-center">
-                          <input 
-                            type="checkbox" 
-                            checked={formData.hasLeadMagnet}
-                            onChange={e => setFormData({ ...formData, hasLeadMagnet: e.target.checked })}
-                            className="peer appearance-none w-5 h-5 border border-zinc-800 rounded bg-zinc-950 checked:bg-red-600 checked:border-red-600 transition-all cursor-pointer"
-                          />
-                          <Check size={12} className="absolute text-white opacity-0 peer-checked:opacity-100 transition-opacity pointer-events-none" />
-                        </div>
-                        <span className="text-[10px] font-bold uppercase tracking-widest text-zinc-400 group-hover:text-zinc-200 transition-colors">
-                          {t.videos.hasLeadMagnet}
-                        </span>
-                      </label>
-
-                      {formData.hasLeadMagnet && (
-                        <motion.div 
-                          initial={{ opacity: 0, y: -10 }}
-                          animate={{ opacity: 1, y: 0 }}
-                          className="space-y-2 p-4 bg-zinc-950/50 border border-zinc-900 rounded-2xl"
-                        >
-                          <label className="label-caps !text-zinc-600">{t.videos.selectLeadMagnets}</label>
-                          {!formData.campaign_id ? (
-                            <p className="text-[10px] text-zinc-600 italic">{t.videos.selectCampaignFirst}</p>
-                          ) : loadingMagnets ? (
-                            <div className="flex items-center gap-2 text-[10px] text-zinc-600">
-                              <Loader2 size={12} className="animate-spin" /> Loading...
-                            </div>
-                          ) : availableLeadMagnets.length === 0 ? (
-                            <p className="text-[10px] text-zinc-600 italic">{t.videos.noLeadMagnetsFound}</p>
-                          ) : (
-                            <div className="grid grid-cols-1 gap-2 max-h-40 overflow-y-auto pr-2 custom-scrollbar">
-                              {availableLeadMagnets.map(m => (
-                                <button
-                                  key={m.id}
-                                  type="button"
-                                  onClick={() => {
-                                    const newSelected = formData.selectedLeadMagnets.includes(m.id)
-                                      ? formData.selectedLeadMagnets.filter(id => id !== m.id)
-                                      : [...formData.selectedLeadMagnets, m.id];
-                                    setFormData({ ...formData, selectedLeadMagnets: newSelected });
-                                  }}
-                                  className={`flex items-center justify-between p-3 rounded-xl border text-left transition-all ${
-                                    formData.selectedLeadMagnets.includes(m.id)
-                                      ? 'bg-zinc-900 border-red-600/50 text-white'
-                                      : 'bg-zinc-900/30 border-zinc-900 text-zinc-500 hover:border-zinc-800'
-                                  }`}
-                                >
-                                  <span className="text-[10px] font-bold uppercase tracking-wide truncate max-w-[200px]">{m.lead_magnet_name}</span>
-                                  {formData.selectedLeadMagnets.includes(m.id) && <Check size={14} className="text-red-500" />}
-                                </button>
-                              ))}
-                            </div>
-                          )}
-                        </motion.div>
-                      )}
-                    </div>
-
-                    {/* Promoted Asset (Optional) — UI only, per locked scope.
-                        Not sent to createVideo(), not persisted. Same
-                        "needs a Campaign first" gating pattern as Lead
-                        Magnet above — NOTE: this gate is a UX consistency
-                        choice, not a data dependency (Option B: Asset is
-                        Library-scoped, not Campaign-scoped, so nothing
-                        here actually reads campaign_id). */}
-                    <div className="space-y-2" data-tutorial-id="videos-tracking-type">
-                      <div className="flex items-center gap-1.5">
-                        <label className="label-caps">Tracking Type</label>
-                        <div className="relative group/tip">
-                          <HelpCircle size={13} className="text-zinc-600 hover:text-zinc-400 cursor-help transition-colors" />
-                          <div className="hidden group-hover/tip:block absolute left-0 top-5 z-20 w-64 p-3 rounded-xl border border-zinc-800 bg-zinc-900 shadow-2xl">
-                            <p className="text-[10px] leading-relaxed text-zinc-400 normal-case font-medium">
-                              Use asset only when you just want to track traffic and performance for this asset, with no campaign goals like newsletter signups, sales calls, landing pages, or conversions. If you want to promote both campaigns and assets together, keep asset + campaign objective.
-                            </p>
-                          </div>
                         </div>
                       </div>
                       <div className="grid grid-cols-2 gap-2">
@@ -2064,7 +1960,7 @@ console.log(
                               <Check size={14} className="text-emerald-500 shrink-0" />
                               {promotedAssets.map(a => (a as any).display_name || (a as any).title || a.asset_id).join(', ')}
                             </span>
-                            {!isCreativeCampaign && (
+                            {!hasPromotionContext && (
                             <button
                               type="button"
                               onClick={() => setShowAssetPicker(true)}
@@ -2078,63 +1974,42 @@ console.log(
                           {promotedAssets.map(asset => {
                             const usage = creativeAssetUsageRows.find(r => r.asset_id === asset.asset_id);
                             const label = (asset as any).display_name || (asset as any).title || asset.asset_id;
-                            if (isCreativeCampaign && usage) {
+                            if (hasPromotionContext && usage) {
                               return (
                                 <div key={asset.asset_id} className="pl-1 space-y-2 border border-zinc-800 rounded-xl p-3" data-tutorial-id="videos-asset-pathb-domain">
                                   <p className="text-[9px] font-black uppercase tracking-widest text-zinc-400">{label}</p>
-                                  <div className="space-y-1.5">
-                                    {usage.allow_marketer_domain && (
-                                      <label className="flex items-center gap-2 opacity-90">
-                                        <input type="checkbox" checked={true} disabled className="accent-red-600" />
-                                        <span className="text-xs text-zinc-300">Use my tracking domain</span>
-                                        <span className="text-[9px] uppercase tracking-widest text-zinc-600">Locked</span>
-                                      </label>
+                                  <div className="space-y-2">
+                                    {usage.use_marketer_domain && (
+                                      <div className="space-y-0.5">
+                                        <p className="text-[9px] font-bold uppercase tracking-widest text-zinc-500">Marketer tracking domain</p>
+                                        <p className="text-xs text-zinc-200 font-mono">
+                                          {usage.selected_marketer_hostname
+                                            ?? (usage.selected_marketer_domain_id
+                                              ? usage.selected_marketer_domain_id.slice(0, 8) + '…'
+                                              : 'Configured at Start Promoting')}
+                                        </p>
+                                      </div>
                                     )}
-                                    {usage.allow_sponsor_domain && (
-                                      <div className="space-y-1">
+                                    {(usage.allow_sponsor_domain || usage.selected_sponsor_domain_id) && (
+                                      <div className="space-y-0.5">
                                         <p className="text-[9px] font-bold uppercase tracking-widest text-zinc-500">Sponsor tracking domain</p>
                                         <p className="text-xs text-zinc-200 font-mono">
                                           {usage.selected_sponsor_hostname
                                             ?? (usage.selected_sponsor_domain_id
                                               ? usage.selected_sponsor_domain_id.slice(0, 8) + '…'
-                                              : 'None selected at Start Promoting')}
+                                              : 'Not set')}
                                         </p>
+                                        <p className="text-[9px] text-zinc-600">Set by Sponsor — read only</p>
                                       </div>
                                     )}
-                                    {usage.allow_vstrk_domain && (
-                                      <label className="flex items-center gap-2 opacity-90">
-                                        <input type="checkbox" checked={true} disabled className="accent-red-600" />
-                                        <span className="text-xs text-zinc-300">Use VSTRK</span>
-                                        <span className="text-[9px] uppercase tracking-widest text-zinc-600">Locked</span>
-                                      </label>
+                                    {usage.use_vstrk_domain && (
+                                      <p className="text-[9px] font-bold uppercase tracking-widest text-zinc-500">
+                                        VSTRK · On
+                                      </p>
                                     )}
-                                    {!usage.allow_marketer_domain && !usage.allow_sponsor_domain && !usage.allow_vstrk_domain && (
-                                      <p className="text-[10px] text-zinc-600">No promotion methods allowed for this asset.</p>
+                                    {!usage.use_marketer_domain && !usage.selected_sponsor_domain_id && !usage.use_vstrk_domain && (
+                                      <p className="text-[10px] text-zinc-600">No tracking methods configured for this promotion asset.</p>
                                     )}
-                                  </div>
-                                  <div className="space-y-1 pt-1">
-                                    <p className="text-[9px] font-black uppercase tracking-widest text-zinc-500">Link tracking domain</p>
-                                    <select
-                                      value={selectedAssetDomainByAssetId.get(asset.asset_id) ?? ''}
-                                      onChange={e => {
-                                        const next = new Map(selectedAssetDomainByAssetId);
-                                        next.set(asset.asset_id, e.target.value || null);
-                                        setSelectedAssetDomainByAssetId(next);
-                                      }}
-                                      className="w-full bg-zinc-950 border border-zinc-800 rounded-xl px-4 py-2.5 text-xs text-zinc-100 focus:outline-none focus:border-red-600"
-                                    >
-                                      {(usage.allow_vstrk_domain || usage.use_vstrk_domain) && (
-                                        <option value="">vstrk.com</option>
-                                      )}
-                                      {usage.selected_sponsor_domain_id && (
-                                        <option value={usage.selected_sponsor_domain_id}>
-                                          {usage.selected_sponsor_hostname ?? 'Sponsor domain'}
-                                        </option>
-                                      )}
-                                      {usage.allow_marketer_domain && verifiedDomains.map(d => (
-                                        <option key={d.id} value={d.id}>{d.hostname}</option>
-                                      ))}
-                                    </select>
                                   </div>
                                 </div>
                               );
@@ -2180,7 +2055,7 @@ console.log(
                             );
                           })}
                         </div>
-                      ) : isCreativeCampaign ? (
+                      ) : hasPromotionContext || selectedCreativePromotionId ? (
                         <div className="text-[10px] font-bold uppercase tracking-widest text-zinc-500 border border-dashed border-zinc-800 rounded-xl px-4 py-3">
                           {loadingCreativePromotion
                             ? 'Loading promotion assets…'
@@ -2234,15 +2109,15 @@ console.log(
                         className="w-full bg-zinc-950 border border-zinc-800 rounded-xl px-4 py-3 text-xs text-zinc-100 focus:outline-none focus:border-red-600"
                       >
                         <option value="">vstrk.com</option>
-                        {(isCreativeCampaign ? creativeDomainOptions : verifiedDomains).map((d) => (
+                        {(hasPromotionContext ? creativeDomainOptions : verifiedDomains).map((d) => (
                           <option key={d.id} value={d.id}>
                             {d.hostname}
                           </option>
                         ))}
                       </select>
-                      {isCreativeCampaign && (
+                      {hasPromotionContext && (
                         <p className="text-[9px] font-bold uppercase tracking-widest text-zinc-600">
-                          Domains limited to this Promotion&apos;s Path B usage
+                          Domains limited to this Promotion&apos;s configuration
                         </p>
                       )}
                     </div>
