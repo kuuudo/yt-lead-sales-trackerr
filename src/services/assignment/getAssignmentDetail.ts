@@ -233,7 +233,7 @@ export async function getAssignmentDetail(
       .maybeSingle(),
     supabase
       .from('assignment_assets')
-      .select('asset_id, allow_marketer_domain, allow_sponsor_domain, allow_vstrk_domain')
+      .select('asset_id, allow_marketer_domain, allow_sponsor_domain, allow_vstrk_domain, selected_sponsor_domain_id')
       .eq('assignment_id', assignmentId),
     // Assignment-wide list first; may be revoke-filtered below for collaborators.
     listAssignmentTrackingDomains(assignmentId),
@@ -259,9 +259,29 @@ export async function getAssignmentDetail(
         allow_marketer_domain: !!r.allow_marketer_domain,
         allow_sponsor_domain: !!r.allow_sponsor_domain,
         allow_vstrk_domain: !!r.allow_vstrk_domain,
+        selected_sponsor_domain_id: (r.selected_sponsor_domain_id as string | null) ?? null,
       },
     ])
   );
+
+  // Resolve Sponsor domain hostnames for display (read-only).
+  const selectedSponsorIds = [
+    ...new Set(
+      [...allowByAssetId.values()]
+        .map(a => a.selected_sponsor_domain_id)
+        .filter((id): id is string => !!id)
+    ),
+  ];
+  const sponsorHostnameById = new Map<string, string>();
+  if (selectedSponsorIds.length > 0) {
+    const { data: domainRows } = await supabase
+      .from('branded_tracking_domains')
+      .select('id, hostname')
+      .in('id', selectedSponsorIds);
+    for (const d of domainRows ?? []) {
+      sponsorHostnameById.set(d.id as string, d.hostname as string);
+    }
+  }
 
   let assignmentAssets: AssignmentAssetOption[] = [];
   let campaignGroups: CampaignGroup[] = [];
@@ -302,7 +322,12 @@ export async function getAssignmentDetail(
         allow_marketer_domain: false,
         allow_sponsor_domain: false,
         allow_vstrk_domain: false,
+        selected_sponsor_domain_id: null as string | null,
       };
+      const selected_sponsor_domain_id = allows.selected_sponsor_domain_id;
+      const selected_sponsor_hostname = selected_sponsor_domain_id
+        ? sponsorHostnameById.get(selected_sponsor_domain_id) ?? null
+        : null;
       const element = elementByAsset.get(assetId);
       if (element) {
         return {
@@ -313,6 +338,7 @@ export async function getAssignmentDetail(
           display_name: element.display_name,
           element_type: element.element_type,
           ...allows,
+          selected_sponsor_hostname,
         };
       }
       const video = videoByAsset.get(assetId);
@@ -323,6 +349,7 @@ export async function getAssignmentDetail(
           video_title: video.video_title ?? null,
           thumbnail_url: video.thumbnail_url ?? null,
           ...allows,
+          selected_sponsor_hostname,
         };
       }
       const resource = resourceByAsset.get(assetId);
@@ -338,6 +365,7 @@ export async function getAssignmentDetail(
           }),
           resource_type: resource.resource_type,
           ...allows,
+          selected_sponsor_hostname,
         };
       }
       return {
@@ -346,6 +374,7 @@ export async function getAssignmentDetail(
         video_title: null,
         thumbnail_url: null,
         ...allows,
+          selected_sponsor_hostname,
       };
     };
 

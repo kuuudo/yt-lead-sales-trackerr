@@ -43,6 +43,8 @@ export interface AssetPromotionPermission {
   allowMarketerDomain: boolean;
   allowSponsorDomain: boolean;
   allowVstrkDomain: boolean;
+  /** Required when allowSponsorDomain; must be Sponsor org verified domain id. */
+  selectedSponsorDomainId: string | null;
 }
 
 export interface CreateAssignmentInput {
@@ -91,6 +93,14 @@ export async function createAssignment({
   }
 
   const assetIds = assetPermissions.map(p => p.assetId);
+
+  for (const p of assetPermissions) {
+    if (p.allowSponsorDomain && !p.selectedSponsorDomainId) {
+      throw new Error(
+        `selectedSponsorDomainId is required when allowSponsorDomain is true (asset ${p.assetId})`
+      );
+    }
+  }
 
   // --------------------------------------------------
   // Rule A:
@@ -154,6 +164,9 @@ export async function createAssignment({
         allow_marketer_domain: p.allowMarketerDomain,
         allow_sponsor_domain: p.allowSponsorDomain,
         allow_vstrk_domain: p.allowVstrkDomain,
+        selected_sponsor_domain_id: p.allowSponsorDomain
+          ? p.selectedSponsorDomainId
+          : null,
       }))
     );
 

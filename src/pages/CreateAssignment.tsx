@@ -9,6 +9,10 @@ import {
   AssetPicker,
   type AssetPickerSelectedItem,
 } from '../services/assignment/AssetPicker';
+import {
+  listVerifiedBrandedDomains,
+  type VerifiedDomainOption,
+} from '../services/domain/brandedDomains';
 
 type CreativeCreationMode = 'none' | 'campaign_asset_only' | 'campaign_links_and_assets';
 
@@ -16,12 +20,14 @@ interface AssetPermissionState {
   allowMarketerDomain: boolean;
   allowSponsorDomain: boolean;
   allowVstrkDomain: boolean;
+  selectedSponsorDomainId: string | null;
 }
 
 const DEFAULT_PERMISSIONS: AssetPermissionState = {
   allowMarketerDomain: false,
   allowSponsorDomain: false,
   allowVstrkDomain: false,
+  selectedSponsorDomainId: null,
 };
 
 export default function CreateAssignment() {
@@ -44,6 +50,10 @@ export default function CreateAssignment() {
   const [assetPermissions, setAssetPermissions] = useState<
     Map<string, AssetPermissionState>
   >(new Map());
+
+  const [sponsorVerifiedDomains, setSponsorVerifiedDomains] = useState<
+    VerifiedDomainOption[]
+  >([]);
 
   const [creativeCreationMode, setCreativeCreationMode] =
     useState<CreativeCreationMode>('none');
@@ -88,6 +98,23 @@ export default function CreateAssignment() {
     });
   }, [selectedAssets]);
 
+  useEffect(() => {
+    if (!organizationId) {
+      setSponsorVerifiedDomains([]);
+      return;
+    }
+    let cancelled = false;
+    listVerifiedBrandedDomains(organizationId)
+      .then(domains => {
+        if (!cancelled) setSponsorVerifiedDomains(domains);
+      })
+      .catch(e => {
+        console.error('Failed to load Sponsor verified domains', e);
+        if (!cancelled) setSponsorVerifiedDomains([]);
+      });
+    return () => { cancelled = true; };
+  }, [organizationId]);
+
   const openLibraryPicker = () => {
     setDraftSelection(selectedAssets);
     setIsLibraryPickerOpen(true);
@@ -104,13 +131,26 @@ export default function CreateAssignment() {
 
   const setAssetPermission = (
     assetId: string,
-    key: keyof AssetPermissionState,
+    key: 'allowMarketerDomain' | 'allowSponsorDomain' | 'allowVstrkDomain',
     value: boolean
   ) => {
     setAssetPermissions(prev => {
       const next = new Map(prev);
       const current = next.get(assetId) ?? { ...DEFAULT_PERMISSIONS };
-      next.set(assetId, { ...current, [key]: value });
+      const updated: AssetPermissionState = { ...current, [key]: value };
+      if (key === 'allowSponsorDomain' && !value) {
+        updated.selectedSponsorDomainId = null;
+      }
+      next.set(assetId, updated);
+      return next;
+    });
+  };
+
+  const setSelectedSponsorDomain = (assetId: string, domainId: string | null) => {
+    setAssetPermissions(prev => {
+      const next = new Map(prev);
+      const current = next.get(assetId) ?? { ...DEFAULT_PERMISSIONS };
+      next.set(assetId, { ...current, selectedSponsorDomainId: domainId });
       return next;
     });
   };
@@ -122,6 +162,15 @@ export default function CreateAssignment() {
     if (!title.trim()) return setError('Title is required');
     if (selectedAssets.length === 0) return setError('Select at least one Asset');
     if (!email.trim()) return setError('Add a collaborator email');
+
+    for (const a of selectedAssets) {
+      const p = assetPermissions.get(a.assetId) ?? DEFAULT_PERMISSIONS;
+      if (p.allowSponsorDomain && !p.selectedSponsorDomainId) {
+        return setError(
+          'Select a Sponsor tracking domain for each asset with Sponsor tracking enabled'
+        );
+      }
+    }
 
     setSubmitting(true);
     try {
@@ -137,6 +186,9 @@ export default function CreateAssignment() {
             allowMarketerDomain: p.allowMarketerDomain,
             allowSponsorDomain: p.allowSponsorDomain,
             allowVstrkDomain: p.allowVstrkDomain,
+            selectedSponsorDomainId: p.allowSponsorDomain
+              ? p.selectedSponsorDomainId
+              : null,
           };
         }),
         domainIds: [],
@@ -299,17 +351,40 @@ export default function CreateAssignment() {
                       />
                       <span className="text-sm text-zinc-200">Marketer&apos;s tracking domain</span>
                     </label>
-                    <label className="flex items-center gap-3 cursor-pointer">
-                      <input
-                        type="checkbox"
-                        checked={p.allowSponsorDomain}
-                        onChange={e =>
-                          setAssetPermission(asset.assetId, 'allowSponsorDomain', e.target.checked)
-                        }
-                        className="accent-red-600"
-                      />
-                      <span className="text-sm text-zinc-200">Sponsor&apos;s tracking domain</span>
-                    </label>
+                    <div className="space-y-1.5">
+                      <label className="flex items-center gap-3 cursor-pointer">
+                        <input
+                          type="checkbox"
+                          checked={p.allowSponsorDomain}
+                          onChange={e =>
+                            setAssetPermission(asset.assetId, 'allowSponsorDomain', e.target.checked)
+                          }
+                          className="accent-red-600"
+                        />
+                        <span className="text-sm text-zinc-200">Sponsor&apos;s tracking domain</span>
+                      </label>
+                      {p.allowSponsorDomain && (
+                        <select
+                          value={p.selectedSponsorDomainId ?? ''}
+                          onChange={e =>
+                            setSelectedSponsorDomain(asset.assetId, e.target.value || null)
+                          }
+                          className="w-full bg-zinc-950 border border-zinc-800 rounded-lg px-3 py-2 text-xs text-zinc-100"
+                        >
+                          <option value="">Select Sponsor tracking domain</option>
+                          {sponsorVerifiedDomains.map(d => (
+                            <option key={d.id} value={d.id}>
+                              {d.hostname}
+                            </option>
+                          ))}
+                        </select>
+                      )}
+                      {p.allowSponsorDomain && sponsorVerifiedDomains.length === 0 && (
+                        <p className="text-[9px] text-amber-600/90">
+                          No verified Sponsor tracking domains. Add one in Tracking Domains settings.
+                        </p>
+                      )}
+                    </div>
                     <label className="flex items-center gap-3 cursor-pointer">
                       <input
                         type="checkbox"
