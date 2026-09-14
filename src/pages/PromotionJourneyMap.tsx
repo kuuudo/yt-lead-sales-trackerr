@@ -3,18 +3,51 @@
  *
  * Route: /marketplace/promotions/:promotionId/journey
  *
- * PHASE 1 ONLY.
+ * PHASE 1 + STEP 2 (observed journey graph).
  *
  * Purpose (Phase 1): load the assets actually promoted in this Promotion
  * (promotion_assets, via the existing getPromotionDetail() loader) and
  * display them as movable visual cards on a clean white canvas.
  *
+ * Purpose (Step 2, additive): also load the real observed journey graph for
+ * this promotion via discoverPromotionJourneys() -> buildJourneyGraph()
+ * (journeyDiscovery.ts / journeyGraph.ts — unmodified, consumed as-is) and
+ * render it as one continuous graph flowing out of the promoted-asset
+ * cards: promoted asset(s) -> observed JourneyGraph.nodes, connected by
+ * JourneyGraph.edges plus a structural connector from a promoted asset to
+ * any JourneyGraph node whose observedAssetIds includes that asset's id.
+ * No edge is invented: every line drawn is either a real GraphEdge or that
+ * one real assetId-membership connector. See STEP 2 NODE DISPLAY LIMITATION
+ * below for what is and isn't resolvable per-node yet.
+ *
  * Explicitly NOT part of Phase 1:
  *   - events_journey / journeyAnalyticsEngine.ts / userJourneyAnalytics
- *   - any connector/edge rendering
  *   - "+ Create New Content"
  *   - tracking-domain constraints
  *   - persisted node positions (layout resets on reload — intentional)
+ *
+ * Explicitly NOT part of Step 2 (future phases):
+ *   - click/visitor/engagement/conversion metrics on nodes or edges
+ *   - Play button / animation / time scrubber / date-range filters
+ *   - a general graph-layout engine (this uses a simple deterministic
+ *     layered left-to-right layout, not force-directed / auto-organize)
+ *   - persisted graph-node positions
+ *
+ * STEP 2 NODE DISPLAY LIMITATION (read before extending):
+ *   GraphNode (journeyGraph.ts) carries videoId + observedAssetIds +
+ *   observedRedirectLinkIds only — no title, thumbnail, or resourceType.
+ *   There is no per-node asset-metadata resolver available to this file
+ *   for the *downstream* graph nodes (only the already-promoted assets have
+ *   resolved title/thumbnail, via getPromotionDetail). Rather than invent a
+ *   fake type/title for a node we can't actually identify, downstream
+ *   nodes are rendered generically (truncated videoId) with only one real,
+ *   data-derived distinction: a node with zero outgoing GraphEdges is
+ *   drawn with the terminal/"end of journey" treatment, since that is a
+ *   structural fact from the graph itself, not an invented label. Getting
+ *   the mockup's per-type icons (Newsletter/Sales Page/etc.) for downstream
+ *   nodes requires enriching GraphNode with resourceType/title upstream —
+ *   flagged for a follow-up, not done here per "don't modify journeyGraph.ts
+ *   beyond tiny type-only fixes."
  *
  * Architecture notes:
  *   - This page does NOT use useWorkspaceStore, does NOT write to the
@@ -39,7 +72,7 @@
 
 import React, { useEffect, useMemo, useRef, useState, useCallback } from 'react'
 import { useParams, useNavigate, Link } from 'react-router-dom'
-import { ArrowLeft, Loader2 } from 'lucide-react'
+import { ArrowLeft, Loader2, Box, Flag, AlertCircle } from 'lucide-react'
 import { getPromotionDetail } from '../services/promotion/getPromotionDetail'
 import type { PromotionDetailData } from '../services/promotion/getPromotionDetail'
 import {
@@ -50,6 +83,15 @@ import {
 } from '../lib/videoFormatters'
 import CanvasGrid from '../components/analytics/canvas/CanvasGrid'
 import type { CanvasTransform } from '../components/analytics/store/useWorkspaceStore'
+// STEP 2: real observed journey graph. Consumed as-is, per the approved
+// contracts — nothing in journeyDiscovery.ts / journeyGraph.ts is modified.
+// NOTE: import path assumed to match promotionJourney.ts / assetJourney.ts
+// (same directory as journey.ts, referenced there as './journey'). Adjust
+// these two lines if that directory differs from what's shown here.
+import { discoverPromotionJourneys } from '../lib/journeyDiscovery'
+import { buildJourneyGraph } from '../lib/journeyGraph'
+import type { DiscoveredJourney } from '../lib/journeyDiscovery'
+import type { JourneyGraph, GraphNode, GraphEdge } from '../lib/journeyGraph'
 
 // ─── Local node model (Phase 1 — no edges, no persistence) ────────────────────
 
@@ -75,6 +117,18 @@ const MAX_SCALE = 2.5
 const ZOOM_STEP = 0.15
 const DRAG_THRESHOLD_PX = 4 // movement below this = treated as a click, not a drag
 
+// ─── STEP 2: observed-graph layout constants (deterministic, left-to-right) ──
+// Root promoted-asset column sits at ROOT_COLUMN_X, vertically centered in
+// the measured canvas. Graph-node columns extend rightward from there —
+// this is NOT a force-directed / auto-organize layout, just fixed columns
+// by BFS depth from the root node(s), matching the approved mockup.
+const ROOT_COLUMN_X = 60
+const GRAPH_NODE_WIDTH = 200
+const GRAPH_NODE_HEIGHT = 92
+const GRAPH_COLUMN_GAP = 100
+const GRAPH_ROW_GAP = 56
+const DEFAULT_CANVAS_HEIGHT = 640
+
 // ─── Thumbnail resolution — mirrors AssetDetail.tsx exactly ───────────────────
 
 function resolveNodeThumbnail(resource: PromotionDetailData['assets'][number]['resource']): string | null {
@@ -92,23 +146,165 @@ function resolveNodeThumbnail(resource: PromotionDetailData['assets'][number]['r
   return null
 }
 
-// ─── Initial layout — simple row/wrap grid. NOT an "Organize" algorithm. ──────
+// ─── Initial layout — STEP 2: single root column, vertically centered ────────
+// Previously a top-left row/wrap grid (NODES_PER_ROW). Changed per the
+// approved direction: promoted assets are the starting point of one
+// continuous graph, so they now anchor as a centered left column instead
+// of being pinned to a corner. Still NOT an "Organize" algorithm — no
+// force-directed layout, just a centered stack.
 
 function layoutNodes(
-  assets: PromotionDetailData['assets']
+  assets: PromotionDetailData['assets'],
+  canvasHeight: number = DEFAULT_CANVAS_HEIGHT
 ): JourneyNode[] {
-  return assets.map((a, i) => {
-    const col = i % NODES_PER_ROW
-    const row = Math.floor(i / NODES_PER_ROW)
-    return {
-      assetId: a.assetId,
-      promotionAssetId: a.promotionAssetId,
-      title: a.resource?.title || 'Untitled asset',
-      thumbnailSrc: resolveNodeThumbnail(a.resource),
-      x: CANVAS_MARGIN + col * (NODE_WIDTH + GRID_GAP_X),
-      y: CANVAS_MARGIN + row * (NODE_HEIGHT + GRID_GAP_Y),
+  const totalHeight = assets.length * NODE_HEIGHT + Math.max(0, assets.length - 1) * GRID_GAP_Y
+  const startY = Math.max(CANVAS_MARGIN, (canvasHeight - totalHeight) / 2)
+  return assets.map((a, i) => ({
+    assetId: a.assetId,
+    promotionAssetId: a.promotionAssetId,
+    title: a.resource?.title || 'Untitled asset',
+    thumbnailSrc: resolveNodeThumbnail(a.resource),
+    x: ROOT_COLUMN_X,
+    y: startY + i * (NODE_HEIGHT + GRID_GAP_Y),
+  }))
+}
+
+// ─── STEP 2: observed journey graph — positioning types ───────────────────────
+// Positioned wrapper around the real GraphNode/GraphEdge shapes from
+// journeyGraph.ts. No fields are invented here beyond x/y/depth/isTerminal,
+// all of which are derived purely from graph structure (BFS depth,
+// out-degree), never from guessed asset metadata. See file header's
+// "STEP 2 NODE DISPLAY LIMITATION" note.
+interface PositionedGraphNode extends GraphNode {
+  x: number
+  y: number
+  depth: number
+  isTerminal: boolean // true iff zero outgoing GraphEdges — a real structural fact
+  isRootMatch: boolean // true iff observedAssetIds intersects the promotion's own asset ids
+}
+
+interface PositionedGraphEdge extends GraphEdge {
+  x1: number
+  y1: number
+  x2: number
+  y2: number
+}
+
+interface RootConnector {
+  // from a promoted-asset card (JourneyNode) to a PositionedGraphNode whose
+  // observedAssetIds contains that asset's id — a real assetId match, not
+  // an invented edge.
+  fromAssetId: string
+  x1: number
+  y1: number
+  x2: number
+  y2: number
+}
+
+// Deterministic layered (BFS-by-depth) layout. NOT a general graph-layout
+// engine — fixed columns by depth from the promotion's own root node(s),
+// simple vertical stacking within a column. Defensive against cycles via
+// a bounded relaxation pass count.
+function layoutJourneyGraph(
+  graph: JourneyGraph,
+  promotedAssetIds: Set<string>,
+  rootColumnRightEdgeX: number,
+  canvasHeight: number
+): { nodes: PositionedGraphNode[]; edges: PositionedGraphEdge[] } {
+  const { nodes, edges } = graph
+
+  const outDegree = new Map<string, number>()
+  for (const n of nodes) outDegree.set(n.videoId, 0)
+  for (const e of edges) outDegree.set(e.fromVideoId, (outDegree.get(e.fromVideoId) ?? 0) + 1)
+
+  const isRootMatch = (n: GraphNode) =>
+    n.observedAssetIds.some((id) => promotedAssetIds.has(id))
+
+  // BFS depth assignment, relaxed upward (a node reachable via multiple
+  // paths sits at the greatest depth reached, so it never draws left of an
+  // ancestor). Bounded by nodes.length passes to stay safe against cycles.
+  const depth = new Map<string, number>()
+  for (const n of nodes) depth.set(n.videoId, isRootMatch(n) ? 0 : -1)
+  if (![...depth.values()].some((d) => d === 0)) {
+    // No node matched a promoted asset (e.g. promotion has no assets yet,
+    // or discovery didn't surface the exact root step) — fall back to
+    // graph-structural roots: nodes nothing points to.
+    const hasIncoming = new Set(edges.map((e) => e.toVideoId))
+    for (const n of nodes) {
+      if (!hasIncoming.has(n.videoId)) depth.set(n.videoId, 0)
     }
-  })
+  }
+
+  const maxPasses = nodes.length + 2
+  for (let pass = 0; pass < maxPasses; pass++) {
+    let changed = false
+    for (const e of edges) {
+      const fromDepth = depth.get(e.fromVideoId)
+      if (fromDepth === undefined || fromDepth === -1) continue
+      const candidate = fromDepth + 1
+      const currentToDepth = depth.get(e.toVideoId) ?? -1
+      if (candidate > currentToDepth) {
+        depth.set(e.toVideoId, candidate)
+        changed = true
+      }
+    }
+    if (!changed) break
+  }
+  // Any node still unreached (isolated from every root) is placed at depth 0
+  // of its own — it's still a real discovered node, just not proven
+  // connected to a promoted asset by any observed edge.
+  for (const n of nodes) {
+    if ((depth.get(n.videoId) ?? -1) === -1) depth.set(n.videoId, 0)
+  }
+
+  const byDepth = new Map<number, GraphNode[]>()
+  for (const n of nodes) {
+    const d = depth.get(n.videoId) ?? 0
+    if (!byDepth.has(d)) byDepth.set(d, [])
+    byDepth.get(d)!.push(n)
+  }
+
+  const positioned: PositionedGraphNode[] = []
+  const posByVideoId = new Map<string, PositionedGraphNode>()
+  for (const [d, colNodes] of byDepth.entries()) {
+    const totalHeight =
+      colNodes.length * GRAPH_NODE_HEIGHT + Math.max(0, colNodes.length - 1) * GRAPH_ROW_GAP
+    const startY = Math.max(CANVAS_MARGIN, (canvasHeight - totalHeight) / 2)
+    colNodes.forEach((n, i) => {
+      const pn: PositionedGraphNode = {
+        ...n,
+        depth: d,
+        x: rootColumnRightEdgeX + d * (GRAPH_NODE_WIDTH + GRAPH_COLUMN_GAP),
+        y: startY + i * (GRAPH_NODE_HEIGHT + GRAPH_ROW_GAP),
+        isTerminal: (outDegree.get(n.videoId) ?? 0) === 0,
+        isRootMatch: isRootMatch(n),
+      }
+      positioned.push(pn)
+      posByVideoId.set(n.videoId, pn)
+    })
+  }
+
+  const positionedEdges: PositionedGraphEdge[] = edges
+    .map((e) => {
+      const from = posByVideoId.get(e.fromVideoId)
+      const to = posByVideoId.get(e.toVideoId)
+      if (!from || !to) return null
+      return {
+        ...e,
+        x1: from.x + GRAPH_NODE_WIDTH,
+        y1: from.y + GRAPH_NODE_HEIGHT / 2,
+        x2: to.x,
+        y2: to.y + GRAPH_NODE_HEIGHT / 2,
+      }
+    })
+    .filter((e): e is PositionedGraphEdge => e !== null)
+
+  return { nodes: positioned, edges: positionedEdges }
+}
+
+function edgeBezierPath(x1: number, y1: number, x2: number, y2: number): string {
+  const midX = (x1 + x2) / 2
+  return `M ${x1},${y1} C ${midX},${y1} ${midX},${y2} ${x2},${y2}`
 }
 
 // ─── Component ────────────────────────────────────────────────────────────────
@@ -121,6 +317,13 @@ export default function PromotionJourneyMap() {
   const [error, setError] = useState<string | null>(null)
   const [promotionTitle, setPromotionTitle] = useState<string>('Promotion')
   const [nodes, setNodes] = useState<JourneyNode[]>([])
+
+  // STEP 2: observed journey graph — loaded independently of the promoted
+  // assets above (different data source, different failure mode). A graph
+  // load failure does not block the promoted-asset cards from rendering.
+  const [graphLoading, setGraphLoading] = useState(true)
+  const [graphError, setGraphError] = useState<string | null>(null)
+  const [graph, setGraph] = useState<JourneyGraph | null>(null)
 
   // Local canvas transform — NOT useWorkspaceStore.
   const [transform, setTransform] = useState<CanvasTransform>({ x: 0, y: 0, scale: 1 })
@@ -153,6 +356,62 @@ export default function PromotionJourneyMap() {
 
     return () => { cancelled = true }
   }, [promotionId])
+
+  // ── STEP 2: load the real observed journey graph ─────────────────────────
+  // discoverPromotionJourneys(promotionId) -> buildJourneyGraph(discovered).
+  // Both consumed exactly as exported today — no changes to either file.
+  useEffect(() => {
+    if (!promotionId) return
+    let cancelled = false
+
+    ;(async () => {
+      setGraphLoading(true)
+      setGraphError(null)
+      try {
+        const discovered: DiscoveredJourney[] = await discoverPromotionJourneys(promotionId)
+        if (cancelled) return
+        const built = buildJourneyGraph(discovered)
+        setGraph(built)
+      } catch (err: any) {
+        if (!cancelled) setGraphError(err?.message || 'Could not load the journey graph.')
+      } finally {
+        if (!cancelled) setGraphLoading(false)
+      }
+    })()
+
+    return () => { cancelled = true }
+  }, [promotionId])
+
+  // ── STEP 2: promoted-asset ids, for matching graph nodes to root cards ───
+  const promotedAssetIds = useMemo(() => new Set(nodes.map((n) => n.assetId)), [nodes])
+
+  // ── STEP 2: deterministic layered layout for the observed graph ──────────
+  const rootColumnRightEdgeX = ROOT_COLUMN_X + NODE_WIDTH + GRID_GAP_X * 2
+  const { nodes: positionedGraphNodes, edges: positionedGraphEdges } = useMemo(() => {
+    if (!graph) return { nodes: [] as PositionedGraphNode[], edges: [] as PositionedGraphEdge[] }
+    return layoutJourneyGraph(graph, promotedAssetIds, rootColumnRightEdgeX, DEFAULT_CANVAS_HEIGHT)
+  }, [graph, promotedAssetIds, rootColumnRightEdgeX])
+
+  // ── STEP 2: structural connectors from a promoted-asset card to any graph
+  // node whose observedAssetIds contains that asset's id — a real assetId
+  // match, not an invented edge. ────────────────────────────────────────────
+  const rootConnectors: RootConnector[] = useMemo(() => {
+    const out: RootConnector[] = []
+    for (const asset of nodes) {
+      for (const gn of positionedGraphNodes) {
+        if (gn.observedAssetIds.includes(asset.assetId)) {
+          out.push({
+            fromAssetId: asset.assetId,
+            x1: asset.x + NODE_WIDTH,
+            y1: asset.y + NODE_HEIGHT / 2,
+            x2: gn.x,
+            y2: gn.y + GRAPH_NODE_HEIGHT / 2,
+          })
+        }
+      }
+    }
+    return out
+  }, [nodes, positionedGraphNodes])
 
   // ── Pan / zoom (same formulas as WorkspaceCanvas.tsx, kept local) ────────
   const pan = useCallback((dx: number, dy: number) => {
@@ -316,6 +575,32 @@ export default function PromotionJourneyMap() {
             transformOrigin: '0 0',
           }}
         >
+          {/* STEP 2: edges — real GraphEdges + real assetId-match root
+              connectors only. Drawn under the node cards. */}
+          <svg style={styles.edgesSvg}>
+            <defs>
+              <marker id="journeyArrow" markerWidth="8" markerHeight="8" refX="6" refY="3" orient="auto">
+                <path d="M0,0 L6,3 L0,6 Z" fill="#c7cbd1" />
+              </marker>
+            </defs>
+            {rootConnectors.map((c, i) => (
+              <path
+                key={`root-${c.fromAssetId}-${i}`}
+                d={edgeBezierPath(c.x1, c.y1, c.x2, c.y2)}
+                style={styles.edgePath}
+                markerEnd="url(#journeyArrow)"
+              />
+            ))}
+            {positionedGraphEdges.map((e) => (
+              <path
+                key={`${e.fromVideoId}::${e.toVideoId}`}
+                d={edgeBezierPath(e.x1, e.y1, e.x2, e.y2)}
+                style={styles.edgePath}
+                markerEnd="url(#journeyArrow)"
+              />
+            ))}
+          </svg>
+
           {nodes.map((node) => (
             <div
               key={node.assetId}
@@ -340,11 +625,71 @@ export default function PromotionJourneyMap() {
               <div style={styles.nodeTitle}>{node.title}</div>
             </div>
           ))}
+
+          {/* STEP 2: real observed graph nodes. See file header's "STEP 2
+              NODE DISPLAY LIMITATION" — no per-type icon/title exists for
+              these yet, only the real structural terminal/mid-path
+              distinction. */}
+          {positionedGraphNodes.map((gn) => (
+            <div
+              key={gn.videoId}
+              style={{
+                ...styles.graphNode,
+                ...(gn.isTerminal ? styles.graphNodeTerminal : null),
+                left: gn.x,
+                top: gn.y,
+                width: GRAPH_NODE_WIDTH,
+                height: GRAPH_NODE_HEIGHT,
+              }}
+              title={`videoId: ${gn.videoId}`}
+            >
+              <div style={styles.graphNodeHead}>
+                <div
+                  style={{
+                    ...styles.graphNodeIcon,
+                    background: gn.isTerminal ? '#d1fae5' : '#eef0f3',
+                  }}
+                >
+                  {gn.isTerminal ? (
+                    <Flag size={13} color="#059669" />
+                  ) : (
+                    <Box size={13} color="#6b7280" />
+                  )}
+                </div>
+                <div>
+                  <div style={styles.graphNodeTitle}>{gn.videoId.slice(0, 10)}…</div>
+                  <div style={styles.graphNodeType}>
+                    {gn.isTerminal ? 'Terminal — end of journey' : 'Observed step'}
+                  </div>
+                </div>
+              </div>
+            </div>
+          ))}
         </div>
 
         {nodes.length === 0 && (
           <div style={styles.emptyOverlay}>
             <p style={styles.emptyText}>No assets in this promotion yet.</p>
+          </div>
+        )}
+
+        {/* STEP 2: graph status — inline, non-blocking. Promoted-asset cards
+            above render regardless of graph load state. */}
+        {graphLoading && (
+          <div style={styles.graphStatusChip}>
+            <Loader2 size={12} className="animate-spin" />
+            <span>Loading journey graph…</span>
+          </div>
+        )}
+        {!graphLoading && graphError && (
+          <div style={{ ...styles.graphStatusChip, color: '#dc2626', borderColor: '#fecaca', background: '#fef2f2' }}>
+            <AlertCircle size={12} />
+            <span>{graphError}</span>
+          </div>
+        )}
+        {!graphLoading && !graphError && graph && graph.nodes.length === 0 && (
+          <div style={styles.graphStatusChip}>
+            <span>No observed journeys yet for this promotion.</span>
           </div>
         )}
 
