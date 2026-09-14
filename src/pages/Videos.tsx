@@ -83,6 +83,13 @@ import { listAssignmentTrackingDomainsForCollaborator } from '../services/assign
 import { getAllowCollaboratorDomainsMap } from '../services/promotion/promotionAssetDomainPolicy';
 import { categorizeAsset } from '../services/redirect/getPromotedAssetDisplay';
 import { resolveAssetType } from '../services/asset/resolveAssetType';
+import {
+  listCreativeEligibleCampaignsForMarketer,
+  loadPromotionAssetsForCreative,
+  type CreativeEligibleCampaign,
+  type CreativeEligiblePromotion,
+  type CreativePromotionAssetRow,
+} from '../services/promotion/listCreativeEligibleCampaigns';
 type VideoStatus = Video['status'];
 
 interface MultiSelectProps {
@@ -605,6 +612,15 @@ const hasBlockingPromotionIssue = Array.from(promotionContextByAssetId.entries()
   const [promotedAssets, setPromotedAssets] = useState<PromotedAssetRow[]>([]);
   const [verifiedDomains, setVerifiedDomains] = useState<VerifiedDomainOption[]>([]);
   const [selectedTrackingDomainId, setSelectedTrackingDomainId] = useState<string | null>(null);
+
+  // ── Creative Creation Phase 1 (UI only; ownership write path unchanged) ──
+  const [creativeEligibleCampaigns, setCreativeEligibleCampaigns] = useState<CreativeEligibleCampaign[]>([]);
+  const [selectedCreativePromotionId, setSelectedCreativePromotionId] = useState<string | null>(null);
+  const [creativeAssetUsageRows, setCreativeAssetUsageRows] = useState<CreativePromotionAssetRow[]>([]);
+  const [showCreativeAssetsModal, setShowCreativeAssetsModal] = useState(false);
+  const [creativeAssetsModalCount, setCreativeAssetsModalCount] = useState(0);
+  const [creativeDomainOptions, setCreativeDomainOptions] = useState<VerifiedDomainOption[]>([]);
+  const [loadingCreativePromotion, setLoadingCreativePromotion] = useState(false);
   // Shared Domains, cached by assignmentId (not assetId) — multiple
   // promoted assets can resolve to the same Assignment, so this avoids
   // calling listAssignmentTrackingDomainsForCollaborator() more than once per Assignment.
@@ -788,6 +804,120 @@ const hasBlockingPromotionIssue = Array.from(promotionContextByAssetId.entries()
     selectedLeadMagnets: [] as string[]
   });
 
+  const selectedCreativeCampaign = creativeEligibleCampaigns.find(c => c.campaignId === formData.campaign_id) ?? null;
+  const isCreativeCampaign = selectedCreativeCampaign !== null;
+  const creativeMode = selectedCreativeCampaign?.mode ?? null;
+  /** campaign_asset_only → Campaign Links UI unavailable (Sponsor campaign stays selected). */
+  const creativeLinksUnavailable = creativeMode === 'campaign_asset_only';
+
+  const creativePromotionBlocked =
+    isCreativeCampaign &&
+    (!selectedCreativePromotionId || loadingCreativePromotion);
+
+  const clearCreativeSelection = () => {
+    setSelectedCreativePromotionId(null);
+    setCreativeAssetUsageRows([]);
+    setCreativeDomainOptions([]);
+    setPromotedAssets([]);
+    setPromotionContextByAssetId(new Map());
+    setChosenPromotionByAssetId(new Map());
+    setSelectedAssetDomainByAssetId(new Map());
+  };
+
+  const applyCreativePromotion = async (
+    campaign: CreativeEligibleCampaign,
+    promotion: CreativeEligiblePromotion
+  ) => {
+    setLoadingCreativePromotion(true);
+    setSelectedCreativePromotionId(promotion.promotionId);
+    try {
+      const rows = await loadPromotionAssetsForCreative(promotion.promotionId);
+      setCreativeAssetUsageRows(rows);
+
+      const asPromoted = rows.map(r => ({
+        asset_id: r.asset_id,
+        title: r.title,
+        thumbnail_url: r.thumbnail_url,
+      })) as PromotedAssetRow[];
+      setPromotedAssets(asPromoted);
+
+      const ctxMap = new Map<string, PromotionContextOption[]>();
+      const chosenMap = new Map<string, PromotionContext>();
+      const promoOption = {
+        promotionId: promotion.promotionId,
+        assignmentId: promotion.assignmentId,
+        assignmentCollaboratorId: promotion.assignmentCollaboratorId,
+        label: promotion.label,
+      } as any as PromotionContextOption;
+      const chosen = toPromotionContext(promoOption);
+      for (const r of rows) {
+        ctxMap.set(r.asset_id, [promoOption]);
+        chosenMap.set(r.asset_id, chosen);
+      }
+      setPromotionContextByAssetId(ctxMap);
+      setChosenPromotionByAssetId(chosenMap);
+
+      const sponsorDomainIds = [
+        ...new Set(
+          rows.map(r => r.selected_sponsor_domain_id).filter((id): id is string => !!id)
+        ),
+      ];
+      const anyMarketer = rows.some(r => r.use_marketer_domain);
+      const anyVstrk = rows.some(r => r.use_vstrk_domain);
+
+      let domainOpts: VerifiedDomainOption[] = [];
+      if (sponsorDomainIds.length > 0) {
+        try {
+          const allSponsor = await listVerifiedBrandedDomains(campaign.sponsorOrganizationId);
+          domainOpts = allSponsor.filter(d => sponsorDomainIds.includes(d.id));
+        } catch (e) {
+          console.error('[Videos] creative sponsor domains', e);
+        }
+      }
+      if (anyMarketer && organizationId) {
+        try {
+          const mine = await listVerifiedBrandedDomains(organizationId);
+          const seen = new Set(domainOpts.map(d => d.id));
+          for (const d of mine) {
+            if (!seen.has(d.id)) domainOpts.push(d);
+          }
+        } catch (e) {
+          console.error('[Videos] creative marketer domains', e);
+        }
+      }
+      setCreativeDomainOptions(domainOpts);
+      if (domainOpts.length > 0) {
+        setSelectedTrackingDomainId(domainOpts[0].id);
+      } else {
+        setSelectedTrackingDomainId(null);
+      }
+
+      setCreativeAssetsModalCount(rows.length);
+      setShowCreativeAssetsModal(true);
+    } catch (e: any) {
+      console.error('[Videos] load promotion assets failed', e);
+      setPromotedAssets([]);
+      setCreativeAssetUsageRows([]);
+      throw e;
+    } finally {
+      setLoadingCreativePromotion(false);
+    }
+  };
+
+  const handleCreativeCampaignChange = async (campaignId: string) => {
+    setFormData(prev => ({ ...prev, campaign_id: campaignId }));
+    clearCreativeSelection();
+    if (!campaignId) return;
+
+    const creative = creativeEligibleCampaigns.find(c => c.campaignId === campaignId);
+    if (!creative) return;
+
+    if (creative.promotions.length === 1) {
+      await applyCreativePromotion(creative, creative.promotions[0]);
+    }
+  };
+
+
   const [modalConfig, setModalConfig] = useState<{
     isOpen: boolean;
     title: string;
@@ -897,6 +1027,23 @@ const hasBlockingPromotionIssue = Array.from(promotionContextByAssetId.entries()
       setLoadingMagnets(false);
     }
   };
+
+  useEffect(() => {
+    if (!user?.id || isReadOnly) {
+      setCreativeEligibleCampaigns([]);
+      return;
+    }
+    let cancelled = false;
+    listCreativeEligibleCampaignsForMarketer(user.id)
+      .then(list => {
+        if (!cancelled) setCreativeEligibleCampaigns(list);
+      })
+      .catch(err => {
+        console.error('[Videos] creative eligibility failed', err);
+        if (!cancelled) setCreativeEligibleCampaigns([]);
+      });
+    return () => { cancelled = true; };
+  }, [user?.id, isReadOnly]);
 
   useEffect(() => {
     if (user && effectiveOrgId) {
@@ -1647,7 +1794,18 @@ console.log(
                         <label className="label-caps">Campaign</label>
                         <select 
                           value={formData.campaign_id}
-                          onChange={e => setFormData({ ...formData, campaign_id: e.target.value })}
+                          onChange={e => {
+                            const id = e.target.value;
+                            const isCreative = creativeEligibleCampaigns.some(c => c.campaignId === id);
+                            if (isCreative) {
+                              handleCreativeCampaignChange(id).catch((err: any) =>
+                                console.error('[Videos] creative campaign change', err)
+                              );
+                            } else {
+                              clearCreativeSelection();
+                              setFormData({ ...formData, campaign_id: id });
+                            }
+                          }}
                           disabled={useOnlyPromoteAsset}
                           className={`w-full bg-zinc-950 border border-zinc-900 rounded-xl p-3 text-[11px] font-bold uppercase outline-none focus:border-red-600 appearance-none ${
                             useOnlyPromoteAsset ? 'opacity-50 cursor-not-allowed' : ''
@@ -1655,8 +1813,59 @@ console.log(
                         >
                           <option value="">Select a campaign</option>
                           {campaigns.map(c => <option key={c.id} value={c.id}>{c.campaign_name}</option>)}
+                          {creativeEligibleCampaigns
+                            .filter(ce => !campaigns.some(c => c.id === ce.campaignId))
+                            .map(ce => (
+                              <option key={ce.campaignId} value={ce.campaignId}>
+                                {ce.campaignName} (Creative)
+                              </option>
+                            ))}
                         </select>
+                        {isCreativeCampaign && (
+                          <p className="text-[9px] font-bold uppercase tracking-widest text-zinc-500 pt-1">
+                            Creative Creation · {creativeMode === 'campaign_asset_only' ? 'Assets only (no campaign links)' : 'Campaign links + assets'}
+                          </p>
+                        )}
+                        {creativeLinksUnavailable && (
+                          <p className="text-[9px] font-bold uppercase tracking-widest text-amber-600/80 pt-1">
+                            Campaign Links are unavailable for this Creative mode. Promotion assets only.
+                          </p>
+                        )}
                       </div>
+
+                      {isCreativeCampaign && selectedCreativeCampaign && (
+                        <div className="space-y-1 md:col-span-2" data-tutorial-id="videos-creative-promotion">
+                          <label className="label-caps">Promotion</label>
+                          {selectedCreativeCampaign.promotions.length === 0 ? (
+                            <p className="text-xs text-amber-500 font-bold">
+                              No eligible Promotion for this campaign. Accept an assignment with Creative Creation and start promoting first.
+                            </p>
+                          ) : selectedCreativeCampaign.promotions.length === 1 ? (
+                            <p className="text-xs text-zinc-400">
+                              {selectedCreativeCampaign.promotions[0].label}
+                              {loadingCreativePromotion && ' · Loading assets…'}
+                            </p>
+                          ) : (
+                            <select
+                              value={selectedCreativePromotionId ?? ''}
+                              onChange={e => {
+                                const pid = e.target.value;
+                                const promo = selectedCreativeCampaign.promotions.find(p => p.promotionId === pid);
+                                if (!promo) return;
+                                applyCreativePromotion(selectedCreativeCampaign, promo).catch((err: any) =>
+                                  console.error(err)
+                                );
+                              }}
+                              className="w-full bg-zinc-950 border border-zinc-900 rounded-xl p-3 text-[11px] font-bold uppercase outline-none focus:border-red-600 appearance-none"
+                            >
+                              <option value="">Select a promotion</option>
+                              {selectedCreativeCampaign.promotions.map(p => (
+                                <option key={p.promotionId} value={p.promotionId}>{p.label}</option>
+                              ))}
+                            </select>
+                          )}
+                        </div>
+                      )}
                       <div className="space-y-1" data-tutorial-id="videos-objectives">
                         <label className="label-caps">Goals / Objectives</label>
                         <div className="flex flex-wrap gap-2 pt-1">
@@ -1873,6 +2082,14 @@ console.log(
                             );
                           })}
                         </div>
+                      ) : isCreativeCampaign ? (
+                        <div className="text-[10px] font-bold uppercase tracking-widest text-zinc-500 border border-dashed border-zinc-800 rounded-xl px-4 py-3">
+                          {loadingCreativePromotion
+                            ? 'Loading promotion assets…'
+                            : selectedCreativePromotionId
+                              ? 'Assets come from the selected Promotion'
+                              : 'Select a Promotion to load assets'}
+                        </div>
                       ) : (
                         <button
                           type="button"
@@ -1919,12 +2136,17 @@ console.log(
                         className="w-full bg-zinc-950 border border-zinc-800 rounded-xl px-4 py-3 text-xs text-zinc-100 focus:outline-none focus:border-red-600"
                       >
                         <option value="">vstrk.com</option>
-                        {verifiedDomains.map((d) => (
+                        {(isCreativeCampaign ? creativeDomainOptions : verifiedDomains).map((d) => (
                           <option key={d.id} value={d.id}>
                             {d.hostname}
                           </option>
                         ))}
                       </select>
+                      {isCreativeCampaign && (
+                        <p className="text-[9px] font-bold uppercase tracking-widest text-zinc-600">
+                          Domains limited to this Promotion&apos;s Path B usage
+                        </p>
+                      )}
                     </div>
 
                     <button 
@@ -2062,7 +2284,7 @@ console.log(
                       </div>
                       <button 
                         onClick={handleSave}
-                        disabled={saving || resolvingPromotionContext || hasBlockingPromotionIssue}
+                        disabled={saving || resolvingPromotionContext || hasBlockingPromotionIssue || creativePromotionBlocked}
                         data-tutorial-id="videos-save-to-list"
                         className="mt-auto w-full bg-red-600 text-white h-12 rounded-xl text-[10px] font-black uppercase tracking-widest flex items-center justify-center gap-2"
                       >
@@ -3052,6 +3274,26 @@ console.log(
       {/* Phase 2.5: YouTube Analytics Import Overlay */}
       {showImportWizard && (
         <YouTubeImportPanel onClose={() => setShowImportWizard(false)} isReadOnly={isReadOnly} />
+      )}
+
+      {/* Creative Creation Phase 1 — auto-selected assets confirmation */}
+      {showCreativeAssetsModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm p-4">
+          <div className="bg-zinc-900 border border-zinc-800 rounded-2xl p-6 w-full max-w-sm space-y-4">
+            <h3 className="text-white font-black uppercase tracking-tight text-sm">Promotion selected</h3>
+            <p className="text-zinc-400 text-xs">
+              {creativeAssetsModalCount} asset{creativeAssetsModalCount === 1 ? '' : 's'} were automatically
+              selected from this Promotion.
+            </p>
+            <button
+              type="button"
+              onClick={() => setShowCreativeAssetsModal(false)}
+              className="w-full h-10 bg-red-600 hover:bg-red-500 text-white rounded-xl text-[10px] font-black uppercase tracking-widest"
+            >
+              Continue
+            </button>
+          </div>
+        </div>
       )}
     </div>
   );
