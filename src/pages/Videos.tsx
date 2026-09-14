@@ -851,7 +851,11 @@ const hasBlockingPromotionIssue = Array.from(promotionContextByAssetId.entries()
         title: r.title,
         display_name: r.title,
         thumbnail_url: r.thumbnail_url,
-      })) as PromotedAssetRow[];
+        thumbnail: r.thumbnail_url,
+        asset_type: null,
+        resource_type: null,
+        element_type: null,
+      })) as unknown as PromotedAssetRow[];
       setPromotedAssets(asPromoted);
 
       const ctxMap = new Map<string, PromotionContextOption[]>();
@@ -937,7 +941,7 @@ const hasBlockingPromotionIssue = Array.from(promotionContextByAssetId.entries()
     await applyEligiblePromotion(eligible);
   };
 
-  const handleCreativeCampaignChange = async  const handleCreativeCampaignChange = async (campaignId: string) => {
+  const handleCreativeCampaignChange = async (campaignId: string) => {
     setFormData(prev => ({ ...prev, campaign_id: campaignId }));
     clearCreativeSelection();
     if (!campaignId) return;
@@ -1905,8 +1909,6 @@ console.log(
                         )}
                       </div>
 
-                        </div>
-                      </div>
                       <div className="grid grid-cols-2 gap-2">
                         <label
                           className={`flex items-center gap-2 border rounded-xl px-3 py-2.5 cursor-pointer transition-all ${
