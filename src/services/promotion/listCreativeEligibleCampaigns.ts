@@ -1,6 +1,9 @@
 /**
  * Read-only: Marketer → Creative-eligible Sponsor Campaigns → Promotions.
  * Phase 1 Creative Creation — no writes, no ownership changes.
+ *
+ * Also loads per-asset Path B capability (assignment_assets.allow_*) and
+ * usage (promotion_assets.use_* / selected_sponsor_domain_id) for Create Content UI.
  */
 
 import { supabase } from '../../lib/supabase';
@@ -11,6 +14,7 @@ export interface CreativeEligiblePromotion {
   promotionId: string;
   assignmentId: string;
   assignmentCollaboratorId: string;
+  campaignId: string;
   /** Assignment title — best available label until promotions have their own title. */
   label: string;
 }
@@ -27,9 +31,16 @@ export interface CreativePromotionAssetRow {
   asset_id: string;
   title: string;
   thumbnail_url: string | null;
+  /** Sponsor capability from assignment_assets */
+  allow_marketer_domain: boolean;
+  allow_sponsor_domain: boolean;
+  allow_vstrk_domain: boolean;
+  /** Actual usage from promotion_assets */
   use_marketer_domain: boolean;
   use_vstrk_domain: boolean;
   selected_sponsor_domain_id: string | null;
+  /** Resolved hostname for selected_sponsor_domain_id (null if none) */
+  selected_sponsor_hostname: string | null;
 }
 
 /**
@@ -51,7 +62,6 @@ export async function listCreativeEligibleCampaignsForMarketer(
   if (!collabRows?.length) return [];
 
   const assignmentIds = [...new Set(collabRows.map(r => r.assignment_id))];
-  const collabIds = collabRows.map(r => r.id);
 
   const { data: assignmentRows, error: assignErr } = await supabase
     .from('assignments')
@@ -94,14 +104,12 @@ export async function listCreativeEligibleCampaignsForMarketer(
   }
 
   const campaignById = new Map((campaignRows ?? []).map(c => [c.id, c]));
-
-  // campaignId → aggregate
   const byCampaign = new Map<string, CreativeEligibleCampaign>();
 
   for (const p of promotionRows) {
     if (!p.campaign_id) continue;
     const camp = campaignById.get(p.campaign_id);
-    if (!camp) continue; // RLS may hide Sponsor campaign — skip silently
+    if (!camp) continue;
 
     const assignment =
       assignmentById.get(p.assignment_id) ??
@@ -129,6 +137,7 @@ export async function listCreativeEligibleCampaignsForMarketer(
       promotionId: p.id,
       assignmentId: assignment.id,
       assignmentCollaboratorId: p.assignment_collaborator_id,
+      campaignId: p.campaign_id,
       label: assignment.title ?? `Promotion ${p.id.slice(0, 8)}`,
     });
   }
@@ -137,10 +146,37 @@ export async function listCreativeEligibleCampaignsForMarketer(
 }
 
 /**
- * All promotion_assets for a Promotion + Path B usage + display fields.
+ * Flat list of every creative-eligible promotion (Route B — Promotion-first).
+ */
+export function flattenCreativePromotions(
+  campaigns: CreativeEligibleCampaign[]
+): Array<CreativeEligiblePromotion & { campaignName: string; mode: CreativeCreationMode; sponsorOrganizationId: string }> {
+  const out: Array<
+    CreativeEligiblePromotion & {
+      campaignName: string;
+      mode: CreativeCreationMode;
+      sponsorOrganizationId: string;
+    }
+  > = [];
+  for (const c of campaigns) {
+    for (const p of c.promotions) {
+      out.push({
+        ...p,
+        campaignName: c.campaignName,
+        mode: c.mode,
+        sponsorOrganizationId: c.sponsorOrganizationId,
+      });
+    }
+  }
+  return out;
+}
+
+/**
+ * All promotion_assets for a Promotion + Path B usage + assignment allow_* + display.
  */
 export async function loadPromotionAssetsForCreative(
-  promotionId: string
+  promotionId: string,
+  assignmentId: string
 ): Promise<CreativePromotionAssetRow[]> {
   const { data: paRows, error: paErr } = await supabase
     .from('promotion_assets')
@@ -157,10 +193,18 @@ export async function loadPromotionAssetsForCreative(
   const assetIds = paRows.map(r => r.asset_id);
 
   const [
+    { data: allowRows },
     { data: videoRows },
     { data: elementRows },
     { data: resourceRows },
   ] = await Promise.all([
+    supabase
+      .from('assignment_assets')
+      .select(
+        'asset_id, allow_marketer_domain, allow_sponsor_domain, allow_vstrk_domain'
+      )
+      .eq('assignment_id', assignmentId)
+      .in('asset_id', assetIds),
     supabase.from('videos').select('asset_id, video_title, thumbnail_url').in('asset_id', assetIds),
     supabase
       .from('campaign_element_assets')
@@ -172,6 +216,33 @@ export async function loadPromotionAssetsForCreative(
       .in('asset_id', assetIds),
   ]);
 
+  const allowBy = new Map(
+    (allowRows ?? []).map(r => [
+      r.asset_id as string,
+      {
+        allow_marketer_domain: !!r.allow_marketer_domain,
+        allow_sponsor_domain: !!r.allow_sponsor_domain,
+        allow_vstrk_domain: !!r.allow_vstrk_domain,
+      },
+    ])
+  );
+
+  const sponsorIds = [
+    ...new Set(
+      paRows
+        .map(r => r.selected_sponsor_domain_id)
+        .filter((id): id is string => !!id)
+    ),
+  ];
+  let hostnameById = new Map<string, string>();
+  if (sponsorIds.length > 0) {
+    const { data: domainRows } = await supabase
+      .from('branded_tracking_domains')
+      .select('id, hostname')
+      .in('id', sponsorIds);
+    hostnameById = new Map((domainRows ?? []).map(d => [d.id as string, d.hostname as string]));
+  }
+
   const videoBy = new Map((videoRows ?? []).map(v => [v.asset_id, v]));
   const elementBy = new Map((elementRows ?? []).map(e => [e.asset_id, e]));
   const resourceBy = new Map((resourceRows ?? []).map(r => [r.asset_id, r]));
@@ -180,6 +251,11 @@ export async function loadPromotionAssetsForCreative(
     const video = videoBy.get(row.asset_id);
     const element = elementBy.get(row.asset_id);
     const resource = resourceBy.get(row.asset_id);
+    const allows = allowBy.get(row.asset_id) ?? {
+      allow_marketer_domain: false,
+      allow_sponsor_domain: false,
+      allow_vstrk_domain: false,
+    };
     const title =
       video?.video_title ??
       element?.display_name ??
@@ -187,14 +263,19 @@ export async function loadPromotionAssetsForCreative(
       row.asset_id;
     const thumbnail_url =
       video?.thumbnail_url ?? resource?.thumbnail_url ?? null;
+    const sid = row.selected_sponsor_domain_id ?? null;
 
     return {
       asset_id: row.asset_id,
       title,
       thumbnail_url,
+      allow_marketer_domain: allows.allow_marketer_domain,
+      allow_sponsor_domain: allows.allow_sponsor_domain,
+      allow_vstrk_domain: allows.allow_vstrk_domain,
       use_marketer_domain: !!row.use_marketer_domain,
       use_vstrk_domain: !!row.use_vstrk_domain,
-      selected_sponsor_domain_id: row.selected_sponsor_domain_id ?? null,
+      selected_sponsor_domain_id: sid,
+      selected_sponsor_hostname: sid ? hostnameById.get(sid) ?? null : null,
     };
   });
 }
