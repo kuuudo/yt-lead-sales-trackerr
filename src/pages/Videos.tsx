@@ -624,6 +624,7 @@ const hasBlockingPromotionIssue = Array.from(promotionContextByAssetId.entries()
   const [showCreativeAssetsModal, setShowCreativeAssetsModal] = useState(false);
   const [creativeAssetsModalCount, setCreativeAssetsModalCount] = useState(0);
   const [creativeDomainOptions, setCreativeDomainOptions] = useState<VerifiedDomainOption[]>([]);
+  const [marketerVerifiedDomains, setMarketerVerifiedDomains] = useState<VerifiedDomainOption[]>([]);
   const [loadingCreativePromotion, setLoadingCreativePromotion] = useState(false);
   // Shared Domains, cached by assignmentId (not assetId) — multiple
   // promoted assets can resolve to the same Assignment, so this avoids
@@ -874,15 +875,16 @@ const hasBlockingPromotionIssue = Array.from(promotionContextByAssetId.entries()
       setPromotionContextByAssetId(ctxMap);
       setChosenPromotionByAssetId(chosenMap);
 
-      // Link domain defaults: prefer Sponsor selected, else marketer selected, else vstrk if use_vstrk
+      // Defaults for generateAssetRedirectLinks (per-asset trackingDomainId):
+      // prefer Start Promoting marketer domain, else sponsor, else vstrk (null).
       const assetDomainMap = new Map<string, string | null>();
       for (const r of rows) {
-        if (r.selected_sponsor_domain_id) {
-          assetDomainMap.set(r.asset_id, r.selected_sponsor_domain_id);
-        } else if (r.selected_marketer_domain_id) {
+        if (r.use_marketer_domain && r.selected_marketer_domain_id) {
           assetDomainMap.set(r.asset_id, r.selected_marketer_domain_id);
-        } else if (r.use_vstrk_domain) {
-          assetDomainMap.set(r.asset_id, null);
+        } else if (r.allow_sponsor_domain && r.selected_sponsor_domain_id) {
+          assetDomainMap.set(r.asset_id, r.selected_sponsor_domain_id);
+        } else if (r.allow_vstrk_domain || r.use_vstrk_domain) {
+          assetDomainMap.set(r.asset_id, null); // vstrk.com
         } else {
           assetDomainMap.set(r.asset_id, null);
         }
@@ -1090,6 +1092,48 @@ const hasBlockingPromotionIssue = Array.from(promotionContextByAssetId.entries()
       });
     return () => { cancelled = true; };
   }, [user?.id, isReadOnly]);
+
+  // Marketer verified domains for per-asset selector in Promotion context
+  useEffect(() => {
+    if (!user?.id || isReadOnly) {
+      setMarketerVerifiedDomains([]);
+      return;
+    }
+    let cancelled = false;
+    (async () => {
+      try {
+        const { data: mems } = await supabase
+          .from('organization_members')
+          .select('organization_id')
+          .eq('user_id', user.id);
+        if (!mems?.length || cancelled) {
+          if (!cancelled) setMarketerVerifiedDomains([]);
+          return;
+        }
+        const lists = await Promise.all(
+          mems.map(m =>
+            listVerifiedBrandedDomains(m.organization_id as string).catch(() => [])
+          )
+        );
+        const seen = new Set<string>();
+        const merged: VerifiedDomainOption[] = [];
+        for (const list of lists) {
+          for (const d of list) {
+            if (!seen.has(d.id)) {
+              seen.add(d.id);
+              merged.push(d);
+            }
+          }
+        }
+        if (!cancelled) setMarketerVerifiedDomains(merged);
+      } catch (e) {
+        console.error('[Videos] marketer domains failed', e);
+        if (!cancelled) setMarketerVerifiedDomains([]);
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [user?.id, isReadOnly]);
+
 
   useEffect(() => {
     if (user && effectiveOrgId) {
@@ -1977,40 +2021,115 @@ console.log(
                             const usage = creativeAssetUsageRows.find(r => r.asset_id === asset.asset_id);
                             const label = (asset as any).display_name || (asset as any).title || asset.asset_id;
                             if (hasPromotionContext && usage) {
+                              const currentDomainId = selectedAssetDomainByAssetId.get(asset.asset_id) ?? null;
+                              const setDomain = (id: string | null) => {
+                                const next = new Map(selectedAssetDomainByAssetId);
+                                next.set(asset.asset_id, id);
+                                setSelectedAssetDomainByAssetId(next);
+                              };
+                              const showMarketer = !!usage.allow_marketer_domain;
+                              const showSponsor = !!usage.allow_sponsor_domain;
+                              const showVstrk = !!usage.allow_vstrk_domain;
+                              const marketerSelected =
+                                currentDomainId &&
+                                marketerVerifiedDomains.some(d => d.id === currentDomainId)
+                                  ? currentDomainId
+                                  : usage.selected_marketer_domain_id &&
+                                      marketerVerifiedDomains.some(d => d.id === usage.selected_marketer_domain_id)
+                                    ? usage.selected_marketer_domain_id
+                                    : '';
+                              const usingVstrk =
+                                showVstrk &&
+                                (currentDomainId === null || currentDomainId === '');
+                              const usingSponsor =
+                                showSponsor &&
+                                !!usage.selected_sponsor_domain_id &&
+                                currentDomainId === usage.selected_sponsor_domain_id;
+
                               return (
                                 <div key={asset.asset_id} className="pl-1 space-y-2 border border-zinc-800 rounded-xl p-3" data-tutorial-id="videos-asset-pathb-domain">
                                   <p className="text-[9px] font-black uppercase tracking-widest text-zinc-400">{label}</p>
                                   <div className="space-y-2">
-                                    {usage.use_marketer_domain && (
-                                      <div className="space-y-0.5">
-                                        <p className="text-[9px] font-bold uppercase tracking-widest text-zinc-500">Marketer tracking domain</p>
-                                        <p className="text-xs text-zinc-200 font-mono">
-                                          {usage.selected_marketer_hostname
-                                            ?? (usage.selected_marketer_domain_id
-                                              ? usage.selected_marketer_domain_id.slice(0, 8) + '…'
-                                              : 'Configured at Start Promoting')}
+                                    {showMarketer && (
+                                      <div className="space-y-1">
+                                        <p className="text-[9px] font-bold uppercase tracking-widest text-zinc-500">
+                                          Marketer&apos;s tracking domain
                                         </p>
+                                        <select
+                                          value={
+                                            currentDomainId &&
+                                            marketerVerifiedDomains.some(d => d.id === currentDomainId)
+                                              ? currentDomainId
+                                              : ''
+                                          }
+                                          onChange={e => {
+                                            const v = e.target.value;
+                                            setDomain(v || null);
+                                          }}
+                                          className="w-full bg-zinc-950 border border-zinc-800 rounded-xl px-3 py-2 text-xs text-zinc-100"
+                                        >
+                                          <option value="">Select a domain</option>
+                                          {marketerVerifiedDomains.map(d => (
+                                            <option key={d.id} value={d.id}>{d.hostname}</option>
+                                          ))}
+                                        </select>
+                                        {marketerVerifiedDomains.length === 0 && (
+                                          <p className="text-[9px] text-zinc-600">
+                                            No verified Marketer domains. Add one in Tracking Domains settings.
+                                          </p>
+                                        )}
                                       </div>
                                     )}
-                                    {(usage.allow_sponsor_domain || usage.selected_sponsor_domain_id) && (
-                                      <div className="space-y-0.5">
-                                        <p className="text-[9px] font-bold uppercase tracking-widest text-zinc-500">Sponsor tracking domain</p>
-                                        <p className="text-xs text-zinc-200 font-mono">
-                                          {usage.selected_sponsor_hostname
-                                            ?? (usage.selected_sponsor_domain_id
-                                              ? usage.selected_sponsor_domain_id.slice(0, 8) + '…'
-                                              : 'Not set')}
+                                    {showSponsor && (
+                                      <div className="space-y-1">
+                                        <p className="text-[9px] font-bold uppercase tracking-widest text-zinc-500">
+                                          Sponsor&apos;s tracking domain
                                         </p>
-                                        <p className="text-[9px] text-zinc-600">Set by Sponsor — read only</p>
+                                        {usage.selected_sponsor_domain_id ? (
+                                          <button
+                                            type="button"
+                                            onClick={() => setDomain(usage.selected_sponsor_domain_id)}
+                                            className={`w-full text-left font-mono text-xs px-3 py-2 rounded-xl border ${
+                                              usingSponsor
+                                                ? 'border-red-600 bg-red-600/10 text-zinc-100'
+                                                : 'border-zinc-800 bg-zinc-900/80 text-zinc-300 hover:border-zinc-600'
+                                            }`}
+                                          >
+                                            {usage.selected_sponsor_hostname
+                                              ?? usage.selected_sponsor_domain_id.slice(0, 8) + '…'}
+                                            <span className="ml-2 text-[9px] uppercase tracking-widest text-zinc-500">
+                                              Read only · click to use
+                                            </span>
+                                          </button>
+                                        ) : (
+                                          <p className="text-xs text-zinc-500 px-1">
+                                            Not configured by Sponsor
+                                          </p>
+                                        )}
                                       </div>
                                     )}
-                                    {usage.use_vstrk_domain && (
-                                      <p className="text-[9px] font-bold uppercase tracking-widest text-zinc-500">
-                                        VSTRK · On
+                                    {showVstrk && (
+                                      <div className="space-y-1">
+                                        <p className="text-[9px] font-bold uppercase tracking-widest text-zinc-500">
+                                          VSTRK tracking domain
+                                        </p>
+                                        <button
+                                          type="button"
+                                          onClick={() => setDomain(null)}
+                                          className={`w-full text-left text-xs px-3 py-2 rounded-xl border ${
+                                            usingVstrk && !usingSponsor && !(currentDomainId && marketerVerifiedDomains.some(d => d.id === currentDomainId))
+                                              ? 'border-red-600 bg-red-600/10 text-zinc-100'
+                                              : 'border-zinc-800 bg-zinc-900/80 text-zinc-300 hover:border-zinc-600'
+                                          }`}
+                                        >
+                                          vstrk.com
+                                        </button>
+                                      </div>
+                                    )}
+                                    {!showMarketer && !showSponsor && !showVstrk && (
+                                      <p className="text-[10px] text-zinc-600">
+                                        No tracking methods allowed for this asset.
                                       </p>
-                                    )}
-                                    {!usage.use_marketer_domain && !usage.selected_sponsor_domain_id && !usage.use_vstrk_domain && (
-                                      <p className="text-[10px] text-zinc-600">No tracking methods configured for this promotion asset.</p>
                                     )}
                                   </div>
                                 </div>
