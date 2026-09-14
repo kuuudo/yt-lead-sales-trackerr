@@ -38,8 +38,6 @@ export default function AssignmentDetail() {
     useVstrkDomain: false,
   };
   const [assetUsageById, setAssetUsageById] = useState<Map<string, AssetUsageState>>(new Map());
-  // Sponsor org verified domains — NOT assignment_tracking_domains.
-  const [sponsorVerifiedDomains, setSponsorVerifiedDomains] = useState<VerifiedDomainOption[]>([]);
   // Marketer org verified domains (for selected_marketer_domain_id).
   const [marketerVerifiedDomains, setMarketerVerifiedDomains] = useState<VerifiedDomainOption[]>([]);
 
@@ -68,24 +66,6 @@ export default function AssignmentDetail() {
   };
 
   useEffect(() => { load(); }, [assignmentId]);
-
-  // Sponsor branded domains for the Assignment org (Sponsor), not Marketer org.
-  useEffect(() => {
-    if (!data?.myCollaboratorId || !data.assignment.organization_id) {
-      setSponsorVerifiedDomains([]);
-      return;
-    }
-    let cancelled = false;
-    listVerifiedBrandedDomains(data.assignment.organization_id)
-      .then(domains => {
-        if (!cancelled) setSponsorVerifiedDomains(domains);
-      })
-      .catch(e => {
-        console.error('Failed to load Sponsor verified domains', e);
-        if (!cancelled) setSponsorVerifiedDomains([]);
-      });
-    return () => { cancelled = true; };
-  }, [data?.myCollaboratorId, data?.assignment.organization_id]);
 
   // Marketer's own verified domains (caller org membership — not Sponsor org).
   useEffect(() => {
@@ -162,8 +142,11 @@ export default function AssignmentDetail() {
       if (next.has(assetId)) {
         next.delete(assetId);
       } else {
-        // Defaults OFF — Marketer opts in per method; allow_* only gates visibility.
-        next.set(assetId, { ...DEFAULT_USAGE });
+        // Defaults OFF for Marketer/VSTRK; Sponsor domain is fixed from Assignment.
+        next.set(assetId, {
+          ...DEFAULT_USAGE,
+          selectedSponsorDomainId: asset?.selected_sponsor_domain_id ?? null,
+        });
       }
       return next;
     });
@@ -204,9 +187,10 @@ export default function AssignmentDetail() {
           !!u.useMarketerDomain &&
           !!u.selectedMarketerDomainId;
         const useVstrk = !!asset?.allow_vstrk_domain && !!u.useVstrkDomain;
+        // Option A: Sponsor domain is fixed at Create Assignment — Marketer cannot change it.
         const sponsorId =
-          asset?.allow_sponsor_domain && u.selectedSponsorDomainId
-            ? u.selectedSponsorDomainId
+          asset?.allow_sponsor_domain && asset.selected_sponsor_domain_id
+            ? asset.selected_sponsor_domain_id
             : null;
         return {
           asset_id: assetId,
@@ -461,25 +445,18 @@ export default function AssignmentDetail() {
                         <label className="block text-[10px] font-bold uppercase tracking-widest text-zinc-500">
                           Sponsor&apos;s tracking domain
                         </label>
-                        <select
-                          value={usage.selectedSponsorDomainId ?? ''}
-                          onChange={e =>
-                            patchAssetUsage(asset.asset_id, {
-                              selectedSponsorDomainId: e.target.value || null,
-                            })
-                          }
-                          className="w-full bg-zinc-950 border border-zinc-800 rounded-lg px-3 py-2 text-xs text-zinc-100"
-                        >
-                          <option value="">None</option>
-                          {sponsorVerifiedDomains.map(d => (
-                            <option key={d.id} value={d.id}>
-                              {d.hostname}
-                            </option>
-                          ))}
-                        </select>
-                        {sponsorVerifiedDomains.length === 0 && (
-                          <p className="text-[9px] text-zinc-600">
-                            No verified Sponsor domains available for this organization.
+                        <div className="w-full bg-zinc-900/80 border border-zinc-800 rounded-lg px-3 py-2 text-xs text-zinc-200 font-mono">
+                          {asset.selected_sponsor_hostname
+                            ?? (asset.selected_sponsor_domain_id
+                              ? asset.selected_sponsor_domain_id.slice(0, 8) + '…'
+                              : 'Not set by Sponsor')}
+                        </div>
+                        <p className="text-[9px] text-zinc-600">
+                          Set by Sponsor at Create Assignment — cannot be changed.
+                        </p>
+                        {!asset.selected_sponsor_domain_id && (
+                          <p className="text-[9px] text-amber-600/90">
+                            Legacy/incomplete: Sponsor enabled this method without selecting a domain.
                           </p>
                         )}
                       </div>

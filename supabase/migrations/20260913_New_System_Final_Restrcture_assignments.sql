@@ -634,3 +634,13 @@ GRANT EXECUTE ON FUNCTION public.create_promotion(uuid, uuid, uuid[], uuid, json
 GRANT EXECUTE ON FUNCTION public.create_promotion(uuid, uuid, uuid[], uuid, jsonb) TO anon;
 GRANT EXECUTE ON FUNCTION public.create_promotion(uuid, uuid, uuid[], uuid, jsonb) TO authenticated;
 GRANT EXECUTE ON FUNCTION public.create_promotion(uuid, uuid, uuid[], uuid, jsonb) TO service_role;
+
+
+ALTER TABLE public.assignment_assets
+  ADD COLUMN IF NOT EXISTS selected_sponsor_domain_id uuid NULL;
+
+  ALTER TABLE public.assignment_assets
+  ADD COLUMN IF NOT EXISTS selected_sponsor_domain_id uuid NULL;
+
+  ALTER TABLE public.promotion_assets
+  ADD COLUMN IF NOT EXISTS selected_marketer_domain_id uuid NULL;
