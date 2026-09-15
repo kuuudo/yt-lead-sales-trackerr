@@ -45,6 +45,7 @@ import type { PromotionDetailData } from '../services/promotion/getPromotionDeta
 import {
   resolveAssetThumbnail,
   resolveElementThumbnail,
+  getElementTypeLabel,
   type ResourceType,
   type CampaignElementType,
 } from '../lib/videoFormatters'
@@ -56,14 +57,16 @@ import type { CanvasTransform } from '../components/analytics/store/useWorkspace
 // build logic; this page only consumes their output. Not touched: journey.ts,
 // journeyDiscovery.ts, journeyGraph.ts, promotionJourney.ts, assetJourney.ts,
 // journeyAnalyticsEngine.ts, events, attribution, the database.
-import { discoverPromotionJourneys } from '../lib/journeyDiscovery'
-import {
-  buildJourneyGraph,
-  type JourneyGraph,
-  type GraphNode,
-  type GraphEdge,
-} from '../lib/journeyGraph'
+import { discoverPromotionJourneys } from '../services/journey/journeyDiscovery'
+import { buildJourneyGraph, type JourneyGraph, type GraphNode, type GraphEdge } from '../services/journey/journeyGraph'
 import { resolveAssetType } from '../services/asset/resolveAssetType'
+
+// ─── STEP 3 (additive) — resolve what a terminal video step's own observed
+// redirect link actually led to (campaign element / resource), using only
+// existing data. No conversion/purchase data involved — see
+// journeyDownstreamResolver.ts's file header for the full rationale. Does
+// NOT modify journeyGraph.ts, journeyAnalyticsEngine.ts, or analyticsEngine.ts.
+import { resolveDownstreamNodes, type DownstreamResolution, type DownstreamNode } from '../services/journey/journeyDownstreamResolver'
 
 // ─── Local node model (Phase 1 — no edges, no persistence) ────────────────────
 
@@ -284,6 +287,10 @@ export default function PromotionJourneyMap() {
   const [graphError, setGraphError] = useState<string | null>(null)
   const [nodeVisualTypes, setNodeVisualTypes] = useState<Map<string, GraphNodeVisualType>>(new Map())
 
+  // Downstream resolution (additive — STEP 3). Structural only, no
+  // conversion data. See journeyDownstreamResolver.ts.
+  const [downstream, setDownstream] = useState<DownstreamResolution>({ nodes: [], edges: [] })
+
   // Local canvas transform — NOT useWorkspaceStore.
   const [transform, setTransform] = useState<CanvasTransform>({ x: 0, y: 0, scale: 1 })
   const containerRef = useRef<HTMLDivElement>(null)
@@ -331,18 +338,24 @@ export default function PromotionJourneyMap() {
         if (cancelled) return
 
         // Best-effort display type per node — see GraphNodeVisualType comment
-        // above for why this stops at the broad asset_type category.
-        const visualTypeEntries = await Promise.all(
-          built.nodes.map(async (n) => {
-            const assetId = n.observedAssetIds[0]
-            if (!assetId) return [n.videoId, 'unknown' as GraphNodeVisualType] as const
-            const resolved = await resolveAssetType(assetId)
-            return [n.videoId, (resolved?.assetType ?? 'unknown') as GraphNodeVisualType] as const
-          })
-        )
+        // above for why this stops at the broad asset_type category. Run
+        // alongside downstream resolution (STEP 3) — independent lookups,
+        // no ordering dependency between them.
+        const [visualTypeEntries, downstreamResolved] = await Promise.all([
+          Promise.all(
+            built.nodes.map(async (n) => {
+              const assetId = n.observedAssetIds[0]
+              if (!assetId) return [n.videoId, 'unknown' as GraphNodeVisualType] as const
+              const resolved = await resolveAssetType(assetId)
+              return [n.videoId, (resolved?.assetType ?? 'unknown') as GraphNodeVisualType] as const
+            })
+          ),
+          resolveDownstreamNodes(built),
+        ])
         if (cancelled) return
 
         setNodeVisualTypes(new Map(visualTypeEntries))
+        setDownstream(downstreamResolved)
         setGraph(built)
       } catch (err: any) {
         if (!cancelled) setGraphError(err?.message || 'Could not load the observed journey graph.')
@@ -358,6 +371,41 @@ export default function PromotionJourneyMap() {
     () => (graph ? layoutGraphNodes(graph, nodeVisualTypes) : []),
     [graph, nodeVisualTypes]
   )
+
+  // Video ids whose terminal step got a resolved downstream node — these no
+  // longer render with the "end of path" terminal treatment, since we now
+  // know what came next (see journeyDownstreamResolver.ts).
+  const videoIdsWithDownstream = useMemo(
+    () => new Set(downstream.edges.map((e) => e.fromVideoId)),
+    [downstream]
+  )
+
+  // Downstream nodes (STEP 3, additive) — one column past their source
+  // video, grouped/stacked when a source has more than one. Purely a
+  // positioning pass; layoutGraphNodes() above is untouched.
+  const positionedDownstreamNodes = useMemo(() => {
+    if (positionedGraphNodes.length === 0 || downstream.nodes.length === 0) return []
+    const bySource = new Map<string, DownstreamNode[]>()
+    for (const n of downstream.nodes) {
+      if (!bySource.has(n.sourceVideoId)) bySource.set(n.sourceVideoId, [])
+      bySource.get(n.sourceVideoId)!.push(n)
+    }
+    const positioned: (DownstreamNode & { x: number; y: number })[] = []
+    for (const [sourceVideoId, group] of bySource.entries()) {
+      const source = positionedGraphNodes.find((p) => p.videoId === sourceVideoId)
+      if (!source) continue
+      const groupHeight = group.length * GRAPH_NODE_HEIGHT + Math.max(0, group.length - 1) * GRAPH_ROW_GAP
+      const startY = source.y + GRAPH_NODE_HEIGHT / 2 - groupHeight / 2
+      group.forEach((n, i) => {
+        positioned.push({
+          ...n,
+          x: source.x + GRAPH_NODE_WIDTH + GRAPH_COL_GAP,
+          y: startY + i * (GRAPH_NODE_HEIGHT + GRAPH_ROW_GAP),
+        })
+      })
+    }
+    return positioned
+  }, [positionedGraphNodes, downstream])
 
   // ── Pan / zoom (same formulas as WorkspaceCanvas.tsx, kept local) ────────
   const pan = useCallback((dx: number, dy: number) => {
@@ -578,6 +626,30 @@ export default function PromotionJourneyMap() {
                 </g>
               )
             })}
+            {/* STEP 3 (additive) — downstream edges: a terminal video's own
+                observed redirect link resolved to a real campaign-element or
+                resource node. See journeyDownstreamResolver.ts. No
+                conversion data involved. */}
+            {downstream.edges.map((edge) => {
+              const from = positionedGraphNodes.find((n) => n.videoId === edge.fromVideoId)
+              const to = positionedDownstreamNodes.find((n) => n.id === edge.toNodeId)
+              if (!from || !to) return null
+              const x1 = from.x + GRAPH_NODE_WIDTH
+              const y1 = from.y + GRAPH_NODE_HEIGHT / 2
+              const x2 = to.x
+              const y2 = to.y + GRAPH_NODE_HEIGHT / 2
+              const midX = (x1 + x2) / 2
+              return (
+                <path
+                  key={`downstream-${edge.fromVideoId}::${edge.toNodeId}`}
+                  d={`M ${x1} ${y1} C ${midX} ${y1} ${midX} ${y2} ${x2} ${y2}`}
+                  fill="none"
+                  stroke="#c7cbd1"
+                  strokeWidth={1.6}
+                  markerEnd="url(#journeyArrow)"
+                />
+              )
+            })}
           </svg>
 
           {nodes.map((node) => (
@@ -605,31 +677,77 @@ export default function PromotionJourneyMap() {
             </div>
           ))}
 
-          {positionedGraphNodes.map((gNode) => (
+          {positionedGraphNodes.map((gNode) => {
+            // A "terminal" video (per journeyGraph.ts's video->video edges)
+            // may still have a resolved downstream node (STEP 3) — if so it
+            // isn't really the end of the path, just the end of the
+            // video->video portion of it.
+            const stillTerminal = gNode.isTerminal && !videoIdsWithDownstream.has(gNode.videoId)
+            return (
+              <div
+                key={gNode.videoId}
+                style={{
+                  ...styles.graphNode,
+                  ...(stillTerminal ? styles.graphNodeTerminal : null),
+                  left: gNode.x,
+                  top: gNode.y,
+                  width: GRAPH_NODE_WIDTH,
+                  height: GRAPH_NODE_HEIGHT,
+                  borderLeft: `3px solid ${GRAPH_TYPE_ACCENT[gNode.visualType]}`,
+                }}
+              >
+                <div style={styles.graphNodeHead}>
+                  <span style={{ ...styles.graphNodeTypeDot, background: GRAPH_TYPE_ACCENT[gNode.visualType] }} />
+                  <span style={styles.graphNodeType}>
+                    {GRAPH_TYPE_LABEL[gNode.visualType]}{stillTerminal ? ' · end of path' : ''}
+                  </span>
+                </div>
+                <div style={styles.graphNodeVideoId} title={gNode.videoId}>{gNode.videoId}</div>
+                {gNode.observedAssetIds[0] && (
+                  <div style={styles.graphNodeDebug} title={gNode.observedAssetIds[0]}>
+                    asset: {gNode.observedAssetIds[0]}
+                  </div>
+                )}
+              </div>
+            )
+          })}
+
+          {/* STEP 3 (additive) — downstream nodes resolved from a terminal
+              video step's own observed redirect link. Structural only — no
+              conversion/click/revenue numbers here yet (separate follow-up).
+              See journeyDownstreamResolver.ts. */}
+          {positionedDownstreamNodes.map((dNode) => (
             <div
-              key={gNode.videoId}
+              key={dNode.id}
               style={{
                 ...styles.graphNode,
-                ...(gNode.isTerminal ? styles.graphNodeTerminal : null),
-                left: gNode.x,
-                top: gNode.y,
+                ...styles.graphNodeTerminal,
+                left: dNode.x,
+                top: dNode.y,
                 width: GRAPH_NODE_WIDTH,
                 height: GRAPH_NODE_HEIGHT,
-                borderLeft: `3px solid ${GRAPH_TYPE_ACCENT[gNode.visualType]}`,
+                borderLeft: `3px solid ${dNode.kind === 'resource' ? GRAPH_TYPE_ACCENT.resource : GRAPH_TYPE_ACCENT.campaign_element}`,
               }}
             >
               <div style={styles.graphNodeHead}>
-                <span style={{ ...styles.graphNodeTypeDot, background: GRAPH_TYPE_ACCENT[gNode.visualType] }} />
+                <span
+                  style={{
+                    ...styles.graphNodeTypeDot,
+                    background: dNode.kind === 'resource' ? GRAPH_TYPE_ACCENT.resource : GRAPH_TYPE_ACCENT.campaign_element,
+                  }}
+                />
                 <span style={styles.graphNodeType}>
-                  {GRAPH_TYPE_LABEL[gNode.visualType]}{gNode.isTerminal ? ' · end of path' : ''}
+                  {dNode.kind === 'resource' ? 'Imported resource' : 'Campaign element'} · end of path
                 </span>
               </div>
-              <div style={styles.graphNodeVideoId} title={gNode.videoId}>{gNode.videoId}</div>
-              {gNode.observedAssetIds[0] && (
-                <div style={styles.graphNodeDebug} title={gNode.observedAssetIds[0]}>
-                  asset: {gNode.observedAssetIds[0]}
-                </div>
-              )}
+              <div style={styles.graphNodeVideoId}>
+                {dNode.elementType ? getElementTypeLabel(dNode.elementType) : 'Unlabeled'}
+              </div>
+              <div style={styles.graphNodeDebug} title={dNode.redirectLinkId}>
+                {dNode.resolvedFrom === 'link_type'
+                  ? 'resolved from redirect link_type (no asset_id on this link)'
+                  : `asset: ${dNode.assetId}`}
+              </div>
             </div>
           ))}
 
