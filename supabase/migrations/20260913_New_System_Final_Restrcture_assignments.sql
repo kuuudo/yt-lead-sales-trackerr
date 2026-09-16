@@ -644,3 +644,30 @@ ALTER TABLE public.assignment_assets
 
   ALTER TABLE public.promotion_assets
   ADD COLUMN IF NOT EXISTS selected_marketer_domain_id uuid NULL;
+
+
+  BEGIN;
+
+ALTER TABLE public.assignments
+  ADD COLUMN IF NOT EXISTS creative_campaign_id uuid NULL;
+
+-- Optional FK: normal campaign must exist; ON DELETE SET NULL keeps assignment if campaign removed
+DO $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1
+    FROM pg_constraint
+    WHERE conname = 'assignments_creative_campaign_id_fkey'
+  ) THEN
+    ALTER TABLE public.assignments
+      ADD CONSTRAINT assignments_creative_campaign_id_fkey
+      FOREIGN KEY (creative_campaign_id)
+      REFERENCES public.campaigns (id)
+      ON DELETE SET NULL;
+  END IF;
+END $$;
+
+COMMENT ON COLUMN public.assignments.creative_campaign_id IS
+  'Sponsor normal campaign allowed for Creative Content when creative_creation_mode = campaign_links_and_assets. NULL for none/asset_only. NEVER store ONLY PROMOTE ASSET here.';
+
+COMMIT;

@@ -13,6 +13,11 @@ import {
   listVerifiedBrandedDomains,
   type VerifiedDomainOption,
 } from '../services/domain/brandedDomains';
+import {
+  getOnlyPromoteAssetCampaign,
+  listNormalSponsorCampaigns,
+  type SponsorCampaignOption,
+} from '../services/campaign/listSponsorCreativeCampaigns';
 
 type CreativeCreationMode = 'none' | 'campaign_asset_only' | 'campaign_links_and_assets';
 
@@ -57,6 +62,10 @@ export default function CreateAssignment() {
 
   const [creativeCreationMode, setCreativeCreationMode] =
     useState<CreativeCreationMode>('none');
+  const [creativeCampaignId, setCreativeCampaignId] = useState<string | null>(null);
+  const [onlyPromoteAsset, setOnlyPromoteAsset] = useState<SponsorCampaignOption | null>(null);
+  const [normalSponsorCampaigns, setNormalSponsorCampaigns] = useState<SponsorCampaignOption[]>([]);
+  const [loadingCreativeCampaigns, setLoadingCreativeCampaigns] = useState(false);
 
   const [isLibraryPickerOpen, setIsLibraryPickerOpen] = useState(false);
 
@@ -115,6 +124,47 @@ export default function CreateAssignment() {
     return () => { cancelled = true; };
   }, [organizationId]);
 
+  // Sponsor Creative campaigns (ONLY PROMOTE ASSET + normal list)
+  useEffect(() => {
+    if (!organizationId) {
+      setOnlyPromoteAsset(null);
+      setNormalSponsorCampaigns([]);
+      return;
+    }
+    if (creativeCreationMode === 'none') {
+      setOnlyPromoteAsset(null);
+      setNormalSponsorCampaigns([]);
+      setCreativeCampaignId(null);
+      return;
+    }
+    let cancelled = false;
+    setLoadingCreativeCampaigns(true);
+    (async () => {
+      try {
+        const only = await getOnlyPromoteAssetCampaign(organizationId);
+        if (cancelled) return;
+        setOnlyPromoteAsset(only);
+        if (creativeCreationMode === 'campaign_links_and_assets') {
+          const normals = await listNormalSponsorCampaigns(organizationId);
+          if (cancelled) return;
+          setNormalSponsorCampaigns(normals);
+        } else {
+          setNormalSponsorCampaigns([]);
+          setCreativeCampaignId(null);
+        }
+      } catch (e) {
+        console.error('Failed to load Sponsor creative campaigns', e);
+        if (!cancelled) {
+          setOnlyPromoteAsset(null);
+          setNormalSponsorCampaigns([]);
+        }
+      } finally {
+        if (!cancelled) setLoadingCreativeCampaigns(false);
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [organizationId, creativeCreationMode]);
+
   const openLibraryPicker = () => {
     setDraftSelection(selectedAssets);
     setIsLibraryPickerOpen(true);
@@ -172,6 +222,20 @@ export default function CreateAssignment() {
       }
     }
 
+    if (
+      creativeCreationMode === 'campaign_asset_only' ||
+      creativeCreationMode === 'campaign_links_and_assets'
+    ) {
+      if (!onlyPromoteAsset) {
+        return setError(
+          'ONLY PROMOTE ASSET system campaign was not found for this organization. Contact support before enabling Content Creation.'
+        );
+      }
+    }
+    if (creativeCreationMode === 'campaign_links_and_assets' && !creativeCampaignId) {
+      return setError('Select one Sponsor campaign for Campaign + links + assets');
+    }
+
     setSubmitting(true);
     try {
       const { assignmentId } = await createAssignment({
@@ -194,6 +258,10 @@ export default function CreateAssignment() {
         domainIds: [],
         creativeCreationMode:
           creativeCreationMode === 'none' ? null : creativeCreationMode,
+        creativeCampaignId:
+          creativeCreationMode === 'campaign_links_and_assets'
+            ? creativeCampaignId
+            : null,
       });
 
       await inviteCollaborator({ assignmentId, invitedByUserId: userId, invitedEmail: email });
@@ -416,7 +484,10 @@ export default function CreateAssignment() {
                 type="radio"
                 name="creativeCreationMode"
                 checked={creativeCreationMode === 'none'}
-                onChange={() => setCreativeCreationMode('none')}
+                onChange={() => {
+                  setCreativeCreationMode('none');
+                  setCreativeCampaignId(null);
+                }}
                 className="accent-red-600"
               />
               <span className="text-sm text-zinc-200">No content creation</span>
@@ -426,7 +497,10 @@ export default function CreateAssignment() {
                 type="radio"
                 name="creativeCreationMode"
                 checked={creativeCreationMode === 'campaign_asset_only'}
-                onChange={() => setCreativeCreationMode('campaign_asset_only')}
+                onChange={() => {
+                  setCreativeCreationMode('campaign_asset_only');
+                  setCreativeCampaignId(null);
+                }}
                 className="accent-red-600"
               />
               <span className="text-sm text-zinc-200">Campaign + asset only</span>
@@ -443,6 +517,61 @@ export default function CreateAssignment() {
             </label>
           </div>
         </div>
+
+
+        {creativeCreationMode !== 'none' && (
+          <div data-tutorial-id="marketplace-creative-campaign" className="mb-6">
+            <label className="block text-[10px] font-bold uppercase tracking-widest text-zinc-500 mb-2">
+              Creative Campaign
+            </label>
+            {loadingCreativeCampaigns ? (
+              <p className="text-xs text-zinc-500 flex items-center gap-2">
+                <Loader2 className="animate-spin" size={14} /> Loading campaigns…
+              </p>
+            ) : (
+              <div className="space-y-3">
+                <div className="flex items-center gap-2 bg-zinc-900 border border-zinc-700 rounded-lg px-3 py-2.5">
+                  <span className="text-sm text-zinc-200 font-medium">
+                    {onlyPromoteAsset?.campaign_name ?? 'ONLY PROMOTE ASSET'}
+                  </span>
+                  <span className="text-[9px] font-bold uppercase tracking-widest text-zinc-500">
+                    Locked
+                  </span>
+                </div>
+                {!onlyPromoteAsset && (
+                  <p className="text-xs text-red-500">
+                    ONLY PROMOTE ASSET was not found for this organization. Content creation
+                    requires this system campaign.
+                  </p>
+                )}
+                {creativeCreationMode === 'campaign_links_and_assets' && (
+                  <div className="space-y-1">
+                    <p className="text-[10px] font-bold uppercase tracking-widest text-zinc-500">
+                      Sponsor campaign (required)
+                    </p>
+                    <select
+                      value={creativeCampaignId ?? ''}
+                      onChange={e => setCreativeCampaignId(e.target.value || null)}
+                      className="w-full bg-zinc-900 border border-zinc-800 rounded-lg px-4 py-2 text-sm text-zinc-100"
+                    >
+                      <option value="">Select one campaign</option>
+                      {normalSponsorCampaigns.map(c => (
+                        <option key={c.id} value={c.id}>
+                          {c.campaign_name}
+                        </option>
+                      ))}
+                    </select>
+                    {normalSponsorCampaigns.length === 0 && (
+                      <p className="text-xs text-zinc-500">
+                        No active non-system campaigns found for this organization.
+                      </p>
+                    )}
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
+        )}
 
         <div data-tutorial-id="marketplace-invite-collaborators">
           <label className="block text-[10px] font-bold uppercase tracking-widest text-zinc-500 mb-2">

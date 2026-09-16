@@ -37,6 +37,7 @@ import { supabase } from '../../lib/supabase';
 import { resolvePromotionCampaign } from '../asset/resolvePromotionCampaign';
 import { resolveAssetType } from '../asset/resolveAssetType';
 import { ensureResourcePromotionCampaign } from '../asset/ensureResourcePromotionCampaign';
+import { getOnlyPromoteAssetCampaign } from '../campaign/listSponsorCreativeCampaigns';
 
 export interface AssetPromotionPermission {
   assetId: string;
@@ -70,6 +71,12 @@ export interface CreateAssignmentInput {
    * null / omitted / 'none' = no content creation capability.
    */
   creativeCreationMode?: 'none' | 'campaign_asset_only' | 'campaign_links_and_assets' | null;
+  /**
+   * Sponsor normal campaign for campaign_links_and_assets only.
+   * Must be null for none / campaign_asset_only.
+   * Must NOT be ONLY PROMOTE ASSET.
+   */
+  creativeCampaignId?: string | null;
 }
 
 export interface CreateAssignmentResult {
@@ -84,6 +91,7 @@ export async function createAssignment({
   assetPermissions,
   domainIds = [],
   creativeCreationMode = null,
+  creativeCampaignId = null,
 }: CreateAssignmentInput): Promise<CreateAssignmentResult> {
   if (!title.trim()) {
     throw new Error('Assignment title is required');
@@ -100,6 +108,55 @@ export async function createAssignment({
         `selectedSponsorDomainId is required when allowSponsorDomain is true (asset ${p.assetId})`
       );
     }
+  }
+
+  // --------------------------------------------------
+  // Creative Content: Assignment-level mode + optional normal campaign
+  // --------------------------------------------------
+  const mode =
+    !creativeCreationMode || creativeCreationMode === 'none'
+      ? null
+      : creativeCreationMode;
+
+  let resolvedCreativeCampaignId: string | null = null;
+
+  if (mode === 'campaign_asset_only' || mode === 'campaign_links_and_assets') {
+    const onlyPromote = await getOnlyPromoteAssetCampaign(organizationId);
+    if (!onlyPromote) {
+      throw new Error(
+        'ONLY PROMOTE ASSET system campaign was not found for this organization. Contact support before enabling Content Creation.'
+      );
+    }
+  }
+
+  if (mode === null || mode === 'campaign_asset_only') {
+    resolvedCreativeCampaignId = null;
+  } else if (mode === 'campaign_links_and_assets') {
+    if (!creativeCampaignId) {
+      throw new Error(
+        'Select one Sponsor campaign for Campaign + links + assets content creation'
+      );
+    }
+    const { data: camp, error: campErr } = await supabase
+      .from('campaigns')
+      .select('id, organization_id, is_system, campaign_name, archived_at')
+      .eq('id', creativeCampaignId)
+      .maybeSingle();
+    if (campErr || !camp) {
+      throw new Error(campErr?.message ?? 'Selected creative campaign not found');
+    }
+    if (camp.organization_id !== organizationId) {
+      throw new Error('Creative campaign must belong to the Sponsor organization');
+    }
+    if (camp.is_system || camp.campaign_name === 'ONLY PROMOTE ASSET') {
+      throw new Error(
+        'ONLY PROMOTE ASSET cannot be stored as creative_campaign_id; it is always available separately'
+      );
+    }
+    if (camp.archived_at) {
+      throw new Error('Selected creative campaign is archived');
+    }
+    resolvedCreativeCampaignId = camp.id as string;
   }
 
   // --------------------------------------------------
@@ -141,8 +198,8 @@ export async function createAssignment({
       description,
       status: 'active',
       visibility: 'private',
-      creative_creation_mode:
-        creativeCreationMode === 'none' ? null : creativeCreationMode,
+      creative_creation_mode: mode,
+      creative_campaign_id: resolvedCreativeCampaignId,
       // Do NOT write assignments.allow_marketer_domain /
       // allow_sponsor_domain / allow_vstrk_domain — those columns were
       // added by mistake and remain unused. Permissions live on
