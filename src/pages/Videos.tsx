@@ -1268,8 +1268,6 @@ const hasBlockingPromotionIssue = Array.from(promotionContextByAssetId.entries()
             ? toPromotionContext(options[0])
             : chosenPromotionByAssetId.get(assetId);
         if (!ctx?.promotionId || !ctx.assignmentId) continue;
-        // Skip if we already have usage for this asset
-        if (creativeAssetUsageRows.some(r => r.asset_id === assetId)) continue;
         jobs.push({
           assetId,
           promotionId: ctx.promotionId,
@@ -2282,7 +2280,9 @@ console.log(
                                           className="w-full bg-zinc-950 border border-zinc-800 rounded-xl px-3 py-2 text-xs text-zinc-100"
                                         >
                                           <option value="">Select a domain</option>
-                                          {marketerVerifiedDomains.map(d => (
+                                          {marketerVerifiedDomains
+                                            .filter(d => d.id !== usage.selected_sponsor_domain_id)
+                                            .map(d => (
                                             <option key={d.id} value={d.id}>{d.hostname}</option>
                                           ))}
                                         </select>
@@ -2348,6 +2348,37 @@ console.log(
                                 </div>
                               );
                             }
+                            const promoOptions = promotionContextByAssetId.get(asset.asset_id);
+                            if (promoOptions && promoOptions.length > 1 && !chosenPromotionByAssetId.get(asset.asset_id)) {
+                              return (
+                                <div key={asset.asset_id} className="pl-1 space-y-1 border border-dashed border-zinc-800 rounded-xl p-3">
+                                  <p className="text-[9px] font-black uppercase tracking-widest text-zinc-400">{label}</p>
+                                  <p className="text-xs text-zinc-500">
+                                    Select which Promotion to track above before choosing tracking domains.
+                                  </p>
+                                </div>
+                              );
+                            }
+                            if (promoOptions && promoOptions.length === 0) {
+                              return (
+                                <div key={asset.asset_id} className="pl-1 space-y-1 border border-dashed border-zinc-800 rounded-xl p-3">
+                                  <p className="text-[9px] font-black uppercase tracking-widest text-zinc-400">{label}</p>
+                                  <p className="text-xs text-red-500/80">
+                                    No active Promotion for this shared asset.
+                                  </p>
+                                </div>
+                              );
+                            }
+                            if (promoOptions && promoOptions.length >= 1) {
+                              // Promotion resolved but Path B usage still loading
+                              return (
+                                <div key={asset.asset_id} className="pl-1 space-y-1 border border-zinc-800 rounded-xl p-3">
+                                  <p className="text-[9px] font-black uppercase tracking-widest text-zinc-400">{label}</p>
+                                  <p className="text-xs text-zinc-500">Loading promotion domain options…</p>
+                                </div>
+                              );
+                            }
+                            // MY assets (no promotion context): keep legacy single domain select
                             const assignmentId = resolvedAssignmentIdForAsset(asset.asset_id);
                             const sharedDomains = assignmentId
                               ? (sharedDomainsByAssignmentId.get(assignmentId) ?? [])
