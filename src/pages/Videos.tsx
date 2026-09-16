@@ -910,11 +910,12 @@ const hasBlockingPromotionIssue = Array.from(promotionContextByAssetId.entries()
       setPromotedAssets(asPromoted);
       setCreativeAssetUsageRows(rows);
 
+      // Active link domain: Marketer selected id, else VSTRK (null). Never pre-select Sponsor as "Marketer domain".
       const assetDomainMap = new Map<string, string | null>();
       for (const r of rows) {
-        if (r.selected_sponsor_domain_id) {
-          assetDomainMap.set(r.asset_id, r.selected_sponsor_domain_id);
-        } else if (r.allow_vstrk_domain) {
+        if (r.selected_marketer_domain_id) {
+          assetDomainMap.set(r.asset_id, r.selected_marketer_domain_id);
+        } else if (r.allow_vstrk_domain || r.use_vstrk_domain) {
           assetDomainMap.set(r.asset_id, null);
         } else {
           assetDomainMap.set(r.asset_id, null);
@@ -988,16 +989,13 @@ const hasBlockingPromotionIssue = Array.from(promotionContextByAssetId.entries()
       setPromotionContextByAssetId(ctxMap);
       setChosenPromotionByAssetId(chosenMap);
 
-      // Defaults for generateAssetRedirectLinks (per-asset trackingDomainId):
-      // prefer Start Promoting marketer domain, else sponsor, else vstrk (null).
+      // Active link domain defaults: Marketer selected only — never Sponsor id in Marketer slot.
       const assetDomainMap = new Map<string, string | null>();
       for (const r of rows) {
         if (r.use_marketer_domain && r.selected_marketer_domain_id) {
           assetDomainMap.set(r.asset_id, r.selected_marketer_domain_id);
-        } else if (r.allow_sponsor_domain && r.selected_sponsor_domain_id) {
-          assetDomainMap.set(r.asset_id, r.selected_sponsor_domain_id);
         } else if (r.allow_vstrk_domain || r.use_vstrk_domain) {
-          assetDomainMap.set(r.asset_id, null); // vstrk.com
+          assetDomainMap.set(r.asset_id, null);
         } else {
           assetDomainMap.set(r.asset_id, null);
         }
@@ -1257,6 +1255,63 @@ const hasBlockingPromotionIssue = Array.from(promotionContextByAssetId.entries()
     })();
     return () => { cancelled = true; };
   }, [user?.id, isReadOnly]);
+
+  // SHARED / ASSIGNED: after Promotion context is known, load Path B usage rows
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      const jobs: Array<{ assetId: string; promotionId: string; assignmentId: string }> = [];
+      for (const [assetId, options] of promotionContextByAssetId.entries()) {
+        if (!options.length) continue;
+        const ctx =
+          options.length === 1
+            ? toPromotionContext(options[0])
+            : chosenPromotionByAssetId.get(assetId);
+        if (!ctx?.promotionId || !ctx.assignmentId) continue;
+        // Skip if we already have usage for this asset
+        if (creativeAssetUsageRows.some(r => r.asset_id === assetId)) continue;
+        jobs.push({
+          assetId,
+          promotionId: ctx.promotionId,
+          assignmentId: ctx.assignmentId,
+        });
+      }
+      if (!jobs.length) return;
+
+      // Group by promotionId to avoid duplicate fetches
+      const byPromo = new Map<string, { assignmentId: string; assetIds: string[] }>();
+      for (const j of jobs) {
+        const cur = byPromo.get(j.promotionId) ?? {
+          assignmentId: j.assignmentId,
+          assetIds: [],
+        };
+        cur.assetIds.push(j.assetId);
+        byPromo.set(j.promotionId, cur);
+      }
+
+      const merged: CreativePromotionAssetRow[] = [...creativeAssetUsageRows];
+      for (const [promotionId, { assignmentId, assetIds }] of byPromo) {
+        try {
+          const rows = await loadPromotionAssetsForCreative(promotionId, assignmentId);
+          if (cancelled) return;
+          for (const r of rows) {
+            if (!assetIds.includes(r.asset_id)) continue;
+            const idx = merged.findIndex(x => x.asset_id === r.asset_id);
+            if (idx >= 0) merged[idx] = r;
+            else merged.push(r);
+          }
+        } catch (e) {
+          console.error('[Videos] Path B usage load failed', promotionId, e);
+        }
+      }
+      if (!cancelled) setCreativeAssetUsageRows(merged);
+    })();
+    return () => {
+      cancelled = true;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- intentional: react to context maps
+  }, [promotionContextByAssetId, chosenPromotionByAssetId]);
+
 
 
   useEffect(() => {
@@ -2178,7 +2233,7 @@ console.log(
                           {promotedAssets.map(asset => {
                             const usage = creativeAssetUsageRows.find(r => r.asset_id === asset.asset_id);
                             const label = (asset as any).display_name || (asset as any).title || asset.asset_id;
-                            if (hasPromotionContext && usage) {
+                            if (usage) {
                               const currentDomainId = selectedAssetDomainByAssetId.get(asset.asset_id) ?? null;
                               const setDomain = (id: string | null) => {
                                 const next = new Map(selectedAssetDomainByAssetId);
