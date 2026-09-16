@@ -66,6 +66,9 @@ export interface AssignmentAssetOption {
   allow_marketer_domain: boolean;
   allow_sponsor_domain: boolean;
   allow_vstrk_domain: boolean;
+  selected_sponsor_domain_id?: string | null;
+  selected_sponsor_hostname?: string | null;
+  title?: string | null;
 }
 
 export interface CampaignGroup {
