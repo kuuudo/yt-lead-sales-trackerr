@@ -275,8 +275,37 @@ export default function AssignmentDetail() {
           </div>
         )}
         {assignment.description && (
-          <p className="text-zinc-400 text-sm mb-6">{assignment.description}</p>
+          <p className="text-zinc-400 text-sm mb-4">{assignment.description}</p>
         )}
+
+        <div className="mb-6 border border-zinc-800 rounded-xl p-4 bg-zinc-900/50" data-tutorial-id="assignment-creative-content">
+          <p className="text-[10px] font-bold uppercase tracking-widest text-zinc-500 mb-2">
+            Creative Content
+          </p>
+          {!assignment.creative_creation_mode ? (
+            <p className="text-sm text-zinc-400">No content creation access</p>
+          ) : assignment.creative_creation_mode === 'campaign_asset_only' ? (
+            <p className="text-sm text-zinc-200">
+              {assignment.only_promote_asset_name ?? 'ONLY PROMOTE ASSET'}
+              <span className="ml-2 text-[9px] font-bold uppercase tracking-widest text-zinc-600">Locked</span>
+            </p>
+          ) : (
+            <div className="space-y-1">
+              <p className="text-sm text-zinc-200">
+                {assignment.only_promote_asset_name ?? 'ONLY PROMOTE ASSET'}
+                <span className="ml-2 text-[9px] font-bold uppercase tracking-widest text-zinc-600">Locked</span>
+              </p>
+              {assignment.creative_campaign_name ? (
+                <p className="text-sm text-zinc-200">
+                  + {assignment.creative_campaign_name}
+                  <span className="ml-2 text-[9px] font-bold uppercase tracking-widest text-zinc-600">Locked</span>
+                </p>
+              ) : assignment.creative_campaign_id ? (
+                <p className="text-sm text-zinc-500">+ Campaign configured</p>
+              ) : null}
+            </div>
+          )}
+        </div>
 
         {/* Read-only. No Add/Remove, no editing — this PR only surfaces
             what was already selected at Create Assignment time.

@@ -21,6 +21,101 @@ export interface EligiblePromotion {
   creativeMode: CreativeCreationMode | null;
 }
 
+
+/** Assignment-level Creative eligibility for Create Content layer 1 */
+export interface CreativeEligibleAssignment {
+  assignmentId: string;
+  title: string;
+  organizationId: string;
+  creativeMode: CreativeCreationMode;
+  creativeCampaignId: string | null;
+  /** Resolved Sponsor ONLY PROMOTE ASSET campaigns.id */
+  onlyPromoteAssetCampaignId: string | null;
+  onlyPromoteAssetCampaignName: string;
+  /** Resolved name for creative_campaign_id */
+  creativeCampaignName: string | null;
+}
+
+/**
+ * Active collaborator Assignments that allow Creative Content (mode set).
+ * Resolves Sponsor ONLY PROMOTE ASSET + optional creative_campaign_id names.
+ */
+export async function listCreativeEligibleAssignmentsForMarketer(
+  userId: string
+): Promise<CreativeEligibleAssignment[]> {
+  const { data: collabRows, error: collabErr } = await supabase
+    .from('assignment_collaborators')
+    .select('id, assignment_id')
+    .eq('user_id', userId)
+    .eq('status', 'active');
+
+  if (collabErr) {
+    throw new Error(`Creative assignments (collaborators): ${collabErr.message}`);
+  }
+  if (!collabRows?.length) return [];
+
+  const assignmentIds = [...new Set(collabRows.map(r => r.assignment_id))];
+
+  const { data: assignmentRows, error: assignErr } = await supabase
+    .from('assignments')
+    .select('id, title, organization_id, creative_creation_mode, creative_campaign_id')
+    .in('id', assignmentIds)
+    .in('creative_creation_mode', ['campaign_asset_only', 'campaign_links_and_assets']);
+
+  if (assignErr) {
+    throw new Error(`Creative assignments: ${assignErr.message}`);
+  }
+  if (!assignmentRows?.length) return [];
+
+  const out: CreativeEligibleAssignment[] = [];
+
+  for (const a of assignmentRows) {
+    const mode = a.creative_creation_mode as CreativeCreationMode;
+    const orgId = a.organization_id as string;
+
+    const { data: onlyPromote } = await supabase
+      .from('campaigns')
+      .select('id, campaign_name')
+      .eq('organization_id', orgId)
+      .eq('is_system', true)
+      .eq('campaign_name', 'ONLY PROMOTE ASSET')
+      .maybeSingle();
+
+    let creativeCampaignName: string | null = null;
+    const creativeCampaignId = (a.creative_campaign_id as string | null) ?? null;
+    if (mode === 'campaign_links_and_assets' && creativeCampaignId) {
+      const { data: camp } = await supabase
+        .from('campaigns')
+        .select('id, campaign_name, organization_id, is_system, archived_at')
+        .eq('id', creativeCampaignId)
+        .maybeSingle();
+      if (
+        camp &&
+        camp.organization_id === orgId &&
+        !camp.is_system &&
+        !camp.archived_at
+      ) {
+        creativeCampaignName = (camp.campaign_name as string) ?? null;
+      }
+    }
+
+    out.push({
+      assignmentId: a.id as string,
+      title: (a.title as string) ?? 'Assignment',
+      organizationId: orgId,
+      creativeMode: mode,
+      creativeCampaignId:
+        mode === 'campaign_links_and_assets' ? creativeCampaignId : null,
+      onlyPromoteAssetCampaignId: (onlyPromote?.id as string) ?? null,
+      onlyPromoteAssetCampaignName:
+        (onlyPromote?.campaign_name as string) ?? 'ONLY PROMOTE ASSET',
+      creativeCampaignName,
+    });
+  }
+
+  return out;
+}
+
 /** @deprecated Prefer EligiblePromotion — kept for Videos campaign grouping */
 export interface CreativeEligiblePromotion {
   promotionId: string;

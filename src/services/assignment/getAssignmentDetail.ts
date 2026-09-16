@@ -176,6 +176,12 @@ export interface AssignmentDetailData {
     organization_id: string;
     created_by_user_id: string;
     sponsor_name: string | null;
+    creative_creation_mode: 'campaign_asset_only' | 'campaign_links_and_assets' | null;
+    creative_campaign_id: string | null;
+    /** Display name for creative_campaign_id (Sponsor normal campaign). */
+    creative_campaign_name: string | null;
+    /** Display name for Sponsor ONLY PROMOTE ASSET when creative is allowed. */
+    only_promote_asset_name: string | null;
   };
   myInvitation: { id: string; status: string } | null;
   myCollaboratorId: string | null;
@@ -191,7 +197,7 @@ export async function getAssignmentDetail(
 ): Promise<AssignmentDetailData> {
   const { data: assignment, error: assignmentErr } = await supabase
     .from('assignments')
-    .select('id, title, description, status, organization_id, created_by_user_id')
+    .select('id, title, description, status, organization_id, created_by_user_id, creative_creation_mode, creative_campaign_id')
     .eq('id', assignmentId)
     .single();
 
@@ -209,6 +215,43 @@ export async function getAssignmentDetail(
   sponsorProfile?.full_name?.trim() ||
   sponsorProfile?.email ||
   null;
+
+  const modeRaw = assignment.creative_creation_mode as string | null;
+  const creativeMode =
+    modeRaw === 'campaign_asset_only' || modeRaw === 'campaign_links_and_assets'
+      ? modeRaw
+      : null;
+  const creativeCampaignId = (assignment.creative_campaign_id as string | null) ?? null;
+
+  let creativeCampaignName: string | null = null;
+  let onlyPromoteAssetName: string | null = null;
+
+  if (creativeMode) {
+    const { data: onlyPromote } = await supabase
+      .from('campaigns')
+      .select('id, campaign_name')
+      .eq('organization_id', assignment.organization_id)
+      .eq('is_system', true)
+      .eq('campaign_name', 'ONLY PROMOTE ASSET')
+      .maybeSingle();
+    onlyPromoteAssetName = onlyPromote?.campaign_name ?? 'ONLY PROMOTE ASSET';
+
+    if (creativeMode === 'campaign_links_and_assets' && creativeCampaignId) {
+      const { data: creativeCamp } = await supabase
+        .from('campaigns')
+        .select('id, campaign_name, organization_id, is_system, archived_at')
+        .eq('id', creativeCampaignId)
+        .maybeSingle();
+      if (
+        creativeCamp &&
+        creativeCamp.organization_id === assignment.organization_id &&
+        !creativeCamp.is_system &&
+        !creativeCamp.archived_at
+      ) {
+        creativeCampaignName = (creativeCamp.campaign_name as string) ?? null;
+      }
+    }
+  }
 
   const [
     { data: invitation, error: invitationErr },
@@ -434,7 +477,14 @@ export async function getAssignmentDetail(
   }
 
   return {
-    assignment: { ...assignment, sponsor_name: sponsorName },
+    assignment: {
+      ...assignment,
+      sponsor_name: sponsorName,
+      creative_creation_mode: creativeMode,
+      creative_campaign_id: creativeCampaignId,
+      creative_campaign_name: creativeCampaignName,
+      only_promote_asset_name: onlyPromoteAssetName,
+    },
     myInvitation: invitation ?? null,
     myCollaboratorId: collaborator?.id ?? null,
     assignmentAssets,
