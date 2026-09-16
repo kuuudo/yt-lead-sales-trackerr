@@ -88,6 +88,7 @@ import {
   listEligiblePromotionsForMarketer,
   listCreativeEligibleAssignmentsForMarketer,
   loadPromotionAssetsForCreative,
+  loadAssignmentAssetsForCreative,
   flattenCreativePromotions,
   type CreativeEligibleCampaign,
   type CreativeEligiblePromotion,
@@ -892,41 +893,22 @@ const hasBlockingPromotionIssue = Array.from(promotionContextByAssetId.entries()
       if (preferred) await resolveAndSetCreativeCampaignId(preferred);
     }
 
-    // Auto-load Assignment assets (same idea as Promotion auto-load)
-    if (!user) return;
+    // Auto-load via assignment_assets (no Promotion required)
     setLoadingCreativePromotion(true);
     try {
-      const detail = await getAssignmentDetail(assignmentId, user.id, user.email ?? '');
-      const rows = detail.assignmentAssets;
+      const rows = await loadAssignmentAssetsForCreative(assignmentId);
       const asPromoted = rows.map(r => ({
         asset_id: r.asset_id,
-        title: r.display_name || r.video_title || r.title || r.asset_id,
-        display_name: r.display_name || r.video_title || r.title || r.asset_id,
-        thumbnail_url: r.thumbnail_url ?? null,
-        thumbnail: r.thumbnail_url ?? null,
+        title: r.title,
+        display_name: r.title,
+        thumbnail_url: r.thumbnail_url,
+        thumbnail: r.thumbnail_url,
         asset_type: null,
         resource_type: null,
-        element_type: r.element_type ?? null,
+        element_type: null,
       })) as unknown as PromotedAssetRow[];
       setPromotedAssets(asPromoted);
-
-      // Synthetic usage from assignment_assets allow_* for Path B UI
-      setCreativeAssetUsageRows(
-        rows.map(r => ({
-          asset_id: r.asset_id,
-          title: r.display_name || r.video_title || r.title || r.asset_id,
-          thumbnail_url: r.thumbnail_url ?? null,
-          allow_marketer_domain: !!r.allow_marketer_domain,
-          allow_sponsor_domain: !!r.allow_sponsor_domain,
-          allow_vstrk_domain: !!r.allow_vstrk_domain,
-          use_marketer_domain: !!r.allow_marketer_domain,
-          use_vstrk_domain: !!r.allow_vstrk_domain,
-          selected_sponsor_domain_id: r.selected_sponsor_domain_id ?? null,
-          selected_sponsor_hostname: r.selected_sponsor_hostname ?? null,
-          selected_marketer_domain_id: null,
-          selected_marketer_hostname: null,
-        }))
-      );
+      setCreativeAssetUsageRows(rows);
 
       const assetDomainMap = new Map<string, string | null>();
       for (const r of rows) {
@@ -940,9 +922,15 @@ const hasBlockingPromotionIssue = Array.from(promotionContextByAssetId.entries()
       }
       setSelectedAssetDomainByAssetId(assetDomainMap);
       setCreativeAssetsModalCount(rows.length);
-      if (rows.length > 0) setShowCreativeAssetsModal(true);
+      if (rows.length > 0) {
+        setShowCreativeAssetsModal(true);
+      } else {
+        console.warn('[Videos] Creative Assignment has zero assignment_assets', assignmentId);
+      }
     } catch (e) {
       console.error('[Videos] load assignment assets for creative failed', e);
+      setPromotedAssets([]);
+      setCreativeAssetUsageRows([]);
     } finally {
       setLoadingCreativePromotion(false);
     }

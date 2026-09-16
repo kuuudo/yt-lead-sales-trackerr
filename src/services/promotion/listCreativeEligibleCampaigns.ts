@@ -434,3 +434,89 @@ export async function loadPromotionAssetsForCreative(
     };
   });
 }
+
+
+/**
+ * Load Assignment assets + allow_* for Create Content Creative path.
+ * Does not require a Promotion; reads assignment_assets only.
+ */
+export async function loadAssignmentAssetsForCreative(
+  assignmentId: string
+): Promise<CreativePromotionAssetRow[]> {
+  const { data: rows, error } = await supabase
+    .from('assignment_assets')
+    .select(
+      'asset_id, allow_marketer_domain, allow_sponsor_domain, allow_vstrk_domain, selected_sponsor_domain_id'
+    )
+    .eq('assignment_id', assignmentId);
+
+  if (error) {
+    throw new Error(`Load assignment assets: ${error.message}`);
+  }
+  if (!rows?.length) return [];
+
+  const assetIds = rows.map(r => r.asset_id as string);
+
+  const [
+    { data: videoRows },
+    { data: elementRows },
+    { data: resourceRows },
+  ] = await Promise.all([
+    supabase.from('videos').select('asset_id, video_title, thumbnail_url').in('asset_id', assetIds),
+    supabase
+      .from('campaign_element_assets')
+      .select('asset_id, display_name')
+      .in('asset_id', assetIds),
+    supabase
+      .from('asset_resources')
+      .select('asset_id, title, thumbnail_url')
+      .in('asset_id', assetIds),
+  ]);
+
+  const domainIds = [
+    ...new Set(
+      rows
+        .map(r => r.selected_sponsor_domain_id as string | null)
+        .filter((id): id is string => !!id)
+    ),
+  ];
+  let hostnameById = new Map<string, string>();
+  if (domainIds.length > 0) {
+    const { data: domainRows } = await supabase
+      .from('branded_tracking_domains')
+      .select('id, hostname')
+      .in('id', domainIds);
+    hostnameById = new Map((domainRows ?? []).map(d => [d.id as string, d.hostname as string]));
+  }
+
+  const videoBy = new Map((videoRows ?? []).map(v => [v.asset_id, v]));
+  const elementBy = new Map((elementRows ?? []).map(e => [e.asset_id, e]));
+  const resourceBy = new Map((resourceRows ?? []).map(r => [r.asset_id, r]));
+
+  return rows.map(row => {
+    const video = videoBy.get(row.asset_id);
+    const element = elementBy.get(row.asset_id);
+    const resource = resourceBy.get(row.asset_id);
+    const sid = (row.selected_sponsor_domain_id as string | null) ?? null;
+    const title =
+      video?.video_title ??
+      element?.display_name ??
+      resource?.title ??
+      (row.asset_id as string);
+    const thumbnail_url = video?.thumbnail_url ?? resource?.thumbnail_url ?? null;
+    return {
+      asset_id: row.asset_id as string,
+      title,
+      thumbnail_url,
+      allow_marketer_domain: !!row.allow_marketer_domain,
+      allow_sponsor_domain: !!row.allow_sponsor_domain,
+      allow_vstrk_domain: !!row.allow_vstrk_domain,
+      use_marketer_domain: !!row.allow_marketer_domain,
+      use_vstrk_domain: !!row.allow_vstrk_domain,
+      selected_sponsor_domain_id: sid,
+      selected_sponsor_hostname: sid ? hostnameById.get(sid) ?? null : null,
+      selected_marketer_domain_id: null,
+      selected_marketer_hostname: null,
+    };
+  });
+}

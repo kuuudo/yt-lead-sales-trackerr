@@ -360,12 +360,6 @@ export default function AssignmentDetail() {
           </div>
         )}
 
-       {assignmentAssets.length === 0 && myInvitation && myInvitation.status === 'pending' && (
-          <div className="mb-6 text-xs text-zinc-500 border border-dashed border-zinc-800 rounded-lg p-4">
-            Assignment Assets could not be listed yet (permissions). They will appear after you accept, or ask the Sponsor if this persists.
-          </div>
-        )}
-
        {assignmentAssets.length > 0 && (
   <>
     {!canAct && (
@@ -374,7 +368,7 @@ export default function AssignmentDetail() {
           Assignment Assets
         </label>
 
-        <div className="bg-zinc-900 border border-zinc-800 rounded-lg p-4 mb-6 space-y-3">
+        <div className="bg-zinc-900 border border-zinc-800 rounded-lg p-4 mb-6">
           <div className="flex items-center gap-3">
             <div className="w-10 h-10 rounded-lg bg-zinc-800 flex items-center justify-center text-xl">
               📦
@@ -388,26 +382,6 @@ export default function AssignmentDetail() {
               </div>
             </div>
           </div>
-          <ul className="space-y-2 border-t border-zinc-800 pt-3">
-            {assignmentAssets.map(asset => (
-              <li key={asset.asset_id} className="flex items-center gap-3 text-sm text-zinc-300">
-                <img
-                  src={
-                    asset.kind === 'campaign_element'
-                      ? resolveElementThumbnail(asset.element_type ?? '')
-                      : resolveThumbnail(asset)
-                  }
-                  alt=""
-                  className="w-12 h-7 object-cover rounded bg-zinc-950 shrink-0"
-                />
-                <span className="truncate">
-                  {asset.kind === 'campaign_element'
-                    ? (asset.display_name || asset.element_type || 'Element')
-                    : (asset.display_name || asset.title || asset.asset_id)}
-                </span>
-              </li>
-            ))}
-          </ul>
         </div>
       </>
     )}
