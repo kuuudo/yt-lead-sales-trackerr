@@ -1256,6 +1256,25 @@ const hasBlockingPromotionIssue = Array.from(promotionContextByAssetId.entries()
     return () => { cancelled = true; };
   }, [user?.id, isReadOnly]);
 
+
+  // When user picks a Promotion for an asset, auto-fill Creative Campaign if that Assignment allows it
+  useEffect(() => {
+    for (const ctx of chosenPromotionByAssetId.values()) {
+      if (!ctx?.assignmentId) continue;
+      const creative = creativeEligibleAssignments.find(a => a.assignmentId === ctx.assignmentId);
+      if (!creative) continue;
+      const campId =
+        creative.creativeMode === 'campaign_links_and_assets'
+          ? (creative.creativeCampaignId || creative.onlyPromoteAssetCampaignId)
+          : creative.onlyPromoteAssetCampaignId;
+      if (campId && formData.campaign_id !== campId) {
+        resolveAndSetCreativeCampaignId(campId).catch(console.error);
+        break;
+      }
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [chosenPromotionByAssetId, creativeEligibleAssignments]);
+
   // SHARED / ASSIGNED: after Promotion context is known, load Path B usage rows
   useEffect(() => {
     let cancelled = false;
@@ -2076,9 +2095,8 @@ console.log(
                               resolveAndSetCreativeCampaignId(id || null).catch(console.error);
                               return;
                             }
-                            clearCreativeSelection();
-                            setSelectedCreativeAssignmentId(null);
-                            setFormData({ ...formData, campaign_id: id });
+                            // Changing Campaign must NOT wipe selected promoted assets / Path B state
+                            setFormData(prev => ({ ...prev, campaign_id: id }));
                           }}
                           disabled={useOnlyPromoteAsset}
                           className={`w-full bg-zinc-950 border border-zinc-900 rounded-xl p-3 text-[11px] font-bold uppercase outline-none focus:border-red-600 appearance-none ${
@@ -2540,15 +2558,41 @@ console.log(
       else next.set(assetId, options);
     }
     setPromotionContextByAssetId(next);
+
+    // If any resolved promotion belongs to a Creative Assignment, auto-select its Campaign
+    for (const [, options] of next.entries()) {
+      if (!options?.length) continue;
+      const opt = options.length === 1 ? options[0] : null;
+      const assignmentId = opt?.assignmentId;
+      if (!assignmentId) continue;
+      const creative = creativeEligibleAssignments.find(a => a.assignmentId === assignmentId);
+      if (!creative) continue;
+      const campId =
+        creative.creativeMode === 'campaign_links_and_assets'
+          ? (creative.creativeCampaignId || creative.onlyPromoteAssetCampaignId)
+          : creative.onlyPromoteAssetCampaignId;
+      if (campId) {
+        await resolveAndSetCreativeCampaignId(campId);
+        break;
+      }
+    }
   } finally {
     setResolvingPromotionContext(false);
   }
 }}
                   />
                 )}
+{resolvingPromotionContext && (
+  <div className="bg-zinc-950 border border-zinc-800 rounded-xl p-4 mb-2">
+    <p className="text-xs text-zinc-400">Resolving which Promotion each asset belongs to… Please wait.</p>
+  </div>
+)}
 {promotionContextByAssetId.size > 0 && (
   <div className="bg-zinc-950 border border-zinc-800 rounded-xl p-4 space-y-4">
     <p className="label-caps !text-zinc-500">Confirm Promotion Context</p>
+    <p className="text-[10px] text-zinc-500">
+      If several assets need a choice, select a Promotion for each asset below (all shown together).
+    </p>
     {Array.from(promotionContextByAssetId.entries()).map(([assetId, options]) => {
       const asset = promotedAssets.find(a => a.asset_id === assetId);
       if (!asset) return null;
