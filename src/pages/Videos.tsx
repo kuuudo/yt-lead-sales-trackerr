@@ -949,7 +949,7 @@ const hasBlockingPromotionIssue = Array.from(promotionContextByAssetId.entries()
   };
 
 
-  const hasPromotionContext = !!selectedCreativePromotionId;
+  const hasPromotionContext = !!selectedCreativePromotionId || !!selectedCreativeAssignmentId;
   const selectedEligiblePromotion =
     eligiblePromotions.find(p => p.promotionId === selectedCreativePromotionId) ?? null;
 
@@ -1044,8 +1044,16 @@ const hasBlockingPromotionIssue = Array.from(promotionContextByAssetId.entries()
   const handlePromotionPick = async (promotionId: string) => {
     if (!promotionId) {
       clearCreativeSelection();
+      setSelectedCreativeAssignmentId(null);
       return;
     }
+    // Regular promotion path — leave Creative Assignment mode
+    if (promotionId.startsWith('creative-assignment:')) {
+      const assignmentId = promotionId.slice('creative-assignment:'.length);
+      await handleCreativeAssignmentPick(assignmentId);
+      return;
+    }
+    setSelectedCreativeAssignmentId(null);
     const promo = eligiblePromotions.find(p => p.promotionId === promotionId);
     if (!promo) return;
     await applyEligiblePromotion(promo);
@@ -2073,51 +2081,46 @@ console.log(
                         )}
                       </div>
 
-                      <div className="space-y-1 md:col-span-2" data-tutorial-id="videos-creative-assignment">
-                        <label className="label-caps">Assignment (Creative)</label>
-                        <select
-                          value={selectedCreativeAssignmentId ?? ''}
-                          onChange={e => {
-                            handleCreativeAssignmentPick(e.target.value).catch(console.error);
-                          }}
-                          className="w-full bg-zinc-950 border border-zinc-900 rounded-xl p-3 text-[11px] font-bold uppercase outline-none focus:border-red-600 appearance-none"
-                        >
-                          <option value="">None (normal content)</option>
-                          {creativeEligibleAssignments.map(a => (
-                            <option key={a.assignmentId} value={a.assignmentId}>
-                              {a.title} (CREATIVE)
-                            </option>
-                          ))}
-                        </select>
-                      </div>
-
-
                       <div className="space-y-1 md:col-span-2" data-tutorial-id="videos-creative-promotion">
                         <label className="label-caps">Promotion</label>
                         <select
-                          value={selectedCreativePromotionId ?? ''}
+                          value={
+                            selectedCreativeAssignmentId
+                              ? `creative-assignment:${selectedCreativeAssignmentId}`
+                              : (selectedCreativePromotionId ?? '')
+                          }
                           onChange={e => {
                             handlePromotionPick(e.target.value).catch(console.error);
                           }}
                           className="w-full bg-zinc-950 border border-zinc-900 rounded-xl p-3 text-[11px] font-bold uppercase outline-none focus:border-red-600 appearance-none"
                         >
                           <option value="">Select a promotion (optional)</option>
-                          {eligiblePromotions.map(p => (
-                            <option key={p.promotionId} value={p.promotionId}>
-                              {p.label}
-                              {p.campaignName ? ` · ${p.campaignName}` : ''}
-                              {p.creativeMode ? ' · Creative' : ''}
-                            </option>
-                          ))}
+                          {creativeEligibleAssignments.length > 0 && (
+                            <optgroup label="Creative">
+                              {creativeEligibleAssignments.map(a => (
+                                <option key={a.assignmentId} value={`creative-assignment:${a.assignmentId}`}>
+                                  {a.title}
+                                </option>
+                              ))}
+                            </optgroup>
+                          )}
+                          <optgroup label="Promotions">
+                            {eligiblePromotions.map(p => (
+                              <option key={p.promotionId} value={p.promotionId}>
+                                {p.label}
+                                {p.campaignName ? ` · ${p.campaignName}` : ''}
+                              </option>
+                            ))}
+                          </optgroup>
                         </select>
                         {loadingCreativePromotion && (
-                          <p className="text-[9px] text-zinc-500">Loading promotion assets…</p>
+                          <p className="text-[9px] text-zinc-500">Loading assets…</p>
                         )}
-                        {selectedEligiblePromotion?.creativeMode && (
+                        {selectedCreativeAssignment && (
                           <p className="text-[9px] font-bold uppercase tracking-widest text-zinc-500">
-                            Creative · {selectedEligiblePromotion.creativeMode === 'campaign_asset_only'
-                              ? 'Assets only (no campaign links)'
-                              : 'Campaign links + assets'}
+                            Creative · {selectedCreativeAssignment.creativeMode === 'campaign_asset_only'
+                              ? 'Campaign + asset only — choose Campaign above (ONLY PROMOTE ASSET)'
+                              : 'Campaign + links + assets — choose Campaign above (ONLY PROMOTE ASSET or Sponsor campaign)'}
                           </p>
                         )}
                       </div>

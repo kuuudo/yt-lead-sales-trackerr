@@ -360,6 +360,12 @@ export default function AssignmentDetail() {
           </div>
         )}
 
+       {assignmentAssets.length === 0 && myInvitation && myInvitation.status === 'pending' && (
+          <div className="mb-6 text-xs text-zinc-500 border border-dashed border-zinc-800 rounded-lg p-4">
+            Assignment Assets could not be listed yet (permissions). They will appear after you accept, or ask the Sponsor if this persists.
+          </div>
+        )}
+
        {assignmentAssets.length > 0 && (
   <>
     {!canAct && (
