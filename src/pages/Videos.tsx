@@ -877,6 +877,7 @@ const hasBlockingPromotionIssue = Array.from(promotionContextByAssetId.entries()
     if (!assign) return;
     setSelectedCreativeAssignmentId(assignmentId);
     clearCreativeSelection();
+    setSelectedCreativeAssignmentId(assignmentId);
 
     // Default form campaign to real Sponsor campaigns.id
     if (assign.creativeMode === 'campaign_asset_only') {
@@ -889,6 +890,61 @@ const hasBlockingPromotionIssue = Array.from(promotionContextByAssetId.entries()
       const preferred =
         assign.creativeCampaignId || assign.onlyPromoteAssetCampaignId;
       if (preferred) await resolveAndSetCreativeCampaignId(preferred);
+    }
+
+    // Auto-load Assignment assets (same idea as Promotion auto-load)
+    if (!user) return;
+    setLoadingCreativePromotion(true);
+    try {
+      const detail = await getAssignmentDetail(assignmentId, user.id, user.email ?? '');
+      const rows = detail.assignmentAssets;
+      const asPromoted = rows.map(r => ({
+        asset_id: r.asset_id,
+        title: r.display_name || r.video_title || r.title || r.asset_id,
+        display_name: r.display_name || r.video_title || r.title || r.asset_id,
+        thumbnail_url: r.thumbnail_url ?? null,
+        thumbnail: r.thumbnail_url ?? null,
+        asset_type: null,
+        resource_type: null,
+        element_type: r.element_type ?? null,
+      })) as unknown as PromotedAssetRow[];
+      setPromotedAssets(asPromoted);
+
+      // Synthetic usage from assignment_assets allow_* for Path B UI
+      setCreativeAssetUsageRows(
+        rows.map(r => ({
+          asset_id: r.asset_id,
+          title: r.display_name || r.video_title || r.title || r.asset_id,
+          thumbnail_url: r.thumbnail_url ?? null,
+          allow_marketer_domain: !!r.allow_marketer_domain,
+          allow_sponsor_domain: !!r.allow_sponsor_domain,
+          allow_vstrk_domain: !!r.allow_vstrk_domain,
+          use_marketer_domain: !!r.allow_marketer_domain,
+          use_vstrk_domain: !!r.allow_vstrk_domain,
+          selected_sponsor_domain_id: r.selected_sponsor_domain_id ?? null,
+          selected_sponsor_hostname: r.selected_sponsor_hostname ?? null,
+          selected_marketer_domain_id: null,
+          selected_marketer_hostname: null,
+        }))
+      );
+
+      const assetDomainMap = new Map<string, string | null>();
+      for (const r of rows) {
+        if (r.selected_sponsor_domain_id) {
+          assetDomainMap.set(r.asset_id, r.selected_sponsor_domain_id);
+        } else if (r.allow_vstrk_domain) {
+          assetDomainMap.set(r.asset_id, null);
+        } else {
+          assetDomainMap.set(r.asset_id, null);
+        }
+      }
+      setSelectedAssetDomainByAssetId(assetDomainMap);
+      setCreativeAssetsModalCount(rows.length);
+      if (rows.length > 0) setShowCreativeAssetsModal(true);
+    } catch (e) {
+      console.error('[Videos] load assignment assets for creative failed', e);
+    } finally {
+      setLoadingCreativePromotion(false);
     }
   };
 
@@ -1967,15 +2023,13 @@ console.log(
                           value={formData.campaign_id}
                           onChange={e => {
                             const id = e.target.value;
-                            const isCreative = creativeEligibleCampaigns.some(c => c.campaignId === id);
-                            if (isCreative) {
-                              handleCreativeCampaignChange(id).catch((err: any) =>
-                                console.error('[Videos] creative campaign change', err)
-                              );
-                            } else {
-                              clearCreativeSelection();
-                              setFormData({ ...formData, campaign_id: id });
+                            if (selectedCreativeAssignmentId) {
+                              resolveAndSetCreativeCampaignId(id || null).catch(console.error);
+                              return;
                             }
+                            clearCreativeSelection();
+                            setSelectedCreativeAssignmentId(null);
+                            setFormData({ ...formData, campaign_id: id });
                           }}
                           disabled={useOnlyPromoteAsset}
                           className={`w-full bg-zinc-950 border border-zinc-900 rounded-xl p-3 text-[11px] font-bold uppercase outline-none focus:border-red-600 appearance-none ${
@@ -1983,23 +2037,38 @@ console.log(
                           }`}
                         >
                           <option value="">Select a campaign</option>
-                          {campaigns.map(c => <option key={c.id} value={c.id}>{c.campaign_name}</option>)}
-                          {creativeEligibleCampaigns
-                            .filter(ce => !campaigns.some(c => c.id === ce.campaignId))
-                            .map(ce => (
-                              <option key={ce.campaignId} value={ce.campaignId}>
-                                {ce.campaignName} (Creative)
-                              </option>
-                            ))}
+                          {selectedCreativeAssignment ? (
+                            <>
+                              {selectedCreativeAssignment.onlyPromoteAssetCampaignId && (
+                                <option value={selectedCreativeAssignment.onlyPromoteAssetCampaignId}>
+                                  {selectedCreativeAssignment.onlyPromoteAssetCampaignName}
+                                </option>
+                              )}
+                              {selectedCreativeAssignment.creativeMode === 'campaign_links_and_assets' &&
+                                selectedCreativeAssignment.creativeCampaignId && (
+                                  <option value={selectedCreativeAssignment.creativeCampaignId}>
+                                    {selectedCreativeAssignment.creativeCampaignName ?? 'Sponsor campaign'}
+                                  </option>
+                                )}
+                            </>
+                          ) : (
+                            <>
+                              {campaigns.map(c => (
+                                <option key={c.id} value={c.id}>{c.campaign_name}</option>
+                              ))}
+                            </>
+                          )}
                         </select>
-                        {isCreativeCampaign && (
+                        {selectedCreativeAssignment && (
                           <p className="text-[9px] font-bold uppercase tracking-widest text-zinc-500 pt-1">
-                            Creative Creation · {creativeMode === 'campaign_asset_only' ? 'Assets only (no campaign links)' : 'Campaign links + assets'}
+                            {selectedCreativeAssignment.creativeMode === 'campaign_asset_only'
+                              ? 'Creative · Campaign + asset only'
+                              : 'Creative · Campaign + links + assets'}
                           </p>
                         )}
-                        {creativeLinksUnavailable && (
+                        {selectedCreativeAssignment && creativeLinksUnavailable && (
                           <p className="text-[9px] font-bold uppercase tracking-widest text-amber-600/80 pt-1">
-                            Campaign Links are unavailable for this Creative mode. Promotion assets only.
+                            Campaign Links are unavailable for asset-only mode.
                           </p>
                         )}
                       </div>
@@ -2022,57 +2091,6 @@ console.log(
                         </select>
                       </div>
 
-                      {selectedCreativeAssignment && (
-                        <div className="space-y-2 md:col-span-2" data-tutorial-id="videos-creative-campaign-layer">
-                          <label className="label-caps">Campaign</label>
-                          <div className="space-y-2">
-                            {selectedCreativeAssignment.onlyPromoteAssetCampaignId ? (
-                              <button
-                                type="button"
-                                onClick={() =>
-                                  resolveAndSetCreativeCampaignId(
-                                    selectedCreativeAssignment.onlyPromoteAssetCampaignId
-                                  )
-                                }
-                                className={`w-full text-left px-3 py-2.5 rounded-xl border text-xs ${
-                                  formData.campaign_id === selectedCreativeAssignment.onlyPromoteAssetCampaignId
-                                    ? 'border-red-600 bg-red-600/10 text-zinc-100'
-                                    : 'border-zinc-800 bg-zinc-900 text-zinc-300'
-                                }`}
-                              >
-                                {selectedCreativeAssignment.onlyPromoteAssetCampaignName}
-                                <span className="ml-2 text-[9px] uppercase tracking-widest text-zinc-500">Locked</span>
-                              </button>
-                            ) : (
-                              <p className="text-xs text-red-500">
-                                Sponsor ONLY PROMOTE ASSET campaign was not found.
-                              </p>
-                            )}
-                            {selectedCreativeAssignment.creativeMode === 'campaign_links_and_assets' &&
-                              selectedCreativeAssignment.creativeCampaignId && (
-                                <button
-                                  type="button"
-                                  onClick={() =>
-                                    resolveAndSetCreativeCampaignId(
-                                      selectedCreativeAssignment.creativeCampaignId
-                                    )
-                                  }
-                                  className={`w-full text-left px-3 py-2.5 rounded-xl border text-xs ${
-                                    formData.campaign_id === selectedCreativeAssignment.creativeCampaignId
-                                      ? 'border-red-600 bg-red-600/10 text-zinc-100'
-                                      : 'border-zinc-800 bg-zinc-900 text-zinc-300'
-                                  }`}
-                                >
-                                  {selectedCreativeAssignment.creativeCampaignName ?? 'Sponsor campaign'}
-                                  <span className="ml-2 text-[9px] uppercase tracking-widest text-zinc-500">Locked</span>
-                                </button>
-                              )}
-                          </div>
-                          <p className="text-[9px] text-zinc-600">
-                            Campaign options are fixed by the Sponsor Assignment. Promotion is selected separately below.
-                          </p>
-                        </div>
-                      )}
 
                       <div className="space-y-1 md:col-span-2" data-tutorial-id="videos-creative-promotion">
                         <label className="label-caps">Promotion</label>
@@ -2157,7 +2175,6 @@ console.log(
                               <Check size={14} className="text-emerald-500 shrink-0" />
                               {promotedAssets.map(a => (a as any).display_name || (a as any).title || a.asset_id).join(', ')}
                             </span>
-                            {!hasPromotionContext && (
                             <button
                               type="button"
                               onClick={() => setShowAssetPicker(true)}
@@ -2165,7 +2182,6 @@ console.log(
                             >
                               Change
                             </button>
-                            )}
                           </div>
 
                           {promotedAssets.map(asset => {

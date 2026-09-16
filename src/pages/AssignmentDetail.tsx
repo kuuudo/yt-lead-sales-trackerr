@@ -285,24 +285,30 @@ export default function AssignmentDetail() {
           {!assignment.creative_creation_mode ? (
             <p className="text-sm text-zinc-400">No content creation access</p>
           ) : assignment.creative_creation_mode === 'campaign_asset_only' ? (
-            <p className="text-sm text-zinc-200">
-              {assignment.only_promote_asset_name ?? 'ONLY PROMOTE ASSET'}
-              <span className="ml-2 text-[9px] font-bold uppercase tracking-widest text-zinc-600">Locked</span>
-            </p>
+            <div className="space-y-1">
+              <p className="text-sm text-zinc-200 font-medium">Campaign + asset only</p>
+              <p className="text-xs text-zinc-400">
+                You can create content using the Sponsor&apos;s{' '}
+                <span className="text-zinc-200">{assignment.only_promote_asset_name ?? 'ONLY PROMOTE ASSET'}</span>
+                {' '}campaign.
+              </p>
+            </div>
           ) : (
             <div className="space-y-1">
-              <p className="text-sm text-zinc-200">
-                {assignment.only_promote_asset_name ?? 'ONLY PROMOTE ASSET'}
-                <span className="ml-2 text-[9px] font-bold uppercase tracking-widest text-zinc-600">Locked</span>
+              <p className="text-sm text-zinc-200 font-medium">Campaign + links + assets</p>
+              <p className="text-xs text-zinc-400">
+                You can create content using the Sponsor&apos;s{' '}
+                <span className="text-zinc-200">{assignment.only_promote_asset_name ?? 'ONLY PROMOTE ASSET'}</span>
+                {assignment.creative_campaign_name ? (
+                  <>
+                    {' '}and{' '}
+                    <span className="text-zinc-200">{assignment.creative_campaign_name}</span>
+                  </>
+                ) : (
+                  ' and the Sponsor-selected campaign'
+                )}
+                .
               </p>
-              {assignment.creative_campaign_name ? (
-                <p className="text-sm text-zinc-200">
-                  + {assignment.creative_campaign_name}
-                  <span className="ml-2 text-[9px] font-bold uppercase tracking-widest text-zinc-600">Locked</span>
-                </p>
-              ) : assignment.creative_campaign_id ? (
-                <p className="text-sm text-zinc-500">+ Campaign configured</p>
-              ) : null}
             </div>
           )}
         </div>
@@ -362,22 +368,40 @@ export default function AssignmentDetail() {
           Assignment Assets
         </label>
 
-        <div className="bg-zinc-900 border border-zinc-800 rounded-lg p-4 mb-6">
+        <div className="bg-zinc-900 border border-zinc-800 rounded-lg p-4 mb-6 space-y-3">
           <div className="flex items-center gap-3">
             <div className="w-10 h-10 rounded-lg bg-zinc-800 flex items-center justify-center text-xl">
               📦
             </div>
-
             <div>
               <div className="text-white font-medium">
                 {assignmentAssets.length} Asset{assignmentAssets.length !== 1 ? 's' : ''}
               </div>
-
               <div className="text-xs text-zinc-500">
                 Accept this assignment to start promoting.
               </div>
             </div>
           </div>
+          <ul className="space-y-2 border-t border-zinc-800 pt-3">
+            {assignmentAssets.map(asset => (
+              <li key={asset.asset_id} className="flex items-center gap-3 text-sm text-zinc-300">
+                <img
+                  src={
+                    asset.kind === 'campaign_element'
+                      ? resolveElementThumbnail(asset.element_type ?? '')
+                      : resolveThumbnail(asset)
+                  }
+                  alt=""
+                  className="w-12 h-7 object-cover rounded bg-zinc-950 shrink-0"
+                />
+                <span className="truncate">
+                  {asset.kind === 'campaign_element'
+                    ? (asset.display_name || asset.element_type || 'Element')
+                    : (asset.display_name || asset.title || asset.asset_id)}
+                </span>
+              </li>
+            ))}
+          </ul>
         </div>
       </>
     )}
