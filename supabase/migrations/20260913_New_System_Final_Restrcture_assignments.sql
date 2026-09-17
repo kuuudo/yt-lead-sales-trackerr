@@ -684,3 +684,45 @@ ALTER TABLE public.assignments
     asset_scope IS NULL
     OR asset_scope IN ('promotion_only', 'allow_additional')
   );
+
+  ALTER TABLE public.campaigns
+  ADD COLUMN IF NOT EXISTS link_type_tracking_domains jsonb NULL;
+
+  -- Per campaign-link-type tracking domain (uuid → branded_tracking_domains.id).
+-- NULL = use default vstrk.com host at generate time.
+
+ALTER TABLE public.campaigns
+  ADD COLUMN IF NOT EXISTS landing_page_tracking_domain_id uuid NULL,
+  ADD COLUMN IF NOT EXISTS newsletter_tracking_domain_id uuid NULL,
+  ADD COLUMN IF NOT EXISTS consultation_tracking_domain_id uuid NULL,
+  ADD COLUMN IF NOT EXISTS sales_call_tracking_domain_id uuid NULL;
+
+-- Optional FKs (skip if branded_tracking_domains not in public or name differs)
+DO $$
+BEGIN
+  IF EXISTS (
+    SELECT 1 FROM information_schema.tables
+    WHERE table_schema = 'public' AND table_name = 'branded_tracking_domains'
+  ) THEN
+    ALTER TABLE public.campaigns
+      DROP CONSTRAINT IF EXISTS campaigns_landing_page_tracking_domain_id_fkey,
+      DROP CONSTRAINT IF EXISTS campaigns_newsletter_tracking_domain_id_fkey,
+      DROP CONSTRAINT IF EXISTS campaigns_consultation_tracking_domain_id_fkey,
+      DROP CONSTRAINT IF EXISTS campaigns_sales_call_tracking_domain_id_fkey;
+
+    ALTER TABLE public.campaigns
+      ADD CONSTRAINT campaigns_landing_page_tracking_domain_id_fkey
+        FOREIGN KEY (landing_page_tracking_domain_id) REFERENCES public.branded_tracking_domains(id) ON DELETE SET NULL,
+      ADD CONSTRAINT campaigns_newsletter_tracking_domain_id_fkey
+        FOREIGN KEY (newsletter_tracking_domain_id) REFERENCES public.branded_tracking_domains(id) ON DELETE SET NULL,
+      ADD CONSTRAINT campaigns_consultation_tracking_domain_id_fkey
+        FOREIGN KEY (consultation_tracking_domain_id) REFERENCES public.branded_tracking_domains(id) ON DELETE SET NULL,
+      ADD CONSTRAINT campaigns_sales_call_tracking_domain_id_fkey
+        FOREIGN KEY (sales_call_tracking_domain_id) REFERENCES public.branded_tracking_domains(id) ON DELETE SET NULL;
+  END IF;
+END $$;
+
+COMMENT ON COLUMN public.campaigns.landing_page_tracking_domain_id IS 'Tracking domain for landing_page / direct purchase redirects; NULL = vstrk default';
+COMMENT ON COLUMN public.campaigns.newsletter_tracking_domain_id IS 'Tracking domain for newsletter redirects; NULL = vstrk default';
+COMMENT ON COLUMN public.campaigns.consultation_tracking_domain_id IS 'Tracking domain for consultation redirects; NULL = vstrk default';
+COMMENT ON COLUMN public.campaigns.sales_call_tracking_domain_id IS 'Tracking domain for sales_call redirects; NULL = vstrk default';

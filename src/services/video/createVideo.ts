@@ -114,15 +114,26 @@ export async function createVideo({
       redirectJobs = redirectJobs.filter(([type]) => allow.has(type as CampaignLinkTypeKey));
     }
 
+    // Prefer explicit map from caller; else read campaigns.*_tracking_domain_id on campaign row
+    const domainFromCampaign: Partial<Record<CampaignLinkTypeKey, string | null>> = {
+      landing_page: (campaign as any).landing_page_tracking_domain_id ?? null,
+      newsletter: (campaign as any).newsletter_tracking_domain_id ?? null,
+      consultation: (campaign as any).consultation_tracking_domain_id ?? null,
+      sales_call: (campaign as any).sales_call_tracking_domain_id ?? null,
+    };
+    const domainMap = { ...domainFromCampaign, ...(campaignLinkDomainByType || {}) };
+
     await Promise.all(
       redirectJobs.map(([type, url]) => {
         const typeKey = type as CampaignLinkTypeKey;
         const perType =
-          campaignLinkDomainByType && typeKey in campaignLinkDomainByType
-            ? campaignLinkDomainByType[typeKey]
-            : undefined;
+          typeKey in domainMap ? domainMap[typeKey] : undefined;
         const domainId =
-          perType !== undefined ? perType : (trackingDomainId ?? null);
+          perType !== undefined && perType !== null
+            ? perType
+            : perType === null
+              ? null
+              : (trackingDomainId ?? null);
         return createRedirectLink(
           savedVideo.id,
           savedVideo.campaign_id,

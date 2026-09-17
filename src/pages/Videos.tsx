@@ -546,6 +546,25 @@ const CAMPAIGN_LINK_TYPE_META: Record<
   sales_call: { label: 'Sales call', campaignUrlKey: 'sales_call_booking_url' },
 };
 
+/** campaigns.*_tracking_domain_id columns (Modal A). */
+const CAMPAIGN_LINK_DOMAIN_COL: Record<CampaignLinkTypeKey, string> = {
+  landing_page: 'landing_page_tracking_domain_id',
+  newsletter: 'newsletter_tracking_domain_id',
+  consultation: 'consultation_tracking_domain_id',
+  sales_call: 'sales_call_tracking_domain_id',
+};
+
+function domainMapFromCampaignRow(row: any): Partial<Record<CampaignLinkTypeKey, string | null>> {
+  if (!row) return {};
+  const out: Partial<Record<CampaignLinkTypeKey, string | null>> = {};
+  (Object.keys(CAMPAIGN_LINK_DOMAIN_COL) as CampaignLinkTypeKey[]).forEach(k => {
+    const col = CAMPAIGN_LINK_DOMAIN_COL[k];
+    const v = row[col];
+    out[k] = v ?? null;
+  });
+  return out;
+}
+
 function availableCampaignLinkTypes(campaign: any): CampaignLinkTypeKey[] {
   if (!campaign) return [];
   const out: CampaignLinkTypeKey[] = [];
@@ -1260,16 +1279,13 @@ const hasBlockingPromotionIssue = Array.from(promotionContextByAssetId.entries()
     (async () => {
       const { data } = await supabase
         .from('campaigns')
-        .select('organization_id, link_type_tracking_domains')
+        .select(
+          'organization_id, landing_page_tracking_domain_id, newsletter_tracking_domain_id, consultation_tracking_domain_id, sales_call_tracking_domain_id'
+        )
         .eq('id', formData.campaign_id)
         .maybeSingle();
       if (cancelled) return;
-      const map = (data as any)?.link_type_tracking_domains;
-      if (map && typeof map === 'object') {
-        setCampaignLinkDomainByType(map as Partial<Record<CampaignLinkTypeKey, string | null>>);
-      } else {
-        setCampaignLinkDomainByType({});
-      }
+      setCampaignLinkDomainByType(domainMapFromCampaignRow(data));
       if (!isOwnSelectedCampaign) {
         setOwnerCampaignDomains([]);
         return;
@@ -1680,9 +1696,15 @@ const hasBlockingPromotionIssue = Array.from(promotionContextByAssetId.entries()
     if (!formData.campaign_id || !isOwnSelectedCampaign) return;
     setSavingCampaignLinkConfig(true);
     try {
+      const payload: Record<string, string | null> = {
+        landing_page_tracking_domain_id: campaignLinkDomainByType.landing_page ?? null,
+        newsletter_tracking_domain_id: campaignLinkDomainByType.newsletter ?? null,
+        consultation_tracking_domain_id: campaignLinkDomainByType.consultation ?? null,
+        sales_call_tracking_domain_id: campaignLinkDomainByType.sales_call ?? null,
+      };
       const { error } = await supabase
         .from('campaigns')
-        .update({ link_type_tracking_domains: campaignLinkDomainByType })
+        .update(payload)
         .eq('id', formData.campaign_id);
       if (error) throw error;
       setShowCampaignLinkConfigModal(false);
@@ -1691,7 +1713,7 @@ const hasBlockingPromotionIssue = Array.from(promotionContextByAssetId.entries()
       showAlert(
         'Could not save',
         e?.message ||
-          'Failed to save. Ensure campaigns.link_type_tracking_domains (jsonb) exists.',
+          'Failed to save. Ensure campaigns.*_tracking_domain_id columns exist.',
         'danger'
       );
     } finally {
