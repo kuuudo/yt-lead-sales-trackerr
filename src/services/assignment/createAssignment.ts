@@ -193,9 +193,19 @@ export async function createAssignment({
       continue;
     }
 
-    const { assetType } = await resolveAssetType(assetId);
-
-    if (assetType === 'resource') {
+    const resolvedType = await resolveAssetType(assetId);
+    // ResolvedAssetType shape is shared with Videos (organizationId, etc.).
+    // Resource assets without campaign provenance get the system campaign.
+    const typeName =
+      resolvedType && typeof resolvedType === 'object'
+        ? String(
+            (resolvedType as { assetType?: string; type?: string; kind?: string }).assetType
+            ?? (resolvedType as { type?: string }).type
+            ?? (resolvedType as { kind?: string }).kind
+            ?? ''
+          )
+        : '';
+    if (typeName === 'resource') {
       await ensureResourcePromotionCampaign(assetId);
       continue;
     }

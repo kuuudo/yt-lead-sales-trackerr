@@ -524,6 +524,7 @@ export default function CreateAssignment() {
 
 
         {creativeCreationMode !== 'none' && (
+          <>
           <div data-tutorial-id="marketplace-creative-campaign" className="mb-6">
             <label className="block text-[10px] font-bold uppercase tracking-widest text-zinc-500 mb-2">
               Creative Campaign
@@ -618,7 +619,7 @@ export default function CreateAssignment() {
               </span>
             </label>
           </div>
-
+          </>
         )}
 
         <div data-tutorial-id="marketplace-invite-collaborators">
