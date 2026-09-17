@@ -1818,8 +1818,35 @@ const hasBlockingPromotionIssue = Array.from(promotionContextByAssetId.entries()
         }
 
       // ── Create path: delegated to createVideo() service ─────────────────
-      } else {
-        const { savedVideo } = await createVideo({
+} else {
+
+  const creativeWriteOrgId =
+    selectedCreativeAssignment?.organizationId ||
+    selectedCreativeCampaign?.sponsorOrganizationId ||
+    eligiblePromotions.find(
+      p => p.promotionId === selectedCreativePromotionId
+    )?.sponsorOrganizationId ||
+    null;
+
+  console.log('[Creative Save DEBUG]', {
+    marketerUserId: user?.id,
+    marketerOrgId: organizationId,
+    creativeWriteOrgId,
+    campaignId: generated?.video?.campaign_id ?? formData.campaign_id,
+    campaignFromState: generated?.campaign
+      ? {
+          id: (generated.campaign as any).id,
+          organization_id: (generated.campaign as any).organization_id,
+          landing_page_url: (generated.campaign as any).landing_page_url,
+          newsletter_url: (generated.campaign as any).newsletter_url,
+        }
+      : null,
+    selectedCreativeAssignmentId,
+    selectedCreativePromotionId,
+    campaignLinkTypes: selectedCampaignLinkTypes,
+  });
+
+  const { savedVideo } = await createVideo({
           payload: {
             platform:                 generated.video.platform!,
             platform_url:             generated.video.platform_url!,
@@ -1934,6 +1961,15 @@ console.log(
       setPreviousCampaignId('');
 
     } catch (err: any) {
+
+console.error('[Creative Save ERROR]', {
+  message: err?.message,
+  code: err?.code,
+  details: err?.details,
+  hint: err?.hint,
+  full: err,
+});
+
       showAlert('Save Error', err.message || 'An unexpected error occurred.', 'danger');
     } finally {
       setSaving(false);
