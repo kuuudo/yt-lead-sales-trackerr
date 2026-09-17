@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef, useCallback } from 'react';
+import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { Link, useSearchParams, useNavigate } from 'react-router-dom';
 import { useLanguage } from '../lib/hooks';
 import { supabase, Video, Campaign, LeadMagnet } from '../lib/supabase';
@@ -615,6 +615,7 @@ const hasBlockingPromotionIssue = Array.from(promotionContextByAssetId.entries()
       options.length === 0 || (options.length > 1 && !chosenPromotionByAssetId.has(assetId))
   );
   const [showAssetPicker, setShowAssetPicker] = useState(false);
+  const [creativeOnlyAssetIds, setCreativeOnlyAssetIds] = useState<string[]>([]);
   const [promotedAssets, setPromotedAssets] = useState<PromotedAssetRow[]>([]);
   const [verifiedDomains, setVerifiedDomains] = useState<VerifiedDomainOption[]>([]);
   const [selectedTrackingDomainId, setSelectedTrackingDomainId] = useState<string | null>(null);
@@ -846,6 +847,33 @@ const hasBlockingPromotionIssue = Array.from(promotionContextByAssetId.entries()
   const isCreativePromotionOnly =
     !!selectedCreativeAssignmentId &&
     selectedCreativeAssignment?.assetScope === 'promotion_only';
+
+  const creativeAssignmentIdSet = useMemo(
+    () => new Set(creativeEligibleAssignments.map(a => a.assignmentId)),
+    [creativeEligibleAssignments]
+  );
+
+  /** Remove from current Create Content selection only — never DB rows. */
+  const removePromotedAsset = (assetId: string) => {
+    setPromotedAssets(prev => prev.filter(a => a.asset_id !== assetId));
+    setSelectedAssetDomainByAssetId(prev => {
+      const next = new Map(prev);
+      next.delete(assetId);
+      return next;
+    });
+    setPromotionContextByAssetId(prev => {
+      const next = new Map(prev);
+      next.delete(assetId);
+      return next;
+    });
+    setChosenPromotionByAssetId(prev => {
+      const next = new Map(prev);
+      next.delete(assetId);
+      return next;
+    });
+    setCreativeAssetUsageRows(prev => prev.filter(r => r.asset_id !== assetId));
+  };
+
 
   const resolveAndSetCreativeCampaignId = async (campaignId: string | null) => {
     if (!campaignId) {
@@ -1282,6 +1310,54 @@ const hasBlockingPromotionIssue = Array.from(promotionContextByAssetId.entries()
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [chosenPromotionByAssetId, creativeEligibleAssignments]);
+
+
+  // When opening +Select Asset, mark Shared assets that ONLY have Creative promotions
+  useEffect(() => {
+    if (!showAssetPicker || !user) return;
+    let cancelled = false;
+    (async () => {
+      const creativeIds = new Set(creativeEligibleAssignments.map(a => a.assignmentId));
+      if (creativeIds.size === 0) {
+        if (!cancelled) setCreativeOnlyAssetIds([]);
+        return;
+      }
+      // Union of assets on creative assignments
+      const candidateIds = new Set<string>();
+      for (const a of creativeEligibleAssignments) {
+        try {
+          const rows = await loadAssignmentAssetsForCreative(a.assignmentId);
+          for (const r of rows) candidateIds.add(r.asset_id);
+        } catch {
+          /* ignore */
+        }
+      }
+      if (cancelled || candidateIds.size === 0) {
+        if (!cancelled) setCreativeOnlyAssetIds([]);
+        return;
+      }
+      const only: string[] = [];
+      await Promise.all(
+        [...candidateIds].map(async assetId => {
+          try {
+            const options = await resolvePromotionContextForAsset(assetId, user.id);
+            if (
+              options.length > 0 &&
+              options.every(o => creativeIds.has(o.assignmentId))
+            ) {
+              only.push(assetId);
+            }
+          } catch {
+            /* ignore */
+          }
+        })
+      );
+      if (!cancelled) setCreativeOnlyAssetIds(only);
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [showAssetPicker, user?.id, creativeEligibleAssignments]);
 
   // SHARED / ASSIGNED: after Promotion context is known, load Path B usage rows
   useEffect(() => {
@@ -2245,20 +2321,15 @@ console.log(
                               <Check size={14} className="text-emerald-500 shrink-0" />
                               {promotedAssets.map(a => (a as any).display_name || (a as any).title || a.asset_id).join(', ')}
                             </span>
+                            {!isCreativePromotionOnly && (
                             <button
                               type="button"
-                              onClick={() => {
-                                const scope = selectedCreativeAssignment?.assetScope;
-                                if (selectedCreativeAssignmentId && scope === 'promotion_only') {
-                                  setShowCreativeAssetDeselect(true);
-                                  return;
-                                }
-                                setShowAssetPicker(true);
-                              }}
+                              onClick={() => setShowAssetPicker(true)}
                               className="text-[10px] font-black uppercase tracking-widest text-zinc-500 hover:text-white shrink-0"
                             >
                               Change
                             </button>
+                            )}
                           </div>
 
                           {promotedAssets.map(asset => {
@@ -2292,7 +2363,17 @@ console.log(
 
                               return (
                                 <div key={asset.asset_id} className="pl-1 space-y-2 border border-zinc-800 rounded-xl p-3" data-tutorial-id="videos-asset-pathb-domain">
-                                  <p className="text-[9px] font-black uppercase tracking-widest text-zinc-400">{label}</p>
+                                  <div className="flex items-start justify-between gap-2">
+                                    <p className="text-[9px] font-black uppercase tracking-widest text-zinc-400">{label}</p>
+                                    <button
+                                      type="button"
+                                      title="Remove from this content only"
+                                      onClick={() => removePromotedAsset(asset.asset_id)}
+                                      className="text-zinc-500 hover:text-red-400 text-sm leading-none px-1 shrink-0"
+                                    >
+                                      ×
+                                    </button>
+                                  </div>
                                   <div className="space-y-2">
                                     {showMarketer && (
                                       <div className="space-y-1">
@@ -2421,9 +2502,19 @@ console.log(
                               allowCollaboratorDomainsByAssetId.get(asset.asset_id) ?? true;
                             return (
                               <div key={asset.asset_id} className="pl-1 space-y-1" data-tutorial-id="videos-asset-shared-domain">
-                                <p className="text-[9px] font-black uppercase tracking-widest text-zinc-500">
-                                  {label} — Tracking Domain
-                                </p>
+                                <div className="flex items-start justify-between gap-2">
+                                  <p className="text-[9px] font-black uppercase tracking-widest text-zinc-500">
+                                    {label} — Tracking Domain
+                                  </p>
+                                  <button
+                                    type="button"
+                                    title="Remove from this content only"
+                                    onClick={() => removePromotedAsset(asset.asset_id)}
+                                    className="text-zinc-500 hover:text-red-400 text-sm leading-none px-1 shrink-0"
+                                  >
+                                    ×
+                                  </button>
+                                </div>
                                 <select
                                   value={currentValue}
                                   onChange={e => {
@@ -2605,6 +2696,7 @@ console.log(
                   <PromotedAssetPicker
                     organizationId={organizationId}
                     initialSelectedAssetIds={promotedAssets.map(a => a.asset_id)}
+                    creativeOnlyAssetIds={creativeOnlyAssetIds}
                     onClose={() => setShowAssetPicker(false)}
                     onSelect={async assets => {
   setPromotedAssets(assets);
@@ -2630,12 +2722,43 @@ console.log(
       })
     );
 
+    const creativeIds = new Set(creativeEligibleAssignments.map(a => a.assignmentId));
     const next = new Map(promotionContextByAssetId);
+    const blockedTitles: string[] = [];
+    let filteredAssets = assets;
+
     for (const [assetId, options] of entries) {
-      if (options === null) next.delete(assetId);
-      else next.set(assetId, options);
+      if (options === null) {
+        next.delete(assetId);
+        continue;
+      }
+      // Creative-only: every promotion context is a Creative Assignment
+      const onlyCreative =
+        options.length > 0 &&
+        options.every(o => creativeIds.has(o.assignmentId));
+      if (onlyCreative) {
+        next.delete(assetId);
+        const title =
+          assets.find(a => a.asset_id === assetId)?.display_name ||
+          assets.find(a => a.asset_id === assetId)?.title ||
+          assetId;
+        blockedTitles.push(String(title));
+        filteredAssets = filteredAssets.filter(a => a.asset_id !== assetId);
+        continue;
+      }
+      next.set(assetId, options);
     }
+    setPromotedAssets(filteredAssets);
     setPromotionContextByAssetId(next);
+    if (blockedTitles.length > 0) {
+      showAlert(
+        'Creative assets',
+        'These assets belong only to a Creative Promotion and cannot be added from + Select Asset:\n\n' +
+          blockedTitles.join('\n') +
+          '\n\nSelect the Creative Promotion from the Promotion menu first.',
+        'info'
+      );
+    }
 
     // If any resolved promotion belongs to a Creative Assignment, auto-select its Campaign
     for (const [, options] of next.entries()) {
@@ -2692,22 +2815,37 @@ console.log(
           <p className="text-xs text-zinc-300">
             "{asset.display_name}" is used in multiple collaborations. Select which Promotion to track:
           </p>
-          {options.map(opt => (
+          {options.map(opt => {
+            const isCreativeOpt = creativeAssignmentIdSet.has(opt.assignmentId);
+            return (
             <button
               key={opt.promotionId}
               type="button"
-              onClick={() =>
-                setChosenPromotionByAssetId(new Map(chosenPromotionByAssetId).set(assetId, toPromotionContext(opt)))
+              disabled={isCreativeOpt}
+              title={
+                isCreativeOpt
+                  ? 'Select this Creative Promotion from the Promotion menu first'
+                  : undefined
               }
+              onClick={() => {
+                if (isCreativeOpt) return;
+                setChosenPromotionByAssetId(
+                  new Map(chosenPromotionByAssetId).set(assetId, toPromotionContext(opt))
+                );
+              }}
               className={`w-full text-left text-xs px-3 py-2 rounded-lg border ${
-                chosen?.promotionId === opt.promotionId
+                isCreativeOpt
+                  ? 'border-zinc-800 bg-zinc-900/50 text-zinc-600 cursor-not-allowed'
+                  : chosen?.promotionId === opt.promotionId
                   ? 'border-red-600 bg-red-950/30 text-white'
                   : 'border-zinc-800 text-zinc-400 hover:border-zinc-600'
               }`}
             >
               {opt.assignmentTitle} — shared by {opt.sharedByName}
+              {isCreativeOpt ? ' (CREATIVE — use Promotion menu)' : ''}
             </button>
-          ))}
+            );
+          })}
         </div>
       );
     })}
