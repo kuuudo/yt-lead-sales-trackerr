@@ -311,6 +311,22 @@ export default function AssignmentDetail() {
               </p>
             </div>
           )}
+          {assignment.creative_creation_mode && (
+            <div className="mt-3 pt-3 border-t border-zinc-800">
+              <p className="text-[10px] font-bold uppercase tracking-widest text-zinc-500 mb-1">
+                Asset Usage
+              </p>
+              {assignment.asset_scope === 'allow_additional' ? (
+                <p className="text-xs text-zinc-300">
+                  Allow additional assets — Promotion assets plus other assets you are already permitted to promote.
+                </p>
+              ) : (
+                <p className="text-xs text-zinc-300">
+                  Promotion assets only — you can only use assets associated with this Promotion when creating content.
+                </p>
+              )}
+            </div>
+          )}
         </div>
 
         {/* Read-only. No Add/Remove, no editing — this PR only surfaces

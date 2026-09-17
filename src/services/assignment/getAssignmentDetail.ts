@@ -185,6 +185,8 @@ export interface AssignmentDetailData {
     creative_campaign_name: string | null;
     /** Display name for Sponsor ONLY PROMOTE ASSET when creative is allowed. */
     only_promote_asset_name: string | null;
+    /** Creative only: promotion_only | allow_additional | null */
+    asset_scope: 'promotion_only' | 'allow_additional' | null;
   };
   myInvitation: { id: string; status: string } | null;
   myCollaboratorId: string | null;
@@ -200,7 +202,7 @@ export async function getAssignmentDetail(
 ): Promise<AssignmentDetailData> {
   const { data: assignment, error: assignmentErr } = await supabase
     .from('assignments')
-    .select('id, title, description, status, organization_id, created_by_user_id, creative_creation_mode, creative_campaign_id')
+    .select('id, title, description, status, organization_id, created_by_user_id, creative_creation_mode, creative_campaign_id, asset_scope')
     .eq('id', assignmentId)
     .single();
 
@@ -225,6 +227,12 @@ export async function getAssignmentDetail(
       ? modeRaw
       : null;
   const creativeCampaignId = (assignment.creative_campaign_id as string | null) ?? null;
+
+  const scopeRaw = assignment.asset_scope as string | null;
+  const resolvedAssetScope =
+    creativeMode && (scopeRaw === 'promotion_only' || scopeRaw === 'allow_additional')
+      ? scopeRaw
+      : null;
 
   let creativeCampaignName: string | null = null;
   let onlyPromoteAssetName: string | null = null;
@@ -487,6 +495,7 @@ export async function getAssignmentDetail(
       creative_campaign_id: creativeCampaignId,
       creative_campaign_name: creativeCampaignName,
       only_promote_asset_name: onlyPromoteAssetName,
+      asset_scope: resolvedAssetScope,
     },
     myInvitation: invitation ?? null,
     myCollaboratorId: collaborator?.id ?? null,
