@@ -1833,12 +1833,40 @@ const hasBlockingPromotionIssue = Array.from(promotionContextByAssetId.entries()
             status:                   'no_data',
           },
           campaign:       generated.campaign,
-          organizationId: organizationId!,
+          // Creative: video + its Asset belong to Sponsor org; user_id stays Marketer.
+          organizationId: (() => {
+            const fromAssignment = selectedCreativeAssignment?.organizationId;
+            const fromCampaign = selectedCreativeCampaign?.sponsorOrganizationId;
+            const fromPromo = eligiblePromotions.find(
+              p => p.promotionId === selectedCreativePromotionId
+            )?.sponsorOrganizationId;
+            return fromAssignment || fromCampaign || fromPromo || organizationId!;
+          })(),
           userId:         user.id,
           trackingDomainId: selectedTrackingDomainId,
           campaignLinkTypes: selectedCampaignLinkTypes,
           campaignLinkDomainByType,
         });
+
+          // Creative: attach the new Content Video asset to the selected Promotion
+          // so it appears in Promotion / shared-assigned surfaces (best-effort).
+          if (
+            savedVideo.asset_id &&
+            selectedCreativePromotionId &&
+            (selectedCreativeAssignmentId || selectedCreativeCampaign)
+          ) {
+            const { error: paErr } = await supabase.from('promotion_assets').insert({
+              promotion_id: selectedCreativePromotionId,
+              asset_id: savedVideo.asset_id,
+            });
+            if (paErr) {
+              console.warn(
+                '[Videos] Creative promotion_assets insert (non-fatal):',
+                paErr.message
+              );
+            }
+          }
+
           // ── Sibling pipeline: Asset Redirect generation ──────────────────
           // Runs AFTER createVideo() succeeds, entirely independent of it.
           // Asset-driven (each asset's own campaign), not video-campaign-driven.
