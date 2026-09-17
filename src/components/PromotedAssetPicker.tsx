@@ -144,6 +144,8 @@ export interface PromotedAssetPickerProps {
    * Select Creative from the Promotion menu first.
    */
   creativeOnlyAssetIds?: string[];
+  /** True while parent is resolving which Shared assets are Creative-only. */
+  creativeRestrictionsLoading?: boolean;
 }
 
 type OwnershipFilter = 'all' | 'mine' | 'shared' | 'assigned';
@@ -247,6 +249,7 @@ export function PromotedAssetPicker({
   assignedAssetIdsOverride,
   excludeAssetIds = [],
   creativeOnlyAssetIds = [],
+  creativeRestrictionsLoading = false,
 }: PromotedAssetPickerProps) {
   const { user } = useAuth();
 
@@ -407,7 +410,16 @@ export function PromotedAssetPicker({
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-sm px-4">
       <div className="bg-zinc-900 border border-zinc-700 rounded-2xl w-full max-w-2xl max-h-[85vh] flex flex-col">
         <div className="flex items-center justify-between px-6 py-4 border-b border-zinc-800">
-          <h2 className="text-sm font-bold uppercase tracking-widest text-zinc-200">Select Assets to Promote</h2>
+          <h2 className="text-sm font-bold uppercase tracking-widest text-zinc-200 flex items-center gap-2">
+            Select Assets to Promote
+            {creativeRestrictionsLoading && (
+              <Loader2
+                size={14}
+                className="animate-spin text-orange-500 shrink-0"
+                aria-label="Loading Creative restrictions"
+              />
+            )}
+          </h2>
           <button onClick={onClose} className="text-zinc-500 hover:text-white">
             <X size={16} />
           </button>
