@@ -413,11 +413,14 @@ export function PromotedAssetPicker({
           <h2 className="text-sm font-bold uppercase tracking-widest text-zinc-200 flex items-center gap-2">
             Select Assets to Promote
             {creativeRestrictionsLoading && (
-              <Loader2
-                size={14}
-                className="animate-spin text-orange-500 shrink-0"
-                aria-label="Loading Creative restrictions"
-              />
+              <span className="inline-flex items-center gap-1.5 normal-case tracking-normal font-medium text-[10px] text-orange-500">
+                <Loader2
+                  size={14}
+                  className="animate-spin shrink-0"
+                  aria-hidden
+                />
+                Loading creative mode restrictions…
+              </span>
             )}
           </h2>
           <button onClick={onClose} className="text-zinc-500 hover:text-white">

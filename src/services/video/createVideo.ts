@@ -3,39 +3,11 @@
  *
  * Single source of truth for the "create video" business logic.
  *
- * Responsibilities:
- *   1. Create the Asset (Content Identity) via createAsset() — every Video
- *      must have a corresponding Asset (Design Lock §1, Option A)
- *   2. INSERT into `videos` table, carrying the new asset_id
- *   3. Create all redirect links for the video (via createRedirectLink)
- *   4. Create lead-magnet redirect links if selected
- *   5. Return the saved video row
- *
- * Aggregate boundary (Design Lock §1): createAsset() + insert `videos` are
- * the only two writes inside the consistency boundary. If the `videos`
- * insert fails, the Asset just created is compensated (deleted) since it is
- * guaranteed to have zero references at that point. Redirect links are
- * created outside this boundary and are allowed to fail independently.
- *
- * NOT responsible for:
- *   - Any React state (no setState, no hooks)
- *   - UI feedback (no toast, no modal open/close)
- *   - Querying redirect_links back for display (caller's job)
- *   - Mapping / backfill (caller's job — UnmappedVideos uses handleMapToExisting)
- *   - Edit / update flows (kept in Videos.tsx handleSave until updateVideo() is extracted)
- *   - Asset Redirect generation (Promoted Assets). That is a sibling
- *     pipeline — generateAssetRedirectLinks() — called by Videos.tsx
- *     AFTER this function returns, not from inside it. This function's
- *     scope stays "create a video" only. Do not add promotedAssets
- *     handling here — see generateAssetRedirectLinks.ts for why Asset
- *     Redirects are asset-driven (asset's own campaign) rather than
- *     video-campaign-driven, which is a different data source than
- *     anything this function has access to.
- *
- * Callers:
- *   - Videos.tsx → handleSave() (new video branch only)
- *   - UnmappedVideos.tsx → ImportVideoModal save handler
- *   - Future: Sponsor flow, API route, AI creation pipeline
+ * UPDATE (Campaign Links Modal B): optional `campaignLinkTypes` filters which
+ * campaign redirect jobs from buildCampaignRedirectJobs are created. When
+ * omitted or empty, behavior matches the previous "create all jobs" path only
+ * if the caller still expects that — Videos.tsx always passes the user's
+ * selection (may be empty = no campaign links).
  */
 
 import { supabase } from '../../lib/supabase';
@@ -44,56 +16,44 @@ import { createAsset } from '../asset/createAsset';
 import { buildCampaignRedirectJobs } from '../redirect/buildCampaignRedirectJobs';
 import type { Video, Campaign } from '../../lib/supabase';
 
-// ---------------------------------------------------------------------------
-// Types
-// ---------------------------------------------------------------------------
-
-/**
- * Everything needed to INSERT a `videos` row.
- * Kept intentionally flat — callers are responsible for resolving platform info
- * (via getPlatformInfo / registry data) before calling createVideo.
- * The service has no opinion about where the data came from.
- */
 export interface CreateVideoPayload {
-  // Platform identity
   platform: Video['platform'];
   platform_url: string;
   platform_post_id?: string | null;
   youtube_video_id?: string | null;
-
-  // Content metadata
   video_title: string;
   thumbnail_url?: string | null;
-
-  // Business context
   campaign_id: string;
   video_goal: Video['video_goal'];
   selected_lead_magnet_ids: string[] | null;
-
-  // Status — typically 'no_data' for brand-new videos
   status: Video['status'];
 }
 
+/** Subset of campaign link types the caller wants generated (Modal B). */
+export type CampaignLinkTypeKey =
+  | 'landing_page'
+  | 'newsletter'
+  | 'consultation'
+  | 'sales_call';
+
 export interface CreateVideoOptions {
   payload: CreateVideoPayload;
-  /**
-   * Resolved Campaign object for this video.
-   * Required to build redirect links.
-   * Pass undefined if no campaign selected — no redirect links will be created.
-   */
   campaign: Campaign | undefined;
   organizationId: string;
   userId: string;
   trackingDomainId?: string | null;
+  /**
+   * When provided, only these link types are created from buildCampaignRedirectJobs.
+   * When undefined, all jobs from buildCampaignRedirectJobs are created (legacy).
+   * When [] , no campaign link types are created (caller explicitly selected none).
+   * Lead-magnet links still follow selected_lead_magnet_ids independently.
+   */
+  campaignLinkTypes?: CampaignLinkTypeKey[] | null;
 }
 
 export interface CreateVideoResult {
   savedVideo: Video;
 }
-
-// ---------------------------------------------------------------------------
-// Service
-// ---------------------------------------------------------------------------
 
 export async function createVideo({
   payload,
@@ -101,18 +61,13 @@ export async function createVideo({
   organizationId,
   userId,
   trackingDomainId,
+  campaignLinkTypes,
 }: CreateVideoOptions): Promise<CreateVideoResult> {
-  // 1. Create the Asset first (Design Lock §1, Option A: every Video must
-  //    have a corresponding Asset). No compensation target exists for this
-  //    step itself — if it fails, we throw immediately.
   const { asset } = await createAsset({
     organizationId,
     assetType: 'video',
   });
 
-  // 2. Build the DB row.
-  //    organization_id and user_id are write-time snapshots —
-  //    never derived from localStorage or session inference.
   const row = {
     ...payload,
     organization_id: organizationId,
@@ -126,9 +81,6 @@ export async function createVideo({
     .select();
 
   if (insertError || !insertData || insertData.length === 0) {
-    // Compensation: the Asset created in step 1 is guaranteed to have no
-    // references yet — no `videos` row was ever successfully linked to it —
-    // so it is safe to delete outright.
     const { error: compensationError } = await supabase
       .from('assets')
       .delete()
@@ -148,11 +100,13 @@ export async function createVideo({
   const savedVideo: Video = insertData[0];
   const appBaseUrl = window.location.origin;
 
-  // 3. Create redirect links — only if a campaign is present.
   if (campaign) {
-    // Shared with generateAssetRedirectLinks.ts's Video-asset branch —
-    // do not inline this list again. See buildCampaignRedirectJobs.ts.
-    const redirectJobs = buildCampaignRedirectJobs(campaign);
+    let redirectJobs = buildCampaignRedirectJobs(campaign);
+
+    if (campaignLinkTypes !== undefined && campaignLinkTypes !== null) {
+      const allow = new Set(campaignLinkTypes);
+      redirectJobs = redirectJobs.filter(([type]) => allow.has(type as CampaignLinkTypeKey));
+    }
 
     await Promise.all(
       redirectJobs.map(([type, url]) =>
@@ -169,7 +123,6 @@ export async function createVideo({
       )
     );
 
-    // 4. Lead-magnet redirect links
     if (payload.selected_lead_magnet_ids && payload.selected_lead_magnet_ids.length > 0) {
       const { data: lmData } = await supabase
         .from('lead_magnets')

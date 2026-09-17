@@ -532,6 +532,30 @@ function YouTubeImportPanel({ onClose, isReadOnly }: { onClose: () => void; isRe
 // End Phase 2.5
 // ---------------------------------------------------------------------------
 
+
+/** Campaign redirect link types the user may include when generating (Modal B). */
+type CampaignLinkTypeKey = 'landing_page' | 'newsletter' | 'consultation' | 'sales_call';
+
+const CAMPAIGN_LINK_TYPE_META: Record<
+  CampaignLinkTypeKey,
+  { label: string; campaignUrlKey: string }
+> = {
+  landing_page: { label: 'Direct purchase / Landing', campaignUrlKey: 'landing_page_url' },
+  newsletter: { label: 'Newsletter', campaignUrlKey: 'newsletter_url' },
+  consultation: { label: 'Consultation', campaignUrlKey: 'consultation_booking_url' },
+  sales_call: { label: 'Sales call', campaignUrlKey: 'sales_call_booking_url' },
+};
+
+function availableCampaignLinkTypes(campaign: any): CampaignLinkTypeKey[] {
+  if (!campaign) return [];
+  const out: CampaignLinkTypeKey[] = [];
+  if (campaign.landing_page_url) out.push('landing_page');
+  if (campaign.newsletter_url) out.push('newsletter');
+  if (campaign.consultation_booking_url || campaign.has_paid_consultation) out.push('consultation');
+  if (campaign.sales_call_booking_url || campaign.has_sales_call) out.push('sales_call');
+  return out;
+}
+
 export default function Videos() {
   const { t } = useLanguage();
   const { user } = useAuth();
@@ -620,6 +644,8 @@ const hasBlockingPromotionIssue = Array.from(promotionContextByAssetId.entries()
   const [promotedAssets, setPromotedAssets] = useState<PromotedAssetRow[]>([]);
   const [verifiedDomains, setVerifiedDomains] = useState<VerifiedDomainOption[]>([]);
   const [selectedTrackingDomainId, setSelectedTrackingDomainId] = useState<string | null>(null);
+  const [selectedCampaignLinkTypes, setSelectedCampaignLinkTypes] = useState<CampaignLinkTypeKey[]>([]);
+  const [showCampaignLinksModal, setShowCampaignLinksModal] = useState(false);
 
   // ── Creative Creation Phase 1 (UI only; ownership write path unchanged) ──
   const [creativeEligibleCampaigns, setCreativeEligibleCampaigns] = useState<CreativeEligibleCampaign[]>([]);
@@ -1202,6 +1228,16 @@ const hasBlockingPromotionIssue = Array.from(promotionContextByAssetId.entries()
     }
   }, [formData.campaign_id]);
 
+  // Default Campaign Links selection when Campaign changes (Modal B)
+  useEffect(() => {
+    const campaign =
+      campaigns.find(c => c.id === formData.campaign_id) ||
+      creativeSponsorCampaignById.get(formData.campaign_id) ||
+      null;
+    const available = availableCampaignLinkTypes(campaign);
+    setSelectedCampaignLinkTypes(available);
+  }, [formData.campaign_id, campaigns, creativeSponsorCampaignById]);
+
   const fetchLeadMagnets = async (campaignId: string) => {
     setLoadingMagnets(true);
     try {
@@ -1694,6 +1730,7 @@ const hasBlockingPromotionIssue = Array.from(promotionContextByAssetId.entries()
           organizationId: organizationId!,
           userId:         user.id,
           trackingDomainId: selectedTrackingDomainId,
+          campaignLinkTypes: selectedCampaignLinkTypes,
         });
           // ── Sibling pipeline: Asset Redirect generation ──────────────────
           // Runs AFTER createVideo() succeeds, entirely independent of it.
@@ -2230,6 +2267,30 @@ console.log(
                             Campaign Links are unavailable for asset-only mode.
                           </p>
                         )}
+                        {!creativeLinksUnavailable && (
+                        <button
+                          type="button"
+                          onClick={() => setShowCampaignLinksModal(true)}
+                          disabled={!formData.campaign_id}
+                          className="mt-2 w-full flex items-center justify-between gap-2 bg-zinc-950 border border-zinc-800 hover:border-zinc-600 disabled:opacity-40 rounded-xl px-3 py-2.5 text-left"
+                        >
+                          <span>
+                            <span className="block text-[10px] font-black uppercase tracking-widest text-zinc-500">
+                              Campaign Links & Tracking Domain
+                            </span>
+                            <span className="block text-[11px] text-zinc-300 mt-0.5 normal-case font-medium tracking-normal">
+                              {!formData.campaign_id
+                                ? 'Select a campaign first'
+                                : selectedCampaignLinkTypes.length > 0
+                                  ? `${selectedCampaignLinkTypes.length} link type${selectedCampaignLinkTypes.length === 1 ? '' : 's'} · ${selectedTrackingDomainId ? 'custom domain' : 'vstrk.com'}`
+                                  : `No links selected · ${selectedTrackingDomainId ? 'custom domain' : 'vstrk.com'}`}
+                            </span>
+                          </span>
+                          <span className="text-[10px] font-black uppercase tracking-widest text-zinc-500 shrink-0">
+                            Configure
+                          </span>
+                        </button>
+                        )}
                       </div>
 
                       <div className="space-y-1 md:col-span-2" data-tutorial-id="videos-creative-promotion">
@@ -2571,53 +2632,20 @@ console.log(
                       )}
                     </div>
 
-                   <div className="space-y-2" data-tutorial-id="videos-tracking-domain">
-                      <div className="flex items-center gap-1.5">
-                        <label className="label-caps">
-                          Tracking Domain
-                        </label>
-                        {verifiedDomains.length === 0 && (
-                          <div className="relative group/tip py-2">
-  <Info
-    size={13}
-    className="text-zinc-600 hover:text-zinc-400 cursor-help transition-colors"
-  />
-
-  <div className="hidden group-hover/tip:block absolute left-0 top-6 z-20 w-64">
-    <div className="p-3 rounded-xl border border-zinc-800 bg-zinc-900 shadow-2xl">
-      <p className="text-[10px] leading-relaxed text-zinc-400 normal-case font-medium">
-        Create branded tracking links using your own domain (e.g. go.company.com) instead of vstrk.com. You can set this up in Campaigns or below.
-      </p>
-
-      <Link
-        to="/settings/tracking-domains"
-        className="mt-2 inline-block text-[10px] font-black uppercase tracking-widest text-red-500 hover:text-red-400"
-      >
-        Set up a tracking domain →
-      </Link>
-    </div>
-  </div>
-</div>
-                        )}
-                      </div>
-                      <select
-                        value={selectedTrackingDomainId ?? ''}
-                        onChange={(e) => setSelectedTrackingDomainId(e.target.value || null)}
-                        className="w-full bg-zinc-950 border border-zinc-800 rounded-xl px-4 py-3 text-xs text-zinc-100 focus:outline-none focus:border-red-600"
-                      >
-                        <option value="">vstrk.com</option>
-                        {(hasPromotionContext ? creativeDomainOptions : verifiedDomains).map((d) => (
-                          <option key={d.id} value={d.id}>
-                            {d.hostname}
-                          </option>
-                        ))}
-                      </select>
-                      {hasPromotionContext && (
-                        <p className="text-[9px] font-bold uppercase tracking-widest text-zinc-600">
-                          Domains limited to this Promotion&apos;s configuration
-                        </p>
-                      )}
-                    </div>
+                    {!creativeLinksUnavailable && (
+                      <p className="text-[10px] text-zinc-500" data-tutorial-id="videos-tracking-domain">
+                        Campaign links & domain: use{' '}
+                        <button
+                          type="button"
+                          className="text-red-500 hover:text-red-400 font-bold uppercase tracking-widest text-[10px]"
+                          onClick={() => setShowCampaignLinksModal(true)}
+                          disabled={!formData.campaign_id}
+                        >
+                          Configure
+                        </button>
+                        {' '}under Campaign (above).
+                      </p>
+                    )}
 
                     <button 
                       onClick={handleGenerate}
@@ -2638,6 +2666,92 @@ console.log(
                 </div>
 
                 
+                
+                {showCampaignLinksModal && (
+                  <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4">
+                    <div className="w-full max-w-md bg-zinc-950 border border-zinc-800 rounded-2xl p-5 space-y-4 max-h-[85vh] overflow-y-auto">
+                      <p className="text-[10px] font-black uppercase tracking-widest text-zinc-500">
+                        Campaign Links & Tracking Domain
+                      </p>
+                      <p className="text-xs text-zinc-400">
+                        Choose which campaign link types to generate for this content. Tracking domain applies to campaign links (not per-asset Path B).
+                      </p>
+                      <div className="space-y-2">
+                        <p className="text-[10px] font-black uppercase tracking-widest text-zinc-500">
+                          Links to include
+                        </p>
+                        {(() => {
+                          const campaign =
+                            campaigns.find(c => c.id === formData.campaign_id) ||
+                            creativeSponsorCampaignById.get(formData.campaign_id) ||
+                            null;
+                          const available = availableCampaignLinkTypes(campaign);
+                          if (!formData.campaign_id) {
+                            return <p className="text-xs text-zinc-500">Select a campaign first.</p>;
+                          }
+                          if (available.length === 0) {
+                            return (
+                              <p className="text-xs text-zinc-500">
+                                This campaign has no landing / newsletter / consultation / sales URLs configured.
+                              </p>
+                            );
+                          }
+                          return available.map(key => {
+                            const checked = selectedCampaignLinkTypes.includes(key);
+                            return (
+                              <label
+                                key={key}
+                                className="flex items-center gap-3 border border-zinc-800 rounded-xl px-3 py-2.5 cursor-pointer hover:border-zinc-600"
+                              >
+                                <input
+                                  type="checkbox"
+                                  className="accent-red-600"
+                                  checked={checked}
+                                  onChange={() => {
+                                    setSelectedCampaignLinkTypes(prev =>
+                                      checked ? prev.filter(k => k !== key) : [...prev, key]
+                                    );
+                                  }}
+                                />
+                                <span className="text-sm text-zinc-200">{CAMPAIGN_LINK_TYPE_META[key].label}</span>
+                              </label>
+                            );
+                          });
+                        })()}
+                      </div>
+                      <div className="space-y-1 pt-2 border-t border-zinc-800">
+                        <label className="text-[10px] font-black uppercase tracking-widest text-zinc-500">
+                          Tracking Domain (campaign links)
+                        </label>
+                        <select
+                          value={selectedTrackingDomainId ?? ''}
+                          onChange={e => setSelectedTrackingDomainId(e.target.value || null)}
+                          className="w-full bg-zinc-900 border border-zinc-800 rounded-xl px-3 py-2.5 text-xs text-zinc-100"
+                        >
+                          <option value="">vstrk.com</option>
+                          {(hasPromotionContext ? creativeDomainOptions : verifiedDomains).map(d => (
+                            <option key={d.id} value={d.id}>
+                              {d.hostname}
+                            </option>
+                          ))}
+                        </select>
+                        {hasPromotionContext && (
+                          <p className="text-[9px] text-zinc-600">
+                            Domains limited to this Promotion&apos;s configuration
+                          </p>
+                        )}
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => setShowCampaignLinksModal(false)}
+                        className="w-full bg-red-600 hover:bg-red-500 text-white text-[10px] font-black uppercase tracking-widest py-2.5 rounded-xl"
+                      >
+                        Done
+                      </button>
+                    </div>
+                  </div>
+                )}
+
                 {showCreativeAssetDeselect && isCreativePromotionOnly && (
                   <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4">
                     <div className="w-full max-w-md bg-zinc-950 border border-zinc-800 rounded-2xl p-5 space-y-4">
