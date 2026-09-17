@@ -888,8 +888,11 @@ const [resolvingPromotionContext, setResolvingPromotionContext] = useState(false
     (selectedCampaignRow as any).organization_id === organizationId &&
     !selectedCreativeAssignmentId;
 
+  // Block only when on a Creative *Campaign* path without Promotion, and not
+  // already in Creative *Assignment* mode (assignment loads assets without requiring Promotion id).
   const creativePromotionBlocked =
     isCreativeCampaign &&
+    !selectedCreativeAssignmentId &&
     (!selectedCreativePromotionId || loadingCreativePromotion);
 
   /** Save blockers — Creative Promotion already selected counts as resolved context. */
@@ -1058,6 +1061,13 @@ const [resolvingPromotionContext, setResolvingPromotionContext] = useState(false
       setCreativeAssetUsageRows([]);
     } finally {
       setLoadingCreativePromotion(false);
+    }
+
+    // Best-effort: bind a Promotion id for this Assignment (1 → auto; N → first eligible).
+    // Save no longer requires it, but createVideo / promotion_assets prefer it.
+    const promosForAssignment = eligiblePromotions.filter(p => p.assignmentId === assignmentId);
+    if (promosForAssignment.length >= 1) {
+      setSelectedCreativePromotionId(promosForAssignment[0].promotionId);
     }
   };
 
