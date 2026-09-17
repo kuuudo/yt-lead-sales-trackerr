@@ -186,6 +186,8 @@ export default function InDepthAnalyticsTest() {
   // Custom date range — only populated/used when dateRange === 'custom'.
   const [customRange, setCustomRange]                 = useState<CustomDateRange | null>(null);
   const [selectedCampaignId, setSelectedCampaignId]   = useState<string>('all');
+  /** standard = hide Creative videos; creative_to_me / creative_by_me = Creative filters */
+  const [contentScope, setContentScope] = useState<'standard' | 'creative_to_me' | 'creative_by_me'>('standard');
   const [selectedGoals, setSelectedGoals]             = useState<string[]>([]);
   const [selectedLeadMagnets, setSelectedLeadMagnets] = useState<string[]>([]);
 
@@ -243,7 +245,29 @@ export default function InDepthAnalyticsTest() {
     setLoading(true);
     try {
       const { data: cData } = await supabase.from('campaigns').select('*').eq('user_id', user?.id);
-      const { data: vData } = await supabase.from('videos').select('*').eq('user_id', user?.id);
+      const { data: membership } = await supabase
+        .from('organization_members')
+        .select('organization_id')
+        .eq('user_id', user!.id)
+        .limit(1)
+        .maybeSingle();
+      const orgId = membership?.organization_id as string | undefined;
+
+      const [{ data: myVideos }, { data: orgCreativeVideos }] = await Promise.all([
+        supabase.from('videos').select('*').eq('user_id', user!.id),
+        orgId
+          ? supabase
+              .from('videos')
+              .select('*')
+              .eq('organization_id', orgId)
+              .eq('created_via_creative', true)
+          : Promise.resolve({ data: [] as any[] }),
+      ]);
+      const byId = new Map<string, any>();
+      for (const v of [...(myVideos || []), ...(orgCreativeVideos || [])]) {
+        if (v?.id) byId.set(v.id, v);
+      }
+      const vData = Array.from(byId.values());
       const { data: lmData } = await supabase.from('lead_magnets').select('*');
 
       setCampaigns(cData || []);
@@ -381,11 +405,28 @@ export default function InDepthAnalyticsTest() {
 
   // ── Platform filter (applied after engine, pure UI) ──────────────────────
   const sortedVideos = useMemo(() => {
-    if (selectedPlatforms.length === 0) return engineSorted;
-    return engineSorted.filter(row =>
+    let rows = engineSorted;
+    // Creative scope (default hides Creative-created videos from main list)
+    if (contentScope === 'standard') {
+      rows = rows.filter(row => !(row.video as any).created_via_creative);
+    } else if (contentScope === 'creative_to_me') {
+      rows = rows.filter(
+        row =>
+          !!(row.video as any).created_via_creative &&
+          row.video.user_id === user?.id,
+      );
+    } else if (contentScope === 'creative_by_me') {
+      rows = rows.filter(
+        row =>
+          !!(row.video as any).created_via_creative &&
+          row.video.user_id !== user?.id,
+      );
+    }
+    if (selectedPlatforms.length === 0) return rows;
+    return rows.filter(row =>
       selectedPlatforms.includes(row.video.platform ?? 'youtube'),
     );
-  }, [engineSorted, selectedPlatforms]);
+  }, [engineSorted, selectedPlatforms, contentScope, user?.id]);
 
   // Derive present platforms from full engine output (not filtered)
   const presentPlatforms = useMemo(() => {
@@ -541,6 +582,36 @@ export default function InDepthAnalyticsTest() {
               </select>
               <Briefcase size={12} className="absolute right-4 top-1/2 -translate-y-1/2 text-zinc-600 pointer-events-none" />
             </div>
+          </div>
+
+          {/* Creative content scope */}
+          <div>
+            <label className="text-[10px] font-black uppercase tracking-widest text-zinc-500 mb-3 block">
+              Content source
+            </label>
+            <div className="space-y-1.5">
+              {([
+                { key: 'standard', label: 'My content (default)' },
+                { key: 'creative_to_me', label: 'Creative · Assigned to me' },
+                { key: 'creative_by_me', label: 'Creative · Assigned by me' },
+              ] as const).map(opt => (
+                <button
+                  key={opt.key}
+                  type="button"
+                  onClick={() => setContentScope(opt.key)}
+                  className={`w-full text-left px-3 py-2 rounded-xl text-[9px] font-black uppercase tracking-widest border transition-all ${
+                    contentScope === opt.key
+                      ? 'bg-red-600 border-red-600 text-white'
+                      : 'bg-zinc-900 border-zinc-800 text-zinc-500 hover:border-zinc-700'
+                  }`}
+                >
+                  {opt.label}
+                </button>
+              ))}
+            </div>
+            <p className="text-[9px] text-zinc-600 mt-2 leading-relaxed">
+              Creative videos are hidden from the default list. Use the Creative filters to view them.
+            </p>
           </div>
 
           {/* Goal filter */}
