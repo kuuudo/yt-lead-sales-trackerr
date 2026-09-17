@@ -653,10 +653,7 @@ export default function Videos() {
 const [chosenPromotionByAssetId, setChosenPromotionByAssetId] =
   useState<Map<string, PromotionContext>>(new Map());
 const [resolvingPromotionContext, setResolvingPromotionContext] = useState(false);
-const hasBlockingPromotionIssue = Array.from(promotionContextByAssetId.entries()).some(
-    ([assetId, options]) =>
-      options.length === 0 || (options.length > 1 && !chosenPromotionByAssetId.has(assetId))
-  );
+/* hasBlockingPromotionIssue computed after creative state */
   const [showAssetPicker, setShowAssetPicker] = useState(false);
   const [creativeOnlyAssetIds, setCreativeOnlyAssetIds] = useState<string[]>([]);
   const [creativeRestrictionsLoading, setCreativeRestrictionsLoading] = useState(false);
@@ -894,6 +891,60 @@ const hasBlockingPromotionIssue = Array.from(promotionContextByAssetId.entries()
   const creativePromotionBlocked =
     isCreativeCampaign &&
     (!selectedCreativePromotionId || loadingCreativePromotion);
+
+  /** Save blockers — Creative Promotion already selected counts as resolved context. */
+  const hasBlockingPromotionIssue = Array.from(promotionContextByAssetId.entries()).some(
+    ([assetId, options]) => {
+      if (selectedCreativePromotionId) {
+        const underCreative =
+          creativeAssetUsageRows.some(r => r.asset_id === assetId) ||
+          promotedAssets.some(a => a.asset_id === assetId);
+        if (underCreative) return false;
+      }
+      return options.length === 0 || (options.length > 1 && !chosenPromotionByAssetId.has(assetId));
+    }
+  );
+
+  const saveBlockedReason = (() => {
+    if (saving) return 'Saving…';
+    if (resolvingPromotionContext) return 'Still resolving Promotion context for assets…';
+    if (creativePromotionBlocked) {
+      if (loadingCreativePromotion) return 'Loading Creative Promotion…';
+      return 'Select a Creative Promotion before saving.';
+    }
+    if (hasBlockingPromotionIssue) {
+      return 'Resolve Promotion context for each shared/assigned asset (or remove the asset).';
+    }
+    return null;
+  })();
+
+  useEffect(() => {
+    if (!generated) return;
+    console.log('[Save button state]', {
+      saveBlockedReason,
+      creativePromotionBlocked,
+      hasBlockingPromotionIssue,
+      resolvingPromotionContext,
+      isCreativeCampaign,
+      selectedCreativePromotionId,
+      selectedCreativeAssignmentId,
+      loadingCreativePromotion,
+      promotedAssetCount: promotedAssets.length,
+      promotionContextSize: promotionContextByAssetId.size,
+    });
+  }, [
+    generated,
+    saveBlockedReason,
+    creativePromotionBlocked,
+    hasBlockingPromotionIssue,
+    resolvingPromotionContext,
+    isCreativeCampaign,
+    selectedCreativePromotionId,
+    selectedCreativeAssignmentId,
+    loadingCreativePromotion,
+    promotedAssets.length,
+    promotionContextByAssetId,
+  ]);
 
   const clearCreativeSelection = () => {
     setSelectedCreativePromotionId(null);
@@ -1818,35 +1869,8 @@ const hasBlockingPromotionIssue = Array.from(promotionContextByAssetId.entries()
         }
 
       // ── Create path: delegated to createVideo() service ─────────────────
-} else {
-
-  const creativeWriteOrgId =
-    selectedCreativeAssignment?.organizationId ||
-    selectedCreativeCampaign?.sponsorOrganizationId ||
-    eligiblePromotions.find(
-      p => p.promotionId === selectedCreativePromotionId
-    )?.sponsorOrganizationId ||
-    null;
-
-  console.log('[Creative Save DEBUG]', {
-    marketerUserId: user?.id,
-    marketerOrgId: organizationId,
-    creativeWriteOrgId,
-    campaignId: generated?.video?.campaign_id ?? formData.campaign_id,
-    campaignFromState: generated?.campaign
-      ? {
-          id: (generated.campaign as any).id,
-          organization_id: (generated.campaign as any).organization_id,
-          landing_page_url: (generated.campaign as any).landing_page_url,
-          newsletter_url: (generated.campaign as any).newsletter_url,
-        }
-      : null,
-    selectedCreativeAssignmentId,
-    selectedCreativePromotionId,
-    campaignLinkTypes: selectedCampaignLinkTypes,
-  });
-
-  const { savedVideo } = await createVideo({
+      } else {
+        const { savedVideo } = await createVideo({
           payload: {
             platform:                 generated.video.platform!,
             platform_url:             generated.video.platform_url!,
@@ -1961,15 +1985,6 @@ console.log(
       setPreviousCampaignId('');
 
     } catch (err: any) {
-
-console.error('[Creative Save ERROR]', {
-  message: err?.message,
-  code: err?.code,
-  details: err?.details,
-  hint: err?.hint,
-  full: err,
-});
-
       showAlert('Save Error', err.message || 'An unexpected error occurred.', 'danger');
     } finally {
       setSaving(false);
@@ -3225,11 +3240,16 @@ console.error('[Creative Save ERROR]', {
                           </button>
                         </div>
                       </div>
+                      {saveBlockedReason && (
+                        <p className="text-[10px] text-amber-500 font-bold uppercase tracking-widest">
+                          {saveBlockedReason}
+                        </p>
+                      )}
                       <button 
                         onClick={handleSave}
-                        disabled={saving || resolvingPromotionContext || hasBlockingPromotionIssue || creativePromotionBlocked}
+                        disabled={!!saveBlockedReason}
                         data-tutorial-id="videos-save-to-list"
-                        className="mt-auto w-full bg-red-600 text-white h-12 rounded-xl text-[10px] font-black uppercase tracking-widest flex items-center justify-center gap-2"
+                        className="mt-auto w-full bg-red-600 text-white h-12 rounded-xl text-[10px] font-black uppercase tracking-widest flex items-center justify-center gap-2 disabled:opacity-40 disabled:cursor-not-allowed"
                       >
                         {saving ? <Loader2 className="animate-spin" size={16} /> : (editingVideoId ? 'Update Video' : 'Save To My List')}
                       </button>
