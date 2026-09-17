@@ -918,34 +918,6 @@ const [resolvingPromotionContext, setResolvingPromotionContext] = useState(false
     return null;
   })();
 
-  useEffect(() => {
-    if (!generated) return;
-    console.log('[Save button state]', {
-      saveBlockedReason,
-      creativePromotionBlocked,
-      hasBlockingPromotionIssue,
-      resolvingPromotionContext,
-      isCreativeCampaign,
-      selectedCreativePromotionId,
-      selectedCreativeAssignmentId,
-      loadingCreativePromotion,
-      promotedAssetCount: promotedAssets.length,
-      promotionContextSize: promotionContextByAssetId.size,
-    });
-  }, [
-    generated,
-    saveBlockedReason,
-    creativePromotionBlocked,
-    hasBlockingPromotionIssue,
-    resolvingPromotionContext,
-    isCreativeCampaign,
-    selectedCreativePromotionId,
-    selectedCreativeAssignmentId,
-    loadingCreativePromotion,
-    promotedAssets.length,
-    promotionContextByAssetId,
-  ]);
-
   const clearCreativeSelection = () => {
     setSelectedCreativePromotionId(null);
     setCreativeAssetUsageRows([]);
@@ -1252,6 +1224,35 @@ const [resolvingPromotionContext, setResolvingPromotionContext] = useState(false
   const [availableLeadMagnets, setAvailableLeadMagnets] = useState<LeadMagnet[]>([]);
   const [loadingMagnets, setLoadingMagnets] = useState(false);
   const [generated, setGenerated] = useState<{ link: string, video: Partial<Video>, campaign?: Campaign } | null>(null);
+
+  useEffect(() => {
+    if (!generated) return;
+    console.log('[Save button state]', {
+      saveBlockedReason,
+      creativePromotionBlocked,
+      hasBlockingPromotionIssue,
+      resolvingPromotionContext,
+      isCreativeCampaign,
+      selectedCreativePromotionId,
+      selectedCreativeAssignmentId,
+      loadingCreativePromotion,
+      promotedAssetCount: promotedAssets.length,
+      promotionContextSize: promotionContextByAssetId.size,
+    });
+  }, [
+    generated,
+    saveBlockedReason,
+    creativePromotionBlocked,
+    hasBlockingPromotionIssue,
+    resolvingPromotionContext,
+    isCreativeCampaign,
+    selectedCreativePromotionId,
+    selectedCreativeAssignmentId,
+    loadingCreativePromotion,
+    promotedAssets.length,
+    promotionContextByAssetId,
+  ]);
+
 
   // Follow-Along ("Track Your First Content") milestone detection, continued
   // from isTrackFirstContentGuideActive above — split into two effects here
