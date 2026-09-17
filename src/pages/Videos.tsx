@@ -616,6 +616,7 @@ const hasBlockingPromotionIssue = Array.from(promotionContextByAssetId.entries()
   );
   const [showAssetPicker, setShowAssetPicker] = useState(false);
   const [creativeOnlyAssetIds, setCreativeOnlyAssetIds] = useState<string[]>([]);
+  const [creativeRestrictionsLoading, setCreativeRestrictionsLoading] = useState(false);
   const [promotedAssets, setPromotedAssets] = useState<PromotedAssetRow[]>([]);
   const [verifiedDomains, setVerifiedDomains] = useState<VerifiedDomainOption[]>([]);
   const [selectedTrackingDomainId, setSelectedTrackingDomainId] = useState<string | null>(null);
@@ -1314,45 +1315,52 @@ const hasBlockingPromotionIssue = Array.from(promotionContextByAssetId.entries()
 
   // When opening +Select Asset, mark Shared assets that ONLY have Creative promotions
   useEffect(() => {
-    if (!showAssetPicker || !user) return;
+    if (!showAssetPicker || !user) {
+      setCreativeRestrictionsLoading(false);
+      return;
+    }
     let cancelled = false;
+    setCreativeRestrictionsLoading(true);
     (async () => {
-      const creativeIds = new Set(creativeEligibleAssignments.map(a => a.assignmentId));
-      if (creativeIds.size === 0) {
-        if (!cancelled) setCreativeOnlyAssetIds([]);
-        return;
-      }
-      // Union of assets on creative assignments
-      const candidateIds = new Set<string>();
-      for (const a of creativeEligibleAssignments) {
-        try {
-          const rows = await loadAssignmentAssetsForCreative(a.assignmentId);
-          for (const r of rows) candidateIds.add(r.asset_id);
-        } catch {
-          /* ignore */
+      try {
+        const creativeIds = new Set(creativeEligibleAssignments.map(a => a.assignmentId));
+        if (creativeIds.size === 0) {
+          if (!cancelled) setCreativeOnlyAssetIds([]);
+          return;
         }
-      }
-      if (cancelled || candidateIds.size === 0) {
-        if (!cancelled) setCreativeOnlyAssetIds([]);
-        return;
-      }
-      const only: string[] = [];
-      await Promise.all(
-        [...candidateIds].map(async assetId => {
+        const candidateIds = new Set<string>();
+        for (const a of creativeEligibleAssignments) {
           try {
-            const options = await resolvePromotionContextForAsset(assetId, user.id);
-            if (
-              options.length > 0 &&
-              options.every(o => creativeIds.has(o.assignmentId))
-            ) {
-              only.push(assetId);
-            }
+            const rows = await loadAssignmentAssetsForCreative(a.assignmentId);
+            for (const r of rows) candidateIds.add(r.asset_id);
           } catch {
             /* ignore */
           }
-        })
-      );
-      if (!cancelled) setCreativeOnlyAssetIds(only);
+        }
+        if (cancelled || candidateIds.size === 0) {
+          if (!cancelled) setCreativeOnlyAssetIds([]);
+          return;
+        }
+        const only: string[] = [];
+        await Promise.all(
+          [...candidateIds].map(async assetId => {
+            try {
+              const options = await resolvePromotionContextForAsset(assetId, user.id);
+              if (
+                options.length > 0 &&
+                options.every(o => creativeIds.has(o.assignmentId))
+              ) {
+                only.push(assetId);
+              }
+            } catch {
+              /* ignore */
+            }
+          })
+        );
+        if (!cancelled) setCreativeOnlyAssetIds(only);
+      } finally {
+        if (!cancelled) setCreativeRestrictionsLoading(false);
+      }
     })();
     return () => {
       cancelled = true;
@@ -2697,6 +2705,7 @@ console.log(
                     organizationId={organizationId}
                     initialSelectedAssetIds={promotedAssets.map(a => a.asset_id)}
                     creativeOnlyAssetIds={creativeOnlyAssetIds}
+                    creativeRestrictionsLoading={creativeRestrictionsLoading}
                     onClose={() => setShowAssetPicker(false)}
                     onSelect={async assets => {
   setPromotedAssets(assets);
