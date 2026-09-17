@@ -49,6 +49,11 @@ export interface CreateVideoOptions {
    * Lead-magnet links still follow selected_lead_magnet_ids independently.
    */
   campaignLinkTypes?: CampaignLinkTypeKey[] | null;
+  /**
+   * Per link-type tracking domain (Modal A saved config).
+   * When set for a type, overrides the single trackingDomainId for that job.
+   */
+  campaignLinkDomainByType?: Partial<Record<CampaignLinkTypeKey, string | null>> | null;
 }
 
 export interface CreateVideoResult {
@@ -62,6 +67,7 @@ export async function createVideo({
   userId,
   trackingDomainId,
   campaignLinkTypes,
+  campaignLinkDomainByType,
 }: CreateVideoOptions): Promise<CreateVideoResult> {
   const { asset } = await createAsset({
     organizationId,
@@ -109,8 +115,15 @@ export async function createVideo({
     }
 
     await Promise.all(
-      redirectJobs.map(([type, url]) =>
-        createRedirectLink(
+      redirectJobs.map(([type, url]) => {
+        const typeKey = type as CampaignLinkTypeKey;
+        const perType =
+          campaignLinkDomainByType && typeKey in campaignLinkDomainByType
+            ? campaignLinkDomainByType[typeKey]
+            : undefined;
+        const domainId =
+          perType !== undefined ? perType : (trackingDomainId ?? null);
+        return createRedirectLink(
           savedVideo.id,
           savedVideo.campaign_id,
           type,
@@ -118,9 +131,9 @@ export async function createVideo({
           appBaseUrl,
           undefined,
           undefined,
-          { trackingDomainId: trackingDomainId ?? null }
-        )
-      )
+          { trackingDomainId: domainId ?? null }
+        );
+      })
     );
 
     if (payload.selected_lead_magnet_ids && payload.selected_lead_magnet_ids.length > 0) {

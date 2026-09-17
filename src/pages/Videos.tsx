@@ -646,6 +646,15 @@ const hasBlockingPromotionIssue = Array.from(promotionContextByAssetId.entries()
   const [selectedTrackingDomainId, setSelectedTrackingDomainId] = useState<string | null>(null);
   const [selectedCampaignLinkTypes, setSelectedCampaignLinkTypes] = useState<CampaignLinkTypeKey[]>([]);
   const [showCampaignLinksModal, setShowCampaignLinksModal] = useState(false);
+  /** Modal A — owner only: link type → tracking domain id */
+  const [showCampaignLinkConfigModal, setShowCampaignLinkConfigModal] = useState(false);
+  const [campaignLinkDomainByType, setCampaignLinkDomainByType] = useState<
+    Partial<Record<CampaignLinkTypeKey, string | null>>
+  >({});
+  const [savingCampaignLinkConfig, setSavingCampaignLinkConfig] = useState(false);
+  const [ownerCampaignDomains, setOwnerCampaignDomains] = useState<
+    { id: string; hostname: string }[]
+  >([]);
 
   // ── Creative Creation Phase 1 (UI only; ownership write path unchanged) ──
   const [creativeEligibleCampaigns, setCreativeEligibleCampaigns] = useState<CreativeEligibleCampaign[]>([]);
@@ -852,6 +861,16 @@ const hasBlockingPromotionIssue = Array.from(promotionContextByAssetId.entries()
   const creativeMode = selectedCreativeCampaign?.mode ?? null;
   /** campaign_asset_only → Campaign Links UI unavailable (Sponsor campaign stays selected). */
   const creativeLinksUnavailable = creativeMode === 'campaign_asset_only';
+  const selectedCampaignRow =
+    campaigns.find(c => c.id === formData.campaign_id) ||
+    creativeSponsorCampaignById.get(formData.campaign_id) ||
+    null;
+  /** Modal A only when Campaign belongs to viewer's org (not Creative sponsor campaign). */
+  const isOwnSelectedCampaign =
+    !!selectedCampaignRow &&
+    !!organizationId &&
+    (selectedCampaignRow as any).organization_id === organizationId &&
+    !selectedCreativeAssignmentId;
 
   const creativePromotionBlocked =
     isCreativeCampaign &&
@@ -1227,6 +1246,48 @@ const hasBlockingPromotionIssue = Array.from(promotionContextByAssetId.entries()
       setAvailableLeadMagnets([]);
     }
   }, [formData.campaign_id]);
+
+
+  // Load Campaign link_type → domain map for Generate (any campaign).
+  // Owner verified domain list only when Modal A is allowed (own campaign).
+  useEffect(() => {
+    if (!formData.campaign_id) {
+      setCampaignLinkDomainByType({});
+      setOwnerCampaignDomains([]);
+      return;
+    }
+    let cancelled = false;
+    (async () => {
+      const { data } = await supabase
+        .from('campaigns')
+        .select('organization_id, link_type_tracking_domains')
+        .eq('id', formData.campaign_id)
+        .maybeSingle();
+      if (cancelled) return;
+      const map = (data as any)?.link_type_tracking_domains;
+      if (map && typeof map === 'object') {
+        setCampaignLinkDomainByType(map as Partial<Record<CampaignLinkTypeKey, string | null>>);
+      } else {
+        setCampaignLinkDomainByType({});
+      }
+      if (!isOwnSelectedCampaign) {
+        setOwnerCampaignDomains([]);
+        return;
+      }
+      const orgId = (data as any)?.organization_id || organizationId;
+      if (orgId) {
+        try {
+          const domains = await listVerifiedBrandedDomains(orgId);
+          if (!cancelled) setOwnerCampaignDomains(domains.map(d => ({ id: d.id, hostname: d.hostname })));
+        } catch {
+          if (!cancelled) setOwnerCampaignDomains([]);
+        }
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [formData.campaign_id, isOwnSelectedCampaign, organizationId]);
 
   // Default Campaign Links selection when Campaign changes (Modal B)
   useEffect(() => {
@@ -1615,6 +1676,29 @@ const hasBlockingPromotionIssue = Array.from(promotionContextByAssetId.entries()
     };
   };
 
+  const saveCampaignLinkDomainConfig = async () => {
+    if (!formData.campaign_id || !isOwnSelectedCampaign) return;
+    setSavingCampaignLinkConfig(true);
+    try {
+      const { error } = await supabase
+        .from('campaigns')
+        .update({ link_type_tracking_domains: campaignLinkDomainByType })
+        .eq('id', formData.campaign_id);
+      if (error) throw error;
+      setShowCampaignLinkConfigModal(false);
+      showAlert('Saved', 'Campaign link domain configuration saved.', 'success');
+    } catch (e: any) {
+      showAlert(
+        'Could not save',
+        e?.message ||
+          'Failed to save. Ensure campaigns.link_type_tracking_domains (jsonb) exists.',
+        'danger'
+      );
+    } finally {
+      setSavingCampaignLinkConfig(false);
+    }
+  };
+
   const handleGenerate = async () => {
     if (!formData.url) return showAlert('Information Needed', 'Please enter a content URL.', 'info');
 
@@ -1731,6 +1815,7 @@ const hasBlockingPromotionIssue = Array.from(promotionContextByAssetId.entries()
           userId:         user.id,
           trackingDomainId: selectedTrackingDomainId,
           campaignLinkTypes: selectedCampaignLinkTypes,
+          campaignLinkDomainByType,
         });
           // ── Sibling pipeline: Asset Redirect generation ──────────────────
           // Runs AFTER createVideo() succeeds, entirely independent of it.
@@ -2267,29 +2352,47 @@ console.log(
                             Campaign Links are unavailable for asset-only mode.
                           </p>
                         )}
-                        {!creativeLinksUnavailable && (
-                        <button
-                          type="button"
-                          onClick={() => setShowCampaignLinksModal(true)}
-                          disabled={!formData.campaign_id}
-                          className="mt-2 w-full flex items-center justify-between gap-2 bg-zinc-950 border border-zinc-800 hover:border-zinc-600 disabled:opacity-40 rounded-xl px-3 py-2.5 text-left"
-                        >
-                          <span>
-                            <span className="block text-[10px] font-black uppercase tracking-widest text-zinc-500">
-                              Campaign Links & Tracking Domain
-                            </span>
-                            <span className="block text-[11px] text-zinc-300 mt-0.5 normal-case font-medium tracking-normal">
-                              {!formData.campaign_id
-                                ? 'Select a campaign first'
-                                : selectedCampaignLinkTypes.length > 0
-                                  ? `${selectedCampaignLinkTypes.length} link type${selectedCampaignLinkTypes.length === 1 ? '' : 's'} · ${selectedTrackingDomainId ? 'custom domain' : 'vstrk.com'}`
-                                  : `No links selected · ${selectedTrackingDomainId ? 'custom domain' : 'vstrk.com'}`}
-                            </span>
-                          </span>
-                          <span className="text-[10px] font-black uppercase tracking-widest text-zinc-500 shrink-0">
-                            Configure
-                          </span>
-                        </button>
+                        {!creativeLinksUnavailable && formData.campaign_id && (
+                          <div className="mt-2 space-y-2">
+                            <button
+                              type="button"
+                              onClick={() => setShowCampaignLinksModal(true)}
+                              className="w-full flex items-center justify-between gap-2 bg-zinc-950 border border-zinc-800 hover:border-zinc-600 rounded-xl px-3 py-2.5 text-left"
+                            >
+                              <span>
+                                <span className="block text-[10px] font-black uppercase tracking-widest text-zinc-500">
+                                  Links to include
+                                </span>
+                                <span className="block text-[11px] text-zinc-300 mt-0.5 normal-case font-medium tracking-normal">
+                                  {selectedCampaignLinkTypes.length > 0
+                                    ? `${selectedCampaignLinkTypes.length} link type${selectedCampaignLinkTypes.length === 1 ? '' : 's'} selected`
+                                    : 'None selected'}
+                                </span>
+                              </span>
+                              <span className="text-[10px] font-black uppercase tracking-widest text-zinc-500 shrink-0">
+                                Choose
+                              </span>
+                            </button>
+                            {isOwnSelectedCampaign && (
+                              <button
+                                type="button"
+                                onClick={() => setShowCampaignLinkConfigModal(true)}
+                                className="w-full flex items-center justify-between gap-2 bg-zinc-950 border border-zinc-800 hover:border-zinc-600 rounded-xl px-3 py-2.5 text-left"
+                              >
+                                <span>
+                                  <span className="block text-[10px] font-black uppercase tracking-widest text-zinc-500">
+                                    Configure Campaign Links
+                                  </span>
+                                  <span className="block text-[11px] text-zinc-300 mt-0.5 normal-case font-medium tracking-normal">
+                                    Map each link type to a tracking domain (saved on Campaign)
+                                  </span>
+                                </span>
+                                <span className="text-[10px] font-black uppercase tracking-widest text-zinc-500 shrink-0">
+                                  Setup
+                                </span>
+                              </button>
+                            )}
+                          </div>
                         )}
                       </div>
 
@@ -2634,16 +2737,16 @@ console.log(
 
                     {!creativeLinksUnavailable && (
                       <p className="text-[10px] text-zinc-500" data-tutorial-id="videos-tracking-domain">
-                        Campaign links & domain: use{' '}
+                        Campaign links: use{' '}
                         <button
                           type="button"
                           className="text-red-500 hover:text-red-400 font-bold uppercase tracking-widest text-[10px]"
                           onClick={() => setShowCampaignLinksModal(true)}
                           disabled={!formData.campaign_id}
                         >
-                          Configure
+                          Links to include
                         </button>
-                        {' '}under Campaign (above).
+                        {' '}under Campaign.
                       </p>
                     )}
 
@@ -2667,19 +2770,17 @@ console.log(
 
                 
                 
-                {showCampaignLinksModal && (
+                                {showCampaignLinksModal && (
                   <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4">
                     <div className="w-full max-w-md bg-zinc-950 border border-zinc-800 rounded-2xl p-5 space-y-4 max-h-[85vh] overflow-y-auto">
                       <p className="text-[10px] font-black uppercase tracking-widest text-zinc-500">
-                        Campaign Links & Tracking Domain
+                        Links to include
                       </p>
                       <p className="text-xs text-zinc-400">
-                        Choose which campaign link types to generate for this content. Tracking domain applies to campaign links (not per-asset Path B).
+                        Choose which campaign link types to generate for this content.
+                        Domains come from the Campaign owner&apos;s saved configuration — not chosen here.
                       </p>
                       <div className="space-y-2">
-                        <p className="text-[10px] font-black uppercase tracking-widest text-zinc-500">
-                          Links to include
-                        </p>
                         {(() => {
                           const campaign =
                             campaigns.find(c => c.id === formData.campaign_id) ||
@@ -2719,28 +2820,6 @@ console.log(
                           });
                         })()}
                       </div>
-                      <div className="space-y-1 pt-2 border-t border-zinc-800">
-                        <label className="text-[10px] font-black uppercase tracking-widest text-zinc-500">
-                          Tracking Domain (campaign links)
-                        </label>
-                        <select
-                          value={selectedTrackingDomainId ?? ''}
-                          onChange={e => setSelectedTrackingDomainId(e.target.value || null)}
-                          className="w-full bg-zinc-900 border border-zinc-800 rounded-xl px-3 py-2.5 text-xs text-zinc-100"
-                        >
-                          <option value="">vstrk.com</option>
-                          {(hasPromotionContext ? creativeDomainOptions : verifiedDomains).map(d => (
-                            <option key={d.id} value={d.id}>
-                              {d.hostname}
-                            </option>
-                          ))}
-                        </select>
-                        {hasPromotionContext && (
-                          <p className="text-[9px] text-zinc-600">
-                            Domains limited to this Promotion&apos;s configuration
-                          </p>
-                        )}
-                      </div>
                       <button
                         type="button"
                         onClick={() => setShowCampaignLinksModal(false)}
@@ -2752,7 +2831,64 @@ console.log(
                   </div>
                 )}
 
-                {showCreativeAssetDeselect && isCreativePromotionOnly && (
+                {showCampaignLinkConfigModal && isOwnSelectedCampaign && (
+                  <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4">
+                    <div className="w-full max-w-md bg-zinc-950 border border-zinc-800 rounded-2xl p-5 space-y-4 max-h-[85vh] overflow-y-auto">
+                      <p className="text-[10px] font-black uppercase tracking-widest text-zinc-500">
+                        Configure Campaign Links
+                      </p>
+                      <p className="text-xs text-zinc-400">
+                        Map each link type to a tracking domain. Saved on this Campaign for everyone who generates links (including Creative marketers).
+                      </p>
+                      <div className="space-y-3">
+                        {availableCampaignLinkTypes(selectedCampaignRow).map(key => (
+                          <div key={key} className="space-y-1">
+                            <label className="text-[10px] font-black uppercase tracking-widest text-zinc-500">
+                              {CAMPAIGN_LINK_TYPE_META[key].label}
+                            </label>
+                            <select
+                              value={campaignLinkDomainByType[key] ?? ''}
+                              onChange={e => {
+                                const v = e.target.value || null;
+                                setCampaignLinkDomainByType(prev => ({ ...prev, [key]: v }));
+                              }}
+                              className="w-full bg-zinc-900 border border-zinc-800 rounded-xl px-3 py-2.5 text-xs text-zinc-100"
+                            >
+                              <option value="">vstrk.com</option>
+                              {ownerCampaignDomains.map(d => (
+                                <option key={d.id} value={d.id}>
+                                  {d.hostname}
+                                </option>
+                              ))}
+                            </select>
+                          </div>
+                        ))}
+                        {availableCampaignLinkTypes(selectedCampaignRow).length === 0 && (
+                          <p className="text-xs text-zinc-500">No campaign URLs configured for this campaign.</p>
+                        )}
+                      </div>
+                      <div className="flex gap-2">
+                        <button
+                          type="button"
+                          onClick={() => setShowCampaignLinkConfigModal(false)}
+                          className="flex-1 border border-zinc-700 text-zinc-400 text-[10px] font-black uppercase tracking-widest py-2.5 rounded-xl"
+                        >
+                          Cancel
+                        </button>
+                        <button
+                          type="button"
+                          disabled={savingCampaignLinkConfig}
+                          onClick={() => saveCampaignLinkDomainConfig()}
+                          className="flex-1 bg-red-600 hover:bg-red-500 disabled:opacity-50 text-white text-[10px] font-black uppercase tracking-widest py-2.5 rounded-xl"
+                        >
+                          {savingCampaignLinkConfig ? 'Saving…' : 'Save'}
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                )}
+
+{showCreativeAssetDeselect && isCreativePromotionOnly && (
                   <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4">
                     <div className="w-full max-w-md bg-zinc-950 border border-zinc-800 rounded-2xl p-5 space-y-4">
                       <p className="text-[10px] font-black uppercase tracking-widest text-zinc-500">
