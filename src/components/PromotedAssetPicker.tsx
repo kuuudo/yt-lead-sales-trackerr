@@ -139,6 +139,11 @@ export interface PromotedAssetPickerProps {
    * hide assets already in the current Promotion.
    */
   excludeAssetIds?: string[];
+  /**
+   * Shared assets that only belong to Creative Assignments — shown but not selectable.
+   * Select Creative from the Promotion menu first.
+   */
+  creativeOnlyAssetIds?: string[];
 }
 
 type OwnershipFilter = 'all' | 'mine' | 'shared' | 'assigned';
@@ -241,6 +246,7 @@ export function PromotedAssetPicker({
   includeShared = true,
   assignedAssetIdsOverride,
   excludeAssetIds = [],
+  creativeOnlyAssetIds = [],
 }: PromotedAssetPickerProps) {
   const { user } = useAuth();
 
@@ -372,6 +378,7 @@ export function PromotedAssetPicker({
   }, [unifiedRows, categoryFilter, search]);
 
   function toggleAsset(row: UnifiedAssetRow) {
+    if (row.isShared && creativeOnlySet.has(row.assetId)) return;
     setSelectedMap(prev => {
       const next = new Map(prev);
       if (next.has(row.assetId)) {
@@ -382,6 +389,11 @@ export function PromotedAssetPicker({
       return next;
     });
   }
+
+  const creativeOnlySet = useMemo(
+    () => new Set(creativeOnlyAssetIds),
+    [creativeOnlyAssetIds]
+  );
 
   const selectedRows = Array.from(selectedMap.values());
 
@@ -475,16 +487,23 @@ export function PromotedAssetPicker({
           <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
             {filteredRows.map(row => {
               const isSelected = selectedMap.has(row.assetId);
+              const isCreativeOnly = row.isShared && creativeOnlySet.has(row.assetId);
               return (
                 <button
                   key={row.key}
                   type="button"
                   aria-pressed={isSelected}
-                  // Multi-select: clicking toggles this card in/out of the
-                  // selection, it doesn't replace the previous selection.
+                  disabled={isCreativeOnly}
+                  title={
+                    isCreativeOnly
+                      ? 'Already in a Creative Promotion. Select that Creative from the Promotion menu first.'
+                      : undefined
+                  }
                   onClick={() => toggleAsset(row)}
                   className={`relative flex flex-col text-left bg-zinc-950 border rounded-xl overflow-hidden transition-all ${
-                    isSelected
+                    isCreativeOnly
+                      ? 'border-zinc-800 opacity-50 cursor-not-allowed'
+                      : isSelected
                       ? 'border-red-600 ring-1 ring-red-600'
                       : 'border-zinc-800 hover:border-zinc-600'
                   }`}
@@ -503,9 +522,14 @@ export function PromotedAssetPicker({
                         ? 'Video'
                         : 'Resource'}
                     </p>
-                    {row.isShared && (
+                    {row.isShared && !isCreativeOnly && (
                       <p className="text-[9px] font-black uppercase text-red-500 tracking-widest mt-0.5">
                         Shared
+                      </p>
+                    )}
+                    {isCreativeOnly && (
+                      <p className="text-[9px] font-black uppercase text-amber-500/90 tracking-widest mt-0.5 leading-snug">
+                        Creative — open Promotion menu first
                       </p>
                     )}
                     {row.isAssigned && (
