@@ -46,7 +46,8 @@ import { hideVideoForUser, unhideVideoForUser } from '../services/video/archiveU
 import { motion, AnimatePresence } from 'motion/react';
 import { ResponsiveContainer, AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip } from 'recharts';
 import { Modal } from '../components/Modal';
-import { createRedirectLink, RedirectLinkType } from '../lib/redirects';\n
+import { createRedirectLink, RedirectLinkType } from '../lib/redirects';
+
 const MANAGE_LINK_TYPES = ['landing_page', 'newsletter', 'consultation', 'sales_call'] as const;
 type ManageLinkType = (typeof MANAGE_LINK_TYPES)[number];
 const MANAGE_LINK_LABELS: Record<ManageLinkType, string> = {
