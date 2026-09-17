@@ -624,6 +624,9 @@ const hasBlockingPromotionIssue = Array.from(promotionContextByAssetId.entries()
   const [eligiblePromotions, setEligiblePromotions] = useState<EligiblePromotion[]>([]);
   const [creativeEligibleAssignments, setCreativeEligibleAssignments] = useState<CreativeEligibleAssignment[]>([]);
   const [selectedCreativeAssignmentId, setSelectedCreativeAssignmentId] = useState<string | null>(null);
+  /** Max asset ids allowed under Creative promotion_only (auto-loaded set). */
+  const [creativeScopeAssetIds, setCreativeScopeAssetIds] = useState<string[] | null>(null);
+  const [showCreativeAssetDeselect, setShowCreativeAssetDeselect] = useState(false);
   /** Sponsor campaign rows resolved for Creative Generate lookup (id → Campaign-like). */
   const [creativeSponsorCampaignById, setCreativeSponsorCampaignById] = useState<Map<string, Campaign>>(new Map());
   const [selectedCreativePromotionId, setSelectedCreativePromotionId] = useState<string | null>(null);
@@ -834,10 +837,15 @@ const hasBlockingPromotionIssue = Array.from(promotionContextByAssetId.entries()
     setPromotionContextByAssetId(new Map());
     setChosenPromotionByAssetId(new Map());
     setSelectedAssetDomainByAssetId(new Map());
+    setCreativeScopeAssetIds(null);
+    setShowCreativeAssetDeselect(false);
   };
 
   const selectedCreativeAssignment =
     creativeEligibleAssignments.find(a => a.assignmentId === selectedCreativeAssignmentId) ?? null;
+  const isCreativePromotionOnly =
+    !!selectedCreativeAssignmentId &&
+    selectedCreativeAssignment?.assetScope === 'promotion_only';
 
   const resolveAndSetCreativeCampaignId = async (campaignId: string | null) => {
     if (!campaignId) {
@@ -2239,7 +2247,14 @@ console.log(
                             </span>
                             <button
                               type="button"
-                              onClick={() => setShowAssetPicker(true)}
+                              onClick={() => {
+                                const scope = selectedCreativeAssignment?.assetScope;
+                                if (selectedCreativeAssignmentId && scope === 'promotion_only') {
+                                  setShowCreativeAssetDeselect(true);
+                                  return;
+                                }
+                                setShowAssetPicker(true);
+                              }}
                               className="text-[10px] font-black uppercase tracking-widest text-zinc-500 hover:text-white shrink-0"
                             >
                               Change
@@ -2522,6 +2537,69 @@ console.log(
                     </button>
                   </div>
                 </div>
+
+                
+                {showCreativeAssetDeselect && isCreativePromotionOnly && (
+                  <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4">
+                    <div className="w-full max-w-md bg-zinc-950 border border-zinc-800 rounded-2xl p-5 space-y-4">
+                      <p className="text-[10px] font-black uppercase tracking-widest text-zinc-500">
+                        Promotion assets only
+                      </p>
+                      <p className="text-xs text-zinc-400">
+                        You can deselect assets from this Creative Promotion. Adding other assets is not allowed.
+                      </p>
+                      <div className="space-y-2 max-h-64 overflow-y-auto">
+                        {(creativeScopeAssetIds ?? []).map(assetId => {
+                          const row = creativeAssetUsageRows.find(r => r.asset_id === assetId);
+                          const selected = promotedAssets.some(a => a.asset_id === assetId);
+                          const title = row?.title ?? assetId;
+                          return (
+                            <label
+                              key={assetId}
+                              className="flex items-center gap-3 border border-zinc-800 rounded-xl px-3 py-2 cursor-pointer hover:border-zinc-600"
+                            >
+                              <input
+                                type="checkbox"
+                                className="accent-red-600"
+                                checked={selected}
+                                onChange={() => {
+                                  if (selected) {
+                                    setPromotedAssets(prev => prev.filter(a => a.asset_id !== assetId));
+                                    setSelectedAssetDomainByAssetId(prev => {
+                                      const next = new Map(prev);
+                                      next.delete(assetId);
+                                      return next;
+                                    });
+                                  } else {
+                                    const usage = creativeAssetUsageRows.find(r => r.asset_id === assetId);
+                                    setPromotedAssets(prev => [
+                                      ...prev,
+                                      {
+                                        asset_id: assetId,
+                                        title: usage?.title ?? assetId,
+                                        display_name: usage?.title ?? assetId,
+                                        thumbnail_url: usage?.thumbnail_url ?? null,
+                                        thumbnail: usage?.thumbnail_url ?? null,
+                                      } as PromotedAssetRow,
+                                    ]);
+                                  }
+                                }}
+                              />
+                              <span className="text-sm text-zinc-200 truncate">{title}</span>
+                            </label>
+                          );
+                        })}
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => setShowCreativeAssetDeselect(false)}
+                        className="w-full bg-red-600 hover:bg-red-500 text-white text-[10px] font-black uppercase tracking-widest py-2.5 rounded-xl"
+                      >
+                        Done
+                      </button>
+                    </div>
+                  </div>
+                )}
 
                 {showAssetPicker && organizationId && (
                   <PromotedAssetPicker

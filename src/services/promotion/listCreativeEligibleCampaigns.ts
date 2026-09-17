@@ -34,6 +34,8 @@ export interface CreativeEligibleAssignment {
   onlyPromoteAssetCampaignName: string;
   /** Resolved name for creative_campaign_id */
   creativeCampaignName: string | null;
+  /** Creative only: promotion_only | allow_additional */
+  assetScope: 'promotion_only' | 'allow_additional';
 }
 
 /**
@@ -58,7 +60,7 @@ export async function listCreativeEligibleAssignmentsForMarketer(
 
   const { data: assignmentRows, error: assignErr } = await supabase
     .from('assignments')
-    .select('id, title, organization_id, creative_creation_mode, creative_campaign_id')
+    .select('id, title, organization_id, creative_creation_mode, creative_campaign_id, asset_scope')
     .in('id', assignmentIds)
     .in('creative_creation_mode', ['campaign_asset_only', 'campaign_links_and_assets']);
 
@@ -110,6 +112,10 @@ export async function listCreativeEligibleAssignmentsForMarketer(
       onlyPromoteAssetCampaignName:
         (onlyPromote?.campaign_name as string) ?? 'ONLY PROMOTE ASSET',
       creativeCampaignName,
+      assetScope:
+        (a.asset_scope as string) === 'allow_additional'
+          ? 'allow_additional'
+          : 'promotion_only',
     });
   }
 
