@@ -77,6 +77,11 @@ export interface CreateAssignmentInput {
    * Must NOT be ONLY PROMOTE ASSET.
    */
   creativeCampaignId?: string | null;
+  /**
+   * Creative Creation only. null when mode is none.
+   * promotion_only | allow_additional when Creative is enabled.
+   */
+  assetScope?: 'promotion_only' | 'allow_additional' | null;
 }
 
 export interface CreateAssignmentResult {
@@ -92,6 +97,7 @@ export async function createAssignment({
   domainIds = [],
   creativeCreationMode = null,
   creativeCampaignId = null,
+  assetScope = null,
 }: CreateAssignmentInput): Promise<CreateAssignmentResult> {
   if (!title.trim()) {
     throw new Error('Assignment title is required');
@@ -117,6 +123,16 @@ export async function createAssignment({
     !creativeCreationMode || creativeCreationMode === 'none'
       ? null
       : creativeCreationMode;
+
+  let resolvedAssetScope: 'promotion_only' | 'allow_additional' | null = null;
+  if (mode) {
+    if (assetScope === 'allow_additional' || assetScope === 'promotion_only') {
+      resolvedAssetScope = assetScope;
+    } else {
+      // Default safer mode for Creative Assignments
+      resolvedAssetScope = 'promotion_only';
+    }
+  }
 
   let resolvedCreativeCampaignId: string | null = null;
 
@@ -200,6 +216,7 @@ export async function createAssignment({
       visibility: 'private',
       creative_creation_mode: mode,
       creative_campaign_id: resolvedCreativeCampaignId,
+      asset_scope: resolvedAssetScope,
       // Do NOT write assignments.allow_marketer_domain /
       // allow_sponsor_domain / allow_vstrk_domain — those columns were
       // added by mistake and remain unused. Permissions live on

@@ -671,3 +671,16 @@ COMMENT ON COLUMN public.assignments.creative_campaign_id IS
   'Sponsor normal campaign allowed for Creative Content when creative_creation_mode = campaign_links_and_assets. NULL for none/asset_only. NEVER store ONLY PROMOTE ASSET here.';
 
 COMMIT;
+
+ALTER TABLE public.assignments
+  ADD COLUMN IF NOT EXISTS asset_scope text NULL;
+
+ALTER TABLE public.assignments
+  DROP CONSTRAINT IF EXISTS assignments_asset_scope_check;
+
+ALTER TABLE public.assignments
+  ADD CONSTRAINT assignments_asset_scope_check
+  CHECK (
+    asset_scope IS NULL
+    OR asset_scope IN ('promotion_only', 'allow_additional')
+  );

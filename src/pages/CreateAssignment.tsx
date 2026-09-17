@@ -20,6 +20,7 @@ import {
 } from '../services/campaign/listSponsorCreativeCampaigns';
 
 type CreativeCreationMode = 'none' | 'campaign_asset_only' | 'campaign_links_and_assets';
+type AssetScope = 'promotion_only' | 'allow_additional';
 
 interface AssetPermissionState {
   allowMarketerDomain: boolean;
@@ -62,6 +63,7 @@ export default function CreateAssignment() {
 
   const [creativeCreationMode, setCreativeCreationMode] =
     useState<CreativeCreationMode>('none');
+  const [assetScope, setAssetScope] = useState<AssetScope>('promotion_only');
   const [creativeCampaignId, setCreativeCampaignId] = useState<string | null>(null);
   const [onlyPromoteAsset, setOnlyPromoteAsset] = useState<SponsorCampaignOption | null>(null);
   const [normalSponsorCampaigns, setNormalSponsorCampaigns] = useState<SponsorCampaignOption[]>([]);
@@ -262,6 +264,8 @@ export default function CreateAssignment() {
           creativeCreationMode === 'campaign_links_and_assets'
             ? creativeCampaignId
             : null,
+        assetScope:
+          creativeCreationMode === 'none' ? null : assetScope,
       });
 
       await inviteCollaborator({ assignmentId, invitedByUserId: userId, invitedEmail: email });
@@ -571,6 +575,50 @@ export default function CreateAssignment() {
               </div>
             )}
           </div>
+
+          <div className="mt-4 space-y-2" data-tutorial-id="create-assignment-asset-scope">
+            <label className="block text-[10px] font-bold uppercase tracking-widest text-zinc-500">
+              Asset Usage
+            </label>
+            <p className="text-[11px] text-zinc-500 mb-2">
+              When the Marketer creates content under this Creative Assignment, which assets may they use?
+            </p>
+            <label className={`flex items-start gap-3 border rounded-xl px-3 py-3 cursor-pointer ${
+              assetScope === 'promotion_only' ? 'border-red-600 bg-red-600/10' : 'border-zinc-800 bg-zinc-950'
+            }`}>
+              <input
+                type="radio"
+                name="assetScope"
+                className="mt-1 accent-red-600"
+                checked={assetScope === 'promotion_only'}
+                onChange={() => setAssetScope('promotion_only')}
+              />
+              <span>
+                <span className="block text-sm text-zinc-100">Promotion assets only</span>
+                <span className="block text-[11px] text-zinc-500 mt-0.5">
+                  Marketer can only use assets associated with this Promotion. CHANGE deselects only — no asset library.
+                </span>
+              </span>
+            </label>
+            <label className={`flex items-start gap-3 border rounded-xl px-3 py-3 cursor-pointer ${
+              assetScope === 'allow_additional' ? 'border-red-600 bg-red-600/10' : 'border-zinc-800 bg-zinc-950'
+            }`}>
+              <input
+                type="radio"
+                name="assetScope"
+                className="mt-1 accent-red-600"
+                checked={assetScope === 'allow_additional'}
+                onChange={() => setAssetScope('allow_additional')}
+              />
+              <span>
+                <span className="block text-sm text-zinc-100">Allow additional assets</span>
+                <span className="block text-[11px] text-zinc-500 mt-0.5">
+                  Marketer can use this Promotion&apos;s assets and other assets they are already permitted to promote.
+                </span>
+              </span>
+            </label>
+          </div>
+
         )}
 
         <div data-tutorial-id="marketplace-invite-collaborators">
