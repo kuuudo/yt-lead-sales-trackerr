@@ -726,3 +726,8 @@ COMMENT ON COLUMN public.campaigns.landing_page_tracking_domain_id IS 'Tracking 
 COMMENT ON COLUMN public.campaigns.newsletter_tracking_domain_id IS 'Tracking domain for newsletter redirects; NULL = vstrk default';
 COMMENT ON COLUMN public.campaigns.consultation_tracking_domain_id IS 'Tracking domain for consultation redirects; NULL = vstrk default';
 COMMENT ON COLUMN public.campaigns.sales_call_tracking_domain_id IS 'Tracking domain for sales_call redirects; NULL = vstrk default';
+
+ALTER TABLE public.videos
+  ADD COLUMN IF NOT EXISTS created_via_creative boolean NOT NULL DEFAULT false,
+  ADD COLUMN IF NOT EXISTS creative_promotion_id uuid NULL,
+  ADD COLUMN IF NOT EXISTS creative_assignment_id uuid NULL;

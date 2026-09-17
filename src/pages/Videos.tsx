@@ -1908,6 +1908,12 @@ const [resolvingPromotionContext, setResolvingPromotionContext] = useState(false
           trackingDomainId: selectedTrackingDomainId,
           campaignLinkTypes: selectedCampaignLinkTypes,
           campaignLinkDomainByType,
+          createdViaCreative: !!(selectedCreativeAssignmentId || selectedCreativePromotionId || selectedCreativeCampaign),
+          creativePromotionId:
+            selectedCreativePromotionId ||
+            eligiblePromotions.find(p => p.assignmentId === selectedCreativeAssignmentId)?.promotionId ||
+            null,
+          creativeAssignmentId: selectedCreativeAssignmentId || selectedEligiblePromotion?.assignmentId || null,
         });
 
           // Creative: attach the new Content Video asset to the selected Promotion

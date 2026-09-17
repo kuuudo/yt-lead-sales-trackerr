@@ -39,6 +39,12 @@ export type CampaignLinkTypeKey =
 export interface CreateVideoOptions {
   payload: CreateVideoPayload;
   campaign: Campaign | undefined;
+  /**
+   * Organization that OWNS the video + asset row.
+   * Normal create: Marketer org.
+   * Creative create: Sponsor org (caller must pass assignment/campaign sponsor org).
+   * userId remains the Marketer who created the content.
+   */
   organizationId: string;
   userId: string;
   trackingDomainId?: string | null;
@@ -54,6 +60,10 @@ export interface CreateVideoOptions {
    * When set for a type, overrides the single trackingDomainId for that job.
    */
   campaignLinkDomainByType?: Partial<Record<CampaignLinkTypeKey, string | null>> | null;
+  /** Creative provenance — written onto videos row when Marketer creates under Sponsor Creative. */
+  createdViaCreative?: boolean;
+  creativePromotionId?: string | null;
+  creativeAssignmentId?: string | null;
 }
 
 export interface CreateVideoResult {
@@ -68,6 +78,9 @@ export async function createVideo({
   trackingDomainId,
   campaignLinkTypes,
   campaignLinkDomainByType,
+  createdViaCreative = false,
+  creativePromotionId = null,
+  creativeAssignmentId = null,
 }: CreateVideoOptions): Promise<CreateVideoResult> {
   const { asset } = await createAsset({
     organizationId,
@@ -79,6 +92,9 @@ export async function createVideo({
     organization_id: organizationId,
     user_id: userId,
     asset_id: asset.id,
+    created_via_creative: !!createdViaCreative,
+    creative_promotion_id: createdViaCreative ? (creativePromotionId ?? null) : null,
+    creative_assignment_id: createdViaCreative ? (creativeAssignmentId ?? null) : null,
   };
 
   const { data: insertData, error: insertError } = await supabase
