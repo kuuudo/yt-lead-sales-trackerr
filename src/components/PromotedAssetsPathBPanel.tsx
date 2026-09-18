@@ -404,20 +404,38 @@ export function PromotedAssetsPathBPanel({
                   </button>
                 )}
               </div>
-              <p className="text-xs text-zinc-400">
-                This asset is used in multiple collaborations. Select which Promotion to track:
-              </p>
-              <div className="space-y-1">
-                {options.map(opt => (
-                  <button
-                    key={opt.promotionId}
-                    type="button"
-                    onClick={() => choosePromotion(asset.asset_id, opt)}
-                    className="w-full text-left text-xs px-3 py-2 rounded-xl border border-zinc-800 hover:border-zinc-600 text-zinc-200"
-                  >
-                    {(opt as any).label || opt.promotionId}
-                  </button>
-                ))}
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div className="space-y-1 opacity-50">
+                  <p className="text-[9px] font-bold uppercase tracking-widest text-zinc-600">
+                    Tracking domain
+                  </p>
+                  <p className="text-[10px] text-zinc-600">
+                    Select a Promotion on the right first.
+                  </p>
+                </div>
+                <div className="space-y-1">
+                  <p className="text-[9px] font-bold uppercase tracking-widest text-zinc-500">
+                    Promotion
+                  </p>
+                  <p className="text-[10px] text-zinc-500 mb-1">
+                    Used in multiple collaborations — pick one:
+                  </p>
+                  {options.map(opt => (
+                    <button
+                      key={opt.promotionId}
+                      type="button"
+                      onClick={() => choosePromotion(asset.asset_id, opt)}
+                      className="w-full text-left text-xs px-3 py-2 rounded-xl border border-zinc-800 hover:border-orange-600 text-zinc-200 mb-1"
+                    >
+                      {(opt as any).label ||
+                        (opt as any).assignmentTitle ||
+                        opt.promotionId}
+                      {(opt as any).sharedByName
+                        ? ` — shared by ${(opt as any).sharedByName}`
+                        : ''}
+                    </button>
+                  ))}
+                </div>
               </div>
             </div>
           );
@@ -535,11 +553,7 @@ export function PromotedAssetsPathBPanel({
                 </button>
               )}
             </div>
-            {chosen && options.length > 1 && (
-              <p className="text-[10px] text-zinc-600">
-                Promotion: {(options.find(o => o.promotionId === chosen.promotionId) as any)?.label || chosen.promotionId}
-              </p>
-            )}
+            <div className={`grid grid-cols-1 ${options.length > 1 ? 'sm:grid-cols-2' : ''} gap-3`}>
             <div className="space-y-2">
               {showMarketer && (
                 <div className="space-y-1">
@@ -611,6 +625,36 @@ export function PromotedAssetsPathBPanel({
                   No tracking methods allowed for this asset.
                 </p>
               )}
+            </div>
+            {options.length > 1 && (
+              <div className="space-y-1">
+                <p className="text-[9px] font-bold uppercase tracking-widest text-zinc-500">
+                  Promotion
+                </p>
+                {options.map(opt => {
+                  const active = chosen?.promotionId === opt.promotionId;
+                  return (
+                    <button
+                      key={opt.promotionId}
+                      type="button"
+                      onClick={() => choosePromotion(asset.asset_id, opt)}
+                      className={`w-full text-left text-xs px-3 py-2 rounded-xl border mb-1 ${
+                        active
+                          ? 'border-orange-600 bg-orange-950/30 text-white'
+                          : 'border-zinc-800 text-zinc-400 hover:border-zinc-600'
+                      }`}
+                    >
+                      {(opt as any).label ||
+                        (opt as any).assignmentTitle ||
+                        opt.promotionId}
+                      {(opt as any).sharedByName
+                        ? ` — shared by ${(opt as any).sharedByName}`
+                        : ''}
+                    </button>
+                  );
+                })}
+              </div>
+            )}
             </div>
           </div>
         );
