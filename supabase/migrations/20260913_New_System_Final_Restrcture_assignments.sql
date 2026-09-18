@@ -745,3 +745,21 @@ COMMENT ON COLUMN public.videos.creative_assignment_id IS 'Assignment context us
 CREATE INDEX IF NOT EXISTS videos_created_via_creative_idx
   ON public.videos (organization_id, created_via_creative)
   WHERE created_via_creative = true;
+
+UPDATE public.videos
+SET created_via_creative = true
+WHERE created_via_creative = false
+  AND (creative_promotion_id IS NOT NULL OR creative_assignment_id IS NOT NULL);
+
+UPDATE public.videos v
+SET created_via_creative = true
+WHERE v.created_via_creative = false
+  AND v.organization_id IS NOT NULL
+  AND v.user_id IS NOT NULL
+  AND NOT EXISTS (
+    SELECT 1 FROM public.organization_members om
+    WHERE om.user_id = v.user_id AND om.organization_id = v.organization_id
+  )
+  AND EXISTS (
+    SELECT 1 FROM public.organization_members om2 WHERE om2.user_id = v.user_id
+  );

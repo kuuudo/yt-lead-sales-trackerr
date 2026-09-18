@@ -1916,22 +1916,69 @@ const [resolvingPromotionContext, setResolvingPromotionContext] = useState(false
           creativeAssignmentId: selectedCreativeAssignmentId || selectedEligiblePromotion?.assignmentId || null,
         });
 
-          // Creative: attach the new Content Video asset to the selected Promotion
-          // so it appears in Promotion / shared-assigned surfaces (best-effort).
-          if (
-            savedVideo.asset_id &&
-            selectedCreativePromotionId &&
-            (selectedCreativeAssignmentId || selectedCreativeCampaign)
-          ) {
-            const { error: paErr } = await supabase.from('promotion_assets').insert({
-              promotion_id: selectedCreativePromotionId,
-              asset_id: savedVideo.asset_id,
-            });
-            if (paErr) {
-              console.warn(
-                '[Videos] Creative promotion_assets insert (non-fatal):',
-                paErr.message
-              );
+          // Creative: register new video-asset on Assignment + Promotion so it
+          // shows in Promotion Detail / Journey / analytics (best-effort).
+          // Domain policy for THIS content asset (Sponsor-controlled):
+          //   allow_marketer_domain = false
+          //   allow_sponsor_domain  = true
+          //   allow_vstrk_domain    = false
+          //   selected_sponsor_domain_id = same as a sibling asset on the Assignment
+          {
+            const creativeAssetId = savedVideo.asset_id as string | null | undefined;
+            const creativeAssignmentId =
+              selectedCreativeAssignmentId ||
+              selectedEligiblePromotion?.assignmentId ||
+              eligiblePromotions.find(p => p.promotionId === selectedCreativePromotionId)
+                ?.assignmentId ||
+              null;
+            const creativePromotionId =
+              selectedCreativePromotionId ||
+              eligiblePromotions.find(p => p.assignmentId === selectedCreativeAssignmentId)
+                ?.promotionId ||
+              null;
+
+            if (creativeAssetId && (creativeAssignmentId || creativePromotionId)) {
+              let siblingSponsorDomainId: string | null = null;
+              if (creativeAssignmentId) {
+                const { data: siblings } = await supabase
+                  .from('assignment_assets')
+                  .select('selected_sponsor_domain_id')
+                  .eq('assignment_id', creativeAssignmentId)
+                  .eq('allow_sponsor_domain', true)
+                  .not('selected_sponsor_domain_id', 'is', null)
+                  .limit(5);
+                siblingSponsorDomainId =
+                  (siblings ?? []).find((s: any) => s.selected_sponsor_domain_id)
+                    ?.selected_sponsor_domain_id ?? null;
+              }
+
+              if (creativeAssignmentId) {
+                const { error: aaErr } = await supabase.from('assignment_assets').insert({
+                  assignment_id: creativeAssignmentId,
+                  asset_id: creativeAssetId,
+                  allow_marketer_domain: false,
+                  allow_sponsor_domain: true,
+                  allow_vstrk_domain: false,
+                  selected_sponsor_domain_id: siblingSponsorDomainId,
+                });
+                if (aaErr && !String(aaErr.message || '').toLowerCase().includes('duplicate')) {
+                  console.warn('[Videos] Creative assignment_assets insert (non-fatal):', aaErr.message);
+                }
+              }
+
+              if (creativePromotionId) {
+                const { error: paErr } = await supabase.from('promotion_assets').insert({
+                  promotion_id: creativePromotionId,
+                  asset_id: creativeAssetId,
+                  use_marketer_domain: false,
+                  use_vstrk_domain: false,
+                  selected_sponsor_domain_id: siblingSponsorDomainId,
+                  selected_marketer_domain_id: null,
+                });
+                if (paErr && !String(paErr.message || '').toLowerCase().includes('duplicate')) {
+                  console.warn('[Videos] Creative promotion_assets insert (non-fatal):', paErr.message);
+                }
+              }
             }
           }
 

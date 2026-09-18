@@ -464,18 +464,35 @@ console.log('🔍 VIDEOS QUERY RESULT', {
           return new Map((ownerProfiles ?? []).map((p: any) => [p.id, p]));
         })();
 
+        // Sponsor org names for Creative videos (content owner display = Sponsor)
+        const orgNamesPromise = (async () => {
+          const { videosRes } = await videosAndAssetsPromise;
+          const orgIds = Array.from(
+            new Set(
+              (videosRes.data ?? [])
+                .filter((v: any) => v.created_via_creative && v.organization_id)
+                .map((v: any) => v.organization_id as string),
+            ),
+          );
+          if (orgIds.length === 0) return new Map<string, string>();
+          const { data: orgs } = await supabase.from('organizations').select('id, name').in('id', orgIds);
+          return new Map((orgs ?? []).map((o: any) => [o.id as string, (o.name as string) || o.id]));
+        })();
+
         const [
           videoArchiveById,
           campaignArchiveById,
           promotionArchiveById,
           { videosRes, libraryRes },
           profileByUserId,
+          orgNameById,
         ] = await Promise.all([
           videoArchivePromise,
           campaignArchivePromise,
           promotionArchivePromise,
           videosAndAssetsPromise,
           profilesPromise,
+          orgNamesPromise,
         ]);
 
         console.time(`[AllAssetsAnalytics] LOAD #${__runId} transform`);
@@ -532,19 +549,22 @@ console.log('🔍 VIDEOS QUERY RESULT', {
           });
         }
 
-    const videoDisplay = new Map<string, { title: React.ReactNode; thumbnail_url?: string; platform?: string | null; created_at?: string | null; content_owner_id?: string | null; content_owner_name?: string | null; content_campaign_id?: string | null }>();
+    const videoDisplay = new Map<string, { title: React.ReactNode; thumbnail_url?: string; platform?: string | null; created_at?: string | null; content_owner_id?: string | null; content_owner_name?: string | null; content_campaign_id?: string | null; created_via_creative?: boolean }>();
     for (const v of videosRes.data ?? []) {
       const ownerProfile = v.user_id ? profileByUserId.get(v.user_id) : null;
+      const marketerName = ownerProfile?.full_name?.trim() || ownerProfile?.email || null;
+      // Creative: show Sponsor org as content owner (business owner of the campaign)
+      const isCreative = !!v.created_via_creative;
+      const sponsorName = isCreative && v.organization_id ? orgNameById.get(v.organization_id) : null;
       videoDisplay.set(v.id, {
-        // Canonical helpers, same call signature InDepthAnalytics uses
-        // (resolveThumbnail(row.video) / renderContentIdentity(row.video)).
         title: renderContentIdentity(v),
         thumbnail_url: resolveThumbnail(v),
         platform: v.platform ?? null,
         created_at: v.created_at ?? null,
         content_owner_id: v.user_id ?? null,
-        content_owner_name: ownerProfile?.full_name?.trim() || ownerProfile?.email || null,
+        content_owner_name: sponsorName || marketerName,
         content_campaign_id: v.campaign_id ?? null,
+        created_via_creative: isCreative,
       });
     }
 
@@ -3531,7 +3551,10 @@ export default function AllAssetsAnalytics() {
                       const isMy = organizationId != null && row.assetOrganizationId === organizationId;
 
                       if (row.promotion_id) {
-                        const name = promotionNameById.get(row.promotion_id) ?? row.promotion_id;
+                        const baseName = promotionNameById.get(row.promotion_id) ?? row.promotion_id;
+                        const name = (row.promoting_video as any)?.created_via_creative
+                          ? `${baseName} (CREATIVE)`
+                          : baseName;
                         return (
                           <td className="px-6 py-4">
                             <div className="max-w-[190px] flex items-center gap-1.5 min-w-0">
