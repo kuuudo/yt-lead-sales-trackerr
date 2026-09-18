@@ -553,18 +553,23 @@ console.log('🔍 VIDEOS QUERY RESULT', {
     for (const v of videosRes.data ?? []) {
       const ownerProfile = v.user_id ? profileByUserId.get(v.user_id) : null;
       const marketerName = ownerProfile?.full_name?.trim() || ownerProfile?.email || null;
-      // Creative: show Sponsor org as content owner (business owner of the campaign)
+      // Creative: Sponsor primary + small marketer label
       const isCreative = !!v.created_via_creative;
       const sponsorName = isCreative && v.organization_id ? orgNameById.get(v.organization_id) : null;
+      const ownerLabel =
+        isCreative && sponsorName
+          ? (marketerName ? `${sponsorName} · ${marketerName}` : sponsorName)
+          : marketerName;
       videoDisplay.set(v.id, {
         title: renderContentIdentity(v),
         thumbnail_url: resolveThumbnail(v),
         platform: v.platform ?? null,
         created_at: v.created_at ?? null,
         content_owner_id: v.user_id ?? null,
-        content_owner_name: sponsorName || marketerName,
+        content_owner_name: ownerLabel,
         content_campaign_id: v.campaign_id ?? null,
         created_via_creative: isCreative,
+        creative_promotion_id: (v.creative_promotion_id as string | null) ?? null,
       });
     }
 
@@ -3550,8 +3555,13 @@ export default function AllAssetsAnalytics() {
                       // unresolved, not relabeled.
                       const isMy = organizationId != null && row.assetOrganizationId === organizationId;
 
-                      if (row.promotion_id) {
-                        const baseName = promotionNameById.get(row.promotion_id) ?? row.promotion_id;
+                      {
+                        const promoId =
+                          row.promotion_id ||
+                          (row.promoting_video as any)?.creative_promotion_id ||
+                          null;
+                        if (promoId) {
+                        const baseName = promotionNameById.get(promoId) ?? promoId;
                         const name = (row.promoting_video as any)?.created_via_creative
                           ? `${baseName} (CREATIVE)`
                           : baseName;

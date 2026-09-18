@@ -763,3 +763,17 @@ WHERE v.created_via_creative = false
   AND EXISTS (
     SELECT 1 FROM public.organization_members om2 WHERE om2.user_id = v.user_id
   );
+
+  -- Creative content provenance on videos
+ALTER TABLE public.videos
+  ADD COLUMN IF NOT EXISTS created_via_creative boolean NOT NULL DEFAULT false,
+  ADD COLUMN IF NOT EXISTS creative_promotion_id uuid NULL,
+  ADD COLUMN IF NOT EXISTS creative_assignment_id uuid NULL;
+
+COMMENT ON COLUMN public.videos.created_via_creative IS 'True when Marketer created this video under Sponsor Creative Assignment/Promotion';
+COMMENT ON COLUMN public.videos.creative_promotion_id IS 'Promotion context used at Creative create time';
+COMMENT ON COLUMN public.videos.creative_assignment_id IS 'Assignment context used at Creative create time';
+
+CREATE INDEX IF NOT EXISTS videos_created_via_creative_idx
+  ON public.videos (organization_id, created_via_creative)
+  WHERE created_via_creative = true;

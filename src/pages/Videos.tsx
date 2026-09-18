@@ -1916,13 +1916,9 @@ const [resolvingPromotionContext, setResolvingPromotionContext] = useState(false
           creativeAssignmentId: selectedCreativeAssignmentId || selectedEligiblePromotion?.assignmentId || null,
         });
 
-          // Creative: register new video-asset on Assignment + Promotion so it
-          // shows in Promotion Detail / Journey / analytics (best-effort).
-          // Domain policy for THIS content asset (Sponsor-controlled):
-          //   allow_marketer_domain = false
-          //   allow_sponsor_domain  = true
-          //   allow_vstrk_domain    = false
-          //   selected_sponsor_domain_id = same as a sibling asset on the Assignment
+          // Creative: attach video-asset via SECURITY DEFINER RPC (RLS-safe).
+          // Domain policy: marketer=false, sponsor=true, vstrk=false;
+          // selected_sponsor_domain_id copied from sibling assignment_assets.
           {
             const creativeAssetId = savedVideo.asset_id as string | null | undefined;
             const creativeAssignmentId =
@@ -1937,48 +1933,17 @@ const [resolvingPromotionContext, setResolvingPromotionContext] = useState(false
                 ?.promotionId ||
               null;
 
-            if (creativeAssetId && (creativeAssignmentId || creativePromotionId)) {
-              let siblingSponsorDomainId: string | null = null;
-              if (creativeAssignmentId) {
-                const { data: siblings } = await supabase
-                  .from('assignment_assets')
-                  .select('selected_sponsor_domain_id')
-                  .eq('assignment_id', creativeAssignmentId)
-                  .eq('allow_sponsor_domain', true)
-                  .not('selected_sponsor_domain_id', 'is', null)
-                  .limit(5);
-                siblingSponsorDomainId =
-                  (siblings ?? []).find((s: any) => s.selected_sponsor_domain_id)
-                    ?.selected_sponsor_domain_id ?? null;
+            if (creativeAssetId && creativeAssignmentId) {
+              const { error: attachErr } = await supabase.rpc('attach_creative_content_asset', {
+                p_asset_id: creativeAssetId,
+                p_assignment_id: creativeAssignmentId,
+                p_promotion_id: creativePromotionId,
+              });
+              if (attachErr) {
+                console.warn('[Videos] attach_creative_content_asset (non-fatal):', attachErr.message);
               }
-
-              if (creativeAssignmentId) {
-                const { error: aaErr } = await supabase.from('assignment_assets').insert({
-                  assignment_id: creativeAssignmentId,
-                  asset_id: creativeAssetId,
-                  allow_marketer_domain: false,
-                  allow_sponsor_domain: true,
-                  allow_vstrk_domain: false,
-                  selected_sponsor_domain_id: siblingSponsorDomainId,
-                });
-                if (aaErr && !String(aaErr.message || '').toLowerCase().includes('duplicate')) {
-                  console.warn('[Videos] Creative assignment_assets insert (non-fatal):', aaErr.message);
-                }
-              }
-
-              if (creativePromotionId) {
-                const { error: paErr } = await supabase.from('promotion_assets').insert({
-                  promotion_id: creativePromotionId,
-                  asset_id: creativeAssetId,
-                  use_marketer_domain: false,
-                  use_vstrk_domain: false,
-                  selected_sponsor_domain_id: siblingSponsorDomainId,
-                  selected_marketer_domain_id: null,
-                });
-                if (paErr && !String(paErr.message || '').toLowerCase().includes('duplicate')) {
-                  console.warn('[Videos] Creative promotion_assets insert (non-fatal):', paErr.message);
-                }
-              }
+            } else if (creativeAssetId && !creativeAssignmentId) {
+              console.warn('[Videos] Creative save missing assignment_id — cannot attach asset');
             }
           }
 
@@ -3886,7 +3851,7 @@ console.log(
                         </>
                     }
                   </Link>
-                  {v.status === 'no_data' && v.asset_id && !libraryStatus.get(v.asset_id) ? (
+                  {v.status === 'no_data' && v.asset_id && !(v as any).created_via_creative && !libraryStatus.get(v.asset_id) ? (
                     <div className="flex items-center gap-1">
                       <button
                         data-tutorial-id="videos-add-to-library"
