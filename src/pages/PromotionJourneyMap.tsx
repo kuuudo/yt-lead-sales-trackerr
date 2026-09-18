@@ -42,6 +42,7 @@ import { useParams, useNavigate, Link } from 'react-router-dom'
 import { ArrowLeft, Loader2 } from 'lucide-react'
 import { getPromotionDetail } from '../services/promotion/getPromotionDetail'
 import type { PromotionDetailData } from '../services/promotion/getPromotionDetail'
+import { getAssetDetail } from '../services/asset/getAssetDetail'
 import {
   resolveAssetThumbnail,
   resolveElementThumbnail,
@@ -57,8 +58,8 @@ import type { CanvasTransform } from '../components/analytics/store/useWorkspace
 // build logic; this page only consumes their output. Not touched: journey.ts,
 // journeyDiscovery.ts, journeyGraph.ts, promotionJourney.ts, assetJourney.ts,
 // journeyAnalyticsEngine.ts, events, attribution, the database.
-import { discoverPromotionJourneys } from '../lib/journeyDiscovery'
-import { buildJourneyGraph, type JourneyGraph, type GraphNode, type GraphEdge } from '../lib/journeyGraph'
+import { discoverPromotionJourneys } from '../services/journey/journeyDiscovery'
+import { buildJourneyGraph, type JourneyGraph, type GraphNode, type GraphEdge } from '../services/journey/journeyGraph'
 import { resolveAssetType } from '../services/asset/resolveAssetType'
 
 // ─── STEP 3 (additive) — resolve what a terminal video step's own observed
@@ -66,7 +67,7 @@ import { resolveAssetType } from '../services/asset/resolveAssetType'
 // existing data. No conversion/purchase data involved — see
 // journeyDownstreamResolver.ts's file header for the full rationale. Does
 // NOT modify journeyGraph.ts, journeyAnalyticsEngine.ts, or analyticsEngine.ts.
-import { resolveDownstreamNodes, type DownstreamResolution, type DownstreamNode } from '../services/journey/journeyDownstreamResolver'
+import { resolveDownstreamNodes, resolveDownstreamForVideoIds, type DownstreamResolution, type DownstreamNode } from '../services/journey/journeyDownstreamResolver'
 
 // ─── Local node model (Phase 1 — no edges, no persistence) ────────────────────
 
@@ -270,6 +271,28 @@ function findMatchingGraphNode(
   return positionedGraphNodes.find((n) => n.observedAssetIds.includes(assetId))
 }
 
+// STEP 4 (additive) — merge two DownstreamResolution results, deduping by
+// node id (stable — see journeyDownstreamResolver.ts's `redirect:${id}`
+// scheme) and by (fromVideoId, toNodeId) edge pair. Needed because a
+// promotion can have BOTH observed traffic (STEP 3) and directly-resolved
+// redirect_links (STEP 4) touching the same redirect link.
+function mergeDownstreamResolutions(a: DownstreamResolution, b: DownstreamResolution): DownstreamResolution {
+  const nodeById = new Map(a.nodes.map((n) => [n.id, n]))
+  for (const n of b.nodes) if (!nodeById.has(n.id)) nodeById.set(n.id, n)
+
+  const edgeKeys = new Set(a.edges.map((e) => `${e.fromVideoId}::${e.toNodeId}`))
+  const edges = [...a.edges]
+  for (const e of b.edges) {
+    const key = `${e.fromVideoId}::${e.toNodeId}`
+    if (!edgeKeys.has(key)) {
+      edgeKeys.add(key)
+      edges.push(e)
+    }
+  }
+
+  return { nodes: Array.from(nodeById.values()), edges }
+}
+
 // ─── Component ────────────────────────────────────────────────────────────────
 
 export default function PromotionJourneyMap() {
@@ -290,6 +313,13 @@ export default function PromotionJourneyMap() {
   // Downstream resolution (additive — STEP 3). Structural only, no
   // conversion data. See journeyDownstreamResolver.ts.
   const [downstream, setDownstream] = useState<DownstreamResolution>({ nodes: [], edges: [] })
+
+  // STEP 4 (additive, 2026-09-15) — assetId -> videos.id for each promoted
+  // asset whose resource.origin === 'video', via the existing getAssetDetail().
+  // Used to (a) query redirect_links directly by video_id, no events_journey
+  // required, and (b) anchor a resolved downstream node to the promoted
+  // asset's own card when that video has no observed-graph position.
+  const [promotedAssetVideoIds, setPromotedAssetVideoIds] = useState<Map<string, string>>(new Map())
 
   // Local canvas transform — NOT useWorkspaceStore.
   const [transform, setTransform] = useState<CanvasTransform>({ x: 0, y: 0, scale: 1 })
@@ -375,6 +405,50 @@ export default function PromotionJourneyMap() {
     return () => { cancelled = true }
   }, [promotionId])
 
+  // ── STEP 4 (additive, 2026-09-15) — direct promoted-asset downstream ─────
+  // No events_journey / observed-traffic prerequisite. Runs whenever the
+  // promoted-asset list changes, independent of the STEP 3 effect above.
+  useEffect(() => {
+    if (!promotionId || nodes.length === 0) return
+    let cancelled = false
+
+    ;(async () => {
+      // getAssetDetail() is existing, unmodified — same resolver
+      // AssetDetail.tsx uses. Only video-origin assets have a videos.id to
+      // give us (see journeyDownstreamResolver.ts header for why
+      // campaign_element/resource assets don't have one).
+      const entries = await Promise.all(
+        nodes.map(async (n) => {
+          const detail = await getAssetDetail(n.assetId)
+          if (detail?.resource?.origin === 'video') {
+            return [n.assetId, detail.resource.originId] as const
+          }
+          return null
+        }),
+      )
+      if (cancelled) return
+
+      const videoIdMap = new Map(entries.filter((e): e is readonly [string, string] => e !== null))
+      setPromotedAssetVideoIds(videoIdMap)
+
+      const videoIds = Array.from(new Set(videoIdMap.values()))
+      if (videoIds.length === 0) return
+
+      try {
+        const direct = await resolveDownstreamForVideoIds(videoIds, promotionId)
+        if (cancelled) return
+        setDownstream((prev) => mergeDownstreamResolutions(prev, direct))
+      } catch (err: any) {
+        // Additive path — a failure here should not blank out whatever
+        // STEP 3 already resolved from observed traffic. Logged, not
+        // surfaced as a page-level error (mirrors graphError's scope).
+        console.error('[PromotionJourneyMap] STEP 4 direct downstream resolution failed:', err?.message || err)
+      }
+    })()
+
+    return () => { cancelled = true }
+  }, [promotionId, nodes])
+
   const positionedGraphNodes = useMemo(
     () => (graph ? layoutGraphNodes(graph, nodeVisualTypes) : []),
     [graph, nodeVisualTypes]
@@ -388,11 +462,37 @@ export default function PromotionJourneyMap() {
     [downstream]
   )
 
-  // Downstream nodes (STEP 3, additive) — one column past their source
-  // video, grouped/stacked when a source has more than one. Purely a
-  // positioning pass; layoutGraphNodes() above is untouched.
+  // STEP 4 (additive) — where a downstream node's source video actually is
+  // on screen. Prefers an observed graph-node position (STEP 3); falls back
+  // to the promoted asset's own card when this video never appeared in an
+  // observed journey but IS one of this promotion's own promoted videos
+  // (direct redirect_links path, no events_journey involved).
+  const downstreamSourceAnchors = useMemo(() => {
+    const assetIdByVideoId = new Map(
+      Array.from(promotedAssetVideoIds.entries()).map(([assetId, videoId]) => [videoId, assetId]),
+    )
+    const anchors = new Map<string, { x: number; y: number; width: number; height: number }>()
+    const sourceVideoIds = new Set(downstream.edges.map((e) => e.fromVideoId))
+    for (const videoId of sourceVideoIds) {
+      const graphSource = positionedGraphNodes.find((p) => p.videoId === videoId)
+      if (graphSource) {
+        anchors.set(videoId, { x: graphSource.x, y: graphSource.y, width: GRAPH_NODE_WIDTH, height: GRAPH_NODE_HEIGHT })
+        continue
+      }
+      const assetId = assetIdByVideoId.get(videoId)
+      const assetSource = assetId ? nodes.find((n) => n.assetId === assetId) : undefined
+      if (assetSource) {
+        anchors.set(videoId, { x: assetSource.x, y: assetSource.y, width: NODE_WIDTH, height: NODE_HEIGHT })
+      }
+    }
+    return anchors
+  }, [positionedGraphNodes, downstream, promotedAssetVideoIds, nodes])
+
+  // Downstream nodes (STEP 3 + STEP 4, additive) — one column past their
+  // source's anchor, grouped/stacked when a source has more than one.
+  // Purely a positioning pass; layoutGraphNodes() above is untouched.
   const positionedDownstreamNodes = useMemo(() => {
-    if (positionedGraphNodes.length === 0 || downstream.nodes.length === 0) return []
+    if (downstream.nodes.length === 0) return []
     const bySource = new Map<string, DownstreamNode[]>()
     for (const n of downstream.nodes) {
       if (!bySource.has(n.sourceVideoId)) bySource.set(n.sourceVideoId, [])
@@ -400,20 +500,20 @@ export default function PromotionJourneyMap() {
     }
     const positioned: (DownstreamNode & { x: number; y: number })[] = []
     for (const [sourceVideoId, group] of bySource.entries()) {
-      const source = positionedGraphNodes.find((p) => p.videoId === sourceVideoId)
-      if (!source) continue
+      const anchor = downstreamSourceAnchors.get(sourceVideoId)
+      if (!anchor) continue
       const groupHeight = group.length * GRAPH_NODE_HEIGHT + Math.max(0, group.length - 1) * GRAPH_ROW_GAP
-      const startY = source.y + GRAPH_NODE_HEIGHT / 2 - groupHeight / 2
+      const startY = anchor.y + anchor.height / 2 - groupHeight / 2
       group.forEach((n, i) => {
         positioned.push({
           ...n,
-          x: source.x + GRAPH_NODE_WIDTH + GRAPH_COL_GAP,
+          x: anchor.x + anchor.width + GRAPH_COL_GAP,
           y: startY + i * (GRAPH_NODE_HEIGHT + GRAPH_ROW_GAP),
         })
       })
     }
     return positioned
-  }, [positionedGraphNodes, downstream])
+  }, [downstreamSourceAnchors, downstream])
 
   // ── Pan / zoom (same formulas as WorkspaceCanvas.tsx, kept local) ────────
   const pan = useCallback((dx: number, dy: number) => {
@@ -634,16 +734,18 @@ export default function PromotionJourneyMap() {
                 </g>
               )
             })}
-            {/* STEP 3 (additive) — downstream edges: a terminal video's own
-                observed redirect link resolved to a real campaign-element or
-                resource node. See journeyDownstreamResolver.ts. No
-                conversion data involved. */}
+            {/* STEP 3 + STEP 4 (additive) — downstream edges: a video's own
+                redirect link resolved to a real campaign-element or resource
+                node, either from an observed journey step (STEP 3) or
+                directly from the promoted asset's own redirect_links (STEP 4,
+                no events_journey required). See journeyDownstreamResolver.ts.
+                No conversion data involved either way. */}
             {downstream.edges.map((edge) => {
-              const from = positionedGraphNodes.find((n) => n.videoId === edge.fromVideoId)
+              const anchor = downstreamSourceAnchors.get(edge.fromVideoId)
               const to = positionedDownstreamNodes.find((n) => n.id === edge.toNodeId)
-              if (!from || !to) return null
-              const x1 = from.x + GRAPH_NODE_WIDTH
-              const y1 = from.y + GRAPH_NODE_HEIGHT / 2
+              if (!anchor || !to) return null
+              const x1 = anchor.x + anchor.width
+              const y1 = anchor.y + anchor.height / 2
               const x2 = to.x
               const y2 = to.y + GRAPH_NODE_HEIGHT / 2
               const midX = (x1 + x2) / 2

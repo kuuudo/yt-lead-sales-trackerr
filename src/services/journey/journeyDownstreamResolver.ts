@@ -11,10 +11,16 @@
 // though the step's own redirectLinkId already tells us — via the real
 // redirect_links row — what it actually led to.
 //
-// This file adds exactly that one missing lookup. For every graph node with
-// no outgoing GraphEdge (a "terminal" video node per journeyGraph.ts), it
-// resolves the redirect link(s) actually observed on that node into a
-// downstream node, using only real, existing data:
+// This file adds exactly that one missing lookup, via TWO entry points that
+// share one resolution core (resolveLinksToDownstream):
+//   - resolveDownstreamNodes(graph): from an observed JourneyGraph (STEP 3).
+//     Requires events_journey traffic to exist.
+//   - resolveDownstreamForVideoIds(videoIds, promotionId): directly from a
+//     promoted asset's own video_id (STEP 4, 2026-09-15). No events_journey
+//     involved — a promoted asset's downstream is a deterministic property
+//     of its own redirect_links rows, present the moment those links are
+//     generated, independent of whether anyone has clicked them yet.
+// Both use only real, existing data:
 //   - redirect_links (asset_id, campaign_id, link_type — all real columns)
 //   - resolveAssetType.ts (existing, unmodified)
 //   - campaign_element_assets, via the composite (asset_id, campaign_id) key
@@ -84,6 +90,7 @@ export interface DownstreamResolution {
 
 type RedirectLinkRow = {
   id: string
+  video_id: string
   asset_id: string | null
   campaign_id: string | null
   link_type: string | null
@@ -95,81 +102,18 @@ type CampaignElementAssetRow = {
   element_type: string
 }
 
-export async function resolveDownstreamNodes(graph: JourneyGraph): Promise<DownstreamResolution> {
-  // ── TEMPORARY DEBUG (remove after diagnosis — 2026-09-15) ─────────────────
-  const KNOWN_TEST_REDIRECT_ID = '2712755a-4425-4488-b751-26949106debe'
-  console.log('[journeyDownstreamResolver] built.nodes.length =', graph.nodes.length)
-  console.log('[journeyDownstreamResolver] built.edges.length =', graph.edges.length)
-  // ── end temporary debug (part 1) ───────────────────────────────────────────
-
-  // Terminal = no observed outgoing edge in the observed video->video graph
-  // journeyGraph.ts already built. Only these are candidates — a node with
-  // a real outgoing edge already has its next step represented there.
-  const hasOutgoing = new Set(graph.edges.map((e) => e.fromVideoId))
-  const terminalNodes = graph.nodes.filter((n) => !hasOutgoing.has(n.videoId))
-
-  // ── TEMPORARY DEBUG (remove after diagnosis) ───────────────────────────────
-  console.log('[journeyDownstreamResolver] terminal node count =', terminalNodes.length)
-  console.log(
-    '[journeyDownstreamResolver] terminal nodes detail =',
-    terminalNodes.map((n) => ({
-      videoId: n.videoId,
-      observedAssetIds: n.observedAssetIds,
-      observedRedirectLinkIds: n.observedRedirectLinkIds,
-    })),
-  )
-  // ── end temporary debug (part 2) ───────────────────────────────────────────
-
-  // A terminal node can carry more than one observed redirect link (the same
-  // video's terminal step was reached via different redirect links across
-  // different discovered journeys) — each is resolved independently, none
-  // assumed equivalent.
-  const redirectLinkTasks: { videoId: string; redirectLinkId: string }[] = []
-  for (const n of terminalNodes) {
-    for (const rl of n.observedRedirectLinkIds) {
-      redirectLinkTasks.push({ videoId: n.videoId, redirectLinkId: rl })
-    }
-  }
-
-  // ── TEMPORARY DEBUG (remove after diagnosis) ───────────────────────────────
-  console.log('[journeyDownstreamResolver] redirectLinkTasks.length =', redirectLinkTasks.length)
-  console.log(
-    '[journeyDownstreamResolver] known test redirect encountered in tasks? =',
-    redirectLinkTasks.some((t) => t.redirectLinkId === KNOWN_TEST_REDIRECT_ID),
-  )
-  if (redirectLinkTasks.length === 0) {
-    console.log('[journeyDownstreamResolver] STOPPING — Case A or Case B: no terminal node has an observed redirect link.')
-  }
-  // ── end temporary debug (part 3) ───────────────────────────────────────────
-
-  if (redirectLinkTasks.length === 0) return { nodes: [], edges: [] }
-
-  const redirectLinkIds = Array.from(new Set(redirectLinkTasks.map((t) => t.redirectLinkId)))
-  const { data: redirectLinks, error: rlError } = await supabase
-    .from('redirect_links')
-    .select('id, asset_id, campaign_id, link_type')
-    .in('id', redirectLinkIds)
-
-  // ── TEMPORARY DEBUG (remove after diagnosis) ───────────────────────────────
-  console.log('[journeyDownstreamResolver] redirect_links query error =', rlError)
-  console.log('[journeyDownstreamResolver] redirect_links requested ids =', redirectLinkIds.length)
-  console.log('[journeyDownstreamResolver] redirect_links rows returned =', (redirectLinks ?? []).length)
-  console.log(
-    '[journeyDownstreamResolver] known test redirect found in returned rows? =',
-    (redirectLinks ?? []).some((r: any) => r.id === KNOWN_TEST_REDIRECT_ID),
-  )
-  // ── end temporary debug (part 4) ───────────────────────────────────────────
-
-  if (rlError) {
-    throw new Error(`journeyDownstreamResolver.ts: redirect_links query failed — ${rlError.message}`)
-  }
-
-  const redirectLinkById = new Map(((redirectLinks ?? []) as RedirectLinkRow[]).map((r) => [r.id, r]))
+// ── Shared core (STEP 4 refactor) ───────────────────────────────────────────
+// Both entry points below end up with the same thing: a list of real
+// redirect_links rows to resolve into downstream nodes/edges. This is that
+// one shared resolution — the composite-key lookup, the link_type fallback,
+// the "skip, don't invent" rules — written once, used by both.
+async function resolveLinksToDownstream(links: RedirectLinkRow[]): Promise<DownstreamResolution> {
+  if (links.length === 0) return { nodes: [], edges: [] }
 
   // Composite-key lookup — asset_id + campaign_id together, never asset_id
   // alone (journeyAnalyticsEngine.ts locked scope §6). Only queried for
   // redirect links that actually carry both fields.
-  const compositeCandidates = Array.from(redirectLinkById.values()).filter(
+  const compositeCandidates = links.filter(
     (r): r is RedirectLinkRow & { asset_id: string; campaign_id: string } => !!r.asset_id && !!r.campaign_id,
   )
 
@@ -194,13 +138,10 @@ export async function resolveDownstreamNodes(graph: JourneyGraph): Promise<Downs
   const edges: DownstreamEdge[] = []
   const seenNodeIds = new Set<string>()
 
-  for (const { videoId, redirectLinkId } of redirectLinkTasks) {
-    const link = redirectLinkById.get(redirectLinkId)
-    if (!link) continue // real redirect_links row not found — nothing to resolve, nothing invented
-
-    const nodeId = `redirect:${redirectLinkId}`
+  for (const link of links) {
+    const nodeId = `redirect:${link.id}`
     if (seenNodeIds.has(nodeId)) {
-      edges.push({ fromVideoId: videoId, toNodeId: nodeId })
+      edges.push({ fromVideoId: link.video_id, toNodeId: nodeId })
       continue
     }
 
@@ -227,8 +168,8 @@ export async function resolveDownstreamNodes(graph: JourneyGraph): Promise<Downs
     // asset_id was null, or didn't resolve to anything usable — fall back to
     // the redirect link's own link_type, which is NOT NULL on the real table
     // (per journeyAnalyticsEngine.ts's JourneyRedirectLinkRow) and is real,
-    // observed data on the redirect link that was actually used, not an
-    // inference from anywhere else.
+    // observed data on the redirect link itself, not an inference from
+    // anywhere else.
     if (!resolvedFrom && link.link_type) {
       kind = 'campaign_element'
       elementType = link.link_type
@@ -243,21 +184,73 @@ export async function resolveDownstreamNodes(graph: JourneyGraph): Promise<Downs
       elementType,
       resolvedFrom,
       assetId: link.asset_id,
-      redirectLinkId,
-      sourceVideoId: videoId,
+      redirectLinkId: link.id,
+      sourceVideoId: link.video_id,
     })
     seenNodeIds.add(nodeId)
-    edges.push({ fromVideoId: videoId, toNodeId: nodeId })
+    edges.push({ fromVideoId: link.video_id, toNodeId: nodeId })
   }
 
-  // ── TEMPORARY DEBUG (remove after diagnosis) ───────────────────────────────
-  console.log('[journeyDownstreamResolver] downstream.nodes.length =', nodes.length)
-  console.log('[journeyDownstreamResolver] downstream.edges.length =', edges.length)
-  console.log(
-    '[journeyDownstreamResolver] known test redirect produced a node? =',
-    nodes.some((n) => n.redirectLinkId === '2712755a-4425-4488-b751-26949106debe'),
-  )
-  // ── end temporary debug (part 5) ───────────────────────────────────────────
-
   return { nodes, edges }
+}
+
+// ── Entry point 1 (existing, STEP 3) — from an observed JourneyGraph ───────
+// Resolves the redirect link(s) actually observed on a terminal video step.
+// Requires an events_journey-derived JourneyGraph as input; returns nothing
+// for a promotion with no observed traffic.
+export async function resolveDownstreamNodes(graph: JourneyGraph): Promise<DownstreamResolution> {
+  // Terminal = no observed outgoing edge in the observed video->video graph
+  // journeyGraph.ts already built. Only these are candidates — a node with
+  // a real outgoing edge already has its next step represented there.
+  const hasOutgoing = new Set(graph.edges.map((e) => e.fromVideoId))
+  const terminalNodes = graph.nodes.filter((n) => !hasOutgoing.has(n.videoId))
+
+  const redirectLinkIds = Array.from(
+    new Set(terminalNodes.flatMap((n) => n.observedRedirectLinkIds)),
+  )
+  if (redirectLinkIds.length === 0) return { nodes: [], edges: [] }
+
+  const { data: redirectLinks, error: rlError } = await supabase
+    .from('redirect_links')
+    .select('id, video_id, asset_id, campaign_id, link_type')
+    .in('id', redirectLinkIds)
+
+  if (rlError) {
+    throw new Error(`journeyDownstreamResolver.ts: redirect_links query failed — ${rlError.message}`)
+  }
+
+  return resolveLinksToDownstream((redirectLinks ?? []) as RedirectLinkRow[])
+}
+
+// ── Entry point 2 (new, STEP 4) — directly from a promoted asset's video ───
+// No events_journey involved, no observed-traffic prerequisite. A promoted
+// asset's downstream is a deterministic property of its own redirect_links
+// rows, present the moment those links are generated. Scoped to this
+// promotion's own redirect_links (a video can be promoted under more than
+// one promotion, each generating its own links — see conversation
+// 2026-09-15) — never scoped to campaign_id/asset_id alone.
+//
+// Video-type promoted assets only, by construction: a campaign_element or
+// resource asset has no corresponding `videos` row (see getAssetDetail.ts's
+// resolveAssetResource — it queries asset_resources / campaign_element_assets
+// for those, never videos), so it has no video_id for redirect_links.video_id
+// to reference in the first place. Not a limitation added here — a property
+// of the schema.
+export async function resolveDownstreamForVideoIds(
+  videoIds: string[],
+  promotionId: string,
+): Promise<DownstreamResolution> {
+  if (videoIds.length === 0) return { nodes: [], edges: [] }
+
+  const { data: redirectLinks, error: rlError } = await supabase
+    .from('redirect_links')
+    .select('id, video_id, asset_id, campaign_id, link_type')
+    .in('video_id', videoIds)
+    .eq('promotion_id', promotionId)
+
+  if (rlError) {
+    throw new Error(`journeyDownstreamResolver.ts: redirect_links (by video_id) query failed — ${rlError.message}`)
+  }
+
+  return resolveLinksToDownstream((redirectLinks ?? []) as RedirectLinkRow[])
 }
