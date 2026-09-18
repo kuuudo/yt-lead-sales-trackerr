@@ -87,6 +87,8 @@ interface JourneyNode {
   thumbnailSrc: string | null
   x: number
   y: number
+  /** Video created via Creative mode and attached to this Promotion */
+  isCreative?: boolean
 }
 
 const NODE_WIDTH = 180
@@ -122,6 +124,15 @@ const UNLINKED_NODE_GAP = 18
 const UNLINKED_MIN_RADIUS = 112
 const UNLINKED_RING_PADDING = 22
 const UNLINKED_GROUP_GAP_Y = 110
+
+// Creative promoted assets — same ring idea as Unlinked, green palette, ABOVE the gold column
+const CREATIVE_NODE_WIDTH = 124
+const CREATIVE_NODE_HEIGHT = 102
+const CREATIVE_THUMB_HEIGHT = 70
+const CREATIVE_NODE_GAP = 18
+const CREATIVE_MIN_RADIUS = 112
+const CREATIVE_RING_PADDING = 22
+const CREATIVE_GROUP_GAP_Y = 110
 
 // A video reached only through redirect_links (promotion_id + asset_id).
 // Display fields are best-effort — see the STEP 5 effect.
@@ -159,11 +170,15 @@ function resolveNodeThumbnail(resource: PromotionDetailData['assets'][number]['r
 // instead of the old top-left wrapping grid.
 
 function layoutNodes(
-  assets: PromotionDetailData['assets']
+  assets: Array<PromotionDetailData['assets'][number] & { isCreative?: boolean }>
 ): JourneyNode[] {
-  const columnHeight = assets.length * NODE_HEIGHT + Math.max(0, assets.length - 1) * GRID_GAP_Y
+  // Gold column = Sponsor / normal promoted assets only.
+  // Creative assets get their own green ring (see creativeGroup useMemo).
+  const regular = assets.filter((a) => !a.isCreative)
+  const columnHeight =
+    regular.length * NODE_HEIGHT + Math.max(0, regular.length - 1) * GRID_GAP_Y
   const startY = CANVAS_MID_Y - columnHeight / 2
-  return assets.map((a, i) => {
+  return regular.map((a, i) => {
     return {
       assetId: a.assetId,
       promotionAssetId: a.promotionAssetId,
@@ -171,8 +186,50 @@ function layoutNodes(
       thumbnailSrc: resolveNodeThumbnail(a.resource),
       x: CANVAS_MARGIN,
       y: Math.max(CANVAS_MARGIN, startY + i * (NODE_HEIGHT + GRID_GAP_Y)),
+      isCreative: false,
     }
   })
+}
+
+function layoutCreativeNodes(
+  assets: Array<PromotionDetailData['assets'][number] & { isCreative?: boolean }>,
+  regularCount: number,
+): { left: number; top: number; diameter: number; placed: JourneyNode[] } | null {
+  const creative = assets.filter((a) => a.isCreative)
+  if (creative.length === 0) return null
+
+  const count = creative.length
+  const ringRadius = Math.max(
+    CREATIVE_MIN_RADIUS,
+    (count * (CREATIVE_NODE_WIDTH + CREATIVE_NODE_GAP)) / (2 * Math.PI),
+  )
+  const diameter =
+    ringRadius * 2 +
+    Math.max(CREATIVE_NODE_WIDTH, CREATIVE_NODE_HEIGHT) +
+    CREATIVE_RING_PADDING * 2
+  const center = diameter / 2
+
+  const columnHeight =
+    regularCount * NODE_HEIGHT + Math.max(0, regularCount - 1) * GRID_GAP_Y
+  const columnTop = Math.max(CANVAS_MARGIN, CANVAS_MID_Y - columnHeight / 2)
+  // Place the Creative ring ABOVE the gold promoted-asset column
+  const top = Math.max(CANVAS_MARGIN, columnTop - CREATIVE_GROUP_GAP_Y - diameter)
+  const left = CANVAS_MARGIN - (diameter - NODE_WIDTH) / 2
+
+  const placed = creative.map((a, i) => {
+    const angle = -Math.PI / 2 + (i / count) * 2 * Math.PI
+    return {
+      assetId: a.assetId,
+      promotionAssetId: a.promotionAssetId,
+      title: a.resource?.title || 'Untitled asset',
+      thumbnailSrc: resolveNodeThumbnail(a.resource),
+      x: left + center + ringRadius * Math.cos(angle) - CREATIVE_NODE_WIDTH / 2,
+      y: top + center + ringRadius * Math.sin(angle) - CREATIVE_NODE_HEIGHT / 2,
+      isCreative: true,
+    }
+  })
+
+  return { left, top, diameter, placed }
 }
 
 // ─── Observed-graph node visual type (additive) ────────────────────────────────
@@ -333,6 +390,12 @@ export default function PromotionJourneyMap() {
   const [error, setError] = useState<string | null>(null)
   const [promotionTitle, setPromotionTitle] = useState<string>('Promotion')
   const [nodes, setNodes] = useState<JourneyNode[]>([])
+  const [creativeGroupLayout, setCreativeGroupLayout] = useState<{
+    left: number
+    top: number
+    diameter: number
+    placed: JourneyNode[]
+  } | null>(null)
 
   // Observed journey graph (additive — separate from promoted-asset state above)
   const [graph, setGraph] = useState<JourneyGraph | null>(null)
@@ -379,7 +442,29 @@ export default function PromotionJourneyMap() {
           return
         }
         setPromotionTitle(detail.assignment?.title ?? 'Promotion')
-        setNodes(layoutNodes(detail.assets))
+        const assetIds = detail.assets.map((a) => a.assetId).filter(Boolean)
+        let creativeAssetIds = new Set<string>()
+        if (assetIds.length > 0) {
+          const { data: creativeRows } = await supabase
+            .from('videos')
+            .select('asset_id')
+            .in('asset_id', assetIds)
+            .eq('created_via_creative', true)
+          creativeAssetIds = new Set(
+            (creativeRows ?? []).map((r: any) => r.asset_id as string).filter(Boolean),
+          )
+        }
+        const tagged = detail.assets.map((a) => ({
+          ...a,
+          isCreative: creativeAssetIds.has(a.assetId),
+        }))
+        setNodes(layoutNodes(tagged))
+        setCreativeGroupLayout(
+          layoutCreativeNodes(
+            tagged,
+            tagged.filter((a) => !a.isCreative).length,
+          ),
+        )
       } catch (err: any) {
         if (!cancelled) setError(err?.message || 'Could not load this promotion.')
       } finally {
@@ -442,11 +527,16 @@ export default function PromotionJourneyMap() {
     return () => { cancelled = true }
   }, [promotionId])
 
+  const allPromotedNodes = useMemo(
+    () => [...nodes, ...(creativeGroupLayout?.placed ?? [])],
+    [nodes, creativeGroupLayout],
+  )
+
   // ── STEP 4 (additive, 2026-09-15) — direct promoted-asset downstream ─────
   // No events_journey / observed-traffic prerequisite. Runs whenever the
   // promoted-asset list changes, independent of the STEP 3 effect above.
   useEffect(() => {
-    if (!promotionId || nodes.length === 0) return
+    if (!promotionId || allPromotedNodes.length === 0) return
     let cancelled = false
 
     ;(async () => {
@@ -455,7 +545,7 @@ export default function PromotionJourneyMap() {
       // give us (see journeyDownstreamResolver.ts header for why
       // campaign_element/resource assets don't have one).
       const entries = await Promise.all(
-        nodes.map(async (n) => {
+        allPromotedNodes.map(async (n) => {
           const detail = await getAssetDetail(n.assetId)
           if (detail?.resource?.origin === 'video') {
             return [n.assetId, detail.resource.originId] as const
@@ -484,7 +574,7 @@ export default function PromotionJourneyMap() {
     })()
 
     return () => { cancelled = true }
-  }, [promotionId, nodes])
+  }, [promotionId, allPromotedNodes])
 
   const positionedGraphNodes = useMemo(
     () => (graph ? layoutGraphNodes(graph, nodeVisualTypes) : []),
@@ -517,13 +607,18 @@ export default function PromotionJourneyMap() {
         continue
       }
       const assetId = assetIdByVideoId.get(videoId)
-      const assetSource = assetId ? nodes.find((n) => n.assetId === assetId) : undefined
+      const assetSource = assetId ? allPromotedNodes.find((n) => n.assetId === assetId) : undefined
       if (assetSource) {
-        anchors.set(videoId, { x: assetSource.x, y: assetSource.y, width: NODE_WIDTH, height: NODE_HEIGHT })
+        anchors.set(videoId, {
+          x: assetSource.x,
+          y: assetSource.y,
+          width: assetSource.isCreative ? CREATIVE_NODE_WIDTH : NODE_WIDTH,
+          height: assetSource.isCreative ? CREATIVE_NODE_HEIGHT : NODE_HEIGHT,
+        })
       }
     }
     return anchors
-  }, [positionedGraphNodes, downstream, promotedAssetVideoIds, nodes])
+  }, [positionedGraphNodes, downstream, promotedAssetVideoIds, allPromotedNodes])
 
   // Downstream nodes (STEP 3 + STEP 4, additive) — one column past their
   // source's anchor, grouped/stacked when a source has more than one.
@@ -557,8 +652,8 @@ export default function PromotionJourneyMap() {
   // never a global video search. Keyed off the promoted-asset IDs only (not
   // their x/y), so dragging a card does not refire the query.
   const promotedAssetIdsKey = useMemo(
-    () => Array.from(new Set(nodes.map((n) => n.assetId))).sort().join(','),
-    [nodes],
+    () => Array.from(new Set(allPromotedNodes.map((n) => n.assetId))).sort().join(','),
+    [allPromotedNodes],
   )
 
   useEffect(() => {
@@ -766,13 +861,22 @@ export default function PromotionJourneyMap() {
 
     const dxCanvas = dxScreen / transform.scale
     const dyCanvas = dyScreen / transform.scale
+    const nextX = ds.startNodeX + dxCanvas
+    const nextY = ds.startNodeY + dyCanvas
     setNodes((prev) =>
       prev.map((n) =>
-        n.assetId === ds.assetId
-          ? { ...n, x: ds.startNodeX + dxCanvas, y: ds.startNodeY + dyCanvas }
-          : n
+        n.assetId === ds.assetId ? { ...n, x: nextX, y: nextY } : n
       )
     )
+    setCreativeGroupLayout((prev) => {
+      if (!prev?.placed.some((n) => n.assetId === ds.assetId)) return prev
+      return {
+        ...prev,
+        placed: prev.placed.map((n) =>
+          n.assetId === ds.assetId ? { ...n, x: nextX, y: nextY } : n
+        ),
+      }
+    })
   }, [transform.scale])
 
   const handleNodePointerUp = useCallback((e: React.PointerEvent, node: JourneyNode) => {
@@ -847,11 +951,13 @@ export default function PromotionJourneyMap() {
                 <path d="M0,0 L6,3 L0,6 Z" fill="#c7cbd1" />
               </marker>
             </defs>
-            {nodes.map((node) => {
+            {allPromotedNodes.map((node) => {
               const match = findMatchingGraphNode(node.assetId, positionedGraphNodes)
               if (!match) return null
-              const x1 = node.x + NODE_WIDTH
-              const y1 = node.y + NODE_HEIGHT / 2
+              const nw = node.isCreative ? CREATIVE_NODE_WIDTH : NODE_WIDTH
+              const nh = node.isCreative ? CREATIVE_NODE_HEIGHT : NODE_HEIGHT
+              const x1 = node.x + nw
+              const y1 = node.y + nh / 2
               const x2 = match.x
               const y2 = match.y + GRAPH_NODE_HEIGHT / 2
               const midX = (x1 + x2) / 2
@@ -944,6 +1050,51 @@ export default function PromotionJourneyMap() {
               <div style={styles.nodeTitle}>{node.title}</div>
             </div>
           ))}
+
+          {/* Creative promoted assets — green ring (like Unlinked, different palette) */}
+          {creativeGroupLayout && creativeGroupLayout.placed.length > 0 && (
+            <div
+              style={{
+                ...styles.creativeGroup,
+                left: creativeGroupLayout.left,
+                top: creativeGroupLayout.top,
+                width: creativeGroupLayout.diameter,
+                height: creativeGroupLayout.diameter,
+              }}
+            >
+              <div style={styles.creativeGroupLabel}>
+                <span style={styles.creativeGroupTitle}>Creative</span>
+                <span style={styles.creativeGroupCount}>
+                  {creativeGroupLayout.placed.length} asset
+                  {creativeGroupLayout.placed.length === 1 ? '' : 's'}
+                </span>
+              </div>
+              {creativeGroupLayout.placed.map((node) => (
+                <div
+                  key={node.assetId}
+                  style={{
+                    ...styles.creativeNode,
+                    left: node.x - creativeGroupLayout.left,
+                    top: node.y - creativeGroupLayout.top,
+                    width: CREATIVE_NODE_WIDTH,
+                    height: CREATIVE_NODE_HEIGHT,
+                  }}
+                  onPointerDown={(e) => handleNodePointerDown(e, node)}
+                  onPointerMove={handleNodePointerMove}
+                  onPointerUp={(e) => handleNodePointerUp(e, node)}
+                >
+                  <div style={{ ...styles.nodeThumb, height: CREATIVE_THUMB_HEIGHT }}>
+                    {node.thumbnailSrc ? (
+                      <img src={node.thumbnailSrc} style={styles.nodeThumbImg} draggable={false} />
+                    ) : (
+                      <div style={styles.nodeThumbFallback} />
+                    )}
+                  </div>
+                  <div style={styles.creativeNodeTitle}>{node.title}</div>
+                </div>
+              ))}
+            </div>
+          )}
 
           {positionedGraphNodes.map((gNode) => {
             // A "terminal" video (per journeyGraph.ts's video->video edges)
@@ -1366,6 +1517,55 @@ const styles: Record<string, React.CSSProperties> = {
     overflow: 'hidden',
   },
   unlinkedNodeTitle: {
+    padding: '6px 8px',
+    fontSize: 11,
+    fontWeight: 500,
+    color: '#111827',
+    whiteSpace: 'nowrap',
+    overflow: 'hidden',
+    textOverflow: 'ellipsis',
+  },
+
+  // ── Creative promoted assets (green ring) ───────────────────────────────
+  creativeGroup: {
+    position: 'absolute',
+    borderRadius: '50%',
+    border: '1px dashed #6ee7b7',
+    background: 'rgba(236,253,245,0.65)',
+  },
+  creativeGroupLabel: {
+    position: 'absolute',
+    top: '50%',
+    left: '50%',
+    transform: 'translate(-50%, -50%)',
+    display: 'flex',
+    flexDirection: 'column',
+    alignItems: 'center',
+    gap: 2,
+    textAlign: 'center',
+    pointerEvents: 'none',
+  },
+  creativeGroupTitle: {
+    fontSize: 11,
+    fontWeight: 600,
+    letterSpacing: '0.08em',
+    textTransform: 'uppercase',
+    color: '#047857',
+  },
+  creativeGroupCount: {
+    fontSize: 10.5,
+    color: '#6b7280',
+  },
+  creativeNode: {
+    position: 'absolute',
+    borderRadius: 10,
+    background: '#ffffff',
+    border: '1px solid #10b981',
+    boxShadow: '0 0 0 2px rgba(16,185,129,0.16), 0 1px 3px rgba(0,0,0,0.06)',
+    overflow: 'hidden',
+    cursor: 'grab',
+  },
+  creativeNodeTitle: {
     padding: '6px 8px',
     fontSize: 11,
     fontWeight: 500,
