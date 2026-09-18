@@ -180,6 +180,7 @@ export function PromotedAssetsPathBPanel({
           lockedPromotion.promotionId,
           assignmentId,
         );
+        // Ensure EVERY selected asset gets a usage row (Path B or allow_* fallback)
         const missing = assets
           .map(a => a.asset_id)
           .filter(id => !rows.some(r => r.asset_id === id));
@@ -187,6 +188,30 @@ export function PromotedAssetsPathBPanel({
           const fallback = await loadAllowFallback(assignmentId, missing);
           rows = [...rows, ...fallback];
         }
+        // Still missing → synthetic row so UI never sticks on "Loading…"
+        for (const a of assets) {
+          if (!rows.some(r => r.asset_id === a.asset_id)) {
+            rows.push({
+              asset_id: a.asset_id,
+              title: a.display_name || '',
+              thumbnail_url: a.thumbnail || null,
+              allow_marketer_domain: true,
+              allow_sponsor_domain: false,
+              allow_vstrk_domain: true,
+              use_marketer_domain: false,
+              use_vstrk_domain: true,
+              selected_sponsor_domain_id: null,
+              selected_sponsor_hostname: null,
+              selected_marketer_domain_id: null,
+              selected_marketer_hostname: null,
+            });
+          }
+        }
+        // Prefer display names from picker rows
+        rows = rows.map(r => {
+          const a = assets.find(x => x.asset_id === r.asset_id);
+          return a?.display_name ? { ...r, title: a.display_name } : r;
+        });
         if (cancelled) return;
         setUsageRows(rows);
 
@@ -441,56 +466,27 @@ export function PromotedAssetsPathBPanel({
           );
         }
 
-        if (!usage && !loadingUsage) {
-          // Videos.tsx old branch: MY assets (no promotion context) → simple Tracking Domain select
-          if (options.length === 0) {
-            const currentValue = selectedDomainByAssetId.get(asset.asset_id) ?? '';
-            return (
-              <div
-                key={asset.asset_id}
-                className="border border-zinc-800 rounded-xl p-3 space-y-2"
-              >
-                <div className="flex justify-between gap-2">
-                  <p className="text-[9px] font-black uppercase tracking-widest text-zinc-500">
-                    {label} — Tracking Domain
-                  </p>
-                  {!assetsLocked && (
-                    <button
-                      type="button"
-                      className="text-zinc-500 hover:text-red-400"
-                      onClick={() => removeAsset(asset.asset_id)}
-                    >
-                      ×
-                    </button>
-                  )}
-                </div>
-                <select
-                  value={currentValue}
-                  onChange={e => setDomain(asset.asset_id, e.target.value || null)}
-                  className="w-full bg-zinc-950 border border-zinc-800 rounded-xl px-3 py-2 text-xs text-zinc-100"
-                >
-                  <option value="">vstrk.com</option>
-                  {marketerDomains.length > 0 && (
-                    <optgroup label="Your Domains">
-                      {marketerDomains.map(d => (
-                        <option key={d.id} value={d.id}>
-                          {d.hostname}
-                        </option>
-                      ))}
-                    </optgroup>
-                  )}
-                </select>
-              </div>
-            );
-          }
+        // Still fetching
+        if (!usage && loadingUsage) {
+          return (
+            <div key={asset.asset_id} className="border border-zinc-800 rounded-xl p-3 space-y-1">
+              <p className="text-[9px] font-black uppercase tracking-widest text-zinc-400">{label}</p>
+              <p className="text-[10px] text-zinc-600">Loading tracking methods…</p>
+            </div>
+          );
+        }
+
+        // Multi-promo chosen but usage missing → treat as old simple domain (don't stick)
+        if (!usage) {
+          const currentValue = selectedDomainByAssetId.get(asset.asset_id) ?? '';
           return (
             <div
               key={asset.asset_id}
-              className="border border-zinc-800 rounded-xl p-3 space-y-1"
+              className="border border-zinc-800 rounded-xl p-3 space-y-2"
             >
               <div className="flex justify-between gap-2">
-                <p className="text-[9px] font-black uppercase tracking-widest text-zinc-400">
-                  {label}
+                <p className="text-[9px] font-black uppercase tracking-widest text-zinc-500">
+                  {label} — Tracking Domain
                 </p>
                 {!assetsLocked && (
                   <button
@@ -502,17 +498,21 @@ export function PromotedAssetsPathBPanel({
                   </button>
                 )}
               </div>
-              <p className="text-[10px] text-zinc-600">Loading tracking methods…</p>
-            </div>
-          );
-        }
-
-        if (!usage) {
-          return (
-            <div key={asset.asset_id} className="border border-zinc-800 rounded-xl p-3">
-              <p className="text-[9px] font-black uppercase tracking-widest text-zinc-500">
-                {label}
-              </p>
+              {options.length > 1 && !chosen && (
+                <p className="text-[10px] text-amber-600/90">Select Promotion on the right if shown.</p>
+              )}
+              <select
+                value={currentValue}
+                onChange={e => setDomain(asset.asset_id, e.target.value || null)}
+                className="w-full bg-zinc-950 border border-zinc-800 rounded-xl px-3 py-2 text-xs text-zinc-100"
+              >
+                <option value="">vstrk.com</option>
+                {marketerDomains.map(d => (
+                  <option key={d.id} value={d.id}>
+                    {d.hostname}
+                  </option>
+                ))}
+              </select>
             </div>
           );
         }

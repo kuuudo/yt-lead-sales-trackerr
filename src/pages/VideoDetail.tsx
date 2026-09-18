@@ -1972,13 +1972,15 @@ if (effectiveOrgId && effectiveUserId) {
 
         {showTrackContentModal && video && campaign && (
           <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4">
-            <div className="w-full max-w-lg bg-zinc-950 border border-zinc-800 rounded-2xl p-5 space-y-4 max-h-[90vh] overflow-y-auto">
+            <div className="w-full max-w-4xl bg-zinc-950 border border-zinc-800 rounded-2xl p-5 max-h-[90vh] overflow-y-auto">
               <p className="text-[10px] font-black uppercase tracking-widest text-zinc-500">
                 Track / Generate Links
               </p>
-              <p className="text-[11px] text-zinc-500">
+              <p className="text-[11px] text-zinc-500 mb-4">
                 Same flow as Track New Content, with video and campaign locked to this page.
               </p>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
+              <div className="space-y-4">
 
               <div className="space-y-2 text-xs">
                 <div className="border border-zinc-800 rounded-xl px-3 py-2.5 bg-zinc-900/40">
@@ -2085,10 +2087,17 @@ if (effectiveOrgId && effectiveUserId) {
                   type="button"
                   disabled={trackSaving}
                   onClick={() => handleTrackContentGenerate()}
-                  className="flex-1 bg-emerald-600 hover:bg-emerald-500 disabled:opacity-50 text-white text-[10px] font-black uppercase tracking-widest py-2.5 rounded-xl"
+                  className="flex-1 bg-orange-600 hover:bg-orange-500 disabled:opacity-50 text-white text-[10px] font-black uppercase tracking-widest py-2.5 rounded-xl"
                 >
                   {trackSaving ? 'Working...' : 'Generate Tracking Links'}
                 </button>
+              </div>
+              </div>
+              <div className="hidden md:flex min-h-[280px] items-center justify-center rounded-2xl border border-zinc-800 bg-zinc-900/40 px-6 text-center">
+                <p className="text-[10px] font-black uppercase tracking-[0.14em] text-zinc-600">
+                  Generated link will appear here
+                </p>
+              </div>
               </div>
             </div>
           </div>

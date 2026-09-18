@@ -1573,6 +1573,8 @@ export default function PromotionJourneyMap() {
               Promotion is locked to this journey. Assets from the promotion are pre-selected.
             </p>
 
+            <div style={styles.trackModalGridWide} className="track-modal-grid">
+            <div>
             <label style={styles.trackLabel}>Platform</label>
             <select
               style={styles.trackInput}
@@ -1696,6 +1698,15 @@ export default function PromotionJourneyMap() {
               >
                 {trackSaving ? 'Saving…' : 'Save & Generate Links'}
               </button>
+            </div>
+            </div>
+            <div style={styles.trackPreviewPane}>
+              Generated link will appear here
+              <br />
+              <span style={{ fontWeight: 500, letterSpacing: '0.04em', textTransform: 'none', color: '#3f3f46', marginTop: 8, display: 'block' }}>
+                Same layout as Videos → Track New Content
+              </span>
+            </div>
             </div>
           </div>
         </div>
@@ -2082,7 +2093,7 @@ const styles: Record<string, React.CSSProperties> = {
   },
   trackModal: {
     width: '100%',
-    maxWidth: 480,
+    maxWidth: 960,
     maxHeight: '90vh',
     overflowY: 'auto',
     background: '#09090b',
@@ -2090,6 +2101,32 @@ const styles: Record<string, React.CSSProperties> = {
     borderRadius: 16,
     padding: 20,
     color: '#e4e4e7',
+  },
+  trackModalGrid: {
+    display: 'grid',
+    gridTemplateColumns: '1fr',
+    gap: 24,
+  },
+  trackModalGridWide: {
+    display: 'grid',
+    gridTemplateColumns: '1fr 1fr',
+    gap: 24,
+  },
+  trackPreviewPane: {
+    border: '1px solid #27272a',
+    borderRadius: 16,
+    background: '#0c0c0e',
+    minHeight: 280,
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    padding: 24,
+    color: '#52525b',
+    fontSize: 10,
+    fontWeight: 800,
+    letterSpacing: '0.12em',
+    textTransform: 'uppercase',
+    textAlign: 'center',
   },
   trackModalEyebrow: {
     fontSize: 10,
