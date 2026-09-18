@@ -169,15 +169,37 @@ function resolveNodeThumbnail(resource: PromotionDetailData['assets'][number]['r
 // 2026-09-14), so they're stacked in one column centered on CANVAS_MID_Y
 // instead of the old top-left wrapping grid.
 
+/** Shared vertical stack: Creative ring (optional) ABOVE gold column, no overlap. */
+function measureCreativeRing(creativeCount: number): { diameter: number; ringRadius: number } | null {
+  if (creativeCount <= 0) return null
+  const ringRadius = Math.max(
+    CREATIVE_MIN_RADIUS,
+    (creativeCount * (CREATIVE_NODE_WIDTH + CREATIVE_NODE_GAP)) / (2 * Math.PI),
+  )
+  const diameter =
+    ringRadius * 2 +
+    Math.max(CREATIVE_NODE_WIDTH, CREATIVE_NODE_HEIGHT) +
+    CREATIVE_RING_PADDING * 2
+  return { diameter, ringRadius }
+}
+
 function layoutNodes(
   assets: Array<PromotionDetailData['assets'][number] & { isCreative?: boolean }>
 ): JourneyNode[] {
-  // Gold column = Sponsor / normal promoted assets only.
-  // Creative assets get their own green ring (see creativeGroup useMemo).
+  // Gold column = non-Creative promoted assets only.
+  // When Creative exists, the whole stack (ring + gap + column) is centered on
+  // CANVAS_MID_Y so the green ring sits fully above the gold cards.
   const regular = assets.filter((a) => !a.isCreative)
+  const creativeCount = assets.filter((a) => a.isCreative).length
+  const ring = measureCreativeRing(creativeCount)
+
   const columnHeight =
     regular.length * NODE_HEIGHT + Math.max(0, regular.length - 1) * GRID_GAP_Y
-  const startY = CANVAS_MID_Y - columnHeight / 2
+  const stackHeight =
+    (ring ? ring.diameter + CREATIVE_GROUP_GAP_Y : 0) + columnHeight
+  const stackTop = CANVAS_MID_Y - stackHeight / 2
+  const goldStartY = stackTop + (ring ? ring.diameter + CREATIVE_GROUP_GAP_Y : 0)
+
   return regular.map((a, i) => {
     return {
       assetId: a.assetId,
@@ -185,7 +207,7 @@ function layoutNodes(
       title: a.resource?.title || 'Untitled asset',
       thumbnailSrc: resolveNodeThumbnail(a.resource),
       x: CANVAS_MARGIN,
-      y: Math.max(CANVAS_MARGIN, startY + i * (NODE_HEIGHT + GRID_GAP_Y)),
+      y: goldStartY + i * (NODE_HEIGHT + GRID_GAP_Y),
       isCreative: false,
     }
   })
@@ -199,22 +221,18 @@ function layoutCreativeNodes(
   if (creative.length === 0) return null
 
   const count = creative.length
-  const ringRadius = Math.max(
-    CREATIVE_MIN_RADIUS,
-    (count * (CREATIVE_NODE_WIDTH + CREATIVE_NODE_GAP)) / (2 * Math.PI),
-  )
-  const diameter =
-    ringRadius * 2 +
-    Math.max(CREATIVE_NODE_WIDTH, CREATIVE_NODE_HEIGHT) +
-    CREATIVE_RING_PADDING * 2
+  const ring = measureCreativeRing(count)!
+  const { diameter, ringRadius } = ring
   const center = diameter / 2
 
   const columnHeight =
     regularCount * NODE_HEIGHT + Math.max(0, regularCount - 1) * GRID_GAP_Y
-  const columnTop = Math.max(CANVAS_MARGIN, CANVAS_MID_Y - columnHeight / 2)
-  // Place the Creative ring ABOVE the gold promoted-asset column
-  const top = Math.max(CANVAS_MARGIN, columnTop - CREATIVE_GROUP_GAP_Y - diameter)
-  const left = CANVAS_MARGIN - (diameter - NODE_WIDTH) / 2
+  const stackHeight = diameter + CREATIVE_GROUP_GAP_Y + columnHeight
+  const stackTop = CANVAS_MID_Y - stackHeight / 2
+  // Ring occupies the top of the stack; gold column starts below the gap.
+  const top = stackTop
+  // Horizontally align ring center with gold column center
+  const left = CANVAS_MARGIN + NODE_WIDTH / 2 - diameter / 2
 
   const placed = creative.map((a, i) => {
     const angle = -Math.PI / 2 + (i / count) * 2 * Math.PI
