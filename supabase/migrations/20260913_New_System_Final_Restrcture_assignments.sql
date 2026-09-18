@@ -777,3 +777,162 @@ COMMENT ON COLUMN public.videos.creative_assignment_id IS 'Assignment context us
 CREATE INDEX IF NOT EXISTS videos_created_via_creative_idx
   ON public.videos (organization_id, created_via_creative)
   WHERE created_via_creative = true;
+
+  -- Marketer creating Creative content cannot INSERT assignment_assets /
+-- promotion_assets under typical sponsor-only RLS. This SECURITY DEFINER
+-- RPC attaches the new video-asset after verifying active collaboration.
+
+CREATE OR REPLACE FUNCTION public.attach_creative_content_asset(
+  p_asset_id uuid,
+  p_assignment_id uuid,
+  p_promotion_id uuid DEFAULT NULL
+)
+RETURNS void
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path TO 'public'
+AS $function$
+DECLARE
+  v_uid uuid := auth.uid();
+  v_sponsor_domain uuid;
+BEGIN
+  IF v_uid IS NULL THEN
+    RAISE EXCEPTION 'Not authenticated';
+  END IF;
+
+  IF p_asset_id IS NULL OR p_assignment_id IS NULL THEN
+    RAISE EXCEPTION 'asset_id and assignment_id are required';
+  END IF;
+
+  -- Caller must be an active collaborator on this Assignment
+  IF NOT EXISTS (
+    SELECT 1
+    FROM public.assignment_collaborators ac
+    WHERE ac.assignment_id = p_assignment_id
+      AND ac.user_id = v_uid
+      AND ac.status = 'active'
+  ) THEN
+    RAISE EXCEPTION 'Not an active collaborator on assignment %', p_assignment_id;
+  END IF;
+
+  -- Sibling Sponsor domain (same Assignment)
+  SELECT aa.selected_sponsor_domain_id
+    INTO v_sponsor_domain
+  FROM public.assignment_assets aa
+  WHERE aa.assignment_id = p_assignment_id
+    AND aa.allow_sponsor_domain = true
+    AND aa.selected_sponsor_domain_id IS NOT NULL
+  LIMIT 1;
+
+  -- assignment_assets (idempotent)
+  IF NOT EXISTS (
+    SELECT 1 FROM public.assignment_assets
+    WHERE assignment_id = p_assignment_id AND asset_id = p_asset_id
+  ) THEN
+    INSERT INTO public.assignment_assets (
+      assignment_id,
+      asset_id,
+      allow_marketer_domain,
+      allow_sponsor_domain,
+      allow_vstrk_domain,
+      selected_sponsor_domain_id
+    ) VALUES (
+      p_assignment_id,
+      p_asset_id,
+      false,
+      true,
+      false,
+      v_sponsor_domain
+    );
+  END IF;
+
+  -- promotion_assets (idempotent)
+  IF p_promotion_id IS NOT NULL AND NOT EXISTS (
+    SELECT 1 FROM public.promotion_assets
+    WHERE promotion_id = p_promotion_id AND asset_id = p_asset_id
+  ) THEN
+    INSERT INTO public.promotion_assets (
+      promotion_id,
+      asset_id,
+      use_marketer_domain,
+      use_vstrk_domain,
+      selected_sponsor_domain_id,
+      selected_marketer_domain_id
+    ) VALUES (
+      p_promotion_id,
+      p_asset_id,
+      false,
+      false,
+      v_sponsor_domain,
+      NULL
+    );
+  END IF;
+
+  -- Ensure Asset Library treats this as already added (no "+ Asset" for Creative)
+  UPDATE public.assets
+  SET added_to_library_at = COALESCE(added_to_library_at, now())
+  WHERE id = p_asset_id;
+END;
+$function$;
+
+GRANT EXECUTE ON FUNCTION public.attach_creative_content_asset(uuid, uuid, uuid) TO authenticated;
+GRANT EXECUTE ON FUNCTION public.attach_creative_content_asset(uuid, uuid, uuid) TO service_role;
+
+-- One-shot backfill for existing Creative videos that have creative_* ids
+-- but no assignment_assets / promotion_assets rows (run as postgres/service).
+-- Safe to re-run (skips existing pairs).
+
+DO $$
+DECLARE
+  r record;
+  v_sponsor_domain uuid;
+BEGIN
+  FOR r IN
+    SELECT v.asset_id, v.creative_assignment_id, v.creative_promotion_id
+    FROM public.videos v
+    WHERE v.created_via_creative = true
+      AND v.asset_id IS NOT NULL
+      AND v.creative_assignment_id IS NOT NULL
+  LOOP
+    SELECT aa.selected_sponsor_domain_id INTO v_sponsor_domain
+    FROM public.assignment_assets aa
+    WHERE aa.assignment_id = r.creative_assignment_id
+      AND aa.allow_sponsor_domain = true
+      AND aa.selected_sponsor_domain_id IS NOT NULL
+    LIMIT 1;
+
+    IF NOT EXISTS (
+      SELECT 1 FROM public.assignment_assets
+      WHERE assignment_id = r.creative_assignment_id AND asset_id = r.asset_id
+    ) THEN
+      INSERT INTO public.assignment_assets (
+        assignment_id, asset_id,
+        allow_marketer_domain, allow_sponsor_domain, allow_vstrk_domain,
+        selected_sponsor_domain_id
+      ) VALUES (
+        r.creative_assignment_id, r.asset_id,
+        false, true, false,
+        v_sponsor_domain
+      );
+    END IF;
+
+    IF r.creative_promotion_id IS NOT NULL AND NOT EXISTS (
+      SELECT 1 FROM public.promotion_assets
+      WHERE promotion_id = r.creative_promotion_id AND asset_id = r.asset_id
+    ) THEN
+      INSERT INTO public.promotion_assets (
+        promotion_id, asset_id,
+        use_marketer_domain, use_vstrk_domain,
+        selected_sponsor_domain_id, selected_marketer_domain_id
+      ) VALUES (
+        r.creative_promotion_id, r.asset_id,
+        false, false,
+        v_sponsor_domain, NULL
+      );
+    END IF;
+
+    UPDATE public.assets
+    SET added_to_library_at = COALESCE(added_to_library_at, now())
+    WHERE id = r.asset_id;
+  END LOOP;
+END $$;
