@@ -448,35 +448,75 @@ console.log('🔍 VIDEOS QUERY RESULT', {
         // Content Owner — same profiles.select('id, email, full_name').in('id', ...)
         // pattern getPromotionLevelMetricsForOrg() (getTopPromotionsAnalytics.ts)
         // already uses to resolve marketer identity. No new identity system.
+        // Creative Sponsor display name = profiles.full_name of the Assignment
+        // creator (or org owner), NOT organizations.name ("…Workspace").
+        const creativeSponsorContextPromise = (async () => {
+          const { videosRes } = await videosAndAssetsPromise;
+          const creativeVids = (videosRes.data ?? []).filter((v: any) => v.created_via_creative);
+          const assignmentIds = Array.from(
+            new Set(
+              creativeVids.map((v: any) => v.creative_assignment_id).filter(Boolean) as string[],
+            ),
+          );
+          const orgIds = Array.from(
+            new Set(
+              creativeVids.map((v: any) => v.organization_id).filter(Boolean) as string[],
+            ),
+          );
+
+          const sponsorUserIdByAssignmentId = new Map<string, string>();
+          const sponsorUserIdByOrgId = new Map<string, string>();
+
+          if (assignmentIds.length > 0) {
+            const { data: assigns } = await supabase
+              .from('assignments')
+              .select('id, created_by_user_id, organization_id')
+              .in('id', assignmentIds);
+            for (const a of assigns ?? []) {
+              if (a.created_by_user_id) {
+                sponsorUserIdByAssignmentId.set(a.id as string, a.created_by_user_id as string);
+                if (a.organization_id) {
+                  sponsorUserIdByOrgId.set(a.organization_id as string, a.created_by_user_id as string);
+                }
+              }
+            }
+          }
+
+          if (orgIds.length > 0) {
+            const { data: orgs } = await supabase
+              .from('organizations')
+              .select('id, owner_id')
+              .in('id', orgIds);
+            for (const o of orgs ?? []) {
+              if (o.owner_id && !sponsorUserIdByOrgId.has(o.id as string)) {
+                sponsorUserIdByOrgId.set(o.id as string, o.owner_id as string);
+              }
+            }
+          }
+
+          return { sponsorUserIdByAssignmentId, sponsorUserIdByOrgId };
+        })();
+
         const profilesPromise = (async () => {
           const { videosRes } = await videosAndAssetsPromise;
+          const creativeCtx = await creativeSponsorContextPromise;
           console.time(`[AllAssetsAnalytics] LOAD #${__runId} profiles`);
           const videoOwnerIds = Array.from(
             new Set((videosRes.data ?? []).map((v: any) => v.user_id).filter(Boolean)),
           );
-          const { data: ownerProfiles } = videoOwnerIds.length
+          const sponsorIds = [
+            ...creativeCtx.sponsorUserIdByAssignmentId.values(),
+            ...creativeCtx.sponsorUserIdByOrgId.values(),
+          ];
+          const allIds = Array.from(new Set([...videoOwnerIds, ...sponsorIds].filter(Boolean)));
+          const { data: ownerProfiles } = allIds.length
             ? await supabase
                 .from('profiles')
                 .select('id, email, full_name')
-                .in('id', videoOwnerIds)
+                .in('id', allIds)
             : { data: [] as any[] };
           console.timeEnd(`[AllAssetsAnalytics] LOAD #${__runId} profiles`);
           return new Map((ownerProfiles ?? []).map((p: any) => [p.id, p]));
-        })();
-
-        // Sponsor org names for Creative videos (content owner display = Sponsor)
-        const orgNamesPromise = (async () => {
-          const { videosRes } = await videosAndAssetsPromise;
-          const orgIds = Array.from(
-            new Set(
-              (videosRes.data ?? [])
-                .filter((v: any) => v.created_via_creative && v.organization_id)
-                .map((v: any) => v.organization_id as string),
-            ),
-          );
-          if (orgIds.length === 0) return new Map<string, string>();
-          const { data: orgs } = await supabase.from('organizations').select('id, name').in('id', orgIds);
-          return new Map((orgs ?? []).map((o: any) => [o.id as string, (o.name as string) || o.id]));
         })();
 
         const [
@@ -485,14 +525,14 @@ console.log('🔍 VIDEOS QUERY RESULT', {
           promotionArchiveById,
           { videosRes, libraryRes },
           profileByUserId,
-          orgNameById,
+          creativeSponsorCtx,
         ] = await Promise.all([
           videoArchivePromise,
           campaignArchivePromise,
           promotionArchivePromise,
           videosAndAssetsPromise,
           profilesPromise,
-          orgNamesPromise,
+          creativeSponsorContextPromise,
         ]);
 
         console.time(`[AllAssetsAnalytics] LOAD #${__runId} transform`);
@@ -565,15 +605,29 @@ console.log('🔍 VIDEOS QUERY RESULT', {
       const ownerProfile = v.user_id ? profileByUserId.get(v.user_id) : null;
       const marketerName = ownerProfile?.full_name?.trim() || ownerProfile?.email || null;
       const isCreative = !!v.created_via_creative;
-      // Creative: content owner display name = Sponsor org only (marketer is a badge)
-      const sponsorName = isCreative && v.organization_id ? orgNameById.get(v.organization_id) : null;
+      // Creative: content owner = Sponsor profile full_name (e.g. "Web Mood"), not org workspace name
+      let sponsorDisplay: string | null = null;
+      if (isCreative) {
+        const sponsorUid =
+          (v.creative_assignment_id
+            ? creativeSponsorCtx.sponsorUserIdByAssignmentId.get(v.creative_assignment_id)
+            : null) ||
+          (v.organization_id
+            ? creativeSponsorCtx.sponsorUserIdByOrgId.get(v.organization_id)
+            : null) ||
+          null;
+        if (sponsorUid) {
+          const sp = profileByUserId.get(sponsorUid);
+          sponsorDisplay = sp?.full_name?.trim() || sp?.email || null;
+        }
+      }
       videoDisplay.set(v.id, {
         title: renderContentIdentity(v),
         thumbnail_url: resolveThumbnail(v),
         platform: v.platform ?? null,
         created_at: v.created_at ?? null,
         content_owner_id: v.user_id ?? null,
-        content_owner_name: (isCreative && sponsorName) ? sponsorName : marketerName,
+        content_owner_name: (isCreative && sponsorDisplay) ? sponsorDisplay : marketerName,
         content_owner_marketer_name: isCreative ? marketerName : null,
         content_campaign_id: v.campaign_id ?? null,
         created_via_creative: isCreative,
