@@ -111,12 +111,24 @@ const GRAPH_START_X = CANVAS_MARGIN + NODE_WIDTH + GRID_GAP_X + 120
 
 // ─── "Unlinked" group layout (STEP 5, additive) ───────────────────────────────
 // Its own region of the canvas, below the promoted-asset column. Deliberately
-// NOT on the graph's x-axis and NOT connected to any edge.
-const UNLINKED_NODE_SIZE = 56
-const UNLINKED_NODE_GAP = 14
-const UNLINKED_MIN_RADIUS = 78
-const UNLINKED_RING_PADDING = 26
+// NOT on the graph's x-axis and NOT connected to any edge. Cards are smaller
+// than the promoted-asset cards (NODE_WIDTH 180) on purpose — this is a
+// secondary group, it shouldn't compete visually with the promoted assets.
+const UNLINKED_NODE_WIDTH = 124
+const UNLINKED_NODE_HEIGHT = 102
+const UNLINKED_THUMB_HEIGHT = 70
+const UNLINKED_NODE_GAP = 18
+const UNLINKED_MIN_RADIUS = 112
+const UNLINKED_RING_PADDING = 22
 const UNLINKED_GROUP_GAP_Y = 110
+
+// A video reached only through redirect_links (promotion_id + asset_id).
+// Display fields are best-effort — see the STEP 5 effect.
+interface UnlinkedVideo {
+  videoId: string
+  title: string | null
+  thumbnailUrl: string | null
+}
 
 const MIN_SCALE = 0.4
 const MAX_SCALE = 2.5
@@ -338,10 +350,12 @@ export default function PromotionJourneyMap() {
   // asset's own card when that video has no observed-graph position.
   const [promotedAssetVideoIds, setPromotedAssetVideoIds] = useState<Map<string, string>>(new Map())
 
-  // STEP 5 (additive, 2026-09-18) — video_ids from redirect_links rows whose
+  // STEP 5 (additive, 2026-09-18) — videos from redirect_links rows whose
   // promotion_id is this promotion AND whose asset_id is one of the assets
   // actually promoted here. Deduped, nulls dropped. No events_journey.
-  const [unlinkedVideoIds, setUnlinkedVideoIds] = useState<string[]>([])
+  // title/thumbnailUrl are a best-effort display lookup — if the `videos`
+  // read fails, the card still renders with the id as its label.
+  const [unlinkedCandidates, setUnlinkedCandidates] = useState<UnlinkedVideo[]>([])
 
   // Local canvas transform — NOT useWorkspaceStore.
   const [transform, setTransform] = useState<CanvasTransform>({ x: 0, y: 0, scale: 1 })
@@ -548,7 +562,7 @@ export default function PromotionJourneyMap() {
 
   useEffect(() => {
     if (!promotionId || promotedAssetIdsKey === '') {
-      setUnlinkedVideoIds([])
+      setUnlinkedCandidates([])
       return
     }
     let cancelled = false
@@ -572,12 +586,41 @@ export default function PromotionJourneyMap() {
           seen.add(row.video_id)
           ids.push(row.video_id)
         }
-        setUnlinkedVideoIds(ids)
+        if (ids.length === 0) {
+          setUnlinkedCandidates([])
+          return
+        }
+
+        // Display-only lookup. Deliberately in its own try/catch: if the
+        // `videos` read fails (or returns nothing for an id), the group
+        // still renders — the card just falls back to the video id.
+        const meta = new Map<string, { title: string | null; thumbnailUrl: string | null }>()
+        try {
+          const { data: videoRows, error: videoError } = await supabase
+            .from('videos')
+            .select('id, title, thumbnail_url')
+            .in('id', ids)
+          if (videoError) throw videoError
+          for (const v of (videoRows ?? []) as { id: string; title: string | null; thumbnail_url: string | null }[]) {
+            meta.set(v.id, { title: v.title ?? null, thumbnailUrl: v.thumbnail_url ?? null })
+          }
+        } catch (metaErr: any) {
+          console.warn('[PromotionJourneyMap] STEP 5 video display lookup failed:', metaErr?.message || metaErr)
+        }
+        if (cancelled) return
+
+        setUnlinkedCandidates(
+          ids.map((videoId) => ({
+            videoId,
+            title: meta.get(videoId)?.title ?? null,
+            thumbnailUrl: meta.get(videoId)?.thumbnailUrl ?? null,
+          })),
+        )
       } catch (err: any) {
         // Additive, non-critical layer — a failure here must never blank out
         // the promoted assets or the observed graph (mirrors STEP 4).
         console.error('[PromotionJourneyMap] STEP 5 redirect_links lookup failed:', err?.message || err)
-        if (!cancelled) setUnlinkedVideoIds([])
+        if (!cancelled) setUnlinkedCandidates([])
       }
     })()
 
@@ -590,8 +633,8 @@ export default function PromotionJourneyMap() {
   // graph is still loading, every redirect-link video shows as unlinked.
   const unlinkedVideos = useMemo(() => {
     const observed = new Set(positionedGraphNodes.map((n) => n.videoId))
-    return unlinkedVideoIds.filter((id) => !observed.has(id))
-  }, [unlinkedVideoIds, positionedGraphNodes])
+    return unlinkedCandidates.filter((v) => !observed.has(v.videoId))
+  }, [unlinkedCandidates, positionedGraphNodes])
 
   // One circular group placed below the promoted-asset column. Height is
   // derived from the asset *count*, not the cards' current positions, so the
@@ -602,20 +645,20 @@ export default function PromotionJourneyMap() {
 
     const ringRadius = Math.max(
       UNLINKED_MIN_RADIUS,
-      (count * (UNLINKED_NODE_SIZE + UNLINKED_NODE_GAP)) / (2 * Math.PI),
+      (count * (UNLINKED_NODE_WIDTH + UNLINKED_NODE_GAP)) / (2 * Math.PI),
     )
-    const diameter = ringRadius * 2 + UNLINKED_NODE_SIZE + UNLINKED_RING_PADDING * 2
+    const diameter = ringRadius * 2 + Math.max(UNLINKED_NODE_WIDTH, UNLINKED_NODE_HEIGHT) + UNLINKED_RING_PADDING * 2
     const center = diameter / 2
 
     const columnHeight = nodes.length * NODE_HEIGHT + Math.max(0, nodes.length - 1) * GRID_GAP_Y
     const top = Math.max(CANVAS_MARGIN, CANVAS_MID_Y - columnHeight / 2) + columnHeight + UNLINKED_GROUP_GAP_Y
 
-    const placed = unlinkedVideos.map((videoId, i) => {
+    const placed = unlinkedVideos.map((video, i) => {
       const angle = -Math.PI / 2 + (i * 2 * Math.PI) / count
       return {
-        videoId,
-        x: center + ringRadius * Math.cos(angle) - UNLINKED_NODE_SIZE / 2,
-        y: center + ringRadius * Math.sin(angle) - UNLINKED_NODE_SIZE / 2,
+        ...video,
+        x: center + ringRadius * Math.cos(angle) - UNLINKED_NODE_WIDTH / 2,
+        y: center + ringRadius * Math.sin(angle) - UNLINKED_NODE_HEIGHT / 2,
       }
     })
 
@@ -996,13 +1039,19 @@ export default function PromotionJourneyMap() {
                     ...styles.unlinkedNode,
                     left: v.x,
                     top: v.y,
-                    width: UNLINKED_NODE_SIZE,
-                    height: UNLINKED_NODE_SIZE,
+                    width: UNLINKED_NODE_WIDTH,
+                    height: UNLINKED_NODE_HEIGHT,
                   }}
-                  title={v.videoId}
+                  title={v.title ? `${v.title}\n${v.videoId}` : v.videoId}
                 >
-                  <span style={{ ...styles.graphNodeTypeDot, background: GRAPH_TYPE_ACCENT.video }} />
-                  <span style={styles.unlinkedNodeId}>{v.videoId.slice(0, 6)}</span>
+                  <div style={{ ...styles.nodeThumb, height: UNLINKED_THUMB_HEIGHT }}>
+                    {v.thumbnailUrl ? (
+                      <img src={v.thumbnailUrl} style={styles.nodeThumbImg} draggable={false} />
+                    ) : (
+                      <div style={styles.nodeThumbFallback} />
+                    )}
+                  </div>
+                  <div style={styles.unlinkedNodeTitle}>{v.title || v.videoId}</div>
                 </div>
               ))}
             </div>
@@ -1048,6 +1097,10 @@ const styles: Record<string, React.CSSProperties> = {
   page: {
     position: 'fixed',
     inset: 0,
+    // App.tsx's <Navigation /> is `fixed top-0 … z-50 h-14` (56px). Without
+    // this offset the page's own header renders underneath it and the
+    // promotion name is invisible.
+    top: 56,
     display: 'flex',
     flexDirection: 'column',
     background: '#ffffff',
@@ -1101,11 +1154,13 @@ const styles: Record<string, React.CSSProperties> = {
   node: {
     position: 'absolute',
     background: '#ffffff',
-    border: '1px solid #e5e7eb',
+    // Promoted-asset cards: gold edge. Same 1px weight as before so the
+    // card size/layout is untouched — only the colour changes.
+    border: '1px solid #d4af37',
     borderRadius: 10,
     overflow: 'hidden',
     cursor: 'grab',
-    boxShadow: '0 1px 3px rgba(0,0,0,0.06)',
+    boxShadow: '0 0 0 2px rgba(212,175,55,0.14), 0 1px 3px rgba(0,0,0,0.06)',
   },
   nodeThumb: {
     width: '100%',
@@ -1272,8 +1327,8 @@ const styles: Record<string, React.CSSProperties> = {
   unlinkedGroup: {
     position: 'absolute',
     borderRadius: '50%',
-    border: '1px dashed #d1d5db',
-    background: '#fafafa',
+    border: '1px dashed #fca5a5',
+    background: 'rgba(254,242,242,0.55)',
   },
   unlinkedGroupLabel: {
     position: 'absolute',
@@ -1292,7 +1347,7 @@ const styles: Record<string, React.CSSProperties> = {
     fontWeight: 600,
     letterSpacing: '0.08em',
     textTransform: 'uppercase',
-    color: '#6b7280',
+    color: '#b91c1c',
   },
   unlinkedGroupCount: {
     fontSize: 10.5,
@@ -1300,20 +1355,19 @@ const styles: Record<string, React.CSSProperties> = {
   },
   unlinkedNode: {
     position: 'absolute',
-    borderRadius: '50%',
+    borderRadius: 10,
     background: '#ffffff',
-    border: '1px solid #e5e7eb',
-    boxShadow: '0 1px 3px rgba(0,0,0,0.06)',
-    display: 'flex',
-    flexDirection: 'column',
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: 3,
+    border: '1px solid #ef4444',
+    boxShadow: '0 0 0 2px rgba(239,68,68,0.12), 0 1px 3px rgba(0,0,0,0.06)',
     overflow: 'hidden',
   },
-  unlinkedNodeId: {
-    fontSize: 9.5,
-    color: '#6b7280',
-    fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace',
+  unlinkedNodeTitle: {
+    padding: '6px 8px',
+    fontSize: 11,
+    fontWeight: 500,
+    color: '#111827',
+    whiteSpace: 'nowrap',
+    overflow: 'hidden',
+    textOverflow: 'ellipsis',
   },
 }
