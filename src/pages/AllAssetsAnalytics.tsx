@@ -549,7 +549,7 @@ console.log('🔍 VIDEOS QUERY RESULT', {
           });
         }
 
-    const videoDisplay = new Map<string, { title: React.ReactNode; thumbnail_url?: string; platform?: string | null; created_at?: string | null; content_owner_id?: string | null; content_owner_name?: string | null; content_campaign_id?: string | null; created_via_creative?: boolean }>();
+    const videoDisplay = new Map<string, { title: React.ReactNode; thumbnail_url?: string; platform?: string | null; created_at?: string | null; content_owner_id?: string | null; content_owner_name?: string | null; content_campaign_id?: string | null; created_via_creative?: boolean; creative_promotion_id?: string | null }>();
     for (const v of videosRes.data ?? []) {
       const ownerProfile = v.user_id ? profileByUserId.get(v.user_id) : null;
       const marketerName = ownerProfile?.full_name?.trim() || ownerProfile?.email || null;
@@ -3555,12 +3555,11 @@ export default function AllAssetsAnalytics() {
                       // unresolved, not relabeled.
                       const isMy = organizationId != null && row.assetOrganizationId === organizationId;
 
-                      {
-                        const promoId =
-                          row.promotion_id ||
-                          (row.promoting_video as any)?.creative_promotion_id ||
-                          null;
-                        if (promoId) {
+                      const promoId =
+                        row.promotion_id ||
+                        (row.promoting_video as any)?.creative_promotion_id ||
+                        null;
+                      if (promoId) {
                         const baseName = promotionNameById.get(promoId) ?? promoId;
                         const name = (row.promoting_video as any)?.created_via_creative
                           ? `${baseName} (CREATIVE)`
