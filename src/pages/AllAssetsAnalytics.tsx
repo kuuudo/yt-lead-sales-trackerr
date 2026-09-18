@@ -1120,6 +1120,7 @@ export default function AllAssetsAnalytics() {
   const [customRange, setCustomRange]     = useState<CustomDateRange | null>(null);
   const [selectedCampaignId, setSelectedCampaignId]   = useState<string>('all');
   const [selectedPromotionIds, setSelectedPromotionIds] = useState<string[]>([]);
+  const [creativeScopeFilter, setCreativeScopeFilter] = useState<null | 'toMe' | 'byMe'>(null);
   const togglePromotionId = (id: string) => {
     setSelectedPromotionIds(prev => (prev.includes(id) ? prev.filter(x => x !== id) : [...prev, id]));
   };
@@ -1386,11 +1387,30 @@ export default function AllAssetsAnalytics() {
   // above for why the OPTIONS list is scope-conservative; the filter
   // itself is just an equality check on data already on each row.
   const promotionFilteredRows = useMemo(() => {
-    if (selectedPromotionIds.length === 0) return campaignFilteredRows;
-        return campaignFilteredRows.filter(
-      row => row.promotion_id != null && selectedPromotionIds.includes(row.promotion_id),
-    );
-  }, [campaignFilteredRows, selectedPromotionIds]);
+    let rows: typeof campaignFilteredRows;
+    if (selectedPromotionIds.length === 0) {
+      rows = campaignFilteredRows;
+    } else {
+      rows = campaignFilteredRows.filter(
+        row => row.promotion_id != null && selectedPromotionIds.includes(row.promotion_id),
+      );
+    }
+    if (creativeScopeFilter === 'toMe') {
+      rows = rows.filter(
+        row =>
+          !!(row.promoting_video as any).created_via_creative &&
+          (row.promoting_video as any).content_owner_id === user?.id,
+      );
+    } else if (creativeScopeFilter === 'byMe') {
+      rows = rows.filter(
+        row =>
+          !!(row.promoting_video as any).created_via_creative &&
+          (row.promoting_video as any).content_owner_id &&
+          (row.promoting_video as any).content_owner_id !== user?.id,
+      );
+    }
+    return rows;
+  }, [campaignFilteredRows, selectedPromotionIds, creativeScopeFilter, user?.id]);
 
   // ── Content Marketer filter — operates on videos.user_id via
   // content_owner_id, never on the display name. Chained last, right
@@ -1902,6 +1922,36 @@ export default function AllAssetsAnalytics() {
                       </button>
                     ))}
                   </div>
+
+
+                  {(promotionTab === 'toMe' || promotionTab === 'byMe') && (
+                    <div className="px-3 py-2 border-b border-zinc-800">
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setCreativeScopeFilter(promotionTab === 'toMe' ? 'toMe' : 'byMe');
+                          setSelectedPromotionIds([]);
+                          setPromotionPanelOpen(false);
+                        }}
+                        className={`w-full text-left px-3 py-2 rounded-lg text-[9px] font-black uppercase tracking-widest border transition-all ${
+                          creativeScopeFilter === (promotionTab === 'toMe' ? 'toMe' : 'byMe')
+                            ? 'bg-red-600 border-red-600 text-white'
+                            : 'bg-zinc-950 border-zinc-800 text-zinc-400 hover:border-zinc-600'
+                        }`}
+                      >
+                        Creative
+                      </button>
+                      {creativeScopeFilter && (
+                        <button
+                          type="button"
+                          onClick={() => setCreativeScopeFilter(null)}
+                          className="mt-1 w-full text-left px-3 py-1.5 text-[9px] font-bold text-zinc-600 hover:text-zinc-400"
+                        >
+                          Clear Creative filter
+                        </button>
+                      )}
+                    </div>
+                  )}
 
                   {promotionTab === 'all' && (
                     <div className="max-h-72 overflow-y-auto py-2">
