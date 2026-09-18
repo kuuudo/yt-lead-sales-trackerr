@@ -57,8 +57,8 @@ import type { CanvasTransform } from '../components/analytics/store/useWorkspace
 // build logic; this page only consumes their output. Not touched: journey.ts,
 // journeyDiscovery.ts, journeyGraph.ts, promotionJourney.ts, assetJourney.ts,
 // journeyAnalyticsEngine.ts, events, attribution, the database.
-import { discoverPromotionJourneys } from '../services/journey/journeyDiscovery'
-import { buildJourneyGraph, type JourneyGraph, type GraphNode, type GraphEdge } from '../services/journey/journeyGraph'
+import { discoverPromotionJourneys } from '../lib/journeyDiscovery'
+import { buildJourneyGraph, type JourneyGraph, type GraphNode, type GraphEdge } from '../lib/journeyGraph'
 import { resolveAssetType } from '../services/asset/resolveAssetType'
 
 // ─── STEP 3 (additive) — resolve what a terminal video step's own observed
