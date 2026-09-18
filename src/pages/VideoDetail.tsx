@@ -47,6 +47,9 @@ import { motion, AnimatePresence } from 'motion/react';
 import { ResponsiveContainer, AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip } from 'recharts';
 import { Modal } from '../components/Modal';
 import { createRedirectLink, RedirectLinkType } from '../lib/redirects';
+import { PromotedAssetPicker, type PromotedAssetRow } from '../components/PromotedAssetPicker';
+import { generateAssetRedirectLinks } from '../services/asset/generateAssetRedirectLinks';
+
 
 const MANAGE_LINK_TYPES = ['landing_page', 'newsletter', 'consultation', 'sales_call'] as const;
 type ManageLinkType = (typeof MANAGE_LINK_TYPES)[number];
@@ -376,6 +379,14 @@ export default function VideoDetail() {
   const [extraLinkUrl, setExtraLinkUrl]           = useState('');
   const [extraLinkLeadMagnetId, setExtraLinkLeadMagnetId] = useState('');
   const [savingExtraLink, setSavingExtraLink]     = useState(false);
+
+  // Track / Generate links — Videos.tsx-style modal with locked video + campaign
+  const [showTrackContentModal, setShowTrackContentModal] = useState(false);
+  const [trackPromotedAssets, setTrackPromotedAssets] = useState<PromotedAssetRow[]>([]);
+  const [trackLinkTypes, setTrackLinkTypes] = useState<ManageLinkType[]>([]);
+  const [trackSaving, setTrackSaving] = useState(false);
+  const [trackPromotionLabel, setTrackPromotionLabel] = useState<string | null>(null);
+  const [showTrackAssetPicker, setShowTrackAssetPicker] = useState(false);
   const [deletingLinkToken, setDeletingLinkToken] = useState<string | null>(null);
 
   // YouTube Import Status (only relevant when video.platform === 'youtube')
@@ -933,6 +944,147 @@ if (effectiveOrgId && effectiveUserId) {
       showAlert('Generate failed', e?.message || 'Could not generate links', 'danger');
     } finally {
       setManagingLinks(false);
+    }
+  };
+
+
+  const openTrackContentModal = () => {
+    if (!video || !campaign || isReadOnly) return;
+    const available = MANAGE_LINK_TYPES.filter(t => !!campaignUrlForLinkType(campaign, t));
+    setTrackLinkTypes(available);
+    setTrackPromotedAssets([]);
+    setShowTrackContentModal(true);
+  };
+
+  // Load locked Creative promotion label when modal opens / video changes
+  useEffect(() => {
+    if (!showTrackContentModal || !video) return;
+    const cpid = (video as any).creative_promotion_id as string | null | undefined;
+    if (!cpid) {
+      setTrackPromotionLabel(null);
+      return;
+    }
+    let cancelled = false;
+    (async () => {
+      const { data: promo } = await supabase
+        .from('promotions')
+        .select('id, assignment_id')
+        .eq('id', cpid)
+        .maybeSingle();
+      if (cancelled || !promo?.assignment_id) {
+        if (!cancelled) setTrackPromotionLabel('Creative promotion');
+        return;
+      }
+      const { data: asn } = await supabase
+        .from('assignments')
+        .select('title')
+        .eq('id', promo.assignment_id)
+        .maybeSingle();
+      if (!cancelled) {
+        setTrackPromotionLabel(
+          asn?.title ? `${asn.title} (CREATIVE)` : 'Creative promotion',
+        );
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [showTrackContentModal, video?.id, (video as any)?.creative_promotion_id]);
+
+  const handleTrackContentGenerate = async () => {
+    if (!video || !campaign || isReadOnly) return;
+    if (trackLinkTypes.length === 0 && trackPromotedAssets.length === 0) {
+      showAlert('Nothing selected', 'Choose campaign link types and/or promoted assets.', 'info');
+      return;
+    }
+    setTrackSaving(true);
+    try {
+      const appBaseUrl = window.location.origin;
+      const existingTypes = new Set(
+        (redirectLinks || []).filter((l: any) => !(l as any).asset_id).map((l: any) => l.link_type as string),
+      );
+
+      // Campaign links (locked campaign destinations; reuse existing token when type exists)
+      for (const type of trackLinkTypes) {
+        const dest = campaignUrlForLinkType(campaign, type);
+        if (!dest) continue;
+        const domainCol =
+          type === 'landing_page' ? 'landing_page_tracking_domain_id'
+          : type === 'newsletter' ? 'newsletter_tracking_domain_id'
+          : type === 'consultation' ? 'consultation_tracking_domain_id'
+          : type === 'sales_call' ? 'sales_call_tracking_domain_id'
+          : null;
+        const trackingDomainId = domainCol ? ((campaign as any)[domainCol] as string | null) : null;
+
+        if (existingTypes.has(type)) {
+          const row = (redirectLinks || []).find((l: any) => l.link_type === type && !(l as any).asset_id);
+          if (row && normalizeDest(row.destination_url) !== normalizeDest(dest)) {
+            await supabase
+              .from('redirect_links')
+              .update({ destination_url: dest })
+              .eq('token', row.token)
+              .eq('video_id', video.id);
+          }
+          continue;
+        }
+        // Prefer campaign-configured domain when createRedirectLink supports options;
+        // fall back to the same signature Manage Links already uses.
+        try {
+          await createRedirectLink(
+            video.id,
+            video.campaign_id,
+            type as RedirectLinkType,
+            dest,
+            appBaseUrl,
+            undefined as any,
+            true,
+            { trackingDomainId: trackingDomainId ?? null } as any,
+          );
+        } catch {
+          await createRedirectLink(
+            video.id,
+            video.campaign_id,
+            type as RedirectLinkType,
+            dest,
+            appBaseUrl,
+            undefined as any,
+            true,
+          );
+        }
+      }
+
+      // Promoted assets (same pipeline as Videos.tsx after createVideo)
+      if (trackPromotedAssets.length > 0) {
+        const cpid = (video as any).creative_promotion_id as string | null | undefined;
+        const assetsWithContext = trackPromotedAssets.map((asset) => ({
+          asset_id: asset.asset_id,
+          promotionContext: cpid
+            ? ({
+                promotionId: cpid,
+                assignmentId: (video as any).creative_assignment_id ?? null,
+              } as any)
+            : null,
+          trackingDomainId: null as string | null,
+        }));
+        await generateAssetRedirectLinks({
+          videoId: video.id,
+          selectedAssets: assetsWithContext,
+        });
+      }
+
+      await refreshRedirectDisplay();
+      const { data: linksData } = await supabase
+        .from('redirect_links')
+        .select('token, link_type, destination_url, lead_magnet_id, created_at, asset_id')
+        .eq('video_id', video.id)
+        .order('created_at', { ascending: true });
+      setRedirectLinks(linksData || []);
+
+      setShowTrackContentModal(false);
+      setTrackPromotedAssets([]);
+      showAlert('Links ready', 'Tracking links generated for this video.', 'success');
+    } catch (e: any) {
+      showAlert('Generate failed', e?.message || 'Could not generate links', 'danger');
+    } finally {
+      setTrackSaving(false);
     }
   };
 
@@ -1575,6 +1727,13 @@ if (effectiveOrgId && effectiveUserId) {
           <div className="flex items-center gap-2">
             <button
               type="button"
+              onClick={openTrackContentModal}
+              className="flex items-center gap-2 h-9 px-4 rounded-xl border border-emerald-900/50 bg-emerald-600/10 hover:bg-emerald-600/20 text-[10px] font-black uppercase tracking-widest text-emerald-400 transition-all"
+            >
+              Track / Generate Links
+            </button>
+            <button
+              type="button"
               onClick={openManageLinks}
               className="flex items-center gap-2 h-9 px-4 rounded-xl border border-red-900/50 bg-red-600/10 hover:bg-red-600/20 text-[10px] font-black uppercase tracking-widest text-red-400 transition-all"
             >
@@ -1735,6 +1894,161 @@ if (effectiveOrgId && effectiveUserId) {
               </div>
             </div>
           </div>
+        )}
+
+        {showTrackContentModal && video && campaign && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4">
+            <div className="w-full max-w-lg bg-zinc-950 border border-zinc-800 rounded-2xl p-5 space-y-4 max-h-[90vh] overflow-y-auto">
+              <p className="text-[10px] font-black uppercase tracking-widest text-zinc-500">
+                Track / Generate Links
+              </p>
+              <p className="text-[11px] text-zinc-500">
+                Same flow as Track New Content, with video and campaign locked to this page.
+              </p>
+
+              <div className="space-y-2 text-xs">
+                <div className="border border-zinc-800 rounded-xl px-3 py-2.5 bg-zinc-900/40">
+                  <p className="text-[10px] font-black uppercase tracking-widest text-zinc-600 mb-1">YouTube / URL</p>
+                  <p className="text-zinc-200 truncate" title={(video as any).platform_url || video.youtube_url || ''}>
+                    {(video as any).platform_url || video.youtube_url || video.youtube_video_id || '—'}
+                  </p>
+                  <p className="text-[9px] text-zinc-600 mt-0.5">Locked · this video</p>
+                </div>
+                <div className="border border-zinc-800 rounded-xl px-3 py-2.5 bg-zinc-900/40">
+                  <p className="text-[10px] font-black uppercase tracking-widest text-zinc-600 mb-1">Campaign</p>
+                  <p className="text-zinc-200">{(campaign as any).campaign_name || '—'}</p>
+                  <p className="text-[9px] text-zinc-600 mt-0.5">Locked · belongs to this video</p>
+                </div>
+                <div className="border border-zinc-800 rounded-xl px-3 py-2.5 bg-zinc-900/40">
+                  <p className="text-[10px] font-black uppercase tracking-widest text-zinc-600 mb-1">Promotion</p>
+                  {(video as any).creative_promotion_id ? (
+                    <>
+                      <p className="text-emerald-400 font-bold">{trackPromotionLabel || 'Creative promotion'}</p>
+                      <p className="text-[9px] text-zinc-600 mt-0.5">Locked · Creative promotion on this video</p>
+                    </>
+                  ) : (
+                    <>
+                      <p className="text-zinc-500">None (optional for assets)</p>
+                      <p className="text-[9px] text-zinc-600 mt-0.5">Not a Creative video — pick assets below if needed</p>
+                    </>
+                  )}
+                </div>
+              </div>
+
+              <div className="space-y-2">
+                <p className="text-[10px] font-black uppercase tracking-widest text-zinc-500">Links to include</p>
+                <div className="space-y-1.5">
+                  {MANAGE_LINK_TYPES.filter(t => !!campaignUrlForLinkType(campaign, t)).map(t => {
+                    const checked = trackLinkTypes.includes(t);
+                    const exists = (redirectLinks || []).some(
+                      (l: any) => l.link_type === t && !(l as any).asset_id,
+                    );
+                    return (
+                      <label
+                        key={t}
+                        className="flex items-center gap-3 border border-zinc-800 rounded-xl px-3 py-2.5 cursor-pointer hover:border-zinc-600"
+                      >
+                        <input
+                          type="checkbox"
+                          className="accent-emerald-600"
+                          checked={checked}
+                          onChange={() => {
+                            setTrackLinkTypes(prev =>
+                              checked ? prev.filter(x => x !== t) : [...prev, t],
+                            );
+                          }}
+                        />
+                        <span className="text-sm text-zinc-200 flex-1">{MANAGE_LINK_LABELS[t]}</span>
+                        {exists && (
+                          <span className="text-[9px] font-bold uppercase tracking-widest text-zinc-600">exists</span>
+                        )}
+                      </label>
+                    );
+                  })}
+                </div>
+                <p className="text-[10px] text-zinc-600">
+                  Domain for each type comes from Campaign configuration (Configure Campaign Links).
+                </p>
+              </div>
+
+              <div className="space-y-2">
+                <p className="text-[10px] font-black uppercase tracking-widest text-zinc-500">
+                  Promoted Asset (optional)
+                </p>
+                {trackPromotedAssets.length > 0 ? (
+                  <div className="space-y-2">
+                    <div className="flex flex-wrap gap-2">
+                      {trackPromotedAssets.map(a => (
+                        <span
+                          key={a.asset_id}
+                          className="inline-flex items-center gap-1.5 max-w-full px-2.5 py-1 rounded-lg border border-zinc-700 bg-zinc-900 text-[11px] text-zinc-200"
+                        >
+                          <span className="truncate">{a.display_name}</span>
+                          <button
+                            type="button"
+                            className="text-zinc-500 hover:text-red-400 shrink-0"
+                            onClick={() =>
+                              setTrackPromotedAssets(prev => prev.filter(x => x.asset_id !== a.asset_id))
+                            }
+                          >
+                            ×
+                          </button>
+                        </span>
+                      ))}
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => setShowTrackAssetPicker(true)}
+                      className="text-[10px] font-black uppercase tracking-widest text-zinc-500 hover:text-zinc-300"
+                    >
+                      Change
+                    </button>
+                  </div>
+                ) : (
+                  <button
+                    type="button"
+                    onClick={() => setShowTrackAssetPicker(true)}
+                    className="w-full border border-dashed border-zinc-700 hover:border-zinc-500 rounded-xl py-3 text-[10px] font-black uppercase tracking-widest text-zinc-500 hover:text-zinc-300"
+                  >
+                    + Select Asset
+                  </button>
+                )}
+              </div>
+
+              <div className="flex gap-2 pt-1">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setShowTrackContentModal(false);
+                    setTrackPromotedAssets([]);
+                  }}
+                  className="flex-1 border border-zinc-700 text-zinc-400 text-[10px] font-black uppercase tracking-widest py-2.5 rounded-xl"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="button"
+                  disabled={trackSaving}
+                  onClick={() => handleTrackContentGenerate()}
+                  className="flex-1 bg-emerald-600 hover:bg-emerald-500 disabled:opacity-50 text-white text-[10px] font-black uppercase tracking-widest py-2.5 rounded-xl"
+                >
+                  {trackSaving ? 'Working...' : 'Generate Tracking Links'}
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {showTrackAssetPicker && (effectiveOrgId || organizationId) && (
+          <PromotedAssetPicker
+            organizationId={(effectiveOrgId || organizationId)!}
+            initialSelectedAssetIds={trackPromotedAssets.map(a => a.asset_id)}
+            onClose={() => setShowTrackAssetPicker(false)}
+            onSelect={(assets) => {
+              setTrackPromotedAssets(assets);
+              setShowTrackAssetPicker(false);
+            }}
+          />
         )}
 
 {displayGroups.campaignLinks.length === 0 && displayGroups.assets.length === 0 ? (
