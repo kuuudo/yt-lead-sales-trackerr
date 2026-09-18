@@ -96,11 +96,29 @@ type CampaignElementAssetRow = {
 }
 
 export async function resolveDownstreamNodes(graph: JourneyGraph): Promise<DownstreamResolution> {
+  // ── TEMPORARY DEBUG (remove after diagnosis — 2026-09-15) ─────────────────
+  const KNOWN_TEST_REDIRECT_ID = '2712755a-4425-4488-b751-26949106debe'
+  console.log('[journeyDownstreamResolver] built.nodes.length =', graph.nodes.length)
+  console.log('[journeyDownstreamResolver] built.edges.length =', graph.edges.length)
+  // ── end temporary debug (part 1) ───────────────────────────────────────────
+
   // Terminal = no observed outgoing edge in the observed video->video graph
   // journeyGraph.ts already built. Only these are candidates — a node with
   // a real outgoing edge already has its next step represented there.
   const hasOutgoing = new Set(graph.edges.map((e) => e.fromVideoId))
   const terminalNodes = graph.nodes.filter((n) => !hasOutgoing.has(n.videoId))
+
+  // ── TEMPORARY DEBUG (remove after diagnosis) ───────────────────────────────
+  console.log('[journeyDownstreamResolver] terminal node count =', terminalNodes.length)
+  console.log(
+    '[journeyDownstreamResolver] terminal nodes detail =',
+    terminalNodes.map((n) => ({
+      videoId: n.videoId,
+      observedAssetIds: n.observedAssetIds,
+      observedRedirectLinkIds: n.observedRedirectLinkIds,
+    })),
+  )
+  // ── end temporary debug (part 2) ───────────────────────────────────────────
 
   // A terminal node can carry more than one observed redirect link (the same
   // video's terminal step was reached via different redirect links across
@@ -112,6 +130,18 @@ export async function resolveDownstreamNodes(graph: JourneyGraph): Promise<Downs
       redirectLinkTasks.push({ videoId: n.videoId, redirectLinkId: rl })
     }
   }
+
+  // ── TEMPORARY DEBUG (remove after diagnosis) ───────────────────────────────
+  console.log('[journeyDownstreamResolver] redirectLinkTasks.length =', redirectLinkTasks.length)
+  console.log(
+    '[journeyDownstreamResolver] known test redirect encountered in tasks? =',
+    redirectLinkTasks.some((t) => t.redirectLinkId === KNOWN_TEST_REDIRECT_ID),
+  )
+  if (redirectLinkTasks.length === 0) {
+    console.log('[journeyDownstreamResolver] STOPPING — Case A or Case B: no terminal node has an observed redirect link.')
+  }
+  // ── end temporary debug (part 3) ───────────────────────────────────────────
+
   if (redirectLinkTasks.length === 0) return { nodes: [], edges: [] }
 
   const redirectLinkIds = Array.from(new Set(redirectLinkTasks.map((t) => t.redirectLinkId)))
@@ -119,6 +149,16 @@ export async function resolveDownstreamNodes(graph: JourneyGraph): Promise<Downs
     .from('redirect_links')
     .select('id, asset_id, campaign_id, link_type')
     .in('id', redirectLinkIds)
+
+  // ── TEMPORARY DEBUG (remove after diagnosis) ───────────────────────────────
+  console.log('[journeyDownstreamResolver] redirect_links query error =', rlError)
+  console.log('[journeyDownstreamResolver] redirect_links requested ids =', redirectLinkIds.length)
+  console.log('[journeyDownstreamResolver] redirect_links rows returned =', (redirectLinks ?? []).length)
+  console.log(
+    '[journeyDownstreamResolver] known test redirect found in returned rows? =',
+    (redirectLinks ?? []).some((r: any) => r.id === KNOWN_TEST_REDIRECT_ID),
+  )
+  // ── end temporary debug (part 4) ───────────────────────────────────────────
 
   if (rlError) {
     throw new Error(`journeyDownstreamResolver.ts: redirect_links query failed — ${rlError.message}`)
@@ -209,6 +249,15 @@ export async function resolveDownstreamNodes(graph: JourneyGraph): Promise<Downs
     seenNodeIds.add(nodeId)
     edges.push({ fromVideoId: videoId, toNodeId: nodeId })
   }
+
+  // ── TEMPORARY DEBUG (remove after diagnosis) ───────────────────────────────
+  console.log('[journeyDownstreamResolver] downstream.nodes.length =', nodes.length)
+  console.log('[journeyDownstreamResolver] downstream.edges.length =', edges.length)
+  console.log(
+    '[journeyDownstreamResolver] known test redirect produced a node? =',
+    nodes.some((n) => n.redirectLinkId === '2712755a-4425-4488-b751-26949106debe'),
+  )
+  // ── end temporary debug (part 5) ───────────────────────────────────────────
 
   return { nodes, edges }
 }
