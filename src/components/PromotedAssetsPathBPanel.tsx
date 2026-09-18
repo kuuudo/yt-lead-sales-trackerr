@@ -424,6 +424,47 @@ export function PromotedAssetsPathBPanel({
         }
 
         if (!usage && !loadingUsage) {
+          // Videos.tsx old branch: MY assets (no promotion context) → simple Tracking Domain select
+          if (options.length === 0) {
+            const currentValue = selectedDomainByAssetId.get(asset.asset_id) ?? '';
+            return (
+              <div
+                key={asset.asset_id}
+                className="border border-zinc-800 rounded-xl p-3 space-y-2"
+              >
+                <div className="flex justify-between gap-2">
+                  <p className="text-[9px] font-black uppercase tracking-widest text-zinc-500">
+                    {label} — Tracking Domain
+                  </p>
+                  {!assetsLocked && (
+                    <button
+                      type="button"
+                      className="text-zinc-500 hover:text-red-400"
+                      onClick={() => removeAsset(asset.asset_id)}
+                    >
+                      ×
+                    </button>
+                  )}
+                </div>
+                <select
+                  value={currentValue}
+                  onChange={e => setDomain(asset.asset_id, e.target.value || null)}
+                  className="w-full bg-zinc-950 border border-zinc-800 rounded-xl px-3 py-2 text-xs text-zinc-100"
+                >
+                  <option value="">vstrk.com</option>
+                  {marketerDomains.length > 0 && (
+                    <optgroup label="Your Domains">
+                      {marketerDomains.map(d => (
+                        <option key={d.id} value={d.id}>
+                          {d.hostname}
+                        </option>
+                      ))}
+                    </optgroup>
+                  )}
+                </select>
+              </div>
+            );
+          }
           return (
             <div
               key={asset.asset_id}
@@ -443,11 +484,7 @@ export function PromotedAssetsPathBPanel({
                   </button>
                 )}
               </div>
-              <p className="text-[10px] text-zinc-600">
-                {options.length === 0
-                  ? 'No promotion context found for this asset (not shared/assigned to you).'
-                  : 'Loading tracking methods…'}
-              </p>
+              <p className="text-[10px] text-zinc-600">Loading tracking methods…</p>
             </div>
           );
         }

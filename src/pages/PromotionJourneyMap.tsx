@@ -47,6 +47,14 @@ import { createVideo } from '../services/video/createVideo'
 import { generateAssetRedirectLinks } from '../services/asset/generateAssetRedirectLinks'
 import { PromotedAssetPicker, type PromotedAssetRow } from '../components/PromotedAssetPicker'
 import { PromotedAssetsPathBPanel } from '../components/PromotedAssetsPathBPanel'
+import {
+  listCreativeEligibleAssignmentsForMarketer,
+  loadAssignmentAssetsForCreative,
+  type CreativeEligibleAssignment,
+} from '../services/promotion/listCreativeEligibleCampaigns'
+import { resolvePromotionContextForAsset } from '../services/asset/resolvePromotionContextForAsset'
+import type { CampaignLinkTypeKey } from '../services/video/createVideo'
+
 import type { PromotionContext } from '../services/asset/resolvePromotionContextForAsset'
 
 import { getPromotionDetail } from '../services/promotion/getPromotionDetail'
@@ -433,6 +441,11 @@ export default function PromotionJourneyMap() {
   const [trackDomainByAssetId, setTrackDomainByAssetId] = useState<Map<string, string | null>>(new Map())
   const [trackPromoCtxByAssetId, setTrackPromoCtxByAssetId] = useState<Map<string, PromotionContext | null>>(new Map())
   const [trackAssetScope, setTrackAssetScope] = useState<'promotion_only' | 'allow_additional' | null>(null)
+  const [creativeOnlyAssetIds, setCreativeOnlyAssetIds] = useState<string[]>([])
+  const [creativeRestrictionsLoading, setCreativeRestrictionsLoading] = useState(false)
+  const [creativeEligibleAssignments, setCreativeEligibleAssignments] = useState<CreativeEligibleAssignment[]>([])
+  const [selectedCampaignLinkTypes, setSelectedCampaignLinkTypes] = useState<CampaignLinkTypeKey[]>([])
+  const [showCampaignLinksPicker, setShowCampaignLinksPicker] = useState(false)
   const [nodes, setNodes] = useState<JourneyNode[]>([])
   const [creativeGroupLayout, setCreativeGroupLayout] = useState<{
     left: number
@@ -956,6 +969,58 @@ export default function PromotionJourneyMap() {
   }
 
 
+
+  useEffect(() => {
+    if (!user?.id) return
+    listCreativeEligibleAssignmentsForMarketer(user.id)
+      .then(setCreativeEligibleAssignments)
+      .catch(() => setCreativeEligibleAssignments([]))
+  }, [user?.id])
+
+  useEffect(() => {
+    if (!showTrackAssetPicker || !user?.id) {
+      setCreativeRestrictionsLoading(false)
+      return
+    }
+    let cancelled = false
+    setCreativeRestrictionsLoading(true)
+    ;(async () => {
+      try {
+        const creativeIds = new Set(creativeEligibleAssignments.map(a => a.assignmentId))
+        if (creativeIds.size === 0) {
+          if (!cancelled) setCreativeOnlyAssetIds([])
+          return
+        }
+        const candidateIds = new Set<string>()
+        for (const a of creativeEligibleAssignments) {
+          try {
+            const rows = await loadAssignmentAssetsForCreative(a.assignmentId)
+            for (const r of rows) candidateIds.add(r.asset_id)
+          } catch { /* ignore */ }
+        }
+        if (cancelled || candidateIds.size === 0) {
+          if (!cancelled) setCreativeOnlyAssetIds([])
+          return
+        }
+        const only: string[] = []
+        await Promise.all(
+          [...candidateIds].map(async assetId => {
+            try {
+              const options = await resolvePromotionContextForAsset(assetId, user.id)
+              if (options.length > 0 && options.every(o => creativeIds.has(o.assignmentId))) {
+                only.push(assetId)
+              }
+            } catch { /* ignore */ }
+          }),
+        )
+        if (!cancelled) setCreativeOnlyAssetIds(only)
+      } finally {
+        if (!cancelled) setCreativeRestrictionsLoading(false)
+      }
+    })()
+    return () => { cancelled = true }
+  }, [showTrackAssetPicker, user?.id, creativeEligibleAssignments])
+
   const isCreativePromotion = !!(
     (promotionDetail as any)?.assignment?.creative_creation_mode ||
     (promotionDetail as any)?.promotion?.creative_creation_mode
@@ -1110,6 +1175,7 @@ export default function PromotionJourneyMap() {
         campaign: campaignRow as any,
         organizationId: orgId,
         userId: user.id,
+        campaignLinkTypes: selectedCampaignLinkTypes,
         createdViaCreative: isCreativePromotion,
         creativePromotionId: isCreativePromotion ? promotionId : null,
         creativeAssignmentId: isCreativePromotion ? assignmentId : null,
@@ -1582,7 +1648,38 @@ export default function PromotionJourneyMap() {
               />
             </div>
 
+            
+            <label style={styles.trackLabel}>Campaign links to include</label>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 6, marginBottom: 8 }}>
+              {([
+                ['landing_page', 'Direct purchase / Landing'],
+                ['newsletter', 'Newsletter'],
+                ['consultation', 'Consultation'],
+                ['sales_call', 'Sales call'],
+              ] as const).map(([key, label]) => {
+                const checked = selectedCampaignLinkTypes.includes(key)
+                return (
+                  <label key={key} style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 12, color: '#d4d4d8', cursor: 'pointer' }}>
+                    <input
+                      type="checkbox"
+                      checked={checked}
+                      onChange={() => {
+                        setSelectedCampaignLinkTypes(prev =>
+                          checked ? prev.filter(k => k !== key) : [...prev, key],
+                        )
+                      }}
+                    />
+                    {label}
+                  </label>
+                )
+              })}
+            </div>
+            <p style={{ fontSize: 11, color: '#71717a', marginBottom: 8 }}>
+              Domain for each type comes from Campaign configuration (owner configures on Campaign).
+            </p>
+
             {trackError && <p style={{ color: '#dc2626', fontSize: 12 }}>{trackError}</p>}
+
 
             <div style={{ display: 'flex', gap: 8, marginTop: 12 }}>
               <button
@@ -1613,6 +1710,8 @@ export default function PromotionJourneyMap() {
             (promotionDetail as any)?.assignment?.organization_id
           }
           initialSelectedAssetIds={trackPromotedAssets.map((a) => a.asset_id)}
+          creativeOnlyAssetIds={creativeOnlyAssetIds}
+          creativeRestrictionsLoading={creativeRestrictionsLoading}
           onClose={() => setShowTrackAssetPicker(false)}
           onSelect={(assets) => {
             setTrackPromotedAssets(assets)

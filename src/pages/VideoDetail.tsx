@@ -49,6 +49,15 @@ import { Modal } from '../components/Modal';
 import { createRedirectLink, RedirectLinkType } from '../lib/redirects';
 import { PromotedAssetPicker, type PromotedAssetRow } from '../components/PromotedAssetPicker';
 import { PromotedAssetsPathBPanel } from '../components/PromotedAssetsPathBPanel';
+import {
+  listCreativeEligibleAssignmentsForMarketer,
+  loadAssignmentAssetsForCreative,
+  type CreativeEligibleAssignment,
+} from '../services/promotion/listCreativeEligibleCampaigns';
+import {
+  resolvePromotionContextForAsset,
+} from '../services/asset/resolvePromotionContextForAsset';
+
 import type { PromotionContext } from '../services/asset/resolvePromotionContextForAsset';
 
 import { generateAssetRedirectLinks } from '../services/asset/generateAssetRedirectLinks';
@@ -390,6 +399,62 @@ export default function VideoDetail() {
   const [trackSaving, setTrackSaving] = useState(false);
   const [trackPromotionLabel, setTrackPromotionLabel] = useState<string | null>(null);
   const [showTrackAssetPicker, setShowTrackAssetPicker] = useState(false);
+  const [creativeOnlyAssetIds, setCreativeOnlyAssetIds] = useState<string[]>([]);
+  const [creativeRestrictionsLoading, setCreativeRestrictionsLoading] = useState(false);
+  const [creativeEligibleAssignments, setCreativeEligibleAssignments] = useState<CreativeEligibleAssignment[]>([]);
+
+  useEffect(() => {
+    if (!user?.id) return;
+    listCreativeEligibleAssignmentsForMarketer(user.id)
+      .then(setCreativeEligibleAssignments)
+      .catch(() => setCreativeEligibleAssignments([]));
+  }, [user?.id]);
+
+  // Same as Videos.tsx: when opening asset picker, compute creative-only asset ids
+  useEffect(() => {
+    if (!showTrackAssetPicker || !user?.id) {
+      setCreativeRestrictionsLoading(false);
+      return;
+    }
+    let cancelled = false;
+    setCreativeRestrictionsLoading(true);
+    (async () => {
+      try {
+        const creativeIds = new Set(creativeEligibleAssignments.map(a => a.assignmentId));
+        if (creativeIds.size === 0) {
+          if (!cancelled) setCreativeOnlyAssetIds([]);
+          return;
+        }
+        const candidateIds = new Set<string>();
+        for (const a of creativeEligibleAssignments) {
+          try {
+            const rows = await loadAssignmentAssetsForCreative(a.assignmentId);
+            for (const r of rows) candidateIds.add(r.asset_id);
+          } catch { /* ignore */ }
+        }
+        if (cancelled || candidateIds.size === 0) {
+          if (!cancelled) setCreativeOnlyAssetIds([]);
+          return;
+        }
+        const only: string[] = [];
+        await Promise.all(
+          [...candidateIds].map(async assetId => {
+            try {
+              const options = await resolvePromotionContextForAsset(assetId, user.id);
+              if (options.length > 0 && options.every(o => creativeIds.has(o.assignmentId))) {
+                only.push(assetId);
+              }
+            } catch { /* ignore */ }
+          }),
+        );
+        if (!cancelled) setCreativeOnlyAssetIds(only);
+      } finally {
+        if (!cancelled) setCreativeRestrictionsLoading(false);
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [showTrackAssetPicker, user?.id, creativeEligibleAssignments]);
+
   const [trackDomainByAssetId, setTrackDomainByAssetId] = useState<Map<string, string | null>>(new Map());
   const [trackPromoCtxByAssetId, setTrackPromoCtxByAssetId] = useState<Map<string, PromotionContext | null>>(new Map());
   const [deletingLinkToken, setDeletingLinkToken] = useState<string | null>(null);
