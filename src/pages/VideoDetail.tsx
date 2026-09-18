@@ -1985,7 +1985,7 @@ if (effectiveOrgId && effectiveUserId) {
                   Promoted Asset · tracking domains
                 </p>
                 <PromotedAssetsPathBPanel
-                  organizationId={(effectiveOrgId || organizationId || '') as string}
+                  organizationId={(organizationId || effectiveOrgId || '') as string}
                   userId={(user?.id || effectiveUserId || '') as string}
                   lockedPromotion={
                     (video as any).creative_promotion_id && (video as any).creative_assignment_id

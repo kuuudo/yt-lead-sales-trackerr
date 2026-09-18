@@ -432,6 +432,7 @@ export default function PromotionJourneyMap() {
   const [trackError, setTrackError] = useState<string | null>(null)
   const [trackDomainByAssetId, setTrackDomainByAssetId] = useState<Map<string, string | null>>(new Map())
   const [trackPromoCtxByAssetId, setTrackPromoCtxByAssetId] = useState<Map<string, PromotionContext | null>>(new Map())
+  const [trackAssetScope, setTrackAssetScope] = useState<'promotion_only' | 'allow_additional' | null>(null)
   const [nodes, setNodes] = useState<JourneyNode[]>([])
   const [creativeGroupLayout, setCreativeGroupLayout] = useState<{
     left: number
@@ -486,6 +487,16 @@ export default function PromotionJourneyMap() {
         }
         setPromotionTitle(detail.assignment?.title ?? 'Promotion')
         setPromotionDetail(detail)
+        {
+          const scope = (detail as any)?.assignment?.asset_scope as string | undefined
+          setTrackAssetScope(
+            scope === 'allow_additional'
+              ? 'allow_additional'
+              : scope === 'promotion_only'
+                ? 'promotion_only'
+                : null,
+          )
+        }
         const assetIds = detail.assets.map((a) => a.assetId).filter(Boolean)
         let creativeAssetIds = new Set<string>()
         if (assetIds.length > 0) {
@@ -975,6 +986,34 @@ export default function PromotionJourneyMap() {
     }))
     setTrackPromotedAssets(preselected)
     setTrackDomainByAssetId(new Map())
+    {
+      const scope = (promotionDetail as any)?.assignment?.asset_scope as string | undefined
+      if (scope === 'allow_additional' || scope === 'promotion_only') {
+        setTrackAssetScope(scope)
+      } else {
+        // Fallback: read assignments.asset_scope
+        const aid =
+          (promotionDetail as any)?.assignment?.id ||
+          (promotionDetail as any)?.promotion?.assignment_id
+        if (aid) {
+          supabase
+            .from('assignments')
+            .select('asset_scope')
+            .eq('id', aid)
+            .maybeSingle()
+            .then(({ data }) => {
+              const sc = data?.asset_scope as string | undefined
+              setTrackAssetScope(
+                sc === 'allow_additional'
+                  ? 'allow_additional'
+                  : sc === 'promotion_only'
+                    ? 'promotion_only'
+                    : null,
+              )
+            })
+        }
+      }
+    }
 
     // Campaign list for selector (user may change; promotion stays locked)
     const orgId =
@@ -1529,12 +1568,17 @@ export default function PromotionJourneyMap() {
                       }
                     : null
                 }
+                assetsLocked={trackAssetScope === 'promotion_only'}
                 assets={trackPromotedAssets}
                 onAssetsChange={setTrackPromotedAssets}
                 selectedDomainByAssetId={trackDomainByAssetId}
                 onSelectedDomainByAssetIdChange={setTrackDomainByAssetId}
                 onPromotionContextChange={setTrackPromoCtxByAssetId}
-                onRequestAddAssets={() => setShowTrackAssetPicker(true)}
+                onRequestAddAssets={
+                  trackAssetScope === 'promotion_only'
+                    ? undefined
+                    : () => setShowTrackAssetPicker(true)
+                }
               />
             </div>
 

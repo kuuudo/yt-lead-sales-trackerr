@@ -1,10 +1,8 @@
 /**
- * Shared Path B promoted-asset panel (same behavior as Videos.tsx Track New Content):
- * - optional multi-Promotion chooser when an asset belongs to several promotions
- * - per-asset Marketer / Sponsor (read-only) / VSTRK domain controls from
- *   assignment_assets.allow_* + promotion_assets usage
+ * Shared Path B promoted-asset panel (Videos.tsx Track New Content parity):
+ * multi-Promotion chooser + per-asset Marketer / Sponsor / VSTRK domains.
  */
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import type { PromotedAssetRow } from './PromotedAssetPicker';
 import {
   loadPromotionAssetsForCreative,
@@ -20,6 +18,7 @@ import {
   listVerifiedBrandedDomains,
   type VerifiedDomainOption,
 } from '../services/domain/brandedDomains';
+import { supabase } from '../lib/supabase';
 
 export interface LockedPromotionRef {
   promotionId: string;
@@ -31,22 +30,86 @@ export interface LockedPromotionRef {
 export interface PromotedAssetsPathBPanelProps {
   organizationId: string;
   userId: string;
-  /** When set, skip multi-promo chooser and load Path B for this promotion only */
   lockedPromotion?: LockedPromotionRef | null;
+  /** When true, hide + Add / Change (promotion_only asset scope) */
+  assetsLocked?: boolean;
   assets: PromotedAssetRow[];
   onAssetsChange: (assets: PromotedAssetRow[]) => void;
   selectedDomainByAssetId: Map<string, string | null>;
   onSelectedDomainByAssetIdChange: (next: Map<string, string | null>) => void;
-  /** Optional: expose chosen promotion context for generateAssetRedirectLinks */
   onPromotionContextChange?: (ctxByAssetId: Map<string, PromotionContext | null>) => void;
-  /** Open parent asset picker */
   onRequestAddAssets?: () => void;
+}
+
+function applyDefaultDomains(
+  rows: CreativePromotionAssetRow[],
+  prev: Map<string, string | null>,
+): Map<string, string | null> {
+  const domainMap = new Map(prev);
+  for (const r of rows) {
+    if (domainMap.has(r.asset_id)) continue;
+    if (r.use_marketer_domain && r.selected_marketer_domain_id) {
+      domainMap.set(r.asset_id, r.selected_marketer_domain_id);
+    } else if (r.allow_sponsor_domain && r.selected_sponsor_domain_id && !r.allow_marketer_domain && !r.allow_vstrk_domain) {
+      domainMap.set(r.asset_id, r.selected_sponsor_domain_id);
+    } else if (r.allow_vstrk_domain || r.use_vstrk_domain) {
+      domainMap.set(r.asset_id, null);
+    } else {
+      domainMap.set(r.asset_id, null);
+    }
+  }
+  return domainMap;
+}
+
+/** Fallback when promotion_assets row is missing but assignment_assets has allow_* */
+async function loadAllowFallback(
+  assignmentId: string,
+  assetIds: string[],
+): Promise<CreativePromotionAssetRow[]> {
+  if (!assignmentId || assetIds.length === 0) return [];
+  const { data: allowRows } = await supabase
+    .from('assignment_assets')
+    .select(
+      'asset_id, allow_marketer_domain, allow_sponsor_domain, allow_vstrk_domain, selected_sponsor_domain_id',
+    )
+    .eq('assignment_id', assignmentId)
+    .in('asset_id', assetIds);
+
+  const sponsorIds = (allowRows ?? [])
+    .map((r: any) => r.selected_sponsor_domain_id)
+    .filter(Boolean) as string[];
+  let hostById = new Map<string, string>();
+  if (sponsorIds.length) {
+    const { data: domains } = await supabase
+      .from('branded_tracking_domains')
+      .select('id, hostname')
+      .in('id', sponsorIds);
+    hostById = new Map((domains ?? []).map((d: any) => [d.id, d.hostname]));
+  }
+
+  return (allowRows ?? []).map((r: any) => ({
+    asset_id: r.asset_id,
+    title: '',
+    thumbnail_url: null,
+    allow_marketer_domain: !!r.allow_marketer_domain,
+    allow_sponsor_domain: !!r.allow_sponsor_domain,
+    allow_vstrk_domain: !!r.allow_vstrk_domain,
+    use_marketer_domain: false,
+    use_vstrk_domain: !!r.allow_vstrk_domain,
+    selected_sponsor_domain_id: r.selected_sponsor_domain_id ?? null,
+    selected_sponsor_hostname: r.selected_sponsor_domain_id
+      ? hostById.get(r.selected_sponsor_domain_id) ?? null
+      : null,
+    selected_marketer_domain_id: null,
+    selected_marketer_hostname: null,
+  }));
 }
 
 export function PromotedAssetsPathBPanel({
   organizationId,
   userId,
   lockedPromotion,
+  assetsLocked = false,
   assets,
   onAssetsChange,
   selectedDomainByAssetId,
@@ -63,6 +126,13 @@ export function PromotedAssetsPathBPanel({
   );
   const [marketerDomains, setMarketerDomains] = useState<VerifiedDomainOption[]>([]);
   const [loadingUsage, setLoadingUsage] = useState(false);
+  const [resolvedAssignmentId, setResolvedAssignmentId] = useState<string | null>(
+    lockedPromotion?.assignmentId || null,
+  );
+
+  const isFullyLocked = !!(
+    lockedPromotion?.promotionId && (lockedPromotion.assignmentId || resolvedAssignmentId)
+  );
 
   useEffect(() => {
     if (!organizationId) return;
@@ -71,23 +141,58 @@ export function PromotedAssetsPathBPanel({
       .catch(() => setMarketerDomains([]));
   }, [organizationId]);
 
-  // Locked promotion: load Path B for all current assets
+  // Resolve assignment_id from promotions if parent only passed promotionId
   useEffect(() => {
-    if (!lockedPromotion?.promotionId || !lockedPromotion.assignmentId) return;
+    if (!lockedPromotion?.promotionId) {
+      setResolvedAssignmentId(null);
+      return;
+    }
+    if (lockedPromotion.assignmentId) {
+      setResolvedAssignmentId(lockedPromotion.assignmentId);
+      return;
+    }
+    let cancelled = false;
+    (async () => {
+      const { data } = await supabase
+        .from('promotions')
+        .select('assignment_id')
+        .eq('id', lockedPromotion.promotionId)
+        .maybeSingle();
+      if (!cancelled) setResolvedAssignmentId((data?.assignment_id as string) || null);
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [lockedPromotion?.promotionId, lockedPromotion?.assignmentId]);
+
+  const assetKey = assets.map(a => a.asset_id).sort().join(',');
+
+  // Locked promotion Path B
+  useEffect(() => {
+    const assignmentId = lockedPromotion?.assignmentId || resolvedAssignmentId;
+    if (!lockedPromotion?.promotionId || !assignmentId || assets.length === 0) return;
+
     let cancelled = false;
     (async () => {
       setLoadingUsage(true);
       try {
-        const rows = await loadPromotionAssetsForCreative(
+        let rows = await loadPromotionAssetsForCreative(
           lockedPromotion.promotionId,
-          lockedPromotion.assignmentId,
+          assignmentId,
         );
+        const missing = assets
+          .map(a => a.asset_id)
+          .filter(id => !rows.some(r => r.asset_id === id));
+        if (missing.length) {
+          const fallback = await loadAllowFallback(assignmentId, missing);
+          rows = [...rows, ...fallback];
+        }
         if (cancelled) return;
         setUsageRows(rows);
 
         const option = {
           promotionId: lockedPromotion.promotionId,
-          assignmentId: lockedPromotion.assignmentId,
+          assignmentId,
           assignmentCollaboratorId: lockedPromotion.assignmentCollaboratorId ?? null,
           label: lockedPromotion.label ?? 'Promotion',
         } as PromotionContextOption;
@@ -100,21 +205,7 @@ export function PromotedAssetsPathBPanel({
         }
         setPromoOptionsByAsset(ctxMap);
         setChosenPromoByAsset(chosenMap);
-
-        const domainMap = new Map(selectedDomainByAssetId);
-        for (const r of rows) {
-          if (domainMap.has(r.asset_id)) continue;
-          if (r.use_marketer_domain && r.selected_marketer_domain_id) {
-            domainMap.set(r.asset_id, r.selected_marketer_domain_id);
-          } else if (r.allow_vstrk_domain || r.use_vstrk_domain) {
-            domainMap.set(r.asset_id, null);
-          } else if (r.allow_sponsor_domain && r.selected_sponsor_domain_id) {
-            domainMap.set(r.asset_id, r.selected_sponsor_domain_id);
-          } else {
-            domainMap.set(r.asset_id, null);
-          }
-        }
-        onSelectedDomainByAssetIdChange(domainMap);
+        onSelectedDomainByAssetIdChange(applyDefaultDomains(rows, selectedDomainByAssetId));
       } catch (e) {
         console.error('[PromotedAssetsPathBPanel] locked load failed', e);
       } finally {
@@ -125,38 +216,58 @@ export function PromotedAssetsPathBPanel({
       cancelled = true;
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [lockedPromotion?.promotionId, lockedPromotion?.assignmentId, assets.map(a => a.asset_id).join(',')]);
+  }, [lockedPromotion?.promotionId, lockedPromotion?.assignmentId, resolvedAssignmentId, assetKey]);
 
-  // Unlocked: resolve multi-promotion options per asset
+  // Unlocked: resolve promotions per asset, then Path B usage
   useEffect(() => {
-    if (lockedPromotion?.promotionId || !userId || assets.length === 0) return;
+    // Only when NOT locked to a specific promotion
+    if (lockedPromotion?.promotionId) return;
+    if (!userId || assets.length === 0) {
+      setPromoOptionsByAsset(new Map());
+      setUsageRows([]);
+      return;
+    }
+
     let cancelled = false;
     (async () => {
       setLoadingUsage(true);
       try {
         const entries = await Promise.all(
           assets.map(async a => {
-            const options = await resolvePromotionContextForAsset(a.asset_id, userId);
-            return [a.asset_id, options] as const;
+            try {
+              const options = await resolvePromotionContextForAsset(a.asset_id, userId);
+              return [a.asset_id, options ?? []] as const;
+            } catch (e) {
+              console.error('[PathB] resolvePromotionContextForAsset', a.asset_id, e);
+              return [a.asset_id, [] as PromotionContextOption[]] as const;
+            }
           }),
         );
         if (cancelled) return;
-        const next = new Map<string, PromotionContextOption[]>();
-        const chosen = new Map(chosenPromoByAsset);
+
+        const nextOpts = new Map<string, PromotionContextOption[]>();
+        const nextChosen = new Map<string, PromotionContext>();
         for (const [assetId, options] of entries) {
-          next.set(assetId, options);
+          nextOpts.set(assetId, options);
           if (options.length === 1) {
-            chosen.set(assetId, toPromotionContext(options[0]));
+            nextChosen.set(assetId, toPromotionContext(options[0]));
+          } else if (options.length > 1) {
+            // keep prior choice if still valid
+            const prev = chosenPromoByAsset.get(assetId);
+            if (prev && options.some(o => o.promotionId === prev.promotionId)) {
+              nextChosen.set(assetId, prev);
+            }
           }
         }
-        setPromoOptionsByAsset(next);
-        setChosenPromoByAsset(chosen);
+        setPromoOptionsByAsset(nextOpts);
+        setChosenPromoByAsset(nextChosen);
 
-        // Load usage for resolved contexts
         const byPromo = new Map<string, { assignmentId: string; assetIds: string[] }>();
-        for (const [assetId, options] of next.entries()) {
+        for (const [assetId, options] of nextOpts.entries()) {
           const ctx =
-            options.length === 1 ? toPromotionContext(options[0]) : chosen.get(assetId);
+            options.length === 1
+              ? toPromotionContext(options[0])
+              : nextChosen.get(assetId);
           if (!ctx?.promotionId || !ctx.assignmentId) continue;
           const cur = byPromo.get(ctx.promotionId) ?? {
             assignmentId: ctx.assignmentId,
@@ -165,16 +276,23 @@ export function PromotedAssetsPathBPanel({
           cur.assetIds.push(assetId);
           byPromo.set(ctx.promotionId, cur);
         }
+
         const merged: CreativePromotionAssetRow[] = [];
         for (const [promotionId, { assignmentId, assetIds }] of byPromo) {
-          const rows = await loadPromotionAssetsForCreative(promotionId, assignmentId);
+          let rows = await loadPromotionAssetsForCreative(promotionId, assignmentId);
+          const missing = assetIds.filter(id => !rows.some(r => r.asset_id === id));
+          if (missing.length) {
+            rows = [...rows, ...(await loadAllowFallback(assignmentId, missing))];
+          }
           for (const r of rows) {
             if (assetIds.includes(r.asset_id)) merged.push(r);
           }
         }
-        if (!cancelled) setUsageRows(merged);
+        if (cancelled) return;
+        setUsageRows(merged);
+        onSelectedDomainByAssetIdChange(applyDefaultDomains(merged, selectedDomainByAssetId));
       } catch (e) {
-        console.error('[PromotedAssetsPathBPanel] resolve failed', e);
+        console.error('[PromotedAssetsPathBPanel] unlock resolve failed', e);
       } finally {
         if (!cancelled) setLoadingUsage(false);
       }
@@ -183,7 +301,7 @@ export function PromotedAssetsPathBPanel({
       cancelled = true;
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [lockedPromotion?.promotionId, userId, assets.map(a => a.asset_id).join(',')]);
+  }, [lockedPromotion?.promotionId, userId, assetKey]);
 
   useEffect(() => {
     if (!onPromotionContextChange) return;
@@ -195,6 +313,7 @@ export function PromotedAssetsPathBPanel({
   }, [assets, chosenPromoByAsset, onPromotionContextChange]);
 
   const removeAsset = (assetId: string) => {
+    if (assetsLocked) return;
     onAssetsChange(assets.filter(a => a.asset_id !== assetId));
   };
 
@@ -204,26 +323,38 @@ export function PromotedAssetsPathBPanel({
     onSelectedDomainByAssetIdChange(next);
   };
 
-  const choosePromotion = (assetId: string, option: PromotionContextOption) => {
+  const choosePromotion = async (assetId: string, option: PromotionContextOption) => {
     const chosen = new Map(chosenPromoByAsset);
     chosen.set(assetId, toPromotionContext(option));
     setChosenPromoByAsset(chosen);
-    // reload usage for this promo
-    loadPromotionAssetsForCreative(option.promotionId, option.assignmentId)
-      .then(rows => {
-        setUsageRows(prev => {
-          const others = prev.filter(r => r.asset_id !== assetId);
-          const hit = rows.find(r => r.asset_id === assetId);
-          return hit ? [...others, hit] : others;
-        });
-      })
-      .catch(e => console.error(e));
+    try {
+      let rows = await loadPromotionAssetsForCreative(option.promotionId, option.assignmentId);
+      if (!rows.some(r => r.asset_id === assetId)) {
+        rows = [
+          ...rows,
+          ...(await loadAllowFallback(option.assignmentId, [assetId])),
+        ];
+      }
+      setUsageRows(prev => {
+        const others = prev.filter(r => r.asset_id !== assetId);
+        const hit = rows.find(r => r.asset_id === assetId);
+        return hit ? [...others, hit] : others;
+      });
+      const hit = rows.find(r => r.asset_id === assetId);
+      if (hit) {
+        onSelectedDomainByAssetIdChange(
+          applyDefaultDomains([hit], selectedDomainByAssetId),
+        );
+      }
+    } catch (e) {
+      console.error('[PathB] choosePromotion', e);
+    }
   };
 
   if (assets.length === 0) {
     return (
       <div className="space-y-2">
-        {onRequestAddAssets && (
+        {!assetsLocked && onRequestAddAssets && (
           <button
             type="button"
             onClick={onRequestAddAssets}
@@ -232,6 +363,9 @@ export function PromotedAssetsPathBPanel({
             + Select Asset
           </button>
         )}
+        {assetsLocked && (
+          <p className="text-[10px] text-zinc-600">No assets in this promotion.</p>
+        )}
       </div>
     );
   }
@@ -239,7 +373,9 @@ export function PromotedAssetsPathBPanel({
   return (
     <div className="space-y-3">
       {loadingUsage && (
-        <p className="text-[10px] text-zinc-500 uppercase tracking-widest">Loading tracking options…</p>
+        <p className="text-[10px] text-zinc-500 uppercase tracking-widest">
+          Loading promotion / tracking options…
+        </p>
       )}
       {assets.map(asset => {
         const label = asset.display_name || asset.asset_id;
@@ -247,20 +383,29 @@ export function PromotedAssetsPathBPanel({
         const chosen = chosenPromoByAsset.get(asset.asset_id);
         const usage = usageRows.find(r => r.asset_id === asset.asset_id);
 
-        if (!lockedPromotion && options.length > 1 && !chosen) {
+        // Multi-promotion gate (unlocked only)
+        if (!isFullyLocked && options.length > 1 && !chosen) {
           return (
             <div
               key={asset.asset_id}
-              className="border border-dashed border-zinc-800 rounded-xl p-3 space-y-2"
+              className="border border-dashed border-amber-800/50 rounded-xl p-3 space-y-2"
             >
               <div className="flex justify-between gap-2">
-                <p className="text-[9px] font-black uppercase tracking-widest text-zinc-400">{label}</p>
-                <button type="button" className="text-zinc-500 hover:text-red-400" onClick={() => removeAsset(asset.asset_id)}>
-                  ×
-                </button>
+                <p className="text-[9px] font-black uppercase tracking-widest text-zinc-400">
+                  {label}
+                </p>
+                {!assetsLocked && (
+                  <button
+                    type="button"
+                    className="text-zinc-500 hover:text-red-400"
+                    onClick={() => removeAsset(asset.asset_id)}
+                  >
+                    ×
+                  </button>
+                )}
               </div>
-              <p className="text-xs text-zinc-500">
-                This asset is used in multiple promotions. Select which Promotion to track:
+              <p className="text-xs text-zinc-400">
+                This asset is used in multiple collaborations. Select which Promotion to track:
               </p>
               <div className="space-y-1">
                 {options.map(opt => (
@@ -278,13 +423,41 @@ export function PromotedAssetsPathBPanel({
           );
         }
 
+        if (!usage && !loadingUsage) {
+          return (
+            <div
+              key={asset.asset_id}
+              className="border border-zinc-800 rounded-xl p-3 space-y-1"
+            >
+              <div className="flex justify-between gap-2">
+                <p className="text-[9px] font-black uppercase tracking-widest text-zinc-400">
+                  {label}
+                </p>
+                {!assetsLocked && (
+                  <button
+                    type="button"
+                    className="text-zinc-500 hover:text-red-400"
+                    onClick={() => removeAsset(asset.asset_id)}
+                  >
+                    ×
+                  </button>
+                )}
+              </div>
+              <p className="text-[10px] text-zinc-600">
+                {options.length === 0
+                  ? 'No promotion context found for this asset (not shared/assigned to you).'
+                  : 'Loading tracking methods…'}
+              </p>
+            </div>
+          );
+        }
+
         if (!usage) {
           return (
-            <div key={asset.asset_id} className="border border-zinc-800 rounded-xl p-3 flex justify-between gap-2">
-              <p className="text-[9px] font-black uppercase tracking-widest text-zinc-400">{label}</p>
-              <button type="button" className="text-zinc-500 hover:text-red-400" onClick={() => removeAsset(asset.asset_id)}>
-                ×
-              </button>
+            <div key={asset.asset_id} className="border border-zinc-800 rounded-xl p-3">
+              <p className="text-[9px] font-black uppercase tracking-widest text-zinc-500">
+                {label}
+              </p>
             </div>
           );
         }
@@ -304,20 +477,32 @@ export function PromotedAssetsPathBPanel({
           showSponsor &&
           !!usage.selected_sponsor_domain_id &&
           currentDomainId === usage.selected_sponsor_domain_id;
+        const usingMarketer =
+          !!currentDomainId && marketerDomains.some(d => d.id === currentDomainId);
         const usingVstrk =
-          showVstrk &&
-          (currentDomainId === null || currentDomainId === '') &&
-          !usingSponsor &&
-          !(currentDomainId && marketerDomains.some(d => d.id === currentDomainId));
+          showVstrk && (currentDomainId === null || currentDomainId === '') && !usingSponsor && !usingMarketer;
 
         return (
           <div key={asset.asset_id} className="border border-zinc-800 rounded-xl p-3 space-y-2">
             <div className="flex items-start justify-between gap-2">
-              <p className="text-[9px] font-black uppercase tracking-widest text-zinc-400">{label}</p>
-              <button type="button" className="text-zinc-500 hover:text-red-400" onClick={() => removeAsset(asset.asset_id)}>
-                ×
-              </button>
+              <p className="text-[9px] font-black uppercase tracking-widest text-zinc-400">
+                {label}
+              </p>
+              {!assetsLocked && (
+                <button
+                  type="button"
+                  className="text-zinc-500 hover:text-red-400"
+                  onClick={() => removeAsset(asset.asset_id)}
+                >
+                  ×
+                </button>
+              )}
             </div>
+            {chosen && options.length > 1 && (
+              <p className="text-[10px] text-zinc-600">
+                Promotion: {(options.find(o => o.promotionId === chosen.promotionId) as any)?.label || chosen.promotionId}
+              </p>
+            )}
             <div className="space-y-2">
               {showMarketer && (
                 <div className="space-y-1">
@@ -351,7 +536,7 @@ export function PromotedAssetsPathBPanel({
                       onClick={() => setDomain(asset.asset_id, usage.selected_sponsor_domain_id)}
                       className={`w-full text-left text-xs px-3 py-2 rounded-xl border ${
                         usingSponsor
-                          ? 'border-red-600 bg-red-600/10 text-zinc-100'
+                          ? 'border-orange-600 bg-orange-600/10 text-zinc-100'
                           : 'border-zinc-800 bg-zinc-900/80 text-zinc-300'
                       }`}
                     >
@@ -376,7 +561,7 @@ export function PromotedAssetsPathBPanel({
                     onClick={() => setDomain(asset.asset_id, null)}
                     className={`w-full text-left text-xs px-3 py-2 rounded-xl border ${
                       usingVstrk
-                        ? 'border-red-600 bg-red-600/10 text-zinc-100'
+                        ? 'border-orange-600 bg-orange-600/10 text-zinc-100'
                         : 'border-zinc-800 bg-zinc-900/80 text-zinc-300'
                     }`}
                   >
@@ -385,13 +570,15 @@ export function PromotedAssetsPathBPanel({
                 </div>
               )}
               {!showMarketer && !showSponsor && !showVstrk && (
-                <p className="text-[10px] text-zinc-600">No tracking methods allowed for this asset.</p>
+                <p className="text-[10px] text-zinc-600">
+                  No tracking methods allowed for this asset.
+                </p>
               )}
             </div>
           </div>
         );
       })}
-      {onRequestAddAssets && (
+      {!assetsLocked && onRequestAddAssets && (
         <button
           type="button"
           onClick={onRequestAddAssets}
@@ -399,6 +586,11 @@ export function PromotedAssetsPathBPanel({
         >
           + Add / Change assets
         </button>
+      )}
+      {assetsLocked && (
+        <p className="text-[10px] text-zinc-600">
+          Asset scope is promotion-only — assets are fixed to this promotion.
+        </p>
       )}
     </div>
   );
