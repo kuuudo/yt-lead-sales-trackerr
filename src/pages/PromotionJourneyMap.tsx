@@ -434,6 +434,9 @@ export default function PromotionJourneyMap() {
   const [trackPlatform, setTrackPlatform] = useState<'youtube' | 'tiktok' | 'instagram' | 'linkedin' | 'x' | 'threads' | 'facebook' | 'reddit' | 'twitch'>('youtube')
   const [trackCampaignId, setTrackCampaignId] = useState('')
   const [trackCampaigns, setTrackCampaigns] = useState<Array<{ id: string; campaign_name: string }>>([])
+  const [trackCampaignLocked, setTrackCampaignLocked] = useState(false)
+  const [trackCreativeMode, setTrackCreativeMode] = useState<string | null>(null)
+  const [trackSponsorOrgId, setTrackSponsorOrgId] = useState<string | null>(null)
   const [trackPromotedAssets, setTrackPromotedAssets] = useState<PromotedAssetRow[]>([])
   const [showTrackAssetPicker, setShowTrackAssetPicker] = useState(false)
   const [trackSaving, setTrackSaving] = useState(false)
@@ -1010,6 +1013,8 @@ export default function PromotionJourneyMap() {
   }, [showTrackAssetPicker, user?.id, creativeEligibleAssignments])
 
   const isCreativePromotion = !!(
+    trackCreativeMode === 'campaign_asset_only' ||
+    trackCreativeMode === 'campaign_links_and_assets' ||
     (promotionDetail as any)?.assignment?.creative_creation_mode ||
     (promotionDetail as any)?.promotion?.creative_creation_mode
   )
@@ -1068,20 +1073,104 @@ export default function PromotionJourneyMap() {
       }
     }
 
-    // Campaign list for selector (user may change; promotion stays locked)
-    const orgId =
+    // Campaign list — Creative Assignments only allow Sponsor creative campaigns
+    const assignmentId =
+      (promotionDetail as any)?.assignment?.id ||
+      (promotionDetail as any)?.promotion?.assignment_id ||
+      null
+    let sponsorOrgId =
       (promotionDetail as any).promotion?.organization_id ||
       (promotionDetail as any).assignment?.organization_id ||
-      organizationId
-    if (orgId) {
-      const { data: camps } = await supabase
+      null
+    let creativeMode: string | null =
+      (promotionDetail as any)?.assignment?.creative_creation_mode || null
+    let creativeCampaignId: string | null =
+      (promotionDetail as any)?.assignment?.creative_campaign_id || null
+
+    if (assignmentId) {
+      const { data: asg } = await supabase
+        .from('assignments')
+        .select('organization_id, creative_creation_mode, creative_campaign_id, asset_scope')
+        .eq('id', assignmentId)
+        .maybeSingle()
+      if (asg) {
+        sponsorOrgId = (asg.organization_id as string) || sponsorOrgId
+        creativeMode = (asg.creative_creation_mode as string) || creativeMode
+        creativeCampaignId = (asg.creative_campaign_id as string) || creativeCampaignId
+        const scope = asg.asset_scope as string | undefined
+        if (scope === 'allow_additional' || scope === 'promotion_only') {
+          setTrackAssetScope(scope)
+        }
+      }
+    }
+
+    setTrackSponsorOrgId(sponsorOrgId)
+    setTrackCreativeMode(creativeMode)
+
+    const isCreative =
+      creativeMode === 'campaign_asset_only' || creativeMode === 'campaign_links_and_assets'
+
+    if (isCreative && sponsorOrgId) {
+      // Only Sponsor ONLY PROMOTE ASSET (+ optional one normal creative_campaign_id)
+      const { data: onlyPromote } = await supabase
         .from('campaigns')
-        .select('id, campaign_name')
-        .eq('organization_id', orgId)
-        .is('archived_at', null)
-        .order('campaign_name')
-      setTrackCampaigns((camps as any[]) || [])
-      if (!promoCampaignId && camps?.[0]?.id) setTrackCampaignId(camps[0].id)
+        .select('id, campaign_name, is_system')
+        .eq('organization_id', sponsorOrgId)
+        .eq('is_system', true)
+        .eq('campaign_name', 'ONLY PROMOTE ASSET')
+        .maybeSingle()
+
+      const allowed: Array<{ id: string; campaign_name: string }> = []
+      if (onlyPromote?.id) {
+        allowed.push({
+          id: onlyPromote.id as string,
+          campaign_name: (onlyPromote.campaign_name as string) || 'ONLY PROMOTE ASSET',
+        })
+      }
+
+      if (creativeMode === 'campaign_links_and_assets' && creativeCampaignId) {
+        const { data: extra } = await supabase
+          .from('campaigns')
+          .select('id, campaign_name, is_system, archived_at, organization_id')
+          .eq('id', creativeCampaignId)
+          .maybeSingle()
+        if (
+          extra &&
+          extra.organization_id === sponsorOrgId &&
+          !extra.is_system &&
+          !extra.archived_at
+        ) {
+          allowed.push({
+            id: extra.id as string,
+            campaign_name: (extra.campaign_name as string) || 'Sponsor campaign',
+          })
+        }
+      }
+
+      setTrackCampaigns(allowed)
+      setTrackCampaignLocked(true)
+      // Prefer promotion.campaign_id if allowed, else creative_campaign_id, else ONLY PROMOTE ASSET
+      const preferred =
+        (promoCampaignId && allowed.some(c => c.id === promoCampaignId) && promoCampaignId) ||
+        (creativeCampaignId && allowed.some(c => c.id === creativeCampaignId) && creativeCampaignId) ||
+        allowed[0]?.id ||
+        ''
+      setTrackCampaignId(preferred)
+    } else {
+      // Non-creative promotion: Sponsor org campaigns (or viewer org fallback)
+      const orgId = sponsorOrgId || organizationId
+      setTrackCampaignLocked(false)
+      if (orgId) {
+        const { data: camps } = await supabase
+          .from('campaigns')
+          .select('id, campaign_name')
+          .eq('organization_id', orgId)
+          .is('archived_at', null)
+          .order('campaign_name')
+        setTrackCampaigns((camps as any[]) || [])
+        if (!promoCampaignId && camps?.[0]?.id) setTrackCampaignId(camps[0].id)
+        else if (promoCampaignId) setTrackCampaignId(promoCampaignId)
+      }
     }
     setShowTrackModal(true)
   }
@@ -1107,8 +1196,10 @@ export default function PromotionJourneyMap() {
       if (campErr || !campaignRow) throw new Error(campErr?.message || 'Campaign not found')
 
       const orgId =
+        (isCreativePromotion && trackSponsorOrgId) ||
         (campaignRow as any).organization_id ||
         (promotionDetail as any).promotion?.organization_id ||
+        (promotionDetail as any).assignment?.organization_id ||
         organizationId
       if (!orgId) throw new Error('Missing organization')
 
@@ -1594,17 +1685,31 @@ export default function PromotionJourneyMap() {
               placeholder="https://..."
             />
 
-            <label style={styles.trackLabel}>Campaign</label>
-            <select
-              style={styles.trackInput}
-              value={trackCampaignId}
-              onChange={(e) => setTrackCampaignId(e.target.value)}
-            >
-              <option value="">Select campaign</option>
-              {trackCampaigns.map((c) => (
-                <option key={c.id} value={c.id}>{c.campaign_name}</option>
-              ))}
-            </select>
+            <label style={styles.trackLabel}>
+              Campaign{trackCampaignLocked ? ' (Creative · limited)' : ''}
+            </label>
+            {trackCampaignLocked && trackCampaigns.length <= 1 ? (
+              <div style={styles.trackLocked}>
+                {trackCampaigns[0]?.campaign_name || 'ONLY PROMOTE ASSET'}
+              </div>
+            ) : (
+              <select
+                style={styles.trackInput}
+                value={trackCampaignId}
+                onChange={(e) => setTrackCampaignId(e.target.value)}
+                disabled={trackCampaignLocked && trackCampaigns.length === 0}
+              >
+                <option value="">Select campaign</option>
+                {trackCampaigns.map((c) => (
+                  <option key={c.id} value={c.id}>{c.campaign_name}</option>
+                ))}
+              </select>
+            )}
+            {trackCampaignLocked && trackCreativeMode === 'campaign_links_and_assets' && trackCampaigns.length > 1 && (
+              <p style={{ fontSize: 11, color: '#71717a', marginTop: 4 }}>
+                Creative mode: ONLY PROMOTE ASSET or the one Sponsor campaign on this Assignment.
+              </p>
+            )}
 
             <label style={styles.trackLabel}>Promotion (locked)</label>
             <div style={styles.trackLocked}>
