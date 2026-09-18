@@ -57,8 +57,8 @@ import type { CanvasTransform } from '../components/analytics/store/useWorkspace
 // build logic; this page only consumes their output. Not touched: journey.ts,
 // journeyDiscovery.ts, journeyGraph.ts, promotionJourney.ts, assetJourney.ts,
 // journeyAnalyticsEngine.ts, events, attribution, the database.
-import { discoverPromotionJourneys } from '../lib/journeyDiscovery'
-import { buildJourneyGraph, type JourneyGraph, type GraphNode, type GraphEdge } from '../lib/journeyGraph'
+import { discoverPromotionJourneys } from '../services/journey/journeyDiscovery'
+import { buildJourneyGraph, type JourneyGraph, type GraphNode, type GraphEdge } from '../services/journey/journeyGraph'
 import { resolveAssetType } from '../services/asset/resolveAssetType'
 
 // ─── STEP 3 (additive) — resolve what a terminal video step's own observed
@@ -334,6 +334,14 @@ export default function PromotionJourneyMap() {
       setGraphError(null)
       try {
         const discovered = await discoverPromotionJourneys(promotionId)
+        // ── TEMPORARY DEBUG (remove after diagnosis — 2026-09-15) ───────────
+        console.log('[PromotionJourneyMap] promotionId =', promotionId)
+        console.log('[PromotionJourneyMap] discovered.length =', discovered.length)
+        console.log(
+          '[PromotionJourneyMap] discovered detail =',
+          discovered.map((d) => ({ journeyId: d.journeyId, stepCount: d.path.steps.length })),
+        )
+        // ── end temporary debug ──────────────────────────────────────────────
         const built = buildJourneyGraph(discovered)
         if (cancelled) return
 
