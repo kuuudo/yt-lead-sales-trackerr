@@ -46,6 +46,7 @@ import { getAssetDetail } from '../services/asset/getAssetDetail'
 import {
   resolveAssetThumbnail,
   resolveElementThumbnail,
+  resolveThumbnail,
   getElementTypeLabel,
   type ResourceType,
   type CampaignElementType,
@@ -127,7 +128,7 @@ const UNLINKED_GROUP_GAP_Y = 110
 interface UnlinkedVideo {
   videoId: string
   title: string | null
-  thumbnailUrl: string | null
+  thumbnailUrl: string
 }
 
 const MIN_SCALE = 0.4
@@ -591,18 +592,22 @@ export default function PromotionJourneyMap() {
           return
         }
 
-        // Display-only lookup. Deliberately in its own try/catch: if the
-        // `videos` read fails (or returns nothing for an id), the group
-        // still renders — the card just falls back to the video id.
-        const meta = new Map<string, { title: string | null; thumbnailUrl: string | null }>()
+        // Display-only lookup, same table/columns/key as getAssetDetail.ts's
+        // video branch: `videos.id` (not asset_id — redirect_links.video_id
+        // IS videos.id directly) and `video_title` (not `title` — the videos
+        // table has no `title` column, only `video_title`). Also resolves
+        // platform, so resolveThumbnail() below can fall back to a
+        // platform placeholder exactly like the promoted-asset cards do,
+        // instead of showing a blank thumbnail when thumbnail_url is empty.
+        const meta = new Map<string, { title: string | null; thumbnailUrl: string | null; platform: string | null }>()
         try {
           const { data: videoRows, error: videoError } = await supabase
             .from('videos')
-            .select('id, title, thumbnail_url')
+            .select('id, video_title, thumbnail_url, platform')
             .in('id', ids)
           if (videoError) throw videoError
-          for (const v of (videoRows ?? []) as { id: string; title: string | null; thumbnail_url: string | null }[]) {
-            meta.set(v.id, { title: v.title ?? null, thumbnailUrl: v.thumbnail_url ?? null })
+          for (const v of (videoRows ?? []) as { id: string; video_title: string | null; thumbnail_url: string | null; platform: string | null }[]) {
+            meta.set(v.id, { title: v.video_title ?? null, thumbnailUrl: v.thumbnail_url ?? null, platform: v.platform ?? null })
           }
         } catch (metaErr: any) {
           console.warn('[PromotionJourneyMap] STEP 5 video display lookup failed:', metaErr?.message || metaErr)
@@ -610,11 +615,14 @@ export default function PromotionJourneyMap() {
         if (cancelled) return
 
         setUnlinkedCandidates(
-          ids.map((videoId) => ({
-            videoId,
-            title: meta.get(videoId)?.title ?? null,
-            thumbnailUrl: meta.get(videoId)?.thumbnailUrl ?? null,
-          })),
+          ids.map((videoId) => {
+            const m = meta.get(videoId)
+            return {
+              videoId,
+              title: m?.title ?? null,
+              thumbnailUrl: resolveThumbnail({ thumbnail_url: m?.thumbnailUrl ?? null, platform: m?.platform ?? null }),
+            }
+          }),
         )
       } catch (err: any) {
         // Additive, non-critical layer — a failure here must never blank out
@@ -1045,11 +1053,7 @@ export default function PromotionJourneyMap() {
                   title={v.title ? `${v.title}\n${v.videoId}` : v.videoId}
                 >
                   <div style={{ ...styles.nodeThumb, height: UNLINKED_THUMB_HEIGHT }}>
-                    {v.thumbnailUrl ? (
-                      <img src={v.thumbnailUrl} style={styles.nodeThumbImg} draggable={false} />
-                    ) : (
-                      <div style={styles.nodeThumbFallback} />
-                    )}
+                    <img src={v.thumbnailUrl} style={styles.nodeThumbImg} draggable={false} />
                   </div>
                   <div style={styles.unlinkedNodeTitle}>{v.title || v.videoId}</div>
                 </div>
