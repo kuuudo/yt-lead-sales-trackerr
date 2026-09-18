@@ -2098,6 +2098,8 @@ if (effectiveOrgId && effectiveUserId) {
           <PromotedAssetPicker
             organizationId={(effectiveOrgId || organizationId)!}
             initialSelectedAssetIds={trackPromotedAssets.map(a => a.asset_id)}
+            creativeOnlyAssetIds={creativeOnlyAssetIds}
+            creativeRestrictionsLoading={creativeRestrictionsLoading}
             onClose={() => setShowTrackAssetPicker(false)}
             onSelect={(assets) => {
               setTrackPromotedAssets(assets);

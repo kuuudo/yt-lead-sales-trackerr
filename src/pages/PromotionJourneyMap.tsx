@@ -958,18 +958,6 @@ export default function PromotionJourneyMap() {
 
   const scalePercent = Math.round(transform.scale * 100)
 
-  // ── Render ─────────────────────────────────────────────────────────────
-  if (loading) {
-    return (
-      <div style={styles.centered}>
-        <Loader2 className="animate-spin" size={20} />
-        <span style={styles.loadingText}>Loading promotion journey map…</span>
-      </div>
-    )
-  }
-
-
-
   useEffect(() => {
     if (!user?.id) return
     listCreativeEligibleAssignmentsForMarketer(user.id)
@@ -1214,6 +1202,17 @@ export default function PromotionJourneyMap() {
     } finally {
       setTrackSaving(false)
     }
+  }
+
+
+  // ── Render ─────────────────────────────────────────────────────────────
+  if (loading) {
+    return (
+      <div style={styles.centered}>
+        <Loader2 className="animate-spin" size={20} />
+        <span style={styles.loadingText}>Loading promotion journey map…</span>
+      </div>
+    )
   }
 
   if (error) {
