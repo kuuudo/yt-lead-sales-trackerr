@@ -46,6 +46,8 @@ import { useOrganization } from '../lib/useOrganization'
 import { createVideo } from '../services/video/createVideo'
 import { generateAssetRedirectLinks } from '../services/asset/generateAssetRedirectLinks'
 import { PromotedAssetPicker, type PromotedAssetRow } from '../components/PromotedAssetPicker'
+import { PromotedAssetsPathBPanel } from '../components/PromotedAssetsPathBPanel'
+import type { PromotionContext } from '../services/asset/resolvePromotionContextForAsset'
 
 import { getPromotionDetail } from '../services/promotion/getPromotionDetail'
 import type { PromotionDetailData } from '../services/promotion/getPromotionDetail'
@@ -428,6 +430,8 @@ export default function PromotionJourneyMap() {
   const [showTrackAssetPicker, setShowTrackAssetPicker] = useState(false)
   const [trackSaving, setTrackSaving] = useState(false)
   const [trackError, setTrackError] = useState<string | null>(null)
+  const [trackDomainByAssetId, setTrackDomainByAssetId] = useState<Map<string, string | null>>(new Map())
+  const [trackPromoCtxByAssetId, setTrackPromoCtxByAssetId] = useState<Map<string, PromotionContext | null>>(new Map())
   const [nodes, setNodes] = useState<JourneyNode[]>([])
   const [creativeGroupLayout, setCreativeGroupLayout] = useState<{
     left: number
@@ -970,6 +974,7 @@ export default function PromotionJourneyMap() {
       thumbnail: resolveNodeThumbnail(a.resource),
     }))
     setTrackPromotedAssets(preselected)
+    setTrackDomainByAssetId(new Map())
 
     // Campaign list for selector (user may change; promotion stays locked)
     const orgId =
@@ -1085,11 +1090,13 @@ export default function PromotionJourneyMap() {
           videoId: savedVideo.id,
           selectedAssets: trackPromotedAssets.map((asset) => ({
             asset_id: asset.asset_id,
-            promotionContext: {
+            promotionContext: (trackPromoCtxByAssetId.get(asset.asset_id) || {
               promotionId,
               assignmentId,
-            } as any,
-            trackingDomainId: null,
+            }) as any,
+            trackingDomainId: trackDomainByAssetId.has(asset.asset_id)
+              ? trackDomainByAssetId.get(asset.asset_id) ?? null
+              : null,
           })),
         })
       }
@@ -1498,32 +1505,38 @@ export default function PromotionJourneyMap() {
               {promotionTitle}{isCreativePromotion ? ' (CREATIVE)' : ''}
             </div>
 
-            <label style={styles.trackLabel}>Promoted assets</label>
-            {trackPromotedAssets.length > 0 ? (
-              <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginBottom: 8 }}>
-                {trackPromotedAssets.map((a) => (
-                  <span key={a.asset_id} style={styles.trackAssetChip}>
-                    {a.display_name}
-                    <button
-                      type="button"
-                      style={styles.trackChipX}
-                      onClick={() =>
-                        setTrackPromotedAssets((prev) => prev.filter((x) => x.asset_id !== a.asset_id))
+            <label style={styles.trackLabel}>Promoted assets · tracking domains</label>
+            <div className="text-zinc-200">
+              <PromotedAssetsPathBPanel
+                organizationId={
+                  organizationId ||
+                  (promotionDetail as any)?.promotion?.organization_id ||
+                  (promotionDetail as any)?.assignment?.organization_id ||
+                  ''
+                }
+                userId={user?.id || ''}
+                lockedPromotion={
+                  promotionId
+                    ? {
+                        promotionId,
+                        assignmentId:
+                          (promotionDetail as any)?.assignment?.id ||
+                          (promotionDetail as any)?.promotion?.assignment_id ||
+                          '',
+                        label: promotionTitle,
+                        assignmentCollaboratorId:
+                          (promotionDetail as any)?.collaborator?.id || null,
                       }
-                    >
-                      ×
-                    </button>
-                  </span>
-                ))}
-                <button type="button" style={styles.trackLinkBtn} onClick={() => setShowTrackAssetPicker(true)}>
-                  Change
-                </button>
-              </div>
-            ) : (
-              <button type="button" style={styles.trackDashedBtn} onClick={() => setShowTrackAssetPicker(true)}>
-                + Select Asset
-              </button>
-            )}
+                    : null
+                }
+                assets={trackPromotedAssets}
+                onAssetsChange={setTrackPromotedAssets}
+                selectedDomainByAssetId={trackDomainByAssetId}
+                onSelectedDomainByAssetIdChange={setTrackDomainByAssetId}
+                onPromotionContextChange={setTrackPromoCtxByAssetId}
+                onRequestAddAssets={() => setShowTrackAssetPicker(true)}
+              />
+            </div>
 
             {trackError && <p style={{ color: '#dc2626', fontSize: 12 }}>{trackError}</p>}
 

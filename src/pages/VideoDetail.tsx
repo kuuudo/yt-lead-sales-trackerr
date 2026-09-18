@@ -48,6 +48,9 @@ import { ResponsiveContainer, AreaChart, Area, XAxis, YAxis, CartesianGrid, Tool
 import { Modal } from '../components/Modal';
 import { createRedirectLink, RedirectLinkType } from '../lib/redirects';
 import { PromotedAssetPicker, type PromotedAssetRow } from '../components/PromotedAssetPicker';
+import { PromotedAssetsPathBPanel } from '../components/PromotedAssetsPathBPanel';
+import type { PromotionContext } from '../services/asset/resolvePromotionContextForAsset';
+
 import { generateAssetRedirectLinks } from '../services/asset/generateAssetRedirectLinks';
 
 
@@ -387,6 +390,8 @@ export default function VideoDetail() {
   const [trackSaving, setTrackSaving] = useState(false);
   const [trackPromotionLabel, setTrackPromotionLabel] = useState<string | null>(null);
   const [showTrackAssetPicker, setShowTrackAssetPicker] = useState(false);
+  const [trackDomainByAssetId, setTrackDomainByAssetId] = useState<Map<string, string | null>>(new Map());
+  const [trackPromoCtxByAssetId, setTrackPromoCtxByAssetId] = useState<Map<string, PromotionContext | null>>(new Map());
   const [deletingLinkToken, setDeletingLinkToken] = useState<string | null>(null);
 
   // YouTube Import Status (only relevant when video.platform === 'youtube')
@@ -1056,13 +1061,17 @@ if (effectiveOrgId && effectiveUserId) {
         const cpid = (video as any).creative_promotion_id as string | null | undefined;
         const assetsWithContext = trackPromotedAssets.map((asset) => ({
           asset_id: asset.asset_id,
-          promotionContext: cpid
-            ? ({
-                promotionId: cpid,
-                assignmentId: (video as any).creative_assignment_id ?? null,
-              } as any)
+          promotionContext:
+            trackPromoCtxByAssetId.get(asset.asset_id) ||
+            (cpid
+              ? ({
+                  promotionId: cpid,
+                  assignmentId: (video as any).creative_assignment_id ?? null,
+                } as any)
+              : null),
+          trackingDomainId: trackDomainByAssetId.has(asset.asset_id)
+            ? trackDomainByAssetId.get(asset.asset_id) ?? null
             : null,
-          trackingDomainId: null as string | null,
         }));
         await generateAssetRedirectLinks({
           videoId: video.id,
@@ -1973,46 +1982,27 @@ if (effectiveOrgId && effectiveUserId) {
 
               <div className="space-y-2">
                 <p className="text-[10px] font-black uppercase tracking-widest text-zinc-500">
-                  Promoted Asset (optional)
+                  Promoted Asset · tracking domains
                 </p>
-                {trackPromotedAssets.length > 0 ? (
-                  <div className="space-y-2">
-                    <div className="flex flex-wrap gap-2">
-                      {trackPromotedAssets.map(a => (
-                        <span
-                          key={a.asset_id}
-                          className="inline-flex items-center gap-1.5 max-w-full px-2.5 py-1 rounded-lg border border-zinc-700 bg-zinc-900 text-[11px] text-zinc-200"
-                        >
-                          <span className="truncate">{a.display_name}</span>
-                          <button
-                            type="button"
-                            className="text-zinc-500 hover:text-red-400 shrink-0"
-                            onClick={() =>
-                              setTrackPromotedAssets(prev => prev.filter(x => x.asset_id !== a.asset_id))
-                            }
-                          >
-                            ×
-                          </button>
-                        </span>
-                      ))}
-                    </div>
-                    <button
-                      type="button"
-                      onClick={() => setShowTrackAssetPicker(true)}
-                      className="text-[10px] font-black uppercase tracking-widest text-zinc-500 hover:text-zinc-300"
-                    >
-                      Change
-                    </button>
-                  </div>
-                ) : (
-                  <button
-                    type="button"
-                    onClick={() => setShowTrackAssetPicker(true)}
-                    className="w-full border border-dashed border-zinc-700 hover:border-zinc-500 rounded-xl py-3 text-[10px] font-black uppercase tracking-widest text-zinc-500 hover:text-zinc-300"
-                  >
-                    + Select Asset
-                  </button>
-                )}
+                <PromotedAssetsPathBPanel
+                  organizationId={(effectiveOrgId || organizationId || '') as string}
+                  userId={(user?.id || effectiveUserId || '') as string}
+                  lockedPromotion={
+                    (video as any).creative_promotion_id && (video as any).creative_assignment_id
+                      ? {
+                          promotionId: (video as any).creative_promotion_id,
+                          assignmentId: (video as any).creative_assignment_id,
+                          label: trackPromotionLabel || 'Creative promotion',
+                        }
+                      : null
+                  }
+                  assets={trackPromotedAssets}
+                  onAssetsChange={setTrackPromotedAssets}
+                  selectedDomainByAssetId={trackDomainByAssetId}
+                  onSelectedDomainByAssetIdChange={setTrackDomainByAssetId}
+                  onPromotionContextChange={setTrackPromoCtxByAssetId}
+                  onRequestAddAssets={() => setShowTrackAssetPicker(true)}
+                />
               </div>
 
               <div className="flex gap-2 pt-1">
