@@ -39,7 +39,14 @@
 
 import React, { useEffect, useMemo, useRef, useState, useCallback } from 'react'
 import { useParams, useNavigate, Link } from 'react-router-dom'
-import { ArrowLeft, Loader2 } from 'lucide-react'
+import { ArrowLeft, Loader2, Plus } from 'lucide-react'
+import { supabase } from '../lib/supabase'
+import { useAuth } from '../lib/auth'
+import { useOrganization } from '../lib/useOrganization'
+import { createVideo } from '../services/video/createVideo'
+import { generateAssetRedirectLinks } from '../services/asset/generateAssetRedirectLinks'
+import { PromotedAssetPicker, type PromotedAssetRow } from '../components/PromotedAssetPicker'
+
 import { getPromotionDetail } from '../services/promotion/getPromotionDetail'
 import type { PromotionDetailData } from '../services/promotion/getPromotionDetail'
 import { getAssetDetail } from '../services/asset/getAssetDetail'
@@ -76,7 +83,6 @@ import { resolveDownstreamNodes, resolveDownstreamForVideoIds, type DownstreamRe
 // events_journey involvement at any point. Does NOT touch journeyDiscovery.ts,
 // journeyGraph.ts, journeyAnalyticsEngine.ts, attribution, conversions or
 // revenue, and does NOT participate in the journey graph or its edges.
-import { supabase } from '../lib/supabase'
 
 // ─── Local node model (Phase 1 — no edges, no persistence) ────────────────────
 
@@ -403,10 +409,25 @@ function mergeDownstreamResolutions(a: DownstreamResolution, b: DownstreamResolu
 export default function PromotionJourneyMap() {
   const { promotionId } = useParams<{ promotionId: string }>()
   const navigate = useNavigate()
+  const { user } = useAuth()
+  const { organizationId } = useOrganization()
 
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [promotionTitle, setPromotionTitle] = useState<string>('Promotion')
+  const [promotionDetail, setPromotionDetail] = useState<PromotionDetailData | null>(null)
+  const [reloadToken, setReloadToken] = useState(0)
+
+  // Track New Content (promotion locked to this page)
+  const [showTrackModal, setShowTrackModal] = useState(false)
+  const [trackUrl, setTrackUrl] = useState('')
+  const [trackPlatform, setTrackPlatform] = useState<'youtube' | 'tiktok' | 'instagram' | 'linkedin' | 'x' | 'threads' | 'facebook' | 'reddit' | 'twitch'>('youtube')
+  const [trackCampaignId, setTrackCampaignId] = useState('')
+  const [trackCampaigns, setTrackCampaigns] = useState<Array<{ id: string; campaign_name: string }>>([])
+  const [trackPromotedAssets, setTrackPromotedAssets] = useState<PromotedAssetRow[]>([])
+  const [showTrackAssetPicker, setShowTrackAssetPicker] = useState(false)
+  const [trackSaving, setTrackSaving] = useState(false)
+  const [trackError, setTrackError] = useState<string | null>(null)
   const [nodes, setNodes] = useState<JourneyNode[]>([])
   const [creativeGroupLayout, setCreativeGroupLayout] = useState<{
     left: number
@@ -460,6 +481,7 @@ export default function PromotionJourneyMap() {
           return
         }
         setPromotionTitle(detail.assignment?.title ?? 'Promotion')
+        setPromotionDetail(detail)
         const assetIds = detail.assets.map((a) => a.assetId).filter(Boolean)
         let creativeAssetIds = new Set<string>()
         if (assetIds.length > 0) {
@@ -491,7 +513,7 @@ export default function PromotionJourneyMap() {
     })()
 
     return () => { cancelled = true }
-  }, [promotionId])
+  }, [promotionId, reloadToken])
 
   // ── Load observed journey graph (additive — separate effect, does not touch
   // the promoted-asset loading effect above) ───────────────────────────────
@@ -918,6 +940,170 @@ export default function PromotionJourneyMap() {
     )
   }
 
+
+  const isCreativePromotion = !!(
+    (promotionDetail as any)?.assignment?.creative_creation_mode ||
+    (promotionDetail as any)?.promotion?.creative_creation_mode
+  )
+
+  const openTrackModal = async () => {
+    if (!promotionId || !promotionDetail) return
+    setTrackError(null)
+    setTrackUrl('')
+    setTrackPlatform('youtube')
+    const promoCampaignId =
+      (promotionDetail as any).promotion?.campaign_id ||
+      (promotionDetail as any).campaign_id ||
+      ''
+    setTrackCampaignId(promoCampaignId || '')
+    // Pre-load this promotion's assets (same set shown on the map)
+    const preselected: PromotedAssetRow[] = (promotionDetail.assets || []).map((a) => ({
+      asset_id: a.assetId,
+      display_name: a.resource?.title || 'Untitled asset',
+      asset_type: (a.resource?.origin === 'video'
+        ? 'video'
+        : a.resource?.origin === 'campaign_element'
+          ? 'campaign_element'
+          : 'resource') as PromotedAssetRow['asset_type'],
+      resource_type: (a.resource as any)?.resourceType ?? null,
+      element_type: (a.resource as any)?.elementType ?? (a.resource as any)?.resourceType ?? null,
+      thumbnail: resolveNodeThumbnail(a.resource),
+    }))
+    setTrackPromotedAssets(preselected)
+
+    // Campaign list for selector (user may change; promotion stays locked)
+    const orgId =
+      (promotionDetail as any).promotion?.organization_id ||
+      (promotionDetail as any).assignment?.organization_id ||
+      organizationId
+    if (orgId) {
+      const { data: camps } = await supabase
+        .from('campaigns')
+        .select('id, campaign_name')
+        .eq('organization_id', orgId)
+        .is('archived_at', null)
+        .order('campaign_name')
+      setTrackCampaigns((camps as any[]) || [])
+      if (!promoCampaignId && camps?.[0]?.id) setTrackCampaignId(camps[0].id)
+    }
+    setShowTrackModal(true)
+  }
+
+  const handleTrackSave = async () => {
+    if (!user || !promotionId || !promotionDetail) return
+    if (!trackUrl.trim()) {
+      setTrackError('Enter a video / post URL')
+      return
+    }
+    if (!trackCampaignId) {
+      setTrackError('Select a campaign')
+      return
+    }
+    setTrackSaving(true)
+    setTrackError(null)
+    try {
+      const { data: campaignRow, error: campErr } = await supabase
+        .from('campaigns')
+        .select('*')
+        .eq('id', trackCampaignId)
+        .single()
+      if (campErr || !campaignRow) throw new Error(campErr?.message || 'Campaign not found')
+
+      const orgId =
+        (campaignRow as any).organization_id ||
+        (promotionDetail as any).promotion?.organization_id ||
+        organizationId
+      if (!orgId) throw new Error('Missing organization')
+
+      const assignmentId =
+        (promotionDetail as any).assignment?.id ||
+        (promotionDetail as any).promotion?.assignment_id ||
+        null
+
+      const rawUrl = trackUrl.trim()
+      let video_title = rawUrl
+      let thumbnail_url: string | null = null
+      let youtube_video_id: string | null = null
+      let platform_post_id: string | null = null
+      let platform_url = rawUrl
+
+      if (trackPlatform === 'youtube') {
+        const vidId = rawUrl.match(/(?:\/|v=)([0-9A-Za-z_-]{11})/)?.[1] || null
+        youtube_video_id = vidId
+        platform_post_id = vidId
+        if (vidId) {
+          platform_url = `https://www.youtube.com/watch?v=${vidId}`
+          try {
+            const response = await fetch(
+              `https://www.youtube.com/oembed?url=${encodeURIComponent(platform_url)}&format=json`,
+            )
+            if (response.ok) {
+              const data = await response.json()
+              video_title = data.title || video_title
+              thumbnail_url = data.thumbnail_url || `https://i.ytimg.com/vi/${vidId}/hqdefault.jpg`
+            } else {
+              thumbnail_url = `https://i.ytimg.com/vi/${vidId}/hqdefault.jpg`
+            }
+          } catch {
+            thumbnail_url = `https://i.ytimg.com/vi/${vidId}/hqdefault.jpg`
+          }
+        }
+      }
+
+      const { savedVideo } = await createVideo({
+        payload: {
+          platform: trackPlatform,
+          platform_url,
+          platform_post_id,
+          youtube_video_id,
+          video_title,
+          thumbnail_url,
+          campaign_id: trackCampaignId,
+          video_goal: ['sales'],
+          selected_lead_magnet_ids: null,
+          status: 'no_data',
+        } as any,
+        campaign: campaignRow as any,
+        organizationId: orgId,
+        userId: user.id,
+        createdViaCreative: isCreativePromotion,
+        creativePromotionId: isCreativePromotion ? promotionId : null,
+        creativeAssignmentId: isCreativePromotion ? assignmentId : null,
+      } as any)
+
+      if (isCreativePromotion && savedVideo?.asset_id && assignmentId) {
+        const { error: attachErr } = await supabase.rpc('attach_creative_content_asset', {
+          p_asset_id: savedVideo.asset_id,
+          p_assignment_id: assignmentId,
+          p_promotion_id: promotionId,
+        })
+        if (attachErr) console.warn('[JourneyMap] attach_creative_content_asset:', attachErr.message)
+      }
+
+      if (trackPromotedAssets.length > 0 && savedVideo?.id) {
+        await generateAssetRedirectLinks({
+          videoId: savedVideo.id,
+          selectedAssets: trackPromotedAssets.map((asset) => ({
+            asset_id: asset.asset_id,
+            promotionContext: {
+              promotionId,
+              assignmentId,
+            } as any,
+            trackingDomainId: null,
+          })),
+        })
+      }
+
+      setShowTrackModal(false)
+      setTrackPromotedAssets([])
+      setReloadToken((t) => t + 1)
+    } catch (e: any) {
+      setTrackError(e?.message || 'Could not create content')
+    } finally {
+      setTrackSaving(false)
+    }
+  }
+
   if (error) {
     return (
       <div style={styles.centered}>
@@ -937,6 +1123,14 @@ export default function PromotionJourneyMap() {
           <ArrowLeft size={14} /> Back to promotion
         </Link>
         <span style={styles.title}>{promotionTitle} — User journey</span>
+        <button
+          type="button"
+          onClick={() => openTrackModal()}
+          style={styles.trackBtn}
+          title="Track new content for this promotion"
+        >
+          <Plus size={14} /> Track New Content
+        </button>
       </div>
 
       <div
@@ -1259,6 +1453,117 @@ export default function PromotionJourneyMap() {
           <button style={styles.zoomBtn} onClick={zoomOut} title="Zoom out">−</button>
           <button style={{ ...styles.zoomBtn, borderLeft: '1px solid #e5e7eb', marginLeft: 2, paddingLeft: 6 }} onClick={resetView} title="Reset view">⌂</button>
         </div>
+
+      {showTrackModal && (
+        <div style={styles.trackOverlay}>
+          <div style={styles.trackModal}>
+            <p style={styles.trackModalEyebrow}>Track New Content</p>
+            <p style={styles.trackModalHint}>
+              Promotion is locked to this journey. Assets from the promotion are pre-selected.
+            </p>
+
+            <label style={styles.trackLabel}>Platform</label>
+            <select
+              style={styles.trackInput}
+              value={trackPlatform}
+              onChange={(e) => setTrackPlatform(e.target.value as any)}
+            >
+              {['youtube','tiktok','instagram','linkedin','x','threads','facebook','reddit','twitch'].map((p) => (
+                <option key={p} value={p}>{p}</option>
+              ))}
+            </select>
+
+            <label style={styles.trackLabel}>URL</label>
+            <input
+              style={styles.trackInput}
+              value={trackUrl}
+              onChange={(e) => setTrackUrl(e.target.value)}
+              placeholder="https://..."
+            />
+
+            <label style={styles.trackLabel}>Campaign</label>
+            <select
+              style={styles.trackInput}
+              value={trackCampaignId}
+              onChange={(e) => setTrackCampaignId(e.target.value)}
+            >
+              <option value="">Select campaign</option>
+              {trackCampaigns.map((c) => (
+                <option key={c.id} value={c.id}>{c.campaign_name}</option>
+              ))}
+            </select>
+
+            <label style={styles.trackLabel}>Promotion (locked)</label>
+            <div style={styles.trackLocked}>
+              {promotionTitle}{isCreativePromotion ? ' (CREATIVE)' : ''}
+            </div>
+
+            <label style={styles.trackLabel}>Promoted assets</label>
+            {trackPromotedAssets.length > 0 ? (
+              <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginBottom: 8 }}>
+                {trackPromotedAssets.map((a) => (
+                  <span key={a.asset_id} style={styles.trackAssetChip}>
+                    {a.display_name}
+                    <button
+                      type="button"
+                      style={styles.trackChipX}
+                      onClick={() =>
+                        setTrackPromotedAssets((prev) => prev.filter((x) => x.asset_id !== a.asset_id))
+                      }
+                    >
+                      ×
+                    </button>
+                  </span>
+                ))}
+                <button type="button" style={styles.trackLinkBtn} onClick={() => setShowTrackAssetPicker(true)}>
+                  Change
+                </button>
+              </div>
+            ) : (
+              <button type="button" style={styles.trackDashedBtn} onClick={() => setShowTrackAssetPicker(true)}>
+                + Select Asset
+              </button>
+            )}
+
+            {trackError && <p style={{ color: '#dc2626', fontSize: 12 }}>{trackError}</p>}
+
+            <div style={{ display: 'flex', gap: 8, marginTop: 12 }}>
+              <button
+                type="button"
+                style={styles.trackCancel}
+                onClick={() => setShowTrackModal(false)}
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                style={styles.trackSave}
+                disabled={trackSaving}
+                onClick={() => handleTrackSave()}
+              >
+                {trackSaving ? 'Saving…' : 'Save & Generate Links'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {showTrackAssetPicker && (organizationId || (promotionDetail as any)?.promotion?.organization_id) && (
+        <PromotedAssetPicker
+          organizationId={
+            organizationId ||
+            (promotionDetail as any)?.promotion?.organization_id ||
+            (promotionDetail as any)?.assignment?.organization_id
+          }
+          initialSelectedAssetIds={trackPromotedAssets.map((a) => a.asset_id)}
+          onClose={() => setShowTrackAssetPicker(false)}
+          onSelect={(assets) => {
+            setTrackPromotedAssets(assets)
+            setShowTrackAssetPicker(false)
+          }}
+        />
+      )}
+
       </div>
     </div>
   )
@@ -1591,5 +1896,152 @@ const styles: Record<string, React.CSSProperties> = {
     whiteSpace: 'nowrap',
     overflow: 'hidden',
     textOverflow: 'ellipsis',
+  },
+
+  trackBtn: {
+    marginLeft: 'auto',
+    display: 'inline-flex',
+    alignItems: 'center',
+    gap: 6,
+    padding: '8px 12px',
+    borderRadius: 8,
+    border: '1px solid #a7f3d0',
+    background: '#ecfdf5',
+    color: '#047857',
+    fontSize: 11,
+    fontWeight: 700,
+    letterSpacing: '0.06em',
+    textTransform: 'uppercase',
+    cursor: 'pointer',
+  },
+  trackOverlay: {
+    position: 'fixed',
+    inset: 0,
+    zIndex: 80,
+    background: 'rgba(0,0,0,0.55)',
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    padding: 16,
+  },
+  trackModal: {
+    width: '100%',
+    maxWidth: 480,
+    maxHeight: '90vh',
+    overflowY: 'auto',
+    background: '#09090b',
+    border: '1px solid #27272a',
+    borderRadius: 16,
+    padding: 20,
+    color: '#e4e4e7',
+  },
+  trackModalEyebrow: {
+    fontSize: 10,
+    fontWeight: 800,
+    letterSpacing: '0.12em',
+    textTransform: 'uppercase',
+    color: '#71717a',
+    marginBottom: 6,
+  },
+  trackModalHint: {
+    fontSize: 12,
+    color: '#a1a1aa',
+    marginBottom: 14,
+  },
+  trackLabel: {
+    display: 'block',
+    fontSize: 10,
+    fontWeight: 800,
+    letterSpacing: '0.1em',
+    textTransform: 'uppercase',
+    color: '#71717a',
+    marginTop: 10,
+    marginBottom: 4,
+  },
+  trackInput: {
+    width: '100%',
+    borderRadius: 10,
+    border: '1px solid #3f3f46',
+    background: '#18181b',
+    color: '#fafafa',
+    padding: '10px 12px',
+    fontSize: 13,
+  },
+  trackLocked: {
+    borderRadius: 10,
+    border: '1px solid #3f3f46',
+    background: '#14532d33',
+    color: '#6ee7b7',
+    padding: '10px 12px',
+    fontSize: 13,
+    fontWeight: 600,
+  },
+  trackAssetChip: {
+    display: 'inline-flex',
+    alignItems: 'center',
+    gap: 6,
+    maxWidth: '100%',
+    padding: '4px 8px',
+    borderRadius: 8,
+    border: '1px solid #3f3f46',
+    background: '#18181b',
+    fontSize: 11,
+  },
+  trackChipX: {
+    border: 'none',
+    background: 'transparent',
+    color: '#a1a1aa',
+    cursor: 'pointer',
+    fontSize: 14,
+    lineHeight: 1,
+  },
+  trackLinkBtn: {
+    border: 'none',
+    background: 'transparent',
+    color: '#a1a1aa',
+    fontSize: 10,
+    fontWeight: 700,
+    letterSpacing: '0.08em',
+    textTransform: 'uppercase',
+    cursor: 'pointer',
+  },
+  trackDashedBtn: {
+    width: '100%',
+    border: '1px dashed #3f3f46',
+    borderRadius: 12,
+    padding: '12px',
+    background: 'transparent',
+    color: '#a1a1aa',
+    fontSize: 10,
+    fontWeight: 800,
+    letterSpacing: '0.1em',
+    textTransform: 'uppercase',
+    cursor: 'pointer',
+  },
+  trackCancel: {
+    flex: 1,
+    borderRadius: 12,
+    border: '1px solid #3f3f46',
+    background: 'transparent',
+    color: '#a1a1aa',
+    padding: '10px',
+    fontSize: 10,
+    fontWeight: 800,
+    letterSpacing: '0.1em',
+    textTransform: 'uppercase',
+    cursor: 'pointer',
+  },
+  trackSave: {
+    flex: 1,
+    borderRadius: 12,
+    border: 'none',
+    background: '#059669',
+    color: '#fff',
+    padding: '10px',
+    fontSize: 10,
+    fontWeight: 800,
+    letterSpacing: '0.1em',
+    textTransform: 'uppercase',
+    cursor: 'pointer',
   },
 }
