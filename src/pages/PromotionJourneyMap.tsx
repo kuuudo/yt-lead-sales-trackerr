@@ -69,6 +69,14 @@ import { resolveAssetType } from '../services/asset/resolveAssetType'
 // NOT modify journeyGraph.ts, journeyAnalyticsEngine.ts, or analyticsEngine.ts.
 import { resolveDownstreamNodes, resolveDownstreamForVideoIds, type DownstreamResolution, type DownstreamNode } from '../services/journey/journeyDownstreamResolver'
 
+// ─── STEP 5 (additive, 2026-09-18) — "Unlinked" promoted videos ───────────────
+// Videos created to promote one of THIS promotion's assets, found purely from
+// redirect_links (promotion_id + asset_id). Read-only, single table, no
+// events_journey involvement at any point. Does NOT touch journeyDiscovery.ts,
+// journeyGraph.ts, journeyAnalyticsEngine.ts, attribution, conversions or
+// revenue, and does NOT participate in the journey graph or its edges.
+import { supabase } from '../lib/supabase'
+
 // ─── Local node model (Phase 1 — no edges, no persistence) ────────────────────
 
 interface JourneyNode {
@@ -100,6 +108,15 @@ const GRAPH_NODE_HEIGHT = 92
 const GRAPH_COL_GAP = 140
 const GRAPH_ROW_GAP = 40
 const GRAPH_START_X = CANVAS_MARGIN + NODE_WIDTH + GRID_GAP_X + 120
+
+// ─── "Unlinked" group layout (STEP 5, additive) ───────────────────────────────
+// Its own region of the canvas, below the promoted-asset column. Deliberately
+// NOT on the graph's x-axis and NOT connected to any edge.
+const UNLINKED_NODE_SIZE = 56
+const UNLINKED_NODE_GAP = 14
+const UNLINKED_MIN_RADIUS = 78
+const UNLINKED_RING_PADDING = 26
+const UNLINKED_GROUP_GAP_Y = 110
 
 const MIN_SCALE = 0.4
 const MAX_SCALE = 2.5
@@ -321,6 +338,11 @@ export default function PromotionJourneyMap() {
   // asset's own card when that video has no observed-graph position.
   const [promotedAssetVideoIds, setPromotedAssetVideoIds] = useState<Map<string, string>>(new Map())
 
+  // STEP 5 (additive, 2026-09-18) — video_ids from redirect_links rows whose
+  // promotion_id is this promotion AND whose asset_id is one of the assets
+  // actually promoted here. Deduped, nulls dropped. No events_journey.
+  const [unlinkedVideoIds, setUnlinkedVideoIds] = useState<string[]>([])
+
   // Local canvas transform — NOT useWorkspaceStore.
   const [transform, setTransform] = useState<CanvasTransform>({ x: 0, y: 0, scale: 1 })
   const containerRef = useRef<HTMLDivElement>(null)
@@ -514,6 +536,91 @@ export default function PromotionJourneyMap() {
     }
     return positioned
   }, [downstreamSourceAnchors, downstream])
+
+  // ── STEP 5 (additive, 2026-09-18) — "Unlinked" promoted videos ───────────
+  // Identity constraint is promotion_id + asset_id, never campaign_id, and
+  // never a global video search. Keyed off the promoted-asset IDs only (not
+  // their x/y), so dragging a card does not refire the query.
+  const promotedAssetIdsKey = useMemo(
+    () => Array.from(new Set(nodes.map((n) => n.assetId))).sort().join(','),
+    [nodes],
+  )
+
+  useEffect(() => {
+    if (!promotionId || promotedAssetIdsKey === '') {
+      setUnlinkedVideoIds([])
+      return
+    }
+    let cancelled = false
+    const assetIds = promotedAssetIdsKey.split(',')
+
+    ;(async () => {
+      try {
+        const { data, error: linkError } = await supabase
+          .from('redirect_links')
+          .select('video_id, asset_id')
+          .eq('promotion_id', promotionId)
+          .in('asset_id', assetIds)
+          .not('video_id', 'is', null)
+        if (cancelled) return
+        if (linkError) throw linkError
+
+        const seen = new Set<string>()
+        const ids: string[] = []
+        for (const row of (data ?? []) as { video_id: string | null }[]) {
+          if (!row.video_id || seen.has(row.video_id)) continue
+          seen.add(row.video_id)
+          ids.push(row.video_id)
+        }
+        setUnlinkedVideoIds(ids)
+      } catch (err: any) {
+        // Additive, non-critical layer — a failure here must never blank out
+        // the promoted assets or the observed graph (mirrors STEP 4).
+        console.error('[PromotionJourneyMap] STEP 5 redirect_links lookup failed:', err?.message || err)
+        if (!cancelled) setUnlinkedVideoIds([])
+      }
+    })()
+
+    return () => { cancelled = true }
+  }, [promotionId, promotedAssetIdsKey])
+
+  // "Unlinked" = has a promotion+asset redirect link but has not shown up as
+  // an observed journey node. This is a *display* filter over data already
+  // fetched above — it does not query or require events_journey. While the
+  // graph is still loading, every redirect-link video shows as unlinked.
+  const unlinkedVideos = useMemo(() => {
+    const observed = new Set(positionedGraphNodes.map((n) => n.videoId))
+    return unlinkedVideoIds.filter((id) => !observed.has(id))
+  }, [unlinkedVideoIds, positionedGraphNodes])
+
+  // One circular group placed below the promoted-asset column. Height is
+  // derived from the asset *count*, not the cards' current positions, so the
+  // group stays put while a card is being dragged.
+  const unlinkedGroup = useMemo(() => {
+    const count = unlinkedVideos.length
+    if (count === 0) return null
+
+    const ringRadius = Math.max(
+      UNLINKED_MIN_RADIUS,
+      (count * (UNLINKED_NODE_SIZE + UNLINKED_NODE_GAP)) / (2 * Math.PI),
+    )
+    const diameter = ringRadius * 2 + UNLINKED_NODE_SIZE + UNLINKED_RING_PADDING * 2
+    const center = diameter / 2
+
+    const columnHeight = nodes.length * NODE_HEIGHT + Math.max(0, nodes.length - 1) * GRID_GAP_Y
+    const top = Math.max(CANVAS_MARGIN, CANVAS_MID_Y - columnHeight / 2) + columnHeight + UNLINKED_GROUP_GAP_Y
+
+    const placed = unlinkedVideos.map((videoId, i) => {
+      const angle = -Math.PI / 2 + (i * 2 * Math.PI) / count
+      return {
+        videoId,
+        x: center + ringRadius * Math.cos(angle) - UNLINKED_NODE_SIZE / 2,
+        y: center + ringRadius * Math.sin(angle) - UNLINKED_NODE_SIZE / 2,
+      }
+    })
+
+    return { left: CANVAS_MARGIN, top, diameter, placed }
+  }, [unlinkedVideos, nodes.length])
 
   // ── Pan / zoom (same formulas as WorkspaceCanvas.tsx, kept local) ────────
   const pan = useCallback((dx: number, dy: number) => {
@@ -861,6 +968,46 @@ export default function PromotionJourneyMap() {
             </div>
           ))}
 
+          {/* STEP 5 (additive) — "Unlinked" videos: a redirect_link exists for
+              (this promotion + a promoted asset), but the video has not been
+              connected into the observed Event Journey. Rendered as its own
+              standalone circular group: no edges, no graph membership, not a
+              journey node. Nothing here reads or writes events_journey. */}
+          {unlinkedGroup && (
+            <div
+              style={{
+                ...styles.unlinkedGroup,
+                left: unlinkedGroup.left,
+                top: unlinkedGroup.top,
+                width: unlinkedGroup.diameter,
+                height: unlinkedGroup.diameter,
+              }}
+            >
+              <div style={styles.unlinkedGroupLabel}>
+                <span style={styles.unlinkedGroupTitle}>Unlinked</span>
+                <span style={styles.unlinkedGroupCount}>
+                  {unlinkedGroup.placed.length} video{unlinkedGroup.placed.length === 1 ? '' : 's'}
+                </span>
+              </div>
+              {unlinkedGroup.placed.map((v) => (
+                <div
+                  key={v.videoId}
+                  style={{
+                    ...styles.unlinkedNode,
+                    left: v.x,
+                    top: v.y,
+                    width: UNLINKED_NODE_SIZE,
+                    height: UNLINKED_NODE_SIZE,
+                  }}
+                  title={v.videoId}
+                >
+                  <span style={{ ...styles.graphNodeTypeDot, background: GRAPH_TYPE_ACCENT.video }} />
+                  <span style={styles.unlinkedNodeId}>{v.videoId.slice(0, 6)}</span>
+                </div>
+              ))}
+            </div>
+          )}
+
           {graphLoading && (
             <div style={{ ...styles.graphStatusBadge, left: GRAPH_START_X, top: CANVAS_MID_Y - 8 }}>
               Loading observed journeys…
@@ -1119,5 +1266,54 @@ const styles: Record<string, React.CSSProperties> = {
   },
   graphErrorBadge: {
     color: '#dc2626',
+  },
+
+  // ── "Unlinked" group additions (STEP 5) ─────────────────────────────────
+  unlinkedGroup: {
+    position: 'absolute',
+    borderRadius: '50%',
+    border: '1px dashed #d1d5db',
+    background: '#fafafa',
+  },
+  unlinkedGroupLabel: {
+    position: 'absolute',
+    top: '50%',
+    left: '50%',
+    transform: 'translate(-50%, -50%)',
+    display: 'flex',
+    flexDirection: 'column',
+    alignItems: 'center',
+    gap: 2,
+    textAlign: 'center',
+    pointerEvents: 'none',
+  },
+  unlinkedGroupTitle: {
+    fontSize: 11,
+    fontWeight: 600,
+    letterSpacing: '0.08em',
+    textTransform: 'uppercase',
+    color: '#6b7280',
+  },
+  unlinkedGroupCount: {
+    fontSize: 10.5,
+    color: '#9ca3af',
+  },
+  unlinkedNode: {
+    position: 'absolute',
+    borderRadius: '50%',
+    background: '#ffffff',
+    border: '1px solid #e5e7eb',
+    boxShadow: '0 1px 3px rgba(0,0,0,0.06)',
+    display: 'flex',
+    flexDirection: 'column',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 3,
+    overflow: 'hidden',
+  },
+  unlinkedNodeId: {
+    fontSize: 9.5,
+    color: '#6b7280',
+    fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace',
   },
 }
