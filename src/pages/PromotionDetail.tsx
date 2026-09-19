@@ -76,7 +76,10 @@ import { removeCollaborator } from '../services/assignment/removeCollaborator';
 import { restoreCollaborator } from '../services/assignment/restoreCollaborator';
 import { revokeAssetAccess, restoreAssetAccess } from '../services/assignment/assignmentAssetAccess';
 import { listVerifiedBrandedDomains, type VerifiedDomainOption } from '../services/domain/brandedDomains';
-import { listAssignmentAssetDomainPolicies } from '../services/assignment/updateAssignmentAssetDomainPolicy';
+import {
+  listAssignmentAssetDomainPolicies,
+  updateAssignmentAssetDomainPolicy,
+} from '../services/assignment/updateAssignmentAssetDomainPolicy';
 import {
   updateAssignmentCreativeSettings,
   type CreativeCreationMode,
@@ -581,51 +584,45 @@ export default function PromotionDetail() {
     }
   };
 
-  // Domain phase — only fill promotion_assets.selected_sponsor_domain_id when still null.
-  // Does NOT rewrite assignment_assets allow_* or change domains that were already set.
-  const handleSetPromotionSponsorDomain = async (
-    promotionAssetId: string,
+  // Sponsor edits Assignment-level allow_* / selected_sponsor_domain_id (same as Create Assignment grain)
+  const handlePathBChange = async (
     assetId: string,
-    domainId: string
+    patch: {
+      allow_marketer_domain?: boolean;
+      allow_sponsor_domain?: boolean;
+      allow_vstrk_domain?: boolean;
+      selected_sponsor_domain_id?: string | null;
+    }
   ) => {
-    if (!isSponsor || !domainId) return;
-    const existing = promoUsageByAssetId[assetId];
-    if (existing?.selected_sponsor_domain_id) {
-      setPathBError('Sponsor tracking domain is already set and cannot be changed here.');
-      return;
-    }
-    if (!pathBByAssetId[assetId]?.allow_sponsor_domain) {
-      setPathBError('Sponsor tracking domain is not allowed for this asset on the Assignment.');
-      return;
-    }
-    const key = `${assetId}:sponsor`;
+    if (!detail?.assignment?.id || !isSponsor) return;
+    const key = `${assetId}:${Object.keys(patch).join(',')}`;
     setPathBError(null);
     setPathBActionKey(key);
     try {
-      const { error } = await supabase
-        .from('promotion_assets')
-        .update({ selected_sponsor_domain_id: domainId })
-        .eq('id', promotionAssetId);
-      if (error) throw error;
-      const opt = sponsorVerifiedDomains.find(d => d.id === domainId);
-      setPromoUsageByAssetId(prev => ({
-        ...prev,
-        [assetId]: {
-          use_marketer_domain: prev[assetId]?.use_marketer_domain ?? false,
-          selected_marketer_domain_id: prev[assetId]?.selected_marketer_domain_id ?? null,
-          marketer_hostname: prev[assetId]?.marketer_hostname ?? null,
-          selected_sponsor_domain_id: domainId,
-          sponsor_hostname: opt?.hostname ?? domainId,
-          use_vstrk_domain: prev[assetId]?.use_vstrk_domain ?? false,
-        },
-      }));
+      await updateAssignmentAssetDomainPolicy(detail.assignment.id, assetId, patch);
+      setPathBByAssetId(prev => {
+        const cur = prev[assetId] || {
+          allow_marketer_domain: false,
+          allow_sponsor_domain: false,
+          allow_vstrk_domain: false,
+          selected_sponsor_domain_id: null as string | null,
+        };
+        const next = { ...cur, ...patch };
+        if (next.allow_sponsor_domain === false) {
+          next.selected_sponsor_domain_id = null;
+          next.hostname = null;
+        } else if (patch.selected_sponsor_domain_id) {
+          const opt = sponsorVerifiedDomains.find(d => d.id === patch.selected_sponsor_domain_id);
+          next.hostname = opt?.hostname ?? next.hostname;
+        }
+        return { ...prev, [assetId]: next };
+      });
     } catch (err: any) {
-      setPathBError(err.message || 'Could not set Sponsor tracking domain.');
+      setPathBError(err.message || 'Could not update tracking domain access.');
     } finally {
       setPathBActionKey(null);
     }
   };
-
 
   // Phase 2 — draft changes only; Save button commits via service guards
   const savedCreativeMode: CreativeCreationMode = (() => {
@@ -1358,135 +1355,126 @@ export default function PromotionDetail() {
                         </Link>
                       </div>
 
-                      {/* Domain display: promotion_assets usage preferred; assignment allow_* is ceiling only */}
-                      <div className="border-t border-zinc-800 pt-3 space-y-2">
+                      {/* Tracking domain access — selectable (Create Assignment style), writes assignment_assets */}
+                      <div className="border-t border-zinc-800 pt-3 space-y-2 shrink-0 overflow-visible">
                         <p className="text-[9px] font-black uppercase tracking-widest text-zinc-500">
-                          Tracking domains
+                          Tracking domain access
                         </p>
-                        {(() => {
-                          const usage = promoUsageByAssetId[a.assetId];
-                          const showMarketer = pathB.allow_marketer_domain || usage?.use_marketer_domain;
-                          const showSponsor = pathB.allow_sponsor_domain || !!usage?.selected_sponsor_domain_id;
-                          const showVstrk = pathB.allow_vstrk_domain || usage?.use_vstrk_domain;
-                          if (!showMarketer && !showSponsor && !showVstrk) {
-                            return (
-                              <p className="text-[11px] text-zinc-500">No tracking methods configured for this asset.</p>
-                            );
-                          }
-                          return (
-                            <div className="space-y-2 text-[11px]">
-                              {showMarketer && (
-                                <div>
-                                  <p className="text-[9px] font-bold uppercase tracking-widest text-zinc-500 mb-0.5">
-                                    Marketer&apos;s tracking domain
-                                  </p>
-                                  <p className="text-zinc-200 font-mono">
-                                    {usage?.use_marketer_domain
-                                      ? (usage.marketer_hostname || usage.selected_marketer_domain_id || 'On')
-                                      : pathB.allow_marketer_domain
-                                        ? 'Allowed — not selected at Start Promoting'
-                                        : 'Off'}
-                                  </p>
-                                </div>
-                              )}
-                              {showSponsor && (
-                                <div>
-                                  <p className="text-[9px] font-bold uppercase tracking-widest text-zinc-500 mb-0.5">
-                                    Sponsor&apos;s tracking domain
-                                  </p>
-                                  {(() => {
-                                    const resolvedHostname =
-                                      usage?.sponsor_hostname
-                                      || usage?.selected_sponsor_domain_id
-                                      || pathB.hostname
-                                      || pathB.selected_sponsor_domain_id
-                                      || null;
-                                    const canFill =
-                                      isSponsor
-                                      && pathB.allow_sponsor_domain
-                                      && !usage?.selected_sponsor_domain_id
-                                      && !pathB.selected_sponsor_domain_id;
-                                    if (canFill) {
-                                      return (
-                                        <div className="space-y-1">
-                                          <select
-                                            className="w-full max-w-sm bg-zinc-950 border border-zinc-700 rounded-lg px-2 py-1.5 text-xs text-zinc-200"
-                                            defaultValue=""
-                                            disabled={pathBBusy}
-                                            onChange={e => {
-                                              const v = e.target.value;
-                                              if (v) {
-                                                handleSetPromotionSponsorDomain(
-                                                  a.promotionAssetId,
-                                                  a.assetId,
-                                                  v
-                                                );
-                                              }
-                                            }}
-                                          >
-                                            <option value="">Select Sponsor tracking domain</option>
-                                            {sponsorVerifiedDomains.map(d => (
-                                              <option key={d.id} value={d.id}>
-                                                {d.hostname}
-                                              </option>
-                                            ))}
-                                          </select>
-                                          <p className="text-[9px] text-zinc-600">
-                                            Not set yet — choose once; locked after save.
-                                          </p>
-                                        </div>
-                                      );
-                                    }
-                                    return (
-                                      <>
-                                        <p className="text-zinc-200 font-mono">
-                                          {resolvedHostname
-                                            || (pathB.allow_sponsor_domain
-                                              ? 'Allowed — not set yet'
-                                              : 'Off')}
-                                        </p>
-                                        <p className="text-[9px] text-zinc-600 mt-0.5">
-                                          Read only — decided at Assignment / Start Promoting
-                                        </p>
-                                      </>
-                                    );
-                                  })()}
-                                </div>
-                              )}
-                              {showVstrk && (
-                                <div>
-                                  <p className="text-[9px] font-bold uppercase tracking-widest text-zinc-500 mb-0.5">
-                                    VSTRK tracking domain
-                                  </p>
-                                  <p className="text-zinc-200">
-                                    {usage?.use_vstrk_domain
-                                      ? 'On · vstrk.com'
-                                      : pathB.allow_vstrk_domain
-                                        ? 'Allowed — not selected at Start Promoting'
-                                        : 'Off'}
-                                  </p>
-                                </div>
+                        {isSponsor && assignment ? (
+                          <div className="space-y-2 shrink-0 overflow-visible">
+                            <label className="flex items-center gap-2 text-[11px] text-zinc-300 cursor-pointer select-none">
+                              <input
+                                type="checkbox"
+                                className="accent-orange-500 shrink-0"
+                                checked={!!pathB.allow_marketer_domain}
+                                disabled={pathBBusy}
+                                onChange={() =>
+                                  handlePathBChange(a.assetId, {
+                                    allow_marketer_domain: !pathB.allow_marketer_domain,
+                                  })
+                                }
+                              />
+                              Marketer&apos;s tracking domain
+                            </label>
+                            <div className="space-y-1.5 shrink-0 overflow-visible">
+                              <label className="flex items-center gap-2 text-[11px] text-zinc-300 cursor-pointer select-none">
+                                <input
+                                  type="checkbox"
+                                  className="accent-orange-500 shrink-0"
+                                  checked={!!pathB.allow_sponsor_domain}
+                                  disabled={pathBBusy}
+                                  onChange={() =>
+                                    handlePathBChange(a.assetId, {
+                                      allow_sponsor_domain: !pathB.allow_sponsor_domain,
+                                      selected_sponsor_domain_id: !pathB.allow_sponsor_domain
+                                        ? pathB.selected_sponsor_domain_id
+                                        : null,
+                                    })
+                                  }
+                                />
+                                Sponsor&apos;s tracking domain
+                              </label>
+                              {pathB.allow_sponsor_domain && (
+                                <select
+                                  className="w-full max-w-sm bg-zinc-950 border border-zinc-700 rounded-lg px-2 py-1.5 text-xs text-zinc-200"
+                                  value={pathB.selected_sponsor_domain_id || ''}
+                                  disabled={pathBBusy}
+                                  onChange={e =>
+                                    handlePathBChange(a.assetId, {
+                                      allow_sponsor_domain: true,
+                                      selected_sponsor_domain_id: e.target.value || null,
+                                    })
+                                  }
+                                >
+                                  <option value="">Select Sponsor tracking domain</option>
+                                  {sponsorVerifiedDomains.map(d => (
+                                    <option key={d.id} value={d.id}>
+                                      {d.hostname}
+                                    </option>
+                                  ))}
+                                </select>
                               )}
                             </div>
-                          );
-                        })()}
-                        {isSponsor && (
-                          <div className="pt-1">
-                            <button
-                              type="button"
-                              onClick={() =>
-                                handleRevokePromotionAsset(a.promotionAssetId, a.assetId)
-                              }
-                              disabled={revoking}
-                              className="flex items-center gap-1.5 bg-zinc-800 hover:bg-red-600 disabled:opacity-50 text-zinc-300 hover:text-white text-[10px] font-bold uppercase tracking-wider px-3 py-1.5 rounded-lg transition-colors"
-                            >
-                              {revoking ? (
-                                <Loader2 size={12} className="animate-spin" />
-                              ) : (
-                                <ShieldOff size={12} />
-                              )}
-                              Revoke Access
-                            </button>
+                            <label className="flex items-center gap-2 text-[11px] text-zinc-300 cursor-pointer select-none">
+                              <input
+                                type="checkbox"
+                                className="accent-orange-500 shrink-0"
+                                checked={!!pathB.allow_vstrk_domain}
+                                disabled={pathBBusy}
+                                onChange={() =>
+                                  handlePathBChange(a.assetId, {
+                                    allow_vstrk_domain: !pathB.allow_vstrk_domain,
+                                  })
+                                }
+                              />
+                              VSTRK tracking domain
+                            </label>
+                            {isSponsor && (
+                              <div className="pt-1">
+                                <button
+                                  type="button"
+                                  onClick={() =>
+                                    handleRevokePromotionAsset(a.promotionAssetId, a.assetId)
+                                  }
+                                  disabled={revoking}
+                                  className="flex items-center gap-1.5 bg-zinc-800 hover:bg-red-600 disabled:opacity-50 text-zinc-300 hover:text-white text-[10px] font-bold uppercase tracking-wider px-3 py-1.5 rounded-lg transition-colors"
+                                >
+                                  {revoking ? (
+                                    <Loader2 size={12} className="animate-spin" />
+                                  ) : (
+                                    <ShieldOff size={12} />
+                                  )}
+                                  Revoke Access
+                                </button>
+                              </div>
+                            )}
+                          </div>
+                        ) : (
+                          <div className="text-[11px] text-zinc-500 space-y-0.5">
+                            <p>
+                              Marketer: {pathB.allow_marketer_domain ? 'Allowed' : 'Off'}
+                              {promoUsageByAssetId[a.assetId]?.use_marketer_domain &&
+                              promoUsageByAssetId[a.assetId]?.marketer_hostname
+                                ? ` · ${promoUsageByAssetId[a.assetId].marketer_hostname}`
+                                : ''}
+                            </p>
+                            <p>
+                              Sponsor:{' '}
+                              {pathB.allow_sponsor_domain
+                                ? pathB.hostname ||
+                                  pathB.selected_sponsor_domain_id ||
+                                  promoUsageByAssetId[a.assetId]?.sponsor_hostname ||
+                                  'Allowed'
+                                : 'Off'}
+                            </p>
+                            <p>
+                              VSTRK:{' '}
+                              {pathB.allow_vstrk_domain
+                                ? promoUsageByAssetId[a.assetId]?.use_vstrk_domain
+                                  ? 'On'
+                                  : 'Allowed'
+                                : 'Off'}
+                            </p>
                           </div>
                         )}
                       </div>
@@ -1706,123 +1694,7 @@ export default function PromotionDetail() {
         </div>
       )}
 
-      {/* Phase 2C — Access Management. Deliberately a SEPARATE section
-          from "Promoted Assets" above, not merged into it — see file
-          header PHASE 2C EXTENSION note. This is the full assigned-asset
-          list (assignment_assets), not the promoted subset
-          (promotion_assets). Sponsor-only, same isSponsor gate as
-          Remove/Restore Collaborator.
-          UI FIX: also requires collaborator.status === 'active'. Layer 1
-          removal already blocks the collaborator completely — showing
-          per-asset Revoke/Restore controls for an already-removed
-          collaborator is misleading (Layer 2 state becomes irrelevant
-          once Layer 1 access is gone). This is a display condition only;
-          assignment_asset_access_states rows themselves are untouched
-          either way — restoring the collaborator later reveals whatever
-          access state was already there. */}
-      {!isRemovedSelf && isSponsor && collaborator && collaborator.status === 'active' && assignedAssets.length > 0 && (
-        <div data-tutorial-id="promotion-asset-access-management">
-          <p className="text-[10px] font-black uppercase tracking-widest text-zinc-500 mb-3">
-            Access Management — Assigned Assets
-          </p>
-          <div className="space-y-2 max-w-2xl">
-            {assignedAssets.map(a => {
-              const thumbnailSrc = resolveThumbnailSrc(a.resource);
-              const title = a.resource?.title || 'Untitled Asset';
-              const isBusy = assetActionId === a.assetId;
-              return (
-                <div
-                  key={a.assetId}
-                  className={`flex items-center gap-3 border rounded-lg p-3 transition-all ${
-                    a.isRevoked ? 'bg-zinc-950 border-red-900/40' : 'bg-zinc-900 border-zinc-800'
-                  }`}
-                >
-                  <div className="w-14 h-9 overflow-hidden rounded bg-zinc-950 border border-zinc-800 flex items-center justify-center shrink-0">
-                    {thumbnailSrc && (
-                      <img src={thumbnailSrc} className="max-w-full max-h-full object-contain" />
-                    )}
-                  </div>
-                  <div className="min-w-0 flex-1">
-                    <p className="text-sm text-zinc-200 truncate">{title}</p>
-                    <p className={`text-[9px] font-black uppercase tracking-widest mt-0.5 ${a.isRevoked ? 'text-red-500' : 'text-zinc-600'}`}>
-                      {a.isRevoked ? 'Revoked' : 'Active'}
-                    </p>
-                  </div>
-                  {a.isRevoked ? (
-                    <button
-                      onClick={() => handleRestoreAssetAccess(a.assetId)}
-                      disabled={isBusy}
-                      className="flex items-center gap-1.5 bg-zinc-800 hover:bg-green-600 disabled:opacity-50 text-zinc-300 hover:text-white text-[10px] font-bold uppercase tracking-wider px-3 py-1.5 rounded-lg transition-colors shrink-0"
-                    >
-                      {isBusy ? <Loader2 size={12} className="animate-spin" /> : <ShieldCheck size={12} />}
-                      Restore Access
-                    </button>
-                  ) : (
-                    <button
-                      onClick={() => handleRevokeAssetAccess(a.assetId)}
-                      disabled={isBusy}
-                      className="flex items-center gap-1.5 bg-zinc-800 hover:bg-red-600 disabled:opacity-50 text-zinc-300 hover:text-white text-[10px] font-bold uppercase tracking-wider px-3 py-1.5 rounded-lg transition-colors shrink-0"
-                    >
-                      {isBusy ? <Loader2 size={12} className="animate-spin" /> : <ShieldOff size={12} />}
-                      Revoke Access
-                    </button>
-                  )}
-                </div>
-              );
-            })}
-          </div>
-          {assetActionError && (
-            <p className="text-[10px] text-red-500 mt-2">{assetActionError}</p>
-          )}
-        </div>
-      )}
 
-      {/* Phase 2C follow-up — read-only counterpart to Access Management
-          above, for the collaborator themselves. Reuses the exact same
-          assignedAssets data the Sponsor's section reads — no new query,
-          no new data model. Status only: no Revoke Access / Restore
-          Access buttons, no click handlers, no way to write anything.
-          Mutually exclusive with the Sponsor block above in practice
-          (isCollaboratorViewer and isSponsor can't both be true for the
-          same person), but each has its own independent gate rather than
-          being an else-branch of the other, since a third viewer type
-          (neither Sponsor nor this collaborator) should see neither. */}
-      {!isRemovedSelf && isCollaboratorViewer && assignedAssets.length > 0 && (
-        <div>
-          <p className="text-[10px] font-black uppercase tracking-widest text-zinc-500 mb-3">
-            Assigned Assets
-          </p>
-          <div className="space-y-2 max-w-2xl">
-            {assignedAssets.map(a => {
-              const thumbnailSrc = resolveThumbnailSrc(a.resource);
-              const title = a.resource?.title || 'Untitled Asset';
-              return (
-                <div
-                  key={a.assetId}
-                  className={`flex items-center gap-3 border rounded-lg p-3 ${
-                    a.isRevoked ? 'bg-zinc-950 border-red-900/40' : 'bg-zinc-900 border-zinc-800'
-                  }`}
-                >
-                  <div className="w-14 h-9 overflow-hidden rounded bg-zinc-950 border border-zinc-800 flex items-center justify-center shrink-0">
-                    {thumbnailSrc && (
-                      <img src={thumbnailSrc} className="max-w-full max-h-full object-contain" />
-                    )}
-                  </div>
-                  <div className="min-w-0 flex-1">
-                    <p className="text-sm text-zinc-200 truncate">{title}</p>
-                    <p className="text-[9px] font-black uppercase text-zinc-600 tracking-widest mt-0.5">
-                      {resolveTypeLabel(a.resource)}
-                    </p>
-                  </div>
-                  <span className={`text-[10px] font-bold uppercase tracking-widest shrink-0 ${a.isRevoked ? 'text-red-500' : 'text-zinc-500'}`}>
-                    {a.isRevoked ? 'Revoked' : 'Active'}
-                  </span>
-                </div>
-              );
-            })}
-          </div>
-        </div>
-      )}
 
     </div>
   );
