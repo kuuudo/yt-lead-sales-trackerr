@@ -186,12 +186,29 @@ export default function PromotionDetail() {
       }
     >
   >({});
+  // Actual Promotion×Asset usage (promotion_assets) — display source of truth
+  const [promoUsageByAssetId, setPromoUsageByAssetId] = useState<
+    Record<
+      string,
+      {
+        use_marketer_domain: boolean;
+        selected_marketer_domain_id: string | null;
+        marketer_hostname: string | null;
+        selected_sponsor_domain_id: string | null;
+        sponsor_hostname: string | null;
+        use_vstrk_domain: boolean;
+      }
+    >
+  >({});
   const [pathBActionKey, setPathBActionKey] = useState<string | null>(null);
   const [pathBError, setPathBError] = useState<string | null>(null);
   const [promoAssetRevokeId, setPromoAssetRevokeId] = useState<string | null>(null);
-  // Phase 2 — Creative Mode + Asset Scope (Assignment-level; Sponsor only)
+  // Phase 2 — Creative Mode + Asset Scope (draft locally; Save commits)
   const [creativeSettingsBusy, setCreativeSettingsBusy] = useState(false);
   const [creativeSettingsError, setCreativeSettingsError] = useState<string | null>(null);
+  const [draftCreativeMode, setDraftCreativeMode] = useState<CreativeCreationMode>(null);
+  const [draftAssetScope, setDraftAssetScope] = useState<AssetScope>(null);
+  const [creativeDraftReady, setCreativeDraftReady] = useState(false);
 
   const [promoAssetRevokeError, setPromoAssetRevokeError] = useState<string | null>(null);
 
@@ -282,7 +299,7 @@ export default function PromotionDetail() {
       });
   }, [user, detail]);
 
-  // Phase 1 — load assignment_assets Path B flags + Sponsor verified domains for selectors.
+  // Phase 1 — assignment_assets allow_* (capability) + promotion_assets usage (actual)
   useEffect(() => {
     if (!detail?.assignment?.id) return;
     let cancelled = false;
@@ -298,11 +315,67 @@ export default function PromotionDetail() {
       } catch (err) {
         console.error('[PromotionDetail] Path B load failed:', err);
       }
+
+      // Actual usage: promotion_assets wins for domain display
+      if (!detail.promotion?.id) return;
+      try {
+        const { data: rows, error } = await supabase
+          .from('promotion_assets')
+          .select(
+            'asset_id, use_marketer_domain, selected_marketer_domain_id, selected_sponsor_domain_id, use_vstrk_domain'
+          )
+          .eq('promotion_id', detail.promotion.id);
+        if (error) throw error;
+        if (cancelled) return;
+        const domainIds = new Set<string>();
+        for (const r of rows ?? []) {
+          if (r.selected_marketer_domain_id) domainIds.add(r.selected_marketer_domain_id as string);
+          if (r.selected_sponsor_domain_id) domainIds.add(r.selected_sponsor_domain_id as string);
+        }
+        // Fallback hostnames from assignment_assets when promo sponsor id null
+        for (const v of Object.values(pathBByAssetId)) {
+          /* filled after pathB set — use map from list above */
+        }
+        map.forEach((v) => {
+          if (v.selected_sponsor_domain_id) domainIds.add(v.selected_sponsor_domain_id);
+        });
+        const hostnameById = new Map<string, string>();
+        if (domainIds.size > 0) {
+          const { data: domains } = await supabase
+            .from('branded_tracking_domains')
+            .select('id, hostname')
+            .in('id', Array.from(domainIds));
+          for (const d of domains ?? []) {
+            hostnameById.set(d.id as string, (d.hostname as string) || (d.id as string));
+          }
+        }
+        const usage: typeof promoUsageByAssetId = {};
+        for (const r of rows ?? []) {
+          const aid = r.asset_id as string;
+          const mid = (r.selected_marketer_domain_id as string | null) ?? null;
+          let sid = (r.selected_sponsor_domain_id as string | null) ?? null;
+          // Priority: promotion_assets → assignment_assets
+          if (!sid) {
+            sid = map.get(aid)?.selected_sponsor_domain_id ?? null;
+          }
+          usage[aid] = {
+            use_marketer_domain: !!r.use_marketer_domain,
+            selected_marketer_domain_id: mid,
+            marketer_hostname: mid ? hostnameById.get(mid) ?? null : null,
+            selected_sponsor_domain_id: sid,
+            sponsor_hostname: sid ? hostnameById.get(sid) ?? null : null,
+            use_vstrk_domain: !!r.use_vstrk_domain,
+          };
+        }
+        if (!cancelled) setPromoUsageByAssetId(usage);
+      } catch (err) {
+        console.error('[PromotionDetail] promotion_assets usage load failed:', err);
+      }
     })();
     return () => {
       cancelled = true;
     };
-  }, [detail?.assignment?.id, detail?.assets?.length]);
+  }, [detail?.assignment?.id, detail?.promotion?.id, detail?.assets?.length]);
 
   useEffect(() => {
     if (!isSponsor || !detail?.promotion?.organization_id) return;
@@ -310,6 +383,35 @@ export default function PromotionDetail() {
       .then(setSponsorVerifiedDomains)
       .catch(err => console.error('[PromotionDetail] verified domains:', err));
   }, [isSponsor, detail?.promotion?.organization_id]);
+
+  // Phase 2 — seed Content Creation draft from Assignment
+  useEffect(() => {
+    if (!detail?.assignment) {
+      setCreativeDraftReady(false);
+      return;
+    }
+    const a: any = detail.assignment;
+    const mode =
+      a.creative_creation_mode === 'campaign_asset_only' ||
+      a.creative_creation_mode === 'campaign_links_and_assets'
+        ? a.creative_creation_mode
+        : null;
+    const scope =
+      a.asset_scope === 'promotion_only' || a.asset_scope === 'allow_additional'
+        ? a.asset_scope
+        : mode
+          ? 'promotion_only'
+          : null;
+    setDraftCreativeMode(mode);
+    setDraftAssetScope(scope);
+    setCreativeDraftReady(true);
+    setCreativeSettingsError(null);
+  }, [
+    detail?.assignment?.id,
+    (detail?.assignment as any)?.creative_creation_mode,
+    (detail?.assignment as any)?.asset_scope,
+    (detail?.assignment as any)?.creative_campaign_id,
+  ]);
 
 
  const handleRestore = async () => {
@@ -503,18 +605,32 @@ export default function PromotionDetail() {
   };
 
 
-  // Phase 2 — Creative Mode + Asset Scope (Assignment-level transition guards in service)
-  const handleCreativeSettingsChange = async (patch: {
-    creative_creation_mode?: CreativeCreationMode;
-    asset_scope?: AssetScope;
-  }) => {
-    if (!detail?.assignment?.id || !isSponsor) return;
+  // Phase 2 — draft changes only; Save button commits via service guards
+  const savedCreativeMode: CreativeCreationMode = (() => {
+    const m = (detail?.assignment as any)?.creative_creation_mode;
+    return m === 'campaign_asset_only' || m === 'campaign_links_and_assets' ? m : null;
+  })();
+  const savedAssetScope: AssetScope = (() => {
+    const sc = (detail?.assignment as any)?.asset_scope;
+    return sc === 'promotion_only' || sc === 'allow_additional' ? sc : null;
+  })();
+  const savedCampaignId = ((detail?.assignment as any)?.creative_campaign_id as string | null) || null;
+  const creativeDirty =
+    creativeDraftReady &&
+    isSponsor &&
+    !!savedCreativeMode &&
+    (draftCreativeMode !== savedCreativeMode ||
+      (draftAssetScope || 'promotion_only') !== (savedAssetScope || 'promotion_only'));
+
+  const saveCreativeSettings = async () => {
+    if (!detail?.assignment?.id || !isSponsor || !creativeDirty) return;
     setCreativeSettingsBusy(true);
     setCreativeSettingsError(null);
     try {
       const result = await updateAssignmentCreativeSettings({
         assignmentId: detail.assignment.id,
-        ...patch,
+        creative_creation_mode: draftCreativeMode,
+        asset_scope: draftCreativeMode ? (draftAssetScope || 'promotion_only') : null,
       });
       setDetail((prev: PromotionDetailData | null) => {
         if (!prev?.assignment) return prev;
@@ -528,6 +644,8 @@ export default function PromotionDetail() {
           } as typeof prev.assignment,
         };
       });
+      setDraftCreativeMode(result.creative_creation_mode);
+      setDraftAssetScope(result.asset_scope);
     } catch (err: any) {
       setCreativeSettingsError(err?.message ?? 'Could not update Content Creation settings');
     } finally {
@@ -721,6 +839,24 @@ export default function PromotionDetail() {
               <BarChart3 size={14} />
               View Journey
             </Link>
+            {isSponsor && savedCreativeMode && (
+              <button
+                type="button"
+                onClick={saveCreativeSettings}
+                disabled={!creativeDirty || creativeSettingsBusy}
+                className="inline-flex items-center gap-2 bg-orange-600 hover:bg-orange-500 disabled:opacity-40 disabled:hover:bg-orange-600 text-white text-xs font-bold uppercase tracking-wider px-4 py-2 rounded-lg transition-colors"
+                title={
+                  creativeDirty
+                    ? 'Save Content Creation changes'
+                    : 'No Content Creation changes to save'
+                }
+              >
+                {creativeSettingsBusy ? (
+                  <Loader2 size={14} className="animate-spin" />
+                ) : null}
+                Save
+              </button>
+            )}
             <button
               onClick={() => startTutorial(promotionTutorial)}
               title="Take a tour of Promotion Detail"
@@ -871,8 +1007,12 @@ export default function PromotionDetail() {
                     Content Creation
                   </p>
                   {(() => {
-                    const mode = ((assignment as any).creative_creation_mode as string | null) || null;
-                    const scope = ((assignment as any).asset_scope as string | null) || null;
+                    const mode = isSponsor && creativeDraftReady
+                      ? draftCreativeMode
+                      : (((assignment as any).creative_creation_mode as string | null) || null);
+                    const scope = isSponsor && creativeDraftReady
+                      ? draftAssetScope
+                      : (((assignment as any).asset_scope as string | null) || null);
                     const campaignId = ((assignment as any).creative_campaign_id as string | null) || null;
                     const isCreative =
                       mode === 'campaign_asset_only' || mode === 'campaign_links_and_assets';
@@ -898,11 +1038,10 @@ export default function PromotionDetail() {
                                   name="promo-creative-mode"
                                   checked={mode === 'campaign_asset_only'}
                                   disabled={creativeSettingsBusy}
-                                  onChange={() =>
-                                    handleCreativeSettingsChange({
-                                      creative_creation_mode: 'campaign_asset_only',
-                                    })
-                                  }
+                                  onChange={() => {
+                                    setDraftCreativeMode('campaign_asset_only');
+                                    setCreativeSettingsError(null);
+                                  }}
                                 />
                                 <span className="text-xs text-zinc-200">
                                   Campaign + asset only
@@ -927,11 +1066,10 @@ export default function PromotionDetail() {
                                     creativeSettingsBusy ||
                                     (!campaignId && mode === 'campaign_asset_only')
                                   }
-                                  onChange={() =>
-                                    handleCreativeSettingsChange({
-                                      creative_creation_mode: 'campaign_links_and_assets',
-                                    })
-                                  }
+                                  onChange={() => {
+                                    setDraftCreativeMode('campaign_links_and_assets');
+                                    setCreativeSettingsError(null);
+                                  }}
                                 />
                                 <span className="text-xs text-zinc-200">
                                   Campaign + links + assets
@@ -966,11 +1104,10 @@ export default function PromotionDetail() {
                                   name="promo-asset-scope"
                                   checked={scope === 'promotion_only' || !scope}
                                   disabled={creativeSettingsBusy}
-                                  onChange={() =>
-                                    handleCreativeSettingsChange({
-                                      asset_scope: 'promotion_only',
-                                    })
-                                  }
+                                  onChange={() => {
+                                    setDraftAssetScope('promotion_only');
+                                    setCreativeSettingsError(null);
+                                  }}
                                 />
                                 <span className="text-xs text-zinc-200">
                                   Promotion assets only
@@ -986,11 +1123,10 @@ export default function PromotionDetail() {
                                   name="promo-asset-scope"
                                   checked={scope === 'allow_additional'}
                                   disabled={creativeSettingsBusy}
-                                  onChange={() =>
-                                    handleCreativeSettingsChange({
-                                      asset_scope: 'allow_additional',
-                                    })
-                                  }
+                                  onChange={() => {
+                                    setDraftAssetScope('allow_additional');
+                                    setCreativeSettingsError(null);
+                                  }}
                                 />
                                 <span className="text-xs text-zinc-200">
                                   Allow additional assets
@@ -1011,6 +1147,11 @@ export default function PromotionDetail() {
 
                         {creativeSettingsError && (
                           <p className="text-[11px] text-red-400">{creativeSettingsError}</p>
+                        )}
+                        {isSponsor && creativeDirty && !creativeSettingsBusy && (
+                          <p className="text-[10px] text-zinc-500">
+                            Unsaved changes — use Save (top right).
+                          </p>
                         )}
                         {creativeSettingsBusy && (
                           <p className="text-[10px] text-zinc-500">Saving…</p>
@@ -1091,110 +1232,90 @@ export default function PromotionDetail() {
                         </Link>
                       </div>
 
-                      {/* Phase 1 — per-asset Path B domain access (assignment_assets) */}
+                      {/* Domain display: promotion_assets usage preferred; assignment allow_* is ceiling only */}
                       <div className="border-t border-zinc-800 pt-3 space-y-2">
                         <p className="text-[9px] font-black uppercase tracking-widest text-zinc-500">
-                          Tracking domain access
+                          Tracking domains
                         </p>
-                        {isSponsor && assignment ? (
-                          <div className="space-y-2">
-                            <label className="flex items-center gap-2 text-[11px] text-zinc-300 cursor-pointer select-none">
-                              <input
-                                type="checkbox"
-                                className="accent-orange-500"
-                                checked={!!pathB.allow_marketer_domain}
-                                disabled={pathBBusy}
-                                onChange={() =>
-                                  handlePathBChange(a.assetId, {
-                                    allow_marketer_domain: !pathB.allow_marketer_domain,
-                                  })
-                                }
-                              />
-                              Marketer&apos;s tracking domain
-                            </label>
-                            <div className="space-y-1.5">
-                              <label className="flex items-center gap-2 text-[11px] text-zinc-300 cursor-pointer select-none">
-                                <input
-                                  type="checkbox"
-                                  className="accent-orange-500"
-                                  checked={!!pathB.allow_sponsor_domain}
-                                  disabled={pathBBusy}
-                                  onChange={() =>
-                                    handlePathBChange(a.assetId, {
-                                      allow_sponsor_domain: !pathB.allow_sponsor_domain,
-                                      selected_sponsor_domain_id: !pathB.allow_sponsor_domain
-                                        ? pathB.selected_sponsor_domain_id
-                                        : null,
-                                    })
-                                  }
-                                />
-                                Sponsor&apos;s tracking domain
-                              </label>
-                              {pathB.allow_sponsor_domain && (
-                                <select
-                                  className="w-full max-w-sm bg-zinc-950 border border-zinc-700 rounded-lg px-2 py-1.5 text-xs text-zinc-200"
-                                  value={pathB.selected_sponsor_domain_id || ''}
-                                  disabled={pathBBusy}
-                                  onChange={e =>
-                                    handlePathBChange(a.assetId, {
-                                      allow_sponsor_domain: true,
-                                      selected_sponsor_domain_id: e.target.value || null,
-                                    })
-                                  }
-                                >
-                                  <option value="">Select Sponsor tracking domain</option>
-                                  {sponsorVerifiedDomains.map(d => (
-                                    <option key={d.id} value={d.id}>
-                                      {d.hostname}
-                                    </option>
-                                  ))}
-                                </select>
+                        {(() => {
+                          const usage = promoUsageByAssetId[a.assetId];
+                          const showMarketer = pathB.allow_marketer_domain || usage?.use_marketer_domain;
+                          const showSponsor = pathB.allow_sponsor_domain || !!usage?.selected_sponsor_domain_id;
+                          const showVstrk = pathB.allow_vstrk_domain || usage?.use_vstrk_domain;
+                          if (!showMarketer && !showSponsor && !showVstrk) {
+                            return (
+                              <p className="text-[11px] text-zinc-500">No tracking methods configured for this asset.</p>
+                            );
+                          }
+                          return (
+                            <div className="space-y-2 text-[11px]">
+                              {showMarketer && (
+                                <div>
+                                  <p className="text-[9px] font-bold uppercase tracking-widest text-zinc-500 mb-0.5">
+                                    Marketer&apos;s tracking domain
+                                  </p>
+                                  <p className="text-zinc-200 font-mono">
+                                    {usage?.use_marketer_domain
+                                      ? (usage.marketer_hostname || usage.selected_marketer_domain_id || 'On')
+                                      : pathB.allow_marketer_domain
+                                        ? 'Allowed — not selected at Start Promoting'
+                                        : 'Off'}
+                                  </p>
+                                </div>
+                              )}
+                              {showSponsor && (
+                                <div>
+                                  <p className="text-[9px] font-bold uppercase tracking-widest text-zinc-500 mb-0.5">
+                                    Sponsor&apos;s tracking domain
+                                  </p>
+                                  <p className="text-zinc-200 font-mono">
+                                    {usage?.sponsor_hostname
+                                      || usage?.selected_sponsor_domain_id
+                                      || pathB.hostname
+                                      || pathB.selected_sponsor_domain_id
+                                      || (pathB.allow_sponsor_domain
+                                        ? 'Allowed — not set yet'
+                                        : 'Off')}
+                                  </p>
+                                  <p className="text-[9px] text-zinc-600 mt-0.5">
+                                    Set at Assignment / Start Promoting — read only here
+                                  </p>
+                                </div>
+                              )}
+                              {showVstrk && (
+                                <div>
+                                  <p className="text-[9px] font-bold uppercase tracking-widest text-zinc-500 mb-0.5">
+                                    VSTRK tracking domain
+                                  </p>
+                                  <p className="text-zinc-200">
+                                    {usage?.use_vstrk_domain
+                                      ? 'On · vstrk.com'
+                                      : pathB.allow_vstrk_domain
+                                        ? 'Allowed — not selected at Start Promoting'
+                                        : 'Off'}
+                                  </p>
+                                </div>
                               )}
                             </div>
-                            <label className="flex items-center gap-2 text-[11px] text-zinc-300 cursor-pointer select-none">
-                              <input
-                                type="checkbox"
-                                className="accent-orange-500"
-                                checked={!!pathB.allow_vstrk_domain}
-                                disabled={pathBBusy}
-                                onChange={() =>
-                                  handlePathBChange(a.assetId, {
-                                    allow_vstrk_domain: !pathB.allow_vstrk_domain,
-                                  })
-                                }
-                              />
-                              VSTRK tracking domain
-                            </label>
-                            <div className="pt-1">
-                              <button
-                                type="button"
-                                onClick={() =>
-                                  handleRevokePromotionAsset(a.promotionAssetId, a.assetId)
-                                }
-                                disabled={revoking}
-                                className="flex items-center gap-1.5 bg-zinc-800 hover:bg-red-600 disabled:opacity-50 text-zinc-300 hover:text-white text-[10px] font-bold uppercase tracking-wider px-3 py-1.5 rounded-lg transition-colors"
-                              >
-                                {revoking ? (
-                                  <Loader2 size={12} className="animate-spin" />
-                                ) : (
-                                  <ShieldOff size={12} />
-                                )}
-                                Revoke Access
-                              </button>
-                            </div>
-                          </div>
-                        ) : (
-                          <div className="text-[11px] text-zinc-500 space-y-0.5">
-                            <p>
-                              Marketer: {pathB.allow_marketer_domain ? 'Allowed' : 'Off'}
-                            </p>
-                            <p>
-                              Sponsor:{' '}
-                              {pathB.allow_sponsor_domain
-                                ? pathB.hostname || pathB.selected_sponsor_domain_id || 'Allowed'
-                                : 'Off'}
-                            </p>
-                            <p>VSTRK: {pathB.allow_vstrk_domain ? 'Allowed' : 'Off'}</p>
+                          );
+                        })()}
+                        {isSponsor && (
+                          <div className="pt-1">
+                            <button
+                              type="button"
+                              onClick={() =>
+                                handleRevokePromotionAsset(a.promotionAssetId, a.assetId)
+                              }
+                              disabled={revoking}
+                              className="flex items-center gap-1.5 bg-zinc-800 hover:bg-red-600 disabled:opacity-50 text-zinc-300 hover:text-white text-[10px] font-bold uppercase tracking-wider px-3 py-1.5 rounded-lg transition-colors"
+                            >
+                              {revoking ? (
+                                <Loader2 size={12} className="animate-spin" />
+                              ) : (
+                                <ShieldOff size={12} />
+                              )}
+                              Revoke Access
+                            </button>
                           </div>
                         )}
                       </div>
