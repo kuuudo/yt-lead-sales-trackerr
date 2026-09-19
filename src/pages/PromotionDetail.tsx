@@ -50,6 +50,7 @@ import React, { useEffect, useState } from 'react';
 import { useParams, Link } from 'react-router-dom';
 import { ArrowLeft, Loader2, ArchiveRestore, UserX, UserCheck, ShieldOff, ShieldCheck, Globe, BarChart3 } from 'lucide-react';
 import { useAuth } from '../lib/auth';
+import { supabase } from '../lib/supabase';
 import { useTutorial } from '../lib/tutorial-overlay';
 import { promotionTutorial } from '../lib/tutorials/promotionTutorial';
 import {
@@ -79,6 +80,11 @@ import {
   listAssignmentAssetDomainPolicies,
   updateAssignmentAssetDomainPolicy,
 } from '../services/assignment/updateAssignmentAssetDomainPolicy';
+import {
+  updateAssignmentCreativeSettings,
+  type CreativeCreationMode,
+  type AssetScope,
+} from '../services/assignment/updateAssignmentCreativeSettings';
 import { setAllowCollaboratorDomains } from '../services/promotion/promotionAssetDomainPolicy';
 import { addPromotionAsset } from '../services/promotion/addPromotionAsset';
 import { removePromotionAsset } from '../services/promotion/removePromotionAsset';
@@ -183,6 +189,10 @@ export default function PromotionDetail() {
   const [pathBActionKey, setPathBActionKey] = useState<string | null>(null);
   const [pathBError, setPathBError] = useState<string | null>(null);
   const [promoAssetRevokeId, setPromoAssetRevokeId] = useState<string | null>(null);
+  // Phase 2 — Creative Mode + Asset Scope (Assignment-level; Sponsor only)
+  const [creativeSettingsBusy, setCreativeSettingsBusy] = useState(false);
+  const [creativeSettingsError, setCreativeSettingsError] = useState<string | null>(null);
+
   const [promoAssetRevokeError, setPromoAssetRevokeError] = useState<string | null>(null);
 
   const [isAddAssetPickerOpen, setIsAddAssetPickerOpen] = useState(false);
@@ -196,6 +206,29 @@ export default function PromotionDetail() {
       setError(null);
       try {
         const data = await getPromotionDetail(id);
+        // Phase 2 — ensure Assignment creative fields are present (loader may omit them)
+        if (data.assignment?.id) {
+          const a: any = data.assignment;
+          if (
+            a.creative_creation_mode === undefined ||
+            a.asset_scope === undefined ||
+            a.creative_campaign_id === undefined
+          ) {
+            const { data: asg } = await supabase
+              .from('assignments')
+              .select('creative_creation_mode, asset_scope, creative_campaign_id')
+              .eq('id', data.assignment.id)
+              .maybeSingle();
+            if (asg) {
+              data.assignment = {
+                ...data.assignment,
+                creative_creation_mode: asg.creative_creation_mode ?? null,
+                asset_scope: asg.asset_scope ?? null,
+                creative_campaign_id: asg.creative_campaign_id ?? null,
+              } as typeof data.assignment;
+            }
+          }
+        }
         if (!data) {
           setError('Promotion not found.');
         } else {
@@ -466,6 +499,39 @@ export default function PromotionDetail() {
       setPathBError(err.message || 'Could not update tracking domain access.');
     } finally {
       setPathBActionKey(null);
+    }
+  };
+
+
+  // Phase 2 — Creative Mode + Asset Scope (Assignment-level transition guards in service)
+  const handleCreativeSettingsChange = async (patch: {
+    creative_creation_mode?: CreativeCreationMode;
+    asset_scope?: AssetScope;
+  }) => {
+    if (!detail?.assignment?.id || !isSponsor) return;
+    setCreativeSettingsBusy(true);
+    setCreativeSettingsError(null);
+    try {
+      const result = await updateAssignmentCreativeSettings({
+        assignmentId: detail.assignment.id,
+        ...patch,
+      });
+      setDetail((prev: PromotionDetailData | null) => {
+        if (!prev?.assignment) return prev;
+        return {
+          ...prev,
+          assignment: {
+            ...prev.assignment,
+            creative_creation_mode: result.creative_creation_mode,
+            asset_scope: result.asset_scope,
+            creative_campaign_id: result.creative_campaign_id,
+          } as typeof prev.assignment,
+        };
+      });
+    } catch (err: any) {
+      setCreativeSettingsError(err?.message ?? 'Could not update Content Creation settings');
+    } finally {
+      setCreativeSettingsBusy(false);
     }
   };
 
@@ -797,6 +863,163 @@ export default function PromotionDetail() {
                   })}
                 </p>
               </div>
+
+              {/* Phase 2 — Content Creation (Assignment-level; no NULL ↔ Creative) */}
+              {assignment && (
+                <div className="pt-2 border-t border-zinc-800 space-y-3">
+                  <p className="text-[10px] font-black uppercase tracking-widest text-zinc-500">
+                    Content Creation
+                  </p>
+                  {(() => {
+                    const mode = ((assignment as any).creative_creation_mode as string | null) || null;
+                    const scope = ((assignment as any).asset_scope as string | null) || null;
+                    const campaignId = ((assignment as any).creative_campaign_id as string | null) || null;
+                    const isCreative =
+                      mode === 'campaign_asset_only' || mode === 'campaign_links_and_assets';
+
+                    if (!isCreative) {
+                      return (
+                        <p className="text-sm text-zinc-400">No content creation</p>
+                      );
+                    }
+
+                    return (
+                      <div className="space-y-4">
+                        <div className="space-y-2">
+                          <p className="text-[10px] font-bold uppercase tracking-widest text-zinc-500">
+                            Creative Mode
+                          </p>
+                          {isSponsor ? (
+                            <div className="space-y-2">
+                              <label className="flex items-start gap-2 cursor-pointer">
+                                <input
+                                  type="radio"
+                                  className="mt-0.5 accent-orange-500"
+                                  name="promo-creative-mode"
+                                  checked={mode === 'campaign_asset_only'}
+                                  disabled={creativeSettingsBusy}
+                                  onChange={() =>
+                                    handleCreativeSettingsChange({
+                                      creative_creation_mode: 'campaign_asset_only',
+                                    })
+                                  }
+                                />
+                                <span className="text-xs text-zinc-200">
+                                  Campaign + asset only
+                                  <span className="block text-[10px] text-zinc-500 font-normal mt-0.5">
+                                    ONLY PROMOTE ASSET — no extra Sponsor campaign links campaign.
+                                  </span>
+                                </span>
+                              </label>
+                              <label
+                                className={`flex items-start gap-2 ${
+                                  !campaignId && mode === 'campaign_asset_only'
+                                    ? 'opacity-50 cursor-not-allowed'
+                                    : 'cursor-pointer'
+                                }`}
+                              >
+                                <input
+                                  type="radio"
+                                  className="mt-0.5 accent-orange-500"
+                                  name="promo-creative-mode"
+                                  checked={mode === 'campaign_links_and_assets'}
+                                  disabled={
+                                    creativeSettingsBusy ||
+                                    (!campaignId && mode === 'campaign_asset_only')
+                                  }
+                                  onChange={() =>
+                                    handleCreativeSettingsChange({
+                                      creative_creation_mode: 'campaign_links_and_assets',
+                                    })
+                                  }
+                                />
+                                <span className="text-xs text-zinc-200">
+                                  Campaign + links + assets
+                                  <span className="block text-[10px] text-zinc-500 font-normal mt-0.5">
+                                    ONLY PROMOTE ASSET plus one Sponsor campaign.
+                                    {!campaignId && mode === 'campaign_asset_only'
+                                      ? ' Requires a creative campaign already set on this Assignment (no auto-select).'
+                                      : ''}
+                                  </span>
+                                </span>
+                              </label>
+                            </div>
+                          ) : (
+                            <p className="text-sm text-zinc-300">
+                              {mode === 'campaign_asset_only'
+                                ? 'Campaign + asset only'
+                                : 'Campaign + links + assets'}
+                            </p>
+                          )}
+                        </div>
+
+                        <div className="space-y-2">
+                          <p className="text-[10px] font-bold uppercase tracking-widest text-zinc-500">
+                            Asset Usage
+                          </p>
+                          {isSponsor ? (
+                            <div className="space-y-2">
+                              <label className="flex items-start gap-2 cursor-pointer">
+                                <input
+                                  type="radio"
+                                  className="mt-0.5 accent-orange-500"
+                                  name="promo-asset-scope"
+                                  checked={scope === 'promotion_only' || !scope}
+                                  disabled={creativeSettingsBusy}
+                                  onChange={() =>
+                                    handleCreativeSettingsChange({
+                                      asset_scope: 'promotion_only',
+                                    })
+                                  }
+                                />
+                                <span className="text-xs text-zinc-200">
+                                  Promotion assets only
+                                  <span className="block text-[10px] text-zinc-500 font-normal mt-0.5">
+                                    Marketer can only use assets in this Promotion.
+                                  </span>
+                                </span>
+                              </label>
+                              <label className="flex items-start gap-2 cursor-pointer">
+                                <input
+                                  type="radio"
+                                  className="mt-0.5 accent-orange-500"
+                                  name="promo-asset-scope"
+                                  checked={scope === 'allow_additional'}
+                                  disabled={creativeSettingsBusy}
+                                  onChange={() =>
+                                    handleCreativeSettingsChange({
+                                      asset_scope: 'allow_additional',
+                                    })
+                                  }
+                                />
+                                <span className="text-xs text-zinc-200">
+                                  Allow additional assets
+                                  <span className="block text-[10px] text-zinc-500 font-normal mt-0.5">
+                                    Marketer can use assets in this Promotion plus other assets they are already permitted to promote.
+                                  </span>
+                                </span>
+                              </label>
+                            </div>
+                          ) : (
+                            <p className="text-sm text-zinc-300">
+                              {scope === 'allow_additional'
+                                ? 'Allow additional assets'
+                                : 'Promotion assets only'}
+                            </p>
+                          )}
+                        </div>
+
+                        {creativeSettingsError && (
+                          <p className="text-[11px] text-red-400">{creativeSettingsError}</p>
+                        )}
+                        {creativeSettingsBusy && (
+                          <p className="text-[10px] text-zinc-500">Saving…</p>
+                        )}
+                      </div>
+                    );
+                  })()}
+                </div>
+              )}
 
             </section>
           </div>
