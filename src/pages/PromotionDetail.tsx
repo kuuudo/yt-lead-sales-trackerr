@@ -76,10 +76,7 @@ import { removeCollaborator } from '../services/assignment/removeCollaborator';
 import { restoreCollaborator } from '../services/assignment/restoreCollaborator';
 import { revokeAssetAccess, restoreAssetAccess } from '../services/assignment/assignmentAssetAccess';
 import { listVerifiedBrandedDomains, type VerifiedDomainOption } from '../services/domain/brandedDomains';
-import {
-  listAssignmentAssetDomainPolicies,
-  updateAssignmentAssetDomainPolicy,
-} from '../services/assignment/updateAssignmentAssetDomainPolicy';
+import { listAssignmentAssetDomainPolicies } from '../services/assignment/updateAssignmentAssetDomainPolicy';
 import {
   updateAssignmentCreativeSettings,
   type CreativeCreationMode,
@@ -564,41 +561,46 @@ export default function PromotionDetail() {
     }
   };
 
-  // Phase 1 — update assignment_assets Path B capability for one asset.
-  const handlePathBChange = async (
+  // Domain phase — only fill promotion_assets.selected_sponsor_domain_id when still null.
+  // Does NOT rewrite assignment_assets allow_* or change domains that were already set.
+  const handleSetPromotionSponsorDomain = async (
+    promotionAssetId: string,
     assetId: string,
-    patch: {
-      allow_marketer_domain?: boolean;
-      allow_sponsor_domain?: boolean;
-      allow_vstrk_domain?: boolean;
-      selected_sponsor_domain_id?: string | null;
-    }
+    domainId: string
   ) => {
-    if (!detail?.assignment?.id || !isSponsor) return;
-    const key = `${assetId}:${Object.keys(patch).join(',')}`;
+    if (!isSponsor || !domainId) return;
+    const existing = promoUsageByAssetId[assetId];
+    if (existing?.selected_sponsor_domain_id) {
+      setPathBError('Sponsor tracking domain is already set and cannot be changed here.');
+      return;
+    }
+    if (!pathBByAssetId[assetId]?.allow_sponsor_domain) {
+      setPathBError('Sponsor tracking domain is not allowed for this asset on the Assignment.');
+      return;
+    }
+    const key = `${assetId}:sponsor`;
     setPathBError(null);
     setPathBActionKey(key);
     try {
-      await updateAssignmentAssetDomainPolicy(detail.assignment.id, assetId, patch);
-      setPathBByAssetId(prev => {
-        const cur = prev[assetId] || {
-          allow_marketer_domain: false,
-          allow_sponsor_domain: false,
-          allow_vstrk_domain: false,
-          selected_sponsor_domain_id: null,
-        };
-        const next = { ...cur, ...patch };
-        if (next.allow_sponsor_domain === false) {
-          next.selected_sponsor_domain_id = null;
-          next.hostname = null;
-        } else if (patch.selected_sponsor_domain_id) {
-          const opt = sponsorVerifiedDomains.find(d => d.id === patch.selected_sponsor_domain_id);
-          next.hostname = opt?.hostname ?? next.hostname;
-        }
-        return { ...prev, [assetId]: next };
-      });
+      const { error } = await supabase
+        .from('promotion_assets')
+        .update({ selected_sponsor_domain_id: domainId })
+        .eq('id', promotionAssetId);
+      if (error) throw error;
+      const opt = sponsorVerifiedDomains.find(d => d.id === domainId);
+      setPromoUsageByAssetId(prev => ({
+        ...prev,
+        [assetId]: {
+          use_marketer_domain: prev[assetId]?.use_marketer_domain ?? false,
+          selected_marketer_domain_id: prev[assetId]?.selected_marketer_domain_id ?? null,
+          marketer_hostname: prev[assetId]?.marketer_hostname ?? null,
+          selected_sponsor_domain_id: domainId,
+          sponsor_hostname: opt?.hostname ?? domainId,
+          use_vstrk_domain: prev[assetId]?.use_vstrk_domain ?? false,
+        },
+      }));
     } catch (err: any) {
-      setPathBError(err.message || 'Could not update tracking domain access.');
+      setPathBError(err.message || 'Could not set Sponsor tracking domain.');
     } finally {
       setPathBActionKey(null);
     }
@@ -1268,18 +1270,63 @@ export default function PromotionDetail() {
                                   <p className="text-[9px] font-bold uppercase tracking-widest text-zinc-500 mb-0.5">
                                     Sponsor&apos;s tracking domain
                                   </p>
-                                  <p className="text-zinc-200 font-mono">
-                                    {usage?.sponsor_hostname
+                                  {(() => {
+                                    const resolvedHostname =
+                                      usage?.sponsor_hostname
                                       || usage?.selected_sponsor_domain_id
                                       || pathB.hostname
                                       || pathB.selected_sponsor_domain_id
-                                      || (pathB.allow_sponsor_domain
-                                        ? 'Allowed — not set yet'
-                                        : 'Off')}
-                                  </p>
-                                  <p className="text-[9px] text-zinc-600 mt-0.5">
-                                    Set at Assignment / Start Promoting — read only here
-                                  </p>
+                                      || null;
+                                    const canFill =
+                                      isSponsor
+                                      && pathB.allow_sponsor_domain
+                                      && !usage?.selected_sponsor_domain_id
+                                      && !pathB.selected_sponsor_domain_id;
+                                    if (canFill) {
+                                      return (
+                                        <div className="space-y-1">
+                                          <select
+                                            className="w-full max-w-sm bg-zinc-950 border border-zinc-700 rounded-lg px-2 py-1.5 text-xs text-zinc-200"
+                                            defaultValue=""
+                                            disabled={pathBBusy}
+                                            onChange={e => {
+                                              const v = e.target.value;
+                                              if (v) {
+                                                handleSetPromotionSponsorDomain(
+                                                  a.promotionAssetId,
+                                                  a.assetId,
+                                                  v
+                                                );
+                                              }
+                                            }}
+                                          >
+                                            <option value="">Select Sponsor tracking domain</option>
+                                            {sponsorVerifiedDomains.map(d => (
+                                              <option key={d.id} value={d.id}>
+                                                {d.hostname}
+                                              </option>
+                                            ))}
+                                          </select>
+                                          <p className="text-[9px] text-zinc-600">
+                                            Not set yet — choose once; locked after save.
+                                          </p>
+                                        </div>
+                                      );
+                                    }
+                                    return (
+                                      <>
+                                        <p className="text-zinc-200 font-mono">
+                                          {resolvedHostname
+                                            || (pathB.allow_sponsor_domain
+                                              ? 'Allowed — not set yet'
+                                              : 'Off')}
+                                        </p>
+                                        <p className="text-[9px] text-zinc-600 mt-0.5">
+                                          Read only — decided at Assignment / Start Promoting
+                                        </p>
+                                      </>
+                                    );
+                                  })()}
                                 </div>
                               )}
                               {showVstrk && (
