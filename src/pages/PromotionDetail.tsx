@@ -74,11 +74,14 @@ import {
 import { removeCollaborator } from '../services/assignment/removeCollaborator';
 import { restoreCollaborator } from '../services/assignment/restoreCollaborator';
 import { revokeAssetAccess, restoreAssetAccess } from '../services/assignment/assignmentAssetAccess';
-import { revokeTrackingDomainAccess, restoreTrackingDomainAccess } from '../services/assignment/assignmentTrackingDomainAccess';
-import { addAssignmentTrackingDomain } from '../services/assignment/getAssignmentDetail';
 import { listVerifiedBrandedDomains, type VerifiedDomainOption } from '../services/domain/brandedDomains';
+import {
+  listAssignmentAssetDomainPolicies,
+  updateAssignmentAssetDomainPolicy,
+} from '../services/assignment/updateAssignmentAssetDomainPolicy';
 import { setAllowCollaboratorDomains } from '../services/promotion/promotionAssetDomainPolicy';
 import { addPromotionAsset } from '../services/promotion/addPromotionAsset';
+import { removePromotionAsset } from '../services/promotion/removePromotionAsset';
 import { PromotedAssetPicker, type PromotedAssetRow } from '../components/PromotedAssetPicker';
 import {
   resolveAssetThumbnail,
@@ -159,29 +162,32 @@ export default function PromotionDetail() {
   const [assetActionId, setAssetActionId] = useState<string | null>(null);
   const [assetActionError, setAssetActionError] = useState<string | null>(null);
 
-  // Same pattern, for Tracking Domains — tracked by branded_tracking_domain_id.
-  const [domainActionId, setDomainActionId] = useState<string | null>(null);
-  const [domainActionError, setDomainActionError] = useState<string | null>(null);
-
-  // MVP — Promotion-level "Allow collaborator domains" policy.
-  // Deliberately separate state from domainActionId/domainActionError
-  // above (which govern the unrelated Sponsor-domain revoke/restore
-  // flow) — different data, different table, different mechanism,
-  // kept independent rather than sharing state.
+  // MVP — Promotion-level "Allow collaborator domains" policy (legacy UI, unchanged this phase).
   const [domainPolicyActionId, setDomainPolicyActionId] = useState<string | null>(null);
   const [domainPolicyError, setDomainPolicyError] = useState<string | null>(null);
 
-  // Sponsor Assign Tracking Domain — small, separate MVP addition.
-  // assignableDomains = the Sponsor org's own verified domains, loaded
-  // once the promotion (and its organization_id) is known. The dropdown
-  // itself filters out already-assigned ones at render time.
-  const [assignableDomains, setAssignableDomains] = useState<VerifiedDomainOption[]>([]);
+  // Phase 1 — per-asset Path B capability (assignment_assets) + Promotion×Asset revoke.
+  const [sponsorVerifiedDomains, setSponsorVerifiedDomains] = useState<VerifiedDomainOption[]>([]);
+  const [pathBByAssetId, setPathBByAssetId] = useState<
+    Record<
+      string,
+      {
+        allow_marketer_domain: boolean;
+        allow_sponsor_domain: boolean;
+        allow_vstrk_domain: boolean;
+        selected_sponsor_domain_id: string | null;
+        hostname?: string | null;
+      }
+    >
+  >({});
+  const [pathBActionKey, setPathBActionKey] = useState<string | null>(null);
+  const [pathBError, setPathBError] = useState<string | null>(null);
+  const [promoAssetRevokeId, setPromoAssetRevokeId] = useState<string | null>(null);
+  const [promoAssetRevokeError, setPromoAssetRevokeError] = useState<string | null>(null);
+
   const [isAddAssetPickerOpen, setIsAddAssetPickerOpen] = useState(false);
   const [addingAsset, setAddingAsset] = useState(false);
   const [addAssetError, setAddAssetError] = useState<string | null>(null);
-  const [selectedDomainToAssign, setSelectedDomainToAssign] = useState('');
-  const [assigningDomain, setAssigningDomain] = useState(false);
-  const [assignDomainError, setAssignDomainError] = useState<string | null>(null);
 
   useEffect(() => {
     if (!id) return;
@@ -243,14 +249,34 @@ export default function PromotionDetail() {
       });
   }, [user, detail]);
 
-  // Sponsor Assign Tracking Domain — independent of the load effect
-  // above. Only fetches when the viewer is actually the Sponsor and the
-  // promotion's organization_id is known; a Collaborator never triggers
-  // this at all.
+  // Phase 1 — load assignment_assets Path B flags + Sponsor verified domains for selectors.
   useEffect(() => {
-    if (!isSponsor || !detail) return;
-    listVerifiedBrandedDomains(detail.promotion.organization_id).then(setAssignableDomains);
-  }, [isSponsor, detail?.promotion.organization_id]);
+    if (!detail?.assignment?.id) return;
+    let cancelled = false;
+    (async () => {
+      try {
+        const map = await listAssignmentAssetDomainPolicies(detail.assignment!.id);
+        if (cancelled) return;
+        const obj: typeof pathBByAssetId = {};
+        map.forEach((v, assetId) => {
+          obj[assetId] = v;
+        });
+        setPathBByAssetId(obj);
+      } catch (err) {
+        console.error('[PromotionDetail] Path B load failed:', err);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [detail?.assignment?.id, detail?.assets?.length]);
+
+  useEffect(() => {
+    if (!isSponsor || !detail?.promotion?.organization_id) return;
+    listVerifiedBrandedDomains(detail.promotion.organization_id)
+      .then(setSponsorVerifiedDomains)
+      .catch(err => console.error('[PromotionDetail] verified domains:', err));
+  }, [isSponsor, detail?.promotion?.organization_id]);
 
 
  const handleRestore = async () => {
@@ -403,58 +429,65 @@ export default function PromotionDetail() {
     }
   };
 
-  // Mirror-image of handleRevokeAssetAccess / handleRestoreAssetAccess
-  // above, same authorization boundary server-side
-  // (assignments.created_by_user_id), same optimistic local-state update
-  // on success — no full page reload needed for the badge/button to flip
-  // immediately. Terminology locked as "Revoke Access" / "Restore
-  // Access" — the domain itself (branded_tracking_domains),
-  // assignment_tracking_domains, and any existing redirect_links are
-  // never touched by either handler, only `trackingDomains[].isRevoked`
-  // in local state.
-  const handleRevokeDomainAccess = async (domainId: string) => {
-    if (!detail?.collaborator) return;
-    setDomainActionError(null);
-    setDomainActionId(domainId);
+  // Phase 1 — update assignment_assets Path B capability for one asset.
+  const handlePathBChange = async (
+    assetId: string,
+    patch: {
+      allow_marketer_domain?: boolean;
+      allow_sponsor_domain?: boolean;
+      allow_vstrk_domain?: boolean;
+      selected_sponsor_domain_id?: string | null;
+    }
+  ) => {
+    if (!detail?.assignment?.id || !isSponsor) return;
+    const key = `${assetId}:${Object.keys(patch).join(',')}`;
+    setPathBError(null);
+    setPathBActionKey(key);
     try {
-      await revokeTrackingDomainAccess(detail.collaborator.id, domainId);
-      setDetail((prev: PromotionDetailData | null) =>
-        prev
-          ? {
-              ...prev,
-              trackingDomains: prev.trackingDomains.map(d =>
-                d.id === domainId ? { ...d, isRevoked: true } : d
-              ),
-            }
-          : prev
-      );
+      await updateAssignmentAssetDomainPolicy(detail.assignment.id, assetId, patch);
+      setPathBByAssetId(prev => {
+        const cur = prev[assetId] || {
+          allow_marketer_domain: false,
+          allow_sponsor_domain: false,
+          allow_vstrk_domain: false,
+          selected_sponsor_domain_id: null,
+        };
+        const next = { ...cur, ...patch };
+        if (next.allow_sponsor_domain === false) {
+          next.selected_sponsor_domain_id = null;
+          next.hostname = null;
+        } else if (patch.selected_sponsor_domain_id) {
+          const opt = sponsorVerifiedDomains.find(d => d.id === patch.selected_sponsor_domain_id);
+          next.hostname = opt?.hostname ?? next.hostname;
+        }
+        return { ...prev, [assetId]: next };
+      });
     } catch (err: any) {
-      setDomainActionError(err.message || 'Could not revoke access to this tracking domain.');
+      setPathBError(err.message || 'Could not update tracking domain access.');
     } finally {
-      setDomainActionId(null);
+      setPathBActionKey(null);
     }
   };
 
-  const handleRestoreDomainAccess = async (domainId: string) => {
-    if (!detail?.collaborator) return;
-    setDomainActionError(null);
-    setDomainActionId(domainId);
+  // Phase 1 — Revoke Access = remove promotion_assets row (Promotion × Asset only).
+  const handleRevokePromotionAsset = async (promotionAssetId: string, assetId: string) => {
+    if (!isSponsor) return;
+    if (!window.confirm('Revoke this asset from this Promotion? Assignment permission is unchanged.')) {
+      return;
+    }
+    setPromoAssetRevokeError(null);
+    setPromoAssetRevokeId(promotionAssetId);
     try {
-      await restoreTrackingDomainAccess(detail.collaborator.id, domainId);
-      setDetail((prev: PromotionDetailData | null) =>
+      await removePromotionAsset(promotionAssetId);
+      setDetail(prev =>
         prev
-          ? {
-              ...prev,
-              trackingDomains: prev.trackingDomains.map(d =>
-                d.id === domainId ? { ...d, isRevoked: false } : d
-              ),
-            }
+          ? { ...prev, assets: prev.assets.filter(a => a.promotionAssetId !== promotionAssetId) }
           : prev
       );
     } catch (err: any) {
-      setDomainActionError(err.message || 'Could not restore access to this tracking domain.');
+      setPromoAssetRevokeError(err.message || 'Could not revoke this asset from the promotion.');
     } finally {
-      setDomainActionId(null);
+      setPromoAssetRevokeId(null);
     }
   };
 
@@ -483,34 +516,6 @@ export default function PromotionDetail() {
       setDomainPolicyError(err.message || 'Could not update this setting.');
     } finally {
       setDomainPolicyActionId(null);
-    }
-  };
-
-  // Sponsor Assign Tracking Domain — direct insert via
-  // addAssignmentTrackingDomain, no RPC. Assignment-wide by nature of
-  // reusing assignment_tracking_domains (accepted tradeoff for this
-  // MVP) — optimistically appends to local trackingDomains state on
-  // success, same pattern as every other handler in this file.
-  const handleAssignDomain = async () => {
-    if (!detail?.assignment || !selectedDomainToAssign) return;
-    setAssignDomainError(null);
-    setAssigningDomain(true);
-    try {
-      await addAssignmentTrackingDomain(detail.assignment.id, selectedDomainToAssign);
-      const assignedDomain = assignableDomains.find(d => d.id === selectedDomainToAssign);
-      setDetail((prev: PromotionDetailData | null) =>
-        prev && assignedDomain
-          ? {
-              ...prev,
-              trackingDomains: [...prev.trackingDomains, { ...assignedDomain, isRevoked: false }],
-            }
-          : prev
-      );
-      setSelectedDomainToAssign('');
-    } catch (err: any) {
-      setAssignDomainError(err.message || 'Could not assign this tracking domain.');
-    } finally {
-      setAssigningDomain(false);
     }
   };
 
@@ -544,7 +549,7 @@ export default function PromotionDetail() {
     return <div className="text-red-500 text-sm">{error || 'Promotion not found.'}</div>;
   }
 
-  const { promotion, assignment, sponsor, collaborator, assets, assignedAssets, trackingDomains } = detail;
+  const { promotion, assignment, sponsor, collaborator, assets, assignedAssets } = detail;
 
   // Historical-view gate. This is a UI/read-layer distinction only — it
   // does not grant or revoke any actual access. If the viewer IS the
@@ -831,43 +836,160 @@ export default function PromotionDetail() {
                   const thumbnailSrc = resolveThumbnailSrc(a.resource);
                   const title = a.resource?.title || 'Untitled Asset';
                   const isPolicyBusy = domainPolicyActionId === a.promotionAssetId;
+                  const pathB = pathBByAssetId[a.assetId] || {
+                    allow_marketer_domain: false,
+                    allow_sponsor_domain: false,
+                    allow_vstrk_domain: false,
+                    selected_sponsor_domain_id: null as string | null,
+                  };
+                  const pathBBusy = pathBActionKey?.startsWith(a.assetId + ':') ?? false;
+                  const revoking = promoAssetRevokeId === a.promotionAssetId;
                   return (
                     <div
                       key={a.promotionAssetId}
-                      className="flex items-center gap-3 bg-zinc-900 border border-zinc-800 rounded-lg p-3"
+                      className="bg-zinc-900 border border-zinc-800 rounded-lg p-3 space-y-3"
                     >
-                      <Link
-                        to={`/assets/${a.assetId}`}
-                        className="flex items-center gap-3 flex-1 min-w-0 hover:opacity-80 transition-opacity"
-                      >
-                        <div className="w-14 h-9 overflow-hidden rounded bg-zinc-950 border border-zinc-800 flex items-center justify-center shrink-0">
-                          {thumbnailSrc && (
-                            <img src={thumbnailSrc} className="max-w-full max-h-full object-contain" />
-                          )}
-                        </div>
-                        <div className="min-w-0">
-                          <p className="text-sm text-zinc-200 truncate">{title}</p>
-                          <p className="text-[9px] font-black uppercase text-zinc-600 tracking-widest mt-0.5">
-                            {resolveTypeLabel(a.resource)}
-                          </p>
-                        </div>
-                      </Link>
+                      <div className="flex items-center gap-3">
+                        <Link
+                          to={`/assets/${a.assetId}`}
+                          className="flex items-center gap-3 flex-1 min-w-0 hover:opacity-80 transition-opacity"
+                        >
+                          <div className="w-14 h-9 overflow-hidden rounded bg-zinc-950 border border-zinc-800 flex items-center justify-center shrink-0">
+                            {thumbnailSrc && (
+                              <img src={thumbnailSrc} className="max-w-full max-h-full object-contain" />
+                            )}
+                          </div>
+                          <div className="min-w-0">
+                            <p className="text-sm text-zinc-200 truncate">{title}</p>
+                            <p className="text-[9px] font-black uppercase text-zinc-600 tracking-widest mt-0.5">
+                              {resolveTypeLabel(a.resource)}
+                            </p>
+                          </div>
+                        </Link>
+                      </div>
 
-                      {/* MVP — Promotion-level "Allow collaborator
-                          domains" policy. Sponsor-only, same gate as
-                          Access Management sections below. Un-nested
-                          from the Link above (a checkbox can't live
-                          inside an anchor) — this is the only
-                          structural change to this block; the Link's
-                          own content/target/styling is unchanged. */}
+                      {/* Phase 1 — per-asset Path B domain access (assignment_assets) */}
+                      <div className="border-t border-zinc-800 pt-3 space-y-2">
+                        <p className="text-[9px] font-black uppercase tracking-widest text-zinc-500">
+                          Tracking domain access
+                        </p>
+                        {isSponsor && assignment ? (
+                          <div className="space-y-2">
+                            <label className="flex items-center gap-2 text-[11px] text-zinc-300 cursor-pointer select-none">
+                              <input
+                                type="checkbox"
+                                className="accent-orange-500"
+                                checked={!!pathB.allow_marketer_domain}
+                                disabled={pathBBusy}
+                                onChange={() =>
+                                  handlePathBChange(a.assetId, {
+                                    allow_marketer_domain: !pathB.allow_marketer_domain,
+                                  })
+                                }
+                              />
+                              Marketer&apos;s tracking domain
+                            </label>
+                            <div className="space-y-1.5">
+                              <label className="flex items-center gap-2 text-[11px] text-zinc-300 cursor-pointer select-none">
+                                <input
+                                  type="checkbox"
+                                  className="accent-orange-500"
+                                  checked={!!pathB.allow_sponsor_domain}
+                                  disabled={pathBBusy}
+                                  onChange={() =>
+                                    handlePathBChange(a.assetId, {
+                                      allow_sponsor_domain: !pathB.allow_sponsor_domain,
+                                      selected_sponsor_domain_id: !pathB.allow_sponsor_domain
+                                        ? pathB.selected_sponsor_domain_id
+                                        : null,
+                                    })
+                                  }
+                                />
+                                Sponsor&apos;s tracking domain
+                              </label>
+                              {pathB.allow_sponsor_domain && (
+                                <select
+                                  className="w-full max-w-sm bg-zinc-950 border border-zinc-700 rounded-lg px-2 py-1.5 text-xs text-zinc-200"
+                                  value={pathB.selected_sponsor_domain_id || ''}
+                                  disabled={pathBBusy}
+                                  onChange={e =>
+                                    handlePathBChange(a.assetId, {
+                                      allow_sponsor_domain: true,
+                                      selected_sponsor_domain_id: e.target.value || null,
+                                    })
+                                  }
+                                >
+                                  <option value="">Select Sponsor tracking domain</option>
+                                  {sponsorVerifiedDomains.map(d => (
+                                    <option key={d.id} value={d.id}>
+                                      {d.hostname}
+                                    </option>
+                                  ))}
+                                </select>
+                              )}
+                            </div>
+                            <label className="flex items-center gap-2 text-[11px] text-zinc-300 cursor-pointer select-none">
+                              <input
+                                type="checkbox"
+                                className="accent-orange-500"
+                                checked={!!pathB.allow_vstrk_domain}
+                                disabled={pathBBusy}
+                                onChange={() =>
+                                  handlePathBChange(a.assetId, {
+                                    allow_vstrk_domain: !pathB.allow_vstrk_domain,
+                                  })
+                                }
+                              />
+                              VSTRK tracking domain
+                            </label>
+                            <div className="pt-1">
+                              <button
+                                type="button"
+                                onClick={() =>
+                                  handleRevokePromotionAsset(a.promotionAssetId, a.assetId)
+                                }
+                                disabled={revoking}
+                                className="flex items-center gap-1.5 bg-zinc-800 hover:bg-red-600 disabled:opacity-50 text-zinc-300 hover:text-white text-[10px] font-bold uppercase tracking-wider px-3 py-1.5 rounded-lg transition-colors"
+                              >
+                                {revoking ? (
+                                  <Loader2 size={12} className="animate-spin" />
+                                ) : (
+                                  <ShieldOff size={12} />
+                                )}
+                                Revoke Access
+                              </button>
+                            </div>
+                          </div>
+                        ) : (
+                          <div className="text-[11px] text-zinc-500 space-y-0.5">
+                            <p>
+                              Marketer: {pathB.allow_marketer_domain ? 'Allowed' : 'Off'}
+                            </p>
+                            <p>
+                              Sponsor:{' '}
+                              {pathB.allow_sponsor_domain
+                                ? pathB.hostname || pathB.selected_sponsor_domain_id || 'Allowed'
+                                : 'Off'}
+                            </p>
+                            <p>VSTRK: {pathB.allow_vstrk_domain ? 'Allowed' : 'Off'}</p>
+                          </div>
+                        )}
+                      </div>
+
                       {!isRemovedSelf && isSponsor && collaborator && collaborator.status === 'active' && (
-                        <label data-tutorial-id="promotion-allow-collaborator-domains" className="flex items-center gap-1.5 text-[9px] font-bold uppercase tracking-widest text-zinc-500 shrink-0 cursor-pointer select-none">
+                        <label
+                          data-tutorial-id="promotion-allow-collaborator-domains"
+                          className="flex items-center gap-1.5 text-[9px] font-bold uppercase tracking-widest text-zinc-500 shrink-0 cursor-pointer select-none border-t border-zinc-800 pt-2"
+                        >
                           <input
                             type="checkbox"
                             checked={a.allowCollaboratorDomains}
                             disabled={isPolicyBusy}
                             onChange={() =>
-                              handleToggleAllowCollaboratorDomains(a.promotionAssetId, !a.allowCollaboratorDomains)
+                              handleToggleAllowCollaboratorDomains(
+                                a.promotionAssetId,
+                                !a.allowCollaboratorDomains
+                              )
                             }
                             className="accent-red-600"
                           />
@@ -882,6 +1004,12 @@ export default function PromotionDetail() {
             )}
             {domainPolicyError && (
               <p className="text-[10px] text-red-500 mt-2">{domainPolicyError}</p>
+            )}
+            {pathBError && (
+              <p className="text-[10px] text-red-500 mt-2">{pathBError}</p>
+            )}
+            {promoAssetRevokeError && (
+              <p className="text-[10px] text-red-500 mt-2">{promoAssetRevokeError}</p>
             )}
 
             {!isRemovedSelf && isSponsor && collaborator && collaborator.status === 'active' && (
@@ -1034,131 +1162,6 @@ export default function PromotionDetail() {
         </div>
       )}
 
-      {/* Sponsor Assign Tracking Domain — small, separate MVP addition.
-          Assignment-wide by nature (see addAssignmentTrackingDomain),
-          accepted tradeoff. Same Sponsor gate as the section below,
-          minus the trackingDomains.length > 0 check since this should
-          be usable even when nothing has been assigned yet. */}
-      {!isRemovedSelf && isSponsor && collaborator && collaborator.status === 'active' && (
-        <div data-tutorial-id="promotion-assign-tracking-domain">
-          <p className="text-[10px] font-black uppercase tracking-widest text-zinc-500 mb-3">
-            Assign Tracking Domain
-          </p>
-          <div className="flex items-center gap-2 max-w-2xl">
-            <select
-              value={selectedDomainToAssign}
-              onChange={e => setSelectedDomainToAssign(e.target.value)}
-              className="flex-1 bg-zinc-900 border border-zinc-800 rounded-lg px-3 py-2 text-sm text-zinc-200"
-            >
-              <option value="">Select a tracking domain</option>
-              {assignableDomains
-                .filter(d => !trackingDomains.some(td => td.id === d.id))
-                .map(d => (
-                  <option key={d.id} value={d.id}>{d.hostname}</option>
-                ))}
-            </select>
-            <button
-              onClick={handleAssignDomain}
-              disabled={!selectedDomainToAssign || assigningDomain}
-              className="flex items-center gap-1.5 bg-zinc-800 hover:bg-red-600 disabled:opacity-50 text-zinc-300 hover:text-white text-[10px] font-bold uppercase tracking-wider px-3 py-2 rounded-lg transition-colors shrink-0"
-            >
-              {assigningDomain ? <Loader2 size={12} className="animate-spin" /> : <Globe size={12} />}
-              Assign
-            </button>
-          </div>
-          {assignDomainError && (
-            <p className="text-[10px] text-red-500 mt-2">{assignDomainError}</p>
-          )}
-        </div>
-      )}
-
-      {/* Tracking Domains — Access Management. Same pattern as Access
-          Management — Assigned Assets above: Sponsor-only, same
-          isSponsor/isRemovedSelf/collaborator-active gate. Links via
-          TrackingDomainDetail are intentionally NOT included here —
-          this section's job is only Active/Revoked + Revoke/Restore,
-          same as the asset section doesn't link out either. */}
-      {!isRemovedSelf && isSponsor && collaborator && collaborator.status === 'active' && trackingDomains.length > 0 && (
-        <div>
-          <p className="text-[10px] font-black uppercase tracking-widest text-zinc-500 mb-3">
-            Access Management — Tracking Domains
-          </p>
-          <div className="space-y-2 max-w-2xl">
-            {trackingDomains.map(d => {
-              const isBusy = domainActionId === d.id;
-              return (
-                <div
-                  key={d.id}
-                  className={`flex items-center gap-3 border rounded-lg p-3 transition-all ${
-                    d.isRevoked ? 'bg-zinc-950 border-red-900/40' : 'bg-zinc-900 border-zinc-800'
-                  }`}
-                >
-                  <Globe size={16} className="text-zinc-500 shrink-0" />
-                  <div className="min-w-0 flex-1">
-                    <p className="text-sm text-zinc-200 truncate">{d.hostname}</p>
-                    <p className={`text-[9px] font-black uppercase tracking-widest mt-0.5 ${d.isRevoked ? 'text-red-500' : 'text-zinc-600'}`}>
-                      {d.isRevoked ? 'Revoked' : 'Active'}
-                    </p>
-                  </div>
-                  {d.isRevoked ? (
-                    <button
-                      onClick={() => handleRestoreDomainAccess(d.id)}
-                      disabled={isBusy}
-                      className="flex items-center gap-1.5 bg-zinc-800 hover:bg-green-600 disabled:opacity-50 text-zinc-300 hover:text-white text-[10px] font-bold uppercase tracking-wider px-3 py-1.5 rounded-lg transition-colors shrink-0"
-                    >
-                      {isBusy ? <Loader2 size={12} className="animate-spin" /> : <ShieldCheck size={12} />}
-                      Restore Access
-                    </button>
-                  ) : (
-                    <button
-                      onClick={() => handleRevokeDomainAccess(d.id)}
-                      disabled={isBusy}
-                      className="flex items-center gap-1.5 bg-zinc-800 hover:bg-red-600 disabled:opacity-50 text-zinc-300 hover:text-white text-[10px] font-bold uppercase tracking-wider px-3 py-1.5 rounded-lg transition-colors shrink-0"
-                    >
-                      {isBusy ? <Loader2 size={12} className="animate-spin" /> : <ShieldOff size={12} />}
-                      Revoke Access
-                    </button>
-                  )}
-                </div>
-              );
-            })}
-          </div>
-          {domainActionError && (
-            <p className="text-[10px] text-red-500 mt-2">{domainActionError}</p>
-          )}
-        </div>
-      )}
-
-      {/* Read-only counterpart, for the collaborator themselves — same
-          gate and same "status only, no buttons" treatment as the
-          Assigned Assets read-only section above. Reuses the exact same
-          trackingDomains data the Sponsor's section reads — no new
-          query. */}
-      {!isRemovedSelf && isCollaboratorViewer && trackingDomains.length > 0 && (
-        <div>
-          <p className="text-[10px] font-black uppercase tracking-widest text-zinc-500 mb-3">
-            Tracking Domains
-          </p>
-          <div className="space-y-2 max-w-2xl">
-            {trackingDomains.map(d => (
-              <div
-                key={d.id}
-                className={`flex items-center gap-3 border rounded-lg p-3 ${
-                  d.isRevoked ? 'bg-zinc-950 border-red-900/40' : 'bg-zinc-900 border-zinc-800'
-                }`}
-              >
-                <Globe size={16} className="text-zinc-500 shrink-0" />
-                <div className="min-w-0 flex-1">
-                  <p className="text-sm text-zinc-200 truncate">{d.hostname}</p>
-                </div>
-                <span className={`text-[10px] font-bold uppercase tracking-widest shrink-0 ${d.isRevoked ? 'text-red-500' : 'text-zinc-500'}`}>
-                  {d.isRevoked ? 'Revoked' : 'Active'}
-                </span>
-              </div>
-            ))}
-          </div>
-        </div>
-      )}
     </div>
   );
 }
