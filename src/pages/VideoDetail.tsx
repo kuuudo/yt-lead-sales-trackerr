@@ -1407,9 +1407,6 @@ if (effectiveOrgId && effectiveUserId) {
             <ArrowLeft size={20} />
           </button>
           <div className="flex items-center gap-4">
-            <div className="group relative w-16 h-10 overflow-hidden rounded-lg border border-zinc-800">
-              <img src={video.thumbnail_url} className="w-full h-full object-cover" />
-            </div>
             <div>
               <h1 className="text-xl font-black text-white leading-tight flex items-center gap-2">
                 {video.video_title}
