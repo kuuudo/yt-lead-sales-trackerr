@@ -10,10 +10,12 @@ import {
   listVerifiedBrandedDomains,
   type VerifiedDomainOption,
 } from '../services/domain/brandedDomains';
+import { useOrganization } from '../lib/useOrganization';
 
 export default function AssignmentDetail() {
   const { assignmentId } = useParams<{ assignmentId: string }>();
   const navigate = useNavigate();
+  const { organizationId: marketerOrgId } = useOrganization();
 
   const [data, setData] = useState<AssignmentDetailData | null>(null);
   const [loading, setLoading] = useState(true);
@@ -67,54 +69,28 @@ export default function AssignmentDetail() {
 
   useEffect(() => { load(); }, [assignmentId]);
 
-  // Marketer's own verified domains (caller org membership — not Sponsor org).
+  // Bug 2 fix: Marketer domain dropdown must ONLY list verified domains
+  // for the Marketer's current workspace organization (useOrganization),
+  // NOT the union of every organization_members row except Sponsor.
+  // Sharing root_domain is NOT authorization.
   useEffect(() => {
-    if (!data?.myCollaboratorId) {
+    if (!data?.myCollaboratorId || !marketerOrgId) {
       setMarketerVerifiedDomains([]);
       return;
     }
     let cancelled = false;
-    (async () => {
-      try {
-        const { data: { user } } = await supabase.auth.getUser();
-        if (!user || cancelled) return;
-        const { data: mems, error } = await supabase
-          .from('organization_members')
-          .select('organization_id')
-          .eq('user_id', user.id);
-        if (error || !mems?.length) {
-          if (!cancelled) setMarketerVerifiedDomains([]);
-          return;
-        }
-        const sponsorOrg = data.assignment.organization_id;
-        const marketerOrgIds = mems
-          .map(m => m.organization_id as string)
-          .filter(id => id && id !== sponsorOrg);
-        if (marketerOrgIds.length === 0) {
-          if (!cancelled) setMarketerVerifiedDomains([]);
-          return;
-        }
-        const lists = await Promise.all(
-          marketerOrgIds.map(id => listVerifiedBrandedDomains(id).catch(() => []))
-        );
-        const seen = new Set<string>();
-        const merged: VerifiedDomainOption[] = [];
-        for (const list of lists) {
-          for (const d of list) {
-            if (!seen.has(d.id)) {
-              seen.add(d.id);
-              merged.push(d);
-            }
-          }
-        }
-        if (!cancelled) setMarketerVerifiedDomains(merged);
-      } catch (e) {
+    listVerifiedBrandedDomains(marketerOrgId)
+      .then(list => {
+        if (!cancelled) setMarketerVerifiedDomains(list);
+      })
+      .catch(e => {
         console.error('Failed to load Marketer verified domains', e);
         if (!cancelled) setMarketerVerifiedDomains([]);
-      }
-    })();
-    return () => { cancelled = true; };
-  }, [data?.myCollaboratorId, data?.assignment.organization_id]);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [data?.myCollaboratorId, marketerOrgId]);
 
   const handleAccept = async (invitationId: string) => {
     setAccepting(true);
