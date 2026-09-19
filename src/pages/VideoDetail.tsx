@@ -2172,29 +2172,31 @@ if (effectiveOrgId && effectiveUserId) {
                 <div className="flex items-center gap-1.5 shrink-0 relative">
                   {isManualEditable && !isReadOnly && (
                     <>
-                      <button
-                        type="button"
-                        onClick={() => setHelpOpenToken(helpOpenToken === link.token ? null : link.token)}
-                        className="h-7 w-7 flex items-center justify-center rounded-lg border border-zinc-700 hover:bg-zinc-800 transition-all"
-                        aria-label="How updating the destination works"
-                      >
-                        <HelpCircle size={13} className="text-zinc-400" />
-                      </button>
-                      {helpOpenToken === link.token && (
-                        <div className="absolute right-0 top-8 z-10 w-56 bg-zinc-900 border border-zinc-700 rounded-lg p-2.5 text-[10px] text-zinc-300 leading-relaxed shadow-xl">
-                          If your landing page url changed, you can update it here, so the link now redirects to the new destination.
-                        </div>
-                      )}
-                      <button
-                        type="button"
-                        onClick={() => {
-                          setEditingLinkToken(isEditingDestination ? null : link.token);
-                          setEditDestinationValue(raw?.destination_url || '');
-                        }}
-                        className="h-7 px-2.5 rounded-lg border border-zinc-700 hover:bg-zinc-800 transition-all text-[9px] font-black uppercase tracking-widest text-zinc-400 hover:text-white"
-                      >
-                        Update destination url
-                      </button>
+<button 
+  type="button" 
+  onClick={() => setHelpOpenToken(helpOpenToken === link.token ? null : link.token)} 
+  className="h-7 w-7 flex items-center justify-center rounded-lg border border-zinc-700 hover:bg-zinc-800 transition-all" 
+  aria-label="How updating the destination works" 
+> 
+  <HelpCircle size={13} className="text-zinc-400" /> 
+</button> 
+
+{helpOpenToken === link.token && ( 
+  <div className="absolute right-0 top-8 z-10 w-56 bg-zinc-900 border border-zinc-700 rounded-lg p-2.5 text-[10px] text-zinc-300 leading-relaxed shadow-xl"> 
+    If your URL has changed, you can update it here so existing links redirect to the new destination. Changing the URL in your campaign settings only affects future links—it won’t update links that were already created. Use this option to update those existing links.
+  </div> 
+)} 
+
+<button 
+  type="button" 
+  onClick={() => { 
+    setEditingLinkToken(isEditingDestination ? null : link.token); 
+    setEditDestinationValue(raw?.destination_url || ''); 
+  }} 
+  className="h-7 px-2.5 rounded-lg border border-zinc-700 hover:bg-zinc-800 transition-all text-[9px] font-black uppercase tracking-widest text-zinc-400 hover:text-white" 
+> 
+  Update destination URL
+</button>
                     </>
                   )}
                   <button
