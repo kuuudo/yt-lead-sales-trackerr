@@ -35,7 +35,7 @@ import { useTutorial } from '../lib/tutorial-overlay';
 import {
   ArrowLeft, Youtube, DollarSign, Users, Activity,
   TrendingUp, MousePointer2, Phone, Briefcase,
-  ExternalLink, BarChart3, Clock, Edit2, Archive, ArchiveRestore, Save, X, Loader2, Check, Link2, Plus, Copy,
+  ExternalLink, BarChart3, Clock, Edit2, Archive, ArchiveRestore, Save, X, Loader2, Check, Link2, Plus, Copy, HelpCircle,
   BookmarkPlus, ArrowRight, ChevronRight,
   // Phase 2 (Video Archive)
   EyeOff,
@@ -386,6 +386,7 @@ export default function VideoDetail() {
   const [editingLinkToken, setEditingLinkToken] = useState<string | null>(null);
   const [editDestinationValue, setEditDestinationValue] = useState('');
   const [savingManualDestination, setSavingManualDestination] = useState(false);
+  const [helpOpenToken, setHelpOpenToken] = useState<string | null>(null);
   const [redirectLinks, setRedirectLinks]         = useState<any[]>([]);
   const [allLeadMagnetNames, setAllLeadMagnetNames] = useState<Record<string, string>>({});
 
@@ -2168,28 +2169,45 @@ if (effectiveOrgId && effectiveUserId) {
                   <span className="text-xs font-bold text-white shrink-0">{link.label}</span>
                   <span className="font-mono text-[11px] text-blue-400 truncate">{buildTrackingLinkUrl(link.token, link.trackingHostname)}</span>
                 </div>
-                <button
-                  onClick={() => {
-                    navigator.clipboard.writeText(buildTrackingLinkUrl(link.token, link.trackingHostname));
-                    setCopiedLinkToken(link.token);
-                    setTimeout(() => setCopiedLinkToken(null), 2000);
-                  }}
-                  className="shrink-0 h-7 w-7 flex items-center justify-center rounded-lg border border-zinc-700 hover:bg-zinc-800 transition-all"
-                >
-                  {copiedLinkToken === link.token ? <Check size={13} className="text-green-500" /> : <Copy size={13} className="text-zinc-400" />}
-                </button>
-                {isManualEditable && !isReadOnly && (
+                <div className="flex items-center gap-1.5 shrink-0 relative">
+                  {isManualEditable && !isReadOnly && (
+                    <>
+                      <button
+                        type="button"
+                        onClick={() => setHelpOpenToken(helpOpenToken === link.token ? null : link.token)}
+                        className="h-7 w-7 flex items-center justify-center rounded-lg border border-zinc-700 hover:bg-zinc-800 transition-all"
+                        aria-label="How updating the destination works"
+                      >
+                        <HelpCircle size={13} className="text-zinc-400" />
+                      </button>
+                      {helpOpenToken === link.token && (
+                        <div className="absolute right-0 top-8 z-10 w-56 bg-zinc-900 border border-zinc-700 rounded-lg p-2.5 text-[10px] text-zinc-300 leading-relaxed shadow-xl">
+                          If your landing page url changed, you can update it here, so the link now redirects to the new destination.
+                        </div>
+                      )}
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setEditingLinkToken(isEditingDestination ? null : link.token);
+                          setEditDestinationValue(raw?.destination_url || '');
+                        }}
+                        className="h-7 px-2.5 rounded-lg border border-zinc-700 hover:bg-zinc-800 transition-all text-[9px] font-black uppercase tracking-widest text-zinc-400 hover:text-white"
+                      >
+                        Update destination url
+                      </button>
+                    </>
+                  )}
                   <button
-                    type="button"
                     onClick={() => {
-                      setEditingLinkToken(isEditingDestination ? null : link.token);
-                      setEditDestinationValue(raw?.destination_url || '');
+                      navigator.clipboard.writeText(buildTrackingLinkUrl(link.token, link.trackingHostname));
+                      setCopiedLinkToken(link.token);
+                      setTimeout(() => setCopiedLinkToken(null), 2000);
                     }}
-                    className="shrink-0 h-7 w-7 flex items-center justify-center rounded-lg border border-zinc-700 hover:bg-zinc-800 transition-all"
+                    className="h-7 w-7 flex items-center justify-center rounded-lg border border-zinc-700 hover:bg-zinc-800 transition-all"
                   >
-                    <Edit2 size={13} className="text-zinc-400" />
+                    {copiedLinkToken === link.token ? <Check size={13} className="text-green-500" /> : <Copy size={13} className="text-zinc-400" />}
                   </button>
-                )}
+                </div>
               </div>
               {raw?.destination_url && (
                 <p className="text-[10px] text-zinc-500 truncate pl-6">
@@ -2206,7 +2224,7 @@ if (effectiveOrgId && effectiveUserId) {
                     className="w-full bg-zinc-900 border border-zinc-800 rounded-lg px-2 py-1.5 text-[10px] font-mono text-white outline-none focus:border-red-600"
                   />
                   <p className="text-[9px] text-amber-500 leading-relaxed">
-                    Updating this destination won't erase past clicks or conversions, but traffic stats for the old destination will stop updating once the new url takes effect.
+                    Updating this destination won't erase past clicks or conversions.
                   </p>
                   <div className="flex gap-2 justify-end">
                     <button
