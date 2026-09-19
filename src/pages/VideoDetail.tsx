@@ -64,6 +64,7 @@ import { generateAssetRedirectLinks } from '../services/asset/generateAssetRedir
 
 
 const MANAGE_LINK_TYPES = ['landing_page', 'newsletter', 'consultation', 'sales_call'] as const;
+const SHOW_ADD_LINK_BUTTON = false; // Add Link UI is hidden; lead-magnet creation kept in code for future use
 type ManageLinkType = (typeof MANAGE_LINK_TYPES)[number];
 const MANAGE_LINK_LABELS: Record<ManageLinkType, string> = {
   landing_page: 'Direct purchase / Landing',
@@ -378,9 +379,6 @@ export default function VideoDetail() {
   const effectiveOrgId = isReadOnly ? viewingOrgId : organizationId;
   const effectiveUserId = isReadOnly ? viewingMemberId : (user?.id ?? null);
   const [displayGroups, setDisplayGroups] = useState<RedirectLinksDisplayGroups>({ campaignLinks: [], assets: [] });
-  const [showManageLinks, setShowManageLinks] = useState(false);
-  const [manageLinkTypes, setManageLinkTypes] = useState<ManageLinkType[]>([]);
-  const [managingLinks, setManagingLinks] = useState(false);
   const [updatingLinkToken, setUpdatingLinkToken] = useState<string | null>(null);
   const [expandedCardKey, setExpandedCardKey] = useState<string | null>(null);
   const [editingLinkToken, setEditingLinkToken] = useState<string | null>(null);
@@ -391,7 +389,7 @@ export default function VideoDetail() {
   const [allLeadMagnetNames, setAllLeadMagnetNames] = useState<Record<string, string>>({});
 
   const [showAddLink, setShowAddLink]             = useState(false);
-  const [extraLinkType, setExtraLinkType]         = useState<RedirectLinkType>('landing_page');
+  const [extraLinkType, setExtraLinkType]         = useState<RedirectLinkType>('lead_magnet');
   const [extraLinkUrl, setExtraLinkUrl]           = useState('');
   const [extraLinkLeadMagnetId, setExtraLinkLeadMagnetId] = useState('');
   const [savingExtraLink, setSavingExtraLink]     = useState(false);
@@ -944,17 +942,6 @@ if (effectiveOrgId && effectiveUserId) {
     }
   };
 
-  const openManageLinks = () => {
-    if (!campaign) return;
-    const available = MANAGE_LINK_TYPES.filter(t => !!campaignUrlForLinkType(campaign, t));
-    const existingTypes = new Set(
-      (redirectLinks || []).filter((l: any) => !(l as any).asset_id).map((l: any) => l.link_type as string)
-    );
-    const missing = available.filter(t => !existingTypes.has(t));
-    setManageLinkTypes(missing.length > 0 ? [...missing] : [...available]);
-    setShowManageLinks(true);
-  };
-
   const handleUpdateOutdatedLink = async (link: any) => {
     if (!video || !campaign || isReadOnly) return;
     const expected = campaignUrlForLinkType(campaign, link.link_type);
@@ -1003,49 +990,6 @@ if (effectiveOrgId && effectiveUserId) {
       setSavingManualDestination(false);
     }
   };
-
-  const handleGenerateManagedLinks = async () => {
-    if (!video || !campaign || isReadOnly) return;
-    if (manageLinkTypes.length === 0) {
-      showAlert('Select types', 'Choose at least one campaign link type.', 'info');
-      return;
-    }
-    setManagingLinks(true);
-    try {
-      const appBaseUrl = window.location.origin;
-      const existingTypes = new Set(
-        (redirectLinks || []).filter((l: any) => !(l as any).asset_id).map((l: any) => l.link_type as string)
-      );
-      for (const type of manageLinkTypes) {
-        const dest = campaignUrlForLinkType(campaign, type);
-        if (!dest) continue;
-        if (existingTypes.has(type)) {
-          const row = (redirectLinks || []).find((l: any) => l.link_type === type && !(l as any).asset_id);
-          if (row && normalizeDest(row.destination_url) !== normalizeDest(dest)) {
-            await supabase.from('redirect_links').update({ destination_url: dest }).eq('token', row.token).eq('video_id', video.id);
-          }
-          continue;
-        }
-        await createRedirectLink(
-          video.id,
-          video.campaign_id,
-          type as RedirectLinkType,
-          dest,
-          appBaseUrl,
-          undefined as any,
-          true
-        );
-      }
-      await refreshRedirectDisplay();
-      setShowManageLinks(false);
-      showAlert('Links ready', 'Campaign links generated / updated.', 'success');
-    } catch (e: any) {
-      showAlert('Generate failed', e?.message || 'Could not generate links', 'danger');
-    } finally {
-      setManagingLinks(false);
-    }
-  };
-
 
   const openTrackContentModal = () => {
     if (!video || !campaign || isReadOnly) return;
@@ -1830,21 +1774,16 @@ if (effectiveOrgId && effectiveUserId) {
               onClick={openTrackContentModal}
               className="flex items-center gap-2 h-9 px-4 rounded-xl border border-emerald-900/50 bg-emerald-600/10 hover:bg-emerald-600/20 text-[10px] font-black uppercase tracking-widest text-emerald-400 transition-all"
             >
-              Track / Generate Links
+              + Add New Links
             </button>
-            <button
-              type="button"
-              onClick={openManageLinks}
-              className="flex items-center gap-2 h-9 px-4 rounded-xl border border-red-900/50 bg-red-600/10 hover:bg-red-600/20 text-[10px] font-black uppercase tracking-widest text-red-400 transition-all"
-            >
-              Generate / Manage Links
-            </button>
+            {SHOW_ADD_LINK_BUTTON && (
             <button
               onClick={() => setShowAddLink(!showAddLink)}
               className="flex items-center gap-2 h-9 px-4 rounded-xl border border-zinc-800 hover:bg-zinc-900 text-[10px] font-black uppercase tracking-widest text-zinc-400 hover:text-white transition-all"
             >
               <Plus size={14} /> Add Link
             </button>
+            )}
           </div>
           )}
         </div>
@@ -1867,11 +1806,6 @@ if (effectiveOrgId && effectiveUserId) {
                     onChange={e => { setExtraLinkType(e.target.value as RedirectLinkType); setExtraLinkUrl(''); setExtraLinkLeadMagnetId(''); }}
                     className="w-full bg-zinc-900 border border-zinc-800 rounded-xl p-3 text-[11px] font-bold uppercase outline-none focus:border-red-600 appearance-none"
                   >
-                    <option value="landing_page">🏠 Landing Page</option>
-                    <option value="newsletter">📧 Newsletter</option>
-                    {/* checkout intentionally omitted — owned by campaign, not video */}
-                    <option value="consultation">💼 Consultation</option>
-                    <option value="sales_call">📞 Sales Call</option>
                     <option value="lead_magnet">📦 Lead Magnet</option>
                   </select>
                 </div>
@@ -1929,78 +1863,11 @@ if (effectiveOrgId && effectiveUserId) {
           )}
         </AnimatePresence>
 
-        {showManageLinks && (
-          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4">
-            <div className="w-full max-w-md bg-zinc-950 border border-zinc-800 rounded-2xl p-5 space-y-4 max-h-[85vh] overflow-y-auto">
-              <p className="text-[10px] font-black uppercase tracking-widest text-zinc-500">
-                Generate / Manage Links
-              </p>
-              <div className="space-y-1 text-xs text-zinc-400">
-                <p>
-                  <span className="text-zinc-500 uppercase text-[10px] font-black tracking-widest">Campaign </span>
-                  <span className="text-zinc-200">{(campaign as any)?.campaign_name || '—'} (locked)</span>
-                </p>
-                <p>
-                  <span className="text-zinc-500 uppercase text-[10px] font-black tracking-widest">Video </span>
-                  <span className="text-zinc-200">{video?.video_title || '—'} (locked)</span>
-                </p>
-              </div>
-              <p className="text-xs text-zinc-500">
-                Destinations come from the Campaign. Choose which link types to generate or refresh.
-              </p>
-              <div className="space-y-2">
-                {MANAGE_LINK_TYPES.filter(t => !!campaignUrlForLinkType(campaign, t)).map(t => {
-                  const checked = manageLinkTypes.includes(t);
-                  const exists = (redirectLinks || []).some((l: any) => l.link_type === t && !(l as any).asset_id);
-                  return (
-                    <label
-                      key={t}
-                      className="flex items-center gap-3 border border-zinc-800 rounded-xl px-3 py-2.5 cursor-pointer hover:border-zinc-600"
-                    >
-                      <input
-                        type="checkbox"
-                        className="accent-red-600"
-                        checked={checked}
-                        onChange={() => {
-                          setManageLinkTypes(prev =>
-                            checked ? prev.filter(x => x !== t) : [...prev, t]
-                          );
-                        }}
-                      />
-                      <span className="text-sm text-zinc-200 flex-1">{MANAGE_LINK_LABELS[t]}</span>
-                      {exists && (
-                        <span className="text-[9px] font-bold uppercase tracking-widest text-zinc-600">exists</span>
-                      )}
-                    </label>
-                  );
-                })}
-              </div>
-              <div className="flex gap-2">
-                <button
-                  type="button"
-                  onClick={() => setShowManageLinks(false)}
-                  className="flex-1 border border-zinc-700 text-zinc-400 text-[10px] font-black uppercase tracking-widest py-2.5 rounded-xl"
-                >
-                  Cancel
-                </button>
-                <button
-                  type="button"
-                  disabled={managingLinks}
-                  onClick={() => handleGenerateManagedLinks()}
-                  className="flex-1 bg-red-600 hover:bg-red-500 disabled:opacity-50 text-white text-[10px] font-black uppercase tracking-widest py-2.5 rounded-xl"
-                >
-                  {managingLinks ? 'Working...' : 'Generate / Update'}
-                </button>
-              </div>
-            </div>
-          </div>
-        )}
-
         {showTrackContentModal && video && campaign && (
           <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4">
             <div className="w-full max-w-4xl bg-zinc-950 border border-zinc-800 rounded-2xl p-5 max-h-[90vh] overflow-y-auto">
               <p className="text-[10px] font-black uppercase tracking-widest text-zinc-500">
-                Track / Generate Links
+                + Add New Links
               </p>
               <p className="text-[11px] text-zinc-500 mb-4">
                 Same flow as Track New Content, with video and campaign locked to this page.
