@@ -383,6 +383,11 @@ export default function VideoDetail() {
   const [managingLinks, setManagingLinks] = useState(false);
   const [updatingLinkToken, setUpdatingLinkToken] = useState<string | null>(null);
   const [expandedCardKey, setExpandedCardKey] = useState<string | null>(null);
+  const [updatingLinkToken, setUpdatingLinkToken] = useState<string | null>(null);
+  const [expandedCardKey, setExpandedCardKey] = useState<string | null>(null);
+  const [editingLinkToken, setEditingLinkToken] = useState<string | null>(null);
+  const [editDestinationValue, setEditDestinationValue] = useState('');
+  const [savingManualDestination, setSavingManualDestination] = useState(false);
   const [redirectLinks, setRedirectLinks]         = useState<any[]>([]);
   const [allLeadMagnetNames, setAllLeadMagnetNames] = useState<Record<string, string>>({});
 
@@ -972,6 +977,31 @@ if (effectiveOrgId && effectiveUserId) {
       showAlert('Update failed', e?.message || 'Could not update destination', 'danger');
     } finally {
       setUpdatingLinkToken(null);
+    }
+  };
+
+  const handleSaveManualDestination = async (link: any) => {
+    if (!video || isReadOnly) return;
+    const trimmed = editDestinationValue.trim();
+    if (!trimmed) {
+      showAlert('Enter a url', 'Destination url cannot be empty.', 'info');
+      return;
+    }
+    setSavingManualDestination(true);
+    try {
+      const { error } = await supabase
+        .from('redirect_links')
+        .update({ destination_url: trimmed })
+        .eq('token', link.token)
+        .eq('video_id', video.id);
+      if (error) throw error;
+      await refreshRedirectDisplay();
+      setEditingLinkToken(null);
+      showAlert('Updated', 'Destination updated. Tracking url unchanged.', 'success');
+    } catch (e: any) {
+      showAlert('Update failed', e?.message || 'Could not update destination', 'danger');
+    } finally {
+      setSavingManualDestination(false);
     }
   };
 
@@ -2130,6 +2160,8 @@ if (effectiveOrgId && effectiveUserId) {
               !!expected &&
               !!raw?.destination_url &&
               normalizeDest(raw.destination_url) !== normalizeDest(expected);
+            const isManualEditable = MANAGE_LINK_TYPES.includes(linkType as ManageLinkType);
+            const isEditingDestination = editingLinkToken === link.token;
             return (
             <div key={link.key} className="bg-zinc-950 border border-zinc-800 rounded-lg px-3 py-2 space-y-1.5">
               <div className="flex items-center justify-between gap-3">
@@ -2148,11 +2180,54 @@ if (effectiveOrgId && effectiveUserId) {
                 >
                   {copiedLinkToken === link.token ? <Check size={13} className="text-green-500" /> : <Copy size={13} className="text-zinc-400" />}
                 </button>
+                {isManualEditable && !isReadOnly && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setEditingLinkToken(isEditingDestination ? null : link.token);
+                      setEditDestinationValue(raw?.destination_url || '');
+                    }}
+                    className="shrink-0 h-7 w-7 flex items-center justify-center rounded-lg border border-zinc-700 hover:bg-zinc-800 transition-all"
+                  >
+                    <Edit2 size={13} className="text-zinc-400" />
+                  </button>
+                )}
               </div>
               {raw?.destination_url && (
                 <p className="text-[10px] text-zinc-500 truncate pl-6">
                   Destination: <span className="text-zinc-400 font-mono">{raw.destination_url}</span>
                 </p>
+              )}
+              {isEditingDestination && (
+                <div className="pl-6 space-y-2 pt-1">
+                  <input
+                    type="text"
+                    value={editDestinationValue}
+                    onChange={e => setEditDestinationValue(e.target.value)}
+                    placeholder="https://..."
+                    className="w-full bg-zinc-900 border border-zinc-800 rounded-lg px-2 py-1.5 text-[10px] font-mono text-white outline-none focus:border-red-600"
+                  />
+                  <p className="text-[9px] text-amber-500 leading-relaxed">
+                    Updating this destination won't erase past clicks or conversions, but traffic stats for the old destination will stop updating once the new url takes effect.
+                  </p>
+                  <div className="flex gap-2 justify-end">
+                    <button
+                      type="button"
+                      onClick={() => setEditingLinkToken(null)}
+                      className="h-6 px-2.5 rounded-lg border border-zinc-700 text-[9px] font-black uppercase tracking-widest text-zinc-400 hover:bg-zinc-800"
+                    >
+                      Cancel
+                    </button>
+                    <button
+                      type="button"
+                      disabled={savingManualDestination}
+                      onClick={() => handleSaveManualDestination(link)}
+                      className="h-6 px-2.5 rounded-lg bg-white text-zinc-950 text-[9px] font-black uppercase tracking-widest hover:bg-zinc-200 disabled:opacity-50"
+                    >
+                      {savingManualDestination ? 'Saving...' : 'Save'}
+                    </button>
+                  </div>
+                </div>
               )}
               {outdated && !isReadOnly && (
                 <div className="flex items-center justify-between gap-2 pl-6">
