@@ -383,8 +383,6 @@ export default function VideoDetail() {
   const [managingLinks, setManagingLinks] = useState(false);
   const [updatingLinkToken, setUpdatingLinkToken] = useState<string | null>(null);
   const [expandedCardKey, setExpandedCardKey] = useState<string | null>(null);
-  const [updatingLinkToken, setUpdatingLinkToken] = useState<string | null>(null);
-  const [expandedCardKey, setExpandedCardKey] = useState<string | null>(null);
   const [editingLinkToken, setEditingLinkToken] = useState<string | null>(null);
   const [editDestinationValue, setEditDestinationValue] = useState('');
   const [savingManualDestination, setSavingManualDestination] = useState(false);
