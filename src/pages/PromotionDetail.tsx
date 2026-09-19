@@ -1557,144 +1557,151 @@ export default function PromotionDetail() {
                   />
                 )}
 
-                {pendingAddAssets.length > 0 && (
-                  <div className="mt-4 space-y-3 border border-zinc-700 rounded-xl p-4 bg-zinc-950/80">
-                    <p className="text-[10px] font-black uppercase tracking-widest text-orange-500">
-                      Pending assets — not saved yet
-                    </p>
-                    <p className="text-[10px] text-zinc-500">
-                      Configure promotion methods, then Confirm. Cancel discards only these pending rows; existing promoted assets are not removed.
-                    </p>
-                    {pendingAddAssets.map(asset => {
-                      const p = pendingAddPerms.get(asset.assetId) ?? DEFAULT_PENDING_PERM;
-                      return (
-                        <div
-                          key={asset.assetId}
-                          className="bg-zinc-900 border border-zinc-800 rounded-lg p-4 space-y-3"
-                        >
-                          <div className="flex items-start gap-3">
-                            <div className="w-16 h-9 rounded bg-zinc-950 border border-zinc-800 overflow-hidden shrink-0 flex items-center justify-center">
-                              {asset.thumbnail ? (
-                                <img src={asset.thumbnail} alt="" className="w-full h-full object-cover" />
-                              ) : (
-                                <span className="text-[10px] text-zinc-600">—</span>
-                              )}
-                            </div>
-                            <div className="min-w-0 flex-1">
-                              <p className="text-sm font-medium text-white truncate">
-                                {asset.title}
-                              </p>
-                              <p className="text-[9px] font-black uppercase tracking-widest text-zinc-600 mt-0.5">
-                                Asset
-                              </p>
-                            </div>
-                            <button
-                              type="button"
-                              onClick={() => removePendingAddAsset(asset.assetId)}
-                              disabled={addingAsset}
-                              className="text-zinc-500 hover:text-red-400 text-xs font-bold px-2"
-                              title="Remove from pending (not saved)"
-                            >
-                              ×
-                            </button>
-                          </div>
-                          <p className="text-[10px] font-bold uppercase tracking-widest text-zinc-500">
-                            Promotion Methods
-                          </p>
-                          <div className="space-y-2">
-                            <label className="flex items-center gap-3 cursor-pointer">
-                              <input
-                                type="checkbox"
-                                className="accent-orange-500"
-                                checked={p.allowMarketerDomain}
-                                disabled={addingAsset}
-                                onChange={e =>
-                                  patchPendingPerm(asset.assetId, {
-                                    allowMarketerDomain: e.target.checked,
-                                  })
-                                }
-                              />
-                              <span className="text-sm text-zinc-200">Marketer&apos;s tracking domain</span>
-                            </label>
-                            <div className="space-y-1.5">
-                              <label className="flex items-center gap-3 cursor-pointer">
-                                <input
-                                  type="checkbox"
-                                  className="accent-orange-500"
-                                  checked={p.allowSponsorDomain}
-                                  disabled={addingAsset}
-                                  onChange={e =>
-                                    patchPendingPerm(asset.assetId, {
-                                      allowSponsorDomain: e.target.checked,
-                                      selectedSponsorDomainId: e.target.checked
-                                        ? p.selectedSponsorDomainId
-                                        : null,
-                                    })
-                                  }
-                                />
-                                <span className="text-sm text-zinc-200">Sponsor&apos;s tracking domain</span>
-                              </label>
-                              {p.allowSponsorDomain && (
-                                <select
-                                  className="w-full max-w-sm bg-zinc-950 border border-zinc-700 rounded-lg px-2 py-1.5 text-xs text-zinc-200 ml-7"
-                                  value={p.selectedSponsorDomainId ?? ''}
-                                  disabled={addingAsset}
-                                  onChange={e =>
-                                    patchPendingPerm(asset.assetId, {
-                                      selectedSponsorDomainId: e.target.value || null,
-                                    })
-                                  }
-                                >
-                                  <option value="">Select Sponsor tracking domain</option>
-                                  {sponsorVerifiedDomains.map(d => (
-                                    <option key={d.id} value={d.id}>
-                                      {d.hostname}
-                                    </option>
-                                  ))}
-                                </select>
-                              )}
-                            </div>
-                            <label className="flex items-center gap-3 cursor-pointer">
-                              <input
-                                type="checkbox"
-                                className="accent-orange-500"
-                                checked={p.allowVstrkDomain}
-                                disabled={addingAsset}
-                                onChange={e =>
-                                  patchPendingPerm(asset.assetId, {
-                                    allowVstrkDomain: e.target.checked,
-                                  })
-                                }
-                              />
-                              <span className="text-sm text-zinc-200">VSTRK tracking domain</span>
-                            </label>
-                          </div>
-                        </div>
-                      );
-                    })}
-                    <div className="flex flex-wrap gap-2 pt-1">
-                      <button
-                        type="button"
-                        onClick={confirmPendingAddAssets}
-                        disabled={addingAsset || pendingAddAssets.length === 0}
-                        className="inline-flex items-center gap-1.5 bg-orange-600 hover:bg-orange-500 disabled:opacity-40 text-white text-[10px] font-bold uppercase tracking-wider px-4 py-2 rounded-lg"
-                      >
-                        {addingAsset ? <Loader2 size={12} className="animate-spin" /> : null}
-                        Confirm add
-                      </button>
-                      <button
-                        type="button"
-                        onClick={cancelPendingAddAssets}
-                        disabled={addingAsset}
-                        className="inline-flex items-center gap-1.5 bg-zinc-800 hover:bg-zinc-700 disabled:opacity-40 text-zinc-300 text-[10px] font-bold uppercase tracking-wider px-4 py-2 rounded-lg"
-                      >
-                        Cancel
-                      </button>
-                    </div>
-                  </div>
-                )}
               </div>
             )}
+          </div>
+        </div>
+      )}
+
+
+      {/* Pending Add Assets — full width so Promotion Methods never compress in the narrow column */}
+      {!isRemovedSelf && isSponsor && pendingAddAssets.length > 0 && (
+        <div className="w-full shrink-0 overflow-visible border border-zinc-700 rounded-xl p-4 bg-zinc-950 space-y-4">
+          <div>
+            <p className="text-[10px] font-black uppercase tracking-widest text-orange-500">
+              Pending assets — not saved yet
+            </p>
+            <p className="text-[10px] text-zinc-500 mt-1">
+              Configure promotion methods for each asset, then Confirm. Cancel discards only these pending rows; existing promoted assets are not removed.
+            </p>
+          </div>
+          <div className="flex flex-col gap-4 w-full shrink-0 overflow-visible">
+            {pendingAddAssets.map(asset => {
+              const p = pendingAddPerms.get(asset.assetId) ?? DEFAULT_PENDING_PERM;
+              return (
+                <div
+                  key={asset.assetId}
+                  className="w-full shrink-0 overflow-visible bg-zinc-900 border border-zinc-800 rounded-lg p-4 space-y-3"
+                >
+                  <div className="flex items-start gap-3 shrink-0">
+                    <div className="w-16 h-9 rounded bg-zinc-950 border border-zinc-800 overflow-hidden shrink-0 flex items-center justify-center">
+                      {asset.thumbnail ? (
+                        <img src={asset.thumbnail} alt="" className="w-full h-full object-cover" />
+                      ) : (
+                        <span className="text-[10px] text-zinc-600">—</span>
+                      )}
+                    </div>
+                    <div className="min-w-0 flex-1">
+                      <p className="text-sm font-medium text-white break-words">
+                        {asset.title}
+                      </p>
+                      <p className="text-[9px] font-black uppercase tracking-widest text-zinc-600 mt-0.5">
+                        Asset
+                      </p>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => removePendingAddAsset(asset.assetId)}
+                      disabled={addingAsset}
+                      className="text-zinc-500 hover:text-red-400 text-xs font-bold px-2 shrink-0"
+                      title="Remove from pending (not saved)"
+                    >
+                      ×
+                    </button>
+                  </div>
+                  <div className="w-full shrink-0 overflow-visible space-y-2 border-t border-zinc-800 pt-3">
+                    <p className="text-[10px] font-bold uppercase tracking-widest text-zinc-500">
+                      Promotion Methods
+                    </p>
+                    <label className="flex items-center gap-3 cursor-pointer shrink-0">
+                      <input
+                        type="checkbox"
+                        className="accent-orange-500 shrink-0"
+                        checked={p.allowMarketerDomain}
+                        disabled={addingAsset}
+                        onChange={e =>
+                          patchPendingPerm(asset.assetId, {
+                            allowMarketerDomain: e.target.checked,
+                          })
+                        }
+                      />
+                      <span className="text-sm text-zinc-200">Marketer&apos;s tracking domain</span>
+                    </label>
+                    <div className="space-y-1.5 shrink-0 overflow-visible">
+                      <label className="flex items-center gap-3 cursor-pointer">
+                        <input
+                          type="checkbox"
+                          className="accent-orange-500 shrink-0"
+                          checked={p.allowSponsorDomain}
+                          disabled={addingAsset}
+                          onChange={e =>
+                            patchPendingPerm(asset.assetId, {
+                              allowSponsorDomain: e.target.checked,
+                              selectedSponsorDomainId: e.target.checked
+                                ? p.selectedSponsorDomainId
+                                : null,
+                            })
+                          }
+                        />
+                        <span className="text-sm text-zinc-200">Sponsor&apos;s tracking domain</span>
+                      </label>
+                      {p.allowSponsorDomain && (
+                        <select
+                          className="w-full max-w-md bg-zinc-950 border border-zinc-700 rounded-lg px-2 py-1.5 text-xs text-zinc-200 ml-0 sm:ml-7"
+                          value={p.selectedSponsorDomainId ?? ''}
+                          disabled={addingAsset}
+                          onChange={e =>
+                            patchPendingPerm(asset.assetId, {
+                              selectedSponsorDomainId: e.target.value || null,
+                            })
+                          }
+                        >
+                          <option value="">Select Sponsor tracking domain</option>
+                          {sponsorVerifiedDomains.map(d => (
+                            <option key={d.id} value={d.id}>
+                              {d.hostname}
+                            </option>
+                          ))}
+                        </select>
+                      )}
+                    </div>
+                    <label className="flex items-center gap-3 cursor-pointer shrink-0">
+                      <input
+                        type="checkbox"
+                        className="accent-orange-500 shrink-0"
+                        checked={p.allowVstrkDomain}
+                        disabled={addingAsset}
+                        onChange={e =>
+                          patchPendingPerm(asset.assetId, {
+                            allowVstrkDomain: e.target.checked,
+                          })
+                        }
+                      />
+                      <span className="text-sm text-zinc-200">VSTRK tracking domain</span>
+                    </label>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+          <div className="flex flex-wrap gap-2 pt-1 shrink-0">
+            <button
+              type="button"
+              onClick={confirmPendingAddAssets}
+              disabled={addingAsset || pendingAddAssets.length === 0}
+              className="inline-flex items-center gap-1.5 bg-orange-600 hover:bg-orange-500 disabled:opacity-40 text-white text-[10px] font-bold uppercase tracking-wider px-4 py-2 rounded-lg"
+            >
+              {addingAsset ? <Loader2 size={12} className="animate-spin" /> : null}
+              Confirm add
+            </button>
+            <button
+              type="button"
+              onClick={cancelPendingAddAssets}
+              disabled={addingAsset}
+              className="inline-flex items-center gap-1.5 bg-zinc-800 hover:bg-zinc-700 disabled:opacity-40 text-zinc-300 text-[10px] font-bold uppercase tracking-wider px-4 py-2 rounded-lg"
+            >
+              Cancel
+            </button>
           </div>
         </div>
       )}
