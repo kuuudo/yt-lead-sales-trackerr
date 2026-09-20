@@ -493,6 +493,28 @@ const [videoDisplayByVideoId, setVideoDisplayByVideoId] = useState<
 const [assetDisplayByAssetId, setAssetDisplayByAssetId] = useState<
   Map<string, { title: string; thumbnailUrl: string | null }>
 >(new Map())
+
+  // ── STEP 9 (additive) — node detail modal (click a graph/downstream node) ──
+const [nodeDetailTarget, setNodeDetailTarget] = useState<
+  { kind: 'video'; videoId: string } | { kind: 'asset'; assetId: string } | null
+>(null)
+  const [nodeDetailVideo, setNodeDetailVideo] = useState<{
+    id: string
+    title: string | null
+    platform: string | null
+    platformUrl: string | null
+    status: string | null
+    publishedDate: string | null
+    assetId: string | null
+  } | null>(null)
+  const [nodeDetailAsset, setNodeDetailAsset] = useState<{
+    assetId: string
+    title: string
+    thumbnailUrl: string | null
+  } | null>(null)
+  const [nodeDetailRedirectLinks, setNodeDetailRedirectLinks] = useState<{ id: string; token: string }[]>([])
+  const [nodeDetailLoading, setNodeDetailLoading] = useState(false)
+
   // Downstream resolution (additive — STEP 3). Structural only, no
   // conversion data. See journeyDownstreamResolver.ts.
   const [downstream, setDownstream] = useState<DownstreamResolution>({ nodes: [], edges: [] })
@@ -837,6 +859,87 @@ const [assetDisplayByAssetId, setAssetDisplayByAssetId] = useState<
     if (promoted) return { title: promoted.title, thumbnailUrl: promoted.thumbnailSrc }
     return assetDisplayByAssetId.get(assetId)
   }
+
+
+  // ── STEP 9 (additive) — fetch full video/asset row + every redirect_link
+  // pointing at this content, on demand when a node is clicked. Read-only,
+  // no writes, does not touch events_journey or journey_snapshot.
+  useEffect(() => {
+    if (!nodeDetailTarget) {
+      setNodeDetailVideo(null)
+      setNodeDetailAsset(null)
+      setNodeDetailRedirectLinks([])
+      return
+    }
+    let cancelled = false
+    setNodeDetailLoading(true)
+
+    ;(async () => {
+      try {
+        if (nodeDetailTarget.kind === 'video') {
+          const { data: videoRow, error: videoErr } = await supabase
+            .from('videos')
+            .select('id, video_title, platform, platform_url, status, published_date, asset_id')
+            .eq('id', nodeDetailTarget.videoId)
+            .maybeSingle()
+          if (videoErr) throw videoErr
+          if (cancelled) return
+          setNodeDetailVideo(
+            videoRow
+              ? {
+                  id: videoRow.id,
+                  title: videoRow.video_title,
+                  platform: videoRow.platform,
+                  platformUrl: videoRow.platform_url,
+                  status: videoRow.status,
+                  publishedDate: videoRow.published_date,
+                  assetId: videoRow.asset_id,
+                }
+              : null,
+          )
+          setNodeDetailAsset(null)
+
+          const { data: linkRows, error: linkErr } = await supabase
+            .from('redirect_links')
+            .select('id, token')
+            .eq('video_id', nodeDetailTarget.videoId)
+          if (linkErr) throw linkErr
+          if (!cancelled) setNodeDetailRedirectLinks((linkRows ?? []) as { id: string; token: string }[])
+        } else {
+          const detail = await getAssetDetail(nodeDetailTarget.assetId)
+          if (cancelled) return
+          setNodeDetailVideo(null)
+          setNodeDetailAsset(
+            detail?.resource
+              ? {
+                  assetId: nodeDetailTarget.assetId,
+                  title: detail.resource.title || 'Untitled asset',
+                  thumbnailUrl: resolveNodeThumbnail(detail.resource),
+                }
+              : null,
+          )
+
+          const { data: linkRows, error: linkErr } = await supabase
+            .from('redirect_links')
+            .select('id, token')
+            .eq('asset_id', nodeDetailTarget.assetId)
+          if (linkErr) throw linkErr
+          if (!cancelled) setNodeDetailRedirectLinks((linkRows ?? []) as { id: string; token: string }[])
+        }
+      } catch (err: any) {
+        console.error('[PromotionJourneyMap] STEP 9 node detail lookup failed:', err?.message || err)
+        if (!cancelled) {
+          setNodeDetailVideo(null)
+          setNodeDetailAsset(null)
+          setNodeDetailRedirectLinks([])
+        }
+      } finally {
+        if (!cancelled) setNodeDetailLoading(false)
+      }
+    })()
+
+    return () => { cancelled = true }
+  }, [nodeDetailTarget])
 
   // Video ids whose terminal step got a resolved downstream node — these no
   // longer render with the "end of path" terminal treatment, since we now
@@ -1941,6 +2044,7 @@ const [assetDisplayByAssetId, setAssetDisplayByAssetId] = useState<
               <div
                 key={gNode.videoId}
                 title={`video: ${gNode.videoId}${gNode.observedAssetIds[0] ? ` · asset: ${gNode.observedAssetIds[0]}` : ''}`}
+                onClick={() => setNodeDetailTarget({ kind: 'video', videoId: gNode.videoId })}
                 style={{
                   ...styles.graphNode,
                   ...(stillTerminal ? styles.graphNodeTerminal : null),
@@ -1995,6 +2099,9 @@ const [assetDisplayByAssetId, setAssetDisplayByAssetId] = useState<
               <div
                 key={dNode.id}
                 title={debugId ?? undefined}
+                onClick={() => {
+                  if (dNode.assetId) setNodeDetailTarget({ kind: 'asset', assetId: dNode.assetId })
+                }}
                 style={{
                   ...styles.graphNode,
                   ...styles.graphNodeTerminal,
@@ -2307,6 +2414,86 @@ const [assetDisplayByAssetId, setAssetDisplayByAssetId] = useState<
           <button style={styles.zoomBtn} onClick={zoomOut} title="Zoom out">−</button>
           <button style={{ ...styles.zoomBtn, borderLeft: '1px solid #e5e7eb', marginLeft: 2, paddingLeft: 6 }} onClick={resetView} title="Reset view">⌂</button>
         </div>
+
+      {nodeDetailTarget && (
+        <div style={styles.trackOverlay} onClick={() => setNodeDetailTarget(null)}>
+          <div style={styles.nodeDetailModal} onClick={(e) => e.stopPropagation()}>
+            <div style={styles.nodeDetailHeader}>
+              <p style={styles.trackModalEyebrow}>
+                {nodeDetailTarget.kind === 'video' ? 'Content details' : 'Asset details'}
+              </p>
+              <button style={styles.nodeDetailClose} onClick={() => setNodeDetailTarget(null)} title="Close">
+                <XIcon size={16} />
+              </button>
+            </div>
+
+            {nodeDetailLoading && <p style={styles.nodeDetailHint}>Loading…</p>}
+
+            {!nodeDetailLoading && nodeDetailTarget.kind === 'video' && (
+              <>
+                <p style={styles.nodeDetailTitle}>{nodeDetailVideo?.title || 'Untitled video'}</p>
+                {/* Public content URL — visible to everybody, no auth needed. */}
+                {nodeDetailVideo?.platformUrl && (
+                  <a
+                    href={nodeDetailVideo.platformUrl}
+                    target="_blank"
+                    rel="noreferrer"
+                    style={styles.nodeDetailLinkRow}
+                  >
+                    <ExternalLink size={13} /> Open original content
+                  </a>
+                )}
+                {/* Internal pages — gated by the app's own existing routing/auth,
+                    same as every other link to these routes in this file. */}
+                <Link to={`/videos/${nodeDetailTarget.videoId}`} style={styles.nodeDetailLinkRow}>
+                  <ExternalLink size={13} /> Open Video Detail (marketer only)
+                </Link>
+                {nodeDetailVideo?.assetId && (
+                  <Link to={`/assets/${nodeDetailVideo.assetId}`} style={styles.nodeDetailLinkRow}>
+                    <ExternalLink size={13} /> Open Asset Detail (marketer only)
+                  </Link>
+                )}
+              </>
+            )}
+
+            {!nodeDetailLoading && nodeDetailTarget.kind === 'asset' && (
+              <>
+                <p style={styles.nodeDetailTitle}>{nodeDetailAsset?.title || 'Untitled asset'}</p>
+                <Link to={`/assets/${nodeDetailTarget.assetId}`} style={styles.nodeDetailLinkRow}>
+                  <ExternalLink size={13} /> Open Asset Detail (marketer only)
+                </Link>
+              </>
+            )}
+
+            <div style={styles.nodeDetailDivider} />
+
+            <p style={styles.nodeDetailSectionLabel}>
+              Redirect links ({nodeDetailRedirectLinks.length})
+            </p>
+            <p style={styles.nodeDetailWarning}>
+              Be careful — not every link below was necessarily created by you. Double-check
+              which one you mean to use before sharing it.
+            </p>
+            {nodeDetailRedirectLinks.length === 0 && !nodeDetailLoading && (
+              <p style={styles.nodeDetailHint}>No redirect links found for this content.</p>
+            )}
+            {nodeDetailRedirectLinks.map((link) => (
+              <div key={link.id} style={styles.nodeDetailRedirectRow}>
+                <span style={styles.nodeDetailRedirectUrl}>{buildTrackingLinkUrl(link.token, null)}</span>
+                <button
+                  style={styles.nodeDetailCopyBtn}
+                  onClick={() => navigator.clipboard.writeText(buildTrackingLinkUrl(link.token, null))}
+                  title="Copy link"
+                >
+                  <Copy size={12} />
+                </button>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+    
 
       {showTrackModal && (
         <div style={styles.trackOverlay}>
@@ -2693,6 +2880,7 @@ const styles: Record<string, React.CSSProperties> = {
     flexDirection: 'column',
     gap: 6,
     overflow: 'hidden',
+    cursor: 'pointer',
   },
   graphNodeTerminal: {
     background: '#ecfdf5',
@@ -3075,6 +3263,101 @@ const styles: Record<string, React.CSSProperties> = {
     textTransform: 'uppercase',
     cursor: 'pointer',
   },
+
+  nodeDetailModal: {
+    width: '100%',
+    maxWidth: 420,
+    maxHeight: '80vh',
+    overflowY: 'auto',
+    background: '#ffffff',
+    border: '1px solid #e5e7eb',
+    borderRadius: 14,
+    padding: 20,
+    boxShadow: '0 12px 32px rgba(0,0,0,0.18)',
+  },
+  nodeDetailHeader: {
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginBottom: 4,
+  },
+  nodeDetailClose: {
+    background: 'transparent',
+    border: 'none',
+    color: '#6b7280',
+    cursor: 'pointer',
+    padding: 4,
+    display: 'flex',
+  },
+  nodeDetailHint: {
+    fontSize: 12,
+    color: '#9ca3af',
+  },
+  nodeDetailTitle: {
+    fontSize: 14,
+    fontWeight: 700,
+    color: '#111827',
+    margin: '4px 0 12px',
+  },
+  nodeDetailLinkRow: {
+    display: 'flex',
+    alignItems: 'center',
+    gap: 6,
+    fontSize: 12.5,
+    fontWeight: 600,
+    color: '#4f46e5',
+    textDecoration: 'none',
+    padding: '6px 0',
+  },
+  nodeDetailDivider: {
+    height: 1,
+    background: '#e5e7eb',
+    margin: '14px 0',
+  },
+  nodeDetailSectionLabel: {
+    fontSize: 11,
+    fontWeight: 700,
+    letterSpacing: '0.04em',
+    textTransform: 'uppercase',
+    color: '#6b7280',
+    marginBottom: 6,
+  },
+  nodeDetailWarning: {
+    fontSize: 11.5,
+    color: '#b45309',
+    background: '#fffbeb',
+    border: '1px solid #fde68a',
+    borderRadius: 8,
+    padding: '8px 10px',
+    marginBottom: 10,
+    lineHeight: 1.4,
+  },
+  nodeDetailRedirectRow: {
+    display: 'flex',
+    alignItems: 'center',
+    gap: 6,
+    padding: '6px 0',
+    borderBottom: '1px solid #f3f4f6',
+  },
+  nodeDetailRedirectUrl: {
+    flex: 1,
+    fontSize: 11,
+    fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace',
+    color: '#374151',
+    whiteSpace: 'nowrap',
+    overflow: 'hidden',
+    textOverflow: 'ellipsis',
+  },
+  nodeDetailCopyBtn: {
+    background: 'transparent',
+    border: '1px solid #e5e7eb',
+    borderRadius: 6,
+    padding: 4,
+    cursor: 'pointer',
+    color: '#6b7280',
+    display: 'flex',
+  },
+
   trackOverlay: {
     position: 'fixed',
     inset: 0,
