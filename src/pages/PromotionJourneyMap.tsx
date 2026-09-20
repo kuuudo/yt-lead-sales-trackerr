@@ -39,7 +39,7 @@
 
 import React, { useEffect, useMemo, useRef, useState, useCallback } from 'react'
 import { useParams, useNavigate, Link } from 'react-router-dom'
-import { ArrowLeft, Loader2, Plus, Copy, Check, GripVertical, X as XIcon } from 'lucide-react'
+import { ArrowLeft, Loader2, Plus, Copy, Check, GripVertical, X as XIcon, ExternalLink } from 'lucide-react'
 import { supabase } from '../lib/supabase'
 // STEP 6 (additive) — same URL builder VideoDetail.tsx uses for its own
 // copyable redirect links. Reused here so the tracked link shown on the
@@ -174,6 +174,10 @@ interface UnlinkedVideo {
   // token is what buildTrackingLinkUrl() needs to render the copyable URL.
   redirectLinkId: string
   token: string
+  // STEP 7 addition — same videos.platform_url column used for the node
+  // card icon, so the tutorial/test card can also link to the original
+  // content, not just the tracked redirect link.
+  platformUrl: string | null
 }
 
 const MIN_SCALE = 0.4
@@ -498,27 +502,44 @@ export default function PromotionJourneyMap() {
   // title/thumbnailUrl are a best-effort display lookup — if the `videos`
   // read fails, the card still renders with the id as its label.
   const [unlinkedCandidates, setUnlinkedCandidates] = useState<UnlinkedVideo[]>([])
+  // STEP 7 (additive) — asset_id -> videos.platform_url, for the external-
+  // link icon on every promoted/creative node card.
+  const [platformUrlByAssetId, setPlatformUrlByAssetId] = useState<Map<string, string | null>>(new Map())
 
-  // STEP 6 (additive, 2026-09-20) — "Test your journey" card. Real and
-  // draggable, unlike the demo/onboarding animations discussed for this
+  // STEP 6 (additive, 2026-09-20) — "Test your journey" tutorial card. Real
+  // and draggable, unlike the demo/onboarding animations discussed for this
   // page — every field here reflects this browser's own actions or actual
-  // events_journey rows, never simulated progress. Bound to exactly ONE
-  // unlinked video at a time (testCardTarget); opening it for a different
-  // video replaces the target and resets the rest of this state. Nothing
-  // here is persisted — closing the card or leaving the page forgets it,
-  // same as the rest of this page's local (non-Workspace) canvas state.
+  // events_journey rows, never simulated progress. Always shown (2026-09-20
+  // revision) rather than gated on picking a video, because its first two
+  // steps (Track New Content, pick a video from Unlinked) happen BEFORE any
+  // video is targeted. Steps 3-6 stay tied to exactly one targeted video
+  // (testCardTarget) at a time — opening it for a different video replaces
+  // the target and resets steps 3-6.
+  const [hasClickedTrackNewContent, setHasClickedTrackNewContent] = useState(false)
   const [testCardTarget, setTestCardTarget] = useState<UnlinkedVideo | null>(null)
   const [testCardPos, setTestCardPos] = useState<{ x: number; y: number }>({
     x: CANVAS_MARGIN,
     y: CANVAS_MID_Y + 260,
   })
   const [testCardCopied, setTestCardCopied] = useState(false)
+  // Persistent version of testCardCopied — that one flips back to false
+  // after 2s (it only drives the button's "Copied" label), but step 3 of
+  // the checklist needs to stay checked once it's ever happened.
+  const [testCardEverCopied, setTestCardEverCopied] = useState(false)
   const [testCardWatching, setTestCardWatching] = useState(false)
   const [testCardWatchStartedAt, setTestCardWatchStartedAt] = useState<number | null>(null)
   // Set once STEP 6b's poll finds a NEW events_journey row on this link's
   // own redirect_link_id. Until then we don't have a journey_id to resolve.
   const [testCardJourneyId, setTestCardJourneyId] = useState<string | null>(null)
   const [testCardStepCount, setTestCardStepCount] = useState(0)
+
+  // STEP 6c (additive, 2026-09-20 revision) — funnel demo is now draggable
+  // and always shown (previously gated on unlinkedGroup existing). Position
+  // is local-only, same as testCardPos — not persisted.
+  const [funnelDemoPos, setFunnelDemoPos] = useState<{ x: number; y: number }>({
+    x: CANVAS_MARGIN,
+    y: CANVAS_MID_Y + 420,
+  })
 
   // Local canvas transform — NOT useWorkspaceStore.
   const [transform, setTransform] = useState<CanvasTransform>({ x: 0, y: 0, scale: 1 })
@@ -554,16 +575,25 @@ export default function PromotionJourneyMap() {
         }
         const assetIds = detail.assets.map((a) => a.assetId).filter(Boolean)
         let creativeAssetIds = new Set<string>()
+        // STEP 7 (additive, 2026-09-20) — platform_url per promoted asset,
+        // for the external-link icon on each node card. Folded into this
+        // existing videos-by-asset_id query (same table, same ids) rather
+        // than adding a second near-duplicate query — the only change from
+        // before is two extra select columns and dropping the
+        // created_via_creative filter so it also covers non-creative assets.
+        const platformUrlMap = new Map<string, string | null>()
         if (assetIds.length > 0) {
-          const { data: creativeRows } = await supabase
+          const { data: videoRows } = await supabase
             .from('videos')
-            .select('asset_id')
+            .select('asset_id, platform_url, created_via_creative')
             .in('asset_id', assetIds)
-            .eq('created_via_creative', true)
-          creativeAssetIds = new Set(
-            (creativeRows ?? []).map((r: any) => r.asset_id as string).filter(Boolean),
-          )
+          for (const r of (videoRows ?? []) as { asset_id: string | null; platform_url: string | null; created_via_creative: boolean | null }[]) {
+            if (!r.asset_id) continue
+            platformUrlMap.set(r.asset_id, r.platform_url ?? null)
+            if (r.created_via_creative) creativeAssetIds.add(r.asset_id)
+          }
         }
+        setPlatformUrlByAssetId(platformUrlMap)
         const tagged = detail.assets.map((a) => ({
           ...a,
           isCreative: creativeAssetIds.has(a.assetId),
@@ -810,15 +840,15 @@ export default function PromotionJourneyMap() {
         // platform, so resolveThumbnail() below can fall back to a
         // platform placeholder exactly like the promoted-asset cards do,
         // instead of showing a blank thumbnail when thumbnail_url is empty.
-        const meta = new Map<string, { title: string | null; thumbnailUrl: string | null; platform: string | null }>()
+        const meta = new Map<string, { title: string | null; thumbnailUrl: string | null; platform: string | null; platformUrl: string | null }>()
         try {
           const { data: videoRows, error: videoError } = await supabase
             .from('videos')
-            .select('id, video_title, thumbnail_url, platform')
+            .select('id, video_title, thumbnail_url, platform, platform_url')
             .in('id', ids)
           if (videoError) throw videoError
-          for (const v of (videoRows ?? []) as { id: string; video_title: string | null; thumbnail_url: string | null; platform: string | null }[]) {
-            meta.set(v.id, { title: v.video_title ?? null, thumbnailUrl: v.thumbnail_url ?? null, platform: v.platform ?? null })
+          for (const v of (videoRows ?? []) as { id: string; video_title: string | null; thumbnail_url: string | null; platform: string | null; platform_url: string | null }[]) {
+            meta.set(v.id, { title: v.video_title ?? null, thumbnailUrl: v.thumbnail_url ?? null, platform: v.platform ?? null, platformUrl: v.platform_url ?? null })
           }
         } catch (metaErr: any) {
           console.warn('[PromotionJourneyMap] STEP 5 video display lookup failed:', metaErr?.message || metaErr)
@@ -839,6 +869,7 @@ export default function PromotionJourneyMap() {
               thumbnailUrl: resolveThumbnail({ thumbnail_url: m?.thumbnailUrl ?? null, platform: m?.platform ?? null }),
               redirectLinkId: link.id,
               token: link.token,
+              platformUrl: m?.platformUrl ?? null,
             }]
           }),
         )
@@ -1054,6 +1085,42 @@ export default function PromotionJourneyMap() {
     testCardDragState.current.active = false
   }, [])
 
+  // ── STEP 6c (additive) — funnel demo drag ─────────────────────────────────
+  // Same handle-only pattern as the test card above (its own pause button
+  // needs to stay clickable, so only a drag strip is wired to pointer-down).
+  const funnelDragState = useRef<{
+    active: boolean
+    startClientX: number
+    startClientY: number
+    startX: number
+    startY: number
+  }>({ active: false, startClientX: 0, startClientY: 0, startX: 0, startY: 0 })
+
+  const handleFunnelHandlePointerDown = useCallback((e: React.PointerEvent) => {
+    e.stopPropagation()
+    ;(e.target as Element).setPointerCapture?.(e.pointerId)
+    funnelDragState.current = {
+      active: true,
+      startClientX: e.clientX,
+      startClientY: e.clientY,
+      startX: funnelDemoPos.x,
+      startY: funnelDemoPos.y,
+    }
+  }, [funnelDemoPos])
+
+  const handleFunnelHandlePointerMove = useCallback((e: React.PointerEvent) => {
+    const ds = funnelDragState.current
+    if (!ds.active) return
+    setFunnelDemoPos({
+      x: ds.startX + (e.clientX - ds.startClientX) / transform.scale,
+      y: ds.startY + (e.clientY - ds.startClientY) / transform.scale,
+    })
+  }, [transform.scale])
+
+  const handleFunnelHandlePointerUp = useCallback(() => {
+    funnelDragState.current.active = false
+  }, [])
+
   // Opens (or retargets) the card for one specific unlinked video, positioned
   // just to the right of that video's own ring position, and resets watch
   // state — a card left "watching" for video A must not silently keep
@@ -1062,6 +1129,7 @@ export default function PromotionJourneyMap() {
     setTestCardTarget(v)
     setTestCardPos({ x: v.x + UNLINKED_NODE_WIDTH + 28, y: v.y })
     setTestCardCopied(false)
+    setTestCardEverCopied(false)
     setTestCardWatching(false)
     setTestCardWatchStartedAt(null)
     setTestCardJourneyId(null)
@@ -1478,7 +1546,10 @@ export default function PromotionJourneyMap() {
         <span style={styles.title}>{promotionTitle} — User journey</span>
         <button
           type="button"
-          onClick={() => openTrackModal()}
+          onClick={() => {
+            setHasClickedTrackNewContent(true)
+            openTrackModal()
+          }}
           style={styles.trackBtn}
           title="Track new content for this promotion"
         >
@@ -1613,6 +1684,23 @@ export default function PromotionJourneyMap() {
                 )}
               </div>
               <div style={styles.nodeTitle}>{node.title}</div>
+              {/* STEP 7 (additive) — jump straight to the original content,
+                  bypassing VideoDetail. stopPropagation on both pointerDown
+                  and click so this doesn't arm the card's own drag state or
+                  trigger its click-to-navigate. */}
+              {platformUrlByAssetId.get(node.assetId) && (
+                <a
+                  href={platformUrlByAssetId.get(node.assetId) ?? undefined}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  style={styles.nodeExternalLinkIcon}
+                  title="Open the original content"
+                  onPointerDown={(e) => e.stopPropagation()}
+                  onClick={(e) => e.stopPropagation()}
+                >
+                  <ExternalLink size={11} />
+                </a>
+              )}
             </div>
           ))}
 
@@ -1656,6 +1744,19 @@ export default function PromotionJourneyMap() {
                     )}
                   </div>
                   <div style={styles.creativeNodeTitle}>{node.title}</div>
+                  {platformUrlByAssetId.get(node.assetId) && (
+                    <a
+                      href={platformUrlByAssetId.get(node.assetId) ?? undefined}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      style={styles.nodeExternalLinkIcon}
+                      title="Open the original content"
+                      onPointerDown={(e) => e.stopPropagation()}
+                      onClick={(e) => e.stopPropagation()}
+                    >
+                      <ExternalLink size={11} />
+                    </a>
+                  )}
                 </div>
               ))}
             </div>
@@ -1780,118 +1881,155 @@ export default function PromotionJourneyMap() {
             </div>
           )}
 
-          {/* STEP 6c (additive) — the always-looping funnel illustration,
-              placed below the Unlinked ring so it reads as "here's what
-              this leads to" rather than a floating unrelated widget. Shown
-              whenever there's at least one unlinked video to test — no
-              point teaching the mechanic if there's nothing to try it on. */}
-          {unlinkedGroup && (
-            <>
-              <div
-                style={{
-                  position: 'absolute',
-                  left: unlinkedGroup.left,
-                  top: unlinkedGroup.top + unlinkedGroup.diameter + 14,
-                  width: 220,
-                  fontSize: 11,
-                  color: '#9ca3af',
-                }}
-              >
-                Set this up on your own video, so you can see this ↓
-              </div>
-              <div
-                style={{
-                  position: 'absolute',
-                  left: unlinkedGroup.left,
-                  top: unlinkedGroup.top + unlinkedGroup.diameter + 40,
-                  width: 680,
-                }}
-              >
-                <JourneyFunnelDemo />
-              </div>
-            </>
-          )}
-
-          {/* STEP 6 (additive) — Test Your Journey card. Lives on the same
-              canvas, draggable via its own handle, bound to exactly one
-              unlinked video's own redirect link (opened by clicking that
-              video in the Unlinked ring above). Real state only — see the
-              STEP 6 state block for why nothing here is simulated. */}
-          {testCardTarget && (
-            <div style={{ ...styles.testCard, left: testCardPos.x, top: testCardPos.y }}>
-              <div
-                style={styles.testCardHeader}
-                onPointerDown={handleTestCardHandlePointerDown}
-                onPointerMove={handleTestCardHandlePointerMove}
-                onPointerUp={handleTestCardHandlePointerUp}
-              >
-                <span style={styles.testCardTitle}>Test your journey</span>
-                <GripVertical size={14} style={{ color: '#9ca3af', cursor: 'grab', flexShrink: 0 }} />
-              </div>
-
-              <p style={styles.testCardSub}>{testCardTarget.title || testCardTarget.videoId}</p>
-
-              <div style={styles.testCardLinkRow}>
-                <span style={styles.testCardLinkText}>
-                  {/* TODO: resolve this video's custom tracking domain the
-                      same way getRedirectLinksDisplay() does for
-                      VideoDetail.tsx (trackingHostname). Until that's wired
-                      in here, this always falls back to the default vstrk
-                      host inside buildTrackingLinkUrl(). */}
-                  {buildTrackingLinkUrl(testCardTarget.token, null)}
-                </span>
-                <button
-                  type="button"
-                  style={styles.testCardCopyBtn}
-                  onClick={() => {
-                    navigator.clipboard.writeText(buildTrackingLinkUrl(testCardTarget.token, null))
-                    setTestCardCopied(true)
-                    setTimeout(() => setTestCardCopied(false), 2000)
-                  }}
-                >
-                  {testCardCopied ? <Check size={12} /> : <Copy size={12} />}
-                  {testCardCopied ? 'Copied' : 'Copy'}
-                </button>
-              </div>
-
-              <p style={styles.testCardHint}>
-                Paste this into your video description or post. Then open it yourself to walk the journey.
-              </p>
-
-              {!testCardWatching ? (
-                <button
-                  type="button"
-                  style={styles.testCardPrimaryBtn}
-                  onClick={() => {
-                    setTestCardWatching(true)
-                    setTestCardWatchStartedAt(Date.now())
-                  }}
-                >
-                  I've pasted it — start watching
-                </button>
-              ) : (
-                <div style={styles.testCardWatchBox}>
-                  <p style={styles.testCardWatchLabel}>
-                    {testCardStepCount > 0 ? 'Journey detected' : 'Watching for your click…'}
-                  </p>
-                  {testCardStepCount > 0 && (
-                    <p style={styles.testCardWatchCount}>
-                      {testCardStepCount} step{testCardStepCount === 1 ? '' : 's'} observed so far
-                    </p>
-                  )}
-                </div>
-              )}
-
-              <button
-                type="button"
-                style={styles.testCardCloseBtn}
-                onClick={() => setTestCardTarget(null)}
-                aria-label="Close test panel"
-              >
-                <XIcon size={13} />
-              </button>
+          {/* STEP 6c (additive, 2026-09-20 revision) — always shown now
+              (previously gated on unlinkedGroup existing), and draggable via
+              its own handle strip so it can be moved out of the way. */}
+          <div style={{ position: 'absolute', left: funnelDemoPos.x, top: funnelDemoPos.y, width: 680 }}>
+            <div
+              style={styles.funnelDragHandle}
+              onPointerDown={handleFunnelHandlePointerDown}
+              onPointerMove={handleFunnelHandlePointerMove}
+              onPointerUp={handleFunnelHandlePointerUp}
+            >
+              <span>This is what a fully tracked funnel looks like</span>
+              <GripVertical size={14} style={{ color: '#9ca3af', cursor: 'grab', flexShrink: 0 }} />
             </div>
-          )}
+            <JourneyFunnelDemo />
+          </div>
+
+          {/* STEP 6 (additive, 2026-09-20 revision) — Test Your Journey
+              tutorial card. Always shown (previously only appeared once a
+              video was picked) because steps 1-2 happen before that.
+              Draggable via its own handle. Real state only — see the STEP 6
+              state block for why nothing here is simulated. */}
+          <div style={{ ...styles.testCard, left: testCardPos.x, top: testCardPos.y }}>
+            <div
+              style={styles.testCardHeader}
+              onPointerDown={handleTestCardHandlePointerDown}
+              onPointerMove={handleTestCardHandlePointerMove}
+              onPointerUp={handleTestCardHandlePointerUp}
+            >
+              <span style={styles.testCardTitle}>Test your journey</span>
+              <GripVertical size={14} style={{ color: '#9ca3af', cursor: 'grab', flexShrink: 0 }} />
+            </div>
+
+            {(() => {
+              // Judgment call, documented rather than hidden: step 5 fires
+              // the moment ANY events_journey row shows up for this link
+              // (they clicked it themselves); step 6 waits for more than
+              // just that first hop, so it actually means "the map lit up
+              // beyond the entry point," not just "a row exists."
+              const steps = [
+                { label: 'Click "+ Track New Content"', done: hasClickedTrackNewContent },
+                { label: 'Click the video inside Unlinked', done: testCardTarget !== null },
+                { label: 'Copy the tracked link', done: testCardEverCopied },
+                { label: 'Paste the redirect link into the content', done: testCardWatching },
+                { label: 'Click it yourself', done: testCardJourneyId !== null },
+                { label: 'Watch it light up', done: testCardStepCount > 1 },
+              ]
+              const doneCount = steps.filter((s) => s.done).length
+              return (
+                <>
+                  <div style={styles.testCardProgressRow}>
+                    <span style={styles.testCardSub}>{testCardTarget?.title || testCardTarget?.videoId || 'Get started'}</span>
+                    <span style={styles.testCardProgressLabel}>{doneCount}/{steps.length}</span>
+                  </div>
+                  <div style={styles.testCardChecklist}>
+                    {steps.map((s) => (
+                      <div key={s.label} style={styles.testCardCheckRow}>
+                        {s.done ? (
+                          <Check size={13} style={{ color: '#16a34a', flexShrink: 0 }} />
+                        ) : (
+                          <span style={styles.testCardCheckCircle} />
+                        )}
+                        <span style={s.done ? styles.testCardCheckLabelDone : styles.testCardCheckLabel}>{s.label}</span>
+                      </div>
+                    ))}
+                  </div>
+                </>
+              )
+            })()}
+
+            {testCardTarget ? (
+              <>
+                <div style={styles.testCardLinkRow}>
+                  <span style={styles.testCardLinkText}>
+                    {/* TODO: resolve this video's custom tracking domain the
+                        same way getRedirectLinksDisplay() does for
+                        VideoDetail.tsx (trackingHostname). Until that's
+                        wired in here, this always falls back to the default
+                        vstrk host inside buildTrackingLinkUrl(). */}
+                    {buildTrackingLinkUrl(testCardTarget.token, null)}
+                  </span>
+                  <button
+                    type="button"
+                    style={styles.testCardCopyBtn}
+                    onClick={() => {
+                      navigator.clipboard.writeText(buildTrackingLinkUrl(testCardTarget.token, null))
+                      setTestCardCopied(true)
+                      setTestCardEverCopied(true)
+                      setTimeout(() => setTestCardCopied(false), 2000)
+                    }}
+                  >
+                    {testCardCopied ? <Check size={12} /> : <Copy size={12} />}
+                    {testCardCopied ? 'Copied' : 'Copy'}
+                  </button>
+                </div>
+
+                {testCardTarget.platformUrl && (
+                  <a
+                    href={testCardTarget.platformUrl}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    style={styles.testCardOriginalLink}
+                  >
+                    Open original video ↗
+                  </a>
+                )}
+
+                <p style={styles.testCardHint}>
+                  Paste this into your video description or post. Then open it yourself to walk the journey.
+                </p>
+
+                {!testCardWatching ? (
+                  <button
+                    type="button"
+                    style={styles.testCardPrimaryBtn}
+                    onClick={() => {
+                      setTestCardWatching(true)
+                      setTestCardWatchStartedAt(Date.now())
+                    }}
+                  >
+                    I've pasted it — start watching
+                  </button>
+                ) : (
+                  <div style={styles.testCardWatchBox}>
+                    <p style={styles.testCardWatchLabel}>
+                      {testCardStepCount > 0 ? 'Journey detected' : 'Watching for your click…'}
+                    </p>
+                    {testCardStepCount > 0 && (
+                      <p style={styles.testCardWatchCount}>
+                        {testCardStepCount} step{testCardStepCount === 1 ? '' : 's'} observed so far
+                      </p>
+                    )}
+                  </div>
+                )}
+
+                <button
+                  type="button"
+                  style={styles.testCardCloseBtn}
+                  onClick={() => setTestCardTarget(null)}
+                  aria-label="Clear the selected video"
+                >
+                  <XIcon size={13} />
+                </button>
+              </>
+            ) : (
+              <p style={styles.testCardHint}>
+                Pick a video from the Unlinked ring above to get its tracked link.
+              </p>
+            )}
+          </div>
 
           {graphLoading && (
             <div style={{ ...styles.graphStatusBadge, left: GRAPH_START_X, top: CANVAS_MID_Y - 8 }}>
@@ -2206,6 +2344,23 @@ const styles: Record<string, React.CSSProperties> = {
     overflow: 'hidden',
     textOverflow: 'ellipsis',
   },
+  // STEP 7 — external-link icon on node/creativeNode cards (both already
+  // position:absolute, which is enough of a containing block for this).
+  nodeExternalLinkIcon: {
+    position: 'absolute',
+    top: 5,
+    right: 5,
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    width: 18,
+    height: 18,
+    borderRadius: 5,
+    background: 'rgba(255,255,255,0.9)',
+    border: '1px solid #e5e7eb',
+    color: '#6b7280',
+    cursor: 'pointer',
+  },
   zoomControls: {
     position: 'absolute',
     bottom: 20,
@@ -2390,7 +2545,7 @@ const styles: Record<string, React.CSSProperties> = {
   // ── STEP 6 — Test Your Journey card ─────────────────────────────────────
   testCard: {
     position: 'absolute',
-    width: 220,
+    width: 250,
     borderRadius: 12,
     background: '#ffffff',
     border: '1px solid #e5e7eb',
@@ -2410,13 +2565,60 @@ const styles: Record<string, React.CSSProperties> = {
     fontWeight: 600,
     color: '#111827',
   },
+  testCardProgressRow: {
+    display: 'flex',
+    alignItems: 'baseline',
+    justifyContent: 'space-between',
+    gap: 8,
+    marginBottom: 8,
+  },
   testCardSub: {
     fontSize: 11,
     color: '#6b7280',
-    margin: '0 0 10px',
+    margin: 0,
     whiteSpace: 'nowrap',
     overflow: 'hidden',
     textOverflow: 'ellipsis',
+    flex: 1,
+    minWidth: 0,
+  },
+  testCardProgressLabel: {
+    fontSize: 11,
+    color: '#9ca3af',
+    flexShrink: 0,
+  },
+  testCardChecklist: {
+    display: 'flex',
+    flexDirection: 'column',
+    gap: 7,
+    marginBottom: 12,
+  },
+  testCardCheckRow: {
+    display: 'flex',
+    alignItems: 'center',
+    gap: 7,
+  },
+  testCardCheckCircle: {
+    width: 13,
+    height: 13,
+    borderRadius: '50%',
+    border: '1.5px solid #d1d5db',
+    flexShrink: 0,
+  },
+  testCardCheckLabel: {
+    fontSize: 11.5,
+    color: '#6b7280',
+  },
+  testCardCheckLabelDone: {
+    fontSize: 11.5,
+    color: '#111827',
+  },
+  testCardOriginalLink: {
+    display: 'inline-block',
+    fontSize: 10.5,
+    color: '#5b3df0',
+    textDecoration: 'none',
+    marginBottom: 10,
   },
   testCardLinkRow: {
     display: 'flex',
@@ -2497,6 +2699,18 @@ const styles: Record<string, React.CSSProperties> = {
     background: 'transparent',
     color: '#9ca3af',
     cursor: 'pointer',
+  },
+
+  // ── STEP 6c — funnel demo drag handle strip ─────────────────────────────
+  funnelDragHandle: {
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: 8,
+    fontSize: 10.5,
+    color: '#9ca3af',
+    cursor: 'grab',
+    padding: '0 2px 6px',
   },
 
   // ── Creative promoted assets (green ring) ───────────────────────────────
