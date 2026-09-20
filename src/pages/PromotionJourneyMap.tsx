@@ -41,6 +41,9 @@ import React, { useEffect, useMemo, useRef, useState, useCallback } from 'react'
 import { useParams, useNavigate, Link } from 'react-router-dom'
 import { ArrowLeft, Loader2, Plus, Copy, Check, GripVertical, X as XIcon, ExternalLink } from 'lucide-react'
 import { supabase } from '../lib/supabase'
+// Separate analytics panel — vertical bar chart of observed transition
+// volume from graph.edges. Does not participate in the canvas above.
+import PromotionJourneyVolumeChart from './PromotionJourneyVolumeChart'
 // STEP 6 (additive) — same URL builder VideoDetail.tsx uses for its own
 // copyable redirect links. Reused here so the tracked link shown on the
 // Test Your Journey card is built the exact same way, not reinvented.
@@ -2675,6 +2678,16 @@ const [nodeDetailTarget, setNodeDetailTarget] = useState<
       )}
 
       </div>
+
+      <PromotionJourneyVolumeChart
+        graph={graph}
+        graphLoading={graphLoading}
+        graphError={graphError}
+        videoDisplayByVideoId={videoDisplayByVideoId}
+        assetDisplayByAssetId={assetDisplayByAssetId}
+        allPromotedNodes={allPromotedNodes}
+        promotedAssetVideoIds={promotedAssetVideoIds}
+      />
     </div>
   )
 }
