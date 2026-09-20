@@ -56,6 +56,9 @@ import { createVideo } from '../services/video/createVideo'
 import { generateAssetRedirectLinks } from '../services/asset/generateAssetRedirectLinks'
 import { PromotedAssetPicker, type PromotedAssetRow } from '../components/PromotedAssetPicker'
 import { PromotedAssetsPathBPanel } from '../components/PromotedAssetsPathBPanel'
+// STEP 6c (additive) — always-looping, fictional funnel illustration. See
+// JourneyFunnelDemo.tsx's own header for why its numbers are NOT real.
+import JourneyFunnelDemo from '../components/JourneyFunnelDemo'
 import {
   listCreativeEligibleAssignmentsForMarketer,
   loadAssignmentAssetsForCreative,
@@ -1775,6 +1778,38 @@ export default function PromotionJourneyMap() {
                 </div>
               ))}
             </div>
+          )}
+
+          {/* STEP 6c (additive) — the always-looping funnel illustration,
+              placed below the Unlinked ring so it reads as "here's what
+              this leads to" rather than a floating unrelated widget. Shown
+              whenever there's at least one unlinked video to test — no
+              point teaching the mechanic if there's nothing to try it on. */}
+          {unlinkedGroup && (
+            <>
+              <div
+                style={{
+                  position: 'absolute',
+                  left: unlinkedGroup.left,
+                  top: unlinkedGroup.top + unlinkedGroup.diameter + 14,
+                  width: 220,
+                  fontSize: 11,
+                  color: '#9ca3af',
+                }}
+              >
+                Set this up on your own video, so you can see this ↓
+              </div>
+              <div
+                style={{
+                  position: 'absolute',
+                  left: unlinkedGroup.left,
+                  top: unlinkedGroup.top + unlinkedGroup.diameter + 40,
+                  width: 680,
+                }}
+              >
+                <JourneyFunnelDemo />
+              </div>
+            </>
           )}
 
           {/* STEP 6 (additive) — Test Your Journey card. Lives on the same
