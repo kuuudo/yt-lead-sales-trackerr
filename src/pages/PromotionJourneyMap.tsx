@@ -484,7 +484,15 @@ export default function PromotionJourneyMap() {
   const [graphLoading, setGraphLoading] = useState(true)
   const [graphError, setGraphError] = useState<string | null>(null)
   const [nodeVisualTypes, setNodeVisualTypes] = useState<Map<string, GraphNodeVisualType>>(new Map())
-
+  // ── STEP 8 (additive) — display-layer resolution (title + thumbnail) for
+  // journey graph / downstream nodes. Read-only joins against existing
+  // tables/resolvers only — does NOT touch events_journey or journey_snapshot.
+const [videoDisplayByVideoId, setVideoDisplayByVideoId] = useState<
+  Map<string, { title: string; thumbnailUrl: string }>
+>(new Map())
+const [assetDisplayByAssetId, setAssetDisplayByAssetId] = useState<
+  Map<string, { title: string; thumbnailUrl: string | null }>
+>(new Map())
   // Downstream resolution (additive — STEP 3). Structural only, no
   // conversion data. See journeyDownstreamResolver.ts.
   const [downstream, setDownstream] = useState<DownstreamResolution>({ nodes: [], edges: [] })
@@ -648,6 +656,41 @@ export default function PromotionJourneyMap() {
         const built = buildJourneyGraph(discovered)
         if (cancelled) return
 
+        // ── STEP 8 (additive) — same table/columns/helper as STEP 5's
+        // "Unlinked" video lookup below (videos.id / video_title /
+        // thumbnail_url / platform -> resolveThumbnail()), so YouTube /
+        // Instagram / TikTok / etc. all use the same platform-correct
+        // fallback already used elsewhere in this file.
+        const graphVideoIds = Array.from(new Set(built.nodes.map((n) => n.videoId)))
+        if (graphVideoIds.length > 0) {
+          try {
+            const { data: videoDisplayRows, error: videoDisplayError } = await supabase
+              .from('videos')
+              .select('id, video_title, thumbnail_url, platform')
+              .in('id', graphVideoIds)
+            if (videoDisplayError) throw videoDisplayError
+            if (!cancelled) {
+              const map = new Map<string, { title: string; thumbnailUrl: string }>()
+              for (const v of (videoDisplayRows ?? []) as {
+                id: string
+                video_title: string | null
+                thumbnail_url: string | null
+                platform: string | null
+              }[]) {
+                map.set(v.id, {
+                  title: v.video_title || 'Untitled video',
+                  thumbnailUrl: resolveThumbnail({ thumbnail_url: v.thumbnail_url, platform: v.platform }),
+                })
+              }
+              setVideoDisplayByVideoId(map)
+            }
+          } catch (videoDisplayErr: any) {
+            // Additive display-only lookup — must not blank out the graph
+            // itself (mirrors STEP 4/5's error handling).
+            console.error('[PromotionJourneyMap] STEP 8 video display lookup failed:', videoDisplayErr?.message || videoDisplayErr)
+          }
+        }
+
         // Best-effort display type per node — see GraphNodeVisualType comment
         // above for why this stops at the broad asset_type category. Run
         // alongside downstream resolution (STEP 3) — independent lookups,
@@ -731,6 +774,69 @@ export default function PromotionJourneyMap() {
     () => (graph ? layoutGraphNodes(graph, nodeVisualTypes) : []),
     [graph, nodeVisualTypes]
   )
+
+  // ── STEP 8 (additive) — asset-based display fallback for nodes whose
+  // content isn't itself a `videos` row (campaign elements, imported
+  // resources — e.g. a Consultation or Landing Page). Reuses the exact same
+  // resolver (getAssetDetail + resolveNodeThumbnail) already used for the
+  // promoted-asset column — no second thumbnail system.
+  const assetDisplayFetchedRef = useRef<Set<string>>(new Set())
+  useEffect(() => {
+    const neededAssetIds = new Set<string>()
+    for (const n of graph?.nodes ?? []) {
+      if (n.observedAssetIds[0]) neededAssetIds.add(n.observedAssetIds[0])
+    }
+    for (const d of downstream.nodes) {
+      if (d.assetId) neededAssetIds.add(d.assetId)
+    }
+    for (const n of allPromotedNodes) neededAssetIds.delete(n.assetId)
+    for (const id of assetDisplayFetchedRef.current) neededAssetIds.delete(id)
+    if (neededAssetIds.size === 0) return
+    for (const id of neededAssetIds) assetDisplayFetchedRef.current.add(id)
+
+    let cancelled = false
+    ;(async () => {
+      const entries = await Promise.all(
+        Array.from(neededAssetIds).map(async (assetId) => {
+          try {
+            const detail = await getAssetDetail(assetId)
+            if (!detail?.resource) return null
+            return [
+              assetId,
+              {
+                title: detail.resource.title || 'Untitled asset',
+                thumbnailUrl: resolveNodeThumbnail(detail.resource),
+              },
+            ] as const
+          } catch {
+            return null
+          }
+        }),
+      )
+      if (cancelled) return
+      setAssetDisplayByAssetId((prev) => {
+        const next = new Map(prev)
+        for (const entry of entries) {
+          if (entry) next.set(entry[0], entry[1])
+        }
+        return next
+      })
+    })()
+
+    return () => { cancelled = true }
+  }, [graph, downstream, allPromotedNodes])
+
+  // Merges the two asset-display sources above: the already-loaded
+  // promoted-asset column (free, no extra query) first, then the STEP 8
+  // fallback fetch for assets that appear in the graph but aren't already a
+  // promoted-asset card.
+  const resolveGraphAssetDisplay = (
+    assetId: string,
+  ): { title: string; thumbnailUrl: string | null } | undefined => {
+    const promoted = allPromotedNodes.find((n) => n.assetId === assetId)
+    if (promoted) return { title: promoted.title, thumbnailUrl: promoted.thumbnailSrc }
+    return assetDisplayByAssetId.get(assetId)
+  }
 
   // Video ids whose terminal step got a resolved downstream node — these no
   // longer render with the "end of path" terminal treatment, since we now
@@ -1810,15 +1916,31 @@ export default function PromotionJourneyMap() {
             </div>
           )}
 
-          {positionedGraphNodes.map((gNode) => {
+                  {positionedGraphNodes.map((gNode) => {
             // A "terminal" video (per journeyGraph.ts's video->video edges)
             // may still have a resolved downstream node (STEP 3) — if so it
             // isn't really the end of the path, just the end of the
             // video->video portion of it.
             const stillTerminal = gNode.isTerminal && !videoIdsWithDownstream.has(gNode.videoId)
+
+            // ── STEP 8 (additive) — display resolution. Priority:
+            // 1) videos table via resolveThumbnail() — YouTube/Instagram/
+            //    TikTok/etc., same platform-correct fallback used elsewhere;
+            // 2) promoted-asset / asset resolver via resolveNodeThumbnail()
+            //    — campaign elements (e.g. Consultation) and other resource
+            //    types; 3) generic type label as a last resort. Raw IDs move
+            // to the tooltip only, never the primary label.
+            const videoDisplay = videoDisplayByVideoId.get(gNode.videoId)
+            const assetDisplay = gNode.observedAssetIds[0]
+              ? resolveGraphAssetDisplay(gNode.observedAssetIds[0])
+              : undefined
+            const displayTitle = videoDisplay?.title ?? assetDisplay?.title ?? GRAPH_TYPE_LABEL[gNode.visualType]
+            const displayThumbnail = videoDisplay?.thumbnailUrl ?? assetDisplay?.thumbnailUrl ?? null
+
             return (
               <div
                 key={gNode.videoId}
+                title={`video: ${gNode.videoId}${gNode.observedAssetIds[0] ? ` · asset: ${gNode.observedAssetIds[0]}` : ''}`}
                 style={{
                   ...styles.graphNode,
                   ...(stillTerminal ? styles.graphNodeTerminal : null),
@@ -1835,12 +1957,14 @@ export default function PromotionJourneyMap() {
                     {GRAPH_TYPE_LABEL[gNode.visualType]}{stillTerminal ? ' · end of path' : ''}
                   </span>
                 </div>
-                <div style={styles.graphNodeVideoId} title={gNode.videoId}>{gNode.videoId}</div>
-                {gNode.observedAssetIds[0] && (
-                  <div style={styles.graphNodeDebug} title={gNode.observedAssetIds[0]}>
-                    asset: {gNode.observedAssetIds[0]}
+                <div style={styles.graphNodeBody}>
+                  <div style={styles.graphNodeThumbWrap}>
+                    {displayThumbnail ? (
+                      <img src={displayThumbnail} style={styles.graphNodeThumbImg} draggable={false} />
+                    ) : null}
                   </div>
-                )}
+                  <div style={styles.graphNodeTitle}>{displayTitle}</div>
+                </div>
               </div>
             )
           })}
@@ -1849,8 +1973,69 @@ export default function PromotionJourneyMap() {
               video step's own observed redirect link. Structural only — no
               conversion/click/revenue numbers here yet (separate follow-up).
               See journeyDownstreamResolver.ts. */}
-          {positionedDownstreamNodes.map((dNode) => (
-            <div
+          {positionedDownstreamNodes.map((dNode) => {
+            const isThankYou = dNode.elementType === 'thank_you'
+            const assetFallback = dNode.assetId ? resolveGraphAssetDisplay(dNode.assetId) : undefined
+            const displayTitle = dNode.elementType
+              ? getElementTypeLabel(dNode.elementType)
+              : assetFallback?.title ?? (dNode.kind === 'resource' ? 'Imported resource' : 'Unlabeled')
+            // Consultation / Landing Page / etc. use the existing fixed
+            // Campaign Element thumbnails. A bare "resource" node with no
+            // elementType falls back to the asset resolver. Thank You has no
+            // existing image in VSTRK today, so it gets a small custom
+            // visual instead — not a new thumbnail system, just this one card.
+            const displayThumbnail = isThankYou
+              ? null
+              : dNode.elementType
+              ? resolveElementThumbnail(dNode.elementType)
+              : assetFallback?.thumbnailUrl ?? null
+            const debugId = dNode.resolvedFrom === 'link_type' ? dNode.redirectLinkId : dNode.assetId
+
+            return (
+              <div
+                key={dNode.id}
+                title={debugId ?? undefined}
+                style={{
+                  ...styles.graphNode,
+                  ...styles.graphNodeTerminal,
+                  left: dNode.x,
+                  top: dNode.y,
+                  width: GRAPH_NODE_WIDTH,
+                  height: GRAPH_NODE_HEIGHT,
+                  borderLeft: `3px solid ${dNode.kind === 'resource' ? GRAPH_TYPE_ACCENT.resource : GRAPH_TYPE_ACCENT.campaign_element}`,
+                }}
+              >
+                <div style={styles.graphNodeHead}>
+                  <span
+                    style={{
+                      ...styles.graphNodeTypeDot,
+                      background: dNode.kind === 'resource' ? GRAPH_TYPE_ACCENT.resource : GRAPH_TYPE_ACCENT.campaign_element,
+                    }}
+                  />
+                  <span style={styles.graphNodeType}>
+                    {dNode.kind === 'resource' ? 'Imported resource' : 'Campaign element'} · end of path
+                  </span>
+                </div>
+                <div style={styles.graphNodeBody}>
+                  {isThankYou ? (
+                    <div style={styles.thankYouThumbWrap}>
+                      <Check size={20} strokeWidth={2.5} />
+                    </div>
+                  ) : (
+                    <div style={styles.graphNodeThumbWrap}>
+                      {displayThumbnail ? (
+                        <img src={displayThumbnail} style={styles.graphNodeThumbImg} draggable={false} />
+                      ) : null}
+                    </div>
+                  )}
+                  <div style={styles.graphNodeTitle}>{displayTitle}</div>
+                </div>
+              </div>
+            )
+          })}
+
+          {downstream.nodes.map((dNode) => (
+            <div 
               key={dNode.id}
               style={{
                 ...styles.graphNode,
@@ -2545,6 +2730,56 @@ const styles: Record<string, React.CSSProperties> = {
     whiteSpace: 'nowrap',
     overflow: 'hidden',
     textOverflow: 'ellipsis',
+  },
+    graphNodeBody: {
+    display: 'flex',
+    alignItems: 'center',
+    gap: 8,
+    flex: 1,
+    minHeight: 0,
+  },
+  graphNodeThumbWrap: {
+    width: 44,
+    height: 44,
+    borderRadius: 6,
+    overflow: 'hidden',
+    flexShrink: 0,
+    background: '#f3f4f6',
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  graphNodeThumbImg: {
+    width: '100%',
+    height: '100%',
+    objectFit: 'cover',
+    pointerEvents: 'none',
+  },
+  graphNodeTitle: {
+    fontSize: 11,
+    fontWeight: 600,
+    color: '#111827',
+    display: '-webkit-box',
+    WebkitLineClamp: 2,
+    WebkitBoxOrient: 'vertical',
+    overflow: 'hidden',
+    lineHeight: 1.25,
+    flex: 1,
+    minWidth: 0,
+  },
+  // Thank You has no existing thumbnail image in VSTRK — this is the one
+  // custom visual this patch adds, reusing the same green terminal palette
+  // already used for graphNodeTerminal so it stays visually consistent.
+  thankYouThumbWrap: {
+    width: 44,
+    height: 44,
+    borderRadius: 6,
+    flexShrink: 0,
+    background: 'linear-gradient(135deg, #34d399, #059669)',
+    color: '#ffffff',
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   graphStatusBadge: {
     position: 'absolute',
