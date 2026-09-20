@@ -533,6 +533,17 @@ export default function PromotionJourneyMap() {
   const [testCardJourneyId, setTestCardJourneyId] = useState<string | null>(null)
   const [testCardStepCount, setTestCardStepCount] = useState(0)
 
+  // STEP 6d (additive, 2026-09-20 revision) — separate popup modal for the
+  // actual link/copy/watch UI, brought back per feedback: the tutorial card
+  // above stays put and just tracks the checklist; clicking a video in the
+  // Unlinked ring pops this modal open near that video instead of folding
+  // its content into the tutorial card. testCardTarget/Copied/Watching/etc.
+  // above are still shared with this modal (it's the same underlying
+  // progress), but position and open/closed state are separate so closing
+  // this modal doesn't blank the tutorial card's checklist.
+  const [linkModalOpen, setLinkModalOpen] = useState(false)
+  const [linkModalPos, setLinkModalPos] = useState<{ x: number; y: number }>({ x: 0, y: 0 })
+
   // STEP 6c (additive, 2026-09-20 revision) — funnel demo is now draggable
   // and always shown (previously gated on unlinkedGroup existing). Position
   // is local-only, same as testCardPos — not persisted.
@@ -1085,6 +1096,42 @@ export default function PromotionJourneyMap() {
     testCardDragState.current.active = false
   }, [])
 
+  // ── STEP 6d (additive) — popup link-modal drag ────────────────────────────
+  // Same handle-only pattern, independent of testCardDragState above (that
+  // one now drags the stable tutorial card; this drags the per-click popup).
+  const linkModalDragState = useRef<{
+    active: boolean
+    startClientX: number
+    startClientY: number
+    startX: number
+    startY: number
+  }>({ active: false, startClientX: 0, startClientY: 0, startX: 0, startY: 0 })
+
+  const handleLinkModalHandlePointerDown = useCallback((e: React.PointerEvent) => {
+    e.stopPropagation()
+    ;(e.target as Element).setPointerCapture?.(e.pointerId)
+    linkModalDragState.current = {
+      active: true,
+      startClientX: e.clientX,
+      startClientY: e.clientY,
+      startX: linkModalPos.x,
+      startY: linkModalPos.y,
+    }
+  }, [linkModalPos])
+
+  const handleLinkModalHandlePointerMove = useCallback((e: React.PointerEvent) => {
+    const ds = linkModalDragState.current
+    if (!ds.active) return
+    setLinkModalPos({
+      x: ds.startX + (e.clientX - ds.startClientX) / transform.scale,
+      y: ds.startY + (e.clientY - ds.startClientY) / transform.scale,
+    })
+  }, [transform.scale])
+
+  const handleLinkModalHandlePointerUp = useCallback(() => {
+    linkModalDragState.current.active = false
+  }, [])
+
   // ── STEP 6c (additive) — funnel demo drag ─────────────────────────────────
   // Same handle-only pattern as the test card above (its own pause button
   // needs to stay clickable, so only a drag strip is wired to pointer-down).
@@ -1127,7 +1174,8 @@ export default function PromotionJourneyMap() {
   // watching video A's link once it's been retargeted at video B.
   const openTestCard = useCallback((v: UnlinkedVideo & { x: number; y: number }) => {
     setTestCardTarget(v)
-    setTestCardPos({ x: v.x + UNLINKED_NODE_WIDTH + 28, y: v.y })
+    setLinkModalPos({ x: v.x + UNLINKED_NODE_WIDTH + 28, y: v.y })
+    setLinkModalOpen(true)
     setTestCardCopied(false)
     setTestCardEverCopied(false)
     setTestCardWatching(false)
@@ -1898,10 +1946,10 @@ export default function PromotionJourneyMap() {
           </div>
 
           {/* STEP 6 (additive, 2026-09-20 revision) — Test Your Journey
-              tutorial card. Always shown (previously only appeared once a
-              video was picked) because steps 1-2 happen before that.
-              Draggable via its own handle. Real state only — see the STEP 6
-              state block for why nothing here is simulated. */}
+              tutorial card. Always shown, stays wherever it's dragged, and
+              never changes position or content when a video is picked —
+              it only ever shows the 6-step checklist. The actual
+              link/copy/watch UI lives in the separate popup modal below. */}
           <div style={{ ...styles.testCard, left: testCardPos.x, top: testCardPos.y }}>
             <div
               style={styles.testCardHeader}
@@ -1949,87 +1997,101 @@ export default function PromotionJourneyMap() {
                 </>
               )
             })()}
+          </div>
 
-            {testCardTarget ? (
-              <>
-                <div style={styles.testCardLinkRow}>
-                  <span style={styles.testCardLinkText}>
-                    {/* TODO: resolve this video's custom tracking domain the
-                        same way getRedirectLinksDisplay() does for
-                        VideoDetail.tsx (trackingHostname). Until that's
-                        wired in here, this always falls back to the default
-                        vstrk host inside buildTrackingLinkUrl(). */}
-                    {buildTrackingLinkUrl(testCardTarget.token, null)}
-                  </span>
-                  <button
-                    type="button"
-                    style={styles.testCardCopyBtn}
-                    onClick={() => {
-                      navigator.clipboard.writeText(buildTrackingLinkUrl(testCardTarget.token, null))
-                      setTestCardCopied(true)
-                      setTestCardEverCopied(true)
-                      setTimeout(() => setTestCardCopied(false), 2000)
-                    }}
-                  >
-                    {testCardCopied ? <Check size={12} /> : <Copy size={12} />}
-                    {testCardCopied ? 'Copied' : 'Copy'}
-                  </button>
-                </div>
+          {/* STEP 6d (additive, 2026-09-20 revision) — the popup modal,
+              brought back per feedback. Opens near the clicked video (via
+              openTestCard), independent of the tutorial card's position.
+              Closing it (X) only hides it — testCardTarget/Copied/Watching
+              stay as-is so the tutorial card's checklist doesn't lose
+              progress. */}
+          {linkModalOpen && testCardTarget && (
+            <div style={{ ...styles.testCard, left: linkModalPos.x, top: linkModalPos.y }}>
+              <div
+                style={styles.testCardHeader}
+                onPointerDown={handleLinkModalHandlePointerDown}
+                onPointerMove={handleLinkModalHandlePointerMove}
+                onPointerUp={handleLinkModalHandlePointerUp}
+              >
+                <span style={styles.testCardTitle}>Test your journey</span>
+                <GripVertical size={14} style={{ color: '#9ca3af', cursor: 'grab', flexShrink: 0 }} />
+              </div>
 
-                {testCardTarget.platformUrl && (
-                  <a
-                    href={testCardTarget.platformUrl}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    style={styles.testCardOriginalLink}
-                  >
-                    Open original video ↗
-                  </a>
-                )}
+              <p style={styles.testCardSub}>{testCardTarget.title || testCardTarget.videoId}</p>
 
-                <p style={styles.testCardHint}>
-                  Paste this into your video description or post. Then open it yourself to walk the journey.
-                </p>
-
-                {!testCardWatching ? (
-                  <button
-                    type="button"
-                    style={styles.testCardPrimaryBtn}
-                    onClick={() => {
-                      setTestCardWatching(true)
-                      setTestCardWatchStartedAt(Date.now())
-                    }}
-                  >
-                    I've pasted it — start watching
-                  </button>
-                ) : (
-                  <div style={styles.testCardWatchBox}>
-                    <p style={styles.testCardWatchLabel}>
-                      {testCardStepCount > 0 ? 'Journey detected' : 'Watching for your click…'}
-                    </p>
-                    {testCardStepCount > 0 && (
-                      <p style={styles.testCardWatchCount}>
-                        {testCardStepCount} step{testCardStepCount === 1 ? '' : 's'} observed so far
-                      </p>
-                    )}
-                  </div>
-                )}
-
+              <div style={styles.testCardLinkRow}>
+                <span style={styles.testCardLinkText}>
+                  {/* TODO: resolve this video's custom tracking domain the
+                      same way getRedirectLinksDisplay() does for
+                      VideoDetail.tsx (trackingHostname). Until that's
+                      wired in here, this always falls back to the default
+                      vstrk host inside buildTrackingLinkUrl(). */}
+                  {buildTrackingLinkUrl(testCardTarget.token, null)}
+                </span>
                 <button
                   type="button"
-                  style={styles.testCardCloseBtn}
-                  onClick={() => setTestCardTarget(null)}
-                  aria-label="Clear the selected video"
+                  style={styles.testCardCopyBtn}
+                  onClick={() => {
+                    navigator.clipboard.writeText(buildTrackingLinkUrl(testCardTarget.token, null))
+                    setTestCardCopied(true)
+                    setTestCardEverCopied(true)
+                    setTimeout(() => setTestCardCopied(false), 2000)
+                  }}
                 >
-                  <XIcon size={13} />
+                  {testCardCopied ? <Check size={12} /> : <Copy size={12} />}
+                  {testCardCopied ? 'Copied' : 'Copy'}
                 </button>
-              </>
-            ) : (
+              </div>
+
+              {testCardTarget.platformUrl && (
+                <a
+                  href={testCardTarget.platformUrl}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  style={styles.testCardOriginalLink}
+                >
+                  Open original video ↗
+                </a>
+              )}
+
               <p style={styles.testCardHint}>
-                Pick a video from the Unlinked ring above to get its tracked link.
+                Paste this into your video description or post. Then open it yourself to walk the journey.
               </p>
-            )}
-          </div>
+
+              {!testCardWatching ? (
+                <button
+                  type="button"
+                  style={styles.testCardPrimaryBtn}
+                  onClick={() => {
+                    setTestCardWatching(true)
+                    setTestCardWatchStartedAt(Date.now())
+                  }}
+                >
+                  I've pasted it — start watching
+                </button>
+              ) : (
+                <div style={styles.testCardWatchBox}>
+                  <p style={styles.testCardWatchLabel}>
+                    {testCardStepCount > 0 ? 'Journey detected' : 'Watching for your click…'}
+                  </p>
+                  {testCardStepCount > 0 && (
+                    <p style={styles.testCardWatchCount}>
+                      {testCardStepCount} step{testCardStepCount === 1 ? '' : 's'} observed so far
+                    </p>
+                  )}
+                </div>
+              )}
+
+              <button
+                type="button"
+                style={styles.testCardCloseBtn}
+                onClick={() => setLinkModalOpen(false)}
+                aria-label="Close"
+              >
+                <XIcon size={13} />
+              </button>
+            </div>
+          )}
 
           {graphLoading && (
             <div style={{ ...styles.graphStatusBadge, left: GRAPH_START_X, top: CANVAS_MID_Y - 8 }}>
