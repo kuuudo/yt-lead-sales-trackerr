@@ -795,10 +795,18 @@ const [nodeDetailTarget, setNodeDetailTarget] = useState<
     return () => { cancelled = true }
   }, [promotionId, allPromotedNodes])
 
-  const positionedGraphNodes = useMemo(
-    () => (graph ? layoutGraphNodes(graph, nodeVisualTypes) : []),
-    [graph, nodeVisualTypes]
+  const [graphNodeDragOverrides, setGraphNodeDragOverrides] = useState<Map<string, { x: number; y: number }>>(
+    new Map(),
   )
+
+  const positionedGraphNodes = useMemo(() => {
+    const base = graph ? layoutGraphNodes(graph, nodeVisualTypes) : []
+    if (graphNodeDragOverrides.size === 0) return base
+    return base.map((n) => {
+      const override = graphNodeDragOverrides.get(n.videoId)
+      return override ? { ...n, x: override.x, y: override.y } : n
+    })
+  }, [graph, nodeVisualTypes, graphNodeDragOverrides])
 
   // ── STEP 8 (additive) — asset-based display fallback for nodes whose
   // content isn't itself a `videos` row (campaign elements, imported
@@ -1264,6 +1272,52 @@ const [nodeDetailTarget, setNodeDetailTarget] = useState<
       navigate(`/assets/${node.assetId}`)
     }
   }, [navigate])
+
+  const graphNodeDragState = useRef<{
+    videoId: string | null
+    startClientX: number
+    startClientY: number
+    startNodeX: number
+    startNodeY: number
+    moved: boolean
+  }>({ videoId: null, startClientX: 0, startClientY: 0, startNodeX: 0, startNodeY: 0, moved: false })
+
+  const handleGraphNodePointerDown = useCallback((e: React.PointerEvent, gNode: PositionedGraphNode) => {
+    e.stopPropagation()
+    ;(e.target as Element).setPointerCapture?.(e.pointerId)
+    graphNodeDragState.current = {
+      videoId: gNode.videoId,
+      startClientX: e.clientX,
+      startClientY: e.clientY,
+      startNodeX: gNode.x,
+      startNodeY: gNode.y,
+      moved: false,
+    }
+  }, [])
+
+  const handleGraphNodePointerMove = useCallback((e: React.PointerEvent) => {
+    const ds = graphNodeDragState.current
+    if (!ds.videoId) return
+    const dxScreen = e.clientX - ds.startClientX
+    const dyScreen = e.clientY - ds.startClientY
+    if (Math.hypot(dxScreen, dyScreen) > DRAG_THRESHOLD_PX) ds.moved = true
+    const nextX = ds.startNodeX + dxScreen / transform.scale
+    const nextY = ds.startNodeY + dyScreen / transform.scale
+    setGraphNodeDragOverrides((prev) => {
+      const next = new Map(prev)
+      next.set(ds.videoId as string, { x: nextX, y: nextY })
+      return next
+    })
+  }, [transform.scale])
+
+  const handleGraphNodePointerUp = useCallback((e: React.PointerEvent, gNode: PositionedGraphNode) => {
+    const ds = graphNodeDragState.current
+    const wasDrag = ds.moved
+    graphNodeDragState.current.videoId = null
+    if (!wasDrag) {
+      setNodeDetailTarget({ kind: 'video', videoId: gNode.videoId })
+    }
+  }, [])
 
   // ── STEP 6 (additive) — Test Your Journey card drag ──────────────────────
   // Deliberately separate from dragState above (which is keyed by assetId
@@ -2047,9 +2101,12 @@ const [nodeDetailTarget, setNodeDetailTarget] = useState<
               <div
                 key={gNode.videoId}
                 title={`video: ${gNode.videoId}${gNode.observedAssetIds[0] ? ` · asset: ${gNode.observedAssetIds[0]}` : ''}`}
-                onClick={() => setNodeDetailTarget({ kind: 'video', videoId: gNode.videoId })}
+                onPointerDown={(e) => handleGraphNodePointerDown(e, gNode)}
+                onPointerMove={handleGraphNodePointerMove}
+                onPointerUp={(e) => handleGraphNodePointerUp(e, gNode)}
                 style={{
                   ...styles.graphNode,
+                  cursor: 'grab',
                   ...(stillTerminal ? styles.graphNodeTerminal : null),
                   left: gNode.x,
                   top: gNode.y,
