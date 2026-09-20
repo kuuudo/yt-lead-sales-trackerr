@@ -28,6 +28,7 @@ import {
   type AttributionResult,
   type ConversionEvidence,
 } from '../lib/attributeConversion';
+import DownstreamPreview from '../components/analytics/DownstreamPreview';
 
 type AssetTypeTag = 'campaign_element' | 'promotional_video' | 'resource' | 'content_video';
 
@@ -660,6 +661,9 @@ export default function AnalyticsTest() {
                   Asset Clicks
                 </th>
                 <th className="px-6 py-5 text-left text-[10px] font-black uppercase tracking-widest text-zinc-600 border-b border-zinc-900 bg-zinc-950 whitespace-nowrap">
+                  Downstream
+                </th>
+                <th className="px-6 py-5 text-left text-[10px] font-black uppercase tracking-widest text-zinc-600 border-b border-zinc-900 bg-zinc-950 whitespace-nowrap">
                   {COLUMN_LABELS.total_revenue ?? 'Total Revenue ($)'}
                 </th>
                 {metricKeys.map((key) => (
@@ -676,7 +680,7 @@ export default function AnalyticsTest() {
               {loading && (
                 <tr>
                   <td
-                    colSpan={9 + metricKeys.length}
+                    colSpan={10 + metricKeys.length}
                     className="px-6 py-16 text-center text-[10px] font-black uppercase tracking-widest text-zinc-600"
                   >
                     Loading…
@@ -686,7 +690,7 @@ export default function AnalyticsTest() {
 
               {!loading && error && (
                 <tr>
-                  <td colSpan={9 + metricKeys.length} className="px-6 py-20 text-center">
+                  <td colSpan={10 + metricKeys.length} className="px-6 py-20 text-center">
                     <div className="text-[11px] font-black uppercase tracking-widest text-red-500">
                       Failed to load
                     </div>
@@ -697,7 +701,7 @@ export default function AnalyticsTest() {
 
               {!loading && !error && rows.length === 0 && (
                 <tr>
-                  <td colSpan={9 + metricKeys.length} className="px-6 py-20 text-center">
+                  <td colSpan={10 + metricKeys.length} className="px-6 py-20 text-center">
                     <div className="text-[11px] font-black uppercase tracking-widest text-zinc-600">
                       No asset × content pairs in range
                     </div>
@@ -752,6 +756,9 @@ export default function AnalyticsTest() {
                       </td>
                       <td className="px-6 py-4 whitespace-nowrap text-sm font-bold text-zinc-400 tabular-nums">
                         {row.assetClicks}
+                      </td>
+                      <td className="px-6 py-4 whitespace-nowrap">
+                        <DownstreamPreview videoId={row.videoId} assetId={row.assetId} />
                       </td>
                       <td className="px-6 py-4 whitespace-nowrap text-sm font-bold text-zinc-400 tabular-nums">
                         {row.metrics.total_revenue ?? 0}
