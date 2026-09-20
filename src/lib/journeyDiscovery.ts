@@ -48,6 +48,10 @@ export async function discoverPromotionJourneys(
   }
 
   const redirectLinkIds = ((redirectLinks ?? []) as RedirectLinkIdRow[]).map((r) => r.id);
+  // ── TEMPORARY DEBUG (diagnostic only — remove after diagnosis) ──────────
+  console.log('[journeyDiscovery] redirectLinkIds.length =', redirectLinkIds.length)
+  console.log('[journeyDiscovery] redirectLinkIds =', redirectLinkIds)
+  // ── end temporary debug ───────────────────────────────────────────────
   if (redirectLinkIds.length === 0) {
     return [];
   }
