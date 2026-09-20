@@ -65,6 +65,11 @@ export async function discoverPromotionJourneys(
     .select('journey_id')
     .in('redirect_link_id', redirectLinkIds);
 
+  // ── TEMPORARY DEBUG (diagnostic only — remove after diagnosis) ──────────
+  console.log('[journeyDiscovery] events_journey raw data =', journeyRows)
+  console.log('[journeyDiscovery] events_journey error =', ejError)
+  // ── end temporary debug ───────────────────────────────────────────────
+
   if (ejError) {
     throw new Error(
       `journeyDiscovery.ts discoverPromotionJourneys: events_journey query failed — ${ejError.message}`,
@@ -74,6 +79,11 @@ export async function discoverPromotionJourneys(
   const journeyIds = Array.from(
     new Set(((journeyRows ?? []) as EventsJourneyIdRow[]).map((r) => r.journey_id)),
   );
+
+  // ── TEMPORARY DEBUG (diagnostic only — remove after diagnosis) ──────────
+  console.log('[journeyDiscovery] journeyIds.length =', journeyIds.length)
+  console.log('[journeyDiscovery] journeyIds =', journeyIds)
+  // ── end temporary debug ───────────────────────────────────────────────
 
   // Step 3: resolve each journey_id to its canonical (latest-row) path via
   // the existing journey.ts logic. Do not union historical rows here.
