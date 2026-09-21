@@ -4,40 +4,22 @@
  * Organization side of the Collaboration flow: creates an Assignment and
  * authorizes it against a chosen set of Assets.
  *
- * Design Lock, restated here since this is exactly where it'd be easy to
- * violate:
- *   - Assignment does NOT own a Campaign. There is no campaign_id on
- *     assignments, and this function does not accept one.
- *   - "Select Campaign" in the UI is only a filter for picking Assets —
- *     it never gets written anywhere on the Assignment itself.
- *   - Assignment references Assets only, via assignment_assets.
+ * PHASE 2 (Assignment Type):
+ *   - Regular Mode  → creative_creation_mode = null
+ *                     Marketer will choose their own campaign after Accept (Phase 3).
+ *   - Creative Mode → creative_creation_mode = 'campaign_links_and_assets'
+ *                     + creative_campaign_id = Sponsor campaign (required).
+ *   - Asset Usage (asset_scope) applies to BOTH modes.
+ *   - ONLY PROMOTE ASSET is no longer required or written.
+ *   - assignment_assets: dedupe by asset_id (Black Box + Select Asset union).
  *
- * Status: created directly as 'active'. v1 has no separate draft/publish
- * step in this journey — an Assignment is usable the moment its assets
- * and invitations exist, matching the Simplicity Constraint (no approval
- * workflow). If you want a draft-before-inviting step later, that's an
- * additive change to this function, not a schema change.
- *
- * NOT responsible for:
- *   - Sending invitations (see inviteCollaborator.ts — called separately,
- *     once an assignmentId exists).
- *
- * UPDATE (Create Assignment v2 — corrected grain):
- *   - creative_creation_mode lives on assignments (Assignment-level).
- *   - allow_marketer_domain / allow_sponsor_domain / allow_vstrk_domain
- *     live on assignment_assets (per asset_id within the Assignment).
- *   - Create Assignment UI no longer selects concrete Sponsor hostnames.
- *     domainIds may still be supplied by later flows; empty is the normal
- *     Create Assignment path. assignment_tracking_domains infrastructure
- *     is unchanged.
- *   - The mistakenly-added assignments.allow_* columns are NOT written.
+ * Permissions (allow_*) remain per assignment_assets row.
  */
 
 import { supabase } from '../../lib/supabase';
 import { resolvePromotionCampaign } from '../asset/resolvePromotionCampaign';
 import { resolveAssetType } from '../asset/resolveAssetType';
 import { ensureResourcePromotionCampaign } from '../asset/ensureResourcePromotionCampaign';
-import { getOnlyPromoteAssetCampaign } from '../campaign/listSponsorCreativeCampaigns';
 
 export interface AssetPromotionPermission {
   assetId: string;
@@ -48,6 +30,8 @@ export interface AssetPromotionPermission {
   selectedSponsorDomainId: string | null;
 }
 
+export type AssignmentMode = 'regular' | 'creative';
+
 export interface CreateAssignmentInput {
   organizationId: string;
   createdByUserId: string;
@@ -55,37 +39,43 @@ export interface CreateAssignmentInput {
   description?: string | null;
   /**
    * Per-asset promotion-method permissions. assetIds are derived from this
-   * list. Each entry becomes one assignment_assets row with its three
-   * allow_* flags.
+   * list (deduped by assetId — first wins).
    */
   assetPermissions: AssetPromotionPermission[];
-  /**
-   * Assignment-level configuration, NOT Asset authorization.
-   * Create Assignment v2 normally passes []. Concrete domains may still
-   * be attached later via Assign Tracking Domain / Accept flows.
-   * See assignment_tracking_domains.
-   */
   domainIds?: string[];
   /**
-   * Content creation capability for this Assignment (Assignment-level).
-   * null / omitted / 'none' = no content creation capability.
+   * PHASE 2 Assignment Type.
+   * regular  → creative_creation_mode null; Marketer campaign chosen later.
+   * creative → Sponsor campaign required (creative_campaign_id).
    */
-  creativeCreationMode?: 'none' | 'campaign_asset_only' | 'campaign_links_and_assets' | null;
+  assignmentMode: AssignmentMode;
   /**
-   * Sponsor normal campaign for campaign_links_and_assets only.
-   * Must be null for none / campaign_asset_only.
-   * Must NOT be ONLY PROMOTE ASSET.
+   * Creative Mode only: Sponsor normal campaign id.
+   * Must NOT be the legacy ONLY PROMOTE ASSET system campaign.
    */
   creativeCampaignId?: string | null;
   /**
-   * Creative Creation only. null when mode is none.
-   * promotion_only | allow_additional when Creative is enabled.
+   * Asset Usage — applies to Regular and Creative.
+   * promotion_only | allow_additional
    */
   assetScope?: 'promotion_only' | 'allow_additional' | null;
 }
 
 export interface CreateAssignmentResult {
   assignmentId: string;
+}
+
+function dedupeAssetPermissions(
+  assetPermissions: AssetPromotionPermission[]
+): AssetPromotionPermission[] {
+  const seen = new Set<string>();
+  const out: AssetPromotionPermission[] = [];
+  for (const p of assetPermissions) {
+    if (!p.assetId || seen.has(p.assetId)) continue;
+    seen.add(p.assetId);
+    out.push(p);
+  }
+  return out;
 }
 
 export async function createAssignment({
@@ -95,20 +85,20 @@ export async function createAssignment({
   description = null,
   assetPermissions,
   domainIds = [],
-  creativeCreationMode = null,
+  assignmentMode,
   creativeCampaignId = null,
   assetScope = null,
 }: CreateAssignmentInput): Promise<CreateAssignmentResult> {
   if (!title.trim()) {
     throw new Error('Assignment title is required');
   }
-  if (!assetPermissions || assetPermissions.length === 0) {
-    throw new Error('At least one Asset must be selected');
+
+  const uniquePermissions = dedupeAssetPermissions(assetPermissions ?? []);
+  if (uniquePermissions.length === 0) {
+    throw new Error('At least one Asset must be selected (Black Box and/or library)');
   }
 
-  const assetIds = assetPermissions.map(p => p.assetId);
-
-  for (const p of assetPermissions) {
+  for (const p of uniquePermissions) {
     if (p.allowSponsorDomain && !p.selectedSponsorDomainId) {
       throw new Error(
         `selectedSponsorDomainId is required when allowSponsorDomain is true (asset ${p.assetId})`
@@ -116,42 +106,18 @@ export async function createAssignment({
     }
   }
 
-  // --------------------------------------------------
-  // Creative Content: Assignment-level mode + optional normal campaign
-  // --------------------------------------------------
-  const mode =
-    !creativeCreationMode || creativeCreationMode === 'none'
-      ? null
-      : creativeCreationMode;
+  const assetIds = uniquePermissions.map(p => p.assetId);
 
-  let resolvedAssetScope: 'promotion_only' | 'allow_additional' | null = null;
-  if (mode) {
-    if (assetScope === 'allow_additional' || assetScope === 'promotion_only') {
-      resolvedAssetScope = assetScope;
-    } else {
-      // Default safer mode for Creative Assignments
-      resolvedAssetScope = 'promotion_only';
-    }
-  }
-
+  // --------------------------------------------------
+  // Assignment Type → creative_creation_mode + campaign
+  // --------------------------------------------------
+  let mode: 'campaign_links_and_assets' | null = null;
   let resolvedCreativeCampaignId: string | null = null;
 
-  if (mode === 'campaign_asset_only' || mode === 'campaign_links_and_assets') {
-    const onlyPromote = await getOnlyPromoteAssetCampaign(organizationId);
-    if (!onlyPromote) {
-      throw new Error(
-        'ONLY PROMOTE ASSET system campaign was not found for this organization. Contact support before enabling Content Creation.'
-      );
-    }
-  }
-
-  if (mode === null || mode === 'campaign_asset_only') {
-    resolvedCreativeCampaignId = null;
-  } else if (mode === 'campaign_links_and_assets') {
+  if (assignmentMode === 'creative') {
+    mode = 'campaign_links_and_assets';
     if (!creativeCampaignId) {
-      throw new Error(
-        'Select one Sponsor campaign for Campaign + links + assets content creation'
-      );
+      throw new Error('Creative Mode requires one Sponsor campaign');
     }
     const { data: camp, error: campErr } = await supabase
       .from('campaigns')
@@ -166,26 +132,28 @@ export async function createAssignment({
     }
     if (camp.is_system || camp.campaign_name === 'ONLY PROMOTE ASSET') {
       throw new Error(
-        'ONLY PROMOTE ASSET cannot be stored as creative_campaign_id; it is always available separately'
+        'Cannot use ONLY PROMOTE ASSET as the Creative campaign — choose a real Sponsor campaign'
       );
     }
     if (camp.archived_at) {
       throw new Error('Selected creative campaign is archived');
     }
     resolvedCreativeCampaignId = camp.id as string;
+  } else {
+    // Regular Mode: no Sponsor creative campaign; Marketer picks later (Phase 3).
+    mode = null;
+    resolvedCreativeCampaignId = null;
+  }
+
+  // Asset Usage for BOTH modes
+  let resolvedAssetScope: 'promotion_only' | 'allow_additional' = 'promotion_only';
+  if (assetScope === 'allow_additional' || assetScope === 'promotion_only') {
+    resolvedAssetScope = assetScope;
   }
 
   // --------------------------------------------------
-  // Rule A:
-  //
-  // Only Assets that can resolve to a promotion Campaign — either
-  // already, or via the Resource Asset system-campaign fallback — can
-  // enter an Assignment.
-  //
-  // Assignment references Assets only.
-  // It does not own a Campaign.
+  // Only Assets that can resolve to a promotion Campaign
   // --------------------------------------------------
-
   for (const assetId of assetIds) {
     const resolved = await resolvePromotionCampaign(assetId);
 
@@ -194,15 +162,13 @@ export async function createAssignment({
     }
 
     const resolvedType = await resolveAssetType(assetId);
-    // ResolvedAssetType shape is shared with Videos (organizationId, etc.).
-    // Resource assets without campaign provenance get the system campaign.
     const typeName =
       resolvedType && typeof resolvedType === 'object'
         ? String(
             (resolvedType as { assetType?: string; type?: string; kind?: string }).assetType
-            ?? (resolvedType as { type?: string }).type
-            ?? (resolvedType as { kind?: string }).kind
-            ?? ''
+              ?? (resolvedType as { type?: string }).type
+              ?? (resolvedType as { kind?: string }).kind
+              ?? ''
           )
         : '';
     if (typeName === 'resource') {
@@ -227,10 +193,6 @@ export async function createAssignment({
       creative_creation_mode: mode,
       creative_campaign_id: resolvedCreativeCampaignId,
       asset_scope: resolvedAssetScope,
-      // Do NOT write assignments.allow_marketer_domain /
-      // allow_sponsor_domain / allow_vstrk_domain — those columns were
-      // added by mistake and remain unused. Permissions live on
-      // assignment_assets.
     })
     .select('id')
     .single();
@@ -242,7 +204,7 @@ export async function createAssignment({
   const { error: assetsErr } = await supabase
     .from('assignment_assets')
     .insert(
-      assetPermissions.map(p => ({
+      uniquePermissions.map(p => ({
         assignment_id: assignment.id,
         asset_id: p.assetId,
         allow_marketer_domain: p.allowMarketerDomain,
@@ -258,12 +220,6 @@ export async function createAssignment({
     await supabase.from('assignments').delete().eq('id', assignment.id);
     throw new Error(`Failed to attach assets to Assignment: ${assetsErr.message}`);
   }
-
-  // --------------------------------------------------
-  // Tracking Domains: optional concrete Sponsor domain grants.
-  // Zero domains is valid — block skipped. Create Assignment v2
-  // normally passes [].
-  // --------------------------------------------------
 
   if (domainIds.length > 0) {
     const { error: domainsErr } = await supabase
