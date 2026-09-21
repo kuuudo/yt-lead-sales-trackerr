@@ -150,7 +150,12 @@ async function computeDownstream(videoId: string, assetId: string): Promise<Down
   const { data: matched, error: matchError } = await supabase
     .from('events_journey')
     .select('journey_id, created_at')
-    .contains('journey_snapshot', [{ video_id: videoId, asset_id: assetId }])
+    // journey_snapshot is jsonb. supabase-js formats a JS ARRAY passed to
+    // .contains() as a Postgres array literal ({a,b}) — invalid for jsonb
+    // ("invalid input syntax for type json"). A string is sent as-is, so pass
+    // the JSON text explicitly. (journey.ts' .contains('event_ids', [id]) is
+    // fine because event_ids is a real text[] column.)
+    .contains('journey_snapshot', JSON.stringify([{ video_id: videoId, asset_id: assetId }]))
     .order('created_at', { ascending: false })
     .limit(MATCH_ROW_LIMIT);
 
