@@ -1296,29 +1296,8 @@ const [resolvingPromotionContext, setResolvingPromotionContext] = useState(false
   // no extra query. Assets imported directly (no natural campaign) attach to
   // this campaign purely so they retain a campaign_id for attribution.
   const onlyPromoteAssetCampaign = campaigns.find(c => c.campaign_name === 'ONLY PROMOTE ASSET');
-  const [useOnlyPromoteAsset, setUseOnlyPromoteAsset] = useState(false);
-  // Remembers the manually-selected campaign so unchecking restores it
-  // instead of clearing the field.
-  const [previousCampaignId, setPreviousCampaignId] = useState('');
-
-  const handleToggleOnlyPromoteAsset = (checked: boolean) => {
-    if (checked) {
-      if (!onlyPromoteAssetCampaign) {
-        showAlert(
-          'Campaign Not Found',
-          'The "ONLY PROMOTE ASSET" campaign has not been set up for this organization yet. Please contact support.',
-          'info'
-        );
-        return;
-      }
-      setPreviousCampaignId(formData.campaign_id);
-      setUseOnlyPromoteAsset(true);
-      setFormData(prev => ({ ...prev, campaign_id: onlyPromoteAssetCampaign.id }));
-    } else {
-      setUseOnlyPromoteAsset(false);
-      setFormData(prev => ({ ...prev, campaign_id: previousCampaignId || campaigns[0]?.id || '' }));
-    }
-  };
+  // PHASE 1: Asset Only / useOnlyPromoteAsset selector removed.
+  // Asset-only = real Campaign + zero Campaign Links (no fake system campaign).
 
   useEffect(() => {
     if (formData.campaign_id) {
@@ -2010,8 +1989,6 @@ console.log(
       setChosenPromotionByAssetId(new Map());
       setSelectedAssetDomainByAssetId(new Map());
       setSelectedTrackingDomainId(null);
-      setUseOnlyPromoteAsset(false);
-      setPreviousCampaignId('');
 
     } catch (err: any) {
       showAlert('Save Error', err.message || 'An unexpected error occurred.', 'danger');
@@ -2346,8 +2323,6 @@ console.log(
                   selectedLeadMagnets: []
                 });
                 setPromotedAssets([]);
-                setUseOnlyPromoteAsset(false);
-                setPreviousCampaignId('');
               }
               setShowAdd(!showAdd);
             }} 
@@ -2442,10 +2417,7 @@ console.log(
                             // Changing Campaign must NOT wipe selected promoted assets / Path B state
                             setFormData(prev => ({ ...prev, campaign_id: id }));
                           }}
-                          disabled={useOnlyPromoteAsset}
-                          className={`w-full bg-zinc-950 border border-zinc-900 rounded-xl p-3 text-[11px] font-bold uppercase outline-none focus:border-red-600 appearance-none ${
-                            useOnlyPromoteAsset ? 'opacity-50 cursor-not-allowed' : ''
-                          }`}
+                          className="w-full bg-zinc-950 border border-zinc-900 rounded-xl p-3 text-[11px] font-bold uppercase outline-none focus:border-red-600 appearance-none"
                         >
                           <option value="">Select a campaign</option>
                           {selectedCreativeAssignment ? (
@@ -2568,45 +2540,6 @@ console.log(
                               : 'Campaign + links + assets — choose Campaign above (ONLY PROMOTE ASSET or Sponsor campaign)'}
                           </p>
                         )}
-                      </div>
-
-                      <div className="grid grid-cols-2 gap-2">
-                        <label
-                          className={`flex items-center gap-2 border rounded-xl px-3 py-2.5 cursor-pointer transition-all ${
-                            !useOnlyPromoteAsset
-                              ? 'border-red-600 bg-red-600/10'
-                              : 'border-zinc-800 bg-zinc-950 hover:border-zinc-600'
-                          }`}
-                        >
-                          <input
-                            type="radio"
-                            name="trackingType"
-                            checked={!useOnlyPromoteAsset}
-                            onChange={() => handleToggleOnlyPromoteAsset(false)}
-                            className="w-3.5 h-3.5 accent-red-600 cursor-pointer"
-                          />
-                          <span className="text-[9px] font-black uppercase tracking-widest text-zinc-300">
-                            Asset + Campaign Objective
-                          </span>
-                        </label>
-                        <label
-                          className={`flex items-center gap-2 border rounded-xl px-3 py-2.5 cursor-pointer transition-all ${
-                            useOnlyPromoteAsset
-                              ? 'border-red-600 bg-red-600/10'
-                              : 'border-zinc-800 bg-zinc-950 hover:border-zinc-600'
-                          }`}
-                        >
-                          <input
-                            type="radio"
-                            name="trackingType"
-                            checked={useOnlyPromoteAsset}
-                            onChange={() => handleToggleOnlyPromoteAsset(true)}
-                            className="w-3.5 h-3.5 accent-red-600 cursor-pointer"
-                          />
-                          <span className="text-[9px] font-black uppercase tracking-widest text-zinc-300">
-                            Asset Only
-                          </span>
-                        </label>
                       </div>
                     </div>
 
@@ -3966,11 +3899,7 @@ console.log(
                       hasLeadMagnet: !!(v.selected_lead_magnet_ids && v.selected_lead_magnet_ids.length > 0),
                       selectedLeadMagnets: v.selected_lead_magnet_ids || []
                     });
-                    const editingOnlyPromoteAsset =
-                      !!onlyPromoteAssetCampaign && v.campaign_id === onlyPromoteAssetCampaign.id;
-                    setUseOnlyPromoteAsset(editingOnlyPromoteAsset);
-                    setPreviousCampaignId(editingOnlyPromoteAsset ? '' : v.campaign_id);
-                    setEditingVideoId(v.id);
+setEditingVideoId(v.id);
                     setShowAdd(true);
                   }}
                   className="h-10 px-4 rounded-xl border border-zinc-800 hover:bg-zinc-900 transition-all text-zinc-500 hover:text-white"
