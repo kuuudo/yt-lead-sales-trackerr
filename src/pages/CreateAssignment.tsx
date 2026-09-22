@@ -46,8 +46,6 @@ const DEFAULT_PERMISSIONS: AssetPermissionState = {
   selectedSponsorDomainId: null,
 };
 
-const BLACK_BOX_MAX = 4;
-
 export default function CreateAssignment() {
   const navigate = useNavigate();
   const { notify: notifyTutorial } = useTutorial();
@@ -259,10 +257,6 @@ export default function CreateAssignment() {
     setBlackBoxSelectedIds(prev => {
       if (prev.includes(assetId)) {
         return prev.filter(id => id !== assetId);
-      }
-      if (prev.length >= BLACK_BOX_MAX) {
-        setError(`Black Box allows at most ${BLACK_BOX_MAX} Campaign Element Assets`);
-        return prev;
       }
       setError(null);
       return [...prev, assetId];
@@ -506,9 +500,9 @@ export default function CreateAssignment() {
             Campaign Element Assets
           </label>
           <p className="text-[11px] text-zinc-500 mb-3">
-            Select up to {BLACK_BOX_MAX} assets from your Campaigns. You can select across
-            Campaigns. If a link is not an Asset yet, use Publish as Asset first. Selected:{' '}
-            {blackBoxSelectedIds.length} / {BLACK_BOX_MAX}
+            Select Campaign Element Assets from any of your Campaigns (no limit). If a link
+            is not an Asset yet, use Publish as Asset first. Selected:{' '}
+            {blackBoxSelectedIds.length}
           </p>
 
           {blackBoxCampaigns.length > 0 && (
