@@ -95,6 +95,12 @@ export interface AssetPickerProps {
   onSelectionChange: (selectedAssets: AssetPickerSelectedItem[]) => void;
   /** Optional: pre-select assets (e.g. when re-opening a draft). */
   initialSelectedAssetIds?: string[];
+  /**
+   * Asset ids already chosen via Campaign Element Black Box.
+   * Still visible and clickable; UI only shows "Already selected".
+   * Parent dedupes assignment_assets by asset_id — do not hide these rows.
+   */
+  alreadySelectedAssetIds?: string[];
 }
 
 type OwnershipFilter = 'all' | 'mine' | 'assigned';
@@ -160,7 +166,12 @@ export function AssetPicker({
   organizationId,
   onSelectionChange,
   initialSelectedAssetIds = [],
+  alreadySelectedAssetIds = [],
 }: AssetPickerProps) {
+  const alreadySelectedSet = useMemo(
+    () => new Set(alreadySelectedAssetIds),
+    [alreadySelectedAssetIds]
+  );
   const { user } = useAuth();
   const [rows, setRows] = useState<AssetLibraryRow[]>([]);
   const [assignedSummary, setAssignedSummary] = useState<AssignedAssetSummary[]>([]);
@@ -355,14 +366,15 @@ export function AssetPicker({
       <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
         {filteredRows.map(row => {
           const isSelected = selectedAssetsMap.has(row.assetId);
+          const alreadyFromBlackBox = alreadySelectedSet.has(row.assetId);
           return (
             <button
               key={row.key}
               type="button"
-              aria-pressed={isSelected}
+              aria-pressed={isSelected || alreadyFromBlackBox}
               onClick={() => toggleAsset(row)}
               className={`relative flex flex-col text-left bg-zinc-950 border rounded-xl overflow-hidden transition-all ${
-                isSelected
+                isSelected || alreadyFromBlackBox
                   ? 'border-red-600 ring-1 ring-red-600'
                   : 'border-zinc-800 hover:border-zinc-600'
               }`}
@@ -387,9 +399,14 @@ export function AssetPicker({
                     {row.assignedCollaboratorCount === 1 ? 'User' : 'Users'}
                   </p>
                 )}
+                {alreadyFromBlackBox && (
+                  <p className="text-[9px] font-black uppercase text-orange-400 tracking-widest mt-0.5">
+                    ✓ Already selected
+                  </p>
+                )}
               </div>
 
-              {isSelected && (
+              {(isSelected || alreadyFromBlackBox) && (
                 <span className="absolute top-2 right-2 flex items-center justify-center w-5 h-5 rounded-full bg-red-600 text-white">
                   <Check size={12} />
                 </span>

@@ -795,6 +795,7 @@ export default function CreateAssignment() {
                   organizationId={organizationId}
                   onSelectionChange={setDraftSelection}
                   initialSelectedAssetIds={selectedAssets.map(a => a.assetId)}
+                  alreadySelectedAssetIds={blackBoxSelectedIds}
                 />
               </div>
               <div className="flex items-center justify-end gap-2 px-6 py-4 border-t border-zinc-800">
