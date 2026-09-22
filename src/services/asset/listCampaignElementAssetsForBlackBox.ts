@@ -54,6 +54,17 @@ export interface BlackBoxCampaignOption {
   campaignName: string;
 }
 
+/** Map element type → campaigns.*_tracking_domain_id column (Configure Campaign Links). */
+export const ELEMENT_TYPE_TRACKING_DOMAIN_COLUMN: Record<
+  BlackBoxElementType,
+  string
+> = {
+  landing_page: 'landing_page_tracking_domain_id',
+  newsletter: 'newsletter_tracking_domain_id',
+  sales_call: 'sales_call_tracking_domain_id',
+  consultation: 'consultation_tracking_domain_id',
+};
+
 /** Published asset row (selectable) */
 export interface BlackBoxPublishedAsset {
   kind: 'published';
@@ -63,6 +74,11 @@ export interface BlackBoxPublishedAsset {
   campaignId: string;
   campaignName: string;
   thumbnail: string | null;
+  /**
+   * From Campaign Configure Campaign Links for this element type.
+   * Source of truth for Sponsor domain on Campaign Element Assets.
+   */
+  configuredSponsorDomainId: string | null;
 }
 
 /** Campaign link not yet turned into an Asset */
@@ -101,7 +117,11 @@ export async function listCampaignElementBlackBoxCatalog(
       landing_page_url,
       newsletter_url,
       sales_call_booking_url,
-      consultation_booking_url
+      consultation_booking_url,
+      landing_page_tracking_domain_id,
+      newsletter_tracking_domain_id,
+      sales_call_tracking_domain_id,
+      consultation_tracking_domain_id
     `
     )
     .eq('organization_id', sponsorOrganizationId)
@@ -159,6 +179,12 @@ export async function listCampaignElementBlackBoxCatalog(
       (camp?.campaign_name as string) ||
       campaignOptions.find(c => c.id === campaignId)?.campaignName ||
       'Campaign';
+    const col =
+      ELEMENT_TYPE_TRACKING_DOMAIN_COLUMN[et as BlackBoxElementType] ?? null;
+    const configuredSponsorDomainId =
+      col && camp
+        ? (((camp as any)[col] as string | null | undefined) ?? null)
+        : null;
     publishedKey.add(`${campaignId}|${et}`);
     rows.push({
       kind: 'published',
@@ -170,6 +196,7 @@ export async function listCampaignElementBlackBoxCatalog(
       thumbnail: resolveElementThumbnail(
         (et as CampaignElementType) || 'landing_page'
       ),
+      configuredSponsorDomainId,
     });
   }
 

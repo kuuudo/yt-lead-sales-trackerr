@@ -402,6 +402,78 @@ export const listVerifiedBrandedDomains = async (
   return data ?? [];
 };
 
+export interface VerifiedDomainOptionWithRoot extends VerifiedDomainOption {
+  root_domain: string | null;
+}
+
+/**
+ * Verified domains for an org including root_domain (for Campaign-scoped filtering).
+ * One Campaign = One root tracking domain — filter by campaigns.root_domain.
+ */
+export const listVerifiedBrandedDomainsWithRoot = async (
+  organizationId: string
+): Promise<VerifiedDomainOptionWithRoot[]> => {
+  const { data, error } = await supabase
+    .from('branded_tracking_domains')
+    .select('id, hostname, root_domain')
+    .eq('organization_id', organizationId)
+    .eq('status', 'verified')
+    .order('hostname', { ascending: true });
+
+  if (error) {
+    console.error(
+      '[brandedDomains] listVerifiedBrandedDomainsWithRoot failed:',
+      error.message
+    );
+    return [];
+  }
+
+  return (data ?? []).map((d: any) => ({
+    id: d.id as string,
+    hostname: d.hostname as string,
+    root_domain: (d.root_domain as string | null) ?? null,
+  }));
+};
+
+/**
+ * Sponsor domains allowed for a normal Asset under a Campaign:
+ * verified domains whose root_domain matches campaigns.root_domain.
+ * Does not use Configure Campaign Links (that is element-type scoped).
+ */
+export const listVerifiedBrandedDomainsForCampaign = async (
+  organizationId: string,
+  campaignId: string
+): Promise<VerifiedDomainOption[]> => {
+  const { data: camp, error: campErr } = await supabase
+    .from('campaigns')
+    .select('id, root_domain, organization_id')
+    .eq('id', campaignId)
+    .maybeSingle();
+
+  if (campErr || !camp) {
+    console.error(
+      '[brandedDomains] listVerifiedBrandedDomainsForCampaign campaign lookup failed:',
+      campErr?.message
+    );
+    return [];
+  }
+
+  if ((camp as any).organization_id !== organizationId) {
+    return [];
+  }
+
+  const root = (camp as any).root_domain as string | null;
+  if (!root) {
+    // Campaign has no root yet — no campaign-scoped domains
+    return [];
+  }
+
+  const all = await listVerifiedBrandedDomainsWithRoot(organizationId);
+  return all
+    .filter(d => d.root_domain === root)
+    .map(({ id, hostname }) => ({ id, hostname }));
+};
+
 /**
  * Phase 1 helper: resolve a continuation relay by exact hostname + relay_token.
  * Returns the matching branded_tracking_domains row or null.

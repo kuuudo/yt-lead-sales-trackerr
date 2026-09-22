@@ -14,6 +14,7 @@ import {
 } from '../services/assignment/AssetPicker';
 import {
   listVerifiedBrandedDomains,
+  listVerifiedBrandedDomainsForCampaign,
   type VerifiedDomainOption,
 } from '../services/domain/brandedDomains';
 import {
@@ -71,9 +72,18 @@ export default function CreateAssignment() {
     Map<string, AssetPermissionState>
   >(new Map());
 
+  /** Org-wide verified domains (fallback + hostname lookup). */
   const [sponsorVerifiedDomains, setSponsorVerifiedDomains] = useState<
     VerifiedDomainOption[]
   >([]);
+  /**
+   * Per normal (non–campaign-element) asset: Sponsor domain options scoped
+   * to that Asset's Campaign root_domain. Campaign Element Assets do NOT
+   * use this map — they use Configure Campaign Links on the Black Box row.
+   */
+  const [normalAssetSponsorDomains, setNormalAssetSponsorDomains] = useState<
+    Map<string, VerifiedDomainOption[]>
+  >(new Map());
 
   // PHASE 2: Regular | Creative (replaces none / campaign_asset_only / campaign_links_and_assets)
   const [assignmentMode, setAssignmentMode] = useState<AssignmentMode>('regular');
@@ -185,16 +195,32 @@ export default function CreateAssignment() {
     return blackBoxRows.filter(r => r.campaignId === blackBoxCampaignFilter);
   }, [blackBoxRows, blackBoxCampaignFilter]);
 
-  // Keep permissions Map aligned with unified selection
+  // Keep permissions Map aligned with unified selection.
+  // Campaign Element Assets: if Sponsor domain already allowed and Configure
+  // Campaign Links has a domain, keep/seed selectedSponsorDomainId from config.
   useEffect(() => {
     setAssetPermissions(prev => {
       const next = new Map<string, AssetPermissionState>();
       for (const a of unifiedSelectedAssets) {
-        next.set(a.assetId, prev.get(a.assetId) ?? { ...DEFAULT_PERMISSIONS });
+        const existing = prev.get(a.assetId) ?? { ...DEFAULT_PERMISSIONS };
+        const bb = publishedBlackBoxById.get(a.assetId);
+        if (
+          bb &&
+          existing.allowSponsorDomain &&
+          !existing.selectedSponsorDomainId &&
+          bb.configuredSponsorDomainId
+        ) {
+          next.set(a.assetId, {
+            ...existing,
+            selectedSponsorDomainId: bb.configuredSponsorDomainId,
+          });
+        } else {
+          next.set(a.assetId, existing);
+        }
       }
       return next;
     });
-  }, [unifiedSelectedAssets]);
+  }, [unifiedSelectedAssets, publishedBlackBoxById]);
 
   useEffect(() => {
     if (!organizationId) {
@@ -214,6 +240,93 @@ export default function CreateAssignment() {
       cancelled = true;
     };
   }, [organizationId]);
+
+  // Normal Assets only: load Sponsor domains scoped to each Asset's Campaign
+  // (root_domain match). Campaign Element Assets skip this path.
+  useEffect(() => {
+    if (!organizationId) {
+      setNormalAssetSponsorDomains(new Map());
+      return;
+    }
+    const normalIds = unifiedSelectedAssets
+      .map(a => a.assetId)
+      .filter(id => !publishedBlackBoxById.has(id));
+    if (normalIds.length === 0) {
+      setNormalAssetSponsorDomains(new Map());
+      return;
+    }
+
+    let cancelled = false;
+    (async () => {
+      try {
+        const campaignByAsset = new Map<string, string>();
+
+        // 1) campaign_element_assets (edge case if selected via library)
+        const { data: elRows } = await supabase
+          .from('campaign_element_assets')
+          .select('asset_id, campaign_id')
+          .in('asset_id', normalIds);
+        for (const r of elRows ?? []) {
+          if (r.campaign_id) campaignByAsset.set(r.asset_id as string, r.campaign_id as string);
+        }
+
+        // 2) videos.campaign_id
+        const still = normalIds.filter(id => !campaignByAsset.has(id));
+        if (still.length > 0) {
+          const { data: videoRows } = await supabase
+            .from('videos')
+            .select('asset_id, campaign_id')
+            .in('asset_id', still);
+          for (const r of videoRows ?? []) {
+            if (r.asset_id && r.campaign_id) {
+              campaignByAsset.set(r.asset_id as string, r.campaign_id as string);
+            }
+          }
+        }
+
+        // 3) campaign_assets
+        const still2 = normalIds.filter(id => !campaignByAsset.has(id));
+        if (still2.length > 0) {
+          const { data: caRows } = await supabase
+            .from('campaign_assets')
+            .select('asset_id, campaign_id')
+            .in('asset_id', still2);
+          for (const r of caRows ?? []) {
+            if (r.asset_id && r.campaign_id) {
+              campaignByAsset.set(r.asset_id as string, r.campaign_id as string);
+            }
+          }
+        }
+
+        const uniqueCampaignIds = Array.from(new Set(campaignByAsset.values()));
+        const domainsByCampaign = new Map<string, VerifiedDomainOption[]>();
+        await Promise.all(
+          uniqueCampaignIds.map(async cid => {
+            const opts = await listVerifiedBrandedDomainsForCampaign(
+              organizationId,
+              cid
+            );
+            domainsByCampaign.set(cid, opts);
+          })
+        );
+
+        if (cancelled) return;
+        const next = new Map<string, VerifiedDomainOption[]>();
+        for (const assetId of normalIds) {
+          const cid = campaignByAsset.get(assetId);
+          next.set(assetId, cid ? domainsByCampaign.get(cid) ?? [] : []);
+        }
+        setNormalAssetSponsorDomains(next);
+      } catch (e) {
+        console.error('Failed to load per-asset Sponsor domains', e);
+        if (!cancelled) setNormalAssetSponsorDomains(new Map());
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [organizationId, unifiedSelectedAssets, publishedBlackBoxById]);
 
   // Creative Mode: load Sponsor normal campaigns (no ONLY PROMOTE ASSET)
   useEffect(() => {
@@ -275,6 +388,13 @@ export default function CreateAssignment() {
       if (key === 'allowSponsorDomain' && !value) {
         updated.selectedSponsorDomainId = null;
       }
+      // Campaign Element: Sponsor domain is the Configure Campaign Links value
+      if (key === 'allowSponsorDomain' && value) {
+        const bb = publishedBlackBoxById.get(assetId);
+        if (bb?.configuredSponsorDomainId) {
+          updated.selectedSponsorDomainId = bb.configuredSponsorDomainId;
+        }
+      }
       next.set(assetId, updated);
       return next;
     });
@@ -302,6 +422,12 @@ export default function CreateAssignment() {
     for (const a of unifiedSelectedAssets) {
       const p = assetPermissions.get(a.assetId) ?? DEFAULT_PERMISSIONS;
       if (p.allowSponsorDomain && !p.selectedSponsorDomainId) {
+        const bb = publishedBlackBoxById.get(a.assetId);
+        if (bb) {
+          return setError(
+            `Campaign Element "${a.title}" has Sponsor tracking enabled but this Campaign has no Configure Campaign Links domain for ${bb.elementType}. Configure it on the Campaign first, or uncheck Sponsor's tracking domain.`
+          );
+        }
         return setError(
           'Select a Sponsor tracking domain for each asset with Sponsor tracking enabled'
         );
@@ -692,7 +818,30 @@ export default function CreateAssignment() {
             </label>
             {unifiedSelectedAssets.map(asset => {
               const p = assetPermissions.get(asset.assetId) ?? DEFAULT_PERMISSIONS;
-              const fromBlackBox = blackBoxSelectedIds.includes(asset.assetId);
+              const bb = publishedBlackBoxById.get(asset.assetId);
+              const fromBlackBox = Boolean(bb);
+              // Campaign Element → Configure Campaign Links for that link type
+              // Normal Asset → domains under that Asset's Campaign (root_domain)
+              const elementConfiguredId = bb?.configuredSponsorDomainId ?? null;
+              const elementConfiguredHostname =
+                elementConfiguredId
+                  ? sponsorVerifiedDomains.find(d => d.id === elementConfiguredId)
+                      ?.hostname ?? elementConfiguredId
+                  : null;
+              const normalOptions =
+                normalAssetSponsorDomains.get(asset.assetId) ?? [];
+              const sponsorOptions: VerifiedDomainOption[] = fromBlackBox
+                ? elementConfiguredId
+                  ? [
+                      {
+                        id: elementConfiguredId,
+                        hostname:
+                          elementConfiguredHostname || elementConfiguredId,
+                      },
+                    ]
+                  : []
+                : normalOptions;
+
               return (
                 <div
                   key={asset.assetId}
@@ -715,7 +864,9 @@ export default function CreateAssignment() {
                         {asset.title || 'Untitled'}
                       </p>
                       <p className="text-[9px] font-black uppercase tracking-widest text-zinc-600 mt-0.5">
-                        {fromBlackBox ? 'Campaign Element' : 'Asset'}
+                        {fromBlackBox
+                          ? `Campaign Element · ${bb?.elementType ?? ''}`
+                          : 'Asset'}
                       </p>
                     </div>
                   </div>
@@ -760,23 +911,44 @@ export default function CreateAssignment() {
                         </span>
                       </label>
                       {p.allowSponsorDomain && (
-                        <select
-                          value={p.selectedSponsorDomainId ?? ''}
-                          onChange={e =>
-                            setSelectedSponsorDomain(
-                              asset.assetId,
-                              e.target.value || null
-                            )
-                          }
-                          className="w-full bg-zinc-950 border border-zinc-800 rounded-lg px-3 py-2 text-xs text-zinc-100"
-                        >
-                          <option value="">Select Sponsor tracking domain</option>
-                          {sponsorVerifiedDomains.map(d => (
-                            <option key={d.id} value={d.id}>
-                              {d.hostname}
-                            </option>
-                          ))}
-                        </select>
+                        fromBlackBox ? (
+                          <div className="w-full bg-zinc-950 border border-zinc-800 rounded-lg px-3 py-2 text-xs text-zinc-100">
+                            {elementConfiguredHostname ? (
+                              <>
+                                <span className="text-zinc-200">
+                                  {elementConfiguredHostname}
+                                </span>
+                                <span className="block text-[10px] text-zinc-500 mt-0.5">
+                                  From Campaign Configure Campaign Links (
+                                  {bb?.elementType}) — read only
+                                </span>
+                              </>
+                            ) : (
+                              <span className="text-amber-400">
+                                No domain configured for this link type on the
+                                Campaign. Open Configure Campaign Links first.
+                              </span>
+                            )}
+                          </div>
+                        ) : (
+                          <select
+                            value={p.selectedSponsorDomainId ?? ''}
+                            onChange={e =>
+                              setSelectedSponsorDomain(
+                                asset.assetId,
+                                e.target.value || null
+                              )
+                            }
+                            className="w-full bg-zinc-950 border border-zinc-800 rounded-lg px-3 py-2 text-xs text-zinc-100"
+                          >
+                            <option value="">Select Sponsor tracking domain</option>
+                            {sponsorOptions.map(d => (
+                              <option key={d.id} value={d.id}>
+                                {d.hostname}
+                              </option>
+                            ))}
+                          </select>
+                        )
                       )}
                     </div>
                     <label className="flex items-center gap-3 cursor-pointer">
