@@ -22,11 +22,13 @@ import {
 } from '../services/campaign/listSponsorCreativeCampaigns';
 import {
   BLACK_BOX_ELEMENT_LABELS,
-  BLACK_BOX_ELEMENT_TYPES,
-  listCampaignElementAssetsForBlackBox,
-  type BlackBoxElementAsset,
-  type BlackBoxElementType,
+  listCampaignElementBlackBoxCatalog,
+  type BlackBoxCampaignOption,
+  type BlackBoxPublishedAsset,
+  type BlackBoxRow,
+  type BlackBoxUnpublishedLink,
 } from '../services/asset/listCampaignElementAssetsForBlackBox';
+import { PublishAssetButton } from '../components/PublishAssetButton';
 
 type AssetScope = 'promotion_only' | 'allow_additional';
 
@@ -60,9 +62,11 @@ export default function CreateAssignment() {
   const [selectedAssets, setSelectedAssets] = useState<AssetPickerSelectedItem[]>([]);
   const [draftSelection, setDraftSelection] = useState<AssetPickerSelectedItem[]>([]);
 
-  // Black Box: selected campaign-element asset ids (0–4)
+  // Black Box: selected campaign-element asset ids (0–4), across campaigns
   const [blackBoxSelectedIds, setBlackBoxSelectedIds] = useState<string[]>([]);
-  const [blackBoxCatalog, setBlackBoxCatalog] = useState<BlackBoxElementAsset[]>([]);
+  const [blackBoxRows, setBlackBoxRows] = useState<BlackBoxRow[]>([]);
+  const [blackBoxCampaigns, setBlackBoxCampaigns] = useState<BlackBoxCampaignOption[]>([]);
+  const [blackBoxCampaignFilter, setBlackBoxCampaignFilter] = useState<string>(''); // '' = first campaign
   const [loadingBlackBox, setLoadingBlackBox] = useState(false);
 
   const [assetPermissions, setAssetPermissions] = useState<
@@ -114,35 +118,55 @@ export default function CreateAssignment() {
     init();
   }, []);
 
-  // Black Box catalog (Sponsor org published campaign-element assets)
+  const reloadBlackBox = async (orgId: string) => {
+    setLoadingBlackBox(true);
+    try {
+      const catalog = await listCampaignElementBlackBoxCatalog(orgId);
+      setBlackBoxCampaigns(catalog.campaigns);
+      setBlackBoxRows(catalog.rows);
+      setBlackBoxCampaignFilter(prev => {
+        if (prev && catalog.campaigns.some(c => c.id === prev)) return prev;
+        return catalog.campaigns[0]?.id ?? '';
+      });
+    } catch (e) {
+      console.error('Black Box load failed', e);
+      setBlackBoxCampaigns([]);
+      setBlackBoxRows([]);
+    } finally {
+      setLoadingBlackBox(false);
+    }
+  };
+
+  // Black Box catalog (campaigns + published assets + unpublished links)
   useEffect(() => {
     if (!organizationId) {
-      setBlackBoxCatalog([]);
+      setBlackBoxCampaigns([]);
+      setBlackBoxRows([]);
       return;
     }
     let cancelled = false;
-    setLoadingBlackBox(true);
-    listCampaignElementAssetsForBlackBox(organizationId)
-      .then(rows => {
-        if (!cancelled) setBlackBoxCatalog(rows);
-      })
-      .catch(e => {
-        console.error('Black Box load failed', e);
-        if (!cancelled) setBlackBoxCatalog([]);
-      })
-      .finally(() => {
-        if (!cancelled) setLoadingBlackBox(false);
-      });
+    (async () => {
+      if (cancelled) return;
+      await reloadBlackBox(organizationId);
+    })();
     return () => {
       cancelled = true;
     };
   }, [organizationId]);
 
   // Union of Black Box + library assets (deduped) for permission cards + submit
+  const publishedBlackBoxById = useMemo(() => {
+    const m = new Map<string, BlackBoxPublishedAsset>();
+    for (const r of blackBoxRows) {
+      if (r.kind === 'published') m.set(r.assetId, r);
+    }
+    return m;
+  }, [blackBoxRows]);
+
   const unifiedSelectedAssets: AssetPickerSelectedItem[] = useMemo(() => {
     const map = new Map<string, AssetPickerSelectedItem>();
     for (const id of blackBoxSelectedIds) {
-      const bb = blackBoxCatalog.find(x => x.assetId === id);
+      const bb = publishedBlackBoxById.get(id);
       if (!bb) continue;
       map.set(id, {
         assetId: id,
@@ -156,7 +180,12 @@ export default function CreateAssignment() {
       }
     }
     return Array.from(map.values());
-  }, [blackBoxSelectedIds, blackBoxCatalog, selectedAssets]);
+  }, [blackBoxSelectedIds, publishedBlackBoxById, selectedAssets]);
+
+  const filteredBlackBoxRows = useMemo(() => {
+    if (!blackBoxCampaignFilter) return blackBoxRows;
+    return blackBoxRows.filter(r => r.campaignId === blackBoxCampaignFilter);
+  }, [blackBoxRows, blackBoxCampaignFilter]);
 
   // Keep permissions Map aligned with unified selection
   useEffect(() => {
@@ -330,15 +359,6 @@ export default function CreateAssignment() {
     }
   };
 
-  const assetsByElementType = useMemo(() => {
-    const m = new Map<BlackBoxElementType, BlackBoxElementAsset[]>();
-    for (const t of BLACK_BOX_ELEMENT_TYPES) m.set(t, []);
-    for (const row of blackBoxCatalog) {
-      m.get(row.elementType)?.push(row);
-    }
-    return m;
-  }, [blackBoxCatalog]);
-
   return (
     <div className="min-h-screen bg-zinc-950 text-zinc-100">
       <div className="max-w-2xl mx-auto px-6 py-10">
@@ -480,63 +500,130 @@ export default function CreateAssignment() {
           </div>
         )}
 
-        {/* Black Box: Campaign Element Assets 0–4 */}
+        {/* Black Box: Campaign Element Assets 0–4 (across campaigns) */}
         <div data-tutorial-id="marketplace-black-box" className="mb-6">
           <label className="block text-[10px] font-bold uppercase tracking-widest text-zinc-500 mb-1">
             Campaign Element Assets
           </label>
           <p className="text-[11px] text-zinc-500 mb-3">
-            Select up to {BLACK_BOX_MAX}. Unpublished elements show as not available — that does
-            not block creating the Assignment. Selected: {blackBoxSelectedIds.length} /{' '}
-            {BLACK_BOX_MAX}
+            Select up to {BLACK_BOX_MAX} assets from your Campaigns. You can select across
+            Campaigns. If a link is not an Asset yet, use Publish as Asset first. Selected:{' '}
+            {blackBoxSelectedIds.length} / {BLACK_BOX_MAX}
           </p>
+
+          {blackBoxCampaigns.length > 0 && (
+            <div className="mb-3">
+              <label className="block text-[9px] font-bold uppercase tracking-widest text-zinc-600 mb-1">
+                Campaign filter
+              </label>
+              <select
+                value={blackBoxCampaignFilter}
+                onChange={e => setBlackBoxCampaignFilter(e.target.value)}
+                className="w-full bg-zinc-900 border border-zinc-800 rounded-lg px-3 py-2 text-sm text-zinc-100"
+              >
+                {blackBoxCampaigns.map(c => (
+                  <option key={c.id} value={c.id}>
+                    {c.campaignName}
+                  </option>
+                ))}
+              </select>
+            </div>
+          )}
+
           {loadingBlackBox ? (
             <p className="text-xs text-zinc-500 flex items-center gap-2">
               <Loader2 className="animate-spin" size={14} /> Loading elements…
             </p>
+          ) : filteredBlackBoxRows.length === 0 ? (
+            <p className="text-[11px] text-zinc-600 border border-zinc-800 rounded-lg p-3">
+              {blackBoxCampaigns.length === 0
+                ? 'No active campaigns found. Create a campaign and add conversion URLs first.'
+                : 'No Campaign Element Assets or unpublished links in this campaign.'}
+            </p>
           ) : (
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-              {BLACK_BOX_ELEMENT_TYPES.map(et => {
-                const options = assetsByElementType.get(et) ?? [];
-                const available = options.length > 0;
+            <div className="space-y-2">
+              <p className="text-[10px] font-black uppercase tracking-widest text-zinc-400">
+                {blackBoxCampaigns.find(c => c.id === blackBoxCampaignFilter)?.campaignName ??
+                  'Campaign'}
+              </p>
+              {filteredBlackBoxRows.map(row => {
+                if (row.kind === 'published') {
+                  const checked = blackBoxSelectedIds.includes(row.assetId);
+                  return (
+                    <div
+                      key={row.assetId}
+                      className={`flex items-center gap-3 border rounded-lg p-3 ${
+                        checked
+                          ? 'border-red-600/60 bg-red-600/5'
+                          : 'border-zinc-800 bg-zinc-900/40'
+                      }`}
+                    >
+                      <div className="w-14 h-14 rounded-lg bg-zinc-950 border border-zinc-800 overflow-hidden shrink-0 flex items-center justify-center">
+                        {row.thumbnail ? (
+                          <img
+                            src={row.thumbnail}
+                            alt=""
+                            className="w-full h-full object-cover"
+                          />
+                        ) : (
+                          <span className="text-[9px] font-bold uppercase text-zinc-600 px-1 text-center">
+                            {BLACK_BOX_ELEMENT_LABELS[row.elementType]}
+                          </span>
+                        )}
+                      </div>
+                      <div className="min-w-0 flex-1">
+                        <p className="text-sm text-zinc-100 truncate">{row.title}</p>
+                        <p className="text-[10px] text-zinc-500 uppercase tracking-widest mt-0.5">
+                          {BLACK_BOX_ELEMENT_LABELS[row.elementType]}
+                        </p>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => toggleBlackBoxAsset(row.assetId)}
+                        className={`shrink-0 text-[10px] font-black uppercase tracking-widest px-3 py-2 rounded-lg border transition-all ${
+                          checked
+                            ? 'border-red-600 bg-red-600 text-white'
+                            : 'border-zinc-700 text-zinc-300 hover:border-zinc-500'
+                        }`}
+                      >
+                        {checked ? 'Selected' : 'Select'}
+                      </button>
+                    </div>
+                  );
+                }
+
+                // unpublished link → Publish as Asset
+                const u = row as BlackBoxUnpublishedLink;
                 return (
                   <div
-                    key={et}
-                    className="border border-zinc-800 rounded-lg p-3 bg-zinc-900/50 space-y-2"
+                    key={`unpub-${u.campaignId}-${u.elementType}`}
+                    className="flex items-center gap-3 border border-dashed border-zinc-700 rounded-lg p-3 bg-zinc-950/50"
                   >
-                    <p className="text-[10px] font-bold uppercase tracking-widest text-zinc-400">
-                      {BLACK_BOX_ELEMENT_LABELS[et]}
-                    </p>
-                    {!available ? (
-                      <p className="text-[11px] text-zinc-600">
-                        Not available yet — publish via Campaign Detail → Turn into Asset
+                    <div className="w-14 h-14 rounded-lg bg-zinc-900 border border-zinc-800 shrink-0 flex items-center justify-center">
+                      <span className="text-[9px] font-bold uppercase text-zinc-600 px-1 text-center">
+                        Link
+                      </span>
+                    </div>
+                    <div className="min-w-0 flex-1">
+                      <p className="text-sm text-zinc-200 truncate">
+                        {BLACK_BOX_ELEMENT_LABELS[u.elementType]}
                       </p>
-                    ) : (
-                      options.map(opt => {
-                        const checked = blackBoxSelectedIds.includes(opt.assetId);
-                        return (
-                          <label
-                            key={opt.assetId}
-                            className="flex items-start gap-2 cursor-pointer"
-                          >
-                            <input
-                              type="checkbox"
-                              checked={checked}
-                              onChange={() => toggleBlackBoxAsset(opt.assetId)}
-                              className="mt-0.5 accent-red-600"
-                            />
-                            <span className="text-[12px] text-zinc-200 leading-snug">
-                              {opt.title}
-                              {opt.campaignName ? (
-                                <span className="block text-[10px] text-zinc-600">
-                                  {opt.campaignName}
-                                </span>
-                              ) : null}
-                            </span>
-                          </label>
-                        );
-                      })
-                    )}
+                      <p className="text-[10px] text-zinc-600 truncate mt-0.5">{u.currentUrl}</p>
+                      <p className="text-[10px] text-amber-600/90 mt-1">Not yet an Asset</p>
+                    </div>
+                    <div className="shrink-0">
+                      <PublishAssetButton
+                        campaignId={u.campaignId}
+                        elementType={u.elementType}
+                        sourceField={u.sourceField}
+                        currentUrl={u.currentUrl}
+                        defaultDisplayName={u.defaultDisplayName}
+                        published={undefined}
+                        onPublished={async () => {
+                          if (organizationId) await reloadBlackBox(organizationId);
+                        }}
+                      />
+                    </div>
                   </div>
                 );
               })}
@@ -544,7 +631,7 @@ export default function CreateAssignment() {
           )}
         </div>
 
-        {/* + Select Asset (library) */}
+{/* + Select Asset (library) */}
         <label className="block text-[10px] font-bold uppercase tracking-widest text-zinc-500 mb-2">
           Additional Assets
         </label>
