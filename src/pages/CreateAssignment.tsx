@@ -30,6 +30,7 @@ import {
   type BlackBoxUnpublishedLink,
 } from '../services/asset/listCampaignElementAssetsForBlackBox';
 import { PublishAssetButton } from '../components/PublishAssetButton';
+import { ConfigureCampaignLinksModal } from '../components/ConfigureCampaignLinksModal';
 
 type AssetScope = 'promotion_only' | 'allow_additional';
 
@@ -98,6 +99,12 @@ export default function CreateAssignment() {
   const [email, setEmail] = useState('');
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  /** Configure Campaign Links modal (shared with Videos Track New Content). */
+  const [showConfigureLinksModal, setShowConfigureLinksModal] = useState(false);
+  const [configureLinksCampaignId, setConfigureLinksCampaignId] = useState<
+    string | null
+  >(null);
 
   useEffect(() => {
     const init = async () => {
@@ -924,10 +931,24 @@ export default function CreateAssignment() {
                                 </span>
                               </>
                             ) : (
-                              <span className="text-amber-400">
-                                No domain configured for this link type on the
-                                Campaign. Open Configure Campaign Links first.
-                              </span>
+                              <div className="space-y-1.5">
+                                <span className="text-amber-400 block">
+                                  No domain configured for this link type on the
+                                  Campaign.
+                                </span>
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    setConfigureLinksCampaignId(
+                                      bb?.campaignId ?? null
+                                    );
+                                    setShowConfigureLinksModal(true);
+                                  }}
+                                  className="text-[11px] font-bold uppercase tracking-widest text-orange-400 hover:text-orange-300 underline underline-offset-2"
+                                >
+                                  Open Configure Campaign Links →
+                                </button>
+                              </div>
                             )}
                           </div>
                         ) : (
@@ -1049,6 +1070,30 @@ export default function CreateAssignment() {
           Create Assignment &amp; Send Invitation
         </button>
       </div>
+
+      {organizationId && (
+        <ConfigureCampaignLinksModal
+          open={showConfigureLinksModal}
+          organizationId={organizationId}
+          initialCampaignId={configureLinksCampaignId}
+          onClose={() => setShowConfigureLinksModal(false)}
+          onSaved={async () => {
+            if (organizationId) {
+              await reloadBlackBox(organizationId);
+            }
+            // Re-seed Sponsor domain from refreshed Configure Campaign Links
+            setAssetPermissions(prev => {
+              const next = new Map(prev);
+              for (const [assetId, p] of next) {
+                if (!p.allowSponsorDomain) continue;
+                // publishedBlackBoxById will update after reloadBlackBox state settles;
+                // a second effect already seeds configuredSponsorDomainId when rows change.
+              }
+              return next;
+            });
+          }}
+        />
+      )}
     </div>
   );
 }

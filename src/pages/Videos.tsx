@@ -60,6 +60,7 @@ import {
 } from '../lib/videoFormatters';
 import { motion, AnimatePresence } from 'motion/react';
 import { Modal } from '../components/Modal';
+import { ConfigureCampaignLinksModal } from '../components/ConfigureCampaignLinksModal';
 import { useOrganization } from '../lib/useOrganization';
 import { useViewing } from '../lib/ViewingContext';
 import { videosPageCache } from '../lib/videosPageCache';
@@ -2894,61 +2895,27 @@ console.log(
                   </div>
                 )}
 
-                {showCampaignLinkConfigModal && isOwnSelectedCampaign && (
-                  <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4">
-                    <div className="w-full max-w-md bg-zinc-950 border border-zinc-800 rounded-2xl p-5 space-y-4 max-h-[85vh] overflow-y-auto">
-                      <p className="text-[10px] font-black uppercase tracking-widest text-zinc-500">
-                        Configure Campaign Links
-                      </p>
-                      <p className="text-xs text-zinc-400">
-                        Map each link type to a tracking domain. Saved on this Campaign for everyone who generates links (including Creative marketers).
-                      </p>
-                      <div className="space-y-3">
-                        {availableCampaignLinkTypes(selectedCampaignRow).map(key => (
-                          <div key={key} className="space-y-1">
-                            <label className="text-[10px] font-black uppercase tracking-widest text-zinc-500">
-                              {CAMPAIGN_LINK_TYPE_META[key].label}
-                            </label>
-                            <select
-                              value={campaignLinkDomainByType[key] ?? ''}
-                              onChange={e => {
-                                const v = e.target.value || null;
-                                setCampaignLinkDomainByType(prev => ({ ...prev, [key]: v }));
-                              }}
-                              className="w-full bg-zinc-900 border border-zinc-800 rounded-xl px-3 py-2.5 text-xs text-zinc-100"
-                            >
-                              <option value="">vstrk.com</option>
-                              {ownerCampaignDomains.map(d => (
-                                <option key={d.id} value={d.id}>
-                                  {d.hostname}
-                                </option>
-                              ))}
-                            </select>
-                          </div>
-                        ))}
-                        {availableCampaignLinkTypes(selectedCampaignRow).length === 0 && (
-                          <p className="text-xs text-zinc-500">No campaign URLs configured for this campaign.</p>
-                        )}
-                      </div>
-                      <div className="flex gap-2">
-                        <button
-                          type="button"
-                          onClick={() => setShowCampaignLinkConfigModal(false)}
-                          className="flex-1 border border-zinc-700 text-zinc-400 text-[10px] font-black uppercase tracking-widest py-2.5 rounded-xl"
-                        >
-                          Cancel
-                        </button>
-                        <button
-                          type="button"
-                          disabled={savingCampaignLinkConfig}
-                          onClick={() => saveCampaignLinkDomainConfig()}
-                          className="flex-1 bg-red-600 hover:bg-red-500 disabled:opacity-50 text-white text-[10px] font-black uppercase tracking-widest py-2.5 rounded-xl"
-                        >
-                          {savingCampaignLinkConfig ? 'Saving…' : 'Save'}
-                        </button>
-                      </div>
-                    </div>
-                  </div>
+                {organizationId && (
+                  <ConfigureCampaignLinksModal
+                    open={showCampaignLinkConfigModal && isOwnSelectedCampaign}
+                    organizationId={organizationId}
+                    initialCampaignId={formData.campaign_id || null}
+                    onClose={() => setShowCampaignLinkConfigModal(false)}
+                    onSaved={async savedCampaignId => {
+                      // Refresh in-memory map when the saved campaign is the one currently selected
+                      if (savedCampaignId && savedCampaignId === formData.campaign_id) {
+                        const { data } = await supabase
+                          .from('campaigns')
+                          .select(
+                            'landing_page_tracking_domain_id, newsletter_tracking_domain_id, consultation_tracking_domain_id, sales_call_tracking_domain_id'
+                          )
+                          .eq('id', savedCampaignId)
+                          .maybeSingle();
+                        setCampaignLinkDomainByType(domainMapFromCampaignRow(data));
+                      }
+                      showAlert('Saved', 'Campaign link domain configuration saved.', 'success');
+                    }}
+                  />
                 )}
 
 {showCreativeAssetDeselect && isCreativePromotionOnly && (
