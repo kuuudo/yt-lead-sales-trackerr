@@ -12,6 +12,10 @@
  */
 
 import { supabase } from '../../lib/supabase';
+import {
+  resolveElementThumbnail,
+  type CampaignElementType,
+} from '../../lib/videoFormatters';
 
 export type BlackBoxElementType =
   | 'landing_page'
@@ -163,7 +167,9 @@ export async function listCampaignElementBlackBoxCatalog(
       elementType: et as BlackBoxElementType,
       campaignId,
       campaignName,
-      thumbnail: null,
+      thumbnail: resolveElementThumbnail(
+        (et as CampaignElementType) || 'landing_page'
+      ),
     });
   }
 
