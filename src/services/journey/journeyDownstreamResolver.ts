@@ -361,6 +361,68 @@ async function resolveConversionOutcomes(
 
   const nodes: DownstreamNode[] = []
   const edges: DownstreamEdge[] = []
+    // ── Session bridge (2026-09-24) ─────────────────────────────────────────
+  // pixel_purchases / stripe_purchases can carry a different video_id /
+  // promotion_id than the journey. events.session_id is the bridge (same as
+  // analyticsEngine). The Thank You hangs off the video of the session's
+  // latest event inside THIS promotion.
+  {
+    const { data: evRows, error: evErr } = await supabase
+      .from('events')
+      .select('session_id, video_id, created_at')
+      .eq('promotion_id', promotionId)
+      .not('session_id', 'is', null)
+      .not('video_id', 'is', null)
+
+    if (evErr) {
+      console.error('[journeyDownstreamResolver] events (session bridge) query failed:', evErr.message)
+    } else {
+      const videoBySession = new Map<string, { videoId: string; at: string }>()
+      for (const e of (evRows ?? []) as { session_id: string; video_id: string; created_at: string }[]) {
+        const prev = videoBySession.get(e.session_id)
+        if (!prev || e.created_at > prev.at) videoBySession.set(e.session_id, { videoId: e.video_id, at: e.created_at })
+      }
+      const sessionIds = Array.from(videoBySession.keys())
+
+      if (sessionIds.length > 0) {
+        const { data: bPixel, error: bPixelErr } = await supabase
+          .from('pixel_purchases')
+          .select('session_id, event_type')
+          .in('session_id', sessionIds)
+        if (bPixelErr) {
+          console.error('[journeyDownstreamResolver] pixel_purchases (session bridge) failed:', bPixelErr.message)
+        } else {
+          for (const r of (bPixel ?? []) as { session_id: string | null; event_type: string | null }[]) {
+            const v = r.session_id ? videoBySession.get(r.session_id) : undefined
+            if (v && r.event_type && OUTCOME_LABEL[r.event_type]) found.add(`${v.videoId}::${r.event_type}`)
+          }
+        }
+
+        const { data: bStripe, error: bStripeErr } = await supabase
+          .from('stripe_purchases')
+          .select('session_id, redirect_link_id')
+          .in('session_id', sessionIds)
+        if (bStripeErr) {
+          console.error('[journeyDownstreamResolver] stripe_purchases (session bridge) failed:', bStripeErr.message)
+        } else {
+          const sRows = (bStripe ?? []) as { session_id: string | null; redirect_link_id: string | null }[]
+          const sLinkIds = Array.from(new Set(sRows.map((r) => r.redirect_link_id).filter((x): x is string => !!x)))
+          const sLinkType = new Map<string, string>()
+          if (sLinkIds.length > 0) {
+            const { data: sLinks } = await supabase.from('redirect_links').select('id, link_type').in('id', sLinkIds)
+            for (const l of (sLinks ?? []) as { id: string; link_type: string | null }[]) {
+              if (l.link_type) sLinkType.set(l.id, l.link_type)
+            }
+          }
+          for (const r of sRows) {
+            const v = r.session_id ? videoBySession.get(r.session_id) : undefined
+            const outcome = r.redirect_link_id ? LINK_TYPE_TO_OUTCOME[sLinkType.get(r.redirect_link_id) ?? ''] : undefined
+            if (v && outcome) found.add(`${v.videoId}::${outcome}`)
+          }
+        }
+      }
+    }
+  }
   console.log('[conversion-debug]', { promotionId, videoIds, pixelRows, stripeRows, found: Array.from(found) })
   for (const key of found) {
     const [videoId, outcome] = key.split('::')
