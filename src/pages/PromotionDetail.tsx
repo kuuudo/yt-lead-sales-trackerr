@@ -1387,8 +1387,10 @@ export default function PromotionDetail() {
                       </div>
                     );
                   })()}
-              </section>
-            </div>
+                </div>
+              )}
+            </section>
+          </div>
 
             {/* Right column — Promoted Assets */}
             <div className="md:w-3/5">
