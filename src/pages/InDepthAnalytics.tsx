@@ -103,6 +103,64 @@ const CONVERSION_RATE_LABELS: Record<ConversionRateKey, string> = {
   purchase_rate:         'Purchase Rate',
 };
 
+// ── Campaign Links WebMood (text-only 2×2) ─────────────────────────────────
+// Always the same presentation (never Asset thumbnails).
+// Active = redirect_links has (video_id, campaign_id, link_type).
+const WEBMOOD_LINK_TYPES = ['sales_call', 'consultation', 'newsletter', 'landing_page'] as const;
+type WebmoodLinkType = (typeof WEBMOOD_LINK_TYPES)[number];
+
+const WEBMOOD_CELL_META: { type: WebmoodLinkType; label: string }[] = [
+  { type: 'sales_call', label: 'SALES' },
+  { type: 'consultation', label: 'CONSULT' },
+  { type: 'newsletter', label: 'NEWS' },
+  { type: 'landing_page', label: 'PURCHASE' },
+];
+
+const CAMPAIGN_LINK_TYPE_SET = new Set<string>(WEBMOOD_LINK_TYPES);
+
+/** videoId → campaignId → set of active link_types */
+type CampaignLinkGridMap = Map<string, Map<string, Set<string>>>;
+
+function buildCampaignLinkGridMap(
+  rows: { video_id: string; campaign_id: string | null; link_type: string }[]
+): CampaignLinkGridMap {
+  const out: CampaignLinkGridMap = new Map();
+  for (const r of rows) {
+    if (!r.video_id || !r.campaign_id) continue;
+    if (!CAMPAIGN_LINK_TYPE_SET.has(r.link_type)) continue;
+    if (!out.has(r.video_id)) out.set(r.video_id, new Map());
+    const byCamp = out.get(r.video_id)!;
+    if (!byCamp.has(r.campaign_id)) byCamp.set(r.campaign_id, new Set());
+    byCamp.get(r.campaign_id)!.add(r.link_type);
+  }
+  return out;
+}
+
+function WebmoodGrid({ activeTypes }: { activeTypes: Set<string> }) {
+  return (
+    <div
+      className="grid grid-cols-2 gap-0.5 w-[88px] h-[44px] rounded-md overflow-hidden border border-zinc-800 bg-zinc-950 shrink-0"
+      title="Campaign link positions (orange = promoted on this video for this campaign)"
+    >
+      {WEBMOOD_CELL_META.map(cell => {
+        const on = activeTypes.has(cell.type);
+        return (
+          <div
+            key={cell.type}
+            className={
+              on
+                ? 'flex items-center justify-center text-[7px] font-black tracking-wider text-orange-400 bg-orange-500/20'
+                : 'flex items-center justify-center text-[7px] font-black tracking-wider text-zinc-600 bg-zinc-900/80'
+            }
+          >
+            {cell.label}
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
 function getConversionRate(key: ConversionRateKey, row: any): string {
   switch (key) {
     case 'newsletter_optin_rate':
@@ -180,6 +238,8 @@ export default function InDepthAnalyticsTest() {
   const [rawEvents, setRawEvents]             = useState<RawEvent[]>([]);
   const [stripePurchases, setStripePurchases] = useState<StripePurchaseRow[]>([]);
   const [pixelPurchases, setPixelPurchases]   = useState<PixelPurchaseRow[]>([]);
+  /** Campaign-link positions per video×campaign from redirect_links (UI WebMood). */
+  const [campaignLinkGrid, setCampaignLinkGrid] = useState<CampaignLinkGridMap>(new Map());
 
   // ── Filter state (unchanged) ─────────────────────────────────────────────
   const [dateRange, setDateRange]                     = useState<DateRange>('30days');
@@ -231,6 +291,22 @@ export default function InDepthAnalyticsTest() {
         setRawEvents(cached.data.rawEvents);
         setStripePurchases(cached.data.stripePurchases);
         setPixelPurchases(cached.data.pixelPurchases);
+        // WebMood grid is not in page cache — light refresh from redirect_links
+        const vids = (cached.data.videos || []).map((v: any) => v.id).filter(Boolean);
+        if (vids.length) {
+          supabase
+            .from('redirect_links')
+            .select('video_id, campaign_id, link_type, asset_id')
+            .in('video_id', vids)
+            .then(({ data }) => {
+              setCampaignLinkGrid(
+                buildCampaignLinkGridMap(((data as any[]) || []).filter(r => !r.asset_id))
+              );
+            })
+            .catch(() => setCampaignLinkGrid(new Map()));
+        } else {
+          setCampaignLinkGrid(new Map());
+        }
         setLoading(false);
         return;
       }
@@ -288,7 +364,7 @@ export default function InDepthAnalyticsTest() {
       const videoIds    = vData.map((v: any) => v.id);
       const campaignIds = vData.map((v: any) => v.campaign_id).filter(Boolean);
 
-      const [eDirectData, eViaSessionData, spData, ppData] = await Promise.all([
+      const [eDirectData, eViaSessionData, spData, ppData, rlGridData] = await Promise.all([
         supabase
           .from('events')
           .select('video_id, campaign_id, event_type, created_at')
@@ -320,7 +396,19 @@ export default function InDepthAnalyticsTest() {
               .select('video_id, campaign_id, amount, event_type, session_id')
               .in('campaign_id', campaignIds)
           : Promise.resolve({ data: [] as any[] }),
+
+        // Campaign-link WebMood: only non-asset (campaign) redirects
+        supabase
+          .from('redirect_links')
+          .select('video_id, campaign_id, link_type, asset_id')
+          .in('video_id', videoIds),
       ]);
+
+      setCampaignLinkGrid(
+        buildCampaignLinkGridMap(
+          ((rlGridData.data as any[]) || []).filter(r => !r.asset_id)
+        )
+      );
 
       const sessionResolvedEvents = flattenSessionEvents(eViaSessionData.data as any[] || []);
       const allEvents = mergeEventSources(eDirectData.data || [], sessionResolvedEvents);
@@ -427,6 +515,53 @@ export default function InDepthAnalyticsTest() {
       selectedPlatforms.includes(row.video.platform ?? 'youtube'),
     );
   }, [engineSorted, selectedPlatforms, contentScope, user?.id]);
+
+  /**
+   * Display grain: video × link-campaign when multi-campaign links exist.
+   * - 0 campaign-link redirects → 1 row (primary campaign name, all-dim grid)
+   * - N campaigns with links → N rows (same engine metrics; WebMood per campaign)
+   * Metrics remain video-level until a later engine split (surgical UI phase).
+   */
+  type DisplayRow = {
+    engineRow: (typeof engineSorted)[number];
+    linkCampaignId: string | null;
+    activeLinkTypes: Set<string>;
+    rowKey: string;
+  };
+
+  const displayRows = useMemo((): DisplayRow[] => {
+    const out: DisplayRow[] = [];
+    for (const row of sortedVideos) {
+      const vid = row.video.id;
+      const byCamp = campaignLinkGrid.get(vid);
+      if (!byCamp || byCamp.size === 0) {
+        out.push({
+          engineRow: row,
+          linkCampaignId: row.video.campaign_id ?? null,
+          activeLinkTypes: new Set(),
+          rowKey: vid,
+        });
+        continue;
+      }
+      for (const [campId, types] of byCamp.entries()) {
+        out.push({
+          engineRow: row,
+          linkCampaignId: campId,
+          activeLinkTypes: types,
+          rowKey: `${vid}:${campId}`,
+        });
+      }
+    }
+    // Optional: filter by selectedCampaignId against link campaign when not 'all'
+    if (selectedCampaignId && selectedCampaignId !== 'all') {
+      return out.filter(
+        r =>
+          r.linkCampaignId === selectedCampaignId ||
+          r.engineRow.video.campaign_id === selectedCampaignId
+      );
+    }
+    return out;
+  }, [sortedVideos, campaignLinkGrid, selectedCampaignId]);
 
   // Derive present platforms from full engine output (not filtered)
   const presentPlatforms = useMemo(() => {
@@ -921,6 +1056,9 @@ export default function InDepthAnalyticsTest() {
                   <th className="px-6 py-5 text-left text-[10px] font-black uppercase tracking-widest text-zinc-600 border-b border-zinc-900 bg-zinc-950 min-w-[300px] sticky left-0 z-30">
                     Content
                   </th>
+                  <th className="px-4 py-5 text-left text-[10px] font-black uppercase tracking-widest text-zinc-600 border-b border-zinc-900 bg-zinc-950 min-w-[110px]">
+                    Campaign Links
+                  </th>
 
                   {/* Engine columns — conditionally rendered */}
                   {TABLE_COLUMNS.filter(key => visibleColumns.has(key)).map(key => (
@@ -961,7 +1099,8 @@ export default function InDepthAnalyticsTest() {
               </thead>
 
               <tbody className="bg-black divide-y divide-zinc-900">
-                {sortedVideos.map(row => {
+                {displayRows.map(dRow => {
+                  const row = dRow.engineRow;
                   // UI-only indicator: was this video uploaded within the
                   // currently selected dateRange window? Does NOT affect
                   // which rows render or how metrics are computed.
@@ -969,10 +1108,15 @@ export default function InDepthAnalyticsTest() {
                   const inRange = dateRange !== 'all' && !!createdAt &&
                     new Date(createdAt) >= dateRangeBounds.start &&
                     new Date(createdAt) <= dateRangeBounds.end;
+                  const linkCampaignName =
+                    (dRow.linkCampaignId &&
+                      campaigns.find(c => c.id === dRow.linkCampaignId)?.campaign_name) ||
+                    (row.campaign as any)?.campaign_name ||
+                    'Individual Video';
 
                   return (
                   <tr
-                    key={row.video.id}
+                    key={dRow.rowKey}
                     className={`hover:bg-zinc-950 transition-colors group ${
                       inRange ? 'bg-emerald-500/[0.04] border-l-2 border-l-emerald-500/50' : ''
                     }`}
@@ -1010,10 +1154,15 @@ export default function InDepthAnalyticsTest() {
                             )}
                           </div>
                           <div className="text-[9px] text-zinc-600 font-bold uppercase tracking-widest mt-0.5 truncate">
-                            {(row.campaign as any)?.campaign_name || 'Individual Video'}
+                            {linkCampaignName}
                           </div>
                         </div>
                       </div>
+                    </td>
+
+                    {/* ── Campaign Links WebMood (text-only 2×2) ─────────── */}
+                    <td className="px-4 py-4 whitespace-nowrap">
+                      <WebmoodGrid activeTypes={dRow.activeLinkTypes} />
                     </td>
 
                     {/* ── Engine metric cells (unchanged logic) ────────── */}
