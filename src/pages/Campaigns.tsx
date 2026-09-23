@@ -236,7 +236,7 @@ export default function Campaigns() {
         .not('archived_at', 'is', null)
         .order('archived_at', { ascending: false });
       if (error) throw error;
-      const rows = data || [];
+      const rows = (data || []) as Campaign[];
       setArchivedCampaigns(rows);
       // Central resolver: Level 1 (Archive Tab) vs Level 2 (Hidden) per viewer.
       // Read-only — never writes campaigns.archived_at or archive_ui_visibility.

@@ -61,6 +61,7 @@ import AllAssetsAnalytics from './pages/AllAssetsAnalytics';
 import AllPromotionsAnalytics from './pages/AllPromotionsAnalytics';
 import AllCampaignAnalytics from './pages/AllCampaignAnalytics';
 import CampaignAnalytics from './pages/CampaignAnalytics';
+import CampaignJourneyMap from './pages/CampaignJourneyMap';
 import AssetAnalyticsMock from './pages/AssetAnalyticsMock';
 // Top-level path segments that are "real" app pages (i.e. matched by an
 // explicit <Route> before the catch-all "/:token" route). If a single-segment
