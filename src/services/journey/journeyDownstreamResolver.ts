@@ -72,7 +72,9 @@ export interface DownstreamNode {
   // Which real field produced elementType — surfaced so the UI can show
   // "resolved from a real asset row" separately from "inferred from the
   // link's link_type because asset_id was null on this redirect link."
-  resolvedFrom: 'asset' | 'link_type'
+  resolvedFrom: 'asset' | 'link_type' | 'conversion'
+  // Optional display label (used by conversion-derived Thank You nodes).
+  label?: string
   assetId: string | null
   redirectLinkId: string
   sourceVideoId: string
@@ -252,7 +254,7 @@ export async function resolveDownstreamNodes(graph: JourneyGraph): Promise<Downs
 // for those, never videos), so it has no video_id for redirect_links.video_id
 // to reference in the first place. Not a limitation added here — a property
 // of the schema.
-export async function resolveDownstreamForVideoIds(
+async function resolveDownstreamForVideoIdsStructural(
   videoIds: string[],
   promotionId: string,
 ): Promise<DownstreamResolution> {
@@ -269,4 +271,117 @@ export async function resolveDownstreamForVideoIds(
   }
 
   return resolveLinksToDownstream((redirectLinks ?? []) as RedirectLinkRow[])
+}
+
+// ── Conversion-derived Thank You nodes (2026-09-24) ─────────────────────────
+// A Thank You outcome exists when a real conversion record exists:
+//   - pixel_purchases.event_type: newsletter / sales_call / consultation / purchase
+//   - stripe_purchases: classified via redirect_link_id -> redirect_links.link_type
+// Matched by video_id + promotion_id. One node per (video, outcome type),
+// so duplicate rows / pixel+stripe overlap never create duplicate nodes.
+const OUTCOME_LABEL: Record<string, string> = {
+  newsletter: 'Newsletter Thank You',
+  sales_call: 'Sales Call Booked',
+  consultation: 'Consultation Booked',
+  purchase: 'Direct Purchase Thank You',
+}
+
+// ASSUMPTION: a paid Stripe purchase from a 'landing_page' link is a direct
+// purchase. Verify against your real data.
+const LINK_TYPE_TO_OUTCOME: Record<string, string> = {
+  newsletter: 'newsletter',
+  sales_call: 'sales_call',
+  consultation: 'consultation',
+  landing_page: 'purchase',
+}
+
+async function resolveConversionOutcomes(
+  videoIds: string[],
+  promotionId: string,
+): Promise<DownstreamResolution> {
+  if (videoIds.length === 0) return { nodes: [], edges: [] }
+
+  const found = new Set<string>() // `${videoId}::${outcome}`
+
+  const { data: pixelRows, error: pixelErr } = await supabase
+    .from('pixel_purchases')
+    .select('video_id, event_type')
+    .in('video_id', videoIds)
+    .eq('promotion_id', promotionId)
+
+  if (pixelErr) {
+    console.error('[journeyDownstreamResolver] pixel_purchases query failed:', pixelErr.message)
+  } else {
+    for (const r of (pixelRows ?? []) as { video_id: string | null; event_type: string | null }[]) {
+      if (r.video_id && r.event_type && OUTCOME_LABEL[r.event_type]) {
+        found.add(`${r.video_id}::${r.event_type}`)
+      }
+    }
+  }
+
+  const { data: stripeRows, error: stripeErr } = await supabase
+    .from('stripe_purchases')
+    .select('video_id, redirect_link_id')
+    .in('video_id', videoIds)
+    .eq('promotion_id', promotionId)
+
+  if (stripeErr) {
+    console.error('[journeyDownstreamResolver] stripe_purchases query failed:', stripeErr.message)
+  } else {
+    const rows = (stripeRows ?? []) as { video_id: string | null; redirect_link_id: string | null }[]
+    const linkIds = Array.from(new Set(rows.map((r) => r.redirect_link_id).filter((x): x is string => !!x)))
+    const linkTypeById = new Map<string, string>()
+    if (linkIds.length > 0) {
+      const { data: linkRows, error: linkErr } = await supabase
+        .from('redirect_links')
+        .select('id, link_type')
+        .in('id', linkIds)
+      if (linkErr) {
+        console.error('[journeyDownstreamResolver] redirect_links (stripe) query failed:', linkErr.message)
+      } else {
+        for (const l of (linkRows ?? []) as { id: string; link_type: string | null }[]) {
+          if (l.link_type) linkTypeById.set(l.id, l.link_type)
+        }
+      }
+    }
+    for (const r of rows) {
+      if (!r.video_id || !r.redirect_link_id) continue
+      const outcome = LINK_TYPE_TO_OUTCOME[linkTypeById.get(r.redirect_link_id) ?? '']
+      if (outcome) found.add(`${r.video_id}::${outcome}`)
+    }
+  }
+
+  const nodes: DownstreamNode[] = []
+  const edges: DownstreamEdge[] = []
+  for (const key of found) {
+    const [videoId, outcome] = key.split('::')
+    const nodeId = `outcome:${videoId}:${outcome}`
+    nodes.push({
+      id: nodeId,
+      kind: 'campaign_element',
+      elementType: 'thank_you', // existing map code already draws this with the check icon
+      resolvedFrom: 'conversion',
+      assetId: null,
+      redirectLinkId: '',
+      sourceVideoId: videoId,
+      label: OUTCOME_LABEL[outcome],
+    })
+    edges.push({ fromVideoId: videoId, toNodeId: nodeId })
+  }
+  return { nodes, edges }
+}
+
+// Public entry point 2 — structural nodes (redirect_links) + conversion-derived
+// Thank You nodes. Same name/signature as before, so PromotionJourneyMap.tsx
+// keeps working without import changes.
+export async function resolveDownstreamForVideoIds(
+  videoIds: string[],
+  promotionId: string,
+): Promise<DownstreamResolution> {
+  const structural = await resolveDownstreamForVideoIdsStructural(videoIds, promotionId)
+  const outcomes = await resolveConversionOutcomes(videoIds, promotionId)
+  return {
+    nodes: [...structural.nodes, ...outcomes.nodes],
+    edges: [...structural.edges, ...outcomes.edges],
+  }
 }

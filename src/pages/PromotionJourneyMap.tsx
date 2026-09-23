@@ -2140,7 +2140,7 @@ const [nodeDetailTarget, setNodeDetailTarget] = useState<
           {positionedDownstreamNodes.map((dNode) => {
             const isThankYou = dNode.elementType === 'thank_you'
             const assetFallback = dNode.assetId ? resolveGraphAssetDisplay(dNode.assetId) : undefined
-            const displayTitle = dNode.elementType
+                        const displayTitle = dNode.label ? dNode.label : dNode.elementType
               ? getElementTypeLabel(dNode.elementType)
               : assetFallback?.title ?? (dNode.kind === 'resource' ? 'Imported resource' : 'Unlabeled')
             // Consultation / Landing Page / etc. use the existing fixed
