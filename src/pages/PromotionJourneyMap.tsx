@@ -729,7 +729,7 @@ const [nodeDetailTarget, setNodeDetailTarget] = useState<
               return [n.videoId, (resolved?.assetType ?? 'unknown') as GraphNodeVisualType] as const
             })
           ),
-          resolveDownstreamNodes(built),
+          resolveDownstreamNodes(built, promotionId),
         ])
         if (cancelled) return
 
@@ -2153,6 +2153,19 @@ const [nodeDetailTarget, setNodeDetailTarget] = useState<
               : dNode.elementType
               ? resolveElementThumbnail(dNode.elementType)
               : assetFallback?.thumbnailUrl ?? null
+                          const LINK_ACCENT: Record<string, string> = {
+              newsletter: '#0ea5e9',
+              landing_page: '#f97316',
+              sales_call: '#6366f1',
+              consultation: '#10b981',
+            }
+            const isLinkCard = dNode.resolvedFrom === 'link_type' && !isThankYou
+            const nodeAccent =
+              isLinkCard && dNode.elementType && LINK_ACCENT[dNode.elementType]
+                ? LINK_ACCENT[dNode.elementType]
+                : dNode.kind === 'resource'
+                ? GRAPH_TYPE_ACCENT.resource
+                : GRAPH_TYPE_ACCENT.campaign_element
             const debugId = dNode.resolvedFrom === 'link_type' ? dNode.redirectLinkId : dNode.assetId
 
             return (
@@ -2169,22 +2182,22 @@ const [nodeDetailTarget, setNodeDetailTarget] = useState<
                   top: dNode.y,
                   width: GRAPH_NODE_WIDTH,
                   height: GRAPH_NODE_HEIGHT,
-                  borderLeft: `3px solid ${dNode.kind === 'resource' ? GRAPH_TYPE_ACCENT.resource : GRAPH_TYPE_ACCENT.campaign_element}`,
+                  borderLeft: `3px solid ${nodeAccent}`,
                 }}
               >
                 <div style={styles.graphNodeHead}>
                   <span
                     style={{
                       ...styles.graphNodeTypeDot,
-                      background: dNode.kind === 'resource' ? GRAPH_TYPE_ACCENT.resource : GRAPH_TYPE_ACCENT.campaign_element,
+                      background: nodeAccent,
                     }}
                   />
                   <span style={styles.graphNodeType}>
-                    {dNode.kind === 'resource' ? 'Imported resource' : 'Campaign element'} · end of path
+                    {isLinkCard ? 'ENTRY CONTENT' : `${dNode.kind === 'resource' ? 'Imported resource' : 'Campaign element'} · end of path`}
                   </span>
                 </div>
                 <div style={styles.graphNodeBody}>
-                  {isThankYou ? (
+                  {isLinkCard ? null : isThankYou ? (
                     <div style={styles.thankYouThumbWrap}>
                       <Check size={20} strokeWidth={2.5} />
                     </div>

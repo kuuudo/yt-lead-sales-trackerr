@@ -216,7 +216,11 @@ async function resolveLinksToDownstream(links: RedirectLinkRow[]): Promise<Downs
 // Resolves the redirect link(s) actually observed on a terminal video step.
 // Requires an events_journey-derived JourneyGraph as input; returns nothing
 // for a promotion with no observed traffic.
-export async function resolveDownstreamNodes(graph: JourneyGraph): Promise<DownstreamResolution> {
+export async function resolveDownstreamNodes(graph: JourneyGraph, promotionId?: string): Promise<DownstreamResolution> {
+  // Conversion-derived Thank You nodes for every video in the observed graph.
+  const outcomes: DownstreamResolution = promotionId
+    ? await resolveConversionOutcomes(graph.nodes.map((n) => n.videoId), promotionId)
+    : { nodes: [], edges: [] }
   // Terminal = no observed outgoing edge in the observed video->video graph
   // journeyGraph.ts already built. Only these are candidates — a node with
   // a real outgoing edge already has its next step represented there.
@@ -226,7 +230,7 @@ export async function resolveDownstreamNodes(graph: JourneyGraph): Promise<Downs
   const redirectLinkIds = Array.from(
     new Set(terminalNodes.flatMap((n) => n.observedRedirectLinkIds)),
   )
-  if (redirectLinkIds.length === 0) return { nodes: [], edges: [] }
+    if (redirectLinkIds.length === 0) return outcomes
 
   const { data: redirectLinks, error: rlError } = await supabase
     .from('redirect_links')
@@ -237,7 +241,11 @@ export async function resolveDownstreamNodes(graph: JourneyGraph): Promise<Downs
     throw new Error(`journeyDownstreamResolver.ts: redirect_links query failed — ${rlError.message}`)
   }
 
-  return resolveLinksToDownstream((redirectLinks ?? []) as RedirectLinkRow[])
+    const structural = await resolveLinksToDownstream((redirectLinks ?? []) as RedirectLinkRow[])
+  return {
+    nodes: [...structural.nodes, ...outcomes.nodes],
+    edges: [...structural.edges, ...outcomes.edges],
+  }
 }
 
 // ── Entry point 2 (new, STEP 4) — directly from a promoted asset's video ───
