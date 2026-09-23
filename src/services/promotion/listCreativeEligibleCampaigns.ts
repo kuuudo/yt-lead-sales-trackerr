@@ -17,8 +17,12 @@ export interface EligiblePromotion {
   campaignName: string | null;
   sponsorOrganizationId: string | null;
   label: string;
-  /** Set only when assignment has creative_creation_mode */
+  /** Legacy creative_creation_mode when Creative; null for Regular */
   creativeMode: CreativeCreationMode | null;
+  /** Product mode: regular | creative */
+  assignmentMode: 'regular' | 'creative';
+  /** Asset Usage — BOTH modes */
+  assetScope: 'promotion_only' | 'allow_additional';
 }
 
 
@@ -34,7 +38,9 @@ export interface CreativeEligibleAssignment {
   onlyPromoteAssetCampaignName: string;
   /** Resolved name for creative_campaign_id */
   creativeCampaignName: string | null;
-  /** Creative only: promotion_only | allow_additional */
+  /** Product mode */
+  assignmentMode: 'regular' | 'creative';
+  /** Asset Usage — BOTH modes */
   assetScope: 'promotion_only' | 'allow_additional';
 }
 
@@ -60,9 +66,8 @@ export async function listCreativeEligibleAssignmentsForMarketer(
 
   const { data: assignmentRows, error: assignErr } = await supabase
     .from('assignments')
-    .select('id, title, organization_id, creative_creation_mode, creative_campaign_id, asset_scope')
-    .in('id', assignmentIds)
-    .in('creative_creation_mode', ['campaign_asset_only', 'campaign_links_and_assets']);
+    .select('id, title, organization_id, assignment_mode, creative_creation_mode, creative_campaign_id, asset_scope')
+    .in('id', assignmentIds);
 
   if (assignErr) {
     throw new Error(`Creative assignments: ${assignErr.message}`);
@@ -72,20 +77,28 @@ export async function listCreativeEligibleAssignmentsForMarketer(
   const out: CreativeEligibleAssignment[] = [];
 
   for (const a of assignmentRows) {
-    const mode = a.creative_creation_mode as CreativeCreationMode;
-    const orgId = a.organization_id as string;
+    const modeRaw = a.creative_creation_mode as string | null;
+    const assignmentMode: 'regular' | 'creative' =
+      (a as any).assignment_mode === 'creative' ||
+      (a as any).assignment_mode === 'regular'
+        ? ((a as any).assignment_mode as 'regular' | 'creative')
+        : modeRaw === 'campaign_asset_only' || modeRaw === 'campaign_links_and_assets'
+          ? 'creative'
+          : 'regular';
 
-    const { data: onlyPromote } = await supabase
-      .from('campaigns')
-      .select('id, campaign_name')
-      .eq('organization_id', orgId)
-      .eq('is_system', true)
-      .eq('campaign_name', 'ONLY PROMOTE ASSET')
-      .maybeSingle();
+    // This list is for Creative Create Content layer (Sponsor campaign context).
+    // Regular assignments are handled via EligiblePromotion.assetScope.
+    if (assignmentMode !== 'creative') continue;
+
+    const mode =
+      modeRaw === 'campaign_asset_only' || modeRaw === 'campaign_links_and_assets'
+        ? (modeRaw as CreativeCreationMode)
+        : ('campaign_links_and_assets' as CreativeCreationMode);
+    const orgId = a.organization_id as string;
 
     let creativeCampaignName: string | null = null;
     const creativeCampaignId = (a.creative_campaign_id as string | null) ?? null;
-    if (mode === 'campaign_links_and_assets' && creativeCampaignId) {
+    if (creativeCampaignId) {
       const { data: camp } = await supabase
         .from('campaigns')
         .select('id, campaign_name, organization_id, is_system, archived_at')
@@ -106,12 +119,11 @@ export async function listCreativeEligibleAssignmentsForMarketer(
       title: (a.title as string) ?? 'Assignment',
       organizationId: orgId,
       creativeMode: mode,
-      creativeCampaignId:
-        mode === 'campaign_links_and_assets' ? creativeCampaignId : null,
-      onlyPromoteAssetCampaignId: (onlyPromote?.id as string) ?? null,
-      onlyPromoteAssetCampaignName:
-        (onlyPromote?.campaign_name as string) ?? 'ONLY PROMOTE ASSET',
+      creativeCampaignId,
+      onlyPromoteAssetCampaignId: null,
+      onlyPromoteAssetCampaignName: '',
       creativeCampaignName,
+      assignmentMode: 'creative',
       assetScope:
         (a.asset_scope as string) === 'allow_additional'
           ? 'allow_additional'
@@ -178,7 +190,7 @@ export async function listEligiblePromotionsForMarketer(
 
   const { data: assignmentRows, error: assignErr } = await supabase
     .from('assignments')
-    .select('id, title, organization_id, creative_creation_mode')
+    .select('id, title, organization_id, assignment_mode, creative_creation_mode, asset_scope')
     .in('id', assignmentIds);
 
   if (assignErr) {
@@ -229,6 +241,17 @@ export async function listEligiblePromotionsForMarketer(
       modeRaw === 'campaign_asset_only' || modeRaw === 'campaign_links_and_assets'
         ? modeRaw
         : null;
+    const assignmentMode: 'regular' | 'creative' =
+      (assignment as any).assignment_mode === 'creative' ||
+      (assignment as any).assignment_mode === 'regular'
+        ? ((assignment as any).assignment_mode as 'regular' | 'creative')
+        : creativeMode
+          ? 'creative'
+          : 'regular';
+    const assetScope: 'promotion_only' | 'allow_additional' =
+      (assignment as any).asset_scope === 'allow_additional'
+        ? 'allow_additional'
+        : 'promotion_only';
 
     out.push({
       promotionId: p.id,
@@ -240,6 +263,8 @@ export async function listEligiblePromotionsForMarketer(
         camp?.organization_id ?? (assignment.organization_id as string) ?? null,
       label: (assignment.title as string) ?? `Promotion ${p.id.slice(0, 8)}`,
       creativeMode,
+      assignmentMode,
+      assetScope,
     });
   }
 

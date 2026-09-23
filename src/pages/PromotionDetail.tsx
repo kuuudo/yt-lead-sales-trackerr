@@ -452,9 +452,7 @@ export default function PromotionDetail() {
     const scope =
       a.asset_scope === 'promotion_only' || a.asset_scope === 'allow_additional'
         ? a.asset_scope
-        : mode
-          ? 'promotion_only'
-          : null;
+        : 'promotion_only';
     setDraftCreativeMode(mode);
     setDraftAssetScope(scope);
     setCreativeDraftReady(true);
@@ -677,9 +675,7 @@ export default function PromotionDetail() {
   const creativeDirty =
     creativeDraftReady &&
     isSponsor &&
-    !!savedCreativeMode &&
-    (draftCreativeMode !== savedCreativeMode ||
-      (draftAssetScope || 'promotion_only') !== (savedAssetScope || 'promotion_only'));
+    (draftAssetScope || 'promotion_only') !== (savedAssetScope || 'promotion_only');
 
   const saveCreativeSettings = async () => {
     if (!detail?.assignment?.id || !isSponsor || !creativeDirty) return;
@@ -688,8 +684,8 @@ export default function PromotionDetail() {
     try {
       const result = await updateAssignmentCreativeSettings({
         assignmentId: detail.assignment.id,
-        creative_creation_mode: draftCreativeMode,
-        asset_scope: draftCreativeMode ? (draftAssetScope || 'promotion_only') : null,
+        // Mode is fixed at Create Assignment; only asset_scope is edited here.
+        asset_scope: draftAssetScope || 'promotion_only',
       });
       setDetail((prev: PromotionDetailData | null) => {
         if (!prev?.assignment) return prev;
@@ -1288,86 +1284,36 @@ export default function PromotionDetail() {
                     Content Creation
                   </p>
                   {(() => {
-                    const mode = isSponsor && creativeDraftReady
-                      ? draftCreativeMode
-                      : (((assignment as any).creative_creation_mode as string | null) || null);
                     const scope = isSponsor && creativeDraftReady
                       ? draftAssetScope
                       : (((assignment as any).asset_scope as string | null) || null);
                     const campaignId = ((assignment as any).creative_campaign_id as string | null) || null;
-                    const isCreative =
-                      mode === 'campaign_asset_only' || mode === 'campaign_links_and_assets';
-
-                    if (!isCreative) {
-                      return (
-                        <p className="text-sm text-zinc-400">No content creation</p>
-                      );
-                    }
+                    const modeRaw = ((assignment as any).creative_creation_mode as string | null) || null;
+                    const assignmentMode =
+                      (assignment as any).assignment_mode === 'creative' ||
+                      (assignment as any).assignment_mode === 'regular'
+                        ? ((assignment as any).assignment_mode as string)
+                        : modeRaw === 'campaign_asset_only' || modeRaw === 'campaign_links_and_assets'
+                          ? 'creative'
+                          : 'regular';
 
                     return (
                       <div className="space-y-4">
                         <div className="space-y-2">
                           <p className="text-[10px] font-bold uppercase tracking-widest text-zinc-500">
-                            Creative Mode
+                            Assignment Type
                           </p>
-                          {isSponsor ? (
-                            <div className="space-y-2">
-                              <label className="flex items-start gap-2 cursor-pointer">
-                                <input
-                                  type="radio"
-                                  className="mt-0.5 accent-orange-500"
-                                  name="promo-creative-mode"
-                                  checked={mode === 'campaign_asset_only'}
-                                  disabled={creativeSettingsBusy}
-                                  onChange={() => {
-                                    setDraftCreativeMode('campaign_asset_only');
-                                    setCreativeSettingsError(null);
-                                  }}
-                                />
-                                <span className="text-xs text-zinc-200">
-                                  Campaign + asset only
-                                  <span className="block text-[10px] text-zinc-500 font-normal mt-0.5">
-                                    ONLY PROMOTE ASSET — no extra Sponsor campaign links campaign.
-                                  </span>
-                                </span>
-                              </label>
-                              <label
-                                className={`flex items-start gap-2 ${
-                                  !campaignId && mode === 'campaign_asset_only'
-                                    ? 'opacity-50 cursor-not-allowed'
-                                    : 'cursor-pointer'
-                                }`}
-                              >
-                                <input
-                                  type="radio"
-                                  className="mt-0.5 accent-orange-500"
-                                  name="promo-creative-mode"
-                                  checked={mode === 'campaign_links_and_assets'}
-                                  disabled={
-                                    creativeSettingsBusy ||
-                                    (!campaignId && mode === 'campaign_asset_only')
-                                  }
-                                  onChange={() => {
-                                    setDraftCreativeMode('campaign_links_and_assets');
-                                    setCreativeSettingsError(null);
-                                  }}
-                                />
-                                <span className="text-xs text-zinc-200">
-                                  Campaign + links + assets
-                                  <span className="block text-[10px] text-zinc-500 font-normal mt-0.5">
-                                    ONLY PROMOTE ASSET plus one Sponsor campaign.
-                                    {!campaignId && mode === 'campaign_asset_only'
-                                      ? ' Requires a creative campaign already set on this Assignment (no auto-select).'
-                                      : ''}
-                                  </span>
-                                </span>
-                              </label>
-                            </div>
+                          <p className="text-sm text-zinc-200 font-medium">
+                            {assignmentMode === 'creative' ? 'Creative' : 'Regular'}
+                          </p>
+                          {assignmentMode === 'creative' ? (
+                            <p className="text-xs text-zinc-400">
+                              Marketer creates content under the Sponsor&apos;s campaign
+                              {campaignId ? ' (campaign set on Assignment).' : '.'}
+                            </p>
                           ) : (
-                            <p className="text-sm text-zinc-300">
-                              {mode === 'campaign_asset_only'
-                                ? 'Campaign + asset only'
-                                : 'Campaign + links + assets'}
+                            <p className="text-xs text-zinc-400">
+                              Marketer creates content under their own campaign context.
                             </p>
                           )}
                         </div>
@@ -1434,19 +1380,14 @@ export default function PromotionDetail() {
                             Unsaved changes — use Save (top right).
                           </p>
                         )}
-                        {creativeSettingsBusy && (
-                          <p className="text-[10px] text-zinc-500">Saving…</p>
-                        )}
                       </div>
                     );
                   })()}
                 </div>
               )}
+            </div>
 
-            </section>
-          </div>
-
-          {/* Right column — Promoted Assets */}
+                    {/* Right column — Promoted Assets */}
           <div className="md:w-3/5">
        <p className="text-[10px] font-black uppercase tracking-widest text-zinc-500 mb-3">
               Promoted Assets

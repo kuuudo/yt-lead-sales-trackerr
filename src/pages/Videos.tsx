@@ -936,9 +936,20 @@ const [resolvingPromotionContext, setResolvingPromotionContext] = useState(false
 
   const selectedCreativeAssignment =
     creativeEligibleAssignments.find(a => a.assignmentId === selectedCreativeAssignmentId) ?? null;
-  const isCreativePromotionOnly =
-    !!selectedCreativeAssignmentId &&
-    selectedCreativeAssignment?.assetScope === 'promotion_only';
+
+  // Asset scope enforcement for BOTH Regular and Creative assignments.
+  // Prefer Creative assignment layer when selected; else selected Promotion's assignment.
+  const selectedPromotionForScope = (() => {
+    if (selectedCreativePromotionId) {
+      return eligiblePromotions.find(p => p.promotionId === selectedCreativePromotionId) ?? null;
+    }
+    return null;
+  })();
+  const activeAssetScope: 'promotion_only' | 'allow_additional' | null =
+    selectedCreativeAssignment?.assetScope ??
+    selectedPromotionForScope?.assetScope ??
+    null;
+  const isCreativePromotionOnly = activeAssetScope === 'promotion_only';
 
   const creativeAssignmentIdSet = useMemo(
     () => new Set(creativeEligibleAssignments.map(a => a.assignmentId)),

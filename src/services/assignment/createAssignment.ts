@@ -20,6 +20,7 @@ import { supabase } from '../../lib/supabase';
 import { resolvePromotionCampaign } from '../asset/resolvePromotionCampaign';
 import { resolveAssetType } from '../asset/resolveAssetType';
 import { ensureResourcePromotionCampaign } from '../asset/ensureResourcePromotionCampaign';
+import { legacyCreativeCreationModeFor } from './assignmentMode';
 
 export interface AssetPromotionPermission {
   assetId: string;
@@ -44,9 +45,8 @@ export interface CreateAssignmentInput {
   assetPermissions: AssetPromotionPermission[];
   domainIds?: string[];
   /**
-   * PHASE 2 Assignment Type.
-   * regular  → creative_creation_mode null; Marketer campaign chosen later.
-   * creative → Sponsor campaign required (creative_campaign_id).
+   * regular  → assignment_mode regular; no marketer_campaign_id
+   * creative → assignment_mode creative + Sponsor creative_campaign_id
    */
   assignmentMode: AssignmentMode;
   /**
@@ -109,13 +109,13 @@ export async function createAssignment({
   const assetIds = uniquePermissions.map(p => p.assetId);
 
   // --------------------------------------------------
-  // Assignment Type → creative_creation_mode + campaign
+  // Assignment Type → assignment_mode + campaign
   // --------------------------------------------------
-  let mode: 'campaign_links_and_assets' | null = null;
+  let resolvedMode: 'regular' | 'creative' = 'regular';
   let resolvedCreativeCampaignId: string | null = null;
 
   if (assignmentMode === 'creative') {
-    mode = 'campaign_links_and_assets';
+    resolvedMode = 'creative';
     if (!creativeCampaignId) {
       throw new Error('Creative Mode requires one Sponsor campaign');
     }
@@ -140,10 +140,11 @@ export async function createAssignment({
     }
     resolvedCreativeCampaignId = camp.id as string;
   } else {
-    // Regular Mode: no Sponsor creative campaign; Marketer picks later (Phase 3).
-    mode = null;
+    resolvedMode = 'regular';
     resolvedCreativeCampaignId = null;
   }
+
+  const legacyMode = legacyCreativeCreationModeFor(resolvedMode);
 
   // Asset Usage for BOTH modes
   let resolvedAssetScope: 'promotion_only' | 'allow_additional' = 'promotion_only';
@@ -190,7 +191,9 @@ export async function createAssignment({
       description,
       status: 'active',
       visibility: 'private',
-      creative_creation_mode: mode,
+      assignment_mode: resolvedMode,
+      // Legacy dual-write until creative_creation_mode is retired
+      creative_creation_mode: legacyMode,
       creative_campaign_id: resolvedCreativeCampaignId,
       asset_scope: resolvedAssetScope,
     })

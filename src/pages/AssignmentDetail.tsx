@@ -256,53 +256,59 @@ export default function AssignmentDetail() {
 
         <div className="mb-6 border border-zinc-800 rounded-xl p-4 bg-zinc-900/50" data-tutorial-id="assignment-creative-content">
           <p className="text-[10px] font-bold uppercase tracking-widest text-zinc-500 mb-2">
-            Creative Content
+            Assignment Type
           </p>
-          {!assignment.creative_creation_mode ? (
-            <p className="text-sm text-zinc-400">No content creation access</p>
-          ) : assignment.creative_creation_mode === 'campaign_asset_only' ? (
-            <div className="space-y-1">
-              <p className="text-sm text-zinc-200 font-medium">Campaign + asset only</p>
-              <p className="text-xs text-zinc-400">
-                You can create content using the Sponsor&apos;s{' '}
-                <span className="text-zinc-200">{assignment.only_promote_asset_name ?? 'ONLY PROMOTE ASSET'}</span>
-                {' '}campaign.
-              </p>
-            </div>
-          ) : (
-            <div className="space-y-1">
-              <p className="text-sm text-zinc-200 font-medium">Campaign + links + assets</p>
-              <p className="text-xs text-zinc-400">
-                You can create content using the Sponsor&apos;s{' '}
-                <span className="text-zinc-200">{assignment.only_promote_asset_name ?? 'ONLY PROMOTE ASSET'}</span>
-                {assignment.creative_campaign_name ? (
-                  <>
-                    {' '}and{' '}
-                    <span className="text-zinc-200">{assignment.creative_campaign_name}</span>
-                  </>
+          {(() => {
+            const mode =
+              (assignment as any).assignment_mode === 'creative' ||
+              (assignment as any).assignment_mode === 'regular'
+                ? ((assignment as any).assignment_mode as 'regular' | 'creative')
+                : assignment.creative_creation_mode
+                  ? 'creative'
+                  : 'regular';
+            return (
+              <div className="space-y-1">
+                <p className="text-sm text-zinc-200 font-medium">
+                  {mode === 'creative' ? 'Creative' : 'Regular'}
+                </p>
+                {mode === 'creative' ? (
+                  <p className="text-xs text-zinc-400">
+                    Marketer creates content under the Sponsor&apos;s campaign
+                    {assignment.creative_campaign_name ? (
+                      <>
+                        :{' '}
+                        <span className="text-zinc-200">
+                          {assignment.creative_campaign_name}
+                        </span>
+                      </>
+                    ) : null}
+                    .
+                  </p>
                 ) : (
-                  ' and the Sponsor-selected campaign'
+                  <p className="text-xs text-zinc-400">
+                    Marketer creates content under their own campaign context.
+                  </p>
                 )}
-                .
+              </div>
+            );
+          })()}
+
+          <div className="mt-3 pt-3 border-t border-zinc-800">
+            <p className="text-[10px] font-bold uppercase tracking-widest text-zinc-500 mb-1">
+              Asset Usage
+            </p>
+            {assignment.asset_scope === 'allow_additional' ? (
+              <p className="text-xs text-zinc-300">
+                Allow additional assets — Promotion assets plus other assets you
+                are already permitted to promote.
               </p>
-            </div>
-          )}
-          {assignment.creative_creation_mode && (
-            <div className="mt-3 pt-3 border-t border-zinc-800">
-              <p className="text-[10px] font-bold uppercase tracking-widest text-zinc-500 mb-1">
-                Asset Usage
+            ) : (
+              <p className="text-xs text-zinc-300">
+                Promotion assets only — you can only use assets associated with
+                this Promotion when creating content.
               </p>
-              {assignment.asset_scope === 'allow_additional' ? (
-                <p className="text-xs text-zinc-300">
-                  Allow additional assets — Promotion assets plus other assets you are already permitted to promote.
-                </p>
-              ) : (
-                <p className="text-xs text-zinc-300">
-                  Promotion assets only — you can only use assets associated with this Promotion when creating content.
-                </p>
-              )}
-            </div>
-          )}
+            )}
+          </div>
         </div>
 
         {/* Read-only. No Add/Remove, no editing — this PR only surfaces

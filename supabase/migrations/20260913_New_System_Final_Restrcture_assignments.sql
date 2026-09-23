@@ -1241,3 +1241,52 @@ begin
   return v_promotion_id;
 end;
 $function$;
+
+
+-- Assignment Mode: regular | creative (source of truth for new product model)
+-- Keep creative_creation_mode for legacy compatibility; do NOT drop it yet.
+--
+-- Backfill:
+--   creative_creation_mode IS NULL                    → regular
+--   creative_creation_mode = 'campaign_links_and_assets' → creative
+--   creative_creation_mode = 'campaign_asset_only'     → creative (legacy; preserve old column value)
+
+ALTER TABLE public.assignments
+  ADD COLUMN IF NOT EXISTS assignment_mode text;
+
+-- Backfill only where assignment_mode is still null
+UPDATE public.assignments
+SET assignment_mode = CASE
+  WHEN creative_creation_mode IS NULL THEN 'regular'
+  WHEN creative_creation_mode IN ('campaign_links_and_assets', 'campaign_asset_only') THEN 'creative'
+  ELSE 'regular'
+END
+WHERE assignment_mode IS NULL;
+
+-- Default for new rows
+ALTER TABLE public.assignments
+  ALTER COLUMN assignment_mode SET DEFAULT 'regular';
+
+-- Constrain values (nullable not needed after backfill)
+UPDATE public.assignments
+SET assignment_mode = 'regular'
+WHERE assignment_mode IS NULL
+   OR assignment_mode NOT IN ('regular', 'creative');
+
+ALTER TABLE public.assignments
+  ALTER COLUMN assignment_mode SET NOT NULL;
+
+DO $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_constraint
+    WHERE conname = 'assignments_assignment_mode_check'
+  ) THEN
+    ALTER TABLE public.assignments
+      ADD CONSTRAINT assignments_assignment_mode_check
+      CHECK (assignment_mode IN ('regular', 'creative'));
+  END IF;
+END $$;
+
+COMMENT ON COLUMN public.assignments.assignment_mode IS
+  'Product mode: regular | creative. creative_creation_mode is legacy dual-write until fully retired.';

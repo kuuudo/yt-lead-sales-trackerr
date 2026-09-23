@@ -608,7 +608,34 @@ export default function CreateAssignment() {
             ) : (
               <select
                 value={creativeCampaignId ?? ''}
-                onChange={e => setCreativeCampaignId(e.target.value || null)}
+                onChange={e => {
+                  const nextId = e.target.value || null;
+                  setCreativeCampaignId(nextId);
+                  // Creative convenience only: pre-select published Campaign
+                  // Element Assets for this Sponsor Campaign. Union-add so
+                  // existing selections (other campaigns / manual picks) stay.
+                  // User may still deselect any of these afterward.
+                  if (nextId) {
+                    const idsToAdd = blackBoxRows
+                      .filter(
+                        (r): r is BlackBoxPublishedAsset =>
+                          r.kind === 'published' && r.campaignId === nextId
+                      )
+                      .map(r => r.assetId);
+                    if (idsToAdd.length > 0) {
+                      setBlackBoxSelectedIds(prev => {
+                        const set = new Set(prev);
+                        for (const id of idsToAdd) set.add(id);
+                        return Array.from(set);
+                      });
+                    }
+                    // Focus filter so the auto-selected links are visible;
+                    // filter remains freely changeable.
+                    if (blackBoxCampaigns.some(c => c.id === nextId)) {
+                      setBlackBoxCampaignFilter(nextId);
+                    }
+                  }
+                }}
                 className="w-full bg-zinc-900 border border-zinc-800 rounded-lg px-4 py-2 text-sm text-zinc-100"
               >
                 <option value="">Select one campaign</option>

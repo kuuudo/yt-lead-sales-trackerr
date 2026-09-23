@@ -53,6 +53,11 @@ import {
 import { resolvePromotionCampaign } from '../asset/resolvePromotionCampaign';
 import { ensureResourcePromotionCampaign } from '../asset/ensureResourcePromotionCampaign';
 import { getTrackingDomainAccessStatesForCollaborator } from './assignmentTrackingDomainAccess';
+import {
+  resolveAssignmentMode,
+  resolveAssetScope,
+  type AssignmentMode,
+} from './assignmentMode';
 
 export interface AssignmentAssetOption {
   asset_id: string;
@@ -179,13 +184,14 @@ export interface AssignmentDetailData {
     organization_id: string;
     created_by_user_id: string;
     sponsor_name: string | null;
+    /** Product source of truth: regular | creative */
+    assignment_mode: AssignmentMode;
+    /** @deprecated legacy dual-write; prefer assignment_mode */
     creative_creation_mode: 'campaign_asset_only' | 'campaign_links_and_assets' | null;
     creative_campaign_id: string | null;
     /** Display name for creative_campaign_id (Sponsor normal campaign). */
     creative_campaign_name: string | null;
-    /** Display name for Sponsor ONLY PROMOTE ASSET when creative is allowed. */
-    only_promote_asset_name: string | null;
-    /** Creative only: promotion_only | allow_additional | null */
+    /** Asset Usage — BOTH Regular and Creative */
     asset_scope: 'promotion_only' | 'allow_additional' | null;
   };
   myInvitation: { id: string; status: string } | null;
@@ -202,7 +208,7 @@ export async function getAssignmentDetail(
 ): Promise<AssignmentDetailData> {
   const { data: assignment, error: assignmentErr } = await supabase
     .from('assignments')
-    .select('id, title, description, status, organization_id, created_by_user_id, creative_creation_mode, creative_campaign_id, asset_scope')
+    .select('id, title, description, status, organization_id, created_by_user_id, assignment_mode, creative_creation_mode, creative_campaign_id, asset_scope')
     .eq('id', assignmentId)
     .single();
 
@@ -221,46 +227,37 @@ export async function getAssignmentDetail(
   sponsorProfile?.email ||
   null;
 
+  const assignmentMode = resolveAssignmentMode({
+    assignment_mode: (assignment as any).assignment_mode as string | null,
+    creative_creation_mode: assignment.creative_creation_mode as string | null,
+  });
   const modeRaw = assignment.creative_creation_mode as string | null;
-  const creativeMode =
+  const legacyCreativeMode =
     modeRaw === 'campaign_asset_only' || modeRaw === 'campaign_links_and_assets'
       ? modeRaw
       : null;
   const creativeCampaignId = (assignment.creative_campaign_id as string | null) ?? null;
 
-  const scopeRaw = assignment.asset_scope as string | null;
-  const resolvedAssetScope =
-    creativeMode && (scopeRaw === 'promotion_only' || scopeRaw === 'allow_additional')
-      ? scopeRaw
-      : null;
+  // Asset scope applies to BOTH Regular and Creative
+  const resolvedAssetScope = resolveAssetScope(
+    assignment.asset_scope as string | null
+  );
 
   let creativeCampaignName: string | null = null;
-  let onlyPromoteAssetName: string | null = null;
 
-  if (creativeMode) {
-    const { data: onlyPromote } = await supabase
+  if (assignmentMode === 'creative' && creativeCampaignId) {
+    const { data: creativeCamp } = await supabase
       .from('campaigns')
-      .select('id, campaign_name')
-      .eq('organization_id', assignment.organization_id)
-      .eq('is_system', true)
-      .eq('campaign_name', 'ONLY PROMOTE ASSET')
+      .select('id, campaign_name, organization_id, is_system, archived_at')
+      .eq('id', creativeCampaignId)
       .maybeSingle();
-    onlyPromoteAssetName = onlyPromote?.campaign_name ?? 'ONLY PROMOTE ASSET';
-
-    if (creativeMode === 'campaign_links_and_assets' && creativeCampaignId) {
-      const { data: creativeCamp } = await supabase
-        .from('campaigns')
-        .select('id, campaign_name, organization_id, is_system, archived_at')
-        .eq('id', creativeCampaignId)
-        .maybeSingle();
-      if (
-        creativeCamp &&
-        creativeCamp.organization_id === assignment.organization_id &&
-        !creativeCamp.is_system &&
-        !creativeCamp.archived_at
-      ) {
-        creativeCampaignName = (creativeCamp.campaign_name as string) ?? null;
-      }
+    if (
+      creativeCamp &&
+      creativeCamp.organization_id === assignment.organization_id &&
+      !creativeCamp.is_system &&
+      !creativeCamp.archived_at
+    ) {
+      creativeCampaignName = (creativeCamp.campaign_name as string) ?? null;
     }
   }
 
@@ -491,10 +488,10 @@ export async function getAssignmentDetail(
     assignment: {
       ...assignment,
       sponsor_name: sponsorName,
-      creative_creation_mode: creativeMode,
+      assignment_mode: assignmentMode,
+      creative_creation_mode: legacyCreativeMode,
       creative_campaign_id: creativeCampaignId,
       creative_campaign_name: creativeCampaignName,
-      only_promote_asset_name: onlyPromoteAssetName,
       asset_scope: resolvedAssetScope,
     },
     myInvitation: invitation ?? null,
