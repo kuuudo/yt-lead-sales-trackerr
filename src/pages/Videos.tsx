@@ -1373,21 +1373,16 @@ const [resolvingPromotionContext, setResolvingPromotionContext] = useState(false
     };
   }, [formData.campaign_id, isOwnSelectedCampaign, organizationId]);
 
-  // Seed default link types for the Primary Campaign only — do not wipe other campaigns' selections.
+  // Primary Campaign change: do NOT auto-select any link types (default = none).
+  // Preserve other campaigns' selections; only seed an empty entry if missing.
   useEffect(() => {
     if (!formData.campaign_id) return;
-    const campaign =
-      campaigns.find(c => c.id === formData.campaign_id) ||
-      creativeSponsorCampaignById.get(formData.campaign_id) ||
-      null;
-    const available = availableCampaignLinkTypes(campaign);
     setSelectedLinksByCampaignId(prev => {
-      // Only seed when this campaign has no entry yet
-      if (prev[formData.campaign_id]?.length) return prev;
-      return { ...prev, [formData.campaign_id]: available };
+      if (formData.campaign_id in prev) return prev;
+      return { ...prev, [formData.campaign_id]: [] };
     });
     setLinksModalCampaignId(formData.campaign_id);
-  }, [formData.campaign_id, campaigns, creativeSponsorCampaignById]);
+  }, [formData.campaign_id]);
 
   const fetchLeadMagnets = async (campaignId: string) => {
     setLoadingMagnets(true);
