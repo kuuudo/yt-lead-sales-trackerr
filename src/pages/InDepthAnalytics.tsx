@@ -1053,11 +1053,17 @@ export default function InDepthAnalyticsTest() {
               <thead className="bg-zinc-950 sticky top-0 z-20 shadow-xl">
                 <tr>
                   {/* Sticky content identity header */}
-                  <th className="px-6 py-5 text-left text-[10px] font-black uppercase tracking-widest text-zinc-600 border-b border-zinc-900 bg-zinc-950 min-w-[300px] sticky left-0 z-30">
+                  <th className="px-6 py-5 text-left text-[10px] font-black uppercase tracking-widest text-zinc-600 border-b border-zinc-900 bg-zinc-950 min-w-[280px] sticky left-0 z-30">
                     Content
+                  </th>
+                  <th className="px-4 py-5 text-left text-[10px] font-black uppercase tracking-widest text-zinc-600 border-b border-zinc-900 bg-zinc-950 min-w-[140px]">
+                    Content Campaign
                   </th>
                   <th className="px-4 py-5 text-left text-[10px] font-black uppercase tracking-widest text-zinc-600 border-b border-zinc-900 bg-zinc-950 min-w-[110px]">
                     Campaign Links
+                  </th>
+                  <th className="px-4 py-5 text-left text-[10px] font-black uppercase tracking-widest text-zinc-600 border-b border-zinc-900 bg-zinc-950 min-w-[140px]">
+                    Link Campaign
                   </th>
 
                   {/* Engine columns — conditionally rendered */}
@@ -1108,11 +1114,20 @@ export default function InDepthAnalyticsTest() {
                   const inRange = dateRange !== 'all' && !!createdAt &&
                     new Date(createdAt) >= dateRangeBounds.start &&
                     new Date(createdAt) <= dateRangeBounds.end;
-                  const linkCampaignName =
-                    (dRow.linkCampaignId &&
-                      campaigns.find(c => c.id === dRow.linkCampaignId)?.campaign_name) ||
+                  // Content Campaign = videos.campaign_id (ownership / primary)
+                  const videoCampaignId = row.video.campaign_id as string | null | undefined;
+                  const contentCampaignName =
+                    (videoCampaignId &&
+                      campaigns.find(c => c.id === videoCampaignId)?.campaign_name) ||
                     (row.campaign as any)?.campaign_name ||
-                    'Individual Video';
+                    '—';
+                  // Link Campaign = redirect_links.campaign_id for this display row
+                  const hasLinkCampaign =
+                    dRow.activeLinkTypes.size > 0 && !!dRow.linkCampaignId;
+                  const linkCampaignName = hasLinkCampaign
+                    ? campaigns.find(c => c.id === dRow.linkCampaignId)?.campaign_name ||
+                      dRow.linkCampaignId!.slice(0, 8)
+                    : '—';
 
                   return (
                   <tr
@@ -1125,13 +1140,11 @@ export default function InDepthAnalyticsTest() {
                     {/* ── Content identity cell ────────────────────────── */}
                     <td className="px-6 py-4 whitespace-nowrap sticky left-0 z-10 bg-black group-hover:bg-zinc-950 transition-colors">
                       <div className="flex items-center gap-3">
-                        {/* Thumbnail via shared resolveThumbnail() */}
                         <img
                           src={resolveThumbnail(row.video)}
                           className="w-16 h-9 object-cover rounded-lg border border-zinc-800 shrink-0"
                           alt=""
                           onError={e => {
-                            // Final safety net: if the resolved URL itself 404s, show placeholder
                             const t = e.currentTarget;
                             t.onerror = null;
                             t.src = `https://placehold.co/64x36/18181b/52525b?text=${encodeURIComponent(
@@ -1139,7 +1152,6 @@ export default function InDepthAnalyticsTest() {
                             )}`;
                           }}
                         />
-                        {/* Platform identity via shared renderContentIdentity() */}
                         <div className="max-w-[220px] min-w-0">
                           <div className="text-xs font-bold truncate leading-snug flex items-center gap-1.5">
                             <span className="truncate">{renderContentIdentity(row.video)}</span>
@@ -1153,16 +1165,35 @@ export default function InDepthAnalyticsTest() {
                               </span>
                             )}
                           </div>
-                          <div className="text-[9px] text-zinc-600 font-bold uppercase tracking-widest mt-0.5 truncate">
-                            {linkCampaignName}
-                          </div>
                         </div>
+                      </div>
+                    </td>
+
+                    {/* ── Content Campaign (videos.campaign_id) ─────────── */}
+                    <td className="px-4 py-4 whitespace-nowrap">
+                      <div
+                        className="text-[10px] font-bold text-zinc-300 max-w-[160px] truncate"
+                        title={videoCampaignId || undefined}
+                      >
+                        {contentCampaignName}
                       </div>
                     </td>
 
                     {/* ── Campaign Links WebMood (text-only 2×2) ─────────── */}
                     <td className="px-4 py-4 whitespace-nowrap">
                       <WebmoodGrid activeTypes={dRow.activeLinkTypes} />
+                    </td>
+
+                    {/* ── Link Campaign (redirect_links.campaign_id) ─────── */}
+                    <td className="px-4 py-4 whitespace-nowrap">
+                      <div
+                        className={`text-[10px] font-bold max-w-[160px] truncate ${
+                          hasLinkCampaign ? 'text-zinc-300' : 'text-zinc-600'
+                        }`}
+                        title={hasLinkCampaign ? dRow.linkCampaignId || undefined : undefined}
+                      >
+                        {linkCampaignName}
+                      </div>
                     </td>
 
                     {/* ── Engine metric cells (unchanged logic) ────────── */}
