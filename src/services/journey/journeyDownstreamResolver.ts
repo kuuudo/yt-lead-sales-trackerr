@@ -75,6 +75,8 @@ export interface DownstreamNode {
   resolvedFrom: 'asset' | 'link_type' | 'conversion'
   // Optional display label (used by conversion-derived Thank You nodes).
   label?: string
+  // Conversion outcome key (newsletter / sales_call / consultation / purchase).
+  outcome?: string
   assetId: string | null
   redirectLinkId: string
   sourceVideoId: string
@@ -436,8 +438,9 @@ async function resolveConversionOutcomes(
       redirectLinkId: '',
       sourceVideoId: videoId,
       label: OUTCOME_LABEL[outcome],
+      outcome,
     })
-    edges.push({ fromVideoId: videoId, toNodeId: nodeId })
+    // no video edge: Thank You nodes are attached to their outcome node in the map
   }
   return { nodes, edges }
 }

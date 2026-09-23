@@ -994,10 +994,10 @@ const [nodeDetailTarget, setNodeDetailTarget] = useState<
   // Downstream nodes (STEP 3 + STEP 4, additive) — one column past their
   // source's anchor, grouped/stacked when a source has more than one.
   // Purely a positioning pass; layoutGraphNodes() above is untouched.
-  const positionedDownstreamNodes = useMemo(() => {
+    const positionedStructuralDownstreamNodes = useMemo(() => {
     if (downstream.nodes.length === 0) return []
     const bySource = new Map<string, DownstreamNode[]>()
-    for (const n of downstream.nodes) {
+        for (const n of downstream.nodes.filter((x) => x.resolvedFrom !== 'conversion')) {
       if (!bySource.has(n.sourceVideoId)) bySource.set(n.sourceVideoId, [])
       bySource.get(n.sourceVideoId)!.push(n)
     }
@@ -1017,6 +1017,41 @@ const [nodeDetailTarget, setNodeDetailTarget] = useState<
     }
     return positioned
   }, [downstreamSourceAnchors, downstream])
+
+  // Thank You nodes: branch off the matching outcome node(s), one column to
+  // the right. Never attached to a video, so the existing flow is untouched.
+  const { positionedDownstreamNodes, outcomeEdges } = useMemo(() => {
+    const PARENT_ELEMENT: Record<string, string> = {
+      newsletter: 'newsletter',
+      sales_call: 'sales_call',
+      consultation: 'consultation',
+      purchase: 'landing_page',
+    }
+    const structural = positionedStructuralDownstreamNodes
+    const byOutcome = new Map<string, DownstreamNode>()
+    for (const n of downstream.nodes) {
+      if (n.resolvedFrom === 'conversion' && n.outcome && !byOutcome.has(n.outcome)) byOutcome.set(n.outcome, n)
+    }
+    const placed: (DownstreamNode & { x: number; y: number })[] = []
+    const edges: { key: string; x1: number; y1: number; x2: number; y2: number }[] = []
+    for (const [outcome, n] of byOutcome.entries()) {
+      const parents = structural.filter((p) => p.elementType === PARENT_ELEMENT[outcome])
+      if (parents.length === 0) continue
+      const x = Math.max(...parents.map((p) => p.x)) + GRAPH_NODE_WIDTH + GRAPH_COL_GAP
+      const y = parents.reduce((s, p) => s + p.y, 0) / parents.length
+      placed.push({ ...n, x, y })
+      for (const p of parents) {
+        edges.push({
+          key: `outcome-${p.id}::${n.id}`,
+          x1: p.x + GRAPH_NODE_WIDTH,
+          y1: p.y + GRAPH_NODE_HEIGHT / 2,
+          x2: x,
+          y2: y + GRAPH_NODE_HEIGHT / 2,
+        })
+      }
+    }
+    return { positionedDownstreamNodes: [...structural, ...placed], outcomeEdges: edges }
+  }, [positionedStructuralDownstreamNodes, downstream])
 
   // ── STEP 5 (additive, 2026-09-18) — "Unlinked" promoted videos ───────────
   // Identity constraint is promotion_id + asset_id, never campaign_id, and
@@ -1948,6 +1983,16 @@ const [nodeDetailTarget, setNodeDetailTarget] = useState<
                 </g>
               )
             })}
+            {outcomeEdges.map((e) => (
+              <path
+                key={e.key}
+                d={`M ${e.x1} ${e.y1} C ${(e.x1 + e.x2) / 2} ${e.y1} ${(e.x1 + e.x2) / 2} ${e.y2} ${e.x2} ${e.y2}`}
+                fill="none"
+                stroke="#c7cbd1"
+                strokeWidth={1.6}
+                markerEnd="url(#journeyArrow)"
+              />
+            ))}
             {/* STEP 3 + STEP 4 (additive) — downstream edges: a video's own
                 redirect link resolved to a real campaign-element or resource
                 node, either from an observed journey step (STEP 3) or
