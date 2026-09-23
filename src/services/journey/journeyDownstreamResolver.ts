@@ -153,9 +153,14 @@ async function resolveLinksToDownstream(links: RedirectLinkRow[]): Promise<Downs
       const resolved = await resolveAssetType(link.asset_id)
       if (resolved?.assetType === 'campaign_element') {
         const key = link.campaign_id ? `${link.asset_id}::${link.campaign_id}` : ''
-        kind = 'campaign_element'
-        elementType = key ? elementTypeByCompositeKey.get(key) ?? null : null
-        resolvedFrom = 'asset'
+        const foundElementType = key ? elementTypeByCompositeKey.get(key) ?? null : null
+        if (foundElementType) {
+          kind = 'campaign_element'
+          elementType = foundElementType
+          resolvedFrom = 'asset'
+        }
+        // else: fall through to the link_type fallback below instead of
+        // locking resolvedFrom on a composite-key miss.
       } else if (resolved?.assetType === 'resource') {
         kind = 'resource'
         resolvedFrom = 'asset'

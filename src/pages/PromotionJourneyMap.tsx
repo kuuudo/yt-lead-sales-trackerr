@@ -2201,40 +2201,7 @@ const [nodeDetailTarget, setNodeDetailTarget] = useState<
             )
           })}
 
-          {downstream.nodes.map((dNode) => (
-            <div 
-              key={dNode.id}
-              style={{
-                ...styles.graphNode,
-                ...styles.graphNodeTerminal,
-                left: dNode.x,
-                top: dNode.y,
-                width: GRAPH_NODE_WIDTH,
-                height: GRAPH_NODE_HEIGHT,
-                borderLeft: `3px solid ${dNode.kind === 'resource' ? GRAPH_TYPE_ACCENT.resource : GRAPH_TYPE_ACCENT.campaign_element}`,
-              }}
-            >
-              <div style={styles.graphNodeHead}>
-                <span
-                  style={{
-                    ...styles.graphNodeTypeDot,
-                    background: dNode.kind === 'resource' ? GRAPH_TYPE_ACCENT.resource : GRAPH_TYPE_ACCENT.campaign_element,
-                  }}
-                />
-                <span style={styles.graphNodeType}>
-                  {dNode.kind === 'resource' ? 'Imported resource' : 'Campaign element'} · end of path
-                </span>
-              </div>
-              <div style={styles.graphNodeVideoId}>
-                {dNode.elementType ? getElementTypeLabel(dNode.elementType) : 'Unlabeled'}
-              </div>
-              <div style={styles.graphNodeDebug} title={dNode.redirectLinkId}>
-                {dNode.resolvedFrom === 'link_type'
-                  ? 'resolved from redirect link_type (no asset_id on this link)'
-                  : `asset: ${dNode.assetId}`}
-              </div>
-            </div>
-          ))}
+
 
           {/* STEP 5 (additive) — "Unlinked" videos: a redirect_link exists for
               (this promotion + a promoted asset), but the video has not been
