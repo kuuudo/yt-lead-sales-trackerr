@@ -1204,6 +1204,10 @@ const [resolvingPromotionContext, setResolvingPromotionContext] = useState(false
       sponsorOrganizationId: campaign.sponsorOrganizationId,
       label: promotion.label,
       creativeMode: campaign.mode,
+      assignmentMode: 'creative',
+      assetScope:
+        creativeEligibleAssignments.find(a => a.assignmentId === promotion.assignmentId)
+          ?.assetScope ?? 'promotion_only',
     };
     await applyEligiblePromotion(eligible);
   };

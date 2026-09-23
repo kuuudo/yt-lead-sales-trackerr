@@ -251,32 +251,33 @@ export default function PromotionDetail() {
       setError(null);
       try {
         const data = await getPromotionDetail(id);
-        // Phase 2 — ensure Assignment creative fields are present (loader may omit them)
-        if (data.assignment?.id) {
-          const a: any = data.assignment;
-          if (
-            a.creative_creation_mode === undefined ||
-            a.asset_scope === undefined ||
-            a.creative_campaign_id === undefined
-          ) {
-            const { data: asg } = await supabase
-              .from('assignments')
-              .select('creative_creation_mode, asset_scope, creative_campaign_id')
-              .eq('id', data.assignment.id)
-              .maybeSingle();
-            if (asg) {
-              data.assignment = {
-                ...data.assignment,
-                creative_creation_mode: asg.creative_creation_mode ?? null,
-                asset_scope: asg.asset_scope ?? null,
-                creative_campaign_id: asg.creative_campaign_id ?? null,
-              } as typeof data.assignment;
-            }
-          }
-        }
         if (!data) {
           setError('Promotion not found.');
         } else {
+          // Phase 2 — ensure Assignment creative fields are present (loader may omit them)
+          if (data.assignment?.id) {
+            const a: any = data.assignment;
+            if (
+              a.creative_creation_mode === undefined ||
+              a.asset_scope === undefined ||
+              a.creative_campaign_id === undefined
+            ) {
+              const { data: asg } = await supabase
+                .from('assignments')
+                .select('assignment_mode, creative_creation_mode, asset_scope, creative_campaign_id')
+                .eq('id', data.assignment.id)
+                .maybeSingle();
+              if (asg) {
+                data.assignment = {
+                  ...data.assignment,
+                  assignment_mode: (asg as any).assignment_mode ?? null,
+                  creative_creation_mode: asg.creative_creation_mode ?? null,
+                  asset_scope: asg.asset_scope ?? null,
+                  creative_campaign_id: asg.creative_campaign_id ?? null,
+                } as typeof data.assignment;
+              }
+            }
+          }
           setDetail(data);
 
           // Sponsor check (LOCKED): the Assignment's creator only, not
@@ -332,6 +333,7 @@ export default function PromotionDetail() {
     if (!detail?.assignment?.id) return;
     let cancelled = false;
     (async () => {
+      let assignPathB: typeof pathBByAssetId = {};
       try {
         const map = await listAssignmentAssetDomainPolicies(detail.assignment!.id);
         if (cancelled) return;
@@ -339,6 +341,7 @@ export default function PromotionDetail() {
         map.forEach((v, assetId) => {
           obj[assetId] = v;
         });
+        assignPathB = obj;
         setPathBByAssetId(obj);
       } catch (err) {
         console.error('[PromotionDetail] Path B load failed:', err);
@@ -361,12 +364,10 @@ export default function PromotionDetail() {
           if (r.selected_sponsor_domain_id) domainIds.add(r.selected_sponsor_domain_id as string);
         }
         // Fallback hostnames from assignment_assets when promo sponsor id null
-        for (const v of Object.values(pathBByAssetId)) {
-          /* filled after pathB set — use map from list above */
-        }
-        map.forEach((v) => {
+        // Use `obj` (just loaded) — pathBByAssetId state is not updated yet in this tick
+        for (const v of Object.values(assignPathB) as Array<{ selected_sponsor_domain_id?: string | null }>) {
           if (v.selected_sponsor_domain_id) domainIds.add(v.selected_sponsor_domain_id);
-        });
+        }
         const hostnameById = new Map<string, string>();
         if (domainIds.size > 0) {
           const { data: domains } = await supabase
@@ -384,7 +385,10 @@ export default function PromotionDetail() {
           let sid = (r.selected_sponsor_domain_id as string | null) ?? null;
           // Priority: promotion_assets → assignment_assets
           if (!sid) {
-            sid = map.get(aid)?.selected_sponsor_domain_id ?? null;
+            const fromAssign = assignPathB[aid] as
+              | { selected_sponsor_domain_id?: string | null }
+              | undefined;
+            sid = fromAssign?.selected_sponsor_domain_id ?? null;
           }
           usage[aid] = {
             use_marketer_domain: !!r.use_marketer_domain,
@@ -1383,15 +1387,14 @@ export default function PromotionDetail() {
                       </div>
                     );
                   })()}
-                </div>
-              )}
+              </section>
             </div>
 
-                    {/* Right column — Promoted Assets */}
-          <div className="md:w-3/5">
-       <p className="text-[10px] font-black uppercase tracking-widest text-zinc-500 mb-3">
-              Promoted Assets
-            </p>
+            {/* Right column — Promoted Assets */}
+            <div className="md:w-3/5">
+              <p className="text-[10px] font-black uppercase tracking-widest text-zinc-500 mb-3">
+                Promoted Assets
+              </p>
             {/* Surface B — Archive Impact. Diagnostic only: no
                 Hide/Unhide here, no automatic Remove/Revoke of any
                 collaborator, asset access, or tracking domain. This
