@@ -2193,7 +2193,7 @@ const [nodeDetailTarget, setNodeDetailTarget] = useState<
                     }}
                   />
                   <span style={styles.graphNodeType}>
-                    {isLinkCard ? 'ENTRY CONTENT' : `${dNode.kind === 'resource' ? 'Imported resource' : 'Campaign element'} · end of path`}
+                    {isLinkCard ? '' : `${dNode.kind === 'resource' ? 'Imported resource' : 'Campaign element'} · end of path`}
                   </span>
                 </div>
                 <div style={styles.graphNodeBody}>

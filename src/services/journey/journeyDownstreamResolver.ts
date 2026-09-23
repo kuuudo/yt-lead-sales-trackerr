@@ -361,6 +361,7 @@ async function resolveConversionOutcomes(
 
   const nodes: DownstreamNode[] = []
   const edges: DownstreamEdge[] = []
+  console.log('[conversion-debug]', { promotionId, videoIds, pixelRows, stripeRows, found: Array.from(found) })
   for (const key of found) {
     const [videoId, outcome] = key.split('::')
     const nodeId = `outcome:${videoId}:${outcome}`
