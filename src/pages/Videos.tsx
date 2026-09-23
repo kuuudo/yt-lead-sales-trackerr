@@ -70,6 +70,8 @@ import { videosTutorial } from '../lib/tutorials/videosTutorial';
 import { trackFirstContentGuide } from '../lib/tutorials/trackFirstContentGuide';
 import { startFirstCollabGuide } from '../lib/tutorials/startFirstCollabGuide';
 import { createVideo } from '../services/video/createVideo';
+import { createRedirectLink } from '../lib/redirects';
+import { buildCampaignRedirectJobs } from '../services/redirect/buildCampaignRedirectJobs';
 import { generateAssetRedirectLinks } from '../services/asset/generateAssetRedirectLinks';
 import { PromotedAssetPicker, type PromotedAssetRow } from '../components/PromotedAssetPicker';
 import { listVerifiedBrandedDomains, type VerifiedDomainOption } from '../services/domain/brandedDomains';
@@ -661,7 +663,16 @@ const [resolvingPromotionContext, setResolvingPromotionContext] = useState(false
   const [promotedAssets, setPromotedAssets] = useState<PromotedAssetRow[]>([]);
   const [verifiedDomains, setVerifiedDomains] = useState<VerifiedDomainOption[]>([]);
   const [selectedTrackingDomainId, setSelectedTrackingDomainId] = useState<string | null>(null);
-  const [selectedCampaignLinkTypes, setSelectedCampaignLinkTypes] = useState<CampaignLinkTypeKey[]>([]);
+  /**
+   * Multi-campaign Links to include:
+   * campaignId → selected link types for that campaign.
+   * Primary Campaign (formData.campaign_id) is required for the video; links may span campaigns.
+   */
+  const [selectedLinksByCampaignId, setSelectedLinksByCampaignId] = useState<
+    Record<string, CampaignLinkTypeKey[]>
+  >({});
+  /** Which campaign is being edited inside the Links to include modal */
+  const [linksModalCampaignId, setLinksModalCampaignId] = useState<string | null>(null);
   const [showCampaignLinksModal, setShowCampaignLinksModal] = useState(false);
   /** Modal A — owner only: link type → tracking domain id */
   const [showCampaignLinkConfigModal, setShowCampaignLinkConfigModal] = useState(false);
@@ -1362,14 +1373,20 @@ const [resolvingPromotionContext, setResolvingPromotionContext] = useState(false
     };
   }, [formData.campaign_id, isOwnSelectedCampaign, organizationId]);
 
-  // Default Campaign Links selection when Campaign changes (Modal B)
+  // Seed default link types for the Primary Campaign only — do not wipe other campaigns' selections.
   useEffect(() => {
+    if (!formData.campaign_id) return;
     const campaign =
       campaigns.find(c => c.id === formData.campaign_id) ||
       creativeSponsorCampaignById.get(formData.campaign_id) ||
       null;
     const available = availableCampaignLinkTypes(campaign);
-    setSelectedCampaignLinkTypes(available);
+    setSelectedLinksByCampaignId(prev => {
+      // Only seed when this campaign has no entry yet
+      if (prev[formData.campaign_id]?.length) return prev;
+      return { ...prev, [formData.campaign_id]: available };
+    });
+    setLinksModalCampaignId(formData.campaign_id);
   }, [formData.campaign_id, campaigns, creativeSponsorCampaignById]);
 
   const fetchLeadMagnets = async (campaignId: string) => {
@@ -1901,7 +1918,7 @@ const [resolvingPromotionContext, setResolvingPromotionContext] = useState(false
           })(),
           userId:         user.id,
           trackingDomainId: selectedTrackingDomainId,
-          campaignLinkTypes: selectedCampaignLinkTypes,
+          campaignLinkTypes: selectedLinksByCampaignId[formData.campaign_id] ?? [],
           campaignLinkDomainByType,
           createdViaCreative: !!(selectedCreativeAssignmentId || selectedCreativePromotionId || selectedCreativeCampaign),
           creativePromotionId:
@@ -1910,6 +1927,81 @@ const [resolvingPromotionContext, setResolvingPromotionContext] = useState(false
             null,
           creativeAssignmentId: selectedCreativeAssignmentId || selectedEligiblePromotion?.assignmentId || null,
         });
+
+          // Multi-campaign Links: create redirects for non-primary campaigns.
+          // Primary campaign links were created inside createVideo().
+          {
+            const primaryId = formData.campaign_id;
+            const appBaseUrl = window.location.origin;
+            for (const [campId, types] of Object.entries(selectedLinksByCampaignId)) {
+              if (!campId || campId === primaryId) continue;
+              if (!types?.length) continue;
+              const campRow =
+                campaigns.find(c => c.id === campId) ||
+                creativeSponsorCampaignById.get(campId) ||
+                null;
+              if (!campRow) {
+                // Fetch full campaign row for URLs + domain columns
+                const { data: fetched } = await supabase
+                  .from('campaigns')
+                  .select('*')
+                  .eq('id', campId)
+                  .maybeSingle();
+                if (!fetched) continue;
+                const allow = new Set(types);
+                let jobs = buildCampaignRedirectJobs(fetched as Campaign).filter(([t]) =>
+                  allow.has(t as CampaignLinkTypeKey)
+                );
+                const domainMap = domainMapFromCampaignRow(fetched);
+                await Promise.all(
+                  jobs.map(([type, url]) => {
+                    const typeKey = type as CampaignLinkTypeKey;
+                    const perType = domainMap[typeKey];
+                    return createRedirectLink(
+                      savedVideo.id,
+                      campId,
+                      type,
+                      url,
+                      appBaseUrl,
+                      undefined,
+                      undefined,
+                      { trackingDomainId: perType ?? null }
+                    );
+                  })
+                );
+                continue;
+              }
+              const allow = new Set(types);
+              let jobs = buildCampaignRedirectJobs(campRow as Campaign).filter(([t]) =>
+                allow.has(t as CampaignLinkTypeKey)
+              );
+              // Prefer live domain columns from DB for accuracy
+              const { data: domainRow } = await supabase
+                .from('campaigns')
+                .select(
+                  'landing_page_tracking_domain_id, newsletter_tracking_domain_id, consultation_tracking_domain_id, sales_call_tracking_domain_id'
+                )
+                .eq('id', campId)
+                .maybeSingle();
+              const domainMap = domainMapFromCampaignRow(domainRow ?? campRow);
+              await Promise.all(
+                jobs.map(([type, url]) => {
+                  const typeKey = type as CampaignLinkTypeKey;
+                  const perType = domainMap[typeKey];
+                  return createRedirectLink(
+                    savedVideo.id,
+                    campId,
+                    type,
+                    url,
+                    appBaseUrl,
+                    undefined,
+                    undefined,
+                    { trackingDomainId: perType ?? null }
+                  );
+                })
+              );
+            }
+          }
 
           // Creative: attach video-asset via SECURITY DEFINER RPC (RLS-safe).
           // Domain policy: marketer=false, sponsor=true, vstrk=false;
@@ -2474,7 +2566,10 @@ console.log(
                           <div className="mt-2 space-y-2">
                             <button
                               type="button"
-                              onClick={() => setShowCampaignLinksModal(true)}
+                              onClick={() => {
+                                setLinksModalCampaignId(prev => prev || formData.campaign_id || null);
+                                setShowCampaignLinksModal(true);
+                              }}
                               className="w-full flex items-center justify-between gap-2 bg-zinc-950 border border-zinc-800 hover:border-zinc-600 rounded-xl px-3 py-2.5 text-left"
                             >
                               <span>
@@ -2482,9 +2577,17 @@ console.log(
                                   Links to include
                                 </span>
                                 <span className="block text-[11px] text-zinc-300 mt-0.5 normal-case font-medium tracking-normal">
-                                  {selectedCampaignLinkTypes.length > 0
-                                    ? `${selectedCampaignLinkTypes.length} link type${selectedCampaignLinkTypes.length === 1 ? '' : 's'} selected`
-                                    : 'None selected'}
+                                  {(() => {
+                                    const entries = Object.entries(selectedLinksByCampaignId).filter(
+                                      ([, types]) => types.length > 0
+                                    );
+                                    const typeCount = entries.reduce((n, [, t]) => n + t.length, 0);
+                                    const campCount = entries.length;
+                                    if (typeCount === 0) return 'None selected';
+                                    if (campCount <= 1)
+                                      return `${typeCount} link type${typeCount === 1 ? '' : 's'} selected`;
+                                    return `${typeCount} link types · ${campCount} campaigns`;
+                                  })()}
                                 </span>
                               </span>
                               <span className="text-[10px] font-black uppercase tracking-widest text-zinc-500 shrink-0">
@@ -2820,7 +2923,10 @@ console.log(
                         <button
                           type="button"
                           className="text-red-500 hover:text-red-400 font-bold uppercase tracking-widest text-[10px]"
-                          onClick={() => setShowCampaignLinksModal(true)}
+                          onClick={() => {
+                            setLinksModalCampaignId(prev => prev || formData.campaign_id || null);
+                            setShowCampaignLinksModal(true);
+                          }}
                           disabled={!formData.campaign_id}
                         >
                           Links to include
@@ -2856,49 +2962,111 @@ console.log(
                         Links to include
                       </p>
                       <p className="text-xs text-zinc-400">
-                        Choose which campaign link types to generate for this content.
-                        Domains come from the Campaign owner&apos;s saved configuration — not chosen here.
+                        Choose campaign link types for this content. You can switch campaigns and
+                        select links from more than one campaign. Domains come from each Campaign
+                        owner&apos;s saved configuration — not chosen here.
                       </p>
-                      <div className="space-y-2">
-                        {(() => {
-                          const campaign =
-                            campaigns.find(c => c.id === formData.campaign_id) ||
-                            creativeSponsorCampaignById.get(formData.campaign_id) ||
-                            null;
-                          const available = availableCampaignLinkTypes(campaign);
-                          if (!formData.campaign_id) {
-                            return <p className="text-xs text-zinc-500">Select a campaign first.</p>;
+                      {(() => {
+                        // Campaigns the marketer can pull links from: own list + creative sponsor campaigns
+                        const byId = new Map<string, Campaign>();
+                        for (const c of campaigns) byId.set(c.id, c);
+                        creativeSponsorCampaignById.forEach((c, id) => {
+                          if (!byId.has(id)) byId.set(id, c);
+                        });
+                        // Keep any campaign that already has selections even if not in lists
+                        for (const id of Object.keys(selectedLinksByCampaignId)) {
+                          if (!byId.has(id) && selectedLinksByCampaignId[id]?.length) {
+                            // placeholder name until resolved
                           }
-                          if (available.length === 0) {
-                            return (
-                              <p className="text-xs text-zinc-500">
-                                This campaign has no landing / newsletter / consultation / sales URLs configured.
-                              </p>
-                            );
-                          }
-                          return available.map(key => {
-                            const checked = selectedCampaignLinkTypes.includes(key);
-                            return (
-                              <label
-                                key={key}
-                                className="flex items-center gap-3 border border-zinc-800 rounded-xl px-3 py-2.5 cursor-pointer hover:border-zinc-600"
-                              >
-                                <input
-                                  type="checkbox"
-                                  className="accent-red-600"
-                                  checked={checked}
-                                  onChange={() => {
-                                    setSelectedCampaignLinkTypes(prev =>
-                                      checked ? prev.filter(k => k !== key) : [...prev, key]
-                                    );
-                                  }}
-                                />
-                                <span className="text-sm text-zinc-200">{CAMPAIGN_LINK_TYPE_META[key].label}</span>
+                        }
+                        const options = Array.from(byId.values()).filter(
+                          c => !(c as any).is_system && (c as any).campaign_name !== 'ONLY PROMOTE ASSET'
+                        );
+                        const activeId =
+                          linksModalCampaignId ||
+                          formData.campaign_id ||
+                          (options[0]?.id ?? null);
+                        const campaign =
+                          (activeId &&
+                            (byId.get(activeId) ||
+                              campaigns.find(c => c.id === activeId) ||
+                              creativeSponsorCampaignById.get(activeId))) ||
+                          null;
+                        const available = availableCampaignLinkTypes(campaign);
+                        const selectedForActive =
+                          (activeId && selectedLinksByCampaignId[activeId]) || [];
+
+                        return (
+                          <>
+                            <div className="space-y-1">
+                              <label className="text-[10px] font-black uppercase tracking-widest text-zinc-500">
+                                Campaign
                               </label>
-                            );
-                          });
-                        })()}
-                      </div>
+                              <select
+                                value={activeId ?? ''}
+                                onChange={e => setLinksModalCampaignId(e.target.value || null)}
+                                className="w-full bg-zinc-900 border border-zinc-800 rounded-xl px-3 py-2.5 text-sm text-zinc-200 outline-none focus:border-red-600"
+                              >
+                                {!formData.campaign_id && (
+                                  <option value="">Select primary campaign first</option>
+                                )}
+                                {options.map(c => {
+                                  const n = selectedLinksByCampaignId[c.id]?.length ?? 0;
+                                  return (
+                                    <option key={c.id} value={c.id}>
+                                      {(c as any).campaign_name || c.id.slice(0, 8)}
+                                      {c.id === formData.campaign_id ? ' (primary)' : ''}
+                                      {n > 0 ? ` · ${n} selected` : ''}
+                                    </option>
+                                  );
+                                })}
+                              </select>
+                            </div>
+                            <div className="space-y-2">
+                              {!activeId || !formData.campaign_id ? (
+                                <p className="text-xs text-zinc-500">
+                                  Select a primary campaign on the form first, then pick link types here
+                                  (including other campaigns).
+                                </p>
+                              ) : available.length === 0 ? (
+                                <p className="text-xs text-zinc-500">
+                                  This campaign has no landing / newsletter / consultation / sales URLs
+                                  configured.
+                                </p>
+                              ) : (
+                                available.map(key => {
+                                  const checked = selectedForActive.includes(key);
+                                  return (
+                                    <label
+                                      key={key}
+                                      className="flex items-center gap-3 border border-zinc-800 rounded-xl px-3 py-2.5 cursor-pointer hover:border-zinc-600"
+                                    >
+                                      <input
+                                        type="checkbox"
+                                        className="accent-red-600"
+                                        checked={checked}
+                                        onChange={() => {
+                                          if (!activeId) return;
+                                          setSelectedLinksByCampaignId(prev => {
+                                            const cur = prev[activeId] ?? [];
+                                            const nextTypes = checked
+                                              ? cur.filter(k => k !== key)
+                                              : [...cur, key];
+                                            return { ...prev, [activeId]: nextTypes };
+                                          });
+                                        }}
+                                      />
+                                      <span className="text-sm text-zinc-200">
+                                        {CAMPAIGN_LINK_TYPE_META[key].label}
+                                      </span>
+                                    </label>
+                                  );
+                                })
+                              )}
+                            </div>
+                          </>
+                        );
+                      })()}
                       <button
                         type="button"
                         onClick={() => setShowCampaignLinksModal(false)}
