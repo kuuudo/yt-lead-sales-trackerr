@@ -153,6 +153,53 @@ function toAssetTypeTag(assetType: string): AssetTypeTag {
   return 'content_video';
 }
 
+// ── Campaign Element TYPE cell = same text WebMood 2×2 as InDepthAnalytics ──
+const WEBMOOD_LINK_TYPES = ['sales_call', 'consultation', 'newsletter', 'landing_page'] as const;
+type WebmoodLinkType = (typeof WEBMOOD_LINK_TYPES)[number];
+const WEBMOOD_CELL_META: { type: WebmoodLinkType; label: string }[] = [
+  { type: 'sales_call', label: 'SALES' },
+  { type: 'consultation', label: 'CONSULT' },
+  { type: 'newsletter', label: 'NEWS' },
+  { type: 'landing_page', label: 'PURCHASE' },
+];
+
+/** Map campaign_element_assets.element_type → WebMood cell key. */
+function elementTypeToWebmood(elementType: string | null | undefined): WebmoodLinkType | null {
+  if (!elementType) return null;
+  const t = elementType.toLowerCase();
+  if (t === 'sales_call' || t === 'sales') return 'sales_call';
+  if (t === 'consultation' || t === 'consult') return 'consultation';
+  if (t === 'newsletter' || t === 'news') return 'newsletter';
+  if (t === 'landing_page' || t === 'landing' || t === 'purchase' || t === 'direct_purchase')
+    return 'landing_page';
+  return null;
+}
+
+function WebmoodGrid({ activeTypes }: { activeTypes: Set<string> }) {
+  return (
+    <div
+      className="grid grid-cols-2 gap-0.5 w-[88px] h-[44px] rounded-md overflow-hidden border border-zinc-800 bg-zinc-950 shrink-0"
+      title="Campaign element position (orange = this asset's element type)"
+    >
+      {WEBMOOD_CELL_META.map(cell => {
+        const on = activeTypes.has(cell.type);
+        return (
+          <div
+            key={cell.type}
+            className={
+              on
+                ? 'flex items-center justify-center text-[7px] font-black tracking-wider text-orange-400 bg-orange-500/20'
+                : 'flex items-center justify-center text-[7px] font-black tracking-wider text-zinc-600 bg-zinc-900/80'
+            }
+          >
+            {cell.label}
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
 /** Zero-filled 14-column metrics bag; overlay AssetMetrics onto compatible keys. */
 function toTableMetrics(
   m: AssetAnalyticsTableRow['metrics'],
@@ -544,6 +591,7 @@ console.log('🔍 VIDEOS QUERY RESULT', {
     asset_type?: string;
     platform?: string | null;
     created_at?: string | null;
+    element_type?: string | null;
   }
 >();
         for (const row of libraryRes.data ?? []) {
@@ -586,6 +634,7 @@ console.log('🔍 VIDEOS QUERY RESULT', {
             platform: row.asset_type === 'campaign_element' ? null : (v?.platform ?? res?.platform ?? null),
             asset_type: row.asset_type,
             created_at: row.created_at ?? null,
+            element_type: el?.element_type ?? null,
           });
         }
 
@@ -620,6 +669,8 @@ console.log('🔍 VIDEOS QUERY RESULT', {
           const sp = profileByUserId.get(sponsorUid);
           sponsorDisplay = sp?.full_name?.trim() || sp?.email || null;
         }
+        // If profile RLS hid sponsor name, still label as Creative with marketer badge
+        // Prefer any non-empty sponsorDisplay; else keep null so UI can show marketer + note
       }
       videoDisplay.set(v.id, {
         title: renderContentIdentity(v),
@@ -627,8 +678,13 @@ console.log('🔍 VIDEOS QUERY RESULT', {
         platform: v.platform ?? null,
         created_at: v.created_at ?? null,
         content_owner_id: v.user_id ?? null,
-        content_owner_name: (isCreative && sponsorDisplay) ? sponsorDisplay : marketerName,
-        content_owner_marketer_name: isCreative ? marketerName : null,
+        // Creative: always prefer sponsor name; never show marketer as sole content owner
+        content_owner_name: isCreative
+          ? (sponsorDisplay || 'Sponsor')
+          : marketerName,
+        content_owner_marketer_name: isCreative
+          ? (marketerName || 'Marketer')
+          : null,
         content_campaign_id: v.campaign_id ?? null,
         created_via_creative: isCreative,
         creative_promotion_id: (v.creative_promotion_id as string | null) ?? null,
@@ -676,7 +732,9 @@ console.log('🔍 VIDEOS QUERY RESULT', {
               asset_type: toAssetTypeTag(r.asset_type),
               platform: a?.platform ?? null,
               created_at: a?.created_at ?? null,
-            },
+              // campaign_element only — drives TYPE WebMood cell
+              element_type: (a as any)?.element_type ?? null,
+            } as AssetAnalyticsRow['asset'] & { element_type?: string | null },
             promoting_video: {
               id: r.video_id,
               title: v?.title ?? undefined,
@@ -3278,9 +3336,22 @@ export default function AllAssetsAnalytics() {
                     />
                     <div className="min-w-0 flex-1">
                       <div className="text-xs font-bold truncate">{row.asset.title ?? 'Untitled asset'}</div>
-                      <span className={`inline-flex items-center mt-1 px-2 py-0.5 rounded-full border text-[8px] font-black uppercase tracking-widest ${ASSET_TYPE_COLORS[row.asset.asset_type]}`}>
-                        {ASSET_TYPE_LABELS[row.asset.asset_type]}
-                      </span>
+                      {row.asset.asset_type === 'campaign_element' ? (
+                        <div className="mt-1">
+                          <WebmoodGrid
+                            activeTypes={(() => {
+                              const key = elementTypeToWebmood(
+                                (row.asset as { element_type?: string | null }).element_type
+                              );
+                              return key ? new Set([key]) : new Set<string>();
+                            })()}
+                          />
+                        </div>
+                      ) : (
+                        <span className={`inline-flex items-center mt-1 px-2 py-0.5 rounded-full border text-[8px] font-black uppercase tracking-widest ${ASSET_TYPE_COLORS[row.asset.asset_type]}`}>
+                          {ASSET_TYPE_LABELS[row.asset.asset_type]}
+                        </span>
+                      )}
                     </div>
                   </div>
 
@@ -3580,14 +3651,25 @@ export default function AllAssetsAnalytics() {
                       </td>
                     )}
 
-                    {/* ── Asset type badge cell ───────────────────────────── */}
+                    {/* ── Asset type: WebMood for campaign_element, badge otherwise ── */}
                     {visibleColumns.has('type') && (
                       <td className="px-6 py-4 whitespace-nowrap">
-                        <span
-                          className={`inline-flex items-center px-2 py-1 rounded-full border text-[8px] font-black uppercase tracking-widest ${ASSET_TYPE_COLORS[row.asset.asset_type]}`}
-                        >
-                          {ASSET_TYPE_LABELS[row.asset.asset_type]}
-                        </span>
+                        {row.asset.asset_type === 'campaign_element' ? (
+                          <WebmoodGrid
+                            activeTypes={(() => {
+                              const key = elementTypeToWebmood(
+                                (row.asset as { element_type?: string | null }).element_type
+                              );
+                              return key ? new Set([key]) : new Set<string>();
+                            })()}
+                          />
+                        ) : (
+                          <span
+                            className={`inline-flex items-center px-2 py-1 rounded-full border text-[8px] font-black uppercase tracking-widest ${ASSET_TYPE_COLORS[row.asset.asset_type]}`}
+                          >
+                            {ASSET_TYPE_LABELS[row.asset.asset_type]}
+                          </span>
+                        )}
                       </td>
                     )}
 
