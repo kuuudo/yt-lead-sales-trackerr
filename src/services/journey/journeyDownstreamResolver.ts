@@ -118,6 +118,7 @@ async function resolveLinksToDownstream(links: RedirectLinkRow[]): Promise<Downs
   )
 
   let elementTypeByCompositeKey = new Map<string, string>()
+  let elementTypeByAssetId = new Map<string, string>()
   if (compositeCandidates.length > 0) {
     const assetIds = Array.from(new Set(compositeCandidates.map((r) => r.asset_id)))
     const { data: elementAssets, error: ceaError } = await supabase
@@ -131,6 +132,13 @@ async function resolveLinksToDownstream(links: RedirectLinkRow[]): Promise<Downs
 
     elementTypeByCompositeKey = new Map(
       ((elementAssets ?? []) as CampaignElementAssetRow[]).map((r) => [`${r.asset_id}::${r.campaign_id}`, r.element_type]),
+    )
+    // Fallback tier — same already-fetched rows, keyed by asset_id alone.
+    // Covers Creative links, where link.campaign_id is the shared "ONLY
+    // PROMOTE ASSET" system campaign, not the campaign_id the element is
+    // actually classified under.
+    elementTypeByAssetId = new Map(
+      ((elementAssets ?? []) as CampaignElementAssetRow[]).map((r) => [r.asset_id, r.element_type]),
     )
   }
 
@@ -153,7 +161,10 @@ async function resolveLinksToDownstream(links: RedirectLinkRow[]): Promise<Downs
       const resolved = await resolveAssetType(link.asset_id)
       if (resolved?.assetType === 'campaign_element') {
         const key = link.campaign_id ? `${link.asset_id}::${link.campaign_id}` : ''
-        const foundElementType = key ? elementTypeByCompositeKey.get(key) ?? null : null
+        const foundElementType =
+          (key ? elementTypeByCompositeKey.get(key) : undefined) ??
+          elementTypeByAssetId.get(link.asset_id) ??
+          null
         if (foundElementType) {
           kind = 'campaign_element'
           elementType = foundElementType
