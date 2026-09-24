@@ -49,23 +49,23 @@ type-checking on these four fields.
 
 ---
 
-## 2026-09-24 — Phase 2: `sortAssetAnalyticsRows` extraction
+## 2026-09-24 — Phase 3: simple pure filters extraction
 
-**Extracted into:** `pages/analytics-lego/assetAnalyticsColumns.tsx`
-**Call site:** `AllAssetsAnalytics.tsx` `sortedRows` useMemo
+**New file:** `pages/analytics-lego/assetAnalyticsFilters.ts`
 
-**Intentional quirk preserved (do not "fix"):**
-- Sort key `asset_created_at` (the "Recently Added" shortcut) sorts by
-  `promoting_video.created_at` (content date), **not** `asset.created_at`.
-- Column headers use different keys: `asset_created_at_col` /
-  `content_created_at_col`. Original comments say this is deliberate.
+**Extracted (behavior frozen):**
+- `filterByAssetSource`
+- `filterByAssetType`
+- `filterByPlatform` (preserves `platform ?? 'youtube'`)
+- `filterByCampaignId` (legacy Campaign dropdown)
+- `filterByContentOwnerId`
+- `collectPresentPlatforms` (preserves `platform ?? 'youtube'`)
 
-**Related pre-existing naming split (not fixed):**
-- `NEW_DATE_COLUMNS` declares keys `asset_created_at` and
-  `content_created_at`, while column header `handleSort` / sort branches
-  use `asset_created_at_col` / `content_created_at_col`. Visibility
-  toggles and sort keys may not line up 1:1 — left as-is (behavior frozen).
+**Explicitly NOT extracted:**
+- Promotion filter + creative scope (`toMe` / `byMe`) — uses `(row.promoting_video as any)`
+- Asset Campaign multi-select filter
+- Content Campaign multi-select filter (`(contentCampaignFilterOptions as any)._systemIdsByName`)
+- Archive filter (already delegated to `applyAnalyticsArchiveFilters`)
 
-**Blocks current extraction:** No.
-
----
+**Noted, not fixed:** contentOwner filter is still chained *after* the
+inline promotion/creative filter in the page (same order as before).

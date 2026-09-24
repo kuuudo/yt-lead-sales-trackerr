@@ -141,8 +141,15 @@ import {
   elementTypeToWebmood,
   WebmoodGrid,
   toTableMetrics,
-  sortAssetAnalyticsRows,
 } from './analytics-lego/assetAnalyticsColumns';
+import {
+  filterByAssetSource,
+  filterByAssetType,
+  filterByPlatform,
+  filterByCampaignId,
+  filterByContentOwnerId,
+  collectPresentPlatforms,
+} from './analytics-lego/assetAnalyticsFilters';
 
 // STUB data sources — return nothing yet. Replace with real fetches/engine
 // calls once ASSET_ANALYTICS_DESIGN.md's open questions are resolved.
@@ -1461,42 +1468,35 @@ export default function AllAssetsAnalytics() {
   // ── Asset source filter — My/Shared/Assigned. My/Shared are mutually
   // exclusive (org boundary); Assigned is an annotation on My, never a
   // separate source — an asset can be My + Assigned at once.
-  const assetSourceFilteredRows = useMemo(() => {
-    if (selectedAssetSource === 'all' || !organizationId) return rows;
-    return rows.filter(row => {
-      const isMy = row.assetOrganizationId === organizationId;
-      if (selectedAssetSource === 'my') return isMy;
-      if (selectedAssetSource === 'shared') return !isMy;
-      if (selectedAssetSource === 'assigned') return isMy && row.isAssigned;
-      return true;
-    });
-  }, [rows, selectedAssetSource, organizationId]);
+  const assetSourceFilteredRows = useMemo(
+    () => filterByAssetSource(rows, selectedAssetSource, organizationId),
+    [rows, selectedAssetSource, organizationId],
+  );
 
   // ── Asset type filter (applied after fetch, pure UI — no-op while rows=[]) ─
-  const typeFilteredRows = useMemo(() => {
-    if (selectedAssetTypes.length === 0) return assetSourceFilteredRows;
-    return assetSourceFilteredRows.filter(row => selectedAssetTypes.includes(row.asset.asset_type));
-  }, [assetSourceFilteredRows, selectedAssetTypes]);
+  const typeFilteredRows = useMemo(
+    () => filterByAssetType(assetSourceFilteredRows, selectedAssetTypes),
+    [assetSourceFilteredRows, selectedAssetTypes],
+  );
 
   // ── Platform filter (applied after fetch, pure UI — no-op while rows=[]) ─
-  const platformFilteredRows = useMemo(() => {
-    if (selectedPlatforms.length === 0) return typeFilteredRows;
-    return typeFilteredRows.filter(row => selectedPlatforms.includes(row.promoting_video.platform ?? 'youtube'));
-  }, [typeFilteredRows, selectedPlatforms]);
+  const platformFilteredRows = useMemo(
+    () => filterByPlatform(typeFilteredRows, selectedPlatforms),
+    [typeFilteredRows, selectedPlatforms],
+  );
 
-  const presentPlatforms = useMemo(() => {
-    const seen = new Set<string>();
-    rows.forEach(row => seen.add(row.promoting_video.platform ?? 'youtube'));
-    return Array.from(seen).sort();
-  }, [rows]);
+  const presentPlatforms = useMemo(
+    () => collectPresentPlatforms(rows),
+    [rows],
+  );
 
   // ── Campaign filter — real filter now. row.campaign_id was already
   // being populated by the identity-enrichment layer (r.campaignIds?.[0]);
   // it was computed but never consumed until this edit.
-  const campaignFilteredRows = useMemo(() => {
-    if (selectedCampaignId === 'all') return platformFilteredRows;
-    return platformFilteredRows.filter(row => row.campaign_id === selectedCampaignId);
-  }, [platformFilteredRows, selectedCampaignId]);
+  const campaignFilteredRows = useMemo(
+    () => filterByCampaignId(platformFilteredRows, selectedCampaignId),
+    [platformFilteredRows, selectedCampaignId],
+  );
 
   // ── Promotion filter — same shape as Campaign. See usePromotionOptions()
   // above for why the OPTIONS list is scope-conservative; the filter
@@ -1531,10 +1531,10 @@ export default function AllAssetsAnalytics() {
   // content_owner_id, never on the display name. Chained last, right
   // before sort, so Recently Added / metric sorts always run on the
   // fully-filtered set.
-   const contentOwnerFilteredRows = useMemo(() => {
-     if (selectedContentOwnerId === 'all') return promotionFilteredRows;
-     return promotionFilteredRows.filter(row => row.promoting_video.content_owner_id === selectedContentOwnerId);
-   }, [promotionFilteredRows, selectedContentOwnerId]);
+  const contentOwnerFilteredRows = useMemo(
+    () => filterByContentOwnerId(promotionFilteredRows, selectedContentOwnerId),
+    [promotionFilteredRows, selectedContentOwnerId],
+  );
  
   // ── Asset Campaign filter — NEW, fully independent of campaignFilteredRows
   // above (different state, different semantics, chained separately here).
@@ -1616,10 +1616,72 @@ export default function AllAssetsAnalytics() {
        hideArchivedPromotion,
      ],
    );
-  const sortedRows = useMemo(
-    () => sortAssetAnalyticsRows(archiveFilteredRows, sortConfig),
-    [archiveFilteredRows, sortConfig],
-  );
+  const sortedRows = useMemo(() => {
+    const key = sortConfig.key;
+    const dir = sortConfig.direction === 'asc' ? 1 : -1;
+    if (key === 'asset_created_at') {
+      return [...archiveFilteredRows].sort((a, b) => {
+        const at = a.promoting_video.created_at ? new Date(a.promoting_video.created_at).getTime() : 0;
+        const bt = b.promoting_video.created_at ? new Date(b.promoting_video.created_at).getTime() : 0;
+        if (at === bt) return 0;
+        return at > bt ? dir : -dir;
+      });
+    }
+    // New "Asset Created At" column — sorts by the ASSET's own created_at,
+    // separate from the "asset_created_at" key above (which is actually the
+    // "Recently Added" shortcut and intentionally sorts by content date —
+    // left alone on purpose).
+    if (key === 'asset_created_at_col') {
+      return [...archiveFilteredRows].sort((a, b) => {
+        const at = a.asset.created_at ? new Date(a.asset.created_at).getTime() : 0;
+        const bt = b.asset.created_at ? new Date(b.asset.created_at).getTime() : 0;
+        if (at === bt) return 0;
+        return at > bt ? dir : -dir;
+      });
+    }
+    // New "Content Created At" column — same data as the "Recently Added"
+    // shortcut above, just its own key so this column's header can sort
+    // independently without relabeling that button.
+    if (key === 'content_created_at_col') {
+      return [...archiveFilteredRows].sort((a, b) => {
+        const at = a.promoting_video.created_at ? new Date(a.promoting_video.created_at).getTime() : 0;
+        const bt = b.promoting_video.created_at ? new Date(b.promoting_video.created_at).getTime() : 0;
+        if (at === bt) return 0;
+        return at > bt ? dir : -dir;
+      });
+    }
+    // asset_clicks lives on row.asset_clicks, not row.metrics (it's not a
+    // MetricType key), so it needs the same kind of special case as
+    // asset_created_at above rather than the generic metrics[key] branch.
+    if (key === 'asset_clicks') {
+      return [...archiveFilteredRows].sort((a, b) => {
+        const av = Number(a.asset_clicks ?? 0);
+        const bv = Number(b.asset_clicks ?? 0);
+        if (av === bv) return 0;
+        return av > bv ? dir : -dir;
+      });
+    }
+
+    // Asset column — groups identical assets together. Sorted by asset
+    // title (case-insensitive); ties broken by asset id so rows for the
+    // same asset always land next to each other.
+    if (key === 'asset') {
+      return [...archiveFilteredRows].sort((a, b) => {
+        if (a.asset.id === b.asset.id) return 0;
+        const at = (a.asset.title ?? '').toLowerCase();
+        const bt = (b.asset.title ?? '').toLowerCase();
+        if (at !== bt) return at > bt ? dir : -dir;
+        return a.asset.id > b.asset.id ? dir : -dir;
+      });
+    }
+
+    return [...archiveFilteredRows].sort((a, b) => {
+      const av = Number(a.metrics[key as MetricType] ?? 0);
+      const bv = Number(b.metrics[key as MetricType] ?? 0);
+      if (av === bv) return 0;
+      return av > bv ? dir : -dir;
+    });
+  }, [archiveFilteredRows, sortConfig]);
 
   const colSpan = 8 + TABLE_COLUMNS.length + 1 + (visibleColumns.has('promotion') ? 1 : 0) + (visibleColumns.has('downstream') ? 1 : 0); // Asset + Type + Content + Content Owner + Asset Campaign + Content Campaign + Asset Clicks + Total Revenue (dup) + metrics + trailing spacer + optional Promotion + optional Downstream
 
