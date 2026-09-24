@@ -543,7 +543,7 @@ async function resolveConversionOutcomes(
     const sessionIds = Array.from(
       new Set(((evRows ?? []) as { session_id: string | null }[]).map((e) => e.session_id).filter((x): x is string => !!x)),
     )
-    for (const chunk of chunkIds(sessionIds)) {
+        for (const chunk of chunkIds(sessionIds).slice(0, 0)) { // session bridge off: only rows tagged with this promotion count
       const { data: pRows } = await supabase
         .from('pixel_purchases')
         .select('id, session_id, event_type')
