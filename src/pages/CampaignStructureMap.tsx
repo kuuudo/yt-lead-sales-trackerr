@@ -203,8 +203,8 @@ interface PositionedNode {
 }
 
 interface Edge {
-  from: Pt
-  to: Pt
+  fromId: string
+  toId: string
   color: string
   branchId: string
 }
@@ -253,19 +253,14 @@ function layoutTree(root: TreeNode) {
 
   const byId = new Map(nodes.map((n) => [n.id, n]))
   function walkEdges(node: TreeNode) {
-    const parent = byId.get(node.id)!
     node.children?.forEach((child) => {
       const c = byId.get(child.id)!
-      edges.push({
-        from: { x: parent.center.x, y: parent.center.y + parent.h / 2 },
-        to: { x: c.center.x, y: c.center.y - c.h / 2 },
-        color: c.color,
-        branchId: c.branchId,
-      })
+      edges.push({ fromId: node.id, toId: child.id, color: c.color, branchId: c.branchId })
       walkEdges(child)
     })
   }
   walkEdges(root)
+    
 
   // Normalize so the leftmost node starts at PADDING_X, and the root row
   // starts at PADDING_TOP, regardless of tree shape.
@@ -276,11 +271,11 @@ function layoutTree(root: TreeNode) {
 
   const shift = (p: Pt) => ({ x: p.x + offsetX, y: p.y + PADDING_TOP })
   const shiftedNodes = nodes.map((n) => ({ ...n, center: shift(n.center) }))
-  const shiftedEdges = edges.map((e) => ({ ...e, from: shift(e.from), to: shift(e.to) }))
+  
 
   return {
     nodes: shiftedNodes,
-    edges: shiftedEdges,
+    edges,
     canvasW: maxX - minX + PADDING_X * 2,
     canvasH: maxY + PADDING_TOP + PADDING_BOTTOM,
   }
@@ -297,7 +292,9 @@ export default function CampaignStructureMap() {
   const [transform, setTransform] = useState<CanvasTransform>({ x: 0, y: 0, scale: 0.85 })
   const [hoveredBranchId, setHoveredBranchId] = useState<string | null>(null)
   const [hasCentered, setHasCentered] = useState(false)
-
+  const [dragPositions, setDragPositions] = useState<Record<string, Pt>>({})
+  const [draggingId, setDraggingId] = useState<string | null>(null)
+  const dragState = useRef<{ id: string; startClientX: number; startClientY: number; startCenter: Pt } | null>(null)
   // Center the tree in the viewport on first mount, once we know the
   // container's actual size (tree width varies with mock-data shape).
   useLayoutEffect(() => {
@@ -359,6 +356,33 @@ export default function CampaignStructureMap() {
     panState.current.active = false
   }, [])
 
+
+  const handleNodePointerDown = useCallback(
+    (e: React.PointerEvent, node: PositionedNode) => {
+      e.stopPropagation()
+      dragState.current = { id: node.id, startClientX: e.clientX, startClientY: e.clientY, startCenter: dragPositions[node.id] ?? node.center }
+      setDraggingId(node.id)
+      ;(e.target as HTMLElement).setPointerCapture(e.pointerId)
+    },
+    [dragPositions]
+  )
+  const handleNodePointerMove = useCallback(
+    (e: React.PointerEvent) => {
+      const drag = dragState.current
+      if (!drag) return
+      e.stopPropagation()
+      const dx = (e.clientX - drag.startClientX) / transform.scale
+      const dy = (e.clientY - drag.startClientY) / transform.scale
+      setDragPositions((prev) => ({ ...prev, [drag.id]: { x: drag.startCenter.x + dx, y: drag.startCenter.y + dy } }))
+    },
+    [transform.scale]
+  )
+  const handleNodePointerUp = useCallback((e: React.PointerEvent) => {
+    e.stopPropagation()
+    dragState.current = null
+    setDraggingId(null)
+  }, [])
+
   const handleWheel = useCallback(
     (e: React.WheelEvent) => {
       e.preventDefault()
@@ -391,6 +415,9 @@ export default function CampaignStructureMap() {
     ],
     []
   )
+
+  const liveNodes = nodes.map((n) => ({ ...n, center: dragPositions[n.id] ?? n.center }))
+  const liveNodeById = new Map(liveNodes.map((n) => [n.id, n]))
 
   return (
     <div style={styles.page}>
@@ -445,13 +472,17 @@ export default function CampaignStructureMap() {
               </marker>
             </defs>
 
-            {edges.map((e, i) => {
+                        {edges.map((e, i) => {
+              const parent = liveNodeById.get(e.fromId)!
+              const child = liveNodeById.get(e.toId)!
+              const from = { x: parent.center.x, y: parent.center.y + parent.h / 2 }
+              const to = { x: child.center.x, y: child.center.y - child.h / 2 }
               const dimmed = hoveredBranchId !== null && hoveredBranchId !== e.branchId
               const hasMarker = legendItems.some((l) => l.branchId === e.branchId)
               return (
                 <path
                   key={i}
-                  d={curvePath(e.from, e.to)}
+                  d={curvePath(from, to)}
                   fill="none"
                   stroke={e.color}
                   strokeWidth={dimmed ? 1.4 : 2}
@@ -463,14 +494,18 @@ export default function CampaignStructureMap() {
             })}
           </svg>
 
-          {nodes.map((node) => {
+          {liveNodes.map((node) => {
             const dimmed = hoveredBranchId !== null && hoveredBranchId !== node.branchId
             const isRoot = node.kind === 'campaign'
+            const isDragging = draggingId === node.id
             return (
               <div
                 key={node.id}
                 onMouseEnter={() => setHoveredBranchId(node.branchId)}
                 onMouseLeave={() => setHoveredBranchId(null)}
+                onPointerDown={(e) => handleNodePointerDown(e, node)}
+                onPointerMove={handleNodePointerMove}
+                onPointerUp={handleNodePointerUp}
                 style={{
                   ...(isRoot ? styles.rootNode : node.kind === 'asset' ? styles.assetNode : styles.cardNode),
                   left: node.center.x - node.w / 2,
@@ -483,7 +518,10 @@ export default function CampaignStructureMap() {
                     : node.kind === 'asset'
                     ? '0 2px 6px rgba(15,23,42,0.04)'
                     : `0 0 0 2px ${node.color}1f, 0 4px 10px rgba(15,23,42,0.06)`,
-                  opacity: dimmed ? 0.35 : 1,
+                                    opacity: dimmed ? 0.35 : 1,
+                  cursor: isDragging ? 'grabbing' : 'grab',
+                  zIndex: isDragging ? 10 : 1,
+                  touchAction: 'none',
                 }}
               >
                 {!isRoot && <span style={{ ...styles.nodeDot, background: node.color }} />}
