@@ -98,6 +98,7 @@ import {
   getAssetAnalyticsRows,
   type AssetAnalyticsTableRow,
 } from '../services/asset/getAssetAnalyticsRows';
+import DownstreamPreview from '../components/analytics/DownstreamPreview';
 import { getVideoArchiveContextsForViewer } from '../services/video/getVideoArchiveContext';
 import { getCampaignArchiveContextsForViewer } from '../services/campaign/getCampaignArchiveContext';
 import { getPromotionArchiveContextsForViewer } from '../services/promotion/getPromotionArchiveContext';
@@ -1751,7 +1752,7 @@ export default function AllAssetsAnalytics() {
     });
   }, [archiveFilteredRows, sortConfig]);
 
-  const colSpan = 8 + TABLE_COLUMNS.length + 1 + (visibleColumns.has('promotion') ? 1 : 0); // Asset + Type + Content + Content Owner + Asset Campaign + Content Campaign + Asset Clicks + Total Revenue (dup) + metrics + trailing spacer + optional Promotion
+  const colSpan = 8 + TABLE_COLUMNS.length + 1 + (visibleColumns.has('promotion') ? 1 : 0) + (visibleColumns.has('downstream') ? 1 : 0); // Asset + Type + Content + Content Owner + Asset Campaign + Content Campaign + Asset Clicks + Total Revenue (dup) + metrics + trailing spacer + optional Promotion + optional Downstream
 
   return (
     <div className="flex h-screen bg-black text-zinc-300 overflow-hidden fixed inset-0 z-[100]">
@@ -3362,6 +3363,10 @@ export default function AllAssetsAnalytics() {
                       <span className="text-zinc-300 font-bold tabular-nums">{row.asset_clicks ?? '—'}</span>
                     </div>
                     <div className="flex items-center justify-between text-[11px]">
+                      <span className="text-zinc-600 font-bold uppercase tracking-widest">Downstream</span>
+                      <DownstreamPreview videoId={row.promoting_video.id} assetId={row.asset.id} />
+                    </div>
+                    <div className="flex items-center justify-between text-[11px]">
                       <span className="text-zinc-600 font-bold uppercase tracking-widest">Total Revenue ($)</span>
                       <span className="text-zinc-300 font-bold tabular-nums">{row.metrics['total_revenue' as MetricType] ?? 0}</span>
                     </div>
@@ -3506,6 +3511,12 @@ export default function AllAssetsAnalytics() {
                           className={sortConfig.key === 'asset_clicks' ? 'text-white' : 'text-zinc-700'}
                         />
                       </div>
+                    </th>
+                  )}
+
+                  {visibleColumns.has('downstream') && (
+                    <th className="px-6 py-5 text-left text-[10px] font-black uppercase tracking-widest text-zinc-600 border-b border-zinc-900 bg-zinc-950 whitespace-nowrap">
+                      Downstream
                     </th>
                   )}
 
@@ -3853,6 +3864,12 @@ export default function AllAssetsAnalytics() {
                     {visibleColumns.has('asset_clicks') && (
                       <td className="px-6 py-4 whitespace-nowrap text-sm font-bold text-zinc-400 tabular-nums">
                         {row.asset_clicks ?? '—'}
+                      </td>
+                    )}
+
+                    {visibleColumns.has('downstream') && (
+                      <td className="px-6 py-4 whitespace-nowrap">
+                        <DownstreamPreview videoId={row.promoting_video.id} assetId={row.asset.id} />
                       </td>
                     )}
 
