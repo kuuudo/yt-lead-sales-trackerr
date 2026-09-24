@@ -1,125 +1,52 @@
 // ─────────────────────────────────────────────────────────────────────────────
-// assetAnalyticsTypes.ts
+// assetAnalyticsColumns.ts
 //
-// Page-level presentation types for All Assets Analytics (and future
-// composition into other asset analytics UI).
-//
-// Does NOT redefine engine/service DTOs from analyticsEngine,
-// assetAnalyticsEngine, or getAssetAnalyticsRows.
+// Asset Analytics table column inventory, default visibility, and sort
+// shortcut configuration. Reuses TABLE_COLUMNS / COLUMN_LABELS from
+// analyticsEngine — does not redefine the shared metrics vocabulary.
 // ─────────────────────────────────────────────────────────────────────────────
 
-import type { ReactNode } from 'react';
-import type { MetricType } from '../../lib/analyticsEngine';
+import React from 'react';
+import { TABLE_COLUMNS, type MetricType } from '../../lib/analyticsEngine';
+import type { AssetTypeTag } from './assetAnalyticsTypes';
+import type { AssetAnalyticsTableRow } from '../../services/asset/getAssetAnalyticsRows';
 
-// ── Asset type taxonomy (UI badge labels only; not assets.asset_type enum) ──
-
-export type AssetTypeTag =
-  | 'campaign_element'
-  | 'promotional_video'
-  | 'resource'
-  | 'content_video';
-
-export const ASSET_TYPE_LABELS: Record<AssetTypeTag, string> = {
-  campaign_element: 'Campaign Element',
-  promotional_video: 'Promotional Video',
-  resource: 'Resource',
-  content_video: 'Content Video',
-};
-
-export const ASSET_TYPE_COLORS: Record<AssetTypeTag, string> = {
-  campaign_element: 'bg-violet-500/10 border-violet-500/30 text-violet-400',
-  promotional_video: 'bg-blue-500/10 border-blue-500/30 text-blue-400',
-  resource: 'bg-amber-500/10 border-amber-500/30 text-amber-400',
-  content_video: 'bg-emerald-500/10 border-emerald-500/30 text-emerald-400',
-};
-
-export const ALL_ASSET_TYPES: AssetTypeTag[] = [
-  'campaign_element',
-  'promotional_video',
-  'resource',
-  'content_video',
+/** Sort shortcuts — same set InDepthAnalytics exposes, minus dead unique_clicks. */
+export const SORT_SHORTCUTS: { label: string; key: string }[] = [
+  { label: 'Recently Added', key: 'asset_created_at' },
+  { label: 'Revenue', key: 'total_revenue' },
+  { label: 'Consultations', key: 'consultation_thankyou' },
+  { label: 'Purchases', key: 'purchase_thankyou' },
+  { label: 'Calls', key: 'call_booking_thankyou' },
+  { label: 'Opt-ins', key: 'newsletter_thankyou' },
 ];
 
-// ── Filter option shapes (presentation / filter panel only) ────────────────
+/** Asset-specific table columns beyond the shared TABLE_COLUMNS metrics. */
+export const EXTRA_TABLE_COLUMNS: { key: string; label: string }[] = [
+  { key: 'type', label: 'Type' },
+  { key: 'promoting_content', label: 'Promoting Content' },
+  { key: 'content_owner', label: 'Content Owner' },
+  { key: 'asset_campaign', label: 'Asset Campaign' },
+  { key: 'content_campaign', label: 'Content Campaign' },
+  { key: 'asset_clicks', label: 'Asset Clicks' },
+  { key: 'downstream', label: 'Downstream' },
+];
 
-/** Promotion dropdown option — display fields only. */
-export interface PromotionOption {
-  id: string;
-  name: string;
-}
-
-/**
- * Asset Campaign filter selection — OR'd multi-select.
- * Independent from the legacy Campaign filter.
- */
-export type AssetCampaignSelection =
-  | { type: 'all' }
-  | { type: 'campaign'; id: string }
-  | { type: 'owner'; ownerId: string }
-  | { type: 'campaignFree' };
-
-export interface AssetCampaignFilterOptions {
-  myCampaigns: { id: string; name: string; isArchived: boolean }[];
-  otherOwners: { ownerId: string; displayName: string; campaignIds: string[] }[];
-  systemCampaigns: { id: string; name: string }[];
-  hasCampaignFreeResources: boolean;
-}
-
-// ── Table row identity (page view model; not service AssetAnalyticsTableRow) ─
-
-export interface AssetIdentity {
-  id: string;
-  title: string | undefined;
-  thumbnail_url?: string;
-  asset_type: AssetTypeTag;
-  platform?: string | null;
-  created_at?: string | null;
-}
-
-export interface PromotingVideoIdentity {
-  id: string;
-  title: ReactNode | undefined;
-  thumbnail_url?: string;
-  platform?: string | null;
-  created_at?: string | null;
-  content_owner_id?: string | null;
-  content_owner_name?: string | null;
-  content_campaign_id?: string | null;
-}
+/** Date columns — hidden by default (not spread into DEFAULT_VISIBLE). */
+export const NEW_DATE_COLUMNS: { key: string; label: string }[] = [
+  { key: 'asset_created_at', label: 'Asset Created At' },
+  { key: 'content_created_at', label: 'Content Created At' },
+];
 
 /**
- * ONE ROW = ONE (asset, promoting video) PAIR for the table/cards UI.
- * Metrics use the shared MetricType keys from analyticsEngine (structural).
+ * Default visible column keys.
+ * NEW_DATE_COLUMNS intentionally omitted so those columns start hidden.
  */
-export interface AssetAnalyticsRow {
-  asset: AssetIdentity;
-  promoting_video: PromotingVideoIdentity;
-  campaign_id: string | null;
-  /** Asset's OWN campaign provenance source — never redirect_links.campaign_id. */
-  assetCampaignSource: 'video' | 'campaign_element' | 'resource' | null;
-  isCampaignFreeResource: boolean;
-  promotion_id: string | null;
-  /** assets.organization_id — compared to viewer org for My vs Shared. */
-  assetOrganizationId: string;
-  /** Annotation on My; not an exclusive scope. */
-  isAssigned: boolean;
-  archive: {
-    isArchived: boolean;
-    reasons: { sourceType: string; sourceId: string; sourceName: string | null }[];
-  };
-  videoArchive: {
-    isArchived: boolean;
-  };
-  campaignArchive: {
-    isArchived: boolean;
-  };
-  promotionArchive: {
-    isArchived: boolean;
-  };
-  /** null = not computed yet (UI shows "—"); number includes real zeros. */
-  asset_clicks: number | null;
-  metrics: Record<MetricType, number | string>;
-}
+export const DEFAULT_VISIBLE = new Set<string>([
+  ...TABLE_COLUMNS,
+  'promotion',
+  ...EXTRA_TABLE_COLUMNS.map((c) => c.key),
+]);
 
 /** Map engine asset_type → UI badge taxonomy (local labels only). */
 export function toAssetTypeTag(assetType: string): AssetTypeTag {
