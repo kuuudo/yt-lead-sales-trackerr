@@ -255,6 +255,7 @@ export default function DownstreamPreview({ videoId, assetId }: DownstreamPrevie
   }, [mode, close]);
 
   const onEnter = () => {
+    console.log('onEnter fired, canHover =', canHover);
     if (!canHover) return;
     clearCloseTimer();
     setMode((m) => (m === 'closed' ? 'hover' : m));
