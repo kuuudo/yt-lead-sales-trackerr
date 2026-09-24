@@ -26,6 +26,7 @@ export const EXTRA_TABLE_COLUMNS: { key: string; label: string }[] = [
   { key: 'asset_campaign', label: 'Asset Campaign' },
   { key: 'content_campaign', label: 'Content Campaign' },
   { key: 'asset_clicks', label: 'Asset Clicks' },
+  { key: 'downstream', label: 'Downstream' },
 ];
 
 /** Date columns — hidden by default (not spread into DEFAULT_VISIBLE). */
