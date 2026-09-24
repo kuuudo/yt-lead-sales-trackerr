@@ -1,0 +1,752 @@
+/**
+ * src/pages/CampaignStructureMap.tsx
+ *
+ * Route: /marketplace/campaigns/:campaignId/structure
+ *
+ * Purpose: a Miro/FigJam-style canvas showing a Campaign's ORGANIZATIONAL
+ * STRUCTURE — Campaign at the root, branching down into Content / Own Assets
+ * / Marketers, with Marketers branching further into Promotions and then
+ * Assets.
+ *
+ * This is explicitly NOT a user/visitor journey view. It does not use and
+ * must never be wired to: events_journey, journeyDiscovery.ts,
+ * journeyGraph.ts, journeyDownstreamResolver.ts, click paths, attribution,
+ * or any downstream/conversion analytics. See CampaignJourneyMap.tsx for
+ * that concept — it is a separate page and is not touched by this file.
+ *
+ * Current state: 100% static mock data. No Supabase. No queries. No
+ * aggregation. The goal of this pass is the visual hierarchy / canvas UX,
+ * not real data — swapping MOCK_CAMPAIGN for a resolved campaign tree is a
+ * future, separate change.
+ *
+ * Reused from CampaignJourneyMap.tsx (generic canvas infra only, not its
+ * journey-specific layout):
+ *   1. The canvas-space coordinate model (translate+scale transform,
+ *      screen<->canvas conversion, wheel-to-zoom-at-cursor math).
+ *   2. <CanvasGrid /> — stateless dot-grid background.
+ *   3. curvePath() — bezier connector between two points.
+ *   4. The card visual language (color dot + label, dim-on-hover).
+ *
+ * The layout itself is new: a layered top-down tree (root at top, rows by
+ * depth), not the hub-and-spoke radial layout CampaignJourneyMap uses.
+ *
+ * This page does NOT use useWorkspaceStore and does NOT write to the
+ * `widgets` table — same as CampaignJourneyMap.tsx / PromotionJourneyMap.tsx.
+ */
+
+import React, { useCallback, useLayoutEffect, useMemo, useRef, useState } from 'react'
+import { useParams, Link } from 'react-router-dom'
+import { ArrowLeft, Network, Sparkles } from 'lucide-react'
+import CanvasGrid from '../components/analytics/canvas/CanvasGrid'
+import type { CanvasTransform } from '../components/analytics/store/useWorkspaceStore'
+
+// ─── Static mock data model ─────────────────────────────────────────────
+// Deliberately NOT fetched from anywhere. Swapping this for a real,
+// resolved campaign/marketer/promotion/asset tree is future work.
+
+type NodeKind = 'campaign' | 'branch' | 'marketer' | 'promotion' | 'asset'
+
+interface TreeNode {
+  id: string
+  label: string
+  kind: NodeKind
+  color: string
+  children?: TreeNode[]
+}
+
+// Per-marketer accent colors so each Marketer -> Promotions -> Assets
+// branch reads as its own visual lane on the canvas.
+const MARKETER_A = '#6366f1' // indigo
+const MARKETER_B = '#ec4899' // pink
+const MARKETER_C = '#f59e0b' // amber
+
+const MOCK_CAMPAIGN: TreeNode = {
+  id: 'campaign_a',
+  label: 'Campaign A',
+  kind: 'campaign',
+  color: '#111827',
+  children: [
+    { id: 'content', label: 'Content', kind: 'branch', color: '#0ea5e9' },
+    { id: 'own_assets', label: 'Own Assets', kind: 'branch', color: '#10b981' },
+    {
+      id: 'marketers',
+      label: 'Marketers',
+      kind: 'branch',
+      color: '#8b5cf6',
+      children: [
+        {
+          id: 'marketer_a',
+          label: 'Marketer A',
+          kind: 'marketer',
+          color: MARKETER_A,
+          children: [
+            {
+              id: 'promo_a',
+              label: 'Promotion A',
+              kind: 'promotion',
+              color: MARKETER_A,
+              children: [
+                { id: 'asset_a', label: 'Asset A', kind: 'asset', color: MARKETER_A },
+                { id: 'asset_b', label: 'Asset B', kind: 'asset', color: MARKETER_A },
+              ],
+            },
+            {
+              id: 'promo_b',
+              label: 'Promotion B',
+              kind: 'promotion',
+              color: MARKETER_A,
+              children: [{ id: 'asset_c', label: 'Asset C', kind: 'asset', color: MARKETER_A }],
+            },
+          ],
+        },
+        {
+          id: 'marketer_b',
+          label: 'Marketer B',
+          kind: 'marketer',
+          color: MARKETER_B,
+          children: [
+            {
+              id: 'promo_c',
+              label: 'Promotion C',
+              kind: 'promotion',
+              color: MARKETER_B,
+              children: [
+                { id: 'asset_d', label: 'Asset D', kind: 'asset', color: MARKETER_B },
+                { id: 'asset_e', label: 'Asset E', kind: 'asset', color: MARKETER_B },
+              ],
+            },
+            {
+              id: 'promo_d',
+              label: 'Promotion D',
+              kind: 'promotion',
+              color: MARKETER_B,
+              children: [{ id: 'asset_f', label: 'Asset F', kind: 'asset', color: MARKETER_B }],
+            },
+          ],
+        },
+        {
+          id: 'marketer_c',
+          label: 'Marketer C',
+          kind: 'marketer',
+          color: MARKETER_C,
+          children: [
+            {
+              id: 'promo_e',
+              label: 'Promotion E',
+              kind: 'promotion',
+              color: MARKETER_C,
+              children: [{ id: 'asset_g', label: 'Asset G', kind: 'asset', color: MARKETER_C }],
+            },
+          ],
+        },
+      ],
+    },
+  ],
+}
+
+// ─── Layout constants ───────────────────────────────────────────────────────
+
+const ROW_HEIGHT = 190
+const LEAF_GAP = 190
+const PADDING_X = 100
+const PADDING_TOP = 70
+const PADDING_BOTTOM = 120
+
+const NODE_SIZE: Record<NodeKind, { w: number; h: number }> = {
+  campaign: { w: 230, h: 72 },
+  branch: { w: 190, h: 60 },
+  marketer: { w: 190, h: 58 },
+  promotion: { w: 168, h: 52 },
+  asset: { w: 148, h: 46 },
+}
+
+const NODE_KIND_LABEL: Record<NodeKind, string> = {
+  campaign: 'Campaign',
+  branch: 'Branch',
+  marketer: 'Marketer',
+  promotion: 'Promotion',
+  asset: 'Asset',
+}
+
+const MIN_SCALE = 0.4
+const MAX_SCALE = 2.2
+const ZOOM_STEP = 0.15
+
+// ─── Geometry helpers ───────────────────────────────────────────────────────
+
+type Pt = { x: number; y: number }
+
+/** Smooth cubic bezier between two points, curving along whichever axis dominates. */
+function curvePath(a: Pt, b: Pt): string {
+  const dx = b.x - a.x
+  const dy = b.y - a.y
+  if (Math.abs(dx) >= Math.abs(dy)) {
+    const midX = (a.x + b.x) / 2
+    return `M ${a.x} ${a.y} C ${midX} ${a.y} ${midX} ${b.y} ${b.x} ${b.y}`
+  }
+  const midY = (a.y + b.y) / 2
+  return `M ${a.x} ${a.y} C ${a.x} ${midY} ${b.x} ${midY} ${b.x} ${b.y}`
+}
+
+interface PositionedNode {
+  id: string
+  label: string
+  kind: NodeKind
+  color: string
+  center: Pt
+  w: number
+  h: number
+  depth: number
+  /** id of the top-level lane this node belongs to (content / own_assets /
+   *  a specific marketer) — used to dim unrelated branches on hover. */
+  branchId: string
+}
+
+interface Edge {
+  from: Pt
+  to: Pt
+  color: string
+  branchId: string
+}
+
+/**
+ * Layered top-down tree layout: y = depth * row height. x is assigned by
+ * walking the tree depth-first — each leaf gets the next slot on a fixed
+ * horizontal grid, and each internal node is centered over its children.
+ */
+function layoutTree(root: TreeNode) {
+  const nodes: PositionedNode[] = []
+  const edges: Edge[] = []
+  let leafCursor = 0
+
+  function place(node: TreeNode, depth: number, parentBranch: string | null): { x: number; branchId: string } {
+    // Depth-1 nodes (Content / Own Assets / Marketers) start their own lane.
+    // Marketer nodes (children of the "marketers" branch) start their own
+    // sub-lane so each marketer's promotions/assets read as one branch.
+    const branchId = depth === 1 ? node.id : parentBranch === 'marketers' ? node.id : parentBranch ?? node.id
+
+    let x: number
+    if (!node.children || node.children.length === 0) {
+      x = leafCursor * LEAF_GAP
+      leafCursor += 1
+    } else {
+      const childCenters = node.children.map((child) => place(child, depth + 1, branchId).x)
+      x = (childCenters[0] + childCenters[childCenters.length - 1]) / 2
+    }
+
+    const { w, h } = NODE_SIZE[node.kind]
+    nodes.push({
+      id: node.id,
+      label: node.label,
+      kind: node.kind,
+      color: node.color,
+      center: { x, y: depth * ROW_HEIGHT },
+      w,
+      h,
+      depth,
+      branchId,
+    })
+    return { x, branchId }
+  }
+
+  place(root, 0, null)
+
+  const byId = new Map(nodes.map((n) => [n.id, n]))
+  function walkEdges(node: TreeNode) {
+    const parent = byId.get(node.id)!
+    node.children?.forEach((child) => {
+      const c = byId.get(child.id)!
+      edges.push({
+        from: { x: parent.center.x, y: parent.center.y + parent.h / 2 },
+        to: { x: c.center.x, y: c.center.y - c.h / 2 },
+        color: c.color,
+        branchId: c.branchId,
+      })
+      walkEdges(child)
+    })
+  }
+  walkEdges(root)
+
+  // Normalize so the leftmost node starts at PADDING_X, and the root row
+  // starts at PADDING_TOP, regardless of tree shape.
+  const minX = Math.min(...nodes.map((n) => n.center.x - n.w / 2))
+  const maxX = Math.max(...nodes.map((n) => n.center.x + n.w / 2))
+  const maxY = Math.max(...nodes.map((n) => n.center.y + n.h / 2))
+  const offsetX = PADDING_X - minX
+
+  const shift = (p: Pt) => ({ x: p.x + offsetX, y: p.y + PADDING_TOP })
+  const shiftedNodes = nodes.map((n) => ({ ...n, center: shift(n.center) }))
+  const shiftedEdges = edges.map((e) => ({ ...e, from: shift(e.from), to: shift(e.to) }))
+
+  return {
+    nodes: shiftedNodes,
+    edges: shiftedEdges,
+    canvasW: maxX - minX + PADDING_X * 2,
+    canvasH: maxY + PADDING_TOP + PADDING_BOTTOM,
+  }
+}
+
+// ─── Component ──────────────────────────────────────────────────────────────
+
+export default function CampaignStructureMap() {
+  const { campaignId } = useParams<{ campaignId: string }>()
+  const containerRef = useRef<HTMLDivElement>(null)
+
+  const { nodes, edges, canvasW, canvasH } = useMemo(() => layoutTree(MOCK_CAMPAIGN), [])
+
+  const [transform, setTransform] = useState<CanvasTransform>({ x: 0, y: 0, scale: 0.85 })
+  const [hoveredBranchId, setHoveredBranchId] = useState<string | null>(null)
+  const [hasCentered, setHasCentered] = useState(false)
+
+  // Center the tree in the viewport on first mount, once we know the
+  // container's actual size (tree width varies with mock-data shape).
+  useLayoutEffect(() => {
+    if (hasCentered) return
+    const rect = containerRef.current?.getBoundingClientRect()
+    if (!rect) return
+    const scale = 0.85
+    const x = rect.width / 2 - (canvasW / 2) * scale
+    const y = 24
+    setTransform({ x, y, scale })
+    setHasCentered(true)
+  }, [canvasW, hasCentered])
+
+  const pan = useCallback((dx: number, dy: number) => {
+    setTransform((t) => ({ ...t, x: t.x + dx, y: t.y + dy }))
+  }, [])
+
+  const zoom = useCallback((delta: number, originX: number, originY: number) => {
+    setTransform((t) => {
+      const factor = delta > 0 ? 1 + ZOOM_STEP : 1 - ZOOM_STEP
+      const newScale = Math.min(MAX_SCALE, Math.max(MIN_SCALE, t.scale * factor))
+      const canvasX = (originX - t.x) / t.scale
+      const canvasY = (originY - t.y) / t.scale
+      return { scale: newScale, x: originX - canvasX * newScale, y: originY - canvasY * newScale }
+    })
+  }, [])
+
+  const resetView = useCallback(() => {
+    const rect = containerRef.current?.getBoundingClientRect()
+    const scale = 0.85
+    const x = (rect?.width ?? 1200) / 2 - (canvasW / 2) * scale
+    setTransform({ x, y: 24, scale })
+  }, [canvasW])
+
+  const panState = useRef<{ active: boolean; lastX: number; lastY: number }>({
+    active: false,
+    lastX: 0,
+    lastY: 0,
+  })
+
+  const handlePointerDown = useCallback((e: React.PointerEvent) => {
+    if (e.button !== 0) return
+    panState.current = { active: true, lastX: e.clientX, lastY: e.clientY }
+  }, [])
+
+  const handlePointerMove = useCallback(
+    (e: React.PointerEvent) => {
+      if (!panState.current.active) return
+      const dx = e.clientX - panState.current.lastX
+      const dy = e.clientY - panState.current.lastY
+      panState.current.lastX = e.clientX
+      panState.current.lastY = e.clientY
+      pan(dx, dy)
+    },
+    [pan]
+  )
+
+  const handlePointerUp = useCallback(() => {
+    panState.current.active = false
+  }, [])
+
+  const handleWheel = useCallback(
+    (e: React.WheelEvent) => {
+      e.preventDefault()
+      const rect = containerRef.current?.getBoundingClientRect()
+      if (!rect) return
+      zoom(e.deltaY > 0 ? -1 : 1, e.clientX - rect.left, e.clientY - rect.top)
+    },
+    [zoom]
+  )
+
+  const zoomIn = () => {
+    const rect = containerRef.current?.getBoundingClientRect()
+    zoom(1, (rect?.width ?? 800) / 2, (rect?.height ?? 500) / 2)
+  }
+  const zoomOut = () => {
+    const rect = containerRef.current?.getBoundingClientRect()
+    zoom(-1, (rect?.width ?? 800) / 2, (rect?.height ?? 500) / 2)
+  }
+
+  const scalePercent = Math.round(transform.scale * 100)
+
+  // Legend = one chip per top-level lane (Content, Own Assets, each Marketer).
+  const legendItems = useMemo(
+    () => [
+      { branchId: 'content', label: 'Content', color: '#0ea5e9' },
+      { branchId: 'own_assets', label: 'Own Assets', color: '#10b981' },
+      { branchId: 'marketer_a', label: 'Marketer A', color: MARKETER_A },
+      { branchId: 'marketer_b', label: 'Marketer B', color: MARKETER_B },
+      { branchId: 'marketer_c', label: 'Marketer C', color: MARKETER_C },
+    ],
+    []
+  )
+
+  return (
+    <div style={styles.page}>
+      <div style={styles.header}>
+        <Link to={`/campaigns/${campaignId ?? ''}`} style={styles.backLink}>
+          <ArrowLeft size={14} /> Back to campaign
+        </Link>
+        <div style={styles.titleBlock}>
+          <span style={styles.title}>Campaign Structure Map</span>
+          <span style={styles.subtitle}>{campaignId ?? 'Untitled Campaign'}</span>
+        </div>
+        <span style={styles.phaseBadge}>
+          <Sparkles size={12} /> Structure preview — static mock data, not connected to live data
+        </span>
+      </div>
+
+      <div
+        ref={containerRef}
+        style={styles.canvasContainer}
+        onPointerDown={handlePointerDown}
+        onPointerMove={handlePointerMove}
+        onPointerUp={handlePointerUp}
+        onPointerLeave={handlePointerUp}
+        onWheel={handleWheel}
+      >
+        <CanvasGrid transform={transform} />
+
+        <div
+          style={{
+            ...styles.canvasLayer,
+            transform: `translate(${transform.x}px, ${transform.y}px) scale(${transform.scale})`,
+            transformOrigin: '0 0',
+          }}
+        >
+          <svg style={{ ...styles.edgesLayer, width: canvasW, height: canvasH }}>
+            <defs>
+              {legendItems.map((item) => (
+                <marker
+                  key={item.branchId}
+                  id={`arrow-${item.branchId}`}
+                  markerWidth="8"
+                  markerHeight="8"
+                  refX="6"
+                  refY="3"
+                  orient="auto"
+                >
+                  <path d="M0,0 L6,3 L0,6 Z" fill={item.color} />
+                </marker>
+              ))}
+              <marker id="arrow-default" markerWidth="8" markerHeight="8" refX="6" refY="3" orient="auto">
+                <path d="M0,0 L6,3 L0,6 Z" fill="#9ca3af" />
+              </marker>
+            </defs>
+
+            {edges.map((e, i) => {
+              const dimmed = hoveredBranchId !== null && hoveredBranchId !== e.branchId
+              const hasMarker = legendItems.some((l) => l.branchId === e.branchId)
+              return (
+                <path
+                  key={i}
+                  d={curvePath(e.from, e.to)}
+                  fill="none"
+                  stroke={e.color}
+                  strokeWidth={dimmed ? 1.4 : 2}
+                  strokeOpacity={dimmed ? 0.18 : 0.55}
+                  markerEnd={`url(#${hasMarker ? `arrow-${e.branchId}` : 'arrow-default'})`}
+                  style={{ transition: 'stroke-opacity 150ms ease, stroke-width 150ms ease' }}
+                />
+              )
+            })}
+          </svg>
+
+          {nodes.map((node) => {
+            const dimmed = hoveredBranchId !== null && hoveredBranchId !== node.branchId
+            const isRoot = node.kind === 'campaign'
+            return (
+              <div
+                key={node.id}
+                onMouseEnter={() => setHoveredBranchId(node.branchId)}
+                onMouseLeave={() => setHoveredBranchId(null)}
+                style={{
+                  ...(isRoot ? styles.rootNode : node.kind === 'asset' ? styles.assetNode : styles.cardNode),
+                  left: node.center.x - node.w / 2,
+                  top: node.center.y - node.h / 2,
+                  width: node.w,
+                  height: node.h,
+                  borderColor: isRoot ? 'transparent' : node.kind === 'asset' ? `${node.color}66` : node.color,
+                  boxShadow: isRoot
+                    ? '0 12px 28px rgba(17,24,39,0.25)'
+                    : node.kind === 'asset'
+                    ? '0 2px 6px rgba(15,23,42,0.04)'
+                    : `0 0 0 2px ${node.color}1f, 0 4px 10px rgba(15,23,42,0.06)`,
+                  opacity: dimmed ? 0.35 : 1,
+                }}
+              >
+                {!isRoot && <span style={{ ...styles.nodeDot, background: node.color }} />}
+                <div style={styles.nodeTextCol}>
+                  <span style={isRoot ? styles.nodeLabelRoot : styles.nodeLabelCard}>{node.label}</span>
+                  {!isRoot && (
+                    <span style={{ ...styles.nodeKind, color: node.color }}>{NODE_KIND_LABEL[node.kind]}</span>
+                  )}
+                </div>
+              </div>
+            )
+          })}
+        </div>
+
+        {/* Legend */}
+        <div style={styles.legend}>
+          {legendItems.map((item) => {
+            const active = hoveredBranchId === item.branchId
+            return (
+              <button
+                key={item.branchId}
+                style={{
+                  ...styles.legendChip,
+                  borderColor: active ? item.color : '#e5e7eb',
+                  background: active ? `${item.color}0f` : '#ffffff',
+                }}
+                onMouseEnter={() => setHoveredBranchId(item.branchId)}
+                onMouseLeave={() => setHoveredBranchId(null)}
+              >
+                <Network size={12} color={item.color} />
+                <span style={{ color: active ? item.color : '#374151' }}>{item.label}</span>
+              </button>
+            )
+          })}
+        </div>
+
+        <div style={styles.zoomControls}>
+          <button style={styles.zoomBtn} onClick={zoomIn} title="Zoom in">
+            +
+          </button>
+          <span style={styles.zoomLabel}>{scalePercent}%</span>
+          <button style={styles.zoomBtn} onClick={zoomOut} title="Zoom out">
+            −
+          </button>
+          <button
+            style={{ ...styles.zoomBtn, borderLeft: '1px solid #e5e7eb', marginLeft: 2, paddingLeft: 6 }}
+            onClick={resetView}
+            title="Reset view"
+          >
+            ⌂
+          </button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+// ─── Styles ─────────────────────────────────────────────────────────────────
+
+const styles: Record<string, React.CSSProperties> = {
+  page: {
+    position: 'fixed',
+    inset: 0,
+    top: 56,
+    display: 'flex',
+    flexDirection: 'column',
+    background: '#ffffff',
+    fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif',
+  },
+  header: {
+    display: 'flex',
+    alignItems: 'center',
+    gap: 16,
+    padding: '14px 20px',
+    borderBottom: '1px solid #e5e7eb',
+    flexShrink: 0,
+    background: '#ffffff',
+  },
+  backLink: {
+    display: 'flex',
+    alignItems: 'center',
+    gap: 6,
+    fontSize: 11,
+    fontWeight: 600,
+    textTransform: 'uppercase',
+    letterSpacing: '0.05em',
+    color: '#6b7280',
+    textDecoration: 'none',
+    flexShrink: 0,
+  },
+  titleBlock: {
+    display: 'flex',
+    flexDirection: 'column',
+    gap: 1,
+  },
+  title: {
+    fontSize: 14,
+    fontWeight: 600,
+    color: '#111827',
+  },
+  subtitle: {
+    fontSize: 11,
+    color: '#9ca3af',
+  },
+  phaseBadge: {
+    marginLeft: 'auto',
+    display: 'flex',
+    alignItems: 'center',
+    gap: 6,
+    fontSize: 11,
+    fontWeight: 600,
+    color: '#92400e',
+    background: '#fffbeb',
+    border: '1px solid #fde68a',
+    borderRadius: 999,
+    padding: '5px 10px',
+    whiteSpace: 'nowrap',
+  },
+  canvasContainer: {
+    flex: 1,
+    position: 'relative',
+    overflow: 'hidden',
+    cursor: 'grab',
+    userSelect: 'none',
+    background: '#ffffff',
+    touchAction: 'none',
+  },
+  canvasLayer: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    width: 0,
+    height: 0,
+  },
+  edgesLayer: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    overflow: 'visible',
+    pointerEvents: 'none',
+  },
+  rootNode: {
+    position: 'absolute',
+    borderRadius: 14,
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    padding: '0 20px',
+    textAlign: 'center',
+    background: 'linear-gradient(160deg, #111827 0%, #312e81 100%)',
+    color: '#ffffff',
+    cursor: 'default',
+    border: '1.5px solid transparent',
+  },
+  cardNode: {
+    position: 'absolute',
+    background: '#ffffff',
+    border: '1.5px solid',
+    borderRadius: 12,
+    display: 'flex',
+    alignItems: 'center',
+    gap: 10,
+    padding: '0 14px',
+    cursor: 'default',
+  },
+  assetNode: {
+    position: 'absolute',
+    background: '#fafafa',
+    border: '1.5px dashed',
+    borderRadius: 10,
+    display: 'flex',
+    alignItems: 'center',
+    gap: 9,
+    padding: '0 12px',
+    cursor: 'default',
+  },
+  nodeDot: {
+    width: 8,
+    height: 8,
+    borderRadius: '50%',
+    flexShrink: 0,
+  },
+  nodeTextCol: {
+    display: 'flex',
+    flexDirection: 'column',
+    gap: 2,
+    minWidth: 0,
+  },
+  nodeLabelRoot: {
+    fontSize: 14,
+    fontWeight: 700,
+    color: '#ffffff',
+    whiteSpace: 'nowrap',
+    overflow: 'hidden',
+    textOverflow: 'ellipsis',
+  },
+  nodeLabelCard: {
+    fontSize: 12.5,
+    fontWeight: 700,
+    color: '#111827',
+    whiteSpace: 'nowrap',
+    overflow: 'hidden',
+    textOverflow: 'ellipsis',
+  },
+  nodeKind: {
+    fontSize: 9.5,
+    fontWeight: 700,
+    letterSpacing: '0.05em',
+    textTransform: 'uppercase',
+  },
+  legend: {
+    position: 'absolute',
+    top: 16,
+    left: 16,
+    display: 'flex',
+    gap: 8,
+    flexWrap: 'wrap',
+    maxWidth: 360,
+  },
+  legendChip: {
+    display: 'flex',
+    alignItems: 'center',
+    gap: 6,
+    fontSize: 11.5,
+    fontWeight: 600,
+    border: '1px solid #e5e7eb',
+    borderRadius: 999,
+    padding: '6px 11px',
+    cursor: 'pointer',
+    boxShadow: '0 1px 2px rgba(0,0,0,0.04)',
+    transition: 'background 150ms ease, border-color 150ms ease',
+  },
+  zoomControls: {
+    position: 'absolute',
+    bottom: 20,
+    right: 20,
+    display: 'flex',
+    alignItems: 'center',
+    gap: 4,
+    background: '#ffffff',
+    border: '1px solid #e5e7eb',
+    borderRadius: 8,
+    padding: '4px 6px',
+    boxShadow: '0 2px 8px rgba(0,0,0,0.08)',
+  },
+  zoomBtn: {
+    background: 'transparent',
+    border: 'none',
+    color: '#374151',
+    fontSize: 16,
+    cursor: 'pointer',
+    width: 28,
+    height: 28,
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderRadius: 4,
+    lineHeight: 1,
+  },
+  zoomLabel: {
+    fontSize: 11,
+    color: '#6b7280',
+    minWidth: 36,
+    textAlign: 'center',
+  },
+}

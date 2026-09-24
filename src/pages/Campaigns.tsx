@@ -4,7 +4,7 @@ import { useLanguage } from '../lib/hooks';
 import { supabase, Campaign } from '../lib/supabase';
 import { useAuth } from '../lib/auth';
 import { useViewing } from '../lib/ViewingContext';
-import { Plus, Globe, ChevronRight, DollarSign, Phone, Mail as MailIcon, Briefcase, Save, Loader2, Link2, Magnet, Archive, ArchiveRestore, AlertTriangle, CreditCard, X, EyeOff, Eye, Waypoints } from 'lucide-react';
+import { Plus, Globe, ChevronRight, DollarSign, Phone, Mail as MailIcon, Briefcase, Save, Loader2, Link2, Magnet, Archive, ArchiveRestore, AlertTriangle, CreditCard, X, EyeOff, Eye, Waypoints, Network } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { Modal } from '../components/Modal';
 import { useOrganization } from '../lib/useOrganization'
@@ -686,6 +686,15 @@ export default function Campaigns() {
                 title="Campaign Journey Map"
               >
                 <Waypoints size={12} />
+              </button>
+
+              {/* Structure Map button */}
+              <button
+                onClick={e => { e.stopPropagation(); navigate(`/marketplace/campaigns/${c.id}/structure`); }}
+                className="absolute top-4 right-[5.5rem] w-7 h-7 rounded-lg bg-zinc-900 border border-zinc-800 flex items-center justify-center text-zinc-600 hover:text-white hover:border-zinc-600 transition-all opacity-0 group-hover:opacity-100"
+                title="Campaign Structure Map"
+              >
+                <Network size={12} />
               </button>
 
               {/* Archive button */}
