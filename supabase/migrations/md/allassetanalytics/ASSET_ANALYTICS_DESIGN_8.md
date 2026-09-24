@@ -4,6 +4,8 @@ Status: **Table Structure = LOCKED · Attribution (Type 1/2/3) = LOCKED · Row g
 
 Investigation frozen. Orchestration verified. Real rows render in AllAssetsAnalytics. Next phase is UI/data-quality verification — not architecture.
 
+**UPDATE 2026-09-24:** Full 14-column funnel per `(video_id, asset_id)` pair = IMPLEMENTED (see "ADDENDUM — 2026-09-24" at the end of this doc) · Promotion journey map Thank You / outcome nodes with promotion-scoped counts = IMPLEMENTED · Marketer identity chain, metric aggregation rules and LEGO refactor plan = DOCUMENTED (audit only, no refactor started) · Known ~15% pixel video-attribution mismatch = KNOWN, OUT OF SCOPE, behavior preserved · Revenue Truth / double-counting across surfaces = STILL NOT STARTED.
+
 This doc is the durable source of truth for Asset Analytics architecture. Investigation is frozen. Future sessions must treat the architecture rules below as settled and must not re-investigate Type 1/2/3, row identity, attribution, Resource behavior, redirect `allowDuplicate`, or archive placement unless new code directly contradicts this document.
 
 ## SOURCE OF TRUTH — REUSABLE ANALYTICS ARCHITECTURE (DO NOT RE-INVESTIGATE)
@@ -126,7 +128,7 @@ UI visibility decision belongs in page/orchestration consumer, same pattern as A
 | `AllAssetsAnalytics.tsx` → orchestration | CONNECTED |
 | Campaign / Promotion dropdown data | STILL STUB |
 | Archive UI filtering (Level 1/2 hide) | Context attached; product filter not wired |
-| Full 14-column funnel breakdown per pair | AssetMetrics is 5-field; table maps revenue/clicks, other funnel cols 0 |
+| Full 14-column funnel breakdown per pair | RESOLVED 2026-09-24 — `fullMetrics` per pair. Known limits: ~15% pixel video mismatch; Stripe rows without `session_id` cannot be de-duplicated against pixel |
 
 Pipeline (live):
 redirect_links (org-scoped, asset_id IS NOT NULL)
@@ -239,7 +241,7 @@ Counts observed: 83 rows / identities, 18 assets, 118 redirect_links, 13 matched
 - **TWO identity columns**: Asset (sticky) + Content (promoting video).
 - **Asset Type badge**: maps engine `asset_type` (`campaign_element` | `video` | `resource`) → UI tags (`campaign_element` | `promotional_video` | `resource` | `content_video`).
 - **Asset Clicks**: wired from `AssetMetrics.clicks` (0 for unmatched).
-- **14 metric columns**: still from `TABLE_COLUMNS` / `COLUMN_LABELS`. **Adapter maps** `AssetMetrics.revenue` → `total_revenue` (and clicks if column exists); other funnel columns remain 0 until a richer per-pair breakdown exists (OPEN product decision, not a join bug).
+- **14 metric columns**: from `TABLE_COLUMNS` / `COLUMN_LABELS`. **Real per-pair values since 2026-09-24:** each relationship carries `fullMetrics` (a `VideoMetricsResult`) computed by the shared `processVideoMetrics()`; `toTableMetrics(m, full)` uses it. It falls back to the old 5-field mapping (revenue → `total_revenue`, other columns 0) only when `fullMetrics` is absent.
 - **Data source**: `useAssetAnalyticsRows({ dateRange, customRange, activeSource })` calls `getAssetAnalyticsRows` — **IMPLEMENTED + VERIFIED**. Zero-metric / unmatched rows are **kept**.
 - **Filters**: Date + source drive fetch. Asset-type + platform filter client-side on returned rows. **Campaign / Promotion option hooks still return `[]` (STUB).** Scope tabs still reserved.
 - **Archive**: context attached on each orchestration row; **UI Level 1/2 visibility filtering not product-wired yet (OPEN).**
@@ -256,7 +258,7 @@ Counts observed: 83 rows / identities, 18 assets, 118 redirect_links, 13 matched
 stripePurchases.filter(p => p.video_id === videoId)
 ```
 
-i.e. **`video_id` only.** That's correct for InDepthAnalytics (one row = one video, full stop) but not for the `(video_id, asset_id)` row grain here: if Video B promotes both Asset A and Asset H, a purchase resolved only by `video_id = Video B` can't tell you which of the two asset-relationships it came through. This is unchanged and still true — `analyticsEngine.ts` is explicitly NOT being modified (per the architecture lock) and this file does not attempt to.
+i.e. **`video_id` only.** That's correct for InDepthAnalytics (one row = one video, full stop) but not for the `(video_id, asset_id)` row grain here: if Video B promotes both Asset A and Asset H, a purchase resolved only by `video_id = Video B` can't tell you which of the two asset-relationships it came through. Historically true — `processVideoMetrics()` filters by `video_id` only. **Resolved 2026-09-24 without modifying `analyticsEngine.ts`:** `computeRelationships()` already buckets events / purchases per `(video_id, asset)` group, and now passes each bucket (with `video_id` forced to the group key) into the unmodified `processVideoMetrics()`. Formulas therefore stay single-source in `analyticsEngine.ts`; only the grouping is asset-specific.
 
 ### 2b. The actual mechanism — confirmed from `campaignElementAnalyticsEngine.ts` + real query results
 
@@ -347,7 +349,7 @@ Carried forward verbatim in spirit (condensed). Nothing below has been touched, 
 | UI identity enrichment (titles/thumbs) | **OPEN (P1)** |
 | Campaign / Promotion filter options | **STUB / NOT STARTED** |
 | Archive Level 1/2 UI filtering | **OPEN** |
-| Full 14-column funnel per pair | **OPEN** (5-field AssetMetrics by design today) |
+| Full 14-column funnel per pair | **IMPLEMENTED 2026-09-24** (`fullMetrics` via `processVideoMetrics`; the 5-field `AssetMetrics` is kept only for Asset Clicks) |
 | Revenue-truth across surfaces | **NOT STARTED** |
 | Scale optimization | **OPTIONAL / P3** |
 
@@ -412,7 +414,7 @@ Do not ask to resend the entire analytics architecture.
 | **Must stay here** | Metric math, relationship bucketing by `event.video_id` / purchase video |
 | **Must NOT add** | UI, archive filtering, multi-asset orchestration, identity grouping |
 | **Status** | LOCKED (frozen unless proven bug) |
-| **Note** | `AssetMetrics` is **5 fields**, not 14 funnel columns |
+| **Note** | `AssetMetrics` is **5 fields** (still feeds Asset Clicks). Since 2026-09-24 each relationship ALSO carries optional `fullMetrics` (14 funnel columns) computed by `processVideoMetrics`. `computeAssetMetrics` remains a parallel formula set — retire only after Asset Clicks is migrated |
 
 | | |
 |--|--|
@@ -427,7 +429,7 @@ Do not ask to resend the entire analytics architecture.
 | **File** | `lib/analyticsEngine.ts` |
 | **Purpose** | Shared `TABLE_COLUMNS`, `COLUMN_LABELS`, `CLICK_EVENT_MAP`, date bounds, video-level helpers |
 | **Must NOT** | Be forked for a second asset attribution model |
-| **Status** | LOCKED as column/click vocabulary source |
+| **Status** | LOCKED as column/click vocabulary source. Also the single source of the metric formulas (`processVideoMetrics`, `aggregateCampaignMetrics`); reused unmodified by `assetAnalyticsEngine.computeRelationships` |
 
 | | |
 |--|--|
@@ -532,7 +534,7 @@ Observed risk: missing/wrong asset or content title/thumbnail; type badge mappin
 
 | Risk | Note |
 |------|------|
-| 5-field `AssetMetrics` vs 14 table columns | Expected: only revenue/clicks mapped; other funnel cols 0 |
+| `AssetMetrics` (5 fields) vs 14 table columns | RESOLVED 2026-09-24 — the 14 columns come from `fullMetrics`. `AssetMetrics` still feeds Asset Clicks and is a second, parallel formula set (see ADDENDUM 2026-09-24, duplication list) |
 | Zero-metric rows | Expected unmatched |
 | Date window | Identities all-time links; metrics date-bounded |
 | RPC | `revenue/clicks`; spot-check formula |
@@ -579,7 +581,7 @@ For each P1: Question = does UI show the same title/thumb as Assets/Videos for t
 ### P2
 7. ~~Campaign / Promotion filter data + ownership boundary~~ — Campaign **IMPLEMENTED Phase 2** (real `campaigns` query, same as InDepthAnalytics). Promotion **IMPLEMENTED Phase 2 with a deliberately conservative scope** — options are derived only from `promotion_id`s already present in already-org-scoped rows, NOT from an independent ownership-boundary query. The actual ownership boundary question (promotion creator → assignment → collaborator → marketer, per §3 above) is still OPEN and was NOT decided by this pass — do not treat the Phase 2 Promotion filter as having resolved that question, it only avoids making it worse.
 8. Archive Level 1/2 visibility in this table  
-9. Richer funnel columns vs 5-field AssetMetrics (product decision)
+9. ~~Richer funnel columns vs 5-field AssetMetrics (product decision)~~ — DONE 2026-09-24 (`fullMetrics`)
 
 ### P3
 10. Scale / batching if asset count grows  
@@ -2651,3 +2653,84 @@ After MVP launch:
 **Do not fix this pre-launch unless real testing reveals a blocking bug.**
 
 This is a known future architecture/product decision, not current MVP scope.
+
+---
+
+# ADDENDUM — 2026-09-24: 14-column funnel, journey outcome nodes, analytics LEGO audit
+
+Status: AllAssetsAnalytics meets the MVP success criteria. No analytics behavior changes are planned; the next step is an incremental LEGO refactor (see G) that must keep every current number identical.
+
+## A. Implemented this session
+
+- `assetAnalyticsEngine.ts`: `AssetRelationshipRow` gained optional `fullMetrics?: VideoMetricsResult`. In `computeRelationships`, each `(video, asset)` group's events / stripe / pixel are passed into the unmodified `processVideoMetrics()` (stripe via `buildStripeFromPurchases` with the redirect-link token → link_type map, pixel via `buildPixelPurchases`, `video_id` forced to the group key). Grouping is unchanged.
+- `getAssetAnalyticsRows.ts`: `AssetAnalyticsTableRow.fullMetrics` passes the value through.
+- `AllAssetsAnalytics.tsx`: `toTableMetrics(m, full)` uses `fullMetrics` when present; the `total_revenue` override from the 5-field metrics only applies when it is absent.
+- `analyticsEngine.ts`: NO formula change in this session. (Add a line here if it was changed separately.)
+- Campaign Element Assets and campaign links use the same vocabulary (`element_type` == `link_type`: `landing_page` = Direct Purchase, `sales_call` = Sales Page / Call Booking, `consultation`, `newsletter`). Classification goes through `mapLinkTypeToRevenueType`; nothing new was needed.
+- Verified on real data: asset click events carry `video_id`, and their `event_type` equals `link_type` (newsletter / landing_page / sales_call), matching `CLICK_EVENT_MAP`.
+
+## B. Journey map (PromotionJourneyMap / journeyDownstreamResolver)
+
+- `journeyDownstreamResolver.ts`: (1) a composite-key miss no longer locks `resolvedFrom = 'asset'`, so the `link_type` fallback can run; (2) added an `asset_id`-only element_type tier; (3) added conversion-derived Thank You nodes (Newsletter Thank You / Sales Call Booked / Consultation Booked / Direct Purchase Thank You) with a promotion-wide `count`; (4) `attachClickCounts` sets `clicks` per redirect-link node from `events.redirect_link_id` scoped to the promotion. The old function is kept as `resolveConversionOutcomesLegacy` (unused).
+- Product rule (decided 2026-09-24): the map only shows numbers that belong to THIS promotion (rows tagged with its `promotion_id`). The session bridge for Thank You counts is switched OFF (`chunkIds(sessionIds).slice(0, 0)`), so a marketer is not credited for conversions tagged to another promotion. Downstream nodes may still appear (the road exists) with a ×0 label.
+- `PromotionJourneyMap.tsx`: Thank You nodes are positioned one column to the right of the matching outcome node(s) and never attached to a video; edge labels show `×clicks` (video → node) and `×count` (node → Thank You); campaign-link nodes render without the campaign-element thumbnail.
+- Data fact: the two Newsletter redirect links shown on the map belong to another promotion, and their clicks are tagged with that promotion, so the map correctly shows 0 for this promotion.
+
+## C. journey.ts (as of 2026-09-24 — describes the file, not a diff)
+
+- Promotion-agnostic reconstruction from `events_journey`; canonical path = the LATEST row per `journey_id`; older rows are never merged.
+- `event_id → journey_id` is not 1:1; `getJourneysForEvent` / `getJourneysForSessionId` return plural results.
+- `session_id` is a long-lived client identifier, NOT attribution-verified.
+- Terminal step = `destinationVideoId === null`; do not also assume `assetId === null`.
+- Out of scope in this file: promotion/campaign rules, revenue, click counts, attribution verification.
+
+## D. Data facts learned (real data)
+
+- `pixel_purchases.asset_id` is populated only for newsletter rows in the sample (36 of 141). It cannot replace the session bridge.
+- Pixel `video_id` differs from the asset-click event's video in roughly 15% of sampled pairs (19 of 124). KNOWN ISSUE — OUT OF SCOPE, behavior must be preserved by any refactor.
+- Sample `stripe_purchases` rows had an empty `session_id`, so pixel/Stripe de-duplication by session cannot work for them.
+- `events.promotion_id` is not always the promotion of the redirect link that was clicked (some click rows carry another promotion's id or null).
+- InDepthAnalytics selects only `video_id, campaign_id, event_type, created_at`, so its click counts include asset clicks for videos that promote assets (sampled: many videos with 0 campaign-link clicks and only asset clicks). Not changed.
+
+## E. Identity definitions (trace before changing)
+
+- Sponsor = `promotions.owner_user_id` (also `assignments.created_by_user_id`).
+- Marketer = `promotions.assignment_collaborator_id → assignment_collaborators.user_id → profiles`. (`assignments` has no `user_id`; `assignment_collaborators` does.)
+- `content_owner_id` = `videos.user_id`. In creative mode the displayed owner name is the sponsor, and the marketer name is stored separately as `content_owner_marketer_name`. Treat `content_owner_id` as display-only, not as the marketer key.
+- The row's `promotion_id` is currently `promotionIds[0]` (first only). Do NOT group by it: assets/pairs with several promotions lose the others.
+
+## F. Metric aggregation rules
+
+- Additive (from de-duplicated facts): the five click columns, the four Thank You counts, stripe/pixel revenue, direct offer, consultation, estimated call revenue, total revenue.
+- Recompute after aggregation: RPC = total_revenue / sum of the five click columns (and any future ratio).
+- Aggregate from FACTS (events / pixel / stripe rows de-duplicated by id), not by summing rows: one pixel conversion can fall in the scope of two assets and would be counted twice. Facts currently drop their `id` in `buildPixelPurchases` / `buildStripeFromPurchases`.
+- Journey progression (A→B, A→B→C, …) and "revenue on journeys participated in" are a separate, NON-additive metric family: count distinct `journey_id`s; never sum across marketers into an org total. Revenue attribution and journey contribution are different concepts.
+
+## G. LEGO refactor plan (audit result; nothing executed yet)
+
+Single sources of truth:
+
+| Item | Single source |
+|---|---|
+| Revenue / click / RPC formulas | `analyticsEngine.ts` `processVideoMetrics` (fold `aggregateCampaignMetrics` RPC and `computeAssetMetrics` into it later) |
+| link_type / element_type mapping | ONE shared map (currently `mapLinkTypeToRevenueType`, `LINK_TYPE_TO_OUTCOME` in the resolver, `WEBMOOD_LINK_TYPES` in the page) |
+| Marketer identity | `assignment_collaborators.user_id` via `promotions.assignment_collaborator_id` |
+| Promotion attribution | the `promotion_id` tagged on the fact itself; NULL goes to an "unattributed" bucket |
+| Journey contribution | `events_journey` via `journey.ts` |
+| Grouping / aggregation | a new grouping layer over de-duplicated facts |
+| Columns / filters / sort | shared view layer (`assetAnalyticsColumns.ts`, `assetAnalyticsTypes.ts` already extracted; keep the types file in sync with the page's real row shape) |
+
+Known duplications: RPC/revenue formula (3 places); link-type mapping (3); session bridge (2–3); composite `(asset_id, campaign_id)` element_type rule (2); pixel video attribution (3 rules); date window filter (2); a page-local data-enrichment hook (~550 lines) that resolves owners/sponsors/creative context.
+
+Do NOT touch during the refactor: formulas, `CLICK_EVENT_MAP`, `mapLinkTypeToRevenueType` (incl. its default), the 15% pixel attribution, InDepth, the journey map, historical `redirect_links.promotion_id` data, `computeAssetMetrics` (until Asset Clicks is migrated).
+
+Order: (0) golden snapshot; (1) sync types file; (2) move identity resolution out of the page hook; (3) filters/sort as pure functions; (4) `toTableMetrics` / Webmood into the view layer; (5) carry fact ids; (6) one shared link-type map. PromotionAnalytics = `groupFacts(facts, promotion_id)`; MarketerAnalytics = the same function keyed by marketer id.
+
+Validation after every piece: fixed date range × three sources (stripe / pixel / total); snapshot every row's (asset_id, video_id, 14 columns, Asset Clicks, owner, promotion_id) before and after and diff cell by cell; also reconcile row totals + "unattributed" against raw table counts.
+
+## H. Still open
+
+- Revenue Truth / cross-surface double counting (session bridge can place one conversion under two assets).
+- Promotion-filter correctness for multi-promotion assets; NULL `redirect_links.promotion_id` history (fix forward, do not backfill).
+- Second analytics pipelines not yet audited for duplicated formulas: `getTopPromotionsAnalytics.ts` (`getPromotionLevelMetricsForOrg`), Top Marketers / Top Promotions services, `promotionAnalyticsEngine.ts`, `campaignElementAnalyticsEngine.ts`, `journeyAnalyticsEngine.ts`.
+- Leftover debug `console.log` with hard-coded video ids inside `useAssetAnalyticsRows`.

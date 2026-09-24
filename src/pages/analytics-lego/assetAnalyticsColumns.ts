@@ -6,7 +6,10 @@
 // analyticsEngine — does not redefine the shared metrics vocabulary.
 // ─────────────────────────────────────────────────────────────────────────────
 
-import { TABLE_COLUMNS } from '../../lib/analyticsEngine';
+import React from 'react';
+import { TABLE_COLUMNS, type MetricType } from '../../lib/analyticsEngine';
+import type { AssetTypeTag } from './assetAnalyticsTypes';
+import type { AssetAnalyticsTableRow } from '../../services/asset/getAssetAnalyticsRows';
 
 /** Sort shortcuts — same set InDepthAnalytics exposes, minus dead unique_clicks. */
 export const SORT_SHORTCUTS: { label: string; key: string }[] = [
