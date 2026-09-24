@@ -164,6 +164,7 @@ export interface DownstreamPreviewProps {
 export default function DownstreamPreview({ videoId, assetId }: DownstreamPreviewProps) {
   const canHover = useCanHover();
   const [mode, setMode] = useState<Mode>('closed');
+  console.log('DownstreamPreview render, mode =', mode);
   const [state, setState] = useState<LoadState>({ status: 'idle' });
   const [pos, setPos] = useState<Pos | null>(null);
 
@@ -193,6 +194,7 @@ export default function DownstreamPreview({ videoId, assetId }: DownstreamPrevie
 
   // A different row identity (table reload) → forget any previous load.
   useEffect(() => {
+    console.log('DownstreamPreview MOUNTED/identity-changed', videoId, assetId);
     requestedRef.current = false;
     setState({ status: 'idle' });
     setMode('closed');
@@ -263,6 +265,7 @@ export default function DownstreamPreview({ videoId, assetId }: DownstreamPrevie
   };
 
   const onLeave = () => {
+    console.log('onLeave fired, canHover =', canHover);
     if (!canHover) return;
     clearCloseTimer();
     closeTimer.current = setTimeout(() => {
