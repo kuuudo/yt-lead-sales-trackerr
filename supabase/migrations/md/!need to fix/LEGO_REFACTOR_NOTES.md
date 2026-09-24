@@ -49,23 +49,17 @@ type-checking on these four fields.
 
 ---
 
-## 2026-09-24 — Phase 3: simple pure filters extraction
+## 2026-09-25 — Phase 5: promotion + creative pure filters
 
-**New file:** `pages/analytics-lego/assetAnalyticsFilters.ts`
+**File:** `pages/analytics-lego/assetAnalyticsFilters.ts`
 
 **Extracted (behavior frozen):**
-- `filterByAssetSource`
-- `filterByAssetType`
-- `filterByPlatform` (preserves `platform ?? 'youtube'`)
-- `filterByCampaignId` (legacy Campaign dropdown)
-- `filterByContentOwnerId`
-- `collectPresentPlatforms` (preserves `platform ?? 'youtube'`)
+- `filterByPromotionIds` — empty selection = no filter
+- `filterByCreativeScope` — null = no filter; exact toMe / byMe predicates
 
-**Explicitly NOT extracted:**
-- Promotion filter + creative scope (`toMe` / `byMe`) — uses `(row.promoting_video as any)`
-- Asset Campaign multi-select filter
-- Content Campaign multi-select filter (`(contentCampaignFilterOptions as any)._systemIdsByName`)
-- Archive filter (already delegated to `applyAnalyticsArchiveFilters`)
+**Preserved on purpose:**
+- Creative scope still keys off `user?.id` (not `effectiveViewerId`)
+- Still uses `(row.promoting_video as any).created_via_creative` / content_owner_id
 
-**Noted, not fixed:** contentOwner filter is still chained *after* the
-inline promotion/creative filter in the page (same order as before).
+**Not extracted:** Asset/Content Campaign multi-select filters, promotion cell
+JSX, data hooks, engines.

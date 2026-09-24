@@ -3,8 +3,6 @@
 //
 // Pure client-side filter helpers for All Assets Analytics (and future
 // composition). Extracted from AllAssetsAnalytics.tsx — behavior frozen.
-// Does NOT implement Promotion/Creative, Asset Campaign multi-select,
-// Content Campaign multi-select, or archive filtering.
 // ─────────────────────────────────────────────────────────────────────────────
 
 import type { AssetAnalyticsRow, AssetTypeTag } from './assetAnalyticsTypes';
@@ -70,4 +68,47 @@ export function collectPresentPlatforms(rows: AssetAnalyticsRow[]): string[] {
   const seen = new Set<string>();
   rows.forEach(row => seen.add(row.promoting_video.platform ?? 'youtube'));
   return Array.from(seen).sort();
+}
+
+/**
+ * Empty selectedPromotionIds = no promotion-id filter.
+ * Copied from AllAssetsAnalytics promotionFilteredRows (Phase 5).
+ */
+export function filterByPromotionIds(
+  rows: AssetAnalyticsRow[],
+  selectedPromotionIds: string[],
+): AssetAnalyticsRow[] {
+  if (selectedPromotionIds.length === 0) return rows;
+  return rows.filter(
+    row => row.promotion_id != null && selectedPromotionIds.includes(row.promotion_id),
+  );
+}
+
+/**
+ * Creative scope filter — preserves user?.id (not effectiveViewerId).
+ * null / undefined creativeScopeFilter = no creative filter.
+ * Uses the same (promoting_video as any) field access as the page.
+ * Copied from AllAssetsAnalytics promotionFilteredRows (Phase 5).
+ */
+export function filterByCreativeScope(
+  rows: AssetAnalyticsRow[],
+  creativeScopeFilter: null | 'toMe' | 'byMe',
+  viewerUserId: string | null | undefined,
+): AssetAnalyticsRow[] {
+  if (creativeScopeFilter === 'toMe') {
+    return rows.filter(
+      row =>
+        !!(row.promoting_video as any).created_via_creative &&
+        (row.promoting_video as any).content_owner_id === viewerUserId,
+    );
+  }
+  if (creativeScopeFilter === 'byMe') {
+    return rows.filter(
+      row =>
+        !!(row.promoting_video as any).created_via_creative &&
+        (row.promoting_video as any).content_owner_id &&
+        (row.promoting_video as any).content_owner_id !== viewerUserId,
+    );
+  }
+  return rows;
 }
