@@ -1998,7 +1998,7 @@ const [nodeDetailTarget, setNodeDetailTarget] = useState<
             {downstream.edges.map((edge) => {
               const anchor = downstreamSourceAnchors.get(edge.fromVideoId)
               const to = positionedDownstreamNodes.find((n) => n.id === edge.toNodeId)
-              if (!anchor || !to || !to.clicks) return null
+              if (!anchor || !to || to.clicks === undefined) return null
               const lx1 = anchor.x + anchor.width
               const ly1 = anchor.y + anchor.height / 2
               const lx2 = to.x
