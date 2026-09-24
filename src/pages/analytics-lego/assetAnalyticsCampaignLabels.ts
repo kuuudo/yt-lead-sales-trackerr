@@ -1,9 +1,6 @@
 // ─────────────────────────────────────────────────────────────────────────────
 // assetAnalyticsCampaignLabels.ts
-//
-// Pure presentation helpers for Asset Campaign / Content Campaign table cells.
-// Copied verbatim from AllAssetsAnalytics.tsx (Phase 4 extract).
-// Does NOT fetch data, resolve ownership, or change privacy rules.
+// Pure presentation helpers for Asset / Content Campaign cells (Phase 4).
 // ─────────────────────────────────────────────────────────────────────────────
 
 import type { AssetAnalyticsRow } from './assetAnalyticsTypes';
@@ -14,10 +11,6 @@ export interface CampaignLabelMaps {
   unresolvedCampaignNameById: Map<string, string>;
 }
 
-/**
- * Asset Campaign cell text — exact branches from AllAssetsAnalytics table body.
- * Unresolved non-owner fallback is intentionally '—' (not unified with Content).
- */
 export function resolveAssetCampaignLabel(
   row: AssetAnalyticsRow,
   maps: CampaignLabelMaps,
@@ -37,10 +30,6 @@ export function resolveAssetCampaignLabel(
   return 'No Campaign';
 }
 
-/**
- * Content Campaign cell text — exact branches from AllAssetsAnalytics table body.
- * Unresolved non-owner fallback is intentionally 'No Campaign' (not unified with Asset).
- */
 export function resolveContentCampaignLabel(
   row: AssetAnalyticsRow,
   maps: CampaignLabelMaps,

@@ -1,8 +1,6 @@
 // ─────────────────────────────────────────────────────────────────────────────
 // assetAnalyticsFilters.ts
-//
-// Pure client-side filter / option helpers for All Assets Analytics.
-// Extracted from AllAssetsAnalytics.tsx — behavior frozen.
+// Pure client-side filter / option helpers — behavior frozen from AllAssetsAnalytics.
 // ─────────────────────────────────────────────────────────────────────────────
 
 import type {
@@ -12,7 +10,6 @@ import type {
   AssetCampaignFilterOptions,
 } from './assetAnalyticsTypes';
 
-/** My / Shared / Assigned — empty scope ('all') or missing org = no filter. */
 export function filterByAssetSource(
   rows: AssetAnalyticsRow[],
   selectedAssetSource: 'all' | 'my' | 'shared' | 'assigned',
@@ -28,7 +25,6 @@ export function filterByAssetSource(
   });
 }
 
-/** Empty selectedAssetTypes = no type filter. */
 export function filterByAssetType(
   rows: AssetAnalyticsRow[],
   selectedAssetTypes: AssetTypeTag[],
@@ -37,7 +33,6 @@ export function filterByAssetType(
   return rows.filter(row => selectedAssetTypes.includes(row.asset.asset_type));
 }
 
-/** Empty selectedPlatforms = no platform filter. Missing platform treated as 'youtube'. */
 export function filterByPlatform(
   rows: AssetAnalyticsRow[],
   selectedPlatforms: string[],
@@ -48,7 +43,6 @@ export function filterByPlatform(
   );
 }
 
-/** selectedCampaignId === 'all' = no campaign filter (legacy Campaign dropdown). */
 export function filterByCampaignId(
   rows: AssetAnalyticsRow[],
   selectedCampaignId: string,
@@ -57,7 +51,6 @@ export function filterByCampaignId(
   return rows.filter(row => row.campaign_id === selectedCampaignId);
 }
 
-/** selectedContentOwnerId === 'all' = no content-owner filter. */
 export function filterByContentOwnerId(
   rows: AssetAnalyticsRow[],
   selectedContentOwnerId: string,
@@ -68,14 +61,12 @@ export function filterByContentOwnerId(
   );
 }
 
-/** Distinct platforms present on rows (missing → 'youtube'), sorted. */
 export function collectPresentPlatforms(rows: AssetAnalyticsRow[]): string[] {
   const seen = new Set<string>();
   rows.forEach(row => seen.add(row.promoting_video.platform ?? 'youtube'));
   return Array.from(seen).sort();
 }
 
-/** Empty selectedPromotionIds = no promotion-id filter. Phase 5. */
 export function filterByPromotionIds(
   rows: AssetAnalyticsRow[],
   selectedPromotionIds: string[],
@@ -86,10 +77,6 @@ export function filterByPromotionIds(
   );
 }
 
-/**
- * Creative scope filter — preserves user?.id (not effectiveViewerId).
- * null creativeScopeFilter = no creative filter. Phase 5.
- */
 export function filterByCreativeScope(
   rows: AssetAnalyticsRow[],
   creativeScopeFilter: null | 'toMe' | 'byMe',
@@ -113,10 +100,6 @@ export function filterByCreativeScope(
   return rows;
 }
 
-/**
- * Content Owner dropdown options from rows. Phase 6.
- * First-seen name wins; missing → 'Unknown'; sorted by name.
- */
 export function collectContentOwners(
   rows: AssetAnalyticsRow[],
 ): { id: string; name: string }[] {
@@ -133,11 +116,6 @@ export function collectContentOwners(
     .sort((a, b) => a.name.localeCompare(b.name));
 }
 
-/**
- * Asset Campaign multi-select filter.
- * Copied verbatim from AllAssetsAnalytics assetCampaignFilteredRows (Phase 7).
- * Empty selection = no filter. Does not special-case system / ONLY PROMOTE ASSET.
- */
 export function filterByAssetCampaignSelection(
   rows: AssetAnalyticsRow[],
   selected: AssetCampaignSelection[],

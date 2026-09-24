@@ -142,14 +142,6 @@ import {
   WebmoodGrid,
   toTableMetrics,
 } from './analytics-lego/assetAnalyticsColumns';
-import {
-  filterByAssetSource,
-  filterByAssetType,
-  filterByPlatform,
-  filterByCampaignId,
-  filterByContentOwnerId,
-  collectPresentPlatforms,
-} from './analytics-lego/assetAnalyticsFilters';
 
 // STUB data sources — return nothing yet. Replace with real fetches/engine
 // calls once ASSET_ANALYTICS_DESIGN.md's open questions are resolved.
@@ -1468,35 +1460,42 @@ export default function AllAssetsAnalytics() {
   // ── Asset source filter — My/Shared/Assigned. My/Shared are mutually
   // exclusive (org boundary); Assigned is an annotation on My, never a
   // separate source — an asset can be My + Assigned at once.
-  const assetSourceFilteredRows = useMemo(
-    () => filterByAssetSource(rows, selectedAssetSource, organizationId),
-    [rows, selectedAssetSource, organizationId],
-  );
+  const assetSourceFilteredRows = useMemo(() => {
+    if (selectedAssetSource === 'all' || !organizationId) return rows;
+    return rows.filter(row => {
+      const isMy = row.assetOrganizationId === organizationId;
+      if (selectedAssetSource === 'my') return isMy;
+      if (selectedAssetSource === 'shared') return !isMy;
+      if (selectedAssetSource === 'assigned') return isMy && row.isAssigned;
+      return true;
+    });
+  }, [rows, selectedAssetSource, organizationId]);
 
   // ── Asset type filter (applied after fetch, pure UI — no-op while rows=[]) ─
-  const typeFilteredRows = useMemo(
-    () => filterByAssetType(assetSourceFilteredRows, selectedAssetTypes),
-    [assetSourceFilteredRows, selectedAssetTypes],
-  );
+  const typeFilteredRows = useMemo(() => {
+    if (selectedAssetTypes.length === 0) return assetSourceFilteredRows;
+    return assetSourceFilteredRows.filter(row => selectedAssetTypes.includes(row.asset.asset_type));
+  }, [assetSourceFilteredRows, selectedAssetTypes]);
 
   // ── Platform filter (applied after fetch, pure UI — no-op while rows=[]) ─
-  const platformFilteredRows = useMemo(
-    () => filterByPlatform(typeFilteredRows, selectedPlatforms),
-    [typeFilteredRows, selectedPlatforms],
-  );
+  const platformFilteredRows = useMemo(() => {
+    if (selectedPlatforms.length === 0) return typeFilteredRows;
+    return typeFilteredRows.filter(row => selectedPlatforms.includes(row.promoting_video.platform ?? 'youtube'));
+  }, [typeFilteredRows, selectedPlatforms]);
 
-  const presentPlatforms = useMemo(
-    () => collectPresentPlatforms(rows),
-    [rows],
-  );
+  const presentPlatforms = useMemo(() => {
+    const seen = new Set<string>();
+    rows.forEach(row => seen.add(row.promoting_video.platform ?? 'youtube'));
+    return Array.from(seen).sort();
+  }, [rows]);
 
   // ── Campaign filter — real filter now. row.campaign_id was already
   // being populated by the identity-enrichment layer (r.campaignIds?.[0]);
   // it was computed but never consumed until this edit.
-  const campaignFilteredRows = useMemo(
-    () => filterByCampaignId(platformFilteredRows, selectedCampaignId),
-    [platformFilteredRows, selectedCampaignId],
-  );
+  const campaignFilteredRows = useMemo(() => {
+    if (selectedCampaignId === 'all') return platformFilteredRows;
+    return platformFilteredRows.filter(row => row.campaign_id === selectedCampaignId);
+  }, [platformFilteredRows, selectedCampaignId]);
 
   // ── Promotion filter — same shape as Campaign. See usePromotionOptions()
   // above for why the OPTIONS list is scope-conservative; the filter
@@ -1531,10 +1530,10 @@ export default function AllAssetsAnalytics() {
   // content_owner_id, never on the display name. Chained last, right
   // before sort, so Recently Added / metric sorts always run on the
   // fully-filtered set.
-  const contentOwnerFilteredRows = useMemo(
-    () => filterByContentOwnerId(promotionFilteredRows, selectedContentOwnerId),
-    [promotionFilteredRows, selectedContentOwnerId],
-  );
+   const contentOwnerFilteredRows = useMemo(() => {
+     if (selectedContentOwnerId === 'all') return promotionFilteredRows;
+     return promotionFilteredRows.filter(row => row.promoting_video.content_owner_id === selectedContentOwnerId);
+   }, [promotionFilteredRows, selectedContentOwnerId]);
  
   // ── Asset Campaign filter — NEW, fully independent of campaignFilteredRows
   // above (different state, different semantics, chained separately here).
