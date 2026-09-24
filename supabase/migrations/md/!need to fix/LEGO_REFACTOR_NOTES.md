@@ -49,12 +49,15 @@ type-checking on these four fields.
 
 ---
 
-## 2026-09-25 — Phase 6: collectContentOwners
+## 2026-09-25 — Phase 7: filterByAssetCampaignSelection
 
 **File:** `pages/analytics-lego/assetAnalyticsFilters.ts`
 
-**Extracted:** `collectContentOwners(rows)` — Content Owner dropdown options.
-First-seen `content_owner_name` wins per id; missing name → `'Unknown'`;
-sorted by name via `localeCompare`.
+**Extracted:** pure Asset Campaign multi-select filter (empty / all /
+campaignFree / campaign / owner). No system-campaign or ONLY PROMOTE ASSET
+special-casing in this function.
 
-**Not extracted:** Asset/Content Campaign multi-select filters, promotion cell.
+**Deferred (not this phase):**
+- Content Campaign multi-select filter
+- Other People's Campaigns always-expanded UI
+- Active systemCampaigns / retired ONLY PROMOTE ASSET option listing cleanup
