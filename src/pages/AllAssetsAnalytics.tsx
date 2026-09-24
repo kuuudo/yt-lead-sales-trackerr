@@ -154,6 +154,7 @@ import {
   filterByCreativeScope,
   collectContentOwners,
   filterByAssetCampaignSelection,
+  filterByContentCampaignSelection,
 } from './analytics-lego/assetAnalyticsFilters';
 import {
   resolveAssetCampaignLabel,
@@ -1522,35 +1523,15 @@ export default function AllAssetsAnalytics() {
   );
 
   // ── Content Campaign filter — OR multi-select on promoting_video.content_campaign_id
-  const contentCampaignFilteredRows = useMemo(() => {
-    if (selectedContentCampaignFilters.length === 0) return assetCampaignFilteredRows;
-
-    const wantAll = selectedContentCampaignFilters.some(s => s.type === 'all');
-    const wantedCampaignIds = new Set<string>();
-    const systemIdsByName = (contentCampaignFilterOptions as any)._systemIdsByName as Record<string, string[]> | undefined;
-
-    selectedContentCampaignFilters.forEach(s => {
-      if (s.type === 'campaign') {
-        wantedCampaignIds.add(s.id);
-        // Own-org system option may represent multiple same-name ids — OR them all.
-        const sys = contentCampaignFilterOptions.systemCampaigns.find(c => c.id === s.id);
-        if (sys && systemIdsByName?.[sys.name]) {
-          systemIdsByName[sys.name].forEach(id => wantedCampaignIds.add(id));
-        }
-      }
-      if (s.type === 'owner') {
-        contentCampaignFilterOptions.otherOwners
-          .find(o => o.ownerId === s.ownerId)
-          ?.campaignIds.forEach(id => wantedCampaignIds.add(id));
-      }
-    });
-
-    return assetCampaignFilteredRows.filter(row => {
-      const cid = row.promoting_video.content_campaign_id;
-      if (wantAll) return cid != null;
-      return !!cid && wantedCampaignIds.has(cid);
-    });
-  }, [assetCampaignFilteredRows, selectedContentCampaignFilters, contentCampaignFilterOptions]);
+  const contentCampaignFilteredRows = useMemo(
+    () =>
+      filterByContentCampaignSelection(
+        assetCampaignFilteredRows,
+        selectedContentCampaignFilters,
+        contentCampaignFilterOptions,
+      ),
+    [assetCampaignFilteredRows, selectedContentCampaignFilters, contentCampaignFilterOptions],
+  );
 
    const archiveFilteredRows = useMemo(
      () =>

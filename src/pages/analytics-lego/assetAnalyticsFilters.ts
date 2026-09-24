@@ -141,3 +141,44 @@ export function filterByAssetCampaignSelection(
     return !!row.campaign_id && wantedCampaignIds.has(row.campaign_id);
   });
 }
+
+/**
+ * Content Campaign multi-select filter.
+ * Copied verbatim from AllAssetsAnalytics contentCampaignFilteredRows (Phase 10).
+ * Preserves systemIdsByName OR-expand (no-op when systemCampaigns empty post Phase 9).
+ * Empty selection = no filter. wantAll = non-null content_campaign_id only.
+ */
+export function filterByContentCampaignSelection(
+  rows: AssetAnalyticsRow[],
+  selected: AssetCampaignSelection[],
+  options: AssetCampaignFilterOptions,
+): AssetAnalyticsRow[] {
+  if (selected.length === 0) return rows;
+
+  const wantAll = selected.some(s => s.type === 'all');
+  const wantedCampaignIds = new Set<string>();
+  const systemIdsByName = (options as any)._systemIdsByName as Record<string, string[]> | undefined;
+
+  selected.forEach(s => {
+    if (s.type === 'campaign') {
+      wantedCampaignIds.add(s.id);
+      // Own-org system option may represent multiple same-name ids — OR them all.
+      const sys = options.systemCampaigns.find(c => c.id === s.id);
+      if (sys && systemIdsByName?.[sys.name]) {
+        systemIdsByName[sys.name].forEach(id => wantedCampaignIds.add(id));
+      }
+    }
+    if (s.type === 'owner') {
+      options.otherOwners
+        .find(o => o.ownerId === s.ownerId)
+        ?.campaignIds.forEach(id => wantedCampaignIds.add(id));
+    }
+  });
+
+  return rows.filter(row => {
+    const cid = row.promoting_video.content_campaign_id;
+    if (wantAll) return cid != null;
+    return !!cid && wantedCampaignIds.has(cid);
+  });
+}
+
