@@ -141,7 +141,24 @@ import {
   elementTypeToWebmood,
   WebmoodGrid,
   toTableMetrics,
+  sortAssetAnalyticsRows,
 } from './analytics-lego/assetAnalyticsColumns';
+import {
+  filterByAssetSource,
+  filterByAssetType,
+  filterByPlatform,
+  filterByCampaignId,
+  filterByContentOwnerId,
+  collectPresentPlatforms,
+  filterByPromotionIds,
+  filterByCreativeScope,
+  collectContentOwners,
+  filterByAssetCampaignSelection,
+} from './analytics-lego/assetAnalyticsFilters';
+import {
+  resolveAssetCampaignLabel,
+  resolveContentCampaignLabel,
+} from './analytics-lego/assetAnalyticsCampaignLabels';
 
 // STUB data sources — return nothing yet. Replace with real fetches/engine
 // calls once ASSET_ANALYTICS_DESIGN.md's open questions are resolved.
@@ -831,11 +848,11 @@ function useCampaignOwnerLabels(
 }
 
 /**
- * Narrow fallback ONLY for campaign ids that `campaignNameById` (owned) and
- * `campaignOwnerLabelById` (owner-name fallback) both fail to resolve — e.g.
- * system campaigns like "ONLY PROMOTE ASSET" (`user_id IS NULL`, so they can
- * never match either of those two lookups by construction). Does not touch,
- * widen, or replace either existing query — purely additive, last resort.
+ * Narrow fallback for campaign ids that `campaignNameById` (owned) and
+ * `campaignOwnerLabelById` (owner-name fallback) both fail to resolve.
+ * Phase 9: no longer publishes system / ownerless campaign names (retired
+ * ONLY PROMOTE ASSET product). Hook retained for chain compatibility; map
+ * stays empty under current policy.
  */
 function useUnresolvedCampaignNames(
   rows: AssetAnalyticsRow[],
@@ -873,11 +890,10 @@ function useUnresolvedCampaignNames(
       if (cancelled) return;
       const next = new Map<string, string>();
       for (const c of (data ?? []) as any[]) {
-        // Privacy: only surface real names for system / ownerless campaigns.
-        // Other people's campaigns must use campaignOwnerLabelById (🔒).
-        if (c.campaign_name && (c.is_system || c.user_id == null)) {
-          next.set(c.id, c.campaign_name);
-        }
+        // Phase 9: do NOT surface system / ownerless campaign names
+        // (ONLY PROMOTE ASSET product retired). Cells fall through to
+        // campaignOwnerLabelById (🔒) / resolve*CampaignLabel fallbacks.
+        void c;
       }
       setNames(next);
     })();
@@ -964,7 +980,9 @@ function useAssetCampaignFilterOptions(
     });
 
     meta.forEach((c, id) => {
-      if (c.is_system) { systemCampaigns.push({ id, name: c.campaign_name }); return; }
+      // Phase 9: retired system campaigns (e.g. ONLY PROMOTE ASSET) are not
+      // listed as selectable filter options. Do not push to systemCampaigns.
+      if (c.is_system) return;
       if (c.user_id === viewerId) {
         // My Campaigns: archived stays visible + selectable, never hidden.
         myCampaigns.push({ id, name: c.campaign_name, isArchived: !!archivedById.get(id) });
@@ -1110,15 +1128,9 @@ function useContentCampaignFilterOptions(
       const isOwnOrgSystem =
         isSystemLike && organizationId != null && c.organization_id === organizationId;
 
-      // Viewer org system only → System / Promotion-only (deduped by name).
+      // Phase 9: own-org system campaigns (retired ONLY PROMOTE ASSET product)
+      // are not listed as selectable System options. Skip without naming them.
       if (isOwnOrgSystem) {
-        const name = c.campaign_name || 'System';
-        const existing = systemByName.get(name);
-        if (existing) {
-          if (!existing.campaignIds.includes(id)) existing.campaignIds.push(id);
-        } else {
-          systemByName.set(name, { id, name, campaignIds: [id] });
-        }
         return;
       }
 
@@ -1312,7 +1324,6 @@ export default function AllAssetsAnalytics() {
   };
   const [assetCampaignPanelOpen, setAssetCampaignPanelOpen] = useState(false);
   const assetCampaignPanelRef = useRef<HTMLDivElement>(null);
-  const [assetCampaignOthersExpanded, setAssetCampaignOthersExpanded] = useState(false);
   useEffect(() => {
     const handler = (e: MouseEvent) => {
       if (assetCampaignPanelRef.current && !assetCampaignPanelRef.current.contains(e.target as Node)) {
@@ -1413,19 +1424,10 @@ export default function AllAssetsAnalytics() {
   // content_owner_id (videos.user_id), never by display name, so two
   // people sharing a name can't collide and a later name change can't
   // break the filter.
-  const contentOwners = useMemo(() => {
-    const byId = new Map<string, string>();
-    rows.forEach(row => {
-      const id = row.promoting_video.content_owner_id;
-      if (!id) return;
-      if (!byId.has(id)) {
-        byId.set(id, row.promoting_video.content_owner_name || 'Unknown');
-      }
-    });
-    return Array.from(byId.entries())
-      .map(([id, name]) => ({ id, name }))
-      .sort((a, b) => a.name.localeCompare(b.name));
-  }, [rows]);
+  const contentOwners = useMemo(
+    () => collectContentOwners(rows),
+    [rows],
+  );
 
   // ── Columns dropdown state ──────────────────────────────────────────────
   const [visibleColumns, setVisibleColumns] = useState<Set<string>>(new Set(DEFAULT_VISIBLE));
@@ -1460,104 +1462,64 @@ export default function AllAssetsAnalytics() {
   // ── Asset source filter — My/Shared/Assigned. My/Shared are mutually
   // exclusive (org boundary); Assigned is an annotation on My, never a
   // separate source — an asset can be My + Assigned at once.
-  const assetSourceFilteredRows = useMemo(() => {
-    if (selectedAssetSource === 'all' || !organizationId) return rows;
-    return rows.filter(row => {
-      const isMy = row.assetOrganizationId === organizationId;
-      if (selectedAssetSource === 'my') return isMy;
-      if (selectedAssetSource === 'shared') return !isMy;
-      if (selectedAssetSource === 'assigned') return isMy && row.isAssigned;
-      return true;
-    });
-  }, [rows, selectedAssetSource, organizationId]);
+  const assetSourceFilteredRows = useMemo(
+    () => filterByAssetSource(rows, selectedAssetSource, organizationId),
+    [rows, selectedAssetSource, organizationId],
+  );
 
   // ── Asset type filter (applied after fetch, pure UI — no-op while rows=[]) ─
-  const typeFilteredRows = useMemo(() => {
-    if (selectedAssetTypes.length === 0) return assetSourceFilteredRows;
-    return assetSourceFilteredRows.filter(row => selectedAssetTypes.includes(row.asset.asset_type));
-  }, [assetSourceFilteredRows, selectedAssetTypes]);
+  const typeFilteredRows = useMemo(
+    () => filterByAssetType(assetSourceFilteredRows, selectedAssetTypes),
+    [assetSourceFilteredRows, selectedAssetTypes],
+  );
 
   // ── Platform filter (applied after fetch, pure UI — no-op while rows=[]) ─
-  const platformFilteredRows = useMemo(() => {
-    if (selectedPlatforms.length === 0) return typeFilteredRows;
-    return typeFilteredRows.filter(row => selectedPlatforms.includes(row.promoting_video.platform ?? 'youtube'));
-  }, [typeFilteredRows, selectedPlatforms]);
+  const platformFilteredRows = useMemo(
+    () => filterByPlatform(typeFilteredRows, selectedPlatforms),
+    [typeFilteredRows, selectedPlatforms],
+  );
 
-  const presentPlatforms = useMemo(() => {
-    const seen = new Set<string>();
-    rows.forEach(row => seen.add(row.promoting_video.platform ?? 'youtube'));
-    return Array.from(seen).sort();
-  }, [rows]);
+  const presentPlatforms = useMemo(
+    () => collectPresentPlatforms(rows),
+    [rows],
+  );
 
   // ── Campaign filter — real filter now. row.campaign_id was already
   // being populated by the identity-enrichment layer (r.campaignIds?.[0]);
   // it was computed but never consumed until this edit.
-  const campaignFilteredRows = useMemo(() => {
-    if (selectedCampaignId === 'all') return platformFilteredRows;
-    return platformFilteredRows.filter(row => row.campaign_id === selectedCampaignId);
-  }, [platformFilteredRows, selectedCampaignId]);
+  const campaignFilteredRows = useMemo(
+    () => filterByCampaignId(platformFilteredRows, selectedCampaignId),
+    [platformFilteredRows, selectedCampaignId],
+  );
 
   // ── Promotion filter — same shape as Campaign. See usePromotionOptions()
   // above for why the OPTIONS list is scope-conservative; the filter
   // itself is just an equality check on data already on each row.
   const promotionFilteredRows = useMemo(() => {
-    let rows: typeof campaignFilteredRows;
-    if (selectedPromotionIds.length === 0) {
-      rows = campaignFilteredRows;
-    } else {
-      rows = campaignFilteredRows.filter(
-        row => row.promotion_id != null && selectedPromotionIds.includes(row.promotion_id),
-      );
-    }
-    if (creativeScopeFilter === 'toMe') {
-      rows = rows.filter(
-        row =>
-          !!(row.promoting_video as any).created_via_creative &&
-          (row.promoting_video as any).content_owner_id === user?.id,
-      );
-    } else if (creativeScopeFilter === 'byMe') {
-      rows = rows.filter(
-        row =>
-          !!(row.promoting_video as any).created_via_creative &&
-          (row.promoting_video as any).content_owner_id &&
-          (row.promoting_video as any).content_owner_id !== user?.id,
-      );
-    }
-    return rows;
+    const byPromo = filterByPromotionIds(campaignFilteredRows, selectedPromotionIds);
+    return filterByCreativeScope(byPromo, creativeScopeFilter, user?.id);
   }, [campaignFilteredRows, selectedPromotionIds, creativeScopeFilter, user?.id]);
 
   // ── Content Marketer filter — operates on videos.user_id via
   // content_owner_id, never on the display name. Chained last, right
   // before sort, so Recently Added / metric sorts always run on the
   // fully-filtered set.
-   const contentOwnerFilteredRows = useMemo(() => {
-     if (selectedContentOwnerId === 'all') return promotionFilteredRows;
-     return promotionFilteredRows.filter(row => row.promoting_video.content_owner_id === selectedContentOwnerId);
-   }, [promotionFilteredRows, selectedContentOwnerId]);
+  const contentOwnerFilteredRows = useMemo(
+    () => filterByContentOwnerId(promotionFilteredRows, selectedContentOwnerId),
+    [promotionFilteredRows, selectedContentOwnerId],
+  );
  
   // ── Asset Campaign filter — NEW, fully independent of campaignFilteredRows
   // above (different state, different semantics, chained separately here).
-  const assetCampaignFilteredRows = useMemo(() => {
-    if (selectedAssetCampaignFilters.length === 0) return contentOwnerFilteredRows;
-
-    const wantAll = selectedAssetCampaignFilters.some(s => s.type === 'all');
-    const wantCampaignFree = wantAll || selectedAssetCampaignFilters.some(s => s.type === 'campaignFree');
-    const wantedCampaignIds = new Set<string>();
-    selectedAssetCampaignFilters.forEach(s => {
-      if (s.type === 'campaign') wantedCampaignIds.add(s.id);
-      if (s.type === 'owner') {
-        assetCampaignFilterOptions.otherOwners
-          .find(o => o.ownerId === s.ownerId)
-          ?.campaignIds.forEach(id => wantedCampaignIds.add(id));
-      }
-    });
-
-    return contentOwnerFilteredRows.filter(row => {
-      if (wantAll) return row.campaign_id != null || row.isCampaignFreeResource;
-      if (wantCampaignFree && row.isCampaignFreeResource) return true;
-      return !!row.campaign_id && wantedCampaignIds.has(row.campaign_id);
-    });
-  }, [contentOwnerFilteredRows, selectedAssetCampaignFilters, assetCampaignFilterOptions]);
+  const assetCampaignFilteredRows = useMemo(
+    () =>
+      filterByAssetCampaignSelection(
+        contentOwnerFilteredRows,
+        selectedAssetCampaignFilters,
+        assetCampaignFilterOptions,
+      ),
+    [contentOwnerFilteredRows, selectedAssetCampaignFilters, assetCampaignFilterOptions],
+  );
 
   // ── Content Campaign filter — OR multi-select on promoting_video.content_campaign_id
   const contentCampaignFilteredRows = useMemo(() => {
@@ -1615,72 +1577,10 @@ export default function AllAssetsAnalytics() {
        hideArchivedPromotion,
      ],
    );
-  const sortedRows = useMemo(() => {
-    const key = sortConfig.key;
-    const dir = sortConfig.direction === 'asc' ? 1 : -1;
-    if (key === 'asset_created_at') {
-      return [...archiveFilteredRows].sort((a, b) => {
-        const at = a.promoting_video.created_at ? new Date(a.promoting_video.created_at).getTime() : 0;
-        const bt = b.promoting_video.created_at ? new Date(b.promoting_video.created_at).getTime() : 0;
-        if (at === bt) return 0;
-        return at > bt ? dir : -dir;
-      });
-    }
-    // New "Asset Created At" column — sorts by the ASSET's own created_at,
-    // separate from the "asset_created_at" key above (which is actually the
-    // "Recently Added" shortcut and intentionally sorts by content date —
-    // left alone on purpose).
-    if (key === 'asset_created_at_col') {
-      return [...archiveFilteredRows].sort((a, b) => {
-        const at = a.asset.created_at ? new Date(a.asset.created_at).getTime() : 0;
-        const bt = b.asset.created_at ? new Date(b.asset.created_at).getTime() : 0;
-        if (at === bt) return 0;
-        return at > bt ? dir : -dir;
-      });
-    }
-    // New "Content Created At" column — same data as the "Recently Added"
-    // shortcut above, just its own key so this column's header can sort
-    // independently without relabeling that button.
-    if (key === 'content_created_at_col') {
-      return [...archiveFilteredRows].sort((a, b) => {
-        const at = a.promoting_video.created_at ? new Date(a.promoting_video.created_at).getTime() : 0;
-        const bt = b.promoting_video.created_at ? new Date(b.promoting_video.created_at).getTime() : 0;
-        if (at === bt) return 0;
-        return at > bt ? dir : -dir;
-      });
-    }
-    // asset_clicks lives on row.asset_clicks, not row.metrics (it's not a
-    // MetricType key), so it needs the same kind of special case as
-    // asset_created_at above rather than the generic metrics[key] branch.
-    if (key === 'asset_clicks') {
-      return [...archiveFilteredRows].sort((a, b) => {
-        const av = Number(a.asset_clicks ?? 0);
-        const bv = Number(b.asset_clicks ?? 0);
-        if (av === bv) return 0;
-        return av > bv ? dir : -dir;
-      });
-    }
-
-    // Asset column — groups identical assets together. Sorted by asset
-    // title (case-insensitive); ties broken by asset id so rows for the
-    // same asset always land next to each other.
-    if (key === 'asset') {
-      return [...archiveFilteredRows].sort((a, b) => {
-        if (a.asset.id === b.asset.id) return 0;
-        const at = (a.asset.title ?? '').toLowerCase();
-        const bt = (b.asset.title ?? '').toLowerCase();
-        if (at !== bt) return at > bt ? dir : -dir;
-        return a.asset.id > b.asset.id ? dir : -dir;
-      });
-    }
-
-    return [...archiveFilteredRows].sort((a, b) => {
-      const av = Number(a.metrics[key as MetricType] ?? 0);
-      const bv = Number(b.metrics[key as MetricType] ?? 0);
-      if (av === bv) return 0;
-      return av > bv ? dir : -dir;
-    });
-  }, [archiveFilteredRows, sortConfig]);
+  const sortedRows = useMemo(
+    () => sortAssetAnalyticsRows(archiveFilteredRows, sortConfig),
+    [archiveFilteredRows, sortConfig],
+  );
 
   const colSpan = 8 + TABLE_COLUMNS.length + 1 + (visibleColumns.has('promotion') ? 1 : 0) + (visibleColumns.has('downstream') ? 1 : 0); // Asset + Type + Content + Content Owner + Asset Campaign + Content Campaign + Asset Clicks + Total Revenue (dup) + metrics + trailing spacer + optional Promotion + optional Downstream
 
@@ -1839,14 +1739,10 @@ export default function AllAssetsAnalytics() {
 
                   {assetCampaignFilterOptions.otherOwners.length > 0 && (
                     <div className="py-2 border-b border-zinc-800">
-                      <button
-                        onClick={() => setAssetCampaignOthersExpanded(o => !o)}
-                        className="w-full flex items-center justify-between px-4 pb-1 text-[8px] font-black uppercase tracking-widest text-zinc-600"
-                      >
+                      <div className="px-4 pb-1 text-[8px] font-black uppercase tracking-widest text-zinc-600">
                         Other People's Campaigns
-                        <ChevronDown size={10} className={`transition-transform ${assetCampaignOthersExpanded ? 'rotate-180' : ''}`} />
-                      </button>
-                      {assetCampaignOthersExpanded && assetCampaignFilterOptions.otherOwners.map(o => (
+                      </div>
+                      {assetCampaignFilterOptions.otherOwners.map(o => (
                         <button
                           key={o.ownerId}
                           onClick={() => toggleAssetCampaignSelection({ type: 'owner', ownerId: o.ownerId })}
@@ -2397,29 +2293,23 @@ export default function AllAssetsAnalytics() {
 
                 {assetCampaignFilterOptions.otherOwners.length > 0 && (
                   <div className="mt-2">
-                    <button
-                      onClick={() => setAssetCampaignOthersExpanded(o => !o)}
-                      className="text-[8px] font-black uppercase tracking-widest text-zinc-600 mb-1 flex items-center gap-1"
-                    >
+                    <div className="text-[8px] font-black uppercase tracking-widest text-zinc-600 mb-1">
                       Other People's Campaigns
-                      <ChevronDown size={9} className={`transition-transform ${assetCampaignOthersExpanded ? 'rotate-180' : ''}`} />
-                    </button>
-                    {assetCampaignOthersExpanded && (
-                      <div className="flex items-center gap-2 flex-wrap">
-                        {assetCampaignFilterOptions.otherOwners.map(o => (
-                          <button
-                            key={o.ownerId}
-                            onClick={() => toggleAssetCampaignSelection({ type: 'owner', ownerId: o.ownerId })}
-                            className={`px-3 py-1.5 rounded-lg text-[9px] font-black uppercase tracking-widest transition-all truncate max-w-[160px] flex items-center gap-1.5 ${
-                              isAssetCampaignSelected({ type: 'owner', ownerId: o.ownerId }) ? 'bg-red-600 text-white' : 'bg-zinc-900 border border-zinc-800 text-zinc-500 hover:text-white'
-                            }`}
-                          >
-                            {isAssetCampaignSelected({ type: 'owner', ownerId: o.ownerId }) && <Check size={10} />}
-                            🔒 {o.displayName}'s Campaign
-                          </button>
-                        ))}
-                      </div>
-                    )}
+                    </div>
+                    <div className="flex items-center gap-2 flex-wrap">
+                      {assetCampaignFilterOptions.otherOwners.map(o => (
+                        <button
+                          key={o.ownerId}
+                          onClick={() => toggleAssetCampaignSelection({ type: 'owner', ownerId: o.ownerId })}
+                          className={`px-3 py-1.5 rounded-lg text-[9px] font-black uppercase tracking-widest transition-all truncate max-w-[160px] flex items-center gap-1.5 ${
+                            isAssetCampaignSelected({ type: 'owner', ownerId: o.ownerId }) ? 'bg-red-600 text-white' : 'bg-zinc-900 border border-zinc-800 text-zinc-500 hover:text-white'
+                          }`}
+                        >
+                          {isAssetCampaignSelected({ type: 'owner', ownerId: o.ownerId }) && <Check size={10} />}
+                          🔒 {o.displayName}'s Campaign
+                        </button>
+                      ))}
+                    </div>
                   </div>
                 )}
 
@@ -3753,14 +3643,11 @@ export default function AllAssetsAnalytics() {
                       <td className="px-6 py-4 whitespace-nowrap text-sm font-bold text-zinc-400 w-[260px] max-w-[260px]">
                         <div className="flex items-center gap-1.5 min-w-0">
                           <span className="truncate block">
-                            {row.campaign_id
-                              ? campaignNameById.get(row.campaign_id)
-                                ?? (campaignOwnerLabelById.get(row.campaign_id)
-                                      ? `🔒 ${campaignOwnerLabelById.get(row.campaign_id)}'s Campaign`
-                                      : unresolvedCampaignNameById.get(row.campaign_id) ?? '—')
-                              : row.isCampaignFreeResource
-                                ? 'Campaign-Free Resource Asset'
-                                : 'No Campaign'}
+                            {resolveAssetCampaignLabel(row, {
+                              campaignNameById,
+                              campaignOwnerLabelById,
+                              unresolvedCampaignNameById,
+                            })}
                           </span>
                           {row.campaignArchive.isArchived && (
                             <span
@@ -3779,12 +3666,11 @@ export default function AllAssetsAnalytics() {
                       <td className="px-6 py-4 whitespace-nowrap text-sm font-bold text-zinc-400 w-[260px] max-w-[260px]">
                         <div className="flex items-center gap-1.5 min-w-0">
                           <span className="truncate block">
-                            {row.promoting_video.content_campaign_id
-                              ? campaignNameById.get(row.promoting_video.content_campaign_id)
-                                ?? (campaignOwnerLabelById.get(row.promoting_video.content_campaign_id)
-                                      ? `🔒 ${campaignOwnerLabelById.get(row.promoting_video.content_campaign_id)}'s Campaign`
-                                      : unresolvedCampaignNameById.get(row.promoting_video.content_campaign_id) ?? 'No Campaign')
-                              : 'No Campaign'}
+                            {resolveContentCampaignLabel(row, {
+                              campaignNameById,
+                              campaignOwnerLabelById,
+                              unresolvedCampaignNameById,
+                            })}
                           </span>
                         </div>
                       </td>
