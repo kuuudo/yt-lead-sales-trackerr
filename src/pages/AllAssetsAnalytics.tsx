@@ -141,6 +141,7 @@ import {
   elementTypeToWebmood,
   WebmoodGrid,
   toTableMetrics,
+  sortAssetAnalyticsRows,
 } from './analytics-lego/assetAnalyticsColumns';
 
 // STUB data sources — return nothing yet. Replace with real fetches/engine
@@ -1615,72 +1616,10 @@ export default function AllAssetsAnalytics() {
        hideArchivedPromotion,
      ],
    );
-  const sortedRows = useMemo(() => {
-    const key = sortConfig.key;
-    const dir = sortConfig.direction === 'asc' ? 1 : -1;
-    if (key === 'asset_created_at') {
-      return [...archiveFilteredRows].sort((a, b) => {
-        const at = a.promoting_video.created_at ? new Date(a.promoting_video.created_at).getTime() : 0;
-        const bt = b.promoting_video.created_at ? new Date(b.promoting_video.created_at).getTime() : 0;
-        if (at === bt) return 0;
-        return at > bt ? dir : -dir;
-      });
-    }
-    // New "Asset Created At" column — sorts by the ASSET's own created_at,
-    // separate from the "asset_created_at" key above (which is actually the
-    // "Recently Added" shortcut and intentionally sorts by content date —
-    // left alone on purpose).
-    if (key === 'asset_created_at_col') {
-      return [...archiveFilteredRows].sort((a, b) => {
-        const at = a.asset.created_at ? new Date(a.asset.created_at).getTime() : 0;
-        const bt = b.asset.created_at ? new Date(b.asset.created_at).getTime() : 0;
-        if (at === bt) return 0;
-        return at > bt ? dir : -dir;
-      });
-    }
-    // New "Content Created At" column — same data as the "Recently Added"
-    // shortcut above, just its own key so this column's header can sort
-    // independently without relabeling that button.
-    if (key === 'content_created_at_col') {
-      return [...archiveFilteredRows].sort((a, b) => {
-        const at = a.promoting_video.created_at ? new Date(a.promoting_video.created_at).getTime() : 0;
-        const bt = b.promoting_video.created_at ? new Date(b.promoting_video.created_at).getTime() : 0;
-        if (at === bt) return 0;
-        return at > bt ? dir : -dir;
-      });
-    }
-    // asset_clicks lives on row.asset_clicks, not row.metrics (it's not a
-    // MetricType key), so it needs the same kind of special case as
-    // asset_created_at above rather than the generic metrics[key] branch.
-    if (key === 'asset_clicks') {
-      return [...archiveFilteredRows].sort((a, b) => {
-        const av = Number(a.asset_clicks ?? 0);
-        const bv = Number(b.asset_clicks ?? 0);
-        if (av === bv) return 0;
-        return av > bv ? dir : -dir;
-      });
-    }
-
-    // Asset column — groups identical assets together. Sorted by asset
-    // title (case-insensitive); ties broken by asset id so rows for the
-    // same asset always land next to each other.
-    if (key === 'asset') {
-      return [...archiveFilteredRows].sort((a, b) => {
-        if (a.asset.id === b.asset.id) return 0;
-        const at = (a.asset.title ?? '').toLowerCase();
-        const bt = (b.asset.title ?? '').toLowerCase();
-        if (at !== bt) return at > bt ? dir : -dir;
-        return a.asset.id > b.asset.id ? dir : -dir;
-      });
-    }
-
-    return [...archiveFilteredRows].sort((a, b) => {
-      const av = Number(a.metrics[key as MetricType] ?? 0);
-      const bv = Number(b.metrics[key as MetricType] ?? 0);
-      if (av === bv) return 0;
-      return av > bv ? dir : -dir;
-    });
-  }, [archiveFilteredRows, sortConfig]);
+  const sortedRows = useMemo(
+    () => sortAssetAnalyticsRows(archiveFilteredRows, sortConfig),
+    [archiveFilteredRows, sortConfig],
+  );
 
   const colSpan = 8 + TABLE_COLUMNS.length + 1 + (visibleColumns.has('promotion') ? 1 : 0) + (visibleColumns.has('downstream') ? 1 : 0); // Asset + Type + Content + Content Owner + Asset Campaign + Content Campaign + Asset Clicks + Total Revenue (dup) + metrics + trailing spacer + optional Promotion + optional Downstream
 

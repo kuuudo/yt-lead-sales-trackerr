@@ -8,7 +8,7 @@
 
 import React from 'react';
 import { TABLE_COLUMNS, type MetricType } from '../../lib/analyticsEngine';
-import type { AssetTypeTag } from './assetAnalyticsTypes';
+import type { AssetTypeTag, AssetAnalyticsRow } from './assetAnalyticsTypes';
 import type { AssetAnalyticsTableRow } from '../../services/asset/getAssetAnalyticsRows';
 
 /** Sort shortcuts — same set InDepthAnalytics exposes, minus dead unique_clicks. */
@@ -117,4 +117,79 @@ export function toTableMetrics(
   if (!full && 'total_revenue' in base) base.total_revenue = m.revenue ?? 0;
   if ('unique_clicks' in base) base.unique_clicks = m.clicks ?? 0;
   return base;
+}
+/**
+ * Pure sort for All Assets Analytics table rows.
+ * Copied verbatim from AllAssetsAnalytics sortedRows useMemo (Phase 2 extract).
+ * Preserves every special case, including intentional:
+ *   key === 'asset_created_at' → promoting_video.created_at (Recently Added shortcut)
+ */
+export function sortAssetAnalyticsRows(
+  rows: AssetAnalyticsRow[],
+  sortConfig: { key: string; direction: 'asc' | 'desc' },
+): AssetAnalyticsRow[] {
+  const key = sortConfig.key;
+  const dir = sortConfig.direction === 'asc' ? 1 : -1;
+  if (key === 'asset_created_at') {
+    return [...rows].sort((a, b) => {
+      const at = a.promoting_video.created_at ? new Date(a.promoting_video.created_at).getTime() : 0;
+      const bt = b.promoting_video.created_at ? new Date(b.promoting_video.created_at).getTime() : 0;
+      if (at === bt) return 0;
+      return at > bt ? dir : -dir;
+    });
+  }
+  // New "Asset Created At" column — sorts by the ASSET's own created_at,
+  // separate from the "asset_created_at" key above (which is actually the
+  // "Recently Added" shortcut and intentionally sorts by content date —
+  // left alone on purpose).
+  if (key === 'asset_created_at_col') {
+    return [...rows].sort((a, b) => {
+      const at = a.asset.created_at ? new Date(a.asset.created_at).getTime() : 0;
+      const bt = b.asset.created_at ? new Date(b.asset.created_at).getTime() : 0;
+      if (at === bt) return 0;
+      return at > bt ? dir : -dir;
+    });
+  }
+  // New "Content Created At" column — same data as the "Recently Added"
+  // shortcut above, just its own key so this column's header can sort
+  // independently without relabeling that button.
+  if (key === 'content_created_at_col') {
+    return [...rows].sort((a, b) => {
+      const at = a.promoting_video.created_at ? new Date(a.promoting_video.created_at).getTime() : 0;
+      const bt = b.promoting_video.created_at ? new Date(b.promoting_video.created_at).getTime() : 0;
+      if (at === bt) return 0;
+      return at > bt ? dir : -dir;
+    });
+  }
+  // asset_clicks lives on row.asset_clicks, not row.metrics (it's not a
+  // MetricType key), so it needs the same kind of special case as
+  // asset_created_at above rather than the generic metrics[key] branch.
+  if (key === 'asset_clicks') {
+    return [...rows].sort((a, b) => {
+      const av = Number(a.asset_clicks ?? 0);
+      const bv = Number(b.asset_clicks ?? 0);
+      if (av === bv) return 0;
+      return av > bv ? dir : -dir;
+    });
+  }
+
+  // Asset column — groups identical assets together. Sorted by asset
+  // title (case-insensitive); ties broken by asset id so rows for the
+  // same asset always land next to each other.
+  if (key === 'asset') {
+    return [...rows].sort((a, b) => {
+      if (a.asset.id === b.asset.id) return 0;
+      const at = (a.asset.title ?? '').toLowerCase();
+      const bt = (b.asset.title ?? '').toLowerCase();
+      if (at !== bt) return at > bt ? dir : -dir;
+      return a.asset.id > b.asset.id ? dir : -dir;
+    });
+  }
+
+  return [...rows].sort((a, b) => {
+    const av = Number(a.metrics[key as MetricType] ?? 0);
+    const bv = Number(b.metrics[key as MetricType] ?? 0);
+    if (av === bv) return 0;
+    return av > bv ? dir : -dir;
+  });
 }
