@@ -48,6 +48,7 @@ import {
   type DateRange,
   type CustomDateRange,
 } from './analyticsEngine';
+import { processVideoMetrics, type VideoMetricsResult } from './analyticsEngine';
 
 import {
   buildPurchaseJourney,
@@ -227,6 +228,8 @@ export interface AssetRelationshipRow {
   promotingSourceType: 'video';
   /** Evidence — which redirect_links (touched by this edge's events) express this relationship. */
   redirectLinkIds: string[];
+  /** Full 14-column breakdown for this exact (video, asset) group — additive, optional. */
+  fullMetrics?: VideoMetricsResult;
   metrics: AssetMetrics;
 }
 
@@ -564,6 +567,50 @@ function computeRelationships(
     const vStripe = stripeByVideo.get(k) ?? [];
     const vPixel = pixelByVideo.get(k) ?? [];
     const metrics = computeAssetMetrics(vEvents, vStripe, vPixel, activeSource, includeEV, redirectLinkTokenToLinkType);
+
+    // Full 14-column breakdown for this exact (video, asset) group. Same grouped
+    // inputs as `metrics` above, run through analyticsEngine's own (unmodified)
+    // processVideoMetrics so formulas / dedup match InDepthAnalytics.
+    const fullMetrics: VideoMetricsResult = processVideoMetrics({
+      videoId: k,
+      campaignId: null,
+      activeSource,
+      includeEV,
+      events: vEvents.map((e) => ({
+        video_id: k,
+        campaign_id: (e as any).campaign_id ?? null,
+        event_type: e.event_type ?? '',
+        created_at: e.created_at,
+      })),
+      stripePurchases:
+        activeSource === 'pixel'
+          ? []
+          : buildStripeFromPurchases(
+              vStripe.map((p) => ({
+                video_id: k,
+                campaign_id: p.campaign_id,
+                amount: p.amount,
+                session_id: p.session_id,
+                redirect_link_id: p.redirect_link_id ?? null,
+                redirect_link_token: p.redirect_link_token ?? null,
+              })),
+              redirectLinkTokenToLinkType,
+              {},
+            ),
+      pixelPurchases:
+        activeSource === 'stripe'
+          ? []
+          : buildPixelPurchases(
+              vPixel.map((p) => ({
+                video_id: k,
+                campaign_id: p.campaign_id,
+                amount: p.amount,
+                event_type: p.event_type,
+                session_id: p.session_id,
+              })),
+              {},
+            ),
+    });
     const redirectLinkIds = Array.from(
       new Set(vEvents.map(e => e.redirect_link_id).filter((id): id is string => !!id)),
     );
@@ -571,6 +618,7 @@ function computeRelationships(
       assetId,
       promotingSourceId: k === NO_SOURCE_KEY ? null : k,
       promotingSourceType: 'video',
+      fullMetrics,
       redirectLinkIds,
       metrics,
     });

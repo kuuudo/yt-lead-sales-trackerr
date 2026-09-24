@@ -51,6 +51,7 @@ import {
   type CustomDateRange,
 } from '../../lib/assetAnalyticsEngine';
 import type { CampaignElementAssetRow } from '../../lib/journeyAnalyticsEngine';
+import type { VideoMetricsResult } from '../../lib/analyticsEngine';
 import {
   getAssetArchiveContextsForViewer,
   type AssetArchiveContext,
@@ -93,6 +94,8 @@ export interface AssetAnalyticsTableRow {
     isCampaignFreeResource: boolean;
   };
   promotionIds: string[];
+  /** Full 14-column metrics for this exact (video_id, asset_id); null when no relationship matched. */
+  fullMetrics?: VideoMetricsResult | null;
   /** Metrics for this exact (video_id, asset_id) from computeRelationships. */
   metrics: AssetMetrics;
   /** Asset type from assets table (campaign_element | video | resource). */
@@ -590,8 +593,10 @@ const assetCampaignById = new Map<
     const match = relationships.find((r) => r.promotingSourceId === video_id);
 
     let metrics: AssetMetrics;
+    let fullMetrics: VideoMetricsResult | null = null;
     if (match) {
       metrics = match.metrics;
+      fullMetrics = match.fullMetrics ?? null;
     } else {
       unmatchedIdentityCount += 1;
       metrics = emptyMetrics();
@@ -620,6 +625,7 @@ const assetCampaignById = new Map<
       assetCampaign: assetCampaignById.get(asset_id) ?? { campaignId: null, source: null, isCampaignFreeResource: false },
       promotionIds: promotionIds ?? [],
       metrics,
+      fullMetrics,
       asset_type: assetTypeById.get(asset_id) ?? 'unknown',
       assetOrganizationId: assetOrgIdById.get(asset_id) ?? '',
       isAssigned: assignedAssetIds.has(asset_id),

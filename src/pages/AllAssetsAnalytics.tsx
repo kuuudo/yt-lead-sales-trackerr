@@ -203,14 +203,15 @@ function WebmoodGrid({ activeTypes }: { activeTypes: Set<string> }) {
 /** Zero-filled 14-column metrics bag; overlay AssetMetrics onto compatible keys. */
 function toTableMetrics(
   m: AssetAnalyticsTableRow['metrics'],
+  full?: AssetAnalyticsTableRow['fullMetrics'],
 ): Record<MetricType, number | string> {
   const base = {} as Record<MetricType, number | string>;
   for (const key of TABLE_COLUMNS) {
-    base[key as MetricType] = 0;
+    base[key as MetricType] = full ? ((full as any)[key] ?? 0) : 0;
   }
   // AssetMetrics is the 5-metric vocabulary from assetAnalyticsEngine.
   // Map into the shared table columns without inventing funnel breakdowns.
-  if ('total_revenue' in base) base.total_revenue = m.revenue ?? 0;
+  if (!full && 'total_revenue' in base) base.total_revenue = m.revenue ?? 0;
   if ('unique_clicks' in base) base.unique_clicks = m.clicks ?? 0;
   return base;
 }
@@ -786,7 +787,7 @@ console.log('🔍 VIDEOS QUERY RESULT', {
 
 
             asset_clicks: r.metrics.clicks ?? 0,
-            metrics: toTableMetrics(r.metrics),
+            metrics: toTableMetrics(r.metrics, r.fullMetrics),
           };
         });
         console.timeEnd(`[AllAssetsAnalytics] LOAD #${__runId} transform`);
