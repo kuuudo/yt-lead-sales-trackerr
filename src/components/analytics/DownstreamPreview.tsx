@@ -164,7 +164,6 @@ export interface DownstreamPreviewProps {
 export default function DownstreamPreview({ videoId, assetId }: DownstreamPreviewProps) {
   const canHover = useCanHover();
   const [mode, setMode] = useState<Mode>('closed');
-  console.log('DownstreamPreview render, mode =', mode);
   const [state, setState] = useState<LoadState>({ status: 'idle' });
   const [pos, setPos] = useState<Pos | null>(null);
 
@@ -194,7 +193,6 @@ export default function DownstreamPreview({ videoId, assetId }: DownstreamPrevie
 
   // A different row identity (table reload) → forget any previous load.
   useEffect(() => {
-    console.log('DownstreamPreview MOUNTED/identity-changed', videoId, assetId);
     requestedRef.current = false;
     setState({ status: 'idle' });
     setMode('closed');
@@ -257,7 +255,6 @@ export default function DownstreamPreview({ videoId, assetId }: DownstreamPrevie
   }, [mode, close]);
 
   const onEnter = () => {
-    console.log('onEnter fired, canHover =', canHover);
     if (!canHover) return;
     clearCloseTimer();
     setMode((m) => (m === 'closed' ? 'hover' : m));
@@ -265,7 +262,6 @@ export default function DownstreamPreview({ videoId, assetId }: DownstreamPrevie
   };
 
   const onLeave = () => {
-    console.log('onLeave fired, canHover =', canHover);
     if (!canHover) return;
     clearCloseTimer();
     closeTimer.current = setTimeout(() => {
@@ -320,7 +316,7 @@ export default function DownstreamPreview({ videoId, assetId }: DownstreamPrevie
         canHover
           ? {
               position: 'fixed',
-              zIndex: 60,
+              zIndex: 10000,
               left: pos?.left ?? 8,
               width: pos?.width ?? 440,
               top: pos?.top,
@@ -329,7 +325,7 @@ export default function DownstreamPreview({ videoId, assetId }: DownstreamPrevie
             }
           : {
               position: 'fixed',
-              zIndex: 60,
+              zIndex: 10000,
               left: 8,
               right: 8,
               bottom: 8,
@@ -369,7 +365,7 @@ export default function DownstreamPreview({ videoId, assetId }: DownstreamPrevie
           ) : (
             <>
               <div
-                className="fixed inset-0 z-50 bg-black/50"
+                className="fixed inset-0 z-[9999] bg-black/50"
                 onClick={(e) => {
                   e.stopPropagation();
                   close();
