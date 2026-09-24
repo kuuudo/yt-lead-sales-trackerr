@@ -1033,7 +1033,7 @@ const [nodeDetailTarget, setNodeDetailTarget] = useState<
       if (n.resolvedFrom === 'conversion' && n.outcome && !byOutcome.has(n.outcome)) byOutcome.set(n.outcome, n)
     }
     const placed: (DownstreamNode & { x: number; y: number })[] = []
-    const edges: { key: string; x1: number; y1: number; x2: number; y2: number }[] = []
+    const edges: { key: string; x1: number; y1: number; x2: number; y2: number; count?: number; first?: boolean }[] = []
     for (const [outcome, n] of byOutcome.entries()) {
       const parents = structural.filter((p) => p.elementType === PARENT_ELEMENT[outcome])
       if (parents.length === 0) continue
@@ -1047,6 +1047,8 @@ const [nodeDetailTarget, setNodeDetailTarget] = useState<
           y1: p.y + GRAPH_NODE_HEIGHT / 2,
           x2: x,
           y2: y + GRAPH_NODE_HEIGHT / 2,
+          count: n.count,
+          first: p === parents[0],
         })
       }
     }
@@ -1993,6 +1995,41 @@ const [nodeDetailTarget, setNodeDetailTarget] = useState<
                 markerEnd="url(#journeyArrow)"
               />
             ))}
+            {downstream.edges.map((edge) => {
+              const anchor = downstreamSourceAnchors.get(edge.fromVideoId)
+              const to = positionedDownstreamNodes.find((n) => n.id === edge.toNodeId)
+              if (!anchor || !to || !to.clicks) return null
+              const lx1 = anchor.x + anchor.width
+              const ly1 = anchor.y + anchor.height / 2
+              const lx2 = to.x
+              const ly2 = to.y + GRAPH_NODE_HEIGHT / 2
+              return (
+                <text
+                  key={`downstream-label-${edge.fromVideoId}::${edge.toNodeId}`}
+                  x={(lx1 + lx2) / 2}
+                  y={(ly1 + ly2) / 2 - 6}
+                  fontSize={10}
+                  fill="#9ca3af"
+                  textAnchor="middle"
+                >
+                  ×{to.clicks}
+                </text>
+              )
+            })}
+            {outcomeEdges
+              .filter((e) => e.count && e.first)
+              .map((e) => (
+                <text
+                  key={`${e.key}-label`}
+                  x={e.x2 - 18}
+                  y={e.y2 - 8}
+                  fontSize={10}
+                  fill="#9ca3af"
+                  textAnchor="middle"
+                >
+                  ×{e.count}
+                </text>
+              ))}
             {/* STEP 3 + STEP 4 (additive) — downstream edges: a video's own
                 redirect link resolved to a real campaign-element or resource
                 node, either from an observed journey step (STEP 3) or

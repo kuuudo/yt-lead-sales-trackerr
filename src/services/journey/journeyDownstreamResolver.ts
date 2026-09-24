@@ -52,7 +52,7 @@
 // ─────────────────────────────────────────────────────────────────────────────
 
 import { supabase } from '../../lib/supabase'
-import type { JourneyGraph } from './journeyGraph'
+import type { JourneyGraph } from '../../lib/journeyGraph'
 import { resolveAssetType } from '../asset/resolveAssetType'
 
 export type DownstreamNodeKind = 'campaign_element' | 'resource'
@@ -77,6 +77,10 @@ export interface DownstreamNode {
   label?: string
   // Conversion outcome key (newsletter / sales_call / consultation / purchase).
   outcome?: string
+  // Conversion count for this promotion (Thank You nodes only).
+  count?: number
+  // Click count for this promotion (redirect-link nodes only).
+  clicks?: number
   assetId: string | null
   redirectLinkId: string
   sourceVideoId: string
@@ -243,7 +247,7 @@ export async function resolveDownstreamNodes(graph: JourneyGraph, promotionId?: 
     throw new Error(`journeyDownstreamResolver.ts: redirect_links query failed — ${rlError.message}`)
   }
 
-    const structural = await resolveLinksToDownstream((redirectLinks ?? []) as RedirectLinkRow[])
+    const structural = await attachClickCounts(await resolveLinksToDownstream((redirectLinks ?? []) as RedirectLinkRow[]), promotionId)
   return {
     nodes: [...structural.nodes, ...outcomes.nodes],
     edges: [...structural.edges, ...outcomes.edges],
@@ -280,7 +284,10 @@ async function resolveDownstreamForVideoIdsStructural(
     throw new Error(`journeyDownstreamResolver.ts: redirect_links (by video_id) query failed — ${rlError.message}`)
   }
 
-  return resolveLinksToDownstream((redirectLinks ?? []) as RedirectLinkRow[])
+  return resolveLinksToDownstream(
+  (redirectLinks ?? []) as RedirectLinkRow[],
+  promotionId
+)
 }
 
 // ── Conversion-derived Thank You nodes (2026-09-24) ─────────────────────────
@@ -305,7 +312,7 @@ const LINK_TYPE_TO_OUTCOME: Record<string, string> = {
   landing_page: 'purchase',
 }
 
-async function resolveConversionOutcomes(
+export async function resolveConversionOutcomesLegacy(
   videoIds: string[],
   promotionId: string,
 ): Promise<DownstreamResolution> {
@@ -452,10 +459,151 @@ export async function resolveDownstreamForVideoIds(
   videoIds: string[],
   promotionId: string,
 ): Promise<DownstreamResolution> {
-  const structural = await resolveDownstreamForVideoIdsStructural(videoIds, promotionId)
+    const structural = await attachClickCounts(
+    await resolveDownstreamForVideoIdsStructural(videoIds, promotionId),
+    promotionId,
+  )
   const outcomes = await resolveConversionOutcomes(videoIds, promotionId)
   return {
     nodes: [...structural.nodes, ...outcomes.nodes],
     edges: [...structural.edges, ...outcomes.edges],
   }
+}
+
+// ── Click counts per redirect-link node (2026-09-24) ────────────────────────
+async function attachClickCounts(res: DownstreamResolution, promotionId?: string): Promise<DownstreamResolution> {
+  const ids = Array.from(new Set(res.nodes.map((n) => n.redirectLinkId).filter((x) => !!x)))
+  if (ids.length === 0) return res
+
+  let q = supabase.from('events').select('redirect_link_id').in('redirect_link_id', ids).neq('event_type', 'page_view')
+  if (promotionId) q = q.eq('promotion_id', promotionId)
+  const { data, error } = await q
+  if (error) {
+    console.error('[journeyDownstreamResolver] events (click counts) query failed:', error.message)
+    return res
+  }
+  const counts = new Map<string, number>()
+  for (const r of (data ?? []) as { redirect_link_id: string | null }[]) {
+    if (r.redirect_link_id) counts.set(r.redirect_link_id, (counts.get(r.redirect_link_id) ?? 0) + 1)
+  }
+  console.log('[click-debug]', { promotionId, ids, counts: Array.from(counts.entries()) })
+  return {
+    ...res,
+    nodes: res.nodes.map((n) => (n.redirectLinkId ? { ...n, clicks: counts.get(n.redirectLinkId) ?? 0 } : n)),
+  }
+}
+
+// ── Counted conversion outcomes (2026-09-24) ────────────────────────────────
+// One Thank You node per outcome type, with a promotion-wide conversion count.
+// Sources: (1) pixel/stripe rows tagged with this promotion_id, plus
+// (2) rows whose session_id appears in this promotion's events (session
+// bridge). Rows are de-duplicated by row id; a stripe row whose session_id
+// already has a pixel row of the same outcome is not counted twice.
+function chunkIds(ids: string[], size = 150): string[][] {
+  const out: string[][] = []
+  for (let i = 0; i < ids.length; i += size) out.push(ids.slice(i, i + size))
+  return out
+}
+
+async function resolveConversionOutcomes(
+  videoIds: string[],
+  promotionId: string,
+): Promise<DownstreamResolution> {
+  if (videoIds.length === 0) return { nodes: [], edges: [] }
+
+  type PixelRow = { id: string; session_id: string | null; event_type: string | null }
+  type StripeRow = { id: string; session_id: string | null; redirect_link_id: string | null }
+  const pixelById = new Map<string, PixelRow>()
+  const stripeById = new Map<string, StripeRow>()
+
+  // (1) rows tagged directly with this promotion
+  const { data: pDirect, error: pDirectErr } = await supabase
+    .from('pixel_purchases')
+    .select('id, session_id, event_type')
+    .eq('promotion_id', promotionId)
+  if (pDirectErr) console.error('[journeyDownstreamResolver] pixel_purchases (promotion) failed:', pDirectErr.message)
+  for (const r of (pDirect ?? []) as PixelRow[]) pixelById.set(r.id, r)
+
+  const { data: sDirect, error: sDirectErr } = await supabase
+    .from('stripe_purchases')
+    .select('id, session_id, redirect_link_id')
+    .eq('promotion_id', promotionId)
+  if (sDirectErr) console.error('[journeyDownstreamResolver] stripe_purchases (promotion) failed:', sDirectErr.message)
+  for (const r of (sDirect ?? []) as StripeRow[]) stripeById.set(r.id, r)
+
+  // (2) session bridge through this promotion's events
+  const { data: evRows, error: evErr } = await supabase
+    .from('events')
+    .select('session_id')
+    .eq('promotion_id', promotionId)
+    .not('session_id', 'is', null)
+  if (evErr) {
+    console.error('[journeyDownstreamResolver] events (session bridge) failed:', evErr.message)
+  } else {
+    const sessionIds = Array.from(
+      new Set(((evRows ?? []) as { session_id: string | null }[]).map((e) => e.session_id).filter((x): x is string => !!x)),
+    )
+    for (const chunk of chunkIds(sessionIds)) {
+      const { data: pRows } = await supabase
+        .from('pixel_purchases')
+        .select('id, session_id, event_type')
+        .in('session_id', chunk)
+      for (const r of (pRows ?? []) as PixelRow[]) pixelById.set(r.id, r)
+
+      const { data: sRows } = await supabase
+        .from('stripe_purchases')
+        .select('id, session_id, redirect_link_id')
+        .in('session_id', chunk)
+      for (const r of (sRows ?? []) as StripeRow[]) stripeById.set(r.id, r)
+    }
+  }
+
+  // stripe rows -> outcome via redirect_links.link_type
+  const linkIds = Array.from(
+    new Set(Array.from(stripeById.values()).map((s) => s.redirect_link_id).filter((x): x is string => !!x)),
+  )
+  const linkTypeById = new Map<string, string>()
+  for (const chunk of chunkIds(linkIds)) {
+    const { data: lRows } = await supabase.from('redirect_links').select('id, link_type').in('id', chunk)
+    for (const l of (lRows ?? []) as { id: string; link_type: string | null }[]) {
+      if (l.link_type) linkTypeById.set(l.id, l.link_type)
+    }
+  }
+
+  const counts = new Map<string, number>()
+  const pixelSessionsByOutcome = new Map<string, Set<string>>()
+  for (const p of pixelById.values()) {
+    if (!p.event_type || !OUTCOME_LABEL[p.event_type]) continue
+    counts.set(p.event_type, (counts.get(p.event_type) ?? 0) + 1)
+    if (p.session_id) {
+      const set = pixelSessionsByOutcome.get(p.event_type) ?? new Set<string>()
+      set.add(p.session_id)
+      pixelSessionsByOutcome.set(p.event_type, set)
+    }
+  }
+  for (const s of stripeById.values()) {
+    const outcome = s.redirect_link_id ? LINK_TYPE_TO_OUTCOME[linkTypeById.get(s.redirect_link_id) ?? ''] : undefined
+    if (!outcome) continue
+    if (s.session_id && pixelSessionsByOutcome.get(outcome)?.has(s.session_id)) continue
+    counts.set(outcome, (counts.get(outcome) ?? 0) + 1)
+  }
+
+  console.log('[conversion-counts]', { promotionId, counts: Array.from(counts.entries()) })
+
+  const nodes: DownstreamNode[] = []
+  for (const [outcome, count] of counts.entries()) {
+    nodes.push({
+      id: `outcome:${outcome}`,
+      kind: 'campaign_element',
+      elementType: 'thank_you',
+      resolvedFrom: 'conversion',
+      assetId: null,
+      redirectLinkId: '',
+      sourceVideoId: videoIds[0],
+      label: OUTCOME_LABEL[outcome],
+      outcome,
+      count,
+    })
+  }
+  return { nodes, edges: [] }
 }
