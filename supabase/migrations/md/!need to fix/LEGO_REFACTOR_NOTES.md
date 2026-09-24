@@ -49,17 +49,12 @@ type-checking on these four fields.
 
 ---
 
-## 2026-09-25 — Phase 5: promotion + creative pure filters
+## 2026-09-25 — Phase 6: collectContentOwners
 
 **File:** `pages/analytics-lego/assetAnalyticsFilters.ts`
 
-**Extracted (behavior frozen):**
-- `filterByPromotionIds` — empty selection = no filter
-- `filterByCreativeScope` — null = no filter; exact toMe / byMe predicates
+**Extracted:** `collectContentOwners(rows)` — Content Owner dropdown options.
+First-seen `content_owner_name` wins per id; missing name → `'Unknown'`;
+sorted by name via `localeCompare`.
 
-**Preserved on purpose:**
-- Creative scope still keys off `user?.id` (not `effectiveViewerId`)
-- Still uses `(row.promoting_video as any).created_via_creative` / content_owner_id
-
-**Not extracted:** Asset/Content Campaign multi-select filters, promotion cell
-JSX, data hooks, engines.
+**Not extracted:** Asset/Content Campaign multi-select filters, promotion cell.

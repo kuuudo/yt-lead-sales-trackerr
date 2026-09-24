@@ -1,8 +1,8 @@
 // ─────────────────────────────────────────────────────────────────────────────
 // assetAnalyticsFilters.ts
 //
-// Pure client-side filter helpers for All Assets Analytics (and future
-// composition). Extracted from AllAssetsAnalytics.tsx — behavior frozen.
+// Pure client-side filter / option helpers for All Assets Analytics.
+// Extracted from AllAssetsAnalytics.tsx — behavior frozen.
 // ─────────────────────────────────────────────────────────────────────────────
 
 import type { AssetAnalyticsRow, AssetTypeTag } from './assetAnalyticsTypes';
@@ -72,7 +72,7 @@ export function collectPresentPlatforms(rows: AssetAnalyticsRow[]): string[] {
 
 /**
  * Empty selectedPromotionIds = no promotion-id filter.
- * Copied from AllAssetsAnalytics promotionFilteredRows (Phase 5).
+ * Phase 5 extract from AllAssetsAnalytics promotionFilteredRows.
  */
 export function filterByPromotionIds(
   rows: AssetAnalyticsRow[],
@@ -86,9 +86,8 @@ export function filterByPromotionIds(
 
 /**
  * Creative scope filter — preserves user?.id (not effectiveViewerId).
- * null / undefined creativeScopeFilter = no creative filter.
- * Uses the same (promoting_video as any) field access as the page.
- * Copied from AllAssetsAnalytics promotionFilteredRows (Phase 5).
+ * null creativeScopeFilter = no creative filter.
+ * Phase 5 extract from AllAssetsAnalytics promotionFilteredRows.
  */
 export function filterByCreativeScope(
   rows: AssetAnalyticsRow[],
@@ -111,4 +110,25 @@ export function filterByCreativeScope(
     );
   }
   return rows;
+}
+
+/**
+ * Content Owner dropdown options from rows.
+ * Keyed by content_owner_id; first-seen display name wins; sorted by name.
+ * Phase 6 extract from AllAssetsAnalytics contentOwners useMemo.
+ */
+export function collectContentOwners(
+  rows: AssetAnalyticsRow[],
+): { id: string; name: string }[] {
+  const byId = new Map<string, string>();
+  rows.forEach(row => {
+    const id = row.promoting_video.content_owner_id;
+    if (!id) return;
+    if (!byId.has(id)) {
+      byId.set(id, row.promoting_video.content_owner_name || 'Unknown');
+    }
+  });
+  return Array.from(byId.entries())
+    .map(([id, name]) => ({ id, name }))
+    .sort((a, b) => a.name.localeCompare(b.name));
 }
