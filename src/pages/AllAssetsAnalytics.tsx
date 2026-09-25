@@ -107,7 +107,7 @@ import {
 
 import {
   ChevronLeft, Filter, Columns, ChevronDown, ArrowUpDown, Boxes,
-  Calendar, Briefcase, Megaphone, Check, User, Menu, X,
+  Calendar, Briefcase, Megaphone, Check, User, Menu, X, Loader2,
 } from 'lucide-react';
 
 import {
@@ -221,6 +221,39 @@ async function resolveOrgAndViewer(viewing?: {
  * Boundary adapter: verified orchestration → existing table row shape.
  * Does not change engines. Display identity is enriched with a small bulk fetch.
  */
+function assetAnalyticsRequestKey(opts: {
+  dateRange: DateRange;
+  customRange: CustomDateRange | null;
+  activeSource: RevenueView;
+  viewingMemberId?: string | null;
+  viewingOrgId?: string | null;
+  isReadOnly?: boolean;
+}): string {
+  return [
+    opts.dateRange,
+    String(opts.customRange?.start ?? ''),
+    String(opts.customRange?.end ?? ''),
+    opts.activeSource,
+    opts.isReadOnly ? '1' : '0',
+    opts.viewingMemberId ?? '',
+    opts.viewingOrgId ?? '',
+  ].join('|');
+}
+
+function AssetAnalyticsLoadingBlock({ detail }: { detail?: string }) {
+  return (
+    <div className="py-20 text-center">
+      <Loader2 className="animate-spin text-red-600 mx-auto" size={32} aria-hidden />
+      <div className="text-[11px] font-black uppercase tracking-widest text-zinc-400 mt-4">
+        Loading asset analytics…
+      </div>
+      <div className="text-[10px] text-zinc-600 mt-2 max-w-md mx-auto">
+        {detail ?? 'Fetching links, metrics, and display data. This can take a moment.'}
+      </div>
+    </div>
+  );
+}
+
 function useAssetAnalyticsRows(opts: {
   dateRange: DateRange;
   customRange: CustomDateRange | null;
@@ -230,9 +263,12 @@ function useAssetAnalyticsRows(opts: {
   isReadOnly?: boolean;
 }): { rows: AssetAnalyticsRow[]; loading: boolean; error: string | null; organizationId: string | null } {
   const [rows, setRows] = useState<AssetAnalyticsRow[]>([]);
-  const [loading, setLoading] = useState(true);
+  const [fetching, setFetching] = useState(true);
+  const [loadedKey, setLoadedKey] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [organizationId, setOrganizationId] = useState<string | null>(null);
+  const requestKey = assetAnalyticsRequestKey(opts);
+  const loading = fetching || loadedKey !== requestKey;
 
   useEffect(() => {
     let cancelled = false;
@@ -241,7 +277,7 @@ function useAssetAnalyticsRows(opts: {
     console.time(`[AllAssetsAnalytics] LOAD #${__runId} TOTAL`);
 
     (async () => {
-      setLoading(true);
+      setFetching(true);
       setError(null);
       // Clear previous rows so the table cannot flash empty/stale content
       // while Supabase + enrichment are still in flight.
@@ -756,7 +792,10 @@ console.log('🔍 VIDEOS QUERY RESULT', {
           setRows([]);
         }
       } finally {
-        if (!cancelled) setLoading(false);
+        if (!cancelled) {
+          setFetching(false);
+          setLoadedKey(requestKey);
+        }
         console.timeEnd(`[AllAssetsAnalytics] LOAD #${__runId} TOTAL`);
         console.log(`[AllAssetsAnalytics] LOAD #${__runId} END`);
       }
@@ -765,7 +804,7 @@ console.log('🔍 VIDEOS QUERY RESULT', {
     return () => {
       cancelled = true;
     };
-  }, [opts.dateRange, opts.customRange, opts.activeSource, opts.isReadOnly, opts.viewingMemberId, opts.viewingOrgId]);
+  }, [requestKey, opts.dateRange, opts.customRange, opts.activeSource, opts.isReadOnly, opts.viewingMemberId, opts.viewingOrgId]);
 
   return { rows, loading, error, organizationId };
 }
@@ -2778,11 +2817,14 @@ export default function AllAssetsAnalytics() {
                     <button
                       key={v}
                       onClick={() => setActiveSource(v)}
-                      className={`px-3 py-1.5 rounded-lg text-[9px] font-black uppercase tracking-widest transition-all ${
+                      className={`px-3 py-1.5 rounded-lg text-[9px] font-black uppercase tracking-widest transition-all inline-flex items-center gap-1.5 ${
                         activeSource === v ? 'bg-zinc-700 text-white' : 'text-zinc-600 hover:text-zinc-400'
                       }`}
                     >
                       {v}
+                      {loading && activeSource === v && (
+                        <Loader2 size={10} className="animate-spin" aria-hidden />
+                      )}
                     </button>
                   ))}
                 </div>
@@ -2899,11 +2941,14 @@ export default function AllAssetsAnalytics() {
                   <button
                     key={v}
                     onClick={() => setActiveSource(v)}
-                    className={`px-3 py-1.5 rounded-lg text-[9px] font-black uppercase tracking-widest transition-all ${
+                    className={`px-3 py-1.5 rounded-lg text-[9px] font-black uppercase tracking-widest transition-all inline-flex items-center gap-1.5 ${
                       activeSource === v ? 'bg-zinc-700 text-white' : 'text-zinc-600 hover:text-zinc-400'
                     }`}
                   >
                     {v}
+                    {loading && activeSource === v && (
+                      <Loader2 size={10} className="animate-spin" aria-hidden />
+                    )}
                   </button>
                 ))}
               </div>
@@ -3149,13 +3194,15 @@ export default function AllAssetsAnalytics() {
         {/* ── Mobile card list — mobile only, Cards tab ───────────────────── */}
         {mobileTab === 'cards' && (
           <div className="lg:hidden flex-1 overflow-y-auto px-4 py-3 space-y-3">
-            {loading && (
-              <div className="py-20 text-center">
-                <div className="text-[11px] font-black uppercase tracking-widest text-zinc-400">
-                  Loading asset analytics…
+            {loading && <AssetAnalyticsLoadingBlock />}
+            {!loading && !error && visibleRows.length === 0 && (
+              <div className="py-16 text-center">
+                <div className="text-[11px] font-black uppercase tracking-widest text-zinc-600">
+                  No asset × content pairs in this range
                 </div>
-                <div className="text-[10px] text-zinc-600 mt-2">
-                  Fetching links, metrics, and display data.
+                <div className="text-[10px] text-zinc-700 mt-2 max-w-md mx-auto">
+                  Nothing matches the current tabs and filters. If the spinner is gone,
+                  this view is empty — not still loading.
                 </div>
               </div>
             )}
@@ -3420,12 +3467,7 @@ export default function AllAssetsAnalytics() {
                 {loading && (
                   <tr>
                     <td colSpan={colSpan} className="px-6 py-24 text-center">
-                      <div className="text-[11px] font-black uppercase tracking-widest text-zinc-400">
-                        Loading asset analytics…
-                      </div>
-                      <div className="text-[10px] text-zinc-600 mt-2 max-w-md mx-auto">
-                        Fetching links, metrics, and display data. This can take a moment.
-                      </div>
+                      <AssetAnalyticsLoadingBlock />
                     </td>
                   </tr>
                 )}
@@ -3450,10 +3492,8 @@ export default function AllAssetsAnalytics() {
                         No asset × content pairs in this range
                       </div>
                       <div className="text-[10px] text-zinc-700 mt-2 max-w-md mx-auto">
-                        No org-scoped redirect_links with asset_id were found
-                        for the current filters. Zero-activity pairs still
-                        appear when links exist — empty here means no
-                        promotional asset links in scope.
+                        Nothing matches the current tabs and filters. If the spinner is gone,
+                        this view is empty — not still loading.
                       </div>
                     </td>
                   </tr>
