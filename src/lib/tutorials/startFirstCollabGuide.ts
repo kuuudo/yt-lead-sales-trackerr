@@ -177,7 +177,6 @@ export const startFirstCollabGuide: Tutorial = {
         'Open the Promotion you just started — Click the controller (gamepad) icon on the right of the row.',
       tag: 'try-it',
       route: '/marketplace',
-      targetSelector: '[data-tutorial-id="marketplace-promotion-manage"]',
       // Point at whatever selector shows the newly-created promotion row
       // (you may need to add data-tutorial-id="marketplace-promotion-row" if it doesn’t exist yet)
       targetSelector: '[data-tutorial-id="marketplace-promotion-row"]',

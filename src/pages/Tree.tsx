@@ -142,3 +142,5 @@ const styles: Record<string, React.CSSProperties> = {
     padding: '72px 24px 24px 24px',
   },
 };
+
+export default Tree;
