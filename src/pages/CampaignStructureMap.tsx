@@ -46,6 +46,18 @@ import { useViewing } from '../lib/ViewingContext'
 // Reusing the function directly (not re-deriving its join) so this page
 // can never define campaign-membership differently from AllAssetsAnalytics.
 import { getAssetAnalyticsRows } from '../services/asset/getAssetAnalyticsRows'
+// Phase 1 thumbnail correction: reuse the existing generic-thumbnail
+// resolvers AllAssetsAnalytics.tsx already uses for campaign_element /
+// resource assets, instead of inventing a new naming/lookup system.
+// resolveThumbnail (the video platform-image *fallback*) is intentionally
+// NOT imported — YouTube video assets here only ever show a real
+// videos.thumbnail_url, never a generic fallback.
+import {
+  resolveAssetThumbnail,
+  resolveElementThumbnail,
+  type ResourceType,
+  type CampaignElementType,
+} from '../lib/videoFormatters'
 
 // ─── Real-data hooks (Phase 1A only: name + switcher) ───────────────────
 // Copied from AllAssetsAnalytics.tsx's useCampaignOptions — same query,
@@ -296,20 +308,19 @@ function useCampaignStructureData(
           ? await supabase
               .from('assets')
               .select(
-                'id, created_at, asset_type, videos(video_title, thumbnail_url, platform), asset_resources(title, thumbnail_url), campaign_element_assets(display_name)',
+                'id, created_at, asset_type, videos(video_title, thumbnail_url, platform), asset_resources(title, thumbnail_url, resource_type, platform), campaign_element_assets(display_name, element_type)',
               )
               .in('id', allAssetIds)
           : { data: [] as any[] }
         const assetTitleById = new Map<string, string>()
         const assetCreatedAtById = new Map<string, string | null>()
+        // Priority: YouTube video asset -> real videos.thumbnail_url only
+        // (never a generic fallback). Campaign element -> existing generic
+        // element-thumbnail resolver. Resource / other non-video asset ->
+        // existing generic asset-thumbnail resolver. asset_type is the
+        // discriminator (same one AllAssetsAnalytics.tsx's assetDisplay map
+        // uses), not thumbnail_url presence.
         const assetThumbnailById = new Map<string, string | null>()
-        // Thumbnail eligibility (this patch only): true iff the asset is a
-        // video asset (asset_type is neither 'campaign_element' nor
-        // 'resource' — same discriminator AllAssetsAnalytics.tsx's
-        // assetDisplay map uses for its own 3-way thumbnail branch) AND its
-        // platform is YouTube, with the same (platform ?? 'youtube') null
-        // default AllAssetsAnalytics.tsx already uses for platform counts.
-        const assetIsYouTubeVideoById = new Map<string, boolean>()
         for (const row of assetRows ?? []) {
           const v = Array.isArray((row as any).videos) ? (row as any).videos[0] : (row as any).videos
           const res = Array.isArray((row as any).asset_resources)
@@ -321,11 +332,21 @@ function useCampaignStructureData(
           const title = v?.video_title ?? res?.title ?? el?.display_name ?? null
           if (title) assetTitleById.set((row as any).id, title)
           assetCreatedAtById.set((row as any).id, (row as any).created_at ?? null)
-          assetThumbnailById.set((row as any).id, v?.thumbnail_url ?? res?.thumbnail_url ?? null)
+
           const assetType = (row as any).asset_type
-          const isVideoAsset = assetType !== 'campaign_element' && assetType !== 'resource'
-          const isYouTube = (v?.platform ?? 'youtube') === 'youtube'
-          assetIsYouTubeVideoById.set((row as any).id, isVideoAsset && isYouTube)
+          let thumbnailUrl: string | null = null
+          if (assetType === 'campaign_element') {
+            thumbnailUrl = resolveElementThumbnail((el?.element_type ?? 'landing_page') as CampaignElementType)
+          } else if (assetType === 'resource') {
+            thumbnailUrl = resolveAssetThumbnail({
+              thumbnail_url: res?.thumbnail_url ?? null,
+              resource_type: (res?.resource_type ?? 'other') as ResourceType,
+              platform: res?.platform ?? null,
+            })
+          } else if ((v?.platform ?? 'youtube') === 'youtube') {
+            thumbnailUrl = v?.thumbnail_url ?? null
+          }
+          assetThumbnailById.set((row as any).id, thumbnailUrl)
         }
 
         // Marketer (owner) -> set of promotion ids.
@@ -360,7 +381,7 @@ function useCampaignStructureData(
                 label: assetTitleById.get(assetId) ?? assetId,
                 kind: 'asset',
                 color,
-                thumbnailUrl: assetIsYouTubeVideoById.get(assetId) ? assetThumbnailById.get(assetId) ?? null : null,
+                thumbnailUrl: assetThumbnailById.get(assetId) ?? null,
               })),
             })),
           }
@@ -377,7 +398,7 @@ function useCampaignStructureData(
             label: assetTitleById.get(assetId) ?? assetId,
             kind: 'asset',
             color: '#10b981',
-            thumbnailUrl: assetIsYouTubeVideoById.get(assetId) ? assetThumbnailById.get(assetId) ?? null : null,
+            thumbnailUrl: assetThumbnailById.get(assetId) ?? null,
           }),
         )
 
