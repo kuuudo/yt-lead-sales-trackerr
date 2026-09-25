@@ -1288,6 +1288,9 @@ export default function AllAssetsAnalytics() {
     key: 'asset_created_at',
     direction: 'desc',
   });
+  // Progressive table/card reveal — full sortedRows still used for filters/counts.
+  const VISIBLE_PAGE_SIZE = 50;
+  const [visibleLimit, setVisibleLimit] = useState(VISIBLE_PAGE_SIZE);
   
   const { rows, loading, error, organizationId } = useAssetAnalyticsRows({
     dateRange,
@@ -1559,6 +1562,14 @@ export default function AllAssetsAnalytics() {
     () => sortAssetAnalyticsRows(archiveFilteredRows, sortConfig),
     [archiveFilteredRows, sortConfig],
   );
+
+  // Reset window when filtered/sorted set changes (filter, sort, or data reload).
+  useEffect(() => {
+    setVisibleLimit(VISIBLE_PAGE_SIZE);
+  }, [archiveFilteredRows, sortConfig.key, sortConfig.direction]);
+
+  const visibleRows = sortedRows.slice(0, visibleLimit);
+  const canShowMore = visibleLimit < sortedRows.length;
 
   const colSpan = 8 + TABLE_COLUMNS.length + 1 + (visibleColumns.has('promotion') ? 1 : 0) + (visibleColumns.has('downstream') ? 1 : 0); // Asset + Type + Content + Content Owner + Asset Campaign + Content Campaign + Asset Clicks + Total Revenue (dup) + metrics + trailing spacer + optional Promotion + optional Downstream
 
@@ -3116,7 +3127,12 @@ export default function AllAssetsAnalytics() {
         {/* ── Mobile card list — mobile only, Cards tab ───────────────────── */}
         {mobileTab === 'cards' && (
           <div className="lg:hidden flex-1 overflow-y-auto px-4 py-3 space-y-3">
-            {!loading && sortedRows.map(row => {
+            {loading && (
+              <div className="py-16 text-center text-[10px] font-black uppercase tracking-widest text-zinc-600">
+                Loading…
+              </div>
+            )}
+            {!loading && visibleRows.map(row => {
               const cardKey = `${row.asset.id}::${row.promoting_video.id}`;
               const isExpanded = expandedCards.has(cardKey);
               return (
@@ -3192,6 +3208,20 @@ export default function AllAssetsAnalytics() {
                 </div>
               );
             })}
+            {!loading && !error && canShowMore && (
+              <div className="flex justify-center py-4">
+                <button
+                  type="button"
+                  onClick={() => setVisibleLimit(v => v + VISIBLE_PAGE_SIZE)}
+                  className="px-6 py-2.5 rounded-xl bg-zinc-900 border border-zinc-800 text-[10px] font-black uppercase tracking-widest text-zinc-300 hover:text-white hover:border-zinc-600 transition-colors"
+                >
+                  Show More
+                  <span className="ml-2 text-zinc-600 normal-case tracking-normal font-bold">
+                    ({Math.min(VISIBLE_PAGE_SIZE, sortedRows.length - visibleLimit)} of {sortedRows.length - visibleLimit} remaining)
+                  </span>
+                </button>
+              </div>
+            )}
           </div>
         )}
         <div className={`${mobileTab === 'table' ? 'block' : 'hidden'} lg:block flex-1 overflow-x-auto custom-scrollbar`}>
@@ -3399,8 +3429,8 @@ export default function AllAssetsAnalytics() {
                   </tr>
                 )}
 
-                {!loading && sortedRows.map((row, rowIndex) => {
-                  const prevRow = rowIndex > 0 ? sortedRows[rowIndex - 1] : null;
+                {!loading && visibleRows.map((row, rowIndex) => {
+                  const prevRow = rowIndex > 0 ? visibleRows[rowIndex - 1] : null;
                   const showAssetCell =
                     sortConfig.key !== 'asset' || !prevRow || prevRow.asset.id !== row.asset.id;
                   return (
@@ -3689,6 +3719,21 @@ export default function AllAssetsAnalytics() {
                 })}
               </tbody>
             </table>
+
+          {!loading && !error && canShowMore && (
+            <div className="flex justify-center py-6">
+              <button
+                type="button"
+                onClick={() => setVisibleLimit(v => v + VISIBLE_PAGE_SIZE)}
+                className="px-6 py-2.5 rounded-xl bg-zinc-900 border border-zinc-800 text-[10px] font-black uppercase tracking-widest text-zinc-300 hover:text-white hover:border-zinc-600 transition-colors"
+              >
+                Show More
+                <span className="ml-2 text-zinc-600 normal-case tracking-normal font-bold">
+                  ({Math.min(VISIBLE_PAGE_SIZE, sortedRows.length - visibleLimit)} of {sortedRows.length - visibleLimit} remaining)
+                </span>
+              </button>
+            </div>
+          )}
           </div>
         </div>
       </div>
