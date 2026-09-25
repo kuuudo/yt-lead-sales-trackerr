@@ -182,3 +182,33 @@ export function filterByContentCampaignSelection(
   });
 }
 
+/**
+ * Shared selection identity for Asset + Content Campaign multi-select.
+ * Phase 10 medium: deduped from identical asset/content helpers on the page.
+ */
+export function campaignSelectionKey(s: AssetCampaignSelection): string {
+  return s.type === 'campaign'
+    ? `campaign:${s.id}`
+    : s.type === 'owner'
+      ? `owner:${s.ownerId}`
+      : s.type;
+}
+
+/** Filter-button label for Asset Campaign multi-select. */
+export function formatAssetCampaignFilterLabel(
+  selected: AssetCampaignSelection[],
+): string {
+  return selected.length === 0
+    ? 'All Asset Campaigns'
+    : `${selected.length} Selected`;
+}
+
+/** Filter-button label for Content Campaign multi-select. */
+export function formatContentCampaignFilterLabel(
+  selected: AssetCampaignSelection[],
+): string {
+  return selected.length === 0
+    ? 'All Content Campaigns'
+    : `${selected.length} Selected`;
+}
+

@@ -155,6 +155,9 @@ import {
   collectContentOwners,
   filterByAssetCampaignSelection,
   filterByContentCampaignSelection,
+  campaignSelectionKey,
+  formatAssetCampaignFilterLabel,
+  formatContentCampaignFilterLabel,
 } from './analytics-lego/assetAnalyticsFilters';
 import {
   resolveAssetCampaignLabel,
@@ -1309,17 +1312,15 @@ export default function AllAssetsAnalytics() {
   // campaigns above. See useAssetCampaignFilterOptions().
   const assetCampaignFilterOptions = useAssetCampaignFilterOptions(rows, effectiveViewerId);
   const [selectedAssetCampaignFilters, setSelectedAssetCampaignFilters] = useState<AssetCampaignSelection[]>([]);
-  const assetCampaignSelectionKey = (s: AssetCampaignSelection) =>
-    s.type === 'campaign' ? `campaign:${s.id}` : s.type === 'owner' ? `owner:${s.ownerId}` : s.type;
   const isAssetCampaignSelected = (s: AssetCampaignSelection) => {
-    const key = assetCampaignSelectionKey(s);
-    return selectedAssetCampaignFilters.some(x => assetCampaignSelectionKey(x) === key);
+    const key = campaignSelectionKey(s);
+    return selectedAssetCampaignFilters.some(x => campaignSelectionKey(x) === key);
   };
   const toggleAssetCampaignSelection = (s: AssetCampaignSelection) => {
-    const key = assetCampaignSelectionKey(s);
+    const key = campaignSelectionKey(s);
     setSelectedAssetCampaignFilters(prev =>
-      prev.some(x => assetCampaignSelectionKey(x) === key)
-        ? prev.filter(x => assetCampaignSelectionKey(x) !== key)
+      prev.some(x => campaignSelectionKey(x) === key)
+        ? prev.filter(x => campaignSelectionKey(x) !== key)
         : [...prev, s],
     );
   };
@@ -1334,24 +1335,21 @@ export default function AllAssetsAnalytics() {
     document.addEventListener('mousedown', handler);
     return () => document.removeEventListener('mousedown', handler);
   }, []);
-  const selectedAssetCampaignLabel =
-    selectedAssetCampaignFilters.length === 0 ? 'All Asset Campaigns' : `${selectedAssetCampaignFilters.length} Selected`;
+  const selectedAssetCampaignLabel = formatAssetCampaignFilterLabel(selectedAssetCampaignFilters);
 
   // ── Content Campaign filter — NEW, independent of Asset Campaign / Campaign.
   // Source of truth: promoting_video.content_campaign_id only.
   const contentCampaignFilterOptions = useContentCampaignFilterOptions(rows, effectiveViewerId, organizationId);
   const [selectedContentCampaignFilters, setSelectedContentCampaignFilters] = useState<AssetCampaignSelection[]>([]);
-  const contentCampaignSelectionKey = (s: AssetCampaignSelection) =>
-    s.type === 'campaign' ? `campaign:${s.id}` : s.type === 'owner' ? `owner:${s.ownerId}` : s.type;
   const isContentCampaignSelected = (s: AssetCampaignSelection) => {
-    const key = contentCampaignSelectionKey(s);
-    return selectedContentCampaignFilters.some(x => contentCampaignSelectionKey(x) === key);
+    const key = campaignSelectionKey(s);
+    return selectedContentCampaignFilters.some(x => campaignSelectionKey(x) === key);
   };
   const toggleContentCampaignSelection = (s: AssetCampaignSelection) => {
-    const key = contentCampaignSelectionKey(s);
+    const key = campaignSelectionKey(s);
     setSelectedContentCampaignFilters(prev =>
-      prev.some(x => contentCampaignSelectionKey(x) === key)
-        ? prev.filter(x => contentCampaignSelectionKey(x) !== key)
+      prev.some(x => campaignSelectionKey(x) === key)
+        ? prev.filter(x => campaignSelectionKey(x) !== key)
         : [...prev, s],
     );
   };
@@ -1366,8 +1364,7 @@ export default function AllAssetsAnalytics() {
     document.addEventListener('mousedown', handler);
     return () => document.removeEventListener('mousedown', handler);
   }, []);
-  const selectedContentCampaignLabel =
-    selectedContentCampaignFilters.length === 0 ? 'All Content Campaigns' : `${selectedContentCampaignFilters.length} Selected`;
+  const selectedContentCampaignLabel = formatContentCampaignFilterLabel(selectedContentCampaignFilters);
 
    const promotions = usePromotionOptions(rows);
   const promotionNameById = useMemo(
