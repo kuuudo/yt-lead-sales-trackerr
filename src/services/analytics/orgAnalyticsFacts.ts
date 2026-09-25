@@ -40,8 +40,12 @@ export const EVENTS_FACT_COLUMNS =
 export const STRIPE_PURCHASES_FACT_COLUMNS =
   'id, amount, session_id, video_id, campaign_id, redirect_link_id, redirect_link_token, created_at, promotion_id';
 
+// Real pixel_purchases schema (production): NO redirect_link_id.
+// Columns: id, token, session_id, video_id, campaign_id, user_id, amount,
+// created_at, event_type, organization_id, promotion_id, pricing_version_id,
+// conversion_id, asset_id
 export const PIXEL_PURCHASES_FACT_COLUMNS =
-  'id, amount, event_type, session_id, video_id, campaign_id, created_at, promotion_id, redirect_link_id';
+  'id, token, session_id, video_id, campaign_id, amount, created_at, event_type, organization_id, promotion_id, asset_id';
 
 export const REDIRECT_LINKS_FACT_COLUMNS =
   'id, token, link_type, promotion_id, asset_id, video_id, organization_id';
@@ -81,7 +85,9 @@ export interface OrgPixelFact {
   campaign_id: string | null;
   created_at: string | null;
   promotion_id: string | null;
-  redirect_link_id: string | null;
+  organization_id: string | null;
+  asset_id: string | null;
+  token: string | null;
 }
 
 export interface OrgRedirectLinkFact {
@@ -399,12 +405,15 @@ export async function fetchOrgAnalyticsFacts(
   const { data: pixelRows, error: pixelErr } = await supabase
     .from('pixel_purchases')
     .select(PIXEL_PURCHASES_FACT_COLUMNS)
+    .eq('organization_id', organizationId)
     .gte('created_at', startIso)
     .lte('created_at', endIso);
   if (pixelErr) {
     throw new Error(`Failed to load pixel_purchases: ${pixelErr.message}`);
   }
 
+  // Pixel: no redirect_link_id in schema. Org scope via organization_id;
+  // promotion resolution via promotion_id column (then Unattributed).
   const rawPixel: OrgPixelFact[] = (pixelRows ?? [])
     .map((p: any) => ({
       id: p.id as string,
@@ -415,12 +424,13 @@ export async function fetchOrgAnalyticsFacts(
       campaign_id: (p.campaign_id as string | null) ?? null,
       created_at: (p.created_at as string | null) ?? null,
       promotion_id: (p.promotion_id as string | null) ?? null,
-      redirect_link_id: (p.redirect_link_id as string | null) ?? null,
+      organization_id: (p.organization_id as string | null) ?? null,
+      asset_id: (p.asset_id as string | null) ?? null,
+      token: (p.token as string | null) ?? null,
     }))
     .filter(p => {
-      if (p.promotion_id) return true;
-      if (p.redirect_link_id && linkIdSet.has(p.redirect_link_id)) return true;
-      return false;
+      if (p.organization_id && p.organization_id !== organizationId) return false;
+      return true;
     });
 
   return {
