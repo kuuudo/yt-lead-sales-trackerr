@@ -112,6 +112,7 @@ interface CampaignStructureData {
   marketerNodes: TreeNode[] | null
   ownAssetNodes: TreeNode[] | null
   loading: boolean
+  error: string | null
 }
 
 /**
@@ -155,6 +156,7 @@ function useCampaignStructureData(
   const [marketerNodes, setMarketerNodes] = useState<TreeNode[] | null>(null)
   const [ownAssetNodes, setOwnAssetNodes] = useState<TreeNode[] | null>(null)
   const [loading, setLoading] = useState(false)
+  const [error, setError] = useState<string | null>(null)
 
   useEffect(() => {
     if (!campaignId || !viewerId) {
@@ -164,6 +166,7 @@ function useCampaignStructureData(
     }
     let cancelled = false
     setLoading(true)
+    setError(null)
 
     ;(async () => {
       try {
@@ -345,6 +348,7 @@ function useCampaignStructureData(
         if (!cancelled) {
           setMarketerNodes(null)
           setOwnAssetNodes(null)
+          setError(err instanceof Error ? err.message : 'Failed to load campaign structure.')
         }
       } finally {
         if (!cancelled) setLoading(false)
@@ -356,7 +360,7 @@ function useCampaignStructureData(
     }
   }, [campaignId, viewerId, isReadOnly, viewingMemberId, viewingOrgId])
 
-  return { marketerNodes, ownAssetNodes, loading }
+  return { marketerNodes, ownAssetNodes, loading, error }
 }
 
 const CONTENT_BUCKET_LABELS = ['Jan–Feb', 'Mar–Apr', 'May–Jun', 'Jul–Aug', 'Sep–Oct', 'Nov–Dec']
@@ -375,9 +379,10 @@ const CONTENT_BUCKET_LABELS = ['Jan–Feb', 'Mar–Apr', 'May–Jun', 'Jul–Aug
 function useCampaignContentBuckets(
   campaignId: string | undefined,
   viewerId: string | null,
-): { contentNodes: TreeNode[] | null; loading: boolean } {
+): { contentNodes: TreeNode[] | null; loading: boolean; error: string | null } {
   const [contentNodes, setContentNodes] = useState<TreeNode[] | null>(null)
   const [loading, setLoading] = useState(false)
+  const [error, setError] = useState<string | null>(null)
 
   useEffect(() => {
     if (!campaignId || !viewerId) {
@@ -386,6 +391,7 @@ function useCampaignContentBuckets(
     }
     let cancelled = false
     setLoading(true)
+    setError(null)
 
     ;(async () => {
       try {
@@ -417,7 +423,10 @@ function useCampaignContentBuckets(
         if (!cancelled) setContentNodes(nodes)
       } catch (err) {
         console.error('[CampaignStructureMap] useCampaignContentBuckets failed:', err)
-        if (!cancelled) setContentNodes(null)
+        if (!cancelled) {
+          setContentNodes(null)
+          setError(err instanceof Error ? err.message : 'Failed to load content.')
+        }
       } finally {
         if (!cancelled) setLoading(false)
       }
@@ -428,7 +437,7 @@ function useCampaignContentBuckets(
     }
   }, [campaignId, viewerId])
 
-  return { contentNodes, loading }
+  return { contentNodes, loading, error }
 }
 
 // ─── Static mock data model ─────────────────────────────────────────────
@@ -701,26 +710,34 @@ export default function CampaignStructureMap() {
     viewingOrgId,
   )
   const contentData = useCampaignContentBuckets(campaignId, effectiveViewerId)
-  const isLoadingRealData = structureData.loading || contentData.loading
-  const campaignTree = useMemo<TreeNode>(
-    () => ({
+  // Full-map gate: only swap in real branches once ALL three are ready at
+  // the same time — never a mix of some-real/some-mock. While not ready,
+  // the tree stays pure MOCK_CAMPAIGN; canvasContainer below covers it with
+  // an opaque loading state so nothing partially-built is ever visible.
+  const isRealDataReady =
+    structureData.marketerNodes !== null &&
+    structureData.ownAssetNodes !== null &&
+    contentData.contentNodes !== null
+  const isRealDataError = !!(structureData.error || contentData.error)
+  const campaignTree = useMemo<TreeNode>(() => {
+    if (!isRealDataReady) return MOCK_CAMPAIGN
+    return {
       ...MOCK_CAMPAIGN,
       label: currentCampaignName ?? MOCK_CAMPAIGN.label,
       children: MOCK_CAMPAIGN.children!.map((branch) => {
-        if (branch.id === 'marketers' && structureData.marketerNodes) {
-          return { ...branch, children: structureData.marketerNodes }
-        }
-        if (branch.id === 'own_assets' && structureData.ownAssetNodes) {
-          return { ...branch, children: structureData.ownAssetNodes }
-        }
-        if (branch.id === 'content' && contentData.contentNodes) {
-          return { ...branch, children: contentData.contentNodes }
-        }
+        if (branch.id === 'marketers') return { ...branch, children: structureData.marketerNodes! }
+        if (branch.id === 'own_assets') return { ...branch, children: structureData.ownAssetNodes! }
+        if (branch.id === 'content') return { ...branch, children: contentData.contentNodes! }
         return branch
       }),
-    }),
-    [currentCampaignName, structureData.marketerNodes, structureData.ownAssetNodes, contentData.contentNodes],
-  )
+    }
+  }, [
+    isRealDataReady,
+    currentCampaignName,
+    structureData.marketerNodes,
+    structureData.ownAssetNodes,
+    contentData.contentNodes,
+  ])
   const { nodes, edges, canvasW, canvasH } = useMemo(() => layoutTree(campaignTree), [campaignTree])
 
   const [transform, setTransform] = useState<CanvasTransform>({ x: 0, y: 0, scale: 0.85 })
@@ -866,11 +883,6 @@ export default function CampaignStructureMap() {
         <span style={styles.phaseBadge}>
           <Sparkles size={12} /> Structure preview — static mock data, not connected to live data
         </span>
-        {isLoadingRealData && (
-          <span style={styles.loadingBadge}>
-            <Loader2 size={12} className="animate-spin" /> Loading real data…
-          </span>
-        )}
         <div style={styles.campaignSwitcherWrap}>
           <select
             value={campaignId ?? ''}
@@ -899,6 +911,21 @@ export default function CampaignStructureMap() {
         onPointerLeave={handlePointerUp}
         onWheel={handleWheel}
       >
+        {!isRealDataReady && (
+          <div style={styles.fullMapLoading}>
+            {isRealDataError ? (
+              <span style={styles.fullMapLoadingText}>
+                Couldn't load real campaign data. Try refreshing the page.
+              </span>
+            ) : (
+              <>
+                <Loader2 size={22} className="animate-spin" color="#6366f1" />
+                <span style={styles.fullMapLoadingText}>Loading campaign structure…</span>
+              </>
+            )}
+          </div>
+        )}
+
         <CanvasGrid transform={transform} />
 
         <div
@@ -1096,18 +1123,21 @@ const styles: Record<string, React.CSSProperties> = {
     padding: '5px 10px',
     whiteSpace: 'nowrap',
   },
-  loadingBadge: {
+  fullMapLoading: {
+    position: 'absolute',
+    inset: 0,
+    zIndex: 20,
     display: 'flex',
+    flexDirection: 'column',
     alignItems: 'center',
-    gap: 6,
-    fontSize: 11,
+    justifyContent: 'center',
+    gap: 10,
+    background: '#ffffff',
+  },
+  fullMapLoadingText: {
+    fontSize: 13,
     fontWeight: 600,
-    color: '#4338ca',
-    background: '#eef2ff',
-    border: '1px solid #c7d2fe',
-    borderRadius: 999,
-    padding: '5px 10px',
-    whiteSpace: 'nowrap',
+    color: '#4b5563',
   },
   campaignSwitcherWrap: {
     position: 'relative',
