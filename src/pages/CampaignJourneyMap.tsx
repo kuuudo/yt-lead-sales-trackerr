@@ -66,8 +66,8 @@ interface CampaignPath {
   label: string
   color: string
   icon: LucideIcon
-  /** Compass angle in degrees, 0 = right/east, 90 = down/south (screen space). */
-  angle: number
+  /** Which of the 4 evenly-spaced columns below the hub this branch sits in (0 = leftmost). */
+  column: number
   root: CampaignPathNode
   outcomes: CampaignPathNode[]
 }
@@ -78,16 +78,25 @@ const CAMPAIGN_PATHS: CampaignPath[] = [
     label: 'Sales',
     color: '#6366f1',
     icon: TrendingUp,
-    angle: -90,
+    column: 0,
     root: { id: 'sales_call_booked', label: 'Sales Call Booked' },
     outcomes: [{ id: 'sales_call', label: 'Sales Call' }],
+  },
+  {
+    id: 'direct_purchase',
+    label: 'Direct Purchase',
+    color: '#ea580c',
+    icon: ShoppingCart,
+    column: 1,
+    root: { id: 'direct_purchase_thank_you', label: 'Direct Purchase Thank You' },
+    outcomes: [{ id: 'direct_purchase', label: 'Direct Purchase' }],
   },
   {
     id: 'consultation',
     label: 'Consultation',
     color: '#10b981',
     icon: CalendarCheck,
-    angle: 0,
+    column: 2,
     root: { id: 'consultation_booking', label: 'Consultation Booking' },
     outcomes: [{ id: 'consultation', label: 'Consultation' }],
   },
@@ -96,18 +105,9 @@ const CAMPAIGN_PATHS: CampaignPath[] = [
     label: 'Newsletter',
     color: '#0ea5e9',
     icon: Mail,
-    angle: 90,
+    column: 3,
     root: { id: 'newsletter_thank_you', label: 'Newsletter Thank You' },
     outcomes: [{ id: 'newsletter', label: 'Newsletter' }],
-  },
-  {
-    id: 'direct_purchase',
-    label: 'Direct Purchase',
-    color: '#ea580c',
-    icon: ShoppingCart,
-    angle: 180,
-    root: { id: 'direct_purchase_thank_you', label: 'Direct Purchase Thank You' },
-    outcomes: [{ id: 'direct_purchase', label: 'Direct Purchase' }],
   },
 ]
 
@@ -117,9 +117,10 @@ const HUB_X = 1080
 const HUB_Y = 620
 const HUB_R = 92
 
-const ROOT_DIST = 250
-const OUTCOME_DIST = 460
-const FORK_OFFSET = 100
+const ROOT_DIST = 250 // now used as vertical distance from hub down to the root row
+const OUTCOME_DIST = 460 // now used as vertical distance from hub down to the outcome row
+const FORK_OFFSET = 100 // unused now that every branch has one outcome; kept in case a branch gains a second one again
+const COLUMN_SPACING = 260 // horizontal gap between adjacent branch columns
 
 const ROOT_W = 178
 const ROOT_H = 68
@@ -134,19 +135,7 @@ const ZOOM_STEP = 0.15
 
 type Pt = { x: number; y: number }
 
-function toRad(deg: number) {
-  return (deg * Math.PI) / 180
-}
 
-function polar(angleDeg: number, dist: number, offset: Pt = { x: 0, y: 0 }): Pt {
-  const rad = toRad(angleDeg)
-  return { x: HUB_X + Math.cos(rad) * dist + offset.x, y: HUB_Y + Math.sin(rad) * dist + offset.y }
-}
-
-function perpUnit(angleDeg: number): Pt {
-  const rad = toRad(angleDeg)
-  return { x: -Math.sin(rad), y: Math.cos(rad) }
-}
 
 /** Point on a circle's boundary (e.g. the hub), facing `target`. */
 function circleAnchor(center: Pt, r: number, target: Pt): Pt {
@@ -194,9 +183,11 @@ interface PositionedNode {
 function buildLayout(paths: CampaignPath[]) {
   const nodes: PositionedNode[] = []
   const connections: { fromId: string; toId: string; color: string; pathId: string }[] = []
+  const centerColumn = (paths.length - 1) / 2 // e.g. 1.5 for 4 columns, so the hub sits centered between columns 1 and 2
 
   for (const path of paths) {
-    const rootCenter = polar(path.angle, ROOT_DIST)
+    const colX = HUB_X + (path.column - centerColumn) * COLUMN_SPACING
+    const rootCenter: Pt = { x: colX, y: HUB_Y + ROOT_DIST }
     nodes.push({
       id: path.root.id,
       label: path.root.label,
@@ -209,26 +200,21 @@ function buildLayout(paths: CampaignPath[]) {
     })
     connections.push({ fromId: 'hub', toId: path.root.id, color: path.color, pathId: path.id })
 
-    const perp = perpUnit(path.angle)
-    const n = path.outcomes.length
-    path.outcomes.forEach((outcome, i) => {
-      // Single outcome: straight out along the path angle. Two or more:
-      // fan them out perpendicular to the path so forks read as forks.
-      const spread = n === 1 ? 0 : (i - (n - 1) / 2) * FORK_OFFSET
-      const base = polar(path.angle, OUTCOME_DIST)
-      const outcomeCenter: Pt = { x: base.x + perp.x * spread, y: base.y + perp.y * spread }
-      nodes.push({
-        id: outcome.id,
-        label: outcome.label,
-        center: outcomeCenter,
-        w: OUTCOME_W,
-        h: OUTCOME_H,
-        kind: 'outcome',
-        pathId: path.id,
-        color: path.color,
-      })
-      connections.push({ fromId: path.root.id, toId: outcome.id, color: path.color, pathId: path.id })
+    // Every branch has exactly one outcome today, so it sits straight below
+    // its root in the same column — no perpendicular fanning needed.
+    const outcome = path.outcomes[0]
+    const outcomeCenter: Pt = { x: colX, y: HUB_Y + OUTCOME_DIST }
+    nodes.push({
+      id: outcome.id,
+      label: outcome.label,
+      center: outcomeCenter,
+      w: OUTCOME_W,
+      h: OUTCOME_H,
+      kind: 'outcome',
+      pathId: path.id,
+      color: path.color,
     })
+    connections.push({ fromId: path.root.id, toId: outcome.id, color: path.color, pathId: path.id })
   }
 
   return { nodes, connections }
@@ -242,7 +228,7 @@ export default function CampaignJourneyMap() {
 
   const { nodes, connections } = useMemo(() => buildLayout(CAMPAIGN_PATHS), [])
 
-  const [transform, setTransform] = useState<CanvasTransform>({ x: -420, y: -260, scale: 0.82 })
+  const [transform, setTransform] = useState<CanvasTransform>({ x: -360, y: -340, scale: 0.8 })
   const [hoveredPathId, setHoveredPathId] = useState<string | null>(null)
 
   // Movable-canvas state: every card (and the hub) can be dragged to a
@@ -322,7 +308,7 @@ export default function CampaignJourneyMap() {
     })
   }, [])
 
-  const resetView = useCallback(() => setTransform({ x: -420, y: -260, scale: 0.82 }), [])
+  const resetView = useCallback(() => setTransform({ x: -360, y: -340, scale: 0.8 }), [])
 
   const panState = useRef<{ active: boolean; lastX: number; lastY: number }>({
     active: false,
