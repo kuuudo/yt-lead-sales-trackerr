@@ -108,6 +108,22 @@ async function resolveOrgAndViewer(viewing?: {
 
 const MARKETER_PALETTE = ['#6366f1', '#ec4899', '#f59e0b', '#10b981', '#0ea5e9', '#ef4444']
 
+/**
+ * Phase 1 deterministic ordering: Recent first. Sorts ids by a created_at
+ * lookup map, newest first. Missing/null created_at sorts last (stable,
+ * never throws) rather than being silently treated as "oldest" or dropped.
+ */
+function sortByCreatedAtDesc(ids: string[], createdAtById: Map<string, string | null>): string[] {
+  return [...ids].sort((a, b) => {
+    const ta = createdAtById.get(a)
+    const tb = createdAtById.get(b)
+    if (!ta && !tb) return 0
+    if (!ta) return 1
+    if (!tb) return -1
+    return new Date(tb).getTime() - new Date(ta).getTime()
+  })
+}
+
 interface CampaignStructureData {
   marketerNodes: TreeNode[] | null
   ownAssetNodes: TreeNode[] | null
@@ -227,7 +243,7 @@ function useCampaignStructureData(
           new Set(campaignRows.map((r) => promoIdForRow(r)).filter((id): id is string => !!id)),
         )
         const { data: promoRows } = promotionIds.length
-          ? await supabase.from('promotions').select('id, assignment_id, campaign_id').in('id', promotionIds)
+          ? await supabase.from('promotions').select('id, assignment_id, campaign_id, created_at').in('id', promotionIds)
           : { data: [] as any[] }
         const assignmentIds = Array.from(
           new Set((promoRows ?? []).map((p: any) => p.assignment_id).filter(Boolean)),
@@ -250,12 +266,14 @@ function useCampaignStructureData(
           (campaignNameRows ?? []).map((c: any) => [c.id, c.campaign_name as string]),
         )
         const promotionNameById = new Map<string, string>()
+        const promoCreatedAtById = new Map<string, string | null>()
         for (const p of promoRows ?? []) {
           const name =
             (p.assignment_id && titleByAssignmentId.get(p.assignment_id)) ??
             (p.campaign_id && nameByCampaignId.get(p.campaign_id)) ??
             null
           if (name) promotionNameById.set(p.id, name)
+          promoCreatedAtById.set(p.id, (p as any).created_at ?? null)
         }
 
         // Promotion -> Assets, from the rows already loaded above.
@@ -277,10 +295,14 @@ function useCampaignStructureData(
         const { data: assetRows } = allAssetIds.length
           ? await supabase
               .from('assets')
-              .select('id, videos(video_title), asset_resources(title), campaign_element_assets(display_name)')
+              .select(
+                'id, created_at, videos(video_title, thumbnail_url), asset_resources(title, thumbnail_url), campaign_element_assets(display_name)',
+              )
               .in('id', allAssetIds)
           : { data: [] as any[] }
         const assetTitleById = new Map<string, string>()
+        const assetCreatedAtById = new Map<string, string | null>()
+        const assetThumbnailById = new Map<string, string | null>()
         for (const row of assetRows ?? []) {
           const v = Array.isArray((row as any).videos) ? (row as any).videos[0] : (row as any).videos
           const res = Array.isArray((row as any).asset_resources)
@@ -291,6 +313,8 @@ function useCampaignStructureData(
             : (row as any).campaign_element_assets
           const title = v?.video_title ?? res?.title ?? el?.display_name ?? null
           if (title) assetTitleById.set((row as any).id, title)
+          assetCreatedAtById.set((row as any).id, (row as any).created_at ?? null)
+          assetThumbnailById.set((row as any).id, v?.thumbnail_url ?? res?.thumbnail_url ?? null)
         }
 
         // Marketer (owner) -> set of promotion ids.
@@ -312,16 +336,20 @@ function useCampaignStructureData(
             label: marketerName,
             kind: 'marketer',
             color,
-            children: Array.from(promoIdSet).map((promoId) => ({
+            children: sortByCreatedAtDesc(Array.from(promoIdSet), promoCreatedAtById).map((promoId) => ({
               id: `promo_${promoId}`,
               label: promotionNameById.get(promoId) ?? 'Promotion',
               kind: 'promotion',
               color,
-              children: Array.from(assetIdsByPromotionId.get(promoId) ?? []).map((assetId) => ({
+              children: sortByCreatedAtDesc(
+                Array.from(assetIdsByPromotionId.get(promoId) ?? []),
+                assetCreatedAtById,
+              ).map((assetId) => ({
                 id: `asset_${promoId}_${assetId}`,
                 label: assetTitleById.get(assetId) ?? assetId,
                 kind: 'asset',
                 color,
+                thumbnailUrl: assetThumbnailById.get(assetId) ?? null,
               })),
             })),
           }
@@ -332,12 +360,15 @@ function useCampaignStructureData(
             .filter((r) => organizationId != null && r.assetOrganizationId === organizationId)
             .map((r) => r.asset_id),
         )
-        const ownAssets: TreeNode[] = Array.from(ownAssetIds).map((assetId) => ({
-          id: `own_asset_${assetId}`,
-          label: assetTitleById.get(assetId) ?? assetId,
-          kind: 'asset',
-          color: '#10b981',
-        }))
+        const ownAssets: TreeNode[] = sortByCreatedAtDesc(Array.from(ownAssetIds), assetCreatedAtById).map(
+          (assetId) => ({
+            id: `own_asset_${assetId}`,
+            label: assetTitleById.get(assetId) ?? assetId,
+            kind: 'asset',
+            color: '#10b981',
+            thumbnailUrl: assetThumbnailById.get(assetId) ?? null,
+          }),
+        )
 
         if (!cancelled) {
           setMarketerNodes(marketers)
@@ -452,6 +483,12 @@ interface TreeNode {
   kind: NodeKind
   color: string
   children?: TreeNode[]
+  /** Phase 1 collapse: marks a synthetic "+ Show N more" control node.
+   *  Never produced by real data — only sliceWithShowMore() sets this. */
+  isShowMore?: boolean
+  /** Phase 1 thumbnails: optional thumbnail URL, populated for kind: 'asset'
+   *  nodes only. undefined/null means "no thumbnail available". */
+  thumbnailUrl?: string | null
 }
 
 // Per-marketer accent colors so each Marketer -> Promotions -> Assets
@@ -681,6 +718,97 @@ function layoutTree(root: TreeNode) {
   }
 }
 
+// ─── Phase 1: collapse / "Show More" ─────────────────────────────────────
+// Deliberately separate from layoutTree() above — layoutTree() is untouched
+// and never knows collapsing exists. These helpers shape `children` arrays
+// *before* the tree is handed to layoutTree(), so layoutTree() only ever
+// sees whatever is currently meant to be visible.
+
+/**
+ * Caps `items` to `limit` and appends a synthetic "+ Show N more" node when
+ * collapsed and there's overflow. Pure — no state, no side effects.
+ *  - expanded, or items.length <= limit -> return items unchanged
+ *  - collapsed + overflow -> first `limit` items + one isShowMore node
+ * The Show More node reuses items[0].kind so it gets the same NODE_SIZE
+ * (and thus layout box) as its siblings, without layoutTree needing a new
+ * NodeKind or any special-casing.
+ */
+function sliceWithShowMore(
+  items: TreeNode[],
+  limit: number,
+  expanded: boolean,
+  showMoreId: string,
+  showMoreColor: string,
+): TreeNode[] {
+  if (expanded || items.length <= limit) return items
+  const remaining = items.length - limit
+  return [
+    ...items.slice(0, limit),
+    {
+      id: showMoreId,
+      label: `+ Show ${remaining} more`,
+      kind: items[0]?.kind ?? 'asset',
+      color: showMoreColor,
+      isShowMore: true,
+    },
+  ]
+}
+
+/**
+ * Applies the Marketer -> Promotions (limit 4) and Promotion -> Assets
+ * (limit 3) collapse independently for every marketer/promotion, using the
+ * per-id expanded state maps. Runs on the already Recent-sorted children
+ * from useCampaignStructureData — this function only decides visibility,
+ * never ordering.
+ */
+function applyStructureCollapse(
+  marketerNodes: TreeNode[],
+  expandedMarketers: Record<string, boolean>,
+  expandedPromotions: Record<string, boolean>,
+): TreeNode[] {
+  return marketerNodes.map((marketer) => {
+    const promotions = (marketer.children ?? []).map((promotion) => ({
+      ...promotion,
+      children: sliceWithShowMore(
+        promotion.children ?? [],
+        3,
+        !!expandedPromotions[promotion.id],
+        `showmore:assets:${promotion.id}`,
+        promotion.color,
+      ),
+    }))
+    return {
+      ...marketer,
+      children: sliceWithShowMore(
+        promotions,
+        4,
+        !!expandedMarketers[marketer.id],
+        `showmore:promotions:${marketer.id}`,
+        marketer.color,
+      ),
+    }
+  })
+}
+
+/**
+ * PositionedNode (built by layoutTree/place()) only carries {id, label,
+ * kind, color, center, w, h, depth, branchId} — it does not pass through
+ * arbitrary TreeNode fields, and layoutTree()/PositionedNode are not being
+ * modified for this change. So isShowMore/thumbnailUrl are looked up here,
+ * by node id, from the pre-layout TreeNode tree instead of expected to be
+ * present on the positioned node itself.
+ */
+function collectNodeMeta(
+  root: TreeNode,
+  out: Map<string, { isShowMore?: boolean; thumbnailUrl?: string | null }> = new Map(),
+) {
+  if (root.isShowMore || root.thumbnailUrl !== undefined) {
+    out.set(root.id, { isShowMore: root.isShowMore, thumbnailUrl: root.thumbnailUrl })
+  }
+  root.children?.forEach((child) => collectNodeMeta(child, out))
+  return out
+}
+
 // ─── Component ──────────────────────────────────────────────────────────────
 
 export default function CampaignStructureMap() {
@@ -719,14 +847,41 @@ export default function CampaignStructureMap() {
     structureData.ownAssetNodes !== null &&
     contentData.contentNodes !== null
   const isRealDataError = !!(structureData.error || contentData.error)
+
+  // Phase 1: collapse / "Show More" state. Keyed by node id so each
+  // marketer's and each promotion's expanded state is independent, and
+  // survives re-renders of the same campaign. Two-state toggle only
+  // (collapsed <-> fully expanded), per spec.
+  const [expandedMarketers, setExpandedMarketers] = useState<Record<string, boolean>>({})
+  const [expandedPromotions, setExpandedPromotions] = useState<Record<string, boolean>>({})
+  const [ownAssetsExpanded, setOwnAssetsExpanded] = useState(false)
+  // Phase 1: global thumbnail toggle, default OFF.
+  const [showThumbnails, setShowThumbnails] = useState(false)
+
   const campaignTree = useMemo<TreeNode>(() => {
     if (!isRealDataReady) return MOCK_CAMPAIGN
     return {
       ...MOCK_CAMPAIGN,
       label: currentCampaignName ?? MOCK_CAMPAIGN.label,
       children: MOCK_CAMPAIGN.children!.map((branch) => {
-        if (branch.id === 'marketers') return { ...branch, children: structureData.marketerNodes! }
-        if (branch.id === 'own_assets') return { ...branch, children: structureData.ownAssetNodes! }
+        if (branch.id === 'marketers') {
+          return {
+            ...branch,
+            children: applyStructureCollapse(structureData.marketerNodes!, expandedMarketers, expandedPromotions),
+          }
+        }
+        if (branch.id === 'own_assets') {
+          return {
+            ...branch,
+            children: sliceWithShowMore(
+              structureData.ownAssetNodes!,
+              7,
+              ownAssetsExpanded,
+              'showmore:own_assets',
+              branch.color,
+            ),
+          }
+        }
         if (branch.id === 'content') return { ...branch, children: contentData.contentNodes! }
         return branch
       }),
@@ -737,8 +892,12 @@ export default function CampaignStructureMap() {
     structureData.marketerNodes,
     structureData.ownAssetNodes,
     contentData.contentNodes,
+    expandedMarketers,
+    expandedPromotions,
+    ownAssetsExpanded,
   ])
   const { nodes, edges, canvasW, canvasH } = useMemo(() => layoutTree(campaignTree), [campaignTree])
+  const nodeMetaById = useMemo(() => collectNodeMeta(campaignTree), [campaignTree])
 
   const [transform, setTransform] = useState<CanvasTransform>({ x: 0, y: 0, scale: 0.85 })
   const [hoveredBranchId, setHoveredBranchId] = useState<string | null>(null)
@@ -834,6 +993,27 @@ export default function CampaignStructureMap() {
     setDraggingId(null)
   }, [])
 
+  // Phase 1: Show More toggle. Plain onClick, intentionally not wired
+  // through handleNodePointerDown/Move/Up (that's the drag system — Show
+  // More nodes never receive those handlers, see render block below).
+  const handleShowMoreClick = useCallback((showMoreId: string) => {
+    if (showMoreId === 'showmore:own_assets') {
+      setOwnAssetsExpanded((prev) => !prev)
+      return
+    }
+    const promoMatch = showMoreId.match(/^showmore:assets:(.+)$/)
+    if (promoMatch) {
+      const promotionId = promoMatch[1]
+      setExpandedPromotions((prev) => ({ ...prev, [promotionId]: !prev[promotionId] }))
+      return
+    }
+    const marketerMatch = showMoreId.match(/^showmore:promotions:(.+)$/)
+    if (marketerMatch) {
+      const marketerId = marketerMatch[1]
+      setExpandedMarketers((prev) => ({ ...prev, [marketerId]: !prev[marketerId] }))
+    }
+  }, [])
+
   const handleWheel = useCallback(
     (e: React.WheelEvent) => {
       e.preventDefault()
@@ -883,6 +1063,18 @@ export default function CampaignStructureMap() {
         <span style={styles.phaseBadge}>
           <Sparkles size={12} /> Structure preview — static mock data, not connected to live data
         </span>
+        <button
+          type="button"
+          onClick={() => setShowThumbnails((prev) => !prev)}
+          style={{
+            ...styles.legendChip,
+            borderColor: showThumbnails ? '#6366f1' : '#e5e7eb',
+            background: showThumbnails ? '#6366f10f' : '#ffffff',
+            color: showThumbnails ? '#6366f1' : '#374151',
+          }}
+        >
+          Thumbnails: {showThumbnails ? 'On' : 'Off'}
+        </button>
         <div style={styles.campaignSwitcherWrap}>
           <select
             value={campaignId ?? ''}
@@ -981,6 +1173,34 @@ export default function CampaignStructureMap() {
             const dimmed = hoveredBranchId !== null && hoveredBranchId !== node.branchId
             const isRoot = node.kind === 'campaign'
             const isDragging = draggingId === node.id
+            const meta = nodeMetaById.get(node.id)
+            const isShowMore = !!meta?.isShowMore
+            const thumbnailUrl = showThumbnails && !isShowMore && node.kind === 'asset' ? meta?.thumbnailUrl : null
+
+            // Phase 1: Show More is a control, not a draggable data node — no
+            // onPointerDown/Move/Up (the drag system) is attached to it, and
+            // it gets a plain onClick toggle instead.
+            if (isShowMore) {
+              return (
+                <div
+                  key={node.id}
+                  role="button"
+                  onClick={() => handleShowMoreClick(node.id)}
+                  style={{
+                    ...styles.showMoreNode,
+                    left: node.center.x - node.w / 2,
+                    top: node.center.y - node.h / 2,
+                    width: node.w,
+                    height: node.h,
+                    borderColor: `${node.color}66`,
+                    opacity: dimmed ? 0.35 : 1,
+                  }}
+                >
+                  <span style={{ ...styles.showMoreLabel, color: node.color }}>{node.label}</span>
+                </div>
+              )
+            }
+
             return (
               <div
                 key={node.id}
@@ -1007,7 +1227,10 @@ export default function CampaignStructureMap() {
                   touchAction: 'none',
                 }}
               >
-                {!isRoot && <span style={{ ...styles.nodeDot, background: node.color }} />}
+                {!isRoot && thumbnailUrl && (
+                  <img src={thumbnailUrl} alt="" style={styles.nodeThumbnail} draggable={false} />
+                )}
+                {!isRoot && !thumbnailUrl && <span style={{ ...styles.nodeDot, background: node.color }} />}
                 <div style={styles.nodeTextCol}>
                   <span style={isRoot ? styles.nodeLabelRoot : styles.nodeLabelCard}>{node.label}</span>
                   {!isRoot && (
@@ -1226,6 +1449,31 @@ const styles: Record<string, React.CSSProperties> = {
     height: 8,
     borderRadius: '50%',
     flexShrink: 0,
+  },
+  nodeThumbnail: {
+    width: 26,
+    height: 26,
+    borderRadius: 5,
+    objectFit: 'cover',
+    flexShrink: 0,
+  },
+  showMoreNode: {
+    position: 'absolute',
+    background: '#fafafa',
+    border: '1.5px dashed',
+    borderRadius: 10,
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    padding: '0 12px',
+    cursor: 'pointer',
+  },
+  showMoreLabel: {
+    fontSize: 11.5,
+    fontWeight: 700,
+    whiteSpace: 'nowrap',
+    overflow: 'hidden',
+    textOverflow: 'ellipsis',
   },
   nodeTextCol: {
     display: 'flex',
