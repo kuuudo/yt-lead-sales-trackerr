@@ -4303,7 +4303,7 @@ setEditingVideoId(v.id);
         borderRadius: 999,
         border: '1px solid #f97316',
         background: '#f97316',
-        color: '#000000',
+        color: '#ffffff',
         fontSize: 11,
         fontWeight: 700,
         letterSpacing: 0.4,
