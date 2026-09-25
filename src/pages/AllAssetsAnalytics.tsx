@@ -243,6 +243,9 @@ function useAssetAnalyticsRows(opts: {
     (async () => {
       setLoading(true);
       setError(null);
+      // Clear previous rows so the table cannot flash empty/stale content
+      // while Supabase + enrichment are still in flight.
+      setRows([]);
       try {
         console.time(`[AllAssetsAnalytics] LOAD #${__runId} resolveOrgAndViewer`);
         const { organizationId, viewerId } = await resolveOrgAndViewer(
@@ -3063,6 +3066,25 @@ export default function AllAssetsAnalytics() {
             </div>
 
           </div>
+
+          {/* Progressive reveal — under platform pills, above table columns */}
+          {!loading && !error && canShowMore && (
+            <div className="hidden lg:flex pb-3 items-center gap-3">
+              <button
+                type="button"
+                onClick={() => setVisibleLimit(v => v + VISIBLE_PAGE_SIZE)}
+                className="h-8 px-4 rounded-lg bg-zinc-900 border border-zinc-800 text-[10px] font-black uppercase tracking-widest text-zinc-300 hover:text-white hover:border-zinc-600 transition-colors"
+              >
+                Show More
+                <span className="ml-2 text-zinc-600 normal-case tracking-normal font-bold">
+                  ({Math.min(VISIBLE_PAGE_SIZE, sortedRows.length - visibleLimit)} of {sortedRows.length - visibleLimit} remaining)
+                </span>
+              </button>
+              <span className="text-[9px] font-bold text-zinc-600">
+                Showing {visibleRows.length} of {sortedRows.length}
+              </span>
+            </div>
+          )}
         </header>
         )}
 
@@ -3070,7 +3092,7 @@ export default function AllAssetsAnalytics() {
               real per-day data yet (rows here aren't bucketed by date).
               Swap the `chartBars` array for real daily-revenue totals
               later if needed. ─────────────────────────────────────────── */}
-        {!isMobileLandscape && (
+        {!loading && !isMobileLandscape && (
         <div className="lg:hidden px-4 pt-4">
           <div className="bg-zinc-950 border border-zinc-900 rounded-2xl p-5">
             <div className="flex items-center justify-between mb-1">
@@ -3128,8 +3150,13 @@ export default function AllAssetsAnalytics() {
         {mobileTab === 'cards' && (
           <div className="lg:hidden flex-1 overflow-y-auto px-4 py-3 space-y-3">
             {loading && (
-              <div className="py-16 text-center text-[10px] font-black uppercase tracking-widest text-zinc-600">
-                Loading…
+              <div className="py-20 text-center">
+                <div className="text-[11px] font-black uppercase tracking-widest text-zinc-400">
+                  Loading asset analytics…
+                </div>
+                <div className="text-[10px] text-zinc-600 mt-2">
+                  Fetching links, metrics, and display data.
+                </div>
               </div>
             )}
             {!loading && visibleRows.map(row => {
@@ -3392,10 +3419,13 @@ export default function AllAssetsAnalytics() {
               <tbody className="bg-black divide-y divide-zinc-900">
                 {loading && (
                   <tr>
-                    <td colSpan={colSpan} className="px-6 py-16 text-center">
-                      <span className="text-[10px] font-black uppercase tracking-widest text-zinc-600">
-                        Loading…
-                      </span>
+                    <td colSpan={colSpan} className="px-6 py-24 text-center">
+                      <div className="text-[11px] font-black uppercase tracking-widest text-zinc-400">
+                        Loading asset analytics…
+                      </div>
+                      <div className="text-[10px] text-zinc-600 mt-2 max-w-md mx-auto">
+                        Fetching links, metrics, and display data. This can take a moment.
+                      </div>
                     </td>
                   </tr>
                 )}
@@ -3720,20 +3750,6 @@ export default function AllAssetsAnalytics() {
               </tbody>
             </table>
 
-          {!loading && !error && canShowMore && (
-            <div className="flex justify-center py-6">
-              <button
-                type="button"
-                onClick={() => setVisibleLimit(v => v + VISIBLE_PAGE_SIZE)}
-                className="px-6 py-2.5 rounded-xl bg-zinc-900 border border-zinc-800 text-[10px] font-black uppercase tracking-widest text-zinc-300 hover:text-white hover:border-zinc-600 transition-colors"
-              >
-                Show More
-                <span className="ml-2 text-zinc-600 normal-case tracking-normal font-bold">
-                  ({Math.min(VISIBLE_PAGE_SIZE, sortedRows.length - visibleLimit)} of {sortedRows.length - visibleLimit} remaining)
-                </span>
-              </button>
-            </div>
-          )}
           </div>
         </div>
       </div>
