@@ -7,7 +7,7 @@ type LensMode = 'revenue' | 'structure' | 'journey';
 
 export function Tree() {
   const [activeMode, setActiveMode] = useState<LensMode>('revenue');
-
+  const [widgetConfig, setWidgetConfig] = useState<Record<string, unknown>>({});
   return (
     <div style={styles.outerCanvas}>
       {/* Top Floating Miro-Style Toolbar */}
@@ -55,7 +55,12 @@ export function Tree() {
       <div style={styles.innerCanvasFrame}>
         {activeMode === 'revenue' && (
           <div style={styles.revenueViewport}>
-            <DashboardWidget />
+            <DashboardWidget
+  widget={{ id: 'tree-revenue-widget', type: 'dashboard', config: widgetConfig } as any}
+  onUpdate={(patch) =>
+    setWidgetConfig(prev => ({ ...prev, ...((patch as any)?.config ?? {}) }))
+  }
+/>
           </div>
         )}
 
