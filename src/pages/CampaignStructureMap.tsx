@@ -42,6 +42,10 @@ import type { CanvasTransform } from '../components/analytics/store/useWorkspace
 import { Campaign, supabase } from '../lib/supabase'
 import { useAuth } from '../lib/auth'
 import { useViewing } from '../lib/ViewingContext'
+// Phase 1B-a: same asset↔campaign resolver AllAssetsAnalytics.tsx uses.
+// Reusing the function directly (not re-deriving its join) so this page
+// can never define campaign-membership differently from AllAssetsAnalytics.
+import { getAssetAnalyticsRows } from '../services/asset/getAssetAnalyticsRows'
 
 // ─── Real-data hooks (Phase 1A only: name + switcher) ───────────────────
 // Copied from AllAssetsAnalytics.tsx's useCampaignOptions — same query,
@@ -64,6 +68,194 @@ function useCampaignOptions(viewerId: string | null): Campaign[] {
     }
   }, [viewerId])
   return campaigns
+}
+
+// ─── Phase 1B-a: real Marketer / Promotion nodes ────────────────────────
+// Copied from AllAssetsAnalytics.tsx's resolveOrgAndViewer — same
+// operator-mode-aware org/viewer resolution. Not imported because it isn't
+// exported from that file (same situation as useCampaignOptions above).
+async function resolveOrgAndViewer(viewing?: {
+  viewingMemberId: string | null
+  viewingOrgId: string | null
+}): Promise<{ organizationId: string; viewerId: string }> {
+  if (viewing?.viewingMemberId && viewing?.viewingOrgId) {
+    return { organizationId: viewing.viewingOrgId, viewerId: viewing.viewingMemberId }
+  }
+  const { data: auth, error: authError } = await supabase.auth.getUser()
+  if (authError || !auth.user) {
+    throw new Error('Not authenticated')
+  }
+  const viewerId = auth.user.id
+  const { data: membership } = await supabase
+    .from('organization_members')
+    .select('organization_id')
+    .eq('user_id', viewerId)
+    .limit(1)
+    .maybeSingle()
+  if (membership?.organization_id) {
+    return { organizationId: membership.organization_id as string, viewerId }
+  }
+  const { data: asset } = await supabase
+    .from('assets')
+    .select('organization_id')
+    .limit(1)
+    .maybeSingle()
+  if (!asset?.organization_id) {
+    throw new Error('Could not resolve organizationId')
+  }
+  return { organizationId: asset.organization_id as string, viewerId }
+}
+
+const MARKETER_PALETTE = ['#6366f1', '#ec4899', '#f59e0b', '#10b981', '#0ea5e9', '#ef4444']
+
+/**
+ * Real Marketer / Promotion nodes for the current campaign, or null while
+ * loading/unavailable (caller falls back to MOCK_CAMPAIGN's mock marketers
+ * in that case — see the campaignTree useMemo in the component below).
+ *
+ * Semantics (per Phase 1B-a spec, nothing invented here):
+ *  - Reuses getAssetAnalyticsRows() verbatim — the exact same call
+ *    AllAssetsAnalytics.tsx makes — then filters to rows whose LOCKED
+ *    r.assetCampaign.campaignId matches this campaign. Never uses
+ *    redirect_links.campaign_id.
+ *  - Real Marketer = owner (videos.user_id) of a promoting video that
+ *    appears in one of those filtered rows — same identity source as
+ *    AllAssetsAnalytics' Content Owner column.
+ *  - Real Promotion = r.promotionIds[0] on one of those filtered rows —
+ *    same field AllAssetsAnalytics maps to `promotion_id`.
+ *  - Promotion display name = assignments.title, fallback
+ *    campaigns.campaign_name — same resolution AllAssetsAnalytics' Promotion
+ *    filter panel uses (promotions has no title column of its own).
+ */
+function useCampaignMarketerNodes(
+  campaignId: string | undefined,
+  viewerId: string | null,
+): TreeNode[] | null {
+  const [marketerNodes, setMarketerNodes] = useState<TreeNode[] | null>(null)
+
+  useEffect(() => {
+    if (!campaignId || !viewerId) {
+      setMarketerNodes(null)
+      return
+    }
+    let cancelled = false
+
+    ;(async () => {
+      try {
+        const { organizationId, viewerId: resolvedViewerId } = await resolveOrgAndViewer()
+        const result = await getAssetAnalyticsRows({
+          organizationId,
+          viewerId: resolvedViewerId,
+          dateRange: 'lifetime',
+          customRange: null,
+          activeSource: 'total',
+        })
+
+        const campaignRows = (result.rows as any[]).filter(
+          (r) => r.assetCampaign?.campaignId === campaignId,
+        )
+        if (campaignRows.length === 0) {
+          if (!cancelled) setMarketerNodes([])
+          return
+        }
+
+        const videoIds = Array.from(new Set(campaignRows.map((r) => r.video_id)))
+        const { data: videoRows } = videoIds.length
+          ? await supabase.from('videos').select('id, user_id').in('id', videoIds)
+          : { data: [] as any[] }
+        const ownerIdByVideoId = new Map(
+          (videoRows ?? []).map((v: any) => [v.id, v.user_id as string | null]),
+        )
+
+        const ownerIds = Array.from(
+          new Set(Array.from(ownerIdByVideoId.values()).filter((id): id is string => !!id)),
+        )
+        const { data: ownerProfiles } = ownerIds.length
+          ? await supabase.from('profiles').select('id, email, full_name').in('id', ownerIds)
+          : { data: [] as any[] }
+        const profileByUserId = new Map((ownerProfiles ?? []).map((p: any) => [p.id, p]))
+
+        const promotionIds = Array.from(
+          new Set(
+            campaignRows
+              .map((r) => r.promotionIds?.[0] ?? null)
+              .filter((id: string | null): id is string => !!id),
+          ),
+        )
+        const { data: promoRows } = promotionIds.length
+          ? await supabase.from('promotions').select('id, assignment_id, campaign_id').in('id', promotionIds)
+          : { data: [] as any[] }
+        const assignmentIds = Array.from(
+          new Set((promoRows ?? []).map((p: any) => p.assignment_id).filter(Boolean)),
+        )
+        const promoCampaignIds = Array.from(
+          new Set((promoRows ?? []).map((p: any) => p.campaign_id).filter(Boolean)),
+        )
+        const [{ data: assignmentRows }, { data: campaignNameRows }] = await Promise.all([
+          assignmentIds.length
+            ? supabase.from('assignments').select('id, title').in('id', assignmentIds)
+            : Promise.resolve({ data: [] as any[] }),
+          promoCampaignIds.length
+            ? supabase.from('campaigns').select('id, campaign_name').in('id', promoCampaignIds)
+            : Promise.resolve({ data: [] as any[] }),
+        ])
+        const titleByAssignmentId = new Map(
+          (assignmentRows ?? []).map((a: any) => [a.id, a.title as string]),
+        )
+        const nameByCampaignId = new Map(
+          (campaignNameRows ?? []).map((c: any) => [c.id, c.campaign_name as string]),
+        )
+        const promotionNameById = new Map<string, string>()
+        for (const p of promoRows ?? []) {
+          const name =
+            (p.assignment_id && titleByAssignmentId.get(p.assignment_id)) ??
+            (p.campaign_id && nameByCampaignId.get(p.campaign_id)) ??
+            null
+          if (name) promotionNameById.set(p.id, name)
+        }
+
+        const marketerMap = new Map<string, Set<string>>()
+        for (const r of campaignRows) {
+          const ownerId = ownerIdByVideoId.get(r.video_id) ?? null
+          const promoId = r.promotionIds?.[0] ?? null
+          if (!ownerId || !promoId) continue
+          if (!marketerMap.has(ownerId)) marketerMap.set(ownerId, new Set())
+          marketerMap.get(ownerId)!.add(promoId)
+        }
+
+        const nodes: TreeNode[] = Array.from(marketerMap.entries()).map(([ownerId, promoIdSet], i) => {
+          const color = MARKETER_PALETTE[i % MARKETER_PALETTE.length]
+          const profile = profileByUserId.get(ownerId)
+          const marketerName = profile?.full_name?.trim() || profile?.email || 'Marketer'
+          return {
+            id: `marketer_${ownerId}`,
+            label: marketerName,
+            kind: 'marketer',
+            color,
+            children: Array.from(promoIdSet).map((promoId) => ({
+              id: `promo_${promoId}`,
+              label: promotionNameById.get(promoId) ?? 'Promotion',
+              kind: 'promotion',
+              color,
+            })),
+          }
+        })
+
+        if (!cancelled) setMarketerNodes(nodes)
+      } catch (err) {
+        // Fail closed to null -> caller falls back to mock marketers.
+        // Never show a broken/partial map.
+        console.error('[CampaignStructureMap] useCampaignMarketerNodes failed:', err)
+        if (!cancelled) setMarketerNodes(null)
+      }
+    })()
+
+    return () => {
+      cancelled = true
+    }
+  }, [campaignId, viewerId])
+
+  return marketerNodes
 }
 
 // ─── Static mock data model ─────────────────────────────────────────────
@@ -325,7 +517,23 @@ export default function CampaignStructureMap() {
     [campaignOptions, campaignId]
   )
 
-  const { nodes, edges, canvasW, canvasH } = useMemo(() => layoutTree(MOCK_CAMPAIGN), [])
+  // Phase 1B-a: real Marketer/Promotion nodes, everything else from
+  // MOCK_CAMPAIGN unchanged. null (loading/unavailable) falls back to
+  // MOCK_CAMPAIGN's own mock marketers -> no blank/broken state.
+  const realMarketerNodes = useCampaignMarketerNodes(campaignId, effectiveViewerId)
+  const campaignTree = useMemo<TreeNode>(
+    () => ({
+      ...MOCK_CAMPAIGN,
+      label: currentCampaignName ?? MOCK_CAMPAIGN.label,
+      children: MOCK_CAMPAIGN.children!.map((branch) =>
+        branch.id === 'marketers' && realMarketerNodes
+          ? { ...branch, children: realMarketerNodes }
+          : branch,
+      ),
+    }),
+    [currentCampaignName, realMarketerNodes],
+  )
+  const { nodes, edges, canvasW, canvasH } = useMemo(() => layoutTree(campaignTree), [campaignTree])
 
   const [transform, setTransform] = useState<CanvasTransform>({ x: 0, y: 0, scale: 0.85 })
   const [hoveredBranchId, setHoveredBranchId] = useState<string | null>(null)
