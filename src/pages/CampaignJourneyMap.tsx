@@ -98,8 +98,8 @@ const CAMPAIGN_PATHS: CampaignPath[] = [
     color: '#0ea5e9',
     icon: Mail,
     angle: 90,
-    root: { id: 'newsletter', label: 'Newsletter' },
-    outcomes: [{ id: 'newsletter_thank_you', label: 'Newsletter Thank You' }],
+    root: { id: 'newsletter_thank_you', label: 'Newsletter Thank You' },
+    outcomes: [{ id: 'newsletter', label: 'Newsletter' }],
   },
   {
     id: 'direct_purchase',
