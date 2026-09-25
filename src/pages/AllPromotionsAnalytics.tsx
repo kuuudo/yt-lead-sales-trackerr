@@ -127,6 +127,8 @@ export default function AllPromotionsAnalytics() {
   const [activeSource, setActiveSource] = useState<RevenueView>('total');
   const [selectedPromotionIds, setSelectedPromotionIds] = useState<string[]>([]);
   const [selectedCampaignId, setSelectedCampaignId] = useState<string>('all');
+  /** Canonical marketer = assignment_collaborators.user_id; 'all' | userId | '__unattributed__' */
+  const [selectedMarketerId, setSelectedMarketerId] = useState<string>('all');
   const [hideArchivedPromotion, setHideArchivedPromotion] = useState(false);
   const [sortConfig, setSortConfig] = useState<{ key: string; direction: 'asc' | 'desc' }>({
     key: 'total_revenue',
@@ -134,6 +136,9 @@ export default function AllPromotionsAnalytics() {
   });
 
   const [rows, setRows] = useState<PromotionMetricRow[]>([]);
+  /** promotionId → marketer user_id (null = no collaborator → Unattributed for marketer filter) */
+  const [marketerUserIdByPromotionId, setMarketerUserIdByPromotionId] = useState<Map<string, string | null>>(new Map());
+  const [marketerNameByUserId, setMarketerNameByUserId] = useState<Map<string, string>>(new Map());
   const [viewerArchivedById, setViewerArchivedById] = useState<Map<string, boolean>>(new Map());
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -173,6 +178,67 @@ export default function AllPromotionsAnalytics() {
 
         setRows(built);
         setViewerArchivedById(archiveMap);
+
+        // Content Marketer: promotions.assignment_collaborator_id
+        //   → assignment_collaborators.user_id → profiles
+        // Not videos.user_id / owner_user_id.
+        const realPromoIds = built
+          .map(r => r.promotionId)
+          .filter(id => id !== UNATTRIBUTED_PROMOTION_ID);
+        const marketerByPromo = new Map<string, string | null>();
+        const nameByUser = new Map<string, string>();
+        if (realPromoIds.length > 0) {
+          const { data: promoRows } = await supabase
+            .from('promotions')
+            .select('id, assignment_collaborator_id')
+            .in('id', realPromoIds);
+          const collabIds = Array.from(
+            new Set(
+              (promoRows ?? [])
+                .map((p: any) => p.assignment_collaborator_id as string | null)
+                .filter((id): id is string => !!id),
+            ),
+          );
+          const collabToUser = new Map<string, string>();
+          if (collabIds.length > 0) {
+            const { data: collabRows } = await supabase
+              .from('assignment_collaborators')
+              .select('id, user_id')
+              .in('id', collabIds);
+            for (const c of collabRows ?? []) {
+              if (c.user_id) collabToUser.set(c.id as string, c.user_id as string);
+            }
+          }
+          const userIds = Array.from(new Set(collabToUser.values()));
+          if (userIds.length > 0) {
+            const { data: profiles } = await supabase
+              .from('profiles')
+              .select('id, full_name, email')
+              .in('id', userIds);
+            for (const pr of profiles ?? []) {
+              const label =
+                (pr.full_name as string | null)?.trim() ||
+                (pr.email as string | null)?.trim() ||
+                (pr.id as string).slice(0, 8);
+              nameByUser.set(pr.id as string, label);
+            }
+          }
+          for (const p of promoRows ?? []) {
+            const cid = p.assignment_collaborator_id as string | null;
+            const uid = cid ? collabToUser.get(cid) ?? null : null;
+            marketerByPromo.set(p.id as string, uid);
+          }
+          // Promotions with no row / no collaborator → null marketer
+          for (const id of realPromoIds) {
+            if (!marketerByPromo.has(id)) marketerByPromo.set(id, null);
+          }
+        }
+        // Synthetic unattributed metrics row has no marketer
+        marketerByPromo.set(UNATTRIBUTED_PROMOTION_ID, null);
+        if (!cancelled) {
+          setMarketerUserIdByPromotionId(marketerByPromo);
+          setMarketerNameByUserId(nameByUser);
+        }
       } catch (e: any) {
         if (!cancelled) {
           setError(e?.message ?? String(e));
@@ -223,6 +289,16 @@ export default function AllPromotionsAnalytics() {
       .sort((a, b) => a.title.localeCompare(b.title));
   }, [rows]);
 
+  const marketerOptions = useMemo(() => {
+    const ids = new Set<string>();
+    marketerUserIdByPromotionId.forEach(uid => {
+      if (uid) ids.add(uid);
+    });
+    return Array.from(ids)
+      .map(id => ({ id, name: marketerNameByUserId.get(id) ?? id.slice(0, 8) }))
+      .sort((a, b) => a.name.localeCompare(b.name));
+  }, [marketerUserIdByPromotionId, marketerNameByUserId]);
+
   const filteredRows = useMemo(() => {
     let list = rows;
     if (selectedPromotionIds.length > 0) {
@@ -231,11 +307,31 @@ export default function AllPromotionsAnalytics() {
     if (selectedCampaignId !== 'all') {
       list = list.filter(r => r.campaignId === selectedCampaignId);
     }
+    if (selectedMarketerId !== 'all') {
+      if (selectedMarketerId === '__unattributed__') {
+        list = list.filter(r => {
+          if (r.isUnattributed) return true;
+          return marketerUserIdByPromotionId.get(r.promotionId) == null;
+        });
+      } else {
+        list = list.filter(
+          r => marketerUserIdByPromotionId.get(r.promotionId) === selectedMarketerId,
+        );
+      }
+    }
     if (hideArchivedPromotion) {
       list = list.filter(r => !isRowArchived(r));
     }
     return list;
-  }, [rows, selectedPromotionIds, selectedCampaignId, hideArchivedPromotion, viewerArchivedById]);
+  }, [
+    rows,
+    selectedPromotionIds,
+    selectedCampaignId,
+    selectedMarketerId,
+    hideArchivedPromotion,
+    viewerArchivedById,
+    marketerUserIdByPromotionId,
+  ]);
 
   const sortedRows = useMemo(() => {
     const key = sortConfig.key;
@@ -367,6 +463,28 @@ export default function AllPromotionsAnalytics() {
 
           <div>
             <label className="text-[10px] font-black uppercase tracking-widest text-zinc-500 mb-3 block">
+              Content Marketer
+            </label>
+            <select
+              value={selectedMarketerId}
+              onChange={e => setSelectedMarketerId(e.target.value)}
+              className="w-full bg-zinc-900 border border-zinc-800 rounded-xl px-4 py-2.5 text-[10px] font-bold uppercase tracking-widest outline-none focus:border-red-600 appearance-none cursor-pointer"
+            >
+              <option value="all">All Marketers</option>
+              {marketerOptions.map(m => (
+                <option key={m.id} value={m.id}>
+                  {m.name}
+                </option>
+              ))}
+              <option value="__unattributed__">Unattributed (no collaborator)</option>
+            </select>
+            <p className="text-[9px] text-zinc-600 mt-2 leading-relaxed">
+              assignment_collaborator → user — not content owner / promotion owner.
+            </p>
+          </div>
+
+          <div>
+            <label className="text-[10px] font-black uppercase tracking-widest text-zinc-500 mb-3 block">
               Promotions
             </label>
             <div className="max-h-48 overflow-y-auto space-y-1 border border-zinc-900 rounded-xl p-2">
@@ -441,15 +559,41 @@ export default function AllPromotionsAnalytics() {
               </p>
             </div>
           </div>
-          <div className="flex flex-wrap items-center gap-2 mt-3">
-            <span className="text-[10px] font-black uppercase tracking-widest text-zinc-600">
-              {loading ? '…' : `${sortedRows.length} Promotions`}
-            </span>
-            {organizationId && (
-              <span className="text-[9px] text-zinc-700 font-mono truncate max-w-[120px]">
-                org {organizationId.slice(0, 8)}
+          <div className="flex flex-wrap items-center justify-between gap-3 mt-3">
+            <div className="flex flex-wrap items-center gap-2">
+              <span className="text-[10px] font-black uppercase tracking-widest text-zinc-600">
+                {loading ? '…' : `${sortedRows.length} Promotions`}
               </span>
-            )}
+              {organizationId && (
+                <span className="text-[9px] text-zinc-700 font-mono truncate max-w-[120px]">
+                  org {organizationId.slice(0, 8)}
+                </span>
+              )}
+            </div>
+            {/* Source switch — always visible; rebuilds rows via activeSource → buildPromotionMetricRows */}
+            <div className="flex items-center gap-1.5">
+              <span className="text-[8px] font-black uppercase tracking-widest text-zinc-600 mr-1">
+                Source
+              </span>
+              {([
+                ['total', 'Total'],
+                ['pixel', 'Pixel'],
+                ['stripe', 'Stripe'],
+              ] as const).map(([key, label]) => (
+                <button
+                  key={key}
+                  type="button"
+                  onClick={() => setActiveSource(key)}
+                  className={`h-7 px-3 rounded-lg text-[9px] font-black uppercase tracking-widest border transition-all ${
+                    activeSource === key
+                      ? 'bg-red-600 border-red-600 text-white'
+                      : 'bg-zinc-900 border-zinc-800 text-zinc-500 hover:text-white'
+                  }`}
+                >
+                  {label}
+                </button>
+              ))}
+            </div>
           </div>
         </header>
 
