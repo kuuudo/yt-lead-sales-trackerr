@@ -36,7 +36,7 @@
 
 import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { useParams, useNavigate, Link } from 'react-router-dom'
-import { ArrowLeft, ChevronDown, Network, Sparkles } from 'lucide-react'
+import { ArrowLeft, ChevronDown, Network, Sparkles, Loader2 } from 'lucide-react'
 import CanvasGrid from '../components/analytics/canvas/CanvasGrid'
 import type { CanvasTransform } from '../components/analytics/store/useWorkspaceStore'
 import { Campaign, supabase } from '../lib/supabase'
@@ -108,41 +108,68 @@ async function resolveOrgAndViewer(viewing?: {
 
 const MARKETER_PALETTE = ['#6366f1', '#ec4899', '#f59e0b', '#10b981', '#0ea5e9', '#ef4444']
 
+interface CampaignStructureData {
+  marketerNodes: TreeNode[] | null
+  ownAssetNodes: TreeNode[] | null
+  loading: boolean
+}
+
 /**
- * Real Marketer / Promotion nodes for the current campaign, or null while
- * loading/unavailable (caller falls back to MOCK_CAMPAIGN's mock marketers
- * in that case — see the campaignTree useMemo in the component below).
+ * Real Marketer -> Promotion -> Asset nodes, plus real Own Assets, for the
+ * current campaign. null (per field) = loading/unavailable, caller falls
+ * back to MOCK_CAMPAIGN's own mock children in that case. [] = resolved,
+ * genuinely empty (renders as a childless branch — layoutTree already
+ * treats an empty children array the same as no children at all, so this
+ * never produces broken/junk nodes).
  *
- * Semantics (per Phase 1B-a spec, nothing invented here):
- *  - Reuses getAssetAnalyticsRows() verbatim — the exact same call
- *    AllAssetsAnalytics.tsx makes — then filters to rows whose LOCKED
- *    r.assetCampaign.campaignId matches this campaign. Never uses
- *    redirect_links.campaign_id.
- *  - Real Marketer = owner (videos.user_id) of a promoting video that
- *    appears in one of those filtered rows — same identity source as
- *    AllAssetsAnalytics' Content Owner column.
- *  - Real Promotion = r.promotionIds[0] on one of those filtered rows —
- *    same field AllAssetsAnalytics maps to `promotion_id`.
- *  - Promotion display name = assignments.title, fallback
- *    campaigns.campaign_name — same resolution AllAssetsAnalytics' Promotion
- *    filter panel uses (promotions has no title column of its own).
+ * Semantics (nothing invented — see chat audit for each source):
+ *  - Reuses getAssetAnalyticsRows() verbatim, filtered to rows whose LOCKED
+ *    r.assetCampaign.campaignId matches this campaign (never
+ *    redirect_links.campaign_id).
+ *  - Promotion id per row = r.promotionIds[0], falling back to the
+ *    promoting video's creative_promotion_id — same fallback
+ *    AllAssetsAnalytics uses (row.promotion_id ||
+ *    row.promoting_video.creative_promotion_id) for Creative-flow
+ *    promotions. Missing this fallback is why a Creative-created marketer
+ *    was silently dropped in the previous pass.
+ *  - Marketer = promoting video's owner (videos.user_id) — same identity
+ *    source as AllAssetsAnalytics' Content Owner column.
+ *  - Promotion -> Asset = every r.asset_id sharing that same promotion id,
+ *    from the same rows already loaded above — no second query, no new
+ *    "belongs to this promotion" definition.
+ *  - Own Asset = organizationId != null && r.assetOrganizationId ===
+ *    organizationId — the exact "isMy" check AllAssetsAnalytics already
+ *    uses for its "My Asset" badge (row 3563). NOTE: this only covers
+ *    assets that appear in getAssetAnalyticsRows' rows, i.e. assets that
+ *    have at least one promoting video. An owned asset with zero
+ *    promotions anywhere would not show here yet — flagged, not silently
+ *    special-cased.
  */
-function useCampaignMarketerNodes(
+function useCampaignStructureData(
   campaignId: string | undefined,
   viewerId: string | null,
-): TreeNode[] | null {
+  isReadOnly: boolean,
+  viewingMemberId: string | null,
+  viewingOrgId: string | null,
+): CampaignStructureData {
   const [marketerNodes, setMarketerNodes] = useState<TreeNode[] | null>(null)
+  const [ownAssetNodes, setOwnAssetNodes] = useState<TreeNode[] | null>(null)
+  const [loading, setLoading] = useState(false)
 
   useEffect(() => {
     if (!campaignId || !viewerId) {
       setMarketerNodes(null)
+      setOwnAssetNodes(null)
       return
     }
     let cancelled = false
+    setLoading(true)
 
     ;(async () => {
       try {
-        const { organizationId, viewerId: resolvedViewerId } = await resolveOrgAndViewer()
+        const { organizationId, viewerId: resolvedViewerId } = await resolveOrgAndViewer(
+          isReadOnly ? { viewingMemberId, viewingOrgId } : undefined,
+        )
         const result = await getAssetAnalyticsRows({
           organizationId,
           viewerId: resolvedViewerId,
@@ -155,20 +182,38 @@ function useCampaignMarketerNodes(
           (r) => r.assetCampaign?.campaignId === campaignId,
         )
         if (campaignRows.length === 0) {
-          if (!cancelled) setMarketerNodes([])
+          if (!cancelled) {
+            setMarketerNodes([])
+            setOwnAssetNodes([])
+          }
           return
         }
 
         const videoIds = Array.from(new Set(campaignRows.map((r) => r.video_id)))
         const { data: videoRows } = videoIds.length
-          ? await supabase.from('videos').select('id, user_id').in('id', videoIds)
+          ? await supabase
+              .from('videos')
+              .select('id, user_id, creative_promotion_id')
+              .in('id', videoIds)
           : { data: [] as any[] }
-        const ownerIdByVideoId = new Map(
-          (videoRows ?? []).map((v: any) => [v.id, v.user_id as string | null]),
+        const videoInfoByVideoId = new Map(
+          (videoRows ?? []).map((v: any) => [
+            v.id,
+            {
+              ownerId: v.user_id as string | null,
+              creativePromotionId: v.creative_promotion_id as string | null,
+            },
+          ]),
         )
+        const promoIdForRow = (r: any): string | null =>
+          r.promotionIds?.[0] || videoInfoByVideoId.get(r.video_id)?.creativePromotionId || null
 
         const ownerIds = Array.from(
-          new Set(Array.from(ownerIdByVideoId.values()).filter((id): id is string => !!id)),
+          new Set(
+            Array.from(videoInfoByVideoId.values())
+              .map((v) => v.ownerId)
+              .filter((id): id is string => !!id),
+          ),
         )
         const { data: ownerProfiles } = ownerIds.length
           ? await supabase.from('profiles').select('id, email, full_name').in('id', ownerIds)
@@ -176,11 +221,7 @@ function useCampaignMarketerNodes(
         const profileByUserId = new Map((ownerProfiles ?? []).map((p: any) => [p.id, p]))
 
         const promotionIds = Array.from(
-          new Set(
-            campaignRows
-              .map((r) => r.promotionIds?.[0] ?? null)
-              .filter((id: string | null): id is string => !!id),
-          ),
+          new Set(campaignRows.map((r) => promoIdForRow(r)).filter((id): id is string => !!id)),
         )
         const { data: promoRows } = promotionIds.length
           ? await supabase.from('promotions').select('id, assignment_id, campaign_id').in('id', promotionIds)
@@ -214,16 +255,52 @@ function useCampaignMarketerNodes(
           if (name) promotionNameById.set(p.id, name)
         }
 
+        // Promotion -> Assets, from the rows already loaded above.
+        const assetIdsByPromotionId = new Map<string, Set<string>>()
+        for (const r of campaignRows) {
+          const promoId = promoIdForRow(r)
+          if (!promoId) continue
+          if (!assetIdsByPromotionId.has(promoId)) assetIdsByPromotionId.set(promoId, new Set())
+          assetIdsByPromotionId.get(promoId)!.add(r.asset_id)
+        }
+
+        // Asset display titles — same embed shape + field-priority order as
+        // AllAssetsAnalytics' assetDisplay map (row ~548-582): PostgREST
+        // embeds can come back as an array OR a single object, so both are
+        // normalized the same way AllAssetsAnalytics does (its own comment
+        // there notes asset_resources silently broke once from skipping
+        // this). No thumbnail resolution — not needed on this map.
+        const allAssetIds = Array.from(new Set(campaignRows.map((r) => r.asset_id)))
+        const { data: assetRows } = allAssetIds.length
+          ? await supabase
+              .from('assets')
+              .select('id, videos(video_title), asset_resources(title), campaign_element_assets(display_name)')
+              .in('id', allAssetIds)
+          : { data: [] as any[] }
+        const assetTitleById = new Map<string, string>()
+        for (const row of assetRows ?? []) {
+          const v = Array.isArray((row as any).videos) ? (row as any).videos[0] : (row as any).videos
+          const res = Array.isArray((row as any).asset_resources)
+            ? (row as any).asset_resources[0]
+            : (row as any).asset_resources
+          const el = Array.isArray((row as any).campaign_element_assets)
+            ? (row as any).campaign_element_assets[0]
+            : (row as any).campaign_element_assets
+          const title = v?.video_title ?? res?.title ?? el?.display_name ?? null
+          if (title) assetTitleById.set((row as any).id, title)
+        }
+
+        // Marketer (owner) -> set of promotion ids.
         const marketerMap = new Map<string, Set<string>>()
         for (const r of campaignRows) {
-          const ownerId = ownerIdByVideoId.get(r.video_id) ?? null
-          const promoId = r.promotionIds?.[0] ?? null
+          const ownerId = videoInfoByVideoId.get(r.video_id)?.ownerId ?? null
+          const promoId = promoIdForRow(r)
           if (!ownerId || !promoId) continue
           if (!marketerMap.has(ownerId)) marketerMap.set(ownerId, new Set())
           marketerMap.get(ownerId)!.add(promoId)
         }
 
-        const nodes: TreeNode[] = Array.from(marketerMap.entries()).map(([ownerId, promoIdSet], i) => {
+        const marketers: TreeNode[] = Array.from(marketerMap.entries()).map(([ownerId, promoIdSet], i) => {
           const color = MARKETER_PALETTE[i % MARKETER_PALETTE.length]
           const profile = profileByUserId.get(ownerId)
           const marketerName = profile?.full_name?.trim() || profile?.email || 'Marketer'
@@ -237,16 +314,112 @@ function useCampaignMarketerNodes(
               label: promotionNameById.get(promoId) ?? 'Promotion',
               kind: 'promotion',
               color,
+              children: Array.from(assetIdsByPromotionId.get(promoId) ?? []).map((assetId) => ({
+                id: `asset_${promoId}_${assetId}`,
+                label: assetTitleById.get(assetId) ?? assetId,
+                kind: 'asset',
+                color,
+              })),
             })),
           }
         })
 
-        if (!cancelled) setMarketerNodes(nodes)
+        const ownAssetIds = new Set(
+          campaignRows
+            .filter((r) => organizationId != null && r.assetOrganizationId === organizationId)
+            .map((r) => r.asset_id),
+        )
+        const ownAssets: TreeNode[] = Array.from(ownAssetIds).map((assetId) => ({
+          id: `own_asset_${assetId}`,
+          label: assetTitleById.get(assetId) ?? assetId,
+          kind: 'asset',
+          color: '#10b981',
+        }))
+
+        if (!cancelled) {
+          setMarketerNodes(marketers)
+          setOwnAssetNodes(ownAssets)
+        }
       } catch (err) {
-        // Fail closed to null -> caller falls back to mock marketers.
-        // Never show a broken/partial map.
-        console.error('[CampaignStructureMap] useCampaignMarketerNodes failed:', err)
-        if (!cancelled) setMarketerNodes(null)
+        console.error('[CampaignStructureMap] useCampaignStructureData failed:', err)
+        if (!cancelled) {
+          setMarketerNodes(null)
+          setOwnAssetNodes(null)
+        }
+      } finally {
+        if (!cancelled) setLoading(false)
+      }
+    })()
+
+    return () => {
+      cancelled = true
+    }
+  }, [campaignId, viewerId, isReadOnly, viewingMemberId, viewingOrgId])
+
+  return { marketerNodes, ownAssetNodes, loading }
+}
+
+const CONTENT_BUCKET_LABELS = ['Jan–Feb', 'Mar–Apr', 'May–Jun', 'Jul–Aug', 'Sep–Oct', 'Nov–Dec']
+
+/**
+ * Real Content buckets (2-month, count-only) for the current campaign.
+ *
+ * Deliberately a SEPARATE data source from useCampaignStructureData above:
+ * Content = the campaign's own video content, i.e. videos.campaign_id
+ * (what AllAssetsAnalytics resolves as promoting_video.content_campaign_id
+ * for its own, separate "Content Campaign" column) — not the asset-
+ * provenance campaign_id used for Marketers/Promotions/Own Assets. This
+ * mirrors AllAssetsAnalytics' own Asset Campaign vs Content Campaign split,
+ * not a new distinction invented here.
+ */
+function useCampaignContentBuckets(
+  campaignId: string | undefined,
+  viewerId: string | null,
+): { contentNodes: TreeNode[] | null; loading: boolean } {
+  const [contentNodes, setContentNodes] = useState<TreeNode[] | null>(null)
+  const [loading, setLoading] = useState(false)
+
+  useEffect(() => {
+    if (!campaignId || !viewerId) {
+      setContentNodes(null)
+      return
+    }
+    let cancelled = false
+    setLoading(true)
+
+    ;(async () => {
+      try {
+        const { data: videoRows } = await supabase
+          .from('videos')
+          .select('id, created_at')
+          .eq('campaign_id', campaignId)
+
+        const bucketCounts = new Map<string, { year: number; pairIndex: number; count: number }>()
+        for (const v of (videoRows ?? []) as { id: string; created_at: string | null }[]) {
+          if (!v.created_at) continue
+          const d = new Date(v.created_at)
+          const year = d.getUTCFullYear()
+          const pairIndex = Math.floor(d.getUTCMonth() / 2)
+          const key = `${year}_${pairIndex}`
+          if (!bucketCounts.has(key)) bucketCounts.set(key, { year, pairIndex, count: 0 })
+          bucketCounts.get(key)!.count += 1
+        }
+
+        const nodes: TreeNode[] = Array.from(bucketCounts.values())
+          .sort((a, b) => a.year - b.year || a.pairIndex - b.pairIndex)
+          .map(({ year, pairIndex, count }) => ({
+            id: `content_${year}_${pairIndex}`,
+            label: `${CONTENT_BUCKET_LABELS[pairIndex]} ${year} (${count} video${count === 1 ? '' : 's'})`,
+            kind: 'asset',
+            color: '#0ea5e9',
+          }))
+
+        if (!cancelled) setContentNodes(nodes)
+      } catch (err) {
+        console.error('[CampaignStructureMap] useCampaignContentBuckets failed:', err)
+        if (!cancelled) setContentNodes(null)
+      } finally {
+        if (!cancelled) setLoading(false)
       }
     })()
 
@@ -255,7 +428,7 @@ function useCampaignMarketerNodes(
     }
   }, [campaignId, viewerId])
 
-  return marketerNodes
+  return { contentNodes, loading }
 }
 
 // ─── Static mock data model ─────────────────────────────────────────────
@@ -509,7 +682,7 @@ export default function CampaignStructureMap() {
   // Phase 1A: real campaign name + switcher only. Same viewer-id
   // resolution as AllAssetsAnalytics (Operator-Mode-aware).
   const { user } = useAuth()
-  const { viewingMemberId, isReadOnly } = useViewing()
+  const { viewingMemberId, viewingOrgId, isReadOnly } = useViewing()
   const effectiveViewerId = isReadOnly ? viewingMemberId : (user?.id ?? null)
   const campaignOptions = useCampaignOptions(effectiveViewerId)
   const currentCampaignName = useMemo(
@@ -520,18 +693,33 @@ export default function CampaignStructureMap() {
   // Phase 1B-a: real Marketer/Promotion nodes, everything else from
   // MOCK_CAMPAIGN unchanged. null (loading/unavailable) falls back to
   // MOCK_CAMPAIGN's own mock marketers -> no blank/broken state.
-  const realMarketerNodes = useCampaignMarketerNodes(campaignId, effectiveViewerId)
+  const structureData = useCampaignStructureData(
+    campaignId,
+    effectiveViewerId,
+    isReadOnly,
+    viewingMemberId,
+    viewingOrgId,
+  )
+  const contentData = useCampaignContentBuckets(campaignId, effectiveViewerId)
+  const isLoadingRealData = structureData.loading || contentData.loading
   const campaignTree = useMemo<TreeNode>(
     () => ({
       ...MOCK_CAMPAIGN,
       label: currentCampaignName ?? MOCK_CAMPAIGN.label,
-      children: MOCK_CAMPAIGN.children!.map((branch) =>
-        branch.id === 'marketers' && realMarketerNodes
-          ? { ...branch, children: realMarketerNodes }
-          : branch,
-      ),
+      children: MOCK_CAMPAIGN.children!.map((branch) => {
+        if (branch.id === 'marketers' && structureData.marketerNodes) {
+          return { ...branch, children: structureData.marketerNodes }
+        }
+        if (branch.id === 'own_assets' && structureData.ownAssetNodes) {
+          return { ...branch, children: structureData.ownAssetNodes }
+        }
+        if (branch.id === 'content' && contentData.contentNodes) {
+          return { ...branch, children: contentData.contentNodes }
+        }
+        return branch
+      }),
     }),
-    [currentCampaignName, realMarketerNodes],
+    [currentCampaignName, structureData.marketerNodes, structureData.ownAssetNodes, contentData.contentNodes],
   )
   const { nodes, edges, canvasW, canvasH } = useMemo(() => layoutTree(campaignTree), [campaignTree])
 
@@ -678,6 +866,11 @@ export default function CampaignStructureMap() {
         <span style={styles.phaseBadge}>
           <Sparkles size={12} /> Structure preview — static mock data, not connected to live data
         </span>
+        {isLoadingRealData && (
+          <span style={styles.loadingBadge}>
+            <Loader2 size={12} className="animate-spin" /> Loading real data…
+          </span>
+        )}
         <div style={styles.campaignSwitcherWrap}>
           <select
             value={campaignId ?? ''}
@@ -899,6 +1092,19 @@ const styles: Record<string, React.CSSProperties> = {
     color: '#92400e',
     background: '#fffbeb',
     border: '1px solid #fde68a',
+    borderRadius: 999,
+    padding: '5px 10px',
+    whiteSpace: 'nowrap',
+  },
+  loadingBadge: {
+    display: 'flex',
+    alignItems: 'center',
+    gap: 6,
+    fontSize: 11,
+    fontWeight: 600,
+    color: '#4338ca',
+    background: '#eef2ff',
+    border: '1px solid #c7d2fe',
     borderRadius: 999,
     padding: '5px 10px',
     whiteSpace: 'nowrap',
