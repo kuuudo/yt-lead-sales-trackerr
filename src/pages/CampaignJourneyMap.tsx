@@ -37,10 +37,11 @@
  * `widgets` table — same as PromotionJourneyMap.tsx.
  */
 
-import React, { useCallback, useMemo, useRef, useState } from 'react'
-import { useParams, Link } from 'react-router-dom'
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useParams, useNavigate, Link } from 'react-router-dom'
 import {
   ArrowLeft,
+  ChevronDown,
   TrendingUp,
   ShoppingCart,
   Mail,
@@ -50,6 +51,32 @@ import {
 } from 'lucide-react'
 import CanvasGrid from '../components/analytics/canvas/CanvasGrid'
 import type { CanvasTransform } from '../components/analytics/store/useWorkspaceStore'
+import { Campaign, supabase } from '../lib/supabase'
+import { useAuth } from '../lib/auth'
+import { useViewing } from '../lib/ViewingContext'
+
+// ─── Real-data hook (header name + switcher only) ───────────────────────
+// Identical to the copy in CampaignStructureMap.tsx / AllAssetsAnalytics.tsx
+// — same query, same viewer-id resolution. Not imported because it isn't
+// exported from either of those files.
+function useCampaignOptions(viewerId: string | null): Campaign[] {
+  const [campaigns, setCampaigns] = useState<Campaign[]>([])
+  useEffect(() => {
+    if (!viewerId) return
+    let cancelled = false
+    supabase
+      .from('campaigns')
+      .select('*')
+      .eq('user_id', viewerId)
+      .then(({ data }) => {
+        if (!cancelled) setCampaigns(data ?? [])
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [viewerId])
+  return campaigns
+}
 
 // ─── Static Phase-1 data model ─────────────────────────────────────────────
 // Deliberately NOT fetched from anywhere. Phase 2 replaces exactly this
@@ -224,7 +251,19 @@ function buildLayout(paths: CampaignPath[]) {
 
 export default function CampaignJourneyMap() {
   const { campaignId } = useParams<{ campaignId: string }>()
+  const navigate = useNavigate()
   const containerRef = useRef<HTMLDivElement>(null)
+
+  // Header name + switcher only — same viewer-id resolution as
+  // CampaignStructureMap.tsx / AllAssetsAnalytics.tsx (Operator-Mode-aware).
+  const { user } = useAuth()
+  const { viewingMemberId, isReadOnly } = useViewing()
+  const effectiveViewerId = isReadOnly ? viewingMemberId : (user?.id ?? null)
+  const campaignOptions = useCampaignOptions(effectiveViewerId)
+  const currentCampaignName = useMemo(
+    () => campaignOptions.find((c) => c.id === campaignId)?.campaign_name ?? null,
+    [campaignOptions, campaignId]
+  )
 
   const { nodes, connections } = useMemo(() => buildLayout(CAMPAIGN_PATHS), [])
 
@@ -366,7 +405,7 @@ export default function CampaignJourneyMap() {
         </Link>
         <div style={styles.titleBlock}>
           <span style={styles.title}>Campaign Journey Map</span>
-          <span style={styles.subtitle}>{campaignId ?? 'Untitled Campaign'}</span>
+          <span style={styles.subtitle}>{currentCampaignName ?? campaignId ?? 'Untitled Campaign'}</span>
         </div>
         <span style={styles.movableNote}>
           🖐️ Drag any card to rearrange — cards stay movable as more get added later
@@ -374,6 +413,23 @@ export default function CampaignJourneyMap() {
         <span style={styles.phaseBadge}>
           <Sparkles size={12} /> Phase 1 · Visual preview — not yet connected to live tracking data
         </span>
+        <div style={styles.campaignSwitcherWrap}>
+          <select
+            value={campaignId ?? ''}
+            onChange={(e) => navigate(`/marketplace/campaigns/${e.target.value}/journey`)}
+            style={styles.campaignSwitcher}
+          >
+            {campaignId && !campaignOptions.some((c) => c.id === campaignId) && (
+              <option value={campaignId}>{currentCampaignName ?? 'Untitled Campaign'}</option>
+            )}
+            {campaignOptions.map((c) => (
+              <option key={c.id} value={c.id}>
+                {c.campaign_name}
+              </option>
+            ))}
+          </select>
+          <ChevronDown size={12} style={styles.campaignSwitcherIcon} />
+        </div>
       </div>
 
       <div
@@ -614,6 +670,30 @@ const styles: Record<string, React.CSSProperties> = {
     borderRadius: 999,
     padding: '5px 10px',
     whiteSpace: 'nowrap',
+  },
+  campaignSwitcherWrap: {
+    position: 'relative',
+    display: 'flex',
+    alignItems: 'center',
+    flexShrink: 0,
+  },
+  campaignSwitcher: {
+    appearance: 'none',
+    fontSize: 11,
+    fontWeight: 600,
+    color: '#111827',
+    background: '#ffffff',
+    border: '1px solid #e5e7eb',
+    borderRadius: 8,
+    padding: '6px 26px 6px 10px',
+    cursor: 'pointer',
+    maxWidth: 180,
+  },
+  campaignSwitcherIcon: {
+    position: 'absolute',
+    right: 8,
+    color: '#9ca3af',
+    pointerEvents: 'none',
   },
   canvasContainer: {
     flex: 1,
