@@ -15,8 +15,10 @@
  *   - any query to promotion_assets, events_journey, journeyDiscovery.ts,
  *     journeyGraph.ts, or journeyDownstreamResolver.ts
  *   - node click -> navigation to a real asset/video
- *   - persisted node positions (this view is not draggable on purpose —
- *     the hub layout is the point; see PHASE ROADMAP notes below)
+ *   - persisted node positions — cards (and the hub) ARE draggable now, but
+ *     a dragged layout only lives in this component's state; reloading the
+ *     page snaps back to the default hub layout. Persisting positions is a
+ *     later phase (needs a place to store per-campaign layout overrides).
  *   - any indication on a node that it is "live" or "tracked" — Phase 1 is
  *     visual-only and says so in the header badge, deliberately, so nobody
  *     mistakes the mockup for a working tracking view
@@ -146,12 +148,12 @@ function perpUnit(angleDeg: number): Pt {
   return { x: -Math.sin(rad), y: Math.cos(rad) }
 }
 
-/** Point on the hub circle's boundary, facing `target`. */
-function hubAnchor(target: Pt): Pt {
-  const dx = target.x - HUB_X
-  const dy = target.y - HUB_Y
+/** Point on a circle's boundary (e.g. the hub), facing `target`. */
+function circleAnchor(center: Pt, r: number, target: Pt): Pt {
+  const dx = target.x - center.x
+  const dy = target.y - center.y
   const len = Math.hypot(dx, dy) || 1
-  return { x: HUB_X + (dx / len) * HUB_R, y: HUB_Y + (dy / len) * HUB_R }
+  return { x: center.x + (dx / len) * r, y: center.y + (dy / len) * r }
 }
 
 /** Point on a rectangle's boundary, exiting toward `target`. */
@@ -191,7 +193,7 @@ interface PositionedNode {
 
 function buildLayout(paths: CampaignPath[]) {
   const nodes: PositionedNode[] = []
-  const connectors: { from: Pt; to: Pt; color: string; pathId: string }[] = []
+  const connections: { fromId: string; toId: string; color: string; pathId: string }[] = []
 
   for (const path of paths) {
     const rootCenter = polar(path.angle, ROOT_DIST)
@@ -205,12 +207,7 @@ function buildLayout(paths: CampaignPath[]) {
       pathId: path.id,
       color: path.color,
     })
-    connectors.push({
-      from: hubAnchor(rootCenter),
-      to: rectAnchor(rootCenter, ROOT_W, ROOT_H, { x: HUB_X, y: HUB_Y }),
-      color: path.color,
-      pathId: path.id,
-    })
+    connections.push({ fromId: 'hub', toId: path.root.id, color: path.color, pathId: path.id })
 
     const perp = perpUnit(path.angle)
     const n = path.outcomes.length
@@ -230,16 +227,11 @@ function buildLayout(paths: CampaignPath[]) {
         pathId: path.id,
         color: path.color,
       })
-      connectors.push({
-        from: rectAnchor(rootCenter, ROOT_W, ROOT_H, outcomeCenter),
-        to: rectAnchor(outcomeCenter, OUTCOME_W, OUTCOME_H, rootCenter),
-        color: path.color,
-        pathId: path.id,
-      })
+      connections.push({ fromId: path.root.id, toId: outcome.id, color: path.color, pathId: path.id })
     })
   }
 
-  return { nodes, connectors }
+  return { nodes, connections }
 }
 
 // ─── Component ──────────────────────────────────────────────────────────────
@@ -248,10 +240,73 @@ export default function CampaignJourneyMap() {
   const { campaignId } = useParams<{ campaignId: string }>()
   const containerRef = useRef<HTMLDivElement>(null)
 
-  const { nodes, connectors } = useMemo(() => buildLayout(CAMPAIGN_PATHS), [])
+  const { nodes, connections } = useMemo(() => buildLayout(CAMPAIGN_PATHS), [])
 
   const [transform, setTransform] = useState<CanvasTransform>({ x: -420, y: -260, scale: 0.82 })
   const [hoveredPathId, setHoveredPathId] = useState<string | null>(null)
+
+  // Movable-canvas state: every card (and the hub) can be dragged to a
+  // custom position. Session-only for now — see header comment.
+  const [positions, setPositions] = useState<Record<string, Pt>>(() => {
+    const initial: Record<string, Pt> = { hub: { x: HUB_X, y: HUB_Y } }
+    nodes.forEach((n) => {
+      initial[n.id] = n.center
+    })
+    return initial
+  })
+
+  const nodeById = useMemo(() => {
+    const map: Record<string, PositionedNode> = {}
+    nodes.forEach((n) => {
+      map[n.id] = n
+    })
+    return map
+  }, [nodes])
+
+  const connectorPaths = useMemo(() => {
+    return connections.map((conn) => {
+      const fromCenter = positions[conn.fromId]
+      const toCenter = positions[conn.toId]
+      const from =
+        conn.fromId === 'hub'
+          ? circleAnchor(fromCenter, HUB_R, toCenter)
+          : rectAnchor(fromCenter, nodeById[conn.fromId].w, nodeById[conn.fromId].h, toCenter)
+      const to = rectAnchor(toCenter, nodeById[conn.toId].w, nodeById[conn.toId].h, fromCenter)
+      return { from, to, color: conn.color, pathId: conn.pathId }
+    })
+  }, [connections, positions, nodeById])
+
+  // Drag-to-reposition: pointer capture keeps move/up events targeted at
+  // the card being dragged; stopPropagation keeps the canvas's own pan
+  // handlers from firing on the same gesture.
+  const dragRef = useRef<{ id: string; startClientX: number; startClientY: number; startCenter: Pt } | null>(null)
+
+  const handleNodePointerDown = useCallback(
+    (e: React.PointerEvent, id: string) => {
+      e.stopPropagation()
+      ;(e.currentTarget as HTMLElement).setPointerCapture(e.pointerId)
+      dragRef.current = { id, startClientX: e.clientX, startClientY: e.clientY, startCenter: positions[id] }
+    },
+    [positions]
+  )
+
+  const handleNodePointerMove = useCallback(
+    (e: React.PointerEvent) => {
+      if (!dragRef.current) return
+      e.stopPropagation()
+      const { id, startClientX, startClientY, startCenter } = dragRef.current
+      const dx = (e.clientX - startClientX) / transform.scale
+      const dy = (e.clientY - startClientY) / transform.scale
+      setPositions((p) => ({ ...p, [id]: { x: startCenter.x + dx, y: startCenter.y + dy } }))
+    },
+    [transform.scale]
+  )
+
+  const handleNodePointerUp = useCallback((e: React.PointerEvent) => {
+    if (!dragRef.current) return
+    e.stopPropagation()
+    dragRef.current = null
+  }, [])
 
   const pan = useCallback((dx: number, dy: number) => {
     setTransform((t) => ({ ...t, x: t.x + dx, y: t.y + dy }))
@@ -327,6 +382,9 @@ export default function CampaignJourneyMap() {
           <span style={styles.title}>Campaign Journey Map</span>
           <span style={styles.subtitle}>{campaignId ?? 'Untitled Campaign'}</span>
         </div>
+        <span style={styles.movableNote}>
+          🖐️ Drag any card to rearrange — cards stay movable as more get added later
+        </span>
         <span style={styles.phaseBadge}>
           <Sparkles size={12} /> Phase 1 · Visual preview — not yet connected to live tracking data
         </span>
@@ -372,11 +430,11 @@ export default function CampaignJourneyMap() {
             </defs>
 
             {/* Soft glow + orbit rings behind the hub, purely decorative. */}
-            <circle cx={HUB_X} cy={HUB_Y} r={HUB_R + 210} fill="url(#hubGlow)" />
-            <circle cx={HUB_X} cy={HUB_Y} r={ROOT_DIST} fill="none" stroke="#eef0f3" strokeWidth={1} strokeDasharray="2 6" />
-            <circle cx={HUB_X} cy={HUB_Y} r={OUTCOME_DIST} fill="none" stroke="#f3f4f6" strokeWidth={1} strokeDasharray="2 6" />
+            <circle cx={positions.hub.x} cy={positions.hub.y} r={HUB_R + 210} fill="url(#hubGlow)" />
+            <circle cx={positions.hub.x} cy={positions.hub.y} r={ROOT_DIST} fill="none" stroke="#eef0f3" strokeWidth={1} strokeDasharray="2 6" />
+            <circle cx={positions.hub.x} cy={positions.hub.y} r={OUTCOME_DIST} fill="none" stroke="#f3f4f6" strokeWidth={1} strokeDasharray="2 6" />
 
-            {connectors.map((c, i) => {
+            {connectorPaths.map((c, i) => {
               const dimmed = hoveredPathId !== null && hoveredPathId !== c.pathId
               return (
                 <path
@@ -395,12 +453,17 @@ export default function CampaignJourneyMap() {
 
           {/* Hub node */}
           <div
+            onPointerDown={(e) => handleNodePointerDown(e, 'hub')}
+            onPointerMove={handleNodePointerMove}
+            onPointerUp={handleNodePointerUp}
             style={{
               ...styles.hub,
-              left: HUB_X - HUB_R,
-              top: HUB_Y - HUB_R,
+              left: positions.hub.x - HUB_R,
+              top: positions.hub.y - HUB_R,
               width: HUB_R * 2,
               height: HUB_R * 2,
+              cursor: 'grab',
+              touchAction: 'none',
             }}
           >
             <span style={styles.hubEyebrow}>Campaign</span>
@@ -411,15 +474,19 @@ export default function CampaignJourneyMap() {
           {nodes.map((node) => {
             const dimmed = hoveredPathId !== null && hoveredPathId !== node.pathId
             const isRoot = node.kind === 'root'
+            const center = positions[node.id]
             return (
               <div
                 key={node.id}
                 onMouseEnter={() => setHoveredPathId(node.pathId)}
                 onMouseLeave={() => setHoveredPathId(null)}
+                onPointerDown={(e) => handleNodePointerDown(e, node.id)}
+                onPointerMove={handleNodePointerMove}
+                onPointerUp={handleNodePointerUp}
                 style={{
                   ...(isRoot ? styles.rootNode : styles.outcomeNode),
-                  left: node.center.x - node.w / 2,
-                  top: node.center.y - node.h / 2,
+                  left: center.x - node.w / 2,
+                  top: center.y - node.h / 2,
                   width: node.w,
                   height: node.h,
                   borderColor: isRoot ? node.color : `${node.color}66`,
@@ -427,6 +494,8 @@ export default function CampaignJourneyMap() {
                     ? `0 0 0 2px ${node.color}1f, 0 4px 10px rgba(15,23,42,0.06)`
                     : '0 2px 6px rgba(15,23,42,0.04)',
                   opacity: dimmed ? 0.35 : 1,
+                  cursor: 'grab',
+                  touchAction: 'none',
                 }}
               >
                 <span style={{ ...styles.nodeDot, background: node.color }} />
@@ -531,6 +600,20 @@ const styles: Record<string, React.CSSProperties> = {
   subtitle: {
     fontSize: 11,
     color: '#9ca3af',
+  },
+  movableNote: {
+    marginLeft: 16,
+    display: 'flex',
+    alignItems: 'center',
+    gap: 6,
+    fontSize: 11,
+    fontWeight: 600,
+    color: '#3730a3',
+    background: '#eef2ff',
+    border: '1px solid #c7d2fe',
+    borderRadius: 999,
+    padding: '5px 10px',
+    whiteSpace: 'nowrap',
   },
   phaseBadge: {
     marginLeft: 'auto',
