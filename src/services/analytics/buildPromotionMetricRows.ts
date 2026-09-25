@@ -48,9 +48,10 @@ export interface PromotionMetricRow {
   /** True when facts resolved to an id not in org promotions list. */
   isOrphanIdentity: boolean;
   /**
-   * Promotion-level archive signal for the viewer when available.
-   * Phase B loads promotions.archived_at when present on the row shape;
-   * per-viewer promotion_user_states can be layered in Phase C if needed.
+   * Archive defaults from Phase B are false/null.
+   * Canonical viewer archive is applied by the page via
+   * promotion_user_states → getPromotionArchiveContextsForViewer.
+   * promotions.archived_at does NOT exist on the real schema.
    */
   isArchived: boolean;
   archivedAt: string | null;
@@ -84,7 +85,6 @@ interface OrgPromotionIdentity {
   campaignId: string | null;
   campaignName: string | null;
   assignmentTitle: string | null;
-  archivedAt: string | null;
 }
 
 /**
@@ -112,13 +112,14 @@ export async function fetchOrgPromotionIdentities(
   // promotions for this org; join assignment + campaign for title rule.
   // Column names match common VSTRK schema; if a column is missing in a
   // given environment, tighten the select rather than inventing titles.
+  // promotions has NO archived_at column. Archive is per-viewer via
+  // promotion_user_states → getPromotionArchiveContextsForViewer (page layer).
   const { data, error } = await supabase
     .from('promotions')
     .select(
       `
       id,
       campaign_id,
-      archived_at,
       assignments ( title ),
       campaigns ( campaign_name )
     `,
@@ -139,7 +140,6 @@ export async function fetchOrgPromotionIdentities(
       campaignId: (row.campaign_id as string | null) ?? null,
       campaignName: (campaign?.campaign_name as string | null) ?? null,
       assignmentTitle: (assignment?.title as string | null) ?? null,
-      archivedAt: (row.archived_at as string | null) ?? null,
     };
   });
 }
@@ -235,8 +235,8 @@ export async function buildPromotionMetricRows(
       campaignName: identity.campaignName,
       isUnattributed: false,
       isOrphanIdentity: false,
-      isArchived: !!identity.archivedAt,
-      archivedAt: identity.archivedAt,
+      isArchived: false,
+      archivedAt: null,
       metrics,
       factCounts: bagFactCounts(bag),
     });
