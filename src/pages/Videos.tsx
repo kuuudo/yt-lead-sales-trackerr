@@ -65,7 +65,7 @@ import { useOrganization } from '../lib/useOrganization';
 import { useViewing } from '../lib/ViewingContext';
 import { videosPageCache } from '../lib/videosPageCache';
 import OnboardingVideoSection01 from '../components/onboarding/OnboardingVideo/OnboardingVideoSection01';
-import TrackingJourneyOnboardingVideo from '../components/onboarding/TrackingJourneyOnboardingVideo';
+import TrackingJourneyOnboardingVideo from '../components/onboarding/OnboardingVideo/TrackingJourneyOnboardingVideo';
 import { useTutorial } from '../lib/tutorial-overlay';
 import { videosTutorial } from '../lib/tutorials/videosTutorial';
 import { trackFirstContentGuide } from '../lib/tutorials/trackFirstContentGuide';
