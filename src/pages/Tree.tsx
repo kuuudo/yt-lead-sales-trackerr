@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { DashboardWidget } from '../components/DashboardWidget';
+import DashboardWidget from '../components/analytics/widgets/DashboardWidget';
 import CampaignStructureMap from './CampaignStructureMap';
 import CampaignJourneyMap from './CampaignJourneyMap';
 
