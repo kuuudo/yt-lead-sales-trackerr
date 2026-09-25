@@ -4,6 +4,7 @@ export const translations = {
   en: {
     nav: {
       dashboard: 'Summary',
+      tree: 'Tree',
       campaigns: 'Campaigns',
       videos: 'Content',
       assets: 'Assets',
@@ -106,6 +107,7 @@ export const translations = {
   tw: {
     nav: {
       dashboard: '概覽',
+      tree: '樹狀圖',
       campaigns: '營銷活動',
       videos: '内容列表',
       assets: '資產庫',

@@ -4,6 +4,7 @@
  */
 
 import React, { useState, useEffect, useRef } from 'react';
+import Tree from './pages/Tree';
 import { BrowserRouter as Router, Routes, Route, Link, useLocation, Navigate } from 'react-router-dom';
 import { LayoutDashboard, Globe, BarChart3, Video, Library, Briefcase, Users, LogOut, Loader2, User as UserIcon, DollarSign, Settings as SettingsIcon, Menu, X, Star, MessageSquareText, ChevronDown } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
@@ -70,7 +71,7 @@ import AssetAnalyticsMock from './pages/AssetAnalyticsMock';
 // renders the Track relay page — which should never show the app chrome.
 // Keep this in sync with the top-level routes registered in MainContent().
 const KNOWN_APP_PATHS = new Set([
-  'dashboard', 'campaigns', 'videos', 'assets', 'unmapped-videos',
+  'dashboard', 'tree', 'campaigns', 'videos', 'assets', 'unmapped-videos',
   'analytics', 'installation', 'settings', 'pricing', 'workspace',
   'marketplace', 'operator', 'testimonials', 'testimonialss', 'website',
   'analytics-test',
@@ -139,6 +140,7 @@ function Navigation() {
 
   const links = [
     { to: '/dashboard', icon: LayoutDashboard, label: t.nav.dashboard },
+    { to: '/tree', icon: Globe, label: t.nav.tree || 'Tree' },
     { to: '/campaigns', icon: Briefcase, label: t.nav.campaigns, children: [
       { to: '/analytics/indepth', label: 'Campaign Analytics' },
       { to: '/installation', label: t.nav.installation || 'Setup' },
@@ -556,6 +558,7 @@ function MainContent() {
     <AnimatePresence mode="wait">
       <Routes>
         <Route path="/dashboard" element={<PageWrapper><Dashboard /></PageWrapper>} />
+        <Route path="/tree" element={<PageWrapper><Tree /></PageWrapper>} />
         <Route path="/campaigns" element={<PageWrapper><Campaigns /></PageWrapper>} />
         <Route path="/videos" element={<PageWrapper><Videos /></PageWrapper>} />
         <Route path="/assets" element={<PageWrapper><Assets /></PageWrapper>} />

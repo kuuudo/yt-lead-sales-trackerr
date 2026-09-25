@@ -843,7 +843,11 @@ function collectNodeMeta(
 
 // ─── Component ──────────────────────────────────────────────────────────────
 
-export default function CampaignStructureMap() {
+interface CampaignStructureMapProps {
+  embedded?: boolean;
+}
+
+export default function CampaignStructureMap({ embedded = false }: CampaignStructureMapProps) {
   const { campaignId } = useParams<{ campaignId: string }>()
   const navigate = useNavigate()
   const containerRef = useRef<HTMLDivElement>(null)
@@ -1590,4 +1594,35 @@ const styles: Record<string, React.CSSProperties> = {
     minWidth: 36,
     textAlign: 'center',
   },
+}
+
+// ─── Embedded Export Wrapper ──────────────────────────────────────────────────
+export interface EmbeddedMapProps {
+  embedded?: boolean;
+}
+
+export function EmbeddedCampaignStructureMap({ embedded = false }: EmbeddedMapProps) {
+  return (
+    <div
+      style={{
+        position: embedded ? 'absolute' : 'fixed',
+        inset: 0,
+        top: embedded ? 0 : 56,
+        overflow: 'hidden',
+      }}
+    >
+      {embedded && (
+        <style>{`
+          .embedded-map-container header,
+          div[style*="borderBottom: 1px solid"],
+          div[style*="border-bottom"] {
+            display: none !important;
+          }
+        `}</style>
+      )}
+      <div className={embedded ? 'embedded-map-container' : ''} style={{ width: '100%', height: '100%' }}>
+        <CampaignStructureMap />
+      </div>
+    </div>
+  );
 }

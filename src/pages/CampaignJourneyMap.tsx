@@ -249,7 +249,11 @@ function buildLayout(paths: CampaignPath[]) {
 
 // ─── Component ──────────────────────────────────────────────────────────────
 
-export default function CampaignJourneyMap() {
+interface CampaignJourneyMapProps {
+  embedded?: boolean;
+}
+
+export default function CampaignJourneyMap({ embedded = false }: CampaignJourneyMapProps) {
   const { campaignId } = useParams<{ campaignId: string }>()
   const navigate = useNavigate()
   const containerRef = useRef<HTMLDivElement>(null)
@@ -915,3 +919,29 @@ const styles: Record<string, React.CSSProperties> = {
  *     - journeyDownstreamResolver.ts
  *   Send those and I can patch the actual resolver instead of guessing.
  */
+// Place at the bottom of CampaignJourneyMap.tsx
+export function EmbeddedCampaignJourneyMap({ embedded = false }: { embedded?: boolean }) {
+  return (
+    <div
+      style={{
+        position: embedded ? 'absolute' : 'fixed',
+        inset: 0,
+        top: embedded ? 0 : 56,
+        overflow: 'hidden',
+      }}
+    >
+      {embedded && (
+        <style>{`
+          .embedded-journey-container header,
+          div[style*="borderBottom: 1px solid"],
+          div[style*="border-bottom"] {
+            display: none !important;
+          }
+        `}</style>
+      )}
+      <div className={embedded ? 'embedded-journey-container' : ''} style={{ width: '100%', height: '100%' }}>
+        <CampaignJourneyMap />
+      </div>
+    </div>
+  );
+}
