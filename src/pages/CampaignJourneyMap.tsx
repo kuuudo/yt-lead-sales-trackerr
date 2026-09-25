@@ -77,11 +77,8 @@ const CAMPAIGN_PATHS: CampaignPath[] = [
     color: '#6366f1',
     icon: TrendingUp,
     angle: -90,
-    root: { id: 'sales_page', label: 'Sales Page' },
-    outcomes: [
-      { id: 'sales_thank_you', label: 'Sales Thank You' },
-      { id: 'sales_booking', label: 'Sales Booking' },
-    ],
+    root: { id: 'sales_call_booked', label: 'Sales Call Booked' },
+    outcomes: [{ id: 'sales_call', label: 'Sales Call' }],
   },
   {
     id: 'consultation',
