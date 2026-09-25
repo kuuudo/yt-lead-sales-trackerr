@@ -4,16 +4,44 @@ import React, { useEffect, useState } from "react";
    VSTRK — Onboarding video: "Build the journey backward, then
    understand tracking domains"
 
-   VISUALS ONLY — NO NARRATION YET.
+   PHASE 2 — NARRATION ADDED.
 
-   Per the brief, this file intentionally contains no voiceover,
-   subtitles, captions, or explanatory teaching copy. On-screen text
-   is limited to the minimum needed to identify UI elements (video
-   names, "Asset", domain names, page URLs). The narration track will
-   be generated separately once these 11 scenes are approved, and can
-   be dropped into a caption bar the same way Section 06 derives one
-   from a SEG_SOURCE array — see autoCaption() in that file for the
-   pattern to follow later.
+   Teaching narration/captions have now been layered onto the
+   existing, already-approved visual sequence. The scene order,
+   nodes, domains, and animation choreography are unchanged; only
+   (a) caption text, (b) how long each beat holds on screen, and
+   (c) small offsets *within* a beat (so a reveal lands next to the
+   sentence describing it) were touched. See CAPTION NOTES below for
+   exactly what changed and why.
+
+   CAPTION NOTES:
+     - Reused directly from Section 06: the caption-bar JSX/CSS
+       (centered serif paragraph, cross-fade via fadeWindow), and its
+       fade-timing shape (`lead`/`fade`/`tail` offsets in from a
+       window's start/end).
+     - Section 06's `autoCaption(key)` assumes exactly one caption
+       per top-level SEG entry. Several scenes here need more than
+       one sentence per visual beat (SC1's setup has 3 sentences;
+       SC_BUILD alone carries 4), so that assumption doesn't hold.
+       `windowCaption(text, start, end)` below is the same function
+       with that one assumption generalized: it takes an explicit
+       {start, end} window instead of a SEG key, so it works both for
+       a whole scene (one caption) and for a hand-placed sub-window
+       inside a scene (several captions). The fade math itself is
+       untouched.
+     - Reading time, not narration length alone, drove how long each
+       scene now holds: every beat was re-timed so the slowest of
+       (hear the line / read the caption / watch the reveal finish)
+       sets the pace, per the brief. Scenes with denser narration
+       (SC_BUILD, SC9, SC10, SC11) grew the most. Total runtime is
+       now well beyond the original silent-preview length — see the
+       implementation report for the exact before/after per scene.
+     - Within a beat, elements that already existed (nodes, chips,
+       arrows) were NOT reworked — only *when* they arrive was
+       nudged so a reveal lands under the sentence describing it
+       (e.g. the "fitnessbrand.com" chip now appears as the line
+       naming it plays, instead of earlier). Nothing was added,
+       removed, resized, or recolored.
 
    STORY (do not reorder — sequence is intentional):
      1.  Preview the finished journey A→B→C→D→E→F, then signal that
@@ -52,13 +80,18 @@ import React, { useEffect, useState } from "react";
 
    REUSED FROM SECTION 06: clamp / prog / fadeWindow / lerp /
    segOpacity (timing math), DrawLine (path reveal), Chip (tag/label
-   grammar), the violet accent + monospace UI language, and the
-   skip/replay control affordances.
+   grammar), the violet accent + monospace UI language, the
+   skip/replay control affordances, and the caption-bar pattern
+   (serif center-fade paragraph driven by fadeWindow).
 
    NEW IN THIS FILE: VideoNode, AssetTag, Arrow/ArrowHead, Bracket,
    ScreenFrame, DomainDivider — small primitives needed to depict
    actual VSTRK screens (Video Detail, Tracking Domains settings)
    and journey/domain relationships that Sections 01-06 didn't need.
+   Also windowCaption() — Section 06's autoCaption() generalized to
+   take an explicit {start, end} window instead of a SEG key, so a
+   single scene can carry more than one caption (see CAPTION NOTES
+   above).
 ----------------------------------------------------------------- */
 
 const INK = "#15151f";
@@ -75,16 +108,19 @@ const MUTED = "#9a9aa8";
    canvas, per the note above.
 ----------------------------------------------------------------- */
 const GAP = 280;
+// Durations below are sized for narration, not just the visual reveal:
+// each equals the sum of that scene's caption windows (see CAPTIONS),
+// so the slowest of "hear it / read it / watch it finish" sets the pace.
 const SCENE_SOURCE: [string, number][] = [
-  ["SC1", 4000], // preview finished journey + "build it backward"
-  ["SC_BUILD", 21200], // create F→asset, E, D, C, B, A, payoff
-  ["SC5", 5200], // root tracking domain concept
-  ["SC6", 4200], // messy cross-root-domain example
-  ["SC7", 4200], // Tracking Domains settings page
-  ["SC8", 4600], // Video Detail: add another tracking link
-  ["SC9", 4800], // second journey, shared Video B
-  ["SC10", 5200], // combined cross-domain journey
-  ["SC11", 5600], // 1 / 2 / 3+ root domains + WhatsApp
+  ["SC1", 17000], // preview finished journey + "build it backward" (3 lines)
+  ["SC_BUILD", 40200], // create F→asset, E, D, C, B, A, payoff (4 lines)
+  ["SC5", 18300], // root tracking domain concept (3 lines)
+  ["SC6", 19900], // messy cross-root-domain example (2 lines)
+  ["SC7", 9000], // Tracking Domains settings page (1 line)
+  ["SC8", 19000], // Video Detail: add another tracking link (2 lines)
+  ["SC9", 21600], // second journey, shared Video B (3 lines)
+  ["SC10", 26600], // combined cross-domain journey (4 lines)
+  ["SC11", 28300], // 1 / 2 / 3+ root domains + WhatsApp (4 lines)
 ];
 const SEG: Record<string, { start: number; end: number; dur: number }> = {};
 {
@@ -116,6 +152,151 @@ function at(sceneKey: string, offset: number, dur = 420) {
   const s = SEG[sceneKey].start + offset;
   return { start: s, end: s + dur };
 }
+/** helper: absolute-ms offset `offset` into scene `sceneKey` (for caption windows / sub-phase math) */
+function into(sceneKey: string, offset: number) {
+  return SEG[sceneKey].start + offset;
+}
+
+/* ---------------------------------------------------------------
+   Captions — see CAPTION NOTES at the top of this file.
+   windowCaption() is autoCaption() from Section 06 with the same
+   fade shape (lead in / cross-fade / tail out before the window
+   ends), generalized to take an explicit {start,end} window instead
+   of a single SEG key, since several scenes below carry more than
+   one caption.
+----------------------------------------------------------------- */
+function windowCaption(text: string, start: number, end: number, opts: { lead?: number; tail?: number; fade?: number } = {}) {
+  const { lead = 220, tail = 260, fade = 220 } = opts;
+  const a = start + lead;
+  const d = end - tail;
+  const b = Math.min(a + fade, a + (d - a) / 2);
+  const c = Math.max(b, d - fade);
+  return { text, a, b, c, d };
+}
+
+const CAPTIONS = [
+  // ---- SC1: why we build backward (3 lines) ----
+  windowCaption(
+    "Let's say you want to build a more complex marketing campaign, where multiple videos work together to educate and nurture a potential customer.",
+    into("SC1", 0), into("SC1", 7600)
+  ),
+  windowCaption(
+    "You might have one complete journey, from Video A all the way to Video F.",
+    into("SC1", 7600), into("SC1", 12400)
+  ),
+  windowCaption(
+    "But instead of starting with Video A, we're going to build this journey backward.",
+    into("SC1", 12400), into("SC1", 17000)
+  ),
+
+  // ---- SC_BUILD: start with F, E promotes F, repeat backward, payoff (4 lines) ----
+  windowCaption(
+    "So we start with the final piece, Video F. Once Video F is ready, we turn it into an asset — now there's something the previous video can promote.",
+    into("SC_BUILD", 0), into("SC_BUILD", 10000)
+  ),
+  windowCaption(
+    "Now we create Video E, and have it promote the Video F asset — so Video E leads into Video F. Then we turn Video E into an asset too, so the video before it can promote it.",
+    into("SC_BUILD", 10000), into("SC_BUILD", 22000)
+  ),
+  windowCaption(
+    "And we simply keep repeating that process — Video D promotes Video E, Video C promotes Video D, Video B promotes Video C, and finally Video A promotes Video B. By working backward, we build the entire journey one piece at a time.",
+    into("SC_BUILD", 22000), into("SC_BUILD", 35000)
+  ),
+  windowCaption(
+    "And now we have our complete journey — from Video A all the way to Video F.",
+    into("SC_BUILD", 35000), into("SC_BUILD", 40200)
+  ),
+
+  // ---- SC5: one root tracking domain (3 lines) ----
+  windowCaption(
+    "Now let's talk about tracking domains. For each user journey, we recommend keeping everything under one root tracking domain.",
+    into("SC5", 0), into("SC5", 6200)
+  ),
+  windowCaption(
+    "You can still use different subdomains, like go.novashop.com, fly.novashop.com, or cpu.novashop.com — they're all still part of the same root domain: novashop.com.",
+    into("SC5", 6200), into("SC5", 13900)
+  ),
+  windowCaption(
+    "You can create and manage these tracking domains from your Tracking Domains settings.",
+    into("SC5", 13900), into("SC5", 18300)
+  ),
+
+  // ---- SC6: multiple root domains (2 lines) ----
+  windowCaption(
+    "What we don't recommend is constantly jumping between unrelated root domains in the same journey — going from novashop.com, to otherbrand.com, to anotherbrand.com creates multiple domain boundaries inside one journey.",
+    into("SC6", 0), into("SC6", 9200)
+  ),
+  windowCaption(
+    "VSTRK can technically handle more complex cross-domain journeys, but every extra root domain makes the tracking relationship harder to manage. For a normal journey, keeping everything under one root domain is simpler and safer.",
+    into("SC6", 9200), into("SC6", 19900)
+  ),
+
+  // ---- SC7: Tracking Domains settings (1 line) ----
+  windowCaption(
+    "And this is where you manage those tracking domains in VSTRK — you can have multiple subdomains, while keeping them organized under the same root domain for the journey.",
+    into("SC7", 0), into("SC7", 9000)
+  ),
+
+  // ---- SC8: add another tracking link from Video Detail (2 lines) ----
+  windowCaption(
+    "Here's another useful feature. From Video Detail, you can add another tracking link to a video. So even though Video D is already part of our A-to-F journey, you might also want it to promote another piece of content, like Video M.",
+    into("SC8", 0), into("SC8", 13100)
+  ),
+  windowCaption(
+    "That doesn't mean we've changed the original journey — we've simply given Video D another path it can promote.",
+    into("SC8", 13100), into("SC8", 19000)
+  ),
+
+  // ---- SC9: a second journey can share Video B (3 lines) ----
+  windowCaption(
+    "Now let's make this a little more interesting — maybe Video M starts a completely different user journey: Video M leads to Video N, then to Video B, and eventually to Video V.",
+    into("SC9", 0), into("SC9", 10100)
+  ),
+  windowCaption(
+    "This second journey can use a different root tracking domain, like fitnessbrand.com.",
+    into("SC9", 10100), into("SC9", 14200)
+  ),
+  windowCaption(
+    "Notice that Video B is shared between these two journeys — the same piece of content can be part of more than one journey.",
+    into("SC9", 14200), into("SC9", 21600)
+  ),
+
+  // ---- SC10: cross-domain journey (4 lines) ----
+  windowCaption(
+    "So what happens when someone actually moves from one journey into another? VSTRK can handle that too.",
+    into("SC10", 0), into("SC10", 5600)
+  ),
+  windowCaption(
+    "In this example, the journey starts under novashop.com, moves through Video D, then continues through Video M and Video N, and eventually reaches Video B and Video V under fitnessbrand.com.",
+    into("SC10", 5600), into("SC10", 15100)
+  ),
+  windowCaption(
+    "So VSTRK can track a single user journey across two different root domains.",
+    into("SC10", 15100), into("SC10", 19500)
+  ),
+  windowCaption(
+    "And two root domains can be perfectly reasonable — as long as there's a real business reason for the journey to cross domains.",
+    into("SC10", 19500), into("SC10", 26600)
+  ),
+
+  // ---- SC11: one, two, or more root domains (4 lines) ----
+  windowCaption(
+    "Our recommendation is simple: use one root tracking domain whenever you can.",
+    into("SC11", 0), into("SC11", 4100)
+  ),
+  windowCaption(
+    "If your journey genuinely needs to cross into a second root domain, that's okay.",
+    into("SC11", 4100), into("SC11", 8800)
+  ),
+  windowCaption(
+    "But once you start adding a third, fourth, or more root domains, the journey becomes much harder to manage and secure.",
+    into("SC11", 8800), into("SC11", 15600)
+  ),
+  windowCaption(
+    "More complex setups may technically be possible — but we strongly recommend talking to us first. If you need a more complex multi-domain journey, message us on WhatsApp and we'll help you figure out the right setup.",
+    into("SC11", 15600), into("SC11", 28300)
+  ),
+];
 
 /* ---------------- Visual primitives ---------------- */
 
@@ -299,14 +480,22 @@ export default function TrackingJourneyOnboardingVideo({ onSkip, onComplete }: T
   const CHAIN_LABEL = ["Video A", "Video B", "Video C", "Video D", "Video E", "Video F"];
   const CHAIN_Y = 300;
 
-  const s1NodeIn = CHAIN_X.map((_, i) => at("SC1", 120 + i * 210, 320));
-  const s1ArrowIn = CHAIN_X.slice(0, -1).map((_, i) => at("SC1", 120 + (i + 1) * 210 + 120, 260));
-  const s1BackwardIn = at("SC1", 120 + 6 * 210 + 260, 480);
+  // Nodes fade in one-by-one across caption 1 ("multiple videos work
+  // together"); arrows connect them across caption 2 ("one complete
+  // journey, A to F"); the backward signal lands with caption 3.
+  const s1NodeIn = CHAIN_X.map((_, i) => at("SC1", 300 + i * 1300, 420));
+  const s1ArrowIn = CHAIN_X.slice(0, -1).map((_, i) => at("SC1", 7900 + i * 780, 380));
+  const s1BackwardIn = at("SC1", 12700, 600);
   const s1DimAmt = fadeWindow(t, s1BackwardIn.start, s1BackwardIn.end, Infinity, Infinity) * 0.5;
 
   /* ================= SCENE: BUILD (F, E, D, C, B, A, payoff) ================= */
   // Each phase offset is measured from SC_BUILD.start.
-  const P_F = 0, P_E = 4000, P_D = 7800, P_C = 11000, P_B = 14200, P_A = 17400, P_PAYOFF = 20200;
+  // Phase starts now match the 4 caption windows above (F | E | D-C-B-A | payoff).
+  // Each phase's own internal reveal offsets (node → arrow → asset tag) are
+  // unchanged — they still fire in the first ~1.2-3.7s of the phase, exactly as
+  // before; the extra room simply lets that reveal hold on screen while its
+  // sentence is read, instead of cutting to the next phase immediately after.
+  const P_F = 0, P_E = 10000, P_D = 22000, P_C = 25200, P_B = 28400, P_A = 31600, P_PAYOFF = 35000;
 
   const fNodeIn = at("SC_BUILD", P_F + 100, 380);
   const fArrowDownIn = at("SC_BUILD", P_F + 700, 420);
@@ -348,55 +537,66 @@ export default function TrackingJourneyOnboardingVideo({ onSkip, onComplete }: T
 
   /* ================= SCENE 5 — root tracking domain ================= */
   const s5SubX = CHAIN_X.slice(0, 4); // A..D positions
-  const s5NodeIn = s5SubX.map((_, i) => at("SC5", 60 + i * 90, 300));
-  const s5ArrowIn = s5SubX.slice(0, -1).map((_, i) => at("SC5", 60 + (i + 1) * 90 + 60, 260));
+  // Caption 1 (0-6200): the generic "one root domain" idea — journey nodes only.
+  const s5NodeIn = s5SubX.map((_, i) => at("SC5", 300 + i * 1400, 400));
+  const s5ArrowIn = s5SubX.slice(0, -1).map((_, i) => at("SC5", 1000 + i * 1400, 350));
+  // Caption 2 (6200-13900): subdomains named, then grouped under the root pill.
   const s5SubdomainLabels = ["go.novashop.com", "fly.novashop.com", "cpu.novashop.com"];
-  const s5SubdomainIn = s5SubdomainLabels.map((_, i) => at("SC5", 700 + i * 220, 360));
-  const s5BracketIn = at("SC5", 1700, 500);
-  const s5RootIn = at("SC5", 2150, 420);
-  const s5UrlChipIn = at("SC5", 2900, 420);
+  const s5SubdomainIn = s5SubdomainLabels.map((_, i) => at("SC5", 6500 + i * 1600, 400));
+  const s5BracketIn = at("SC5", 12000, 600);
+  const s5RootIn = at("SC5", 12800, 500);
+  // Caption 3 (13900-18300): where to manage them.
+  const s5UrlChipIn = at("SC5", 14200, 500);
 
   /* ================= SCENE 6 — messy cross-root-domain example ================= */
   const s6Labels = ["go.novashop.com", "go.otherbrand.com", "go.anotherbrand.com"];
   const s6X = [190, 480, 770];
   const s6Y = 260;
-  const s6NodeIn = s6Labels.map((_, i) => at("SC6", 150 + i * 500, 380));
-  const s6ArrowIn = [at("SC6", 700, 380), at("SC6", 1200, 380)];
+  // Caption 1 (0-9200): the three domain chips appearing, one jump at a time.
+  const s6NodeIn = s6Labels.map((_, i) => at("SC6", 400 + i * 2800, 500));
+  const s6ArrowIn = [at("SC6", 2000, 500), at("SC6", 4800, 500)];
   const s6RootColors = [ACCENT, "#a9539a", WARN];
-  const s6RootIn = s6Labels.map((_, i) => at("SC6", 2000 + i * 260, 380));
-  const s6NoteIn = at("SC6", 3100, 500);
+  // Caption 2 (9200-19900): the root-domain boundaries, then the warning line.
+  const s6RootIn = s6Labels.map((_, i) => at("SC6", 9600 + i * 2800, 500));
+  const s6NoteIn = at("SC6", 16200, 600);
 
   /* ================= SCENE 7 — Tracking Domains settings page ================= */
-  const s7FrameIn = at("SC7", 80, 500);
+  const s7FrameIn = at("SC7", 300, 600);
   const s7RowLabels = ["go.novashop.com", "fly.novashop.com", "cpu.novashop.com"];
-  const s7RowIn = s7RowLabels.map((_, i) => at("SC7", 700 + i * 260, 340));
-  const s7RootIn = at("SC7", 1700, 420);
-  const s7ConnectIn = at("SC7", 2200, 500);
+  const s7RowIn = s7RowLabels.map((_, i) => at("SC7", 1800 + i * 1800, 500));
+  const s7RootIn = at("SC7", 6800, 500);
+  const s7ConnectIn = at("SC7", 7600, 600);
 
   /* ================= SCENE 8 — Video Detail: add a tracking link ================= */
-  const s8FrameIn = at("SC8", 80, 500);
-  const s8ExistingRowIn = at("SC8", 700, 360);
-  const s8ButtonIn = at("SC8", 1150, 360);
-  const s8NewRowIn = at("SC8", 1750, 420);
-  const s8DiagramIn = at("SC8", 2400, 480);
-  const s8BranchArrowIn = at("SC8", 2900, 420);
+  // Caption 1 (0-13100): Video Detail screen — existing link, then the new one.
+  const s8FrameIn = at("SC8", 300, 600);
+  const s8ExistingRowIn = at("SC8", 2000, 500);
+  const s8ButtonIn = at("SC8", 5000, 500);
+  const s8NewRowIn = at("SC8", 8500, 600);
+  // Caption 2 (13100-19000): the reassurance — D still leads into E→F, plus M.
+  const s8DiagramIn = at("SC8", 13400, 650);
+  const s8BranchArrowIn = at("SC8", 15300, 600);
 
   /* ================= SCENE 9 — second journey, shared Video B ================= */
   const J1_X = [90, 254, 418, 582, 746, 910];
   const J1_Y = 170;
   const J1_LABEL = ["A", "B", "C", "D", "E", "F"];
-  const s9J1TitleIn = at("SC9", 60, 360);
-  const s9J1NodeIn = J1_X.map((_, i) => at("SC9", 300 + i * 130, 280));
-  const s9J1RootIn = at("SC9", 1300, 380);
+  // Caption 1 (0-10100): quick Journey 1 recap, then Journey 2 builds
+  // node-by-node as the narration lists "M leads to N, then to B, then to V".
+  const s9J1TitleIn = at("SC9", 100, 400);
+  const s9J1NodeIn = J1_X.map((_, i) => at("SC9", 500 + i * 250, 300));
+  const s9J1RootIn = at("SC9", 2400, 400);
 
   const J2_X = [150, 350, 550, 750];
   const J2_Y = 400;
   const J2_LABEL = ["M", "N", "B", "V"];
-  const s9J2TitleIn = at("SC9", 1900, 360);
-  const s9J2NodeIn = J2_X.map((_, i) => at("SC9", 2150 + i * 160, 280));
-  const s9J2RootIn = at("SC9", 3050, 380);
-  const s9SharedConnectIn = at("SC9", 3600, 600);
-  const s9SharedPulseStart = SEG.SC9.start + 4200;
+  const s9J2TitleIn = at("SC9", 3200, 400);
+  const s9J2NodeIn = J2_X.map((_, i) => at("SC9", 3800 + i * 1500, 350));
+  // Caption 2 (10100-14200): the second journey's own root domain.
+  const s9J2RootIn = at("SC9", 10400, 450);
+  // Caption 3 (14200-21600): Video B is shared between the two journeys.
+  const s9SharedConnectIn = at("SC9", 14500, 700);
+  const s9SharedPulseStart = SEG.SC9.start + 15400;
   const s9SharedPulse = t > s9SharedPulseStart && t < SEG.SC9.end - 200
     ? Math.sin(prog(t, s9SharedPulseStart, SEG.SC9.end - 200) * Math.PI) : 0;
 
@@ -404,20 +604,24 @@ export default function TrackingJourneyOnboardingVideo({ onSkip, onComplete }: T
   const S10_X = [80, 200, 320, 440, 560, 680, 800, 920];
   const S10_LABEL = ["A", "B", "C", "D", "M", "N", "B", "V"];
   const S10_TONE = [ACCENT, ACCENT, ACCENT, ACCENT, ACCENT2, ACCENT2, ACCENT2, ACCENT2];
-  const s10NodeIn = S10_X.map((_, i) => at("SC10", 60 + i * 170, 300));
-  const s10ArrowIn = S10_X.slice(0, -1).map((_, i) => at("SC10", 60 + (i + 1) * 170 + 60, 240));
-  const s10BoundaryIn = at("SC10", 1900, 500);
-  const s10LeftRootIn = at("SC10", 2450, 380);
-  const s10RightRootIn = at("SC10", 2750, 380);
-  const s10SharedPulseStart = SEG.SC10.start + 3400;
+  // Nodes/arrows walk through across captions 1-2 (0-15100), matching
+  // "the journey starts under novashop.com ... reaches B and V under
+  // fitnessbrand.com". Captions 3-4 then hold on the finished diagram
+  // as the summary/recommendation plays — no new reveals needed there.
+  const s10NodeIn = S10_X.map((_, i) => at("SC10", 3000 + i * 1500, 350));
+  const s10ArrowIn = S10_X.slice(0, -1).map((_, i) => at("SC10", 3750 + i * 1500, 300));
+  const s10BoundaryIn = at("SC10", 8300, 500);
+  const s10LeftRootIn = at("SC10", 4800, 450);
+  const s10RightRootIn = at("SC10", 9500, 450);
+  const s10SharedPulseStart = SEG.SC10.start + 14000;
   const s10SharedPulse = t > s10SharedPulseStart && t < SEG.SC10.end - 200
     ? Math.sin(prog(t, s10SharedPulseStart, SEG.SC10.end - 200) * Math.PI) : 0;
 
   /* ================= SCENE 11 — 1 / 2 / 3+ root domains + WhatsApp ================= */
-  const s11Row1In = at("SC11", 100, 420);
-  const s11Row2In = at("SC11", 900, 420);
-  const s11Row3In = at("SC11", 1900, 420);
-  const s11ContactIn = at("SC11", 3600, 500);
+  const s11Row1In = at("SC11", 300, 500); // caption 1: one root domain
+  const s11Row2In = at("SC11", 4400, 500); // caption 2: a second is okay
+  const s11Row3In = at("SC11", 9100, 500); // caption 3: 3+ gets harder to manage
+  const s11ContactIn = at("SC11", 18100, 600); // caption 4: talk to us / WhatsApp
 
   return (
     <div style={{
@@ -624,7 +828,30 @@ export default function TrackingJourneyOnboardingVideo({ onSkip, onComplete }: T
         </svg>
       </div>
 
-      {/* ---------- Playback controls (no caption bar yet — narration TBD) ---------- */}
+      {/* ---------- Caption bar ----------
+          Same pattern as Section 06 (centered serif paragraph, cross-fades
+          via fadeWindow, sits below the canvas so it never overlaps the
+          animation). Taller and slightly smaller type than Section 06's,
+          since these lines run longer (up to ~40 words vs. one short
+          sentence there) and need room to wrap onto several lines without
+          crowding the canvas above. */}
+      <div style={{ position: "relative", width: "100%", maxWidth: 720, minHeight: 118, margin: "10px auto 0", display: "flex", alignItems: "center", justifyContent: "center", padding: "0 12px" }}>
+        {CAPTIONS.map((c, i) => {
+          const op = fadeWindow(t, c.a, c.b, c.c, c.d);
+          if (op <= 0.001) return null;
+          return (
+            <p key={i} style={{
+              position: "absolute", margin: 0, fontFamily: "Georgia, 'Iowan Old Style', 'Palatino Linotype', serif",
+              fontSize: 18.5, fontWeight: 400, color: INK, opacity: op, letterSpacing: 0.1, textAlign: "center",
+              whiteSpace: "pre-line", lineHeight: 1.42,
+            }}>
+              {c.text}
+            </p>
+          );
+        })}
+      </div>
+
+      {/* ---------- Playback controls ---------- */}
       {!finished ? (
         <button type="button" onClick={onSkip} style={{
           position: "absolute", top: 14, right: 18,
