@@ -89,8 +89,8 @@ const CAMPAIGN_PATHS: CampaignPath[] = [
     color: '#10b981',
     icon: CalendarCheck,
     angle: 0,
-    root: { id: 'consultation', label: 'Consultation' },
-    outcomes: [{ id: 'consultation_booking', label: 'Consultation Booking' }],
+    root: { id: 'consultation_booking', label: 'Consultation Booking' },
+    outcomes: [{ id: 'consultation', label: 'Consultation' }],
   },
   {
     id: 'newsletter',
@@ -107,8 +107,8 @@ const CAMPAIGN_PATHS: CampaignPath[] = [
     color: '#ea580c',
     icon: ShoppingCart,
     angle: 180,
-    root: { id: 'direct_purchase', label: 'Direct Purchase' },
-    outcomes: [{ id: 'direct_purchase_thank_you', label: 'Direct Purchase Thank You' }],
+    root: { id: 'direct_purchase_thank_you', label: 'Direct Purchase Thank You' },
+    outcomes: [{ id: 'direct_purchase', label: 'Direct Purchase' }],
   },
 ]
 
