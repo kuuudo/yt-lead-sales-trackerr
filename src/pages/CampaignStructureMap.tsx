@@ -296,13 +296,20 @@ function useCampaignStructureData(
           ? await supabase
               .from('assets')
               .select(
-                'id, created_at, videos(video_title, thumbnail_url), asset_resources(title, thumbnail_url), campaign_element_assets(display_name)',
+                'id, created_at, asset_type, videos(video_title, thumbnail_url, platform), asset_resources(title, thumbnail_url), campaign_element_assets(display_name)',
               )
               .in('id', allAssetIds)
           : { data: [] as any[] }
         const assetTitleById = new Map<string, string>()
         const assetCreatedAtById = new Map<string, string | null>()
         const assetThumbnailById = new Map<string, string | null>()
+        // Thumbnail eligibility (this patch only): true iff the asset is a
+        // video asset (asset_type is neither 'campaign_element' nor
+        // 'resource' — same discriminator AllAssetsAnalytics.tsx's
+        // assetDisplay map uses for its own 3-way thumbnail branch) AND its
+        // platform is YouTube, with the same (platform ?? 'youtube') null
+        // default AllAssetsAnalytics.tsx already uses for platform counts.
+        const assetIsYouTubeVideoById = new Map<string, boolean>()
         for (const row of assetRows ?? []) {
           const v = Array.isArray((row as any).videos) ? (row as any).videos[0] : (row as any).videos
           const res = Array.isArray((row as any).asset_resources)
@@ -315,6 +322,10 @@ function useCampaignStructureData(
           if (title) assetTitleById.set((row as any).id, title)
           assetCreatedAtById.set((row as any).id, (row as any).created_at ?? null)
           assetThumbnailById.set((row as any).id, v?.thumbnail_url ?? res?.thumbnail_url ?? null)
+          const assetType = (row as any).asset_type
+          const isVideoAsset = assetType !== 'campaign_element' && assetType !== 'resource'
+          const isYouTube = (v?.platform ?? 'youtube') === 'youtube'
+          assetIsYouTubeVideoById.set((row as any).id, isVideoAsset && isYouTube)
         }
 
         // Marketer (owner) -> set of promotion ids.
@@ -349,7 +360,7 @@ function useCampaignStructureData(
                 label: assetTitleById.get(assetId) ?? assetId,
                 kind: 'asset',
                 color,
-                thumbnailUrl: assetThumbnailById.get(assetId) ?? null,
+                thumbnailUrl: assetIsYouTubeVideoById.get(assetId) ? assetThumbnailById.get(assetId) ?? null : null,
               })),
             })),
           }
@@ -366,7 +377,7 @@ function useCampaignStructureData(
             label: assetTitleById.get(assetId) ?? assetId,
             kind: 'asset',
             color: '#10b981',
-            thumbnailUrl: assetThumbnailById.get(assetId) ?? null,
+            thumbnailUrl: assetIsYouTubeVideoById.get(assetId) ? assetThumbnailById.get(assetId) ?? null : null,
           }),
         )
 
