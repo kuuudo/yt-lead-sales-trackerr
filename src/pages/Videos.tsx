@@ -65,6 +65,7 @@ import { useOrganization } from '../lib/useOrganization';
 import { useViewing } from '../lib/ViewingContext';
 import { videosPageCache } from '../lib/videosPageCache';
 import OnboardingVideoSection01 from '../components/onboarding/OnboardingVideo/OnboardingVideoSection01';
+import TrackingJourneyOnboardingVideo from '../components/onboarding/TrackingJourneyOnboardingVideo';
 import { useTutorial } from '../lib/tutorial-overlay';
 import { videosTutorial } from '../lib/tutorials/videosTutorial';
 import { trackFirstContentGuide } from '../lib/tutorials/trackFirstContentGuide';
@@ -599,6 +600,7 @@ export default function Videos() {
   const [showAdd, setShowAdd] = useState(false);
   const [showImportWizard, setShowImportWizard] = useState(false);
   const [showOnboarding, setShowOnboarding] = useState(false);
+  const [showAdvancedJourneysVideo, setShowAdvancedJourneysVideo] = useState(false);
   const { start: startTutorial, tutorial: activeTutorial, stepIndex: tutorialStepIndex, status: tutorialStatus, notify: notifyTutorial } = useTutorial();
   const handleStartVideosTour = () => {
     setShowOnboarding(false);
@@ -608,6 +610,11 @@ export default function Videos() {
     setShowOnboarding(false);
     startTutorial(trackFirstContentGuide);
   };
+
+  const handleStartAdvancedJourneysTour = () => {
+  setShowOnboarding(false);
+  setShowAdvancedJourneysVideo(true);
+};
 
     useEffect(() => {
     if (
@@ -4266,7 +4273,7 @@ setEditingVideoId(v.id);
         )}
       </AnimatePresence>
 
-      <Modal
+        <Modal
         isOpen={modalConfig.isOpen}
         onClose={() => setModalConfig({ ...modalConfig, isOpen: false })}
         title={modalConfig.title}
@@ -4288,11 +4295,30 @@ setEditingVideoId(v.id);
 */}
     <button
       type="button"
-      onClick={handleStartVideosTour}
+      onClick={handleStartAdvancedJourneysTour}
+      className="fixed top-[14px] left-[18px]"
       style={{
-        position: 'fixed',
-        top: 14,
-        left: 18,
+        zIndex: 20001,
+        padding: '6px 14px',
+        borderRadius: 999,
+        border: '1px solid #f97316',
+        background: '#f97316',
+        color: '#000000',
+        fontSize: 11,
+        fontWeight: 700,
+        letterSpacing: 0.4,
+        textTransform: 'uppercase',
+        cursor: 'pointer',
+      }}
+    >
+      Build Advanced Marketing Journeys
+    </button>
+
+    <button
+      type="button"
+      onClick={handleStartVideosTour}
+      className="fixed top-[52px] left-[18px] sm:top-[14px] sm:left-[300px]"
+      style={{
         zIndex: 20001,
         padding: '6px 14px',
         borderRadius: 999,
@@ -4312,7 +4338,7 @@ setEditingVideoId(v.id);
     <button
       type="button"
       onClick={handleStartTrackFirstContentGuide}
-      className="track-first-content-button top-[52px] left-[18px] sm:top-[14px] sm:left-[210px]"
+      className="track-first-content-button top-[90px] left-[18px] sm:top-[14px] sm:left-[480px]"
       style={{
         position: 'fixed',
         zIndex: 20001,
@@ -4337,6 +4363,16 @@ setEditingVideoId(v.id);
     />
   </div>
 )}
+
+{showAdvancedJourneysVideo && (
+  <div className="fixed inset-0 z-[20000] bg-white overflow-auto">
+    <TrackingJourneyOnboardingVideo
+      onSkip={() => setShowAdvancedJourneysVideo(false)}
+      onComplete={() => setShowAdvancedJourneysVideo(false)}
+    />
+  </div>
+)}
+
       {/* Phase 2.5: YouTube Analytics Import Overlay */}
       {showImportWizard && (
         <YouTubeImportPanel onClose={() => setShowImportWizard(false)} isReadOnly={isReadOnly} />
