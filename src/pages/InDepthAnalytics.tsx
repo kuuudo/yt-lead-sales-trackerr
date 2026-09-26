@@ -67,7 +67,7 @@ import {
 import {
   BarChart3, Calendar, Filter, ChevronLeft,
   MousePointer2, DollarSign, Users, Phone, Briefcase,
-  Activity, User, ArrowUpDown, ExternalLink, Loader2, X,
+  Activity, User, ArrowUpDown, ExternalLink, Loader2, X, Menu,
   Columns, Check, ChevronDown,
 } from 'lucide-react';
 
@@ -268,6 +268,18 @@ export default function InDepthAnalyticsTest() {
   // Columns dropdown open
   const [columnsOpen, setColumnsOpen] = useState(false);
   const columnsRef = useRef<HTMLDivElement>(null);
+
+  // Mobile presentation only (imitates AllAssets interaction, not its analytics model).
+  const [isMobileLandscape, setIsMobileLandscape] = useState(false);
+  const [mobileTab, setMobileTab] = useState<'cards' | 'table'>('cards');
+  const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
+  useEffect(() => {
+    const mq = window.matchMedia('(max-width: 1023px) and (orientation: landscape)');
+    const update = () => setIsMobileLandscape(mq.matches);
+    update();
+    mq.addEventListener('change', update);
+    return () => mq.removeEventListener('change', update);
+  }, []);
 
   // Close columns dropdown on outside click
   useEffect(() => {
@@ -602,7 +614,7 @@ export default function InDepthAnalyticsTest() {
 
       {/* ── Sidebar (unchanged) ─────────────────────────────────────────── */}
       <aside
-        className={`w-80 bg-zinc-950 border-r border-zinc-900 flex flex-col shrink-0 transition-all duration-300 ${
+        className={`hidden lg:flex w-80 bg-zinc-950 border-r border-zinc-900 flex-col shrink-0 transition-all duration-300 ${
           isSidebarOpen ? 'ml-0' : '-ml-80'
         } lg:relative z-50`}
       >
@@ -836,7 +848,216 @@ export default function InDepthAnalyticsTest() {
       {/* ── Main content ─────────────────────────────────────────────────── */}
       <div className="flex-1 flex flex-col h-full overflow-hidden bg-black relative">
 
+        {/* Mobile filter sheet — same state as desktop sidebar */}
+        {mobileMenuOpen && (
+          <div className="lg:hidden fixed inset-0 z-[9500] flex flex-col justify-end bg-black/70">
+            <div className="max-h-[85vh] bg-zinc-950 border-t border-zinc-800 rounded-t-3xl overflow-y-auto custom-scrollbar px-6 pt-5 pb-8 space-y-8">
+              <div className="flex items-center justify-between sticky top-0 bg-zinc-950 pb-3 -mt-5 pt-5 -mx-6 px-6 border-b border-zinc-900">
+                <span className="text-xs font-black uppercase tracking-widest text-white">Filters & Sort</span>
+                <button
+                  type="button"
+                  onClick={() => setMobileMenuOpen(false)}
+                  className="p-2 bg-zinc-900 border border-zinc-800 rounded-xl text-zinc-400"
+                >
+                  <X size={16} />
+                </button>
+              </div>
+
+              <div>
+                <label className="text-[10px] font-black uppercase tracking-widest text-zinc-500 mb-3 block">Date Range</label>
+                <select
+                  value={dateRange}
+                  onChange={e => {
+                    const v = e.target.value as DateRange;
+                    setDateRange(v);
+                    if (v !== 'custom') setCustomRange(null);
+                  }}
+                  className="w-full bg-zinc-900 border border-zinc-800 rounded-xl px-4 py-2.5 text-[10px] font-bold uppercase tracking-widest outline-none focus:border-red-600 appearance-none cursor-pointer"
+                >
+                  <option value="7days">Last 7 Days</option>
+                  <option value="30days">Last 30 Days</option>
+                  <option value="2months">Last 2 Months</option>
+                  <option value="6months">Last 6 Months</option>
+                  <option value="1year">Last Year</option>
+                  <option value="all">Lifetime</option>
+                  <option value="custom">Custom Range</option>
+                </select>
+                {dateRange === 'custom' && (
+                  <div className="mt-3 grid grid-cols-2 gap-2">
+                    <input
+                      type="date"
+                      value={typeof customRange?.start === 'string' ? customRange.start : ''}
+                      onChange={e => {
+                        const start = e.target.value;
+                        setCustomRange(prev => ({
+                          start,
+                          end: (typeof prev?.end === 'string' && prev.end) || start,
+                        }));
+                      }}
+                      className="w-full bg-zinc-900 border border-zinc-800 rounded-xl px-3 py-2 text-[10px] font-bold outline-none focus:border-red-600 [color-scheme:dark]"
+                    />
+                    <input
+                      type="date"
+                      value={typeof customRange?.end === 'string' ? customRange.end : ''}
+                      onChange={e => {
+                        const end = e.target.value;
+                        setCustomRange(prev => ({
+                          start: (typeof prev?.start === 'string' && prev.start) || end,
+                          end,
+                        }));
+                      }}
+                      className="w-full bg-zinc-900 border border-zinc-800 rounded-xl px-3 py-2 text-[10px] font-bold outline-none focus:border-red-600 [color-scheme:dark]"
+                    />
+                  </div>
+                )}
+              </div>
+
+              <div>
+                <label className="text-[10px] font-black uppercase tracking-widest text-zinc-500 mb-3 block">Source</label>
+                <div className="flex gap-1.5">
+                  {(['total', 'pixel', 'stripe'] as RevenueView[]).map(v => (
+                    <button
+                      key={v}
+                      type="button"
+                      onClick={() => setActiveSource(v)}
+                      className={`flex-1 py-2 rounded-lg text-[9px] font-black uppercase tracking-widest border transition-all ${
+                        activeSource === v
+                          ? 'bg-red-600 border-red-600 text-white'
+                          : 'bg-zinc-900 border-zinc-800 text-zinc-500'
+                      }`}
+                    >
+                      {v}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              <div>
+                <label className="text-[10px] font-black uppercase tracking-widest text-zinc-500 mb-3 block">Campaign</label>
+                <select
+                  value={selectedCampaignId}
+                  onChange={e => setSelectedCampaignId(e.target.value)}
+                  className="w-full bg-zinc-900 border border-zinc-800 rounded-xl px-4 py-2.5 text-[10px] font-bold uppercase tracking-widest outline-none focus:border-red-600 appearance-none cursor-pointer"
+                >
+                  <option value="all">All Campaigns</option>
+                  {campaigns.map(c => (
+                    <option key={c.id} value={c.id}>{c.campaign_name}</option>
+                  ))}
+                </select>
+              </div>
+
+              <div>
+                <label className="text-[10px] font-black uppercase tracking-widest text-zinc-500 mb-3 block">Content source</label>
+                <div className="space-y-1.5">
+                  {([
+                    { key: 'standard', label: 'My content (default)' },
+                    { key: 'creative_to_me', label: 'Creative · Assigned to me' },
+                    { key: 'creative_by_me', label: 'Creative · Assigned by me' },
+                  ] as const).map(opt => (
+                    <button
+                      key={opt.key}
+                      type="button"
+                      onClick={() => setContentScope(opt.key)}
+                      className={`w-full text-left px-3 py-2 rounded-lg text-[9px] font-black uppercase tracking-widest border transition-all ${
+                        contentScope === opt.key
+                          ? 'bg-red-600 border-red-600 text-white'
+                          : 'bg-zinc-900 border-zinc-800 text-zinc-500'
+                      }`}
+                    >
+                      {opt.label}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              <div>
+                <label className="text-[10px] font-black uppercase tracking-widest text-zinc-500 mb-3 block">Filter by Goal</label>
+                <div className="flex flex-wrap gap-1.5">
+                  {[
+                    { id: 'sales', label: 'Direct Sales' },
+                    { id: 'newsletter', label: 'Newsletter' },
+                    { id: 'calls', label: 'Sales Calls' },
+                    { id: 'consult', label: 'Paid Consult' },
+                    { id: 'viral', label: 'Awareness' },
+                  ].map(goal => (
+                    <button
+                      key={goal.id}
+                      type="button"
+                      onClick={() =>
+                        setSelectedGoals(prev =>
+                          prev.includes(goal.id)
+                            ? prev.filter(g => g !== goal.id)
+                            : [...prev, goal.id],
+                        )
+                      }
+                      className={`px-2.5 py-1.5 rounded-lg text-[8px] font-black uppercase tracking-widest border transition-all ${
+                        selectedGoals.includes(goal.id)
+                          ? 'bg-red-600 border-red-600 text-white'
+                          : 'bg-zinc-900 border-zinc-800 text-zinc-500'
+                      }`}
+                    >
+                      {goal.label}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              <div>
+                <label className="text-[10px] font-black uppercase tracking-widest text-zinc-500 mb-3 block">Lead Magnet</label>
+                <div className="space-y-1.5 max-h-40 overflow-y-auto">
+                  {leadMagnets
+                    .filter(lm => selectedCampaignId === 'all' || lm.campaign_id === selectedCampaignId)
+                    .map(lm => (
+                      <button
+                        key={lm.id}
+                        type="button"
+                        onClick={() =>
+                          setSelectedLeadMagnets(prev =>
+                            prev.includes(lm.id)
+                              ? prev.filter(id => id !== lm.id)
+                              : [...prev, lm.id],
+                          )
+                        }
+                        className={`w-full text-left p-2 rounded-lg text-[9px] font-bold uppercase truncate transition-all ${
+                          selectedLeadMagnets.includes(lm.id)
+                            ? 'bg-zinc-800 text-white'
+                            : 'text-zinc-600'
+                        }`}
+                      >
+                        {lm.lead_magnet_name}
+                      </button>
+                    ))}
+                </div>
+              </div>
+
+              <div>
+                <label className="text-[10px] font-black uppercase tracking-widest text-zinc-500 mb-3 block">Est. Call Revenue (EV)</label>
+                <button
+                  type="button"
+                  onClick={() => setIncludeEV(v => !v)}
+                  className={`w-full py-2 rounded-xl text-[9px] font-black uppercase tracking-widest border transition-all ${
+                    includeEV
+                      ? 'bg-zinc-700 border-zinc-600 text-white'
+                      : 'bg-zinc-900 border-zinc-800 text-zinc-500'
+                  }`}
+                >
+                  {includeEV ? 'EV Included' : 'EV Excluded'}
+                </button>
+              </div>
+
+              <button
+                type="button"
+                onClick={() => setMobileMenuOpen(false)}
+                className="w-full py-3 rounded-xl bg-red-600 text-white text-[11px] font-black uppercase tracking-widest"
+              >
+                Show {displayRows.length} Rows
+              </button>
+            </div>
+          </div>
+        )}
+
         {/* ── Header ───────────────────────────────────────────────────── */}
+        {!isMobileLandscape && (
         <header className="bg-zinc-950 border-b border-zinc-900 px-8 shrink-0">
 
           {/* Top row: nav + title + source toggle + counters */}
@@ -960,6 +1181,16 @@ export default function InDepthAnalyticsTest() {
                   {sortedVideos.length} Videos
                 </span>
               </div>
+
+              {/* Mobile filter FAB */}
+              <button
+                type="button"
+                onClick={() => setMobileMenuOpen(o => !o)}
+                className="lg:hidden w-11 h-11 rounded-full bg-red-600 text-white flex items-center justify-center shadow-lg shrink-0"
+                aria-label="Open filters"
+              >
+                <Menu size={20} />
+              </button>
             </div>
           </div>
 
@@ -1045,9 +1276,118 @@ export default function InDepthAnalyticsTest() {
 
           </div>
         </header>
+        )}
 
-        {/* ── Table ────────────────────────────────────────────────────── */}
-        <div className="flex-1 overflow-x-auto custom-scrollbar">
+        {/* Mobile Cards | Table toggle */}
+        {!isMobileLandscape && (
+          <div className="lg:hidden flex items-center gap-2 px-6 py-3 bg-zinc-950 border-b border-zinc-900">
+            <button
+              type="button"
+              onClick={() => setMobileTab('cards')}
+              className={`px-4 py-1.5 rounded-lg text-[10px] font-black uppercase tracking-widest transition-all ${
+                mobileTab === 'cards' ? 'bg-red-600 text-white' : 'border border-zinc-800 text-zinc-500'
+              }`}
+            >
+              Cards
+            </button>
+            <button
+              type="button"
+              onClick={() => setMobileTab('table')}
+              className={`px-4 py-1.5 rounded-lg text-[10px] font-black uppercase tracking-widest transition-all ${
+                mobileTab === 'table' ? 'bg-red-600 text-white' : 'border border-zinc-800 text-zinc-500'
+              }`}
+            >
+              Table
+            </button>
+          </div>
+        )}
+
+        {/* Mobile cards — displayRows only, existing formatters/metrics */}
+        {mobileTab === 'cards' && (
+          <div className="lg:hidden flex-1 overflow-y-auto px-4 py-3 space-y-3">
+            {displayRows.length === 0 && (
+              <div className="py-16 text-center text-[11px] font-black uppercase tracking-widest text-zinc-600">
+                No matching videos found
+              </div>
+            )}
+            {displayRows.map(dRow => {
+              const row = dRow.engineRow;
+              const videoCampaignId = row.video.campaign_id as string | null | undefined;
+              const contentCampaignName =
+                (videoCampaignId &&
+                  campaigns.find(c => c.id === videoCampaignId)?.campaign_name) ||
+                (row.campaign as any)?.campaign_name ||
+                '—';
+              const hasLinkCampaign =
+                dRow.activeLinkTypes.size > 0 && !!dRow.linkCampaignId;
+              const linkCampaignName = hasLinkCampaign
+                ? campaigns.find(c => c.id === dRow.linkCampaignId)?.campaign_name ||
+                  dRow.linkCampaignId!.slice(0, 8)
+                : null;
+              return (
+                <div
+                  key={dRow.rowKey}
+                  className="bg-zinc-950 border border-zinc-900 rounded-2xl p-4"
+                >
+                  <div className="flex items-center gap-3 mb-3">
+                    <img
+                      src={resolveThumbnail(row.video)}
+                      className="w-16 h-9 object-cover rounded-lg border border-zinc-800 shrink-0"
+                      alt=""
+                      onError={e => {
+                        const t = e.currentTarget;
+                        t.onerror = null;
+                        t.src = `https://placehold.co/64x36/18181b/52525b?text=${encodeURIComponent(
+                          (row.video.platform ?? 'post').toUpperCase(),
+                        )}`;
+                      }}
+                    />
+                    <div className="min-w-0 flex-1">
+                      <div className="text-xs font-bold text-zinc-200 truncate">
+                        {renderContentIdentity(row.video)}
+                      </div>
+                      <div className="text-[9px] text-zinc-600 font-bold uppercase tracking-widest mt-0.5 truncate">
+                        {contentCampaignName}
+                        {linkCampaignName ? ` · ${linkCampaignName}` : ''}
+                      </div>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => navigate(`/videos/${row.video.id}`)}
+                      className="p-2 border border-zinc-800 rounded-xl text-zinc-600 shrink-0"
+                      aria-label="Open video"
+                    >
+                      <ExternalLink size={14} />
+                    </button>
+                  </div>
+                  <div className="space-y-2">
+                    <div className="flex items-center justify-between text-[11px]">
+                      <span className="text-zinc-600 font-bold uppercase tracking-widest">Total Revenue</span>
+                      <span className="text-zinc-300 font-bold tabular-nums">
+                        {formatCellValue('total_revenue', row)}
+                      </span>
+                    </div>
+                    <div className="flex items-center justify-between text-[11px]">
+                      <span className="text-zinc-600 font-bold uppercase tracking-widest">Clicks</span>
+                      <span className="text-zinc-300 font-bold tabular-nums">
+                        {formatCellValue('unique_clicks', row)}
+                      </span>
+                    </div>
+                    <div className="flex items-center justify-between text-[11px]">
+                      <span className="text-zinc-600 font-bold uppercase tracking-widest">Purchases</span>
+                      <span className="text-zinc-300 font-bold tabular-nums">
+                        {formatCellValue('purchase_thankyou', row)}
+                      </span>
+                    </div>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        )}
+
+        {/* ── Table — desktop always; mobile when Table tab ─────────────── */}
+        <div className={`${mobileTab === 'table' ? 'block' : 'hidden'} lg:block flex-1 overflow-x-auto custom-scrollbar`}>
           <div className="inline-block min-w-full align-middle h-full overflow-y-auto">
             <table className="min-w-full divide-y divide-zinc-900 border-collapse">
               <thead className="bg-zinc-950 sticky top-0 z-20 shadow-xl">
