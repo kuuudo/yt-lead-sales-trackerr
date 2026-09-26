@@ -457,12 +457,6 @@ export default function CampaignJourneyMap({ embedded = false, presentation = 'c
         </div>
       )}
 
-      {presentation === 'tree' && (
-        <div style={{ position: 'absolute', top: 16, right: 16, zIndex: 5 }}>
-          {renderCampaignSwitcher()}
-        </div>
-      )}
-
       <div
         ref={containerRef}
         style={styles.canvasContainer}
@@ -582,6 +576,16 @@ export default function CampaignJourneyMap({ embedded = false, presentation = 'c
             )
           })}
         </div>
+
+        {presentation === 'tree' && (() => {
+          const anchorLeft = transform.x + positions.hub.x * transform.scale + HUB_R * transform.scale + 12
+          const anchorTop = transform.y + positions.hub.y * transform.scale - 15
+          return (
+            <div style={{ position: 'absolute', left: anchorLeft, top: anchorTop }}>
+              {renderCampaignSwitcher()}
+            </div>
+          )
+        })()}
 
         {/* Legend */}
         <div style={styles.legend}>

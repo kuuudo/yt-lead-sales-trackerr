@@ -560,6 +560,7 @@ function MainContent() {
         <Route path="/dashboard" element={<PageWrapper><Dashboard /></PageWrapper>} />
         <Route path="/tree" element={<PageWrapper><Tree /></PageWrapper>} />
         <Route path="/tree/structure" element={<PageWrapper><CampaignStructureMap presentation="tree" /></PageWrapper>} />
+        <Route path="/tree/journey" element={<PageWrapper><CampaignJourneyMap presentation="tree" /></PageWrapper>} />
         <Route path="/campaigns" element={<PageWrapper><Campaigns /></PageWrapper>} />
         <Route path="/videos" element={<PageWrapper><Videos /></PageWrapper>} />
         <Route path="/assets" element={<PageWrapper><Assets /></PageWrapper>} />

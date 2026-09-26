@@ -57,6 +57,7 @@ export function Tree() {
   aria-label={key === 'structure' ? 'Structure (coming soon)' : 'Journey (coming soon)'}
   onClick={() => {
     if (key === 'structure') navigate('/tree/structure');
+    if (key === 'journey') navigate('/tree/journey');
   }}
   onMouseEnter={() => setHoveredBtn(key)}
               onMouseLeave={() => setHoveredBtn((cur) => (cur === key ? null : cur))}
