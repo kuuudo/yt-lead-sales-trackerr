@@ -8,6 +8,10 @@
 // ─────────────────────────────────────────────────────────────────────────────
 
 import { supabase } from '../../lib/supabase';
+import {
+  resolveElementThumbnail,
+  type CampaignElementType,
+} from '../../lib/videoFormatters';
 
 export interface PromotionAssetIdentity {
   id: string;
@@ -37,6 +41,15 @@ function pickTitle(asset: any): string {
 
 function pickThumb(asset: any): string | null {
   if (!asset) return null;
+  // Campaign Element — same as AllAssets: public/element-thumbnails via helper
+  if (asset.asset_type === 'campaign_element') {
+    const el = Array.isArray(asset.campaign_element_assets)
+      ? asset.campaign_element_assets[0]
+      : asset.campaign_element_assets;
+    return resolveElementThumbnail(
+      (el?.element_type ?? 'landing_page') as CampaignElementType,
+    );
+  }
   if (asset.asset_type === 'resource') {
     const res = Array.isArray(asset.asset_resources)
       ? asset.asset_resources[0]
