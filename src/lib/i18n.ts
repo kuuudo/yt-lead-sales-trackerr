@@ -3,8 +3,8 @@ export type Language = 'en' | 'tw';
 export const translations = {
   en: {
     nav: {
-      dashboard: 'Summary',
       tree: 'Tree',
+      dashboard: 'Dashboard',
       campaigns: 'Campaigns',
       videos: 'Content',
       assets: 'Assets',
