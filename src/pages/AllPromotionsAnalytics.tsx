@@ -35,6 +35,12 @@ import { UNATTRIBUTED_PROMOTION_ID } from '../services/analytics/orgAnalyticsFac
 import {
   ChevronLeft, Calendar, Filter, ArrowUpDown, Loader2, Check, Megaphone, ChevronDown,
 } from 'lucide-react';
+import { useAnalyticsMobileLayout } from './analytics-lego/useAnalyticsMobileLayout';
+import { AnalyticsMobileViewToggle } from './analytics-lego/AnalyticsMobileViewToggle';
+import {
+  AnalyticsMobileFilterButton,
+  AnalyticsMobileFilterSheet,
+} from './analytics-lego/AnalyticsMobileFilterSheet';
 
 const PROMOTION_METRIC_COLUMNS: MetricType[] = [...TABLE_COLUMNS];
 
@@ -126,6 +132,14 @@ export default function AllPromotionsAnalytics() {
   const navigate = useNavigate();
   const { user } = useAuth();
   const { viewingMemberId, viewingOrgId, isReadOnly } = useViewing();
+
+  const {
+    isMobileLandscape,
+    viewMode: mobileTab,
+    setViewMode: setMobileTab,
+    filterOpen: mobileMenuOpen,
+    setFilterOpen: setMobileMenuOpen,
+  } = useAnalyticsMobileLayout('cards');
 
   const [dateRange, setDateRange] = useState<DateRange>('30days');
   const [customRange, setCustomRange] = useState<CustomDateRange | null>(null);
@@ -441,6 +455,12 @@ export default function AllPromotionsAnalytics() {
   };
 
   const colSpan = 1 + PROMOTION_METRIC_COLUMNS.length;
+
+  const promotionDisplayTitle = (row: PromotionMetricRow) => {
+    if (row.isUnattributed) return 'Unattributed';
+    if (row.isOrphanIdentity) return `Unresolved · ${row.promotionId.slice(0, 8)}…`;
+    return row.title;
+  };
 
   return (
     <div className="flex h-screen bg-black text-zinc-300 overflow-hidden fixed inset-0 z-[100]">
@@ -764,7 +784,167 @@ export default function AllPromotionsAnalytics() {
         </div>
       </aside>
 
-      <div className="flex-1 flex flex-col min-w-0">
+      <div className="flex-1 flex flex-col h-full overflow-hidden bg-black relative min-w-0">
+        {/* Mobile filter sheet — same state as desktop sidebar controls */}
+        <AnalyticsMobileFilterSheet
+          open={mobileMenuOpen}
+          onOpenChange={setMobileMenuOpen}
+        >
+          <div>
+            <label className="text-[10px] font-black uppercase tracking-widest text-zinc-500 mb-3 block">
+              Date Range
+            </label>
+            <select
+              value={dateRange}
+              onChange={e => {
+                const v = e.target.value as DateRange;
+                setDateRange(v);
+                if (v !== 'custom') setCustomRange(null);
+              }}
+              className="w-full bg-zinc-900 border border-zinc-800 rounded-xl px-4 py-2.5 text-[10px] font-bold uppercase tracking-widest outline-none focus:border-red-600 appearance-none cursor-pointer"
+            >
+              <option value="7days">Last 7 Days</option>
+              <option value="30days">Last 30 Days</option>
+              <option value="2months">Last 2 Months</option>
+              <option value="6months">Last 6 Months</option>
+              <option value="1year">Last Year</option>
+              <option value="all">Lifetime</option>
+              <option value="custom">Custom Range</option>
+            </select>
+            {dateRange === 'custom' && (
+              <div className="mt-3 grid grid-cols-2 gap-2">
+                <input
+                  type="date"
+                  className="bg-zinc-900 border border-zinc-800 rounded-lg px-2 py-2 text-[10px] text-zinc-300"
+                  onChange={e =>
+                    setCustomRange(prev => ({
+                      start: e.target.value,
+                      end: prev?.end ?? e.target.value,
+                    }))
+                  }
+                />
+                <input
+                  type="date"
+                  className="bg-zinc-900 border border-zinc-800 rounded-lg px-2 py-2 text-[10px] text-zinc-300"
+                  onChange={e =>
+                    setCustomRange(prev => ({
+                      start: prev?.start ?? e.target.value,
+                      end: e.target.value,
+                    }))
+                  }
+                />
+              </div>
+            )}
+          </div>
+
+          <div>
+            <label className="text-[10px] font-black uppercase tracking-widest text-zinc-500 mb-3 block">
+              Source
+            </label>
+            <div className="flex gap-1.5">
+              {([
+                ['total', 'Total'],
+                ['pixel', 'Pixel'],
+                ['stripe', 'Stripe'],
+              ] as const).map(([key, label]) => (
+                <button
+                  key={key}
+                  type="button"
+                  onClick={() => setActiveSource(key)}
+                  className={`flex-1 py-2 rounded-lg text-[9px] font-black uppercase tracking-widest border transition-all ${
+                    activeSource === key
+                      ? 'bg-red-600 border-red-600 text-white'
+                      : 'bg-zinc-900 border-zinc-800 text-zinc-500 hover:text-white'
+                  }`}
+                >
+                  {label}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          <div>
+            <label className="text-[10px] font-black uppercase tracking-widest text-zinc-500 mb-3 block">
+              Campaign
+            </label>
+            <select
+              value={selectedCampaignId}
+              onChange={e => setSelectedCampaignId(e.target.value)}
+              className="w-full bg-zinc-900 border border-zinc-800 rounded-xl px-4 py-2.5 text-[10px] font-bold uppercase tracking-widest outline-none focus:border-red-600 appearance-none cursor-pointer"
+            >
+              <option value="all">All Campaigns</option>
+              {campaignOptions.map(c => (
+                <option key={c.id} value={c.id}>{c.name}</option>
+              ))}
+            </select>
+          </div>
+
+          <div>
+            <label className="text-[10px] font-black uppercase tracking-widest text-zinc-500 mb-3 block">
+              Content Marketer
+            </label>
+            <select
+              value={selectedMarketerId}
+              onChange={e => setSelectedMarketerId(e.target.value)}
+              className="w-full bg-zinc-900 border border-zinc-800 rounded-xl px-4 py-2.5 text-[10px] font-bold uppercase tracking-widest outline-none focus:border-red-600 appearance-none cursor-pointer"
+            >
+              <option value="all">All Marketers</option>
+              {marketerOptions.map(m => (
+                <option key={m.id} value={m.id}>{m.name}</option>
+              ))}
+              <option value="__unattributed__">Unattributed (no collaborator)</option>
+            </select>
+          </div>
+
+          <div>
+            <label className="text-[10px] font-black uppercase tracking-widest text-zinc-500 mb-3 block">
+              Promotion
+            </label>
+            <select
+              value={selectedPromotionIds[0] ?? ''}
+              onChange={e => {
+                const v = e.target.value;
+                setSelectedPromotionIds(v ? [v] : []);
+                setCreativeScopeFilter(null);
+              }}
+              className="w-full bg-zinc-900 border border-zinc-800 rounded-xl px-4 py-2.5 text-[10px] font-bold uppercase tracking-widest outline-none focus:border-red-600 appearance-none cursor-pointer"
+            >
+              <option value="">All Promotions</option>
+              {promotionOptions.map(p => (
+                <option key={p.id} value={p.id}>{p.title}</option>
+              ))}
+            </select>
+          </div>
+
+          <div>
+            <label className="text-[10px] font-black uppercase tracking-widest text-zinc-500 mb-3 block">
+              Archive
+            </label>
+            <button
+              type="button"
+              onClick={() => setHideArchivedPromotion(v => !v)}
+              className={`w-full py-2 rounded-lg text-[9px] font-black uppercase tracking-widest border transition-all ${
+                hideArchivedPromotion
+                  ? 'bg-red-600 border-red-600 text-white'
+                  : 'bg-zinc-900 border-zinc-800 text-zinc-500 hover:text-white'
+              }`}
+            >
+              {hideArchivedPromotion ? 'Hiding archived' : 'Show archived'}
+            </button>
+          </div>
+
+          <div className="pt-2">
+            <button
+              type="button"
+              onClick={() => setMobileMenuOpen(false)}
+              className="w-full py-3 rounded-xl bg-red-600 text-white text-[11px] font-black uppercase tracking-widest"
+            >
+              Show {sortedRows.length} Promotions
+            </button>
+          </div>
+        </AnalyticsMobileFilterSheet>
+
+        {!isMobileLandscape && (
         <header className="shrink-0 border-b border-zinc-900 bg-black px-6 py-4">
           <div className="flex items-center gap-3 mb-2">
             <button
@@ -774,28 +954,25 @@ export default function AllPromotionsAnalytics() {
             >
               <ChevronLeft size={16} />
             </button>
-            <div>
+            <div className="flex-1 min-w-0">
               <h1 className="text-sm font-black uppercase tracking-widest text-white flex items-center gap-2">
-                <Megaphone size={14} className="text-red-500" />
-                Promotion Analytics
+                <Megaphone size={14} className="text-red-500 shrink-0" />
+                <span className="truncate">Promotion Analytics</span>
               </h1>
-              <p className="text-[10px] text-zinc-600 font-bold uppercase tracking-widest mt-0.5">
-                Performance per promotion
+              <p className="text-[10px] text-zinc-600 font-bold uppercase tracking-widest mt-0.5 truncate">
+                Performance per promotion · fact bags
               </p>
             </div>
+            <AnalyticsMobileFilterButton
+              onClick={() => setMobileMenuOpen(!mobileMenuOpen)}
+            />
           </div>
           <div className="flex flex-wrap items-center justify-between gap-3 mt-3">
             <div className="flex flex-wrap items-center gap-2">
               <span className="text-[10px] font-black uppercase tracking-widest text-zinc-600">
                 {loading ? '…' : `${sortedRows.length} Promotions`}
               </span>
-              {organizationId && (
-                <span className="text-[9px] text-zinc-700 font-mono truncate max-w-[120px]">
-                  org {organizationId.slice(0, 8)}
-                </span>
-              )}
             </div>
-            {/* Source switch — always visible; rebuilds rows via activeSource → buildPromotionMetricRows */}
             <div className="flex items-center gap-1.5">
               <span className="text-[8px] font-black uppercase tracking-widest text-zinc-600 mr-1">
                 Source
@@ -821,9 +998,104 @@ export default function AllPromotionsAnalytics() {
             </div>
           </div>
         </header>
+        )}
 
-        <div className="flex-1 overflow-auto custom-scrollbar">
-          <div className="inline-block min-w-full align-middle">
+        <AnalyticsMobileViewToggle
+          mode={mobileTab}
+          onChange={setMobileTab}
+          hidden={isMobileLandscape}
+        />
+
+        {/* Mobile cards — same sortedRows as table */}
+        {mobileTab === 'cards' && (
+          <div className="lg:hidden flex-1 overflow-y-auto px-4 py-3 space-y-3">
+            {loading && <LoadingBlock />}
+            {!loading && error && (
+              <div className="py-16 text-center text-[11px] font-black uppercase tracking-widest text-red-500">
+                {error}
+              </div>
+            )}
+            {!loading && !error && sortedRows.length === 0 && (
+              <div className="py-16 text-center text-[11px] font-black uppercase tracking-widest text-zinc-600">
+                No promotions in this range
+              </div>
+            )}
+            {!loading && !error && sortedRows.map(row => {
+              const archived = isRowArchived(row);
+              const title = promotionDisplayTitle(row);
+              return (
+                <div
+                  key={row.promotionId}
+                  className="bg-zinc-950 border border-zinc-900 rounded-2xl p-4"
+                >
+                  <div className="mb-3">
+                    <div
+                      className={`text-xs font-bold truncate ${
+                        row.isUnattributed
+                          ? 'text-amber-400'
+                          : row.isOrphanIdentity
+                            ? 'text-zinc-500 italic'
+                            : 'text-zinc-200'
+                      }`}
+                    >
+                      {title}
+                    </div>
+                    <div className="text-[9px] text-zinc-600 font-bold uppercase tracking-widest mt-0.5 flex items-center gap-1.5 flex-wrap">
+                      {row.campaignName && (
+                        <span className="truncate max-w-[160px]">{row.campaignName}</span>
+                      )}
+                      {archived && (
+                        <span className="inline-flex items-center px-1.5 py-0.5 rounded-full bg-zinc-500/10 border border-zinc-500/30 text-[8px] text-zinc-400">
+                          Archived
+                        </span>
+                      )}
+                    </div>
+                  </div>
+                  <div className="space-y-2">
+                    <div className="flex items-center justify-between text-[11px]">
+                      <span className="text-zinc-600 font-bold uppercase tracking-widest">
+                        Total Revenue ($)
+                      </span>
+                      <span className="text-zinc-300 font-bold tabular-nums">
+                        {formatMetricCell('total_revenue', row.metrics.total_revenue)}
+                      </span>
+                    </div>
+                    <div className="flex items-center justify-between text-[11px]">
+                      <span className="text-zinc-600 font-bold uppercase tracking-widest">
+                        Revenue Per Click ($)
+                      </span>
+                      <span className="text-zinc-300 font-bold tabular-nums">
+                        {formatMetricCell('rpc', row.metrics.rpc)}
+                      </span>
+                    </div>
+                    <div className="flex items-center justify-between text-[11px]">
+                      <span className="text-zinc-600 font-bold uppercase tracking-widest">
+                        Landing Page Clicks
+                      </span>
+                      <span className="text-zinc-300 font-bold tabular-nums">
+                        {formatMetricCell('landing_page_view', row.metrics.landing_page_view)}
+                      </span>
+                    </div>
+                    <div className="flex items-center justify-between text-[11px]">
+                      <span className="text-zinc-600 font-bold uppercase tracking-widest">
+                        Direct Purchases
+                      </span>
+                      <span className="text-zinc-300 font-bold tabular-nums">
+                        {formatMetricCell('purchase_thankyou', row.metrics.purchase_thankyou)}
+                      </span>
+                    </div>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        )}
+
+        {/* Table — desktop always; mobile when Table tab */}
+        <div
+          className={`${mobileTab === 'table' ? 'block' : 'hidden'} lg:block flex-1 overflow-x-auto custom-scrollbar`}
+        >
+          <div className="inline-block min-w-full align-middle h-full overflow-y-auto">
             <table className="min-w-full divide-y divide-zinc-900 border-collapse">
               <thead className="bg-zinc-950 sticky top-0 z-20">
                 <tr>
