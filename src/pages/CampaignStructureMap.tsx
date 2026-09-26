@@ -36,7 +36,7 @@
 
 import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { useParams, useNavigate, Link } from 'react-router-dom'
-import { ArrowLeft, ChevronDown, Network, Sparkles, Loader2 } from 'lucide-react'
+import { ArrowLeft, ChevronDown, ChevronUp, Network, Sparkles, Loader2, Search } from 'lucide-react'
 import CanvasGrid from '../components/analytics/canvas/CanvasGrid'
 import type { CanvasTransform } from '../components/analytics/store/useWorkspaceStore'
 import { Campaign, supabase } from '../lib/supabase'
@@ -426,10 +426,24 @@ function useCampaignStructureData(
   return { marketerNodes, ownAssetNodes, loading, error }
 }
 
-const CONTENT_BUCKET_LABELS = ['Jan–Feb', 'Mar–Apr', 'May–Jun', 'Jul–Aug', 'Sep–Oct', 'Nov–Dec']
+const MONTH_LABELS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
+
+/** One row from `videos`, trimmed to exactly what the Content month-circle
+ *  UI needs: enough to bucket by month, filter by title, and (once a month
+ *  circle is expanded) render an individual video node. */
+interface ContentVideo {
+  id: string
+  title: string
+  createdAt: string
+  thumbnailUrl: string | null
+}
 
 /**
- * Real Content buckets (2-month, count-only) for the current campaign.
+ * Real Content videos for the current campaign — one row per video, NOT
+ * pre-bucketed. Phase 2A: bucketing/search/date-range are UI-state concerns
+ * that change on every keystroke or filter click, so grouping now happens
+ * per render in buildContentMonthNodes() below, not once here at fetch
+ * time — this hook's only job is fetching the flat video list.
  *
  * Deliberately a SEPARATE data source from useCampaignStructureData above:
  * Content = the campaign's own video content, i.e. videos.campaign_id
@@ -442,14 +456,14 @@ const CONTENT_BUCKET_LABELS = ['Jan–Feb', 'Mar–Apr', 'May–Jun', 'Jul–Aug
 function useCampaignContentBuckets(
   campaignId: string | undefined,
   viewerId: string | null,
-): { contentNodes: TreeNode[] | null; loading: boolean; error: string | null } {
-  const [contentNodes, setContentNodes] = useState<TreeNode[] | null>(null)
+): { contentVideos: ContentVideo[] | null; loading: boolean; error: string | null } {
+  const [contentVideos, setContentVideos] = useState<ContentVideo[] | null>(null)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
   useEffect(() => {
     if (!campaignId || !viewerId) {
-      setContentNodes(null)
+      setContentVideos(null)
       return
     }
     let cancelled = false
@@ -460,34 +474,23 @@ function useCampaignContentBuckets(
       try {
         const { data: videoRows } = await supabase
           .from('videos')
-          .select('id, created_at')
+          .select('id, created_at, video_title, thumbnail_url')
           .eq('campaign_id', campaignId)
 
-        const bucketCounts = new Map<string, { year: number; pairIndex: number; count: number }>()
-        for (const v of (videoRows ?? []) as { id: string; created_at: string | null }[]) {
-          if (!v.created_at) continue
-          const d = new Date(v.created_at)
-          const year = d.getUTCFullYear()
-          const pairIndex = Math.floor(d.getUTCMonth() / 2)
-          const key = `${year}_${pairIndex}`
-          if (!bucketCounts.has(key)) bucketCounts.set(key, { year, pairIndex, count: 0 })
-          bucketCounts.get(key)!.count += 1
-        }
-
-        const nodes: TreeNode[] = Array.from(bucketCounts.values())
-          .sort((a, b) => a.year - b.year || a.pairIndex - b.pairIndex)
-          .map(({ year, pairIndex, count }) => ({
-            id: `content_${year}_${pairIndex}`,
-            label: `${CONTENT_BUCKET_LABELS[pairIndex]} ${year} (${count} video${count === 1 ? '' : 's'})`,
-            kind: 'asset',
-            color: '#0ea5e9',
+        const videos: ContentVideo[] = (videoRows ?? [])
+          .filter((v: any) => !!v.created_at)
+          .map((v: any) => ({
+            id: v.id as string,
+            title: (v.video_title as string | null) ?? 'Untitled video',
+            createdAt: v.created_at as string,
+            thumbnailUrl: (v.thumbnail_url as string | null) ?? null,
           }))
 
-        if (!cancelled) setContentNodes(nodes)
+        if (!cancelled) setContentVideos(videos)
       } catch (err) {
         console.error('[CampaignStructureMap] useCampaignContentBuckets failed:', err)
         if (!cancelled) {
-          setContentNodes(null)
+          setContentVideos(null)
           setError(err instanceof Error ? err.message : 'Failed to load content.')
         }
       } finally {
@@ -500,14 +503,14 @@ function useCampaignContentBuckets(
     }
   }, [campaignId, viewerId])
 
-  return { contentNodes, loading, error }
+  return { contentVideos, loading, error }
 }
 
 // ─── Static mock data model ─────────────────────────────────────────────
 // Deliberately NOT fetched from anywhere. Swapping this for a real,
 // resolved campaign/marketer/promotion/asset tree is future work.
 
-type NodeKind = 'campaign' | 'branch' | 'marketer' | 'promotion' | 'asset'
+type NodeKind = 'campaign' | 'branch' | 'marketer' | 'promotion' | 'asset' | 'month' | 'video'
 
 interface TreeNode {
   id: string
@@ -521,6 +524,10 @@ interface TreeNode {
   /** Phase 1 thumbnails: optional thumbnail URL, populated for kind: 'asset'
    *  nodes only. undefined/null means "no thumbnail available". */
   thumbnailUrl?: string | null
+  /** Phase 2: optional second line of text under a node's main label — used
+   *  by Content month-circle nodes to show "N videos" without baking the
+   *  count into the label string. */
+  subtitle?: string
 }
 
 // Per-marketer accent colors so each Marketer -> Promotions -> Assets
@@ -627,6 +634,8 @@ const NODE_SIZE: Record<NodeKind, { w: number; h: number }> = {
   marketer: { w: 190, h: 58 },
   promotion: { w: 168, h: 52 },
   asset: { w: 148, h: 46 },
+  month: { w: 108, h: 108 },
+  video: { w: 148, h: 46 },
 }
 
 const NODE_KIND_LABEL: Record<NodeKind, string> = {
@@ -635,6 +644,8 @@ const NODE_KIND_LABEL: Record<NodeKind, string> = {
   marketer: 'Marketer',
   promotion: 'Promotion',
   asset: 'Asset',
+  month: 'Month',
+  video: 'Video',
 }
 
 const MIN_SCALE = 0.4
@@ -832,13 +843,85 @@ function applyStructureCollapse(
  */
 function collectNodeMeta(
   root: TreeNode,
-  out: Map<string, { isShowMore?: boolean; thumbnailUrl?: string | null }> = new Map(),
+  out: Map<string, { isShowMore?: boolean; thumbnailUrl?: string | null; subtitle?: string }> = new Map(),
 ) {
-  if (root.isShowMore || root.thumbnailUrl !== undefined) {
-    out.set(root.id, { isShowMore: root.isShowMore, thumbnailUrl: root.thumbnailUrl })
+  if (root.isShowMore || root.thumbnailUrl !== undefined || root.subtitle !== undefined) {
+    out.set(root.id, { isShowMore: root.isShowMore, thumbnailUrl: root.thumbnailUrl, subtitle: root.subtitle })
   }
   root.children?.forEach((child) => collectNodeMeta(child, out))
   return out
+}
+
+/**
+ * Phase 2B: groups Content videos into per-month circle nodes, applying the
+ * search + date-range filters (Layer 1+2 from the plan) before bucketing,
+ * and only turning a month's videos into TreeNodes if that month's circle
+ * is currently expanded (Layer 3) — a collapsed month's videos are never
+ * built into nodes at all, so a 200-video campaign never mounts 200 DOM
+ * nodes. An expanded month is additionally capped at 30 video nodes as a
+ * safety ceiling; there is no further "show more" control inside a month
+ * yet (flagged, not silently solved — narrow the date range or search to
+ * see the rest for now).
+ */
+function buildContentMonthNodes(
+  videos: ContentVideo[],
+  search: string,
+  dateRange: 'all' | '7' | '30' | '90' | 'year',
+  expandedMonths: Record<string, boolean>,
+  color: string,
+): TreeNode[] {
+  const now = Date.now()
+  const cutoff: number | null =
+    dateRange === '7'
+      ? now - 7 * 86400000
+      : dateRange === '30'
+      ? now - 30 * 86400000
+      : dateRange === '90'
+      ? now - 90 * 86400000
+      : dateRange === 'year'
+      ? new Date(new Date().getUTCFullYear(), 0, 1).getTime()
+      : null
+
+  const query = search.trim().toLowerCase()
+  const filtered = videos.filter((v) => {
+    if (cutoff !== null && new Date(v.createdAt).getTime() < cutoff) return false
+    if (query && !v.title.toLowerCase().includes(query)) return false
+    return true
+  })
+
+  const buckets = new Map<string, { year: number; month: number; videos: ContentVideo[] }>()
+  for (const v of filtered) {
+    const d = new Date(v.createdAt)
+    const year = d.getUTCFullYear()
+    const month = d.getUTCMonth()
+    const key = `${year}_${month}`
+    if (!buckets.has(key)) buckets.set(key, { year, month, videos: [] })
+    buckets.get(key)!.videos.push(v)
+  }
+
+  return Array.from(buckets.values())
+    .sort((a, b) => b.year - a.year || b.month - a.month)
+    .map(({ year, month, videos: monthVideos }) => {
+      const id = `content_month_${year}_${month}`
+      const sorted = [...monthVideos].sort(
+        (a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime(),
+      )
+      const videoNodes: TreeNode[] = sorted.slice(0, 30).map((v) => ({
+        id: `content_video_${v.id}`,
+        label: v.title,
+        kind: 'video',
+        color,
+        thumbnailUrl: v.thumbnailUrl,
+      }))
+      return {
+        id,
+        label: `${MONTH_LABELS[month]} ${year}`,
+        kind: 'month',
+        color,
+        subtitle: `${monthVideos.length} video${monthVideos.length === 1 ? '' : 's'}`,
+        children: expandedMonths[id] ? videoNodes : [],
+      }
+    })
 }
 
 // ─── Component ──────────────────────────────────────────────────────────────
@@ -881,7 +964,7 @@ export default function CampaignStructureMap({ embedded = false }: CampaignStruc
   const isRealDataReady =
     structureData.marketerNodes !== null &&
     structureData.ownAssetNodes !== null &&
-    contentData.contentNodes !== null
+    contentData.contentVideos !== null
   const isRealDataError = !!(structureData.error || contentData.error)
 
   // Phase 1: collapse / "Show More" state. Keyed by node id so each
@@ -893,6 +976,12 @@ export default function CampaignStructureMap({ embedded = false }: CampaignStruc
   const [ownAssetsExpanded, setOwnAssetsExpanded] = useState(false)
   // Phase 1: global thumbnail toggle, default OFF.
   const [showThumbnails, setShowThumbnails] = useState(false)
+  // Phase 2: Content search + date-range filters, and per-month circle
+  // expand state. A month circle starts collapsed (no video nodes built)
+  // and only gets video children once expanded — see buildContentMonthNodes.
+  const [contentSearch, setContentSearch] = useState('')
+  const [contentDateRange, setContentDateRange] = useState<'all' | '7' | '30' | '90' | 'year'>('90')
+  const [expandedMonths, setExpandedMonths] = useState<Record<string, boolean>>({})
 
   const campaignTree = useMemo<TreeNode>(() => {
     if (!isRealDataReady) return MOCK_CAMPAIGN
@@ -918,7 +1007,18 @@ export default function CampaignStructureMap({ embedded = false }: CampaignStruc
             ),
           }
         }
-        if (branch.id === 'content') return { ...branch, children: contentData.contentNodes! }
+        if (branch.id === 'content') {
+          return {
+            ...branch,
+            children: buildContentMonthNodes(
+              contentData.contentVideos!,
+              contentSearch,
+              contentDateRange,
+              expandedMonths,
+              branch.color,
+            ),
+          }
+        }
         return branch
       }),
     }
@@ -927,10 +1027,13 @@ export default function CampaignStructureMap({ embedded = false }: CampaignStruc
     currentCampaignName,
     structureData.marketerNodes,
     structureData.ownAssetNodes,
-    contentData.contentNodes,
+    contentData.contentVideos,
     expandedMarketers,
     expandedPromotions,
     ownAssetsExpanded,
+    contentSearch,
+    contentDateRange,
+    expandedMonths,
   ])
   const { nodes, edges, canvasW, canvasH } = useMemo(() => layoutTree(campaignTree), [campaignTree])
   const nodeMetaById = useMemo(() => collectNodeMeta(campaignTree), [campaignTree])
@@ -1050,6 +1153,11 @@ export default function CampaignStructureMap({ embedded = false }: CampaignStruc
     }
   }, [])
 
+  // Phase 2: month-circle expand/collapse.
+  const handleMonthClick = useCallback((monthId: string) => {
+    setExpandedMonths((prev) => ({ ...prev, [monthId]: !prev[monthId] }))
+  }, [])
+
   const handleWheel = useCallback(
     (e: React.WheelEvent) => {
       e.preventDefault()
@@ -1099,6 +1207,27 @@ export default function CampaignStructureMap({ embedded = false }: CampaignStruc
         <span style={styles.phaseBadge}>
           <Sparkles size={12} /> Structure preview — static mock data, not connected to live data
         </span>
+        <div style={styles.contentSearchWrap}>
+          <Search size={13} color="#9ca3af" />
+          <input
+            type="text"
+            value={contentSearch}
+            onChange={(e) => setContentSearch(e.target.value)}
+            placeholder="Search content videos..."
+            style={styles.contentSearchInput}
+          />
+        </div>
+        <select
+          value={contentDateRange}
+          onChange={(e) => setContentDateRange(e.target.value as typeof contentDateRange)}
+          style={styles.contentDateSelect}
+        >
+          <option value="all">All time</option>
+          <option value="7">Last 7 days</option>
+          <option value="30">Last 30 days</option>
+          <option value="90">Last 90 days</option>
+          <option value="year">This year</option>
+        </select>
         <button
           type="button"
           onClick={() => setShowThumbnails((prev) => !prev)}
@@ -1211,7 +1340,10 @@ export default function CampaignStructureMap({ embedded = false }: CampaignStruc
             const isDragging = draggingId === node.id
             const meta = nodeMetaById.get(node.id)
             const isShowMore = !!meta?.isShowMore
-            const thumbnailUrl = showThumbnails && !isShowMore && node.kind === 'asset' ? meta?.thumbnailUrl : null
+            const thumbnailUrl =
+              showThumbnails && !isShowMore && (node.kind === 'asset' || node.kind === 'video')
+                ? meta?.thumbnailUrl
+                : null
 
             // Phase 1: Show More is a control, not a draggable data node — no
             // onPointerDown/Move/Up (the drag system) is attached to it, and
@@ -1237,6 +1369,38 @@ export default function CampaignStructureMap({ embedded = false }: CampaignStruc
               )
             }
 
+            // Phase 2: Content month circle — a clickable cluster/container,
+            // not a draggable data node, same treatment as Show More above.
+            if (node.kind === 'month') {
+              const isExpanded = !!expandedMonths[node.id]
+              return (
+                <div
+                  key={node.id}
+                  role="button"
+                  onClick={() => handleMonthClick(node.id)}
+                  onMouseEnter={() => setHoveredBranchId(node.branchId)}
+                  onMouseLeave={() => setHoveredBranchId(null)}
+                  style={{
+                    ...styles.monthNode,
+                    left: node.center.x - node.w / 2,
+                    top: node.center.y - node.h / 2,
+                    width: node.w,
+                    height: node.h,
+                    borderColor: node.color,
+                    opacity: dimmed ? 0.35 : 1,
+                  }}
+                >
+                  <span style={styles.monthLabel}>{node.label}</span>
+                  <span style={{ ...styles.monthSubtitle, color: node.color }}>{meta?.subtitle ?? ''}</span>
+                  {isExpanded ? (
+                    <ChevronUp size={13} color={node.color} />
+                  ) : (
+                    <ChevronDown size={13} color={node.color} />
+                  )}
+                </div>
+              )
+            }
+
             return (
               <div
                 key={node.id}
@@ -1246,15 +1410,20 @@ export default function CampaignStructureMap({ embedded = false }: CampaignStruc
                 onPointerMove={handleNodePointerMove}
                 onPointerUp={handleNodePointerUp}
                 style={{
-                  ...(isRoot ? styles.rootNode : node.kind === 'asset' ? styles.assetNode : styles.cardNode),
+                  ...(isRoot
+                    ? styles.rootNode
+                    : node.kind === 'asset' || node.kind === 'video'
+                    ? styles.assetNode
+                    : styles.cardNode),
                   left: node.center.x - node.w / 2,
                   top: node.center.y - node.h / 2,
                   width: node.w,
                   height: node.h,
-                  borderColor: isRoot ? 'transparent' : node.kind === 'asset' ? `${node.color}66` : node.color,
+                  borderColor:
+                    isRoot ? 'transparent' : node.kind === 'asset' || node.kind === 'video' ? `${node.color}66` : node.color,
                   boxShadow: isRoot
                     ? '0 12px 28px rgba(17,24,39,0.25)'
-                    : node.kind === 'asset'
+                    : node.kind === 'asset' || node.kind === 'video'
                     ? '0 2px 6px rgba(15,23,42,0.04)'
                     : `0 0 0 2px ${node.color}1f, 0 4px 10px rgba(15,23,42,0.06)`,
                                     opacity: dimmed ? 0.35 : 1,
@@ -1382,6 +1551,39 @@ const styles: Record<string, React.CSSProperties> = {
     padding: '5px 10px',
     whiteSpace: 'nowrap',
   },
+  // Phase 2: Content search + date-range filter, in the header toolbar
+  // (global controls, alongside the existing Thumbnails toggle) rather than
+  // drawn on the pan/zoom canvas itself.
+  contentSearchWrap: {
+    display: 'flex',
+    alignItems: 'center',
+    gap: 6,
+    border: '1px solid #e5e7eb',
+    borderRadius: 8,
+    padding: '0 10px',
+    height: 30,
+    flexShrink: 0,
+  },
+  contentSearchInput: {
+    border: 'none',
+    outline: 'none',
+    fontSize: 12,
+    color: '#111827',
+    width: 140,
+    background: 'transparent',
+  },
+  contentDateSelect: {
+    appearance: 'none',
+    fontSize: 11,
+    fontWeight: 600,
+    color: '#374151',
+    background: '#ffffff',
+    border: '1px solid #e5e7eb',
+    borderRadius: 8,
+    padding: '6px 10px',
+    cursor: 'pointer',
+    flexShrink: 0,
+  },
   fullMapLoading: {
     position: 'absolute',
     inset: 0,
@@ -1479,6 +1681,31 @@ const styles: Record<string, React.CSSProperties> = {
     gap: 9,
     padding: '0 12px',
     cursor: 'default',
+  },
+  // Phase 2: Content month-cluster circle. Square NODE_SIZE + 50% radius
+  // makes this a true circle, unlike every other (rounded-rect) node.
+  monthNode: {
+    position: 'absolute',
+    borderRadius: '50%',
+    background: '#ffffff',
+    border: '2px solid',
+    display: 'flex',
+    flexDirection: 'column',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 2,
+    textAlign: 'center',
+    padding: '0 10px',
+    cursor: 'pointer',
+  },
+  monthLabel: {
+    fontSize: 12.5,
+    fontWeight: 700,
+    color: '#111827',
+  },
+  monthSubtitle: {
+    fontSize: 10.5,
+    fontWeight: 600,
   },
   nodeDot: {
     width: 8,
@@ -1595,6 +1822,7 @@ const styles: Record<string, React.CSSProperties> = {
     textAlign: 'center',
   },
 }
+
 
 // ─── Embedded Export Wrapper ──────────────────────────────────────────────────
 export interface EmbeddedMapProps {
