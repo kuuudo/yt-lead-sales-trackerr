@@ -37,6 +37,7 @@
 import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { useParams, useNavigate, Link } from 'react-router-dom'
 import { ArrowLeft, ChevronDown, ChevronUp, Network, Sparkles, Loader2, Search } from 'lucide-react'
+import CanvasGrid from '../components/analytics/canvas/CanvasGrid'
 import type { CanvasTransform } from '../components/analytics/store/useWorkspaceStore'
 import { Campaign, supabase } from '../lib/supabase'
 import { useAuth } from '../lib/auth'
@@ -120,7 +121,7 @@ async function resolveOrgAndViewer(viewing?: {
   return { organizationId: asset.organization_id as string, viewerId }
 }
 
-const MARKETER_PALETTE = ['#8b5cf6', '#ec4899', '#f59e0b', '#10b981', '#f97316', '#ef4444']
+const MARKETER_PALETTE = ['#6366f1', '#ec4899', '#f59e0b', '#10b981', '#0ea5e9', '#ef4444']
 
 /**
  * Phase 1 deterministic ordering: Recent first. Sorts ids by a created_at
@@ -549,7 +550,7 @@ interface TreeNode {
 
 // Per-marketer accent colors so each Marketer -> Promotions -> Assets
 // branch reads as its own visual lane on the canvas.
-const MARKETER_A = '#8b5cf6' // violet
+const MARKETER_A = '#6366f1' // indigo
 const MARKETER_B = '#ec4899' // pink
 const MARKETER_C = '#f59e0b' // amber
 
@@ -557,9 +558,9 @@ const MOCK_CAMPAIGN: TreeNode = {
   id: 'campaign_a',
   label: 'Campaign A',
   kind: 'campaign',
-  color: '#f5f5f5',
+  color: '#111827',
   children: [
-    { id: 'content', label: 'Content', kind: 'branch', color: '#f97316' },
+    { id: 'content', label: 'Content', kind: 'branch', color: '#0ea5e9' },
     { id: 'own_assets', label: 'Own Assets', kind: 'branch', color: '#10b981' },
     {
       id: 'marketers',
@@ -1040,79 +1041,7 @@ function dateRangeCutoff(dateRange: DateRangeValue): number | null {
     ? new Date(new Date().getUTCFullYear(), 0, 1).getTime()
     : null
 }
-
  
-
-// ─── Mobile responsive styling (Structure-local only) ────────────────────────
-// Desktop layout/spacing is untouched — these rules only kick in under
-// 640px, and only adjust chrome (controls, header, legend), never the
-// canvas engine, layout math, or node positions themselves.
-const STRUCTURE_RESPONSIVE_CSS = `
-@media (max-width: 640px) {
-  .vstrk-structure-header {
-    padding: 10px 12px !important;
-    gap: 10px !important;
-  }
-  .vstrk-structure-backlink-text { display: none; }
-  .vstrk-structure-badge-text { display: none; }
-  .vstrk-structure-badge { padding: 6px 8px !important; }
-
-  .vstrk-structure-legend {
-    top: auto !important;
-    bottom: 20px !important;
-    left: 12px !important;
-    right: 84px !important;
-    max-width: none !important;
-    flex-wrap: nowrap !important;
-    overflow-x: auto !important;
-    -webkit-overflow-scrolling: touch;
-    padding-bottom: 2px;
-  }
-
-  /* Bigger touch targets, moved within thumb reach at the bottom of the
-     screen instead of tucked in the far corner. */
-  .vstrk-structure-zoom {
-    bottom: 16px !important;
-    right: 12px !important;
-    padding: 6px 8px !important;
-    gap: 6px !important;
-  }
-  .vstrk-structure-zoom-btn {
-    width: 40px !important;
-    height: 40px !important;
-    font-size: 20px !important;
-  }
-
-  .vstrk-structure-search-wrap { padding: 0 8px !important; }
-  .vstrk-structure-search-input { width: 84px !important; font-size: 11px !important; }
-  .vstrk-structure-date-select { padding: 6px 8px !important; font-size: 10px !important; }
-}
-`;
-
-// ─── Dark canvas grid (Structure-local only) ─────────────────────────────────
-// The shared <CanvasGrid /> component (components/analytics/canvas/CanvasGrid)
-// is styled for the light canvas CampaignJourneyMap.tsx still uses, so it is
-// intentionally not reused/edited here — editing it would re-skin Journey
-// too, before Journey's own VSTRK pass. This is a same-math, dark-only
-// stand-in: a dot grid that pans/zooms with the canvas transform, subtle
-// enough to read as "spatial workspace" rather than decoration.
-function StructureCanvasGrid({ transform }: { transform: CanvasTransform }) {
-  const size = 28 * transform.scale
-  return (
-    <div
-      aria-hidden="true"
-      style={{
-        position: 'absolute',
-        inset: 0,
-        backgroundImage: 'radial-gradient(rgba(255,255,255,0.06) 1px, transparent 1px)',
-        backgroundSize: `${size}px ${size}px`,
-        backgroundPosition: `${transform.x}px ${transform.y}px`,
-        pointerEvents: 'none',
-      }}
-    />
-  )
-}
-
 // ─── Component ──────────────────────────────────────────────────────────────
 
 interface CampaignStructureMapProps {
@@ -1162,6 +1091,7 @@ export default function CampaignStructureMap({ embedded = false }: CampaignStruc
   // (collapsed <-> fully expanded), per spec.
   const [expandedMarketers, setExpandedMarketers] = useState<Record<string, boolean>>({})
   const [expandedPromotions, setExpandedPromotions] = useState<Record<string, boolean>>({})
+  const [ownAssetsExpanded, setOwnAssetsExpanded] = useState(false)
   // Phase 1: global thumbnail toggle, default OFF.
   const [showThumbnails, setShowThumbnails] = useState(false)
   // Phase 2: Content search + date-range filters, and per-month circle
@@ -1267,7 +1197,7 @@ export default function CampaignStructureMap({ embedded = false }: CampaignStruc
     // branch rather than trying to fit the entire wide desktop tree into a
     // narrow viewport — that's what made nodes illegibly tiny on phones.
     // The person pans from here; nothing is hidden, just not all on screen.
-    const scale = rect.width < 640 ? 0.95 : 0.85
+    const scale = 0.85
     const x = rect.width / 2 - (canvasW / 2) * scale
     const y = 24
     setTransform({ x, y, scale })
@@ -1290,9 +1220,8 @@ export default function CampaignStructureMap({ embedded = false }: CampaignStruc
 
   const resetView = useCallback(() => {
     const rect = containerRef.current?.getBoundingClientRect()
-    const width = rect?.width ?? 1200
-    const scale = width < 640 ? 0.95 : 0.85
-    const x = width / 2 - (canvasW / 2) * scale
+    const scale = 0.85
+    const x = (rect?.width ?? 1200) / 2 - (canvasW / 2) * scale
     setTransform({ x, y: 24, scale })
   }, [canvasW])
 
@@ -1409,7 +1338,7 @@ export default function CampaignStructureMap({ embedded = false }: CampaignStruc
   // Legend = one chip per top-level lane (Content, Own Assets, each Marketer).
   const legendItems = useMemo(
     () => [
-      { branchId: 'content', label: 'Content', color: '#f97316' },
+      { branchId: 'content', label: 'Content', color: '#0ea5e9' },
       { branchId: 'own_assets', label: 'Own Assets', color: '#10b981' },
       { branchId: 'marketer_a', label: 'Marketer A', color: MARKETER_A },
       { branchId: 'marketer_b', label: 'Marketer B', color: MARKETER_B },
@@ -1438,23 +1367,23 @@ export default function CampaignStructureMap({ embedded = false }: CampaignStruc
     const anchorLeft = transform.x + branchNode.center.x * transform.scale + (branchNode.w / 2) * transform.scale + 12
     const anchorTop = transform.y + branchNode.center.y * transform.scale - 15
     return (
-      <div key={branchId} style={{ ...styles.contentFilterAnchor, left: anchorLeft, top: anchorTop }} className="vstrk-structure-filter">
-        <div style={styles.contentSearchWrap} className="vstrk-structure-search-wrap">
-          <Search size={13} color="#737373" />
+      <div key={branchId} style={{ ...styles.contentFilterAnchor, left: anchorLeft, top: anchorTop }} >
+        <div style={styles.contentSearchWrap} >
+          <Search size={13} color="#9ca3af" />
           <input
             type="text"
             value={search}
             onChange={(e) => setSearch(e.target.value)}
             placeholder={placeholder}
             style={styles.contentSearchInput}
-            className="vstrk-structure-search-input"
+            
           />
         </div>
         <select
           value={dateRange}
           onChange={(e) => setDateRange(e.target.value as DateRangeValue)}
           style={styles.contentDateSelect}
-          className="vstrk-structure-date-select"
+          
         >
           <option value="all">All time</option>
           <option value="7">Last 7 days</option>
@@ -1468,17 +1397,16 @@ export default function CampaignStructureMap({ embedded = false }: CampaignStruc
 
   return (
     <div style={styles.page}>
-      <style>{STRUCTURE_RESPONSIVE_CSS}</style>
-      <div style={styles.header} className="vstrk-structure-header">
-        <Link to={`/campaigns/${campaignId ?? ''}`} style={styles.backLink} className="vstrk-structure-backlink">
-          <ArrowLeft size={14} /> <span className="vstrk-structure-backlink-text">Back to campaign</span>
+      <div style={styles.header} >
+        <Link to={`/campaigns/${campaignId ?? ''}`} style={styles.backLink} >
+          <ArrowLeft size={14} /> <span >Back to campaign</span>
         </Link>
         <div style={styles.titleBlock}>
           <span style={styles.title}>Campaign Structure Map</span>
           <span style={styles.subtitle}>{currentCampaignName ?? campaignId ?? 'Untitled Campaign'}</span>
         </div>
-        <span style={styles.phaseBadge} className="vstrk-structure-badge">
-          <Sparkles size={12} /> <span className="vstrk-structure-badge-text">Structure preview — static mock data, not connected to live data</span>
+        <span style={styles.phaseBadge} >
+          <Sparkles size={12} /> <span >Structure preview — static mock data, not connected to live data</span>
         </span>
       </div>
 
@@ -1499,14 +1427,14 @@ export default function CampaignStructureMap({ embedded = false }: CampaignStruc
               </span>
             ) : (
               <>
-                <Loader2 size={22} className="animate-spin" color="#f97316" />
+                <Loader2 size={22} className="animate-spin" color="#6366f1" />
                 <span style={styles.fullMapLoadingText}>Loading campaign structure…</span>
               </>
             )}
           </div>
         )}
 
-        <StructureCanvasGrid transform={transform} />
+        <CanvasGrid transform={transform} />
 
         <div
           style={{
@@ -1531,7 +1459,7 @@ export default function CampaignStructureMap({ embedded = false }: CampaignStruc
                 </marker>
               ))}
               <marker id="arrow-default" markerWidth="8" markerHeight="8" refX="6" refY="3" orient="auto">
-                <path d="M0,0 L6,3 L0,6 Z" fill="#525252" />
+                <path d="M0,0 L6,3 L0,6 Z" fill="#9ca3af" />
               </marker>
             </defs>
 
@@ -1650,10 +1578,10 @@ export default function CampaignStructureMap({ embedded = false }: CampaignStruc
                   borderColor:
                     isRoot ? 'transparent' : node.kind === 'asset' || node.kind === 'video' ? `${node.color}66` : node.color,
                   boxShadow: isRoot
-                    ? '0 0 0 1px rgba(255,255,255,0.06), 0 10px 26px rgba(0,0,0,0.55)'
+                    ? '0 12px 28px rgba(17,24,39,0.25)'
                     : node.kind === 'asset' || node.kind === 'video'
-                    ? 'none'
-                    : `0 0 0 1px ${node.color}29, 0 4px 14px rgba(0,0,0,0.45)`,
+                    ? '0 2px 6px rgba(15,23,42,0.04)'
+                    : `0 0 0 2px ${node.color}1f, 0 4px 10px rgba(15,23,42,0.06)`,
                                     opacity: dimmed ? 0.35 : 1,
                   cursor: isDragging ? 'grabbing' : 'grab',
                   zIndex: isDragging ? 10 : 1,
@@ -1693,9 +1621,9 @@ export default function CampaignStructureMap({ embedded = false }: CampaignStruc
                 onClick={() => setShowThumbnails((prev) => !prev)}
                 style={{
                   ...styles.legendChip,
-                  borderColor: showThumbnails ? '#f97316' : '#262626',
-                  background: showThumbnails ? '#f973171f' : '#141414',
-                  color: showThumbnails ? '#f97316' : '#a3a3a3',
+                  borderColor: showThumbnails ? '#6366f1' : '#e5e7eb',
+                  background: showThumbnails ? '#6366f10f' : '#ffffff',
+                  color: showThumbnails ? '#6366f1' : '#374151',
                 }}
               >
                 Thumbnails: {showThumbnails ? 'On' : 'Off'}
@@ -1721,7 +1649,7 @@ export default function CampaignStructureMap({ embedded = false }: CampaignStruc
           )
         })()}
         {/* Legend */}
-        <div style={styles.legend} className="vstrk-structure-legend">
+        <div style={styles.legend} >
           {legendItems.map((item) => {
             const active = hoveredBranchId === item.branchId
             return (
@@ -1729,30 +1657,30 @@ export default function CampaignStructureMap({ embedded = false }: CampaignStruc
                 key={item.branchId}
                 style={{
                   ...styles.legendChip,
-                  borderColor: active ? item.color : '#262626',
-                  background: active ? `${item.color}1f` : '#141414',
+                  borderColor: active ? item.color : '#e5e7eb',
+                  background: active ? `${item.color}0f` : '#ffffff',
                 }}
                 onMouseEnter={() => setHoveredBranchId(item.branchId)}
                 onMouseLeave={() => setHoveredBranchId(null)}
               >
                 <Network size={12} color={item.color} />
-                <span style={{ color: active ? item.color : '#a3a3a3' }}>{item.label}</span>
+                <span style={{ color: active ? item.color : '#374151' }}>{item.label}</span>
               </button>
             )
           })}
         </div>
 
-        <div style={styles.zoomControls} className="vstrk-structure-zoom">
-          <button style={styles.zoomBtn} className="vstrk-structure-zoom-btn" onClick={zoomIn} title="Zoom in">
+        <div style={styles.zoomControls} >
+          <button style={styles.zoomBtn} onClick={zoomIn} title="Zoom in">
             +
           </button>
           <span style={styles.zoomLabel}>{scalePercent}%</span>
-          <button style={styles.zoomBtn} className="vstrk-structure-zoom-btn" onClick={zoomOut} title="Zoom out">
+          <button style={styles.zoomBtn} onClick={zoomOut} title="Zoom out">
             −
           </button>
           <button
-            style={{ ...styles.zoomBtn, borderLeft: '1px solid #333333', marginLeft: 2, paddingLeft: 6 }}
-            className="vstrk-structure-zoom-btn"
+            style={{ ...styles.zoomBtn, borderLeft: '1px solid #e5e7eb', marginLeft: 2, paddingLeft: 6 }}
+            
             onClick={resetView}
             title="Reset view"
           >
@@ -1773,9 +1701,7 @@ const styles: Record<string, React.CSSProperties> = {
     top: 56,
     display: 'flex',
     flexDirection: 'column',
-    background: '#0a0a0a',
-    backgroundImage: 'radial-gradient(rgba(255, 255, 255, 0.05) 1px, transparent 1px)',
-    backgroundSize: '24px 24px',
+    background: '#ffffff',
     fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif',
   },
   header: {
@@ -1783,9 +1709,9 @@ const styles: Record<string, React.CSSProperties> = {
     alignItems: 'center',
     gap: 16,
     padding: '14px 20px',
-    borderBottom: '1px solid #1f1f1f',
+    borderBottom: '1px solid #e5e7eb',
     flexShrink: 0,
-    background: '#0a0a0a',
+    background: '#ffffff',
   },
   backLink: {
     display: 'flex',
@@ -1795,7 +1721,7 @@ const styles: Record<string, React.CSSProperties> = {
     fontWeight: 600,
     textTransform: 'uppercase',
     letterSpacing: '0.05em',
-    color: '#888888',
+    color: '#6b7280',
     textDecoration: 'none',
     flexShrink: 0,
   },
@@ -1807,11 +1733,11 @@ const styles: Record<string, React.CSSProperties> = {
   title: {
     fontSize: 14,
     fontWeight: 600,
-    color: '#f5f5f5',
+    color: '#111827',
   },
   subtitle: {
     fontSize: 11,
-    color: '#737373',
+    color: '#9ca3af',
   },
   phaseBadge: {
     marginLeft: 'auto',
@@ -1820,9 +1746,9 @@ const styles: Record<string, React.CSSProperties> = {
     gap: 6,
     fontSize: 11,
     fontWeight: 600,
-    color: '#f97316',
-    background: '#f973171a',
-    border: '1px solid #f9731640',
+    color: '#92400e',
+    background: '#fffbeb',
+    border: '1px solid #fde68a',
     borderRadius: 999,
     padding: '5px 10px',
     whiteSpace: 'nowrap',
@@ -1841,18 +1767,17 @@ const styles: Record<string, React.CSSProperties> = {
     display: 'flex',
     alignItems: 'center',
     gap: 6,
-    border: '1px solid #262626',
+    border: '1px solid #e5e7eb',
     borderRadius: 8,
     padding: '0 10px',
     height: 30,
     flexShrink: 0,
-    background: '#141414',
   },
   contentSearchInput: {
     border: 'none',
     outline: 'none',
     fontSize: 12,
-    color: '#f5f5f5',
+    color: '#111827',
     width: 140,
     background: 'transparent',
   },
@@ -1860,9 +1785,9 @@ const styles: Record<string, React.CSSProperties> = {
     appearance: 'none',
     fontSize: 11,
     fontWeight: 600,
-    color: '#a3a3a3',
-    background: '#141414',
-    border: '1px solid #262626',
+    color: '#374151',
+    background: '#ffffff',
+    border: '1px solid #e5e7eb',
     borderRadius: 8,
     padding: '6px 10px',
     cursor: 'pointer',
@@ -1877,12 +1802,12 @@ const styles: Record<string, React.CSSProperties> = {
     alignItems: 'center',
     justifyContent: 'center',
     gap: 10,
-    background: '#0a0a0a',
+    background: '#ffffff',
   },
   fullMapLoadingText: {
     fontSize: 13,
     fontWeight: 600,
-    color: '#a3a3a3',
+    color: '#4b5563',
   },
   campaignSwitcherWrap: {
     position: 'relative',
@@ -1894,9 +1819,9 @@ const styles: Record<string, React.CSSProperties> = {
     appearance: 'none',
     fontSize: 11,
     fontWeight: 600,
-    color: '#f5f5f5',
-    background: '#141414',
-    border: '1px solid #262626',
+    color: '#111827',
+    background: '#ffffff',
+    border: '1px solid #e5e7eb',
     borderRadius: 8,
     padding: '6px 26px 6px 10px',
     cursor: 'pointer',
@@ -1905,7 +1830,7 @@ const styles: Record<string, React.CSSProperties> = {
   campaignSwitcherIcon: {
     position: 'absolute',
     right: 8,
-    color: '#737373',
+    color: '#9ca3af',
     pointerEvents: 'none',
   },
   canvasContainer: {
@@ -1914,7 +1839,7 @@ const styles: Record<string, React.CSSProperties> = {
     overflow: 'hidden',
     cursor: 'grab',
     userSelect: 'none',
-    background: '#0a0a0a',
+    background: '#ffffff',
     touchAction: 'none',
   },
   canvasLayer: {
@@ -1939,14 +1864,14 @@ const styles: Record<string, React.CSSProperties> = {
     justifyContent: 'center',
     padding: '0 20px',
     textAlign: 'center',
-    background: 'linear-gradient(160deg, #1a1a1a 0%, #241736 100%)',
-    color: '#f5f5f5',
+    background: 'linear-gradient(160deg, #111827 0%, #312e81 100%)',
+    color: '#ffffff',
     cursor: 'default',
-    border: '1.5px solid #33264d',
+    border: '1.5px solid transparent',
   },
   cardNode: {
     position: 'absolute',
-    background: '#141414',
+    background: '#ffffff',
     border: '1.5px solid',
     borderRadius: 12,
     display: 'flex',
@@ -1957,7 +1882,7 @@ const styles: Record<string, React.CSSProperties> = {
   },
   assetNode: {
     position: 'absolute',
-    background: '#111111',
+    background: '#fafafa',
     border: '1.5px dashed',
     borderRadius: 10,
     display: 'flex',
@@ -1971,7 +1896,7 @@ const styles: Record<string, React.CSSProperties> = {
   monthNode: {
     position: 'absolute',
     borderRadius: '50%',
-    background: '#141414',
+    background: '#ffffff',
     border: '2px solid',
     display: 'flex',
     flexDirection: 'column',
@@ -1985,7 +1910,7 @@ const styles: Record<string, React.CSSProperties> = {
   monthLabel: {
     fontSize: 12.5,
     fontWeight: 700,
-    color: '#f5f5f5',
+    color: '#111827',
   },
   monthSubtitle: {
     fontSize: 10.5,
@@ -2006,7 +1931,7 @@ const styles: Record<string, React.CSSProperties> = {
   },
   showMoreNode: {
     position: 'absolute',
-    background: '#111111',
+    background: '#fafafa',
     border: '1.5px dashed',
     borderRadius: 10,
     display: 'flex',
@@ -2031,7 +1956,7 @@ const styles: Record<string, React.CSSProperties> = {
   nodeLabelRoot: {
     fontSize: 14,
     fontWeight: 700,
-    color: '#f5f5f5',
+    color: '#ffffff',
     whiteSpace: 'nowrap',
     overflow: 'hidden',
     textOverflow: 'ellipsis',
@@ -2039,7 +1964,7 @@ const styles: Record<string, React.CSSProperties> = {
   nodeLabelCard: {
     fontSize: 12.5,
     fontWeight: 700,
-    color: '#f5f5f5',
+    color: '#111827',
     whiteSpace: 'nowrap',
     overflow: 'hidden',
     textOverflow: 'ellipsis',
@@ -2065,11 +1990,11 @@ const styles: Record<string, React.CSSProperties> = {
     gap: 6,
     fontSize: 11.5,
     fontWeight: 600,
-    border: '1px solid #262626',
+    border: '1px solid #e5e7eb',
     borderRadius: 999,
     padding: '6px 11px',
     cursor: 'pointer',
-    boxShadow: '0 1px 3px rgba(0,0,0,0.35)',
+    boxShadow: '0 1px 2px rgba(0,0,0,0.04)',
     transition: 'background 150ms ease, border-color 150ms ease',
   },
   zoomControls: {
@@ -2079,16 +2004,16 @@ const styles: Record<string, React.CSSProperties> = {
     display: 'flex',
     alignItems: 'center',
     gap: 4,
-    background: '#141414',
-    border: '1px solid #262626',
+    background: '#ffffff',
+    border: '1px solid #e5e7eb',
     borderRadius: 8,
     padding: '4px 6px',
-    boxShadow: '0 4px 16px rgba(0,0,0,0.5)',
+    boxShadow: '0 2px 8px rgba(0,0,0,0.08)',
   },
   zoomBtn: {
     background: 'transparent',
     border: 'none',
-    color: '#a3a3a3',
+    color: '#374151',
     fontSize: 16,
     cursor: 'pointer',
     width: 28,
@@ -2101,12 +2026,11 @@ const styles: Record<string, React.CSSProperties> = {
   },
   zoomLabel: {
     fontSize: 11,
-    color: '#737373',
+    color: '#6b7280',
     minWidth: 36,
     textAlign: 'center',
   },
 }
-
 
 // ─── Embedded Export Wrapper ──────────────────────────────────────────────────
 export interface EmbeddedMapProps {
