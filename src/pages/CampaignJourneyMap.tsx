@@ -251,10 +251,13 @@ function buildLayout(paths: CampaignPath[]) {
 
 interface CampaignJourneyMapProps {
   embedded?: boolean;
+  presentation?: 'campaign' | 'tree';
 }
 
-export default function CampaignJourneyMap({ embedded = false }: CampaignJourneyMapProps) {
-  const { campaignId } = useParams<{ campaignId: string }>()
+export default function CampaignJourneyMap({ embedded = false, presentation = 'campaign' }: CampaignJourneyMapProps) {
+  const { campaignId: paramCampaignId } = useParams<{ campaignId: string }>()
+  const [selectedCampaignId, setSelectedCampaignId] = useState<string | undefined>(undefined)
+  const campaignId = presentation === 'tree' ? selectedCampaignId : paramCampaignId
   const navigate = useNavigate()
   const containerRef = useRef<HTMLDivElement>(null)
 
@@ -268,6 +271,12 @@ export default function CampaignJourneyMap({ embedded = false }: CampaignJourney
     () => campaignOptions.find((c) => c.id === campaignId)?.campaign_name ?? null,
     [campaignOptions, campaignId]
   )
+
+  useEffect(() => {
+    if (presentation === 'tree' && !selectedCampaignId && campaignOptions.length > 0) {
+      setSelectedCampaignId(campaignOptions[0].id)
+    }
+  }, [presentation, selectedCampaignId, campaignOptions])
 
   const { nodes, connections } = useMemo(() => buildLayout(CAMPAIGN_PATHS), [])
 
@@ -401,40 +410,58 @@ export default function CampaignJourneyMap({ embedded = false }: CampaignJourney
 
   const scalePercent = Math.round(transform.scale * 100)
 
+  const renderCampaignSwitcher = () => (
+    <div style={styles.campaignSwitcherWrap}>
+      <select
+        value={campaignId ?? ''}
+        onChange={(e) => {
+          if (presentation === 'tree') {
+            setSelectedCampaignId(e.target.value)
+          } else {
+            navigate(`/marketplace/campaigns/${e.target.value}/journey`)
+          }
+        }}
+        style={styles.campaignSwitcher}
+      >
+        {campaignId && !campaignOptions.some((c) => c.id === campaignId) && (
+          <option value={campaignId}>{currentCampaignName ?? 'Untitled Campaign'}</option>
+        )}
+        {campaignOptions.map((c) => (
+          <option key={c.id} value={c.id}>
+            {c.campaign_name}
+          </option>
+        ))}
+      </select>
+      <ChevronDown size={12} style={styles.campaignSwitcherIcon} />
+    </div>
+  )
+
   return (
     <div style={styles.page}>
-      <div style={styles.header}>
-        <Link to="/dashboard" style={styles.backLink}>
-          <ArrowLeft size={14} /> Back to dashboard
-        </Link>
-        <div style={styles.titleBlock}>
-          <span style={styles.title}>Campaign Journey Map</span>
-          <span style={styles.subtitle}>{currentCampaignName ?? campaignId ?? 'Untitled Campaign'}</span>
+      {presentation === 'campaign' && (
+        <div style={styles.header}>
+          <Link to="/dashboard" style={styles.backLink}>
+            <ArrowLeft size={14} /> Back to dashboard
+          </Link>
+          <div style={styles.titleBlock}>
+            <span style={styles.title}>Campaign Journey Map</span>
+            <span style={styles.subtitle}>{currentCampaignName ?? campaignId ?? 'Untitled Campaign'}</span>
+          </div>
+          <span style={styles.movableNote}>
+            🖐️ Drag any card to rearrange — cards stay movable as more get added later
+          </span>
+          <span style={styles.phaseBadge}>
+            <Sparkles size={12} /> Phase 1 · Visual preview — not yet connected to live tracking data
+          </span>
+          {renderCampaignSwitcher()}
         </div>
-        <span style={styles.movableNote}>
-          🖐️ Drag any card to rearrange — cards stay movable as more get added later
-        </span>
-        <span style={styles.phaseBadge}>
-          <Sparkles size={12} /> Phase 1 · Visual preview — not yet connected to live tracking data
-        </span>
-        <div style={styles.campaignSwitcherWrap}>
-          <select
-            value={campaignId ?? ''}
-            onChange={(e) => navigate(`/marketplace/campaigns/${e.target.value}/journey`)}
-            style={styles.campaignSwitcher}
-          >
-            {campaignId && !campaignOptions.some((c) => c.id === campaignId) && (
-              <option value={campaignId}>{currentCampaignName ?? 'Untitled Campaign'}</option>
-            )}
-            {campaignOptions.map((c) => (
-              <option key={c.id} value={c.id}>
-                {c.campaign_name}
-              </option>
-            ))}
-          </select>
-          <ChevronDown size={12} style={styles.campaignSwitcherIcon} />
+      )}
+
+      {presentation === 'tree' && (
+        <div style={{ position: 'absolute', top: 16, right: 16, zIndex: 5 }}>
+          {renderCampaignSwitcher()}
         </div>
-      </div>
+      )}
 
       <div
         ref={containerRef}
