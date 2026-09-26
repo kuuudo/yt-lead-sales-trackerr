@@ -1536,7 +1536,7 @@ return (
                     width: node.w,
                     height: node.h,
                     borderColor: `${node.color}66`,
-                    background: presentation === 'tree' ? TREE_DARK.cardBgAlt : undefined,
+                    ...(presentation === 'tree' ? { background: TREE_DARK.cardBgAlt } : {}),
                     opacity: dimmed ? 0.35 : 1,
                   }}
                 >
@@ -1568,7 +1568,7 @@ return (
                     width: node.w,
                     height: node.h,
                     borderColor: node.color,
-                    background: presentation === 'tree' ? TREE_DARK.cardBg : undefined,
+                    ...(presentation === 'tree' ? { background: TREE_DARK.cardBg } : {}),
                     opacity: dimmed ? 0.35 : 1,
                   }}
                 >
@@ -1608,12 +1608,9 @@ return (
                     : node.kind === 'asset' || node.kind === 'video'
                     ? '0 2px 6px rgba(15,23,42,0.04)'
                     : `0 0 0 2px ${node.color}1f, 0 4px 10px rgba(15,23,42,0.06)`,
-                  background:
-                    !isRoot && presentation === 'tree'
-                      ? node.kind === 'asset' || node.kind === 'video'
-                        ? TREE_DARK.cardBgAlt
-                        : TREE_DARK.cardBg
-                      : undefined,
+                  ...(!isRoot && presentation === 'tree'
+                    ? { background: node.kind === 'asset' || node.kind === 'video' ? TREE_DARK.cardBgAlt : TREE_DARK.cardBg }
+                    : {}),
                                     opacity: dimmed ? 0.35 : 1,
                   cursor: isDragging ? 'grabbing' : 'grab',
                   zIndex: isDragging ? 10 : 1,
