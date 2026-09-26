@@ -1066,34 +1066,36 @@ export default function InDepthAnalyticsTest() {
 
         {/* ── Header ───────────────────────────────────────────────────── */}
         {!isMobileLandscape && (
-        <header className="bg-zinc-950 border-b border-zinc-900 px-8 shrink-0">
+        <header className="bg-zinc-950 border-b border-zinc-900 shrink-0">
 
-          {/* Top row: nav + title + source toggle + counters */}
-          <div className="h-20 flex items-center justify-between">
-            <div className="flex items-center gap-6">
+          {/* Top row: compact on mobile; full chrome on desktop */}
+          <div className="flex items-center justify-between gap-3 px-4 py-3 lg:px-8 lg:h-20">
+            <div className="flex items-center gap-3 lg:gap-6 min-w-0 flex-1 pr-12 lg:pr-0">
               <button
                 onClick={() => navigate(-1)}
-                className="p-3 bg-zinc-900 border border-zinc-800 rounded-2xl text-zinc-400 hover:text-white transition-all flex items-center gap-2 cursor-pointer"
+                className="p-2.5 lg:p-3 bg-zinc-900 border border-zinc-800 rounded-2xl text-zinc-400 hover:text-white transition-all flex items-center gap-2 cursor-pointer shrink-0"
               >
                 <ChevronLeft size={20} />
               </button>
               <button
                 onClick={() => setIsSidebarOpen(!isSidebarOpen)}
-                className="p-3 bg-zinc-900 border border-zinc-800 rounded-2xl text-zinc-400 hover:text-white transition-all hidden lg:flex"
+                className="p-3 bg-zinc-900 border border-zinc-800 rounded-2xl text-zinc-400 hover:text-white transition-all hidden lg:flex shrink-0"
               >
                 <Filter size={20} />
               </button>
-              <div>
-                <h2 className="text-2xl font-black text-white uppercase tracking-tight">
+              <div className="min-w-0">
+                <h2 className="text-sm lg:text-2xl font-black text-white uppercase tracking-tight truncate">
                   In-Depth Analytics
                 </h2>
-                <p className="text-[10px] text-zinc-600 font-bold uppercase tracking-widest mt-1">
+                {/* Subtitle only on desktop — user requested remove on mobile */}
+                <p className="hidden lg:block text-[10px] text-zinc-600 font-bold uppercase tracking-widest mt-1">
                   Exhaustive performance data for all videos
                 </p>
               </div>
             </div>
 
-            <div className="flex items-center gap-3">
+            {/* Source / Columns / count — desktop only (mobile uses compact row + FAB sheet) */}
+            <div className="hidden lg:flex items-center gap-3 shrink-0">
               {/* Source toggle */}
               <div className="flex items-center gap-1 p-1 bg-zinc-900 border border-zinc-800 rounded-xl">
                 {(['total', 'pixel', 'stripe'] as RevenueView[]).map(v => (
@@ -1189,12 +1191,32 @@ export default function InDepthAnalyticsTest() {
                   {sortedVideos.length} Videos
                 </span>
               </div>
-
             </div>
           </div>
 
+          {/* Mobile: compact source row under title (FAB is fixed top-right) */}
+          <div className="lg:hidden flex items-center gap-1.5 px-4 pb-3">
+            {(['total', 'pixel', 'stripe'] as RevenueView[]).map(v => (
+              <button
+                key={v}
+                type="button"
+                onClick={() => setActiveSource(v)}
+                className={`h-7 px-3 rounded-lg text-[9px] font-black uppercase tracking-widest border transition-all ${
+                  activeSource === v
+                    ? 'bg-red-600 border-red-600 text-white'
+                    : 'bg-zinc-900 border-zinc-800 text-zinc-500'
+                }`}
+              >
+                {v}
+              </button>
+            ))}
+            <span className="ml-auto text-[9px] font-black uppercase tracking-widest text-zinc-600 pr-12">
+              {sortedVideos.length} videos
+            </span>
+          </div>
+
           {/* Second row: platform filter + quick sort — desktop only (mobile uses FAB sheet) */}
-          <div className="hidden lg:flex pb-4 flex-wrap items-center justify-between gap-3">
+          <div className="hidden lg:flex px-8 pb-4 flex-wrap items-center justify-between gap-3">
 
             {/* Platform filter pills */}
             <div className="flex flex-wrap items-center gap-1.5">
