@@ -6,7 +6,7 @@
 // Metrics: metricsForFactBag → processVideoMetrics (canonical).
 // ─────────────────────────────────────────────────────────────────────────────
 
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { supabase } from '../lib/supabase';
 import { useAuth } from '../lib/auth';
@@ -23,12 +23,17 @@ import {
 } from '../lib/analyticsEngine';
 import { getPromotionArchiveContextsForViewer } from '../services/promotion/getPromotionArchiveContext';
 import {
+  getPromotionAssignmentGroups,
+  type PromotionAssignmentGroups,
+  type AssignmentGroup,
+} from '../services/promotion/getPromotionAssignmentGroups';
+import {
   buildPromotionMetricRows,
   type PromotionMetricRow,
 } from '../services/analytics/buildPromotionMetricRows';
 import { UNATTRIBUTED_PROMOTION_ID } from '../services/analytics/orgAnalyticsFacts';
 import {
-  ChevronLeft, Calendar, Filter, ArrowUpDown, Loader2, Check, Megaphone,
+  ChevronLeft, Calendar, Filter, ArrowUpDown, Loader2, Check, Megaphone, ChevronDown,
 } from 'lucide-react';
 
 const PROMOTION_METRIC_COLUMNS: MetricType[] = [...TABLE_COLUMNS];
@@ -126,6 +131,15 @@ export default function AllPromotionsAnalytics() {
   const [customRange, setCustomRange] = useState<CustomDateRange | null>(null);
   const [activeSource, setActiveSource] = useState<RevenueView>('total');
   const [selectedPromotionIds, setSelectedPromotionIds] = useState<string[]>([]);
+  // Promotion panel — same ALL / Assigned to Me / Assigned by Me + Creative as All Assets
+  const [promotionPanelOpen, setPromotionPanelOpen] = useState(false);
+  const promotionPanelRef = useRef<HTMLDivElement>(null);
+  const [promotionTab, setPromotionTab] = useState<'all' | 'toMe' | 'byMe'>('all');
+  const [selectedPersonId, setSelectedPersonId] = useState<string | null>(null);
+  const [assignmentGroups, setAssignmentGroups] = useState<PromotionAssignmentGroups | null>(null);
+  const [assignmentGroupsLoading, setAssignmentGroupsLoading] = useState(false);
+  /** Mirrors All Assets creativeScopeFilter — scopes to assignment-direction promotions when set. */
+  const [creativeScopeFilter, setCreativeScopeFilter] = useState<null | 'toMe' | 'byMe'>(null);
   const [selectedCampaignId, setSelectedCampaignId] = useState<string>('all');
   /** Canonical marketer = assignment_collaborators.user_id; 'all' | userId | '__unattributed__' */
   const [selectedMarketerId, setSelectedMarketerId] = useState<string>('all');
@@ -143,6 +157,55 @@ export default function AllPromotionsAnalytics() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [organizationId, setOrganizationId] = useState<string | null>(null);
+
+  useEffect(() => {
+    const handler = (e: MouseEvent) => {
+      if (promotionPanelRef.current && !promotionPanelRef.current.contains(e.target as Node)) {
+        setPromotionPanelOpen(false);
+      }
+    };
+    document.addEventListener('mousedown', handler);
+    return () => document.removeEventListener('mousedown', handler);
+  }, []);
+
+  useEffect(() => {
+    if (!promotionPanelOpen || assignmentGroups || assignmentGroupsLoading || !user?.id) return;
+    setAssignmentGroupsLoading(true);
+    getPromotionAssignmentGroups(user.id)
+      .then(setAssignmentGroups)
+      .catch(() => setAssignmentGroups({ assignedToMe: [], assignedByMe: [] }))
+      .finally(() => setAssignmentGroupsLoading(false));
+  }, [promotionPanelOpen, assignmentGroups, assignmentGroupsLoading, user?.id]);
+
+  const activeGroupList: AssignmentGroup[] =
+    promotionTab === 'toMe' ? assignmentGroups?.assignedToMe ?? []
+    : promotionTab === 'byMe' ? assignmentGroups?.assignedByMe ?? []
+    : [];
+
+  const selectedPerson = activeGroupList.find(g => g.person.id === selectedPersonId) ?? null;
+
+  const selectedPromotionLabel =
+    selectedPromotionIds.length === 0
+      ? creativeScopeFilter
+        ? creativeScopeFilter === 'toMe'
+          ? 'Creative · Assigned to Me'
+          : 'Creative · Assigned by Me'
+        : 'All Promotions'
+      : selectedPromotionIds.length === 1
+        ? (rows.find(r => r.promotionId === selectedPromotionIds[0])?.title
+            ?? selectedPromotionIds[0].slice(0, 8))
+        : `${selectedPromotionIds.length} Promotions`;
+
+  /** Promotion ids in the active Assigned to Me / By Me tab (all groups). */
+  const assignmentDirectionPromotionIds = useMemo(() => {
+    const ids = new Set<string>();
+    for (const g of activeGroupList) {
+      for (const p of g.promotions ?? []) {
+        if (p?.id) ids.add(p.id);
+      }
+    }
+    return ids;
+  }, [activeGroupList]);
 
   useEffect(() => {
     let cancelled = false;
@@ -303,6 +366,21 @@ export default function AllPromotionsAnalytics() {
     let list = rows;
     if (selectedPromotionIds.length > 0) {
       list = list.filter(r => selectedPromotionIds.includes(r.promotionId));
+    } else if (creativeScopeFilter) {
+      // Creative button (same product control as All Assets panel): when no
+      // specific promotion is selected, keep promotions that appear in that
+      // assignment direction's groups from getPromotionAssignmentGroups.
+      const dirIds =
+        creativeScopeFilter === 'toMe'
+          ? (assignmentGroups?.assignedToMe ?? [])
+          : (assignmentGroups?.assignedByMe ?? []);
+      const allowed = new Set<string>();
+      for (const g of dirIds) {
+        for (const p of g.promotions ?? []) {
+          if (p?.id) allowed.add(p.id);
+        }
+      }
+      list = list.filter(r => allowed.has(r.promotionId));
     }
     if (selectedCampaignId !== 'all') {
       list = list.filter(r => r.campaignId === selectedCampaignId);
@@ -331,6 +409,8 @@ export default function AllPromotionsAnalytics() {
     hideArchivedPromotion,
     viewerArchivedById,
     marketerUserIdByPromotionId,
+    creativeScopeFilter,
+    assignmentGroups,
   ]);
 
   const sortedRows = useMemo(() => {
@@ -485,31 +565,176 @@ export default function AllPromotionsAnalytics() {
 
           <div>
             <label className="text-[10px] font-black uppercase tracking-widest text-zinc-500 mb-3 block">
-              Promotions
+              Promotion
             </label>
-            <div className="max-h-48 overflow-y-auto space-y-1 border border-zinc-900 rounded-xl p-2">
-              {promotionOptions.length === 0 && (
-                <div className="text-[10px] text-zinc-600 px-2 py-1">No promotions in range</div>
-              )}
-              {promotionOptions.map(p => {
-                const on = selectedPromotionIds.includes(p.id);
-                return (
-                  <button
-                    key={p.id}
-                    type="button"
-                    onClick={() => togglePromotionId(p.id)}
-                    className="w-full flex items-center gap-2 text-left px-2 py-1.5 rounded-lg text-[10px] font-bold text-zinc-300 hover:bg-zinc-900 truncate"
-                  >
-                    {on ? <Check size={11} className="text-red-500 shrink-0" /> : <span className="w-[11px] shrink-0" />}
-                    <span className="truncate">{p.title}</span>
-                  </button>
-                );
-              })}
-            </div>
-            {selectedPromotionIds.length > 0 && (
+            <div className="relative" ref={promotionPanelRef}>
               <button
                 type="button"
-                onClick={() => setSelectedPromotionIds([])}
+                onClick={() => setPromotionPanelOpen(o => !o)}
+                className={`w-full flex items-center justify-between gap-2 bg-zinc-900 border rounded-xl px-4 py-2.5 text-[10px] font-bold uppercase tracking-widest transition-colors ${
+                  promotionPanelOpen ? 'border-red-600 text-white' : 'border-zinc-800 text-zinc-300 hover:border-zinc-600'
+                }`}
+              >
+                <span className="truncate">{selectedPromotionLabel}</span>
+                <ChevronDown size={11} className={`shrink-0 transition-transform ${promotionPanelOpen ? 'rotate-180' : ''}`} />
+              </button>
+
+              {promotionPanelOpen && (
+                <div className="absolute left-0 top-full mt-2 w-full min-w-[18rem] bg-zinc-900 border border-zinc-800 rounded-2xl shadow-2xl z-50 overflow-hidden">
+                  <div className="flex items-center gap-1 px-3 pt-3 pb-2 border-b border-zinc-800">
+                    {([
+                      { key: 'all', label: 'All' },
+                      { key: 'toMe', label: 'Assigned to Me' },
+                      { key: 'byMe', label: 'Assigned by Me' },
+                    ] as const).map(tab => (
+                      <button
+                        key={tab.key}
+                        type="button"
+                        onClick={() => {
+                          setPromotionTab(tab.key);
+                          setSelectedPersonId(null);
+                          if (tab.key === 'all') {
+                            setSelectedPromotionIds([]);
+                            setCreativeScopeFilter(null);
+                            setPromotionPanelOpen(false);
+                          }
+                        }}
+                        className={`px-2.5 py-1.5 rounded-lg text-[9px] font-black uppercase tracking-widest transition-all ${
+                          promotionTab === tab.key ? 'bg-zinc-700 text-white' : 'text-zinc-600 hover:text-zinc-400'
+                        }`}
+                      >
+                        {tab.label}
+                      </button>
+                    ))}
+                  </div>
+
+                  {(promotionTab === 'toMe' || promotionTab === 'byMe') && (
+                    <div className="px-3 py-2 border-b border-zinc-800">
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setCreativeScopeFilter(promotionTab === 'toMe' ? 'toMe' : 'byMe');
+                          setSelectedPromotionIds([]);
+                          setSelectedPersonId(null);
+                          setPromotionPanelOpen(false);
+                        }}
+                        className={`w-full text-left px-3 py-2 rounded-lg text-[9px] font-black uppercase tracking-widest border transition-all ${
+                          creativeScopeFilter === (promotionTab === 'toMe' ? 'toMe' : 'byMe')
+                            ? 'bg-red-600 border-red-600 text-white'
+                            : 'bg-zinc-950 border-zinc-800 text-zinc-400 hover:border-zinc-600'
+                        }`}
+                      >
+                        Creative
+                      </button>
+                      {creativeScopeFilter && (
+                        <button
+                          type="button"
+                          onClick={() => setCreativeScopeFilter(null)}
+                          className="mt-1.5 w-full text-[8px] font-black uppercase tracking-widest text-zinc-500 hover:text-white"
+                        >
+                          Clear Creative
+                        </button>
+                      )}
+                    </div>
+                  )}
+
+                  {promotionTab === 'all' && (
+                    <div className="max-h-72 overflow-y-auto py-2">
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setSelectedPromotionIds([]);
+                          setCreativeScopeFilter(null);
+                          setPromotionPanelOpen(false);
+                        }}
+                        className="w-full text-left px-4 py-2 text-[10px] font-bold text-zinc-300 hover:bg-zinc-800"
+                      >
+                        All Promotions
+                      </button>
+                      {promotionOptions.map(p => (
+                        <button
+                          key={p.id}
+                          type="button"
+                          onClick={() => {
+                            setSelectedPromotionIds([p.id]);
+                            setCreativeScopeFilter(null);
+                            setPromotionPanelOpen(false);
+                          }}
+                          className="w-full text-left px-4 py-2 text-[10px] font-bold text-zinc-300 hover:bg-zinc-800 truncate"
+                        >
+                          {p.title}
+                        </button>
+                      ))}
+                    </div>
+                  )}
+
+                  {(promotionTab === 'toMe' || promotionTab === 'byMe') && (
+                    <div className="max-h-72 overflow-y-auto py-2">
+                      {assignmentGroupsLoading && (
+                        <div className="px-4 py-6 text-center text-[10px] font-bold text-zinc-600">Loading…</div>
+                      )}
+                      {!assignmentGroupsLoading && !selectedPerson && activeGroupList.length === 0 && (
+                        <div className="px-4 py-6 text-center text-[10px] font-bold text-zinc-600">Nothing here yet.</div>
+                      )}
+                      {!assignmentGroupsLoading && !selectedPerson && activeGroupList.map(group => (
+                        <button
+                          key={group.person.id}
+                          type="button"
+                          onClick={() => setSelectedPersonId(group.person.id)}
+                          className="w-full flex items-center justify-between gap-2 px-4 py-2.5 hover:bg-zinc-800 transition-colors text-left"
+                        >
+                          <span className="min-w-0">
+                            <span className="block text-[8px] font-black uppercase tracking-widest text-zinc-600">
+                              {promotionTab === 'toMe' ? 'Sponsor' : 'Marketer'}
+                            </span>
+                            <span className="block text-[10px] font-bold text-zinc-300 truncate">
+                              {group.person.name}
+                            </span>
+                          </span>
+                          <span className="shrink-0 text-[9px] font-bold text-zinc-500 whitespace-nowrap">
+                            {group.promotions.length} Promotion{group.promotions.length === 1 ? '' : 's'} →
+                          </span>
+                        </button>
+                      ))}
+                      {!assignmentGroupsLoading && selectedPerson && (
+                        <div>
+                          <button
+                            type="button"
+                            onClick={() => setSelectedPersonId(null)}
+                            className="w-full text-left px-4 py-2 text-[9px] font-black uppercase tracking-widest text-zinc-500 hover:text-white border-b border-zinc-800"
+                          >
+                            ← Back
+                          </button>
+                          {selectedPerson.promotions.map((p: any) => (
+                            <button
+                              key={p.id}
+                              type="button"
+                              onClick={() => {
+                                setSelectedPromotionIds([p.id]);
+                                setCreativeScopeFilter(null);
+                                setPromotionPanelOpen(false);
+                              }}
+                              className="w-full text-left px-4 py-2 text-[10px] font-bold text-zinc-300 hover:bg-zinc-800 truncate"
+                            >
+                              {p.name ?? p.title ?? p.id}
+                            </button>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
+            {(selectedPromotionIds.length > 0 || creativeScopeFilter) && (
+              <button
+                type="button"
+                onClick={() => {
+                  setSelectedPromotionIds([]);
+                  setCreativeScopeFilter(null);
+                  setSelectedPersonId(null);
+                  setPromotionTab('all');
+                }}
                 className="mt-2 text-[9px] font-black uppercase tracking-widest text-zinc-500 hover:text-white"
               >
                 Clear selection
