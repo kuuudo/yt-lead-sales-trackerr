@@ -139,8 +139,8 @@ function Navigation() {
   const desktopNavRef = useRef<HTMLDivElement>(null);
 
   const links = [
-    { to: '/dashboard', icon: LayoutDashboard, label: t.nav.dashboard },
     { to: '/tree', icon: Globe, label: t.nav.tree || 'Tree' },
+    { to: '/dashboard', icon: LayoutDashboard, label: t.nav.dashboard },
     { to: '/campaigns', icon: Briefcase, label: t.nav.campaigns, children: [
       { to: '/analytics/indepth', label: 'Campaign Analytics' },
       { to: '/installation', label: t.nav.installation || 'Setup' },
