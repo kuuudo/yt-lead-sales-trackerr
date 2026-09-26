@@ -65,6 +65,12 @@ export interface PromotionMetricRow {
    * deduped by event id within the promotion bag.
    */
   asset_clicks: number;
+  /**
+   * Per-asset click counts (same rules as asset_clicks).
+   * Keys = assets.id. Assets with 0 clicks may be absent here;
+   * UI merges with promotion_assets membership for zero rows.
+   */
+  asset_clicks_by_asset: Record<string, number>;
   /** Debug / verification aids (not required by UI). */
   factCounts: {
     events: number;
@@ -138,6 +144,26 @@ export function countAssetClicksFromEvents(
     seen.add(e.id);
   }
   return seen.size;
+}
+
+/**
+ * Per-asset breakdown using the SAME rules as countAssetClicksFromEvents.
+ * sum(values) === countAssetClicksFromEvents(events) when every counted
+ * event has a single asset_id (guaranteed by the filter).
+ */
+export function countAssetClicksByAssetId(
+  events: { id: string; asset_id?: string | null; event_type?: string | null }[],
+): Map<string, number> {
+  const seen = new Set<string>();
+  const byAsset = new Map<string, number>();
+  for (const e of events) {
+    if (!e.asset_id) continue;
+    if (!e.event_type || !ASSET_CLICK_EVENT_TYPES.has(e.event_type)) continue;
+    if (seen.has(e.id)) continue;
+    seen.add(e.id);
+    byAsset.set(e.asset_id, (byAsset.get(e.asset_id) ?? 0) + 1);
+  }
+  return byAsset;
 }
 
 export async function fetchOrgPromotionIdentities(
@@ -273,6 +299,12 @@ export async function buildPromotionMetricRows(
       archivedAt: null,
       metrics,
       asset_clicks: countAssetClicksFromEvents(bag?.events ?? []),
+      asset_clicks_by_asset: (() => {
+        const m = countAssetClicksByAssetId(bag?.events ?? []);
+        const o: Record<string, number> = {};
+        m.forEach((v, k) => { o[k] = v; });
+        return o;
+      })(),
       factCounts: bagFactCounts(bag),
     });
   }
@@ -307,6 +339,12 @@ export async function buildPromotionMetricRows(
         archivedAt: null,
         metrics,
         asset_clicks: countAssetClicksFromEvents(unattributedBag.events),
+        asset_clicks_by_asset: (() => {
+          const m = countAssetClicksByAssetId(unattributedBag.events);
+          const o: Record<string, number> = {};
+          m.forEach((v, k) => { o[k] = v; });
+          return o;
+        })(),
         factCounts: bagFactCounts(unattributedBag),
       });
     }
@@ -342,6 +380,12 @@ export async function buildPromotionMetricRows(
         includeEV,
       }),
       asset_clicks: countAssetClicksFromEvents(bag.events),
+      asset_clicks_by_asset: (() => {
+        const m = countAssetClicksByAssetId(bag.events);
+        const o: Record<string, number> = {};
+        m.forEach((v, k) => { o[k] = v; });
+        return o;
+      })(),
       factCounts: bagFactCounts(bag),
     });
   }
