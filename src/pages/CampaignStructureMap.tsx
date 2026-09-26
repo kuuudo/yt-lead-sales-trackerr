@@ -1042,47 +1042,7 @@ function dateRangeCutoff(dateRange: DateRangeValue): number | null {
     : null
 }
 
-  const query = search.trim().toLowerCase()
-  const filtered = videos.filter((v) => {
-    if (cutoff !== null && new Date(v.createdAt).getTime() < cutoff) return false
-    if (query && !v.title.toLowerCase().includes(query)) return false
-    return true
-  })
-
-  const buckets = new Map<string, { year: number; month: number; videos: ContentVideo[] }>()
-  for (const v of filtered) {
-    const d = new Date(v.createdAt)
-    const year = d.getUTCFullYear()
-    const month = d.getUTCMonth()
-    const key = `${year}_${month}`
-    if (!buckets.has(key)) buckets.set(key, { year, month, videos: [] })
-    buckets.get(key)!.videos.push(v)
-  }
-
-  return Array.from(buckets.values())
-    .sort((a, b) => b.year - a.year || b.month - a.month)
-    .map(({ year, month, videos: monthVideos }) => {
-      const id = `content_month_${year}_${month}`
-      const sorted = [...monthVideos].sort(
-        (a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime(),
-      )
-      const videoNodes: TreeNode[] = sorted.slice(0, 30).map((v) => ({
-        id: `content_video_${v.id}`,
-        label: v.title,
-        kind: 'video',
-        color,
-        thumbnailUrl: resolveThumbnail({ thumbnail_url: v.thumbnailUrl, platform: v.platform }),
-      }))
-      return {
-        id,
-        label: `${MONTH_LABELS[month]} ${year}`,
-        kind: 'month',
-        color,
-        subtitle: `${monthVideos.length} video${monthVideos.length === 1 ? '' : 's'}`,
-        children: expandedMonths[id] ? videoNodes : [],
-      }
-    })
-}
+ 
 
 // ─── Component ──────────────────────────────────────────────────────────────
 
