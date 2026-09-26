@@ -687,6 +687,9 @@ const NODE_KIND_LABEL: Record<NodeKind, string> = {
 
 const MIN_SCALE = 0.4
 const MAX_SCALE = 2.2
+// Tree presentation only — lets the initial auto-fit (and pinch-zoom, below)
+// go smaller than the shared MIN_SCALE without touching Campaign's floor.
+const TREE_MIN_SCALE = 0.2
 const ZOOM_STEP = 0.15
 
 // ─── Geometry helpers ───────────────────────────────────────────────────────
@@ -1215,16 +1218,21 @@ export default function CampaignStructureMap({ embedded = false, presentation = 
     if (hasCentered) return
     const rect = containerRef.current?.getBoundingClientRect()
     if (!rect) return
-    // Mobile: default to a more zoomed-in view centered on the root/first
-    // branch rather than trying to fit the entire wide desktop tree into a
-    // narrow viewport — that's what made nodes illegibly tiny on phones.
-    // The person pans from here; nothing is hidden, just not all on screen.
-    const scale = 0.85
+    // Campaign presentation keeps the original fixed 0.85 behavior exactly
+    // as before. Tree presentation fits the whole structure into whatever
+    // viewport it's opened in (phone or desktop).
+    let scale = 0.85
+    let y = 24
+    if (presentation === 'tree') {
+      const fitW = (rect.width - 32) / canvasW
+      const fitH = (rect.height - 32) / canvasH
+      scale = Math.min(MAX_SCALE, Math.max(TREE_MIN_SCALE, Math.min(fitW, fitH)))
+      y = rect.height / 2 - (canvasH / 2) * scale
+    }
     const x = rect.width / 2 - (canvasW / 2) * scale
-    const y = 24
     setTransform({ x, y, scale })
     setHasCentered(true)
-  }, [canvasW, hasCentered])
+  }, [canvasW, canvasH, hasCentered, presentation])
 
   const pan = useCallback((dx: number, dy: number) => {
     setTransform((t) => ({ ...t, x: t.x + dx, y: t.y + dy }))
@@ -1242,10 +1250,17 @@ export default function CampaignStructureMap({ embedded = false, presentation = 
 
   const resetView = useCallback(() => {
     const rect = containerRef.current?.getBoundingClientRect()
-    const scale = 0.85
+    let scale = 0.85
+    let y = 24
+    if (presentation === 'tree' && rect) {
+      const fitW = (rect.width - 32) / canvasW
+      const fitH = (rect.height - 32) / canvasH
+      scale = Math.min(MAX_SCALE, Math.max(TREE_MIN_SCALE, Math.min(fitW, fitH)))
+      y = rect.height / 2 - (canvasH / 2) * scale
+    }
     const x = (rect?.width ?? 1200) / 2 - (canvasW / 2) * scale
-    setTransform({ x, y: 24, scale })
-  }, [canvasW])
+    setTransform({ x, y, scale })
+  }, [canvasW, canvasH, presentation])
 
   const panState = useRef<{ active: boolean; lastX: number; lastY: number }>({
     active: false,
@@ -1253,13 +1268,56 @@ export default function CampaignStructureMap({ embedded = false, presentation = 
     lastY: 0,
   })
 
+  // Pinch-to-zoom (touch only) — tracked separately from single-finger pan
+  // above. Desktop wheel zoom and the +/- buttons still go through the
+  // existing `zoom` callback and are untouched.
+  const activePointers = useRef<Map<number, { x: number; y: number }>>(new Map())
+  const pinchState = useRef<{ startDist: number; startScale: number } | null>(null)
+  const pointerDistance = (a: { x: number; y: number }, b: { x: number; y: number }) =>
+    Math.hypot(a.x - b.x, a.y - b.y)
+
+  const zoomToScale = useCallback(
+    (newScaleRaw: number, originX: number, originY: number) => {
+      setTransform((t) => {
+        const floor = presentation === 'tree' ? TREE_MIN_SCALE : MIN_SCALE
+        const newScale = Math.min(MAX_SCALE, Math.max(floor, newScaleRaw))
+        const canvasX = (originX - t.x) / t.scale
+        const canvasY = (originY - t.y) / t.scale
+        return { scale: newScale, x: originX - canvasX * newScale, y: originY - canvasY * newScale }
+      })
+    },
+    [presentation]
+  )
+
   const handlePointerDown = useCallback((e: React.PointerEvent) => {
+    if (e.pointerType === 'touch') {
+      activePointers.current.set(e.pointerId, { x: e.clientX, y: e.clientY })
+      if (activePointers.current.size === 2) {
+        panState.current.active = false
+        const pts = Array.from(activePointers.current.values())
+        pinchState.current = { startDist: pointerDistance(pts[0], pts[1]), startScale: transform.scale }
+        return
+      }
+    }
     if (e.button !== 0) return
     panState.current = { active: true, lastX: e.clientX, lastY: e.clientY }
-  }, [])
+  }, [transform.scale])
 
   const handlePointerMove = useCallback(
     (e: React.PointerEvent) => {
+      if (e.pointerType === 'touch' && activePointers.current.has(e.pointerId)) {
+        activePointers.current.set(e.pointerId, { x: e.clientX, y: e.clientY })
+      }
+      if (activePointers.current.size === 2 && pinchState.current) {
+        const rect = containerRef.current?.getBoundingClientRect()
+        const pts = Array.from(activePointers.current.values())
+        const dist = pointerDistance(pts[0], pts[1])
+        const midX = (pts[0].x + pts[1].x) / 2 - (rect?.left ?? 0)
+        const midY = (pts[0].y + pts[1].y) / 2 - (rect?.top ?? 0)
+        const nextScale = pinchState.current.startScale * (dist / pinchState.current.startDist)
+        zoomToScale(nextScale, midX, midY)
+        return
+      }
       if (!panState.current.active) return
       const dx = e.clientX - panState.current.lastX
       const dy = e.clientY - panState.current.lastY
@@ -1267,10 +1325,19 @@ export default function CampaignStructureMap({ embedded = false, presentation = 
       panState.current.lastY = e.clientY
       pan(dx, dy)
     },
-    [pan]
+    [pan, zoomToScale]
   )
 
-  const handlePointerUp = useCallback(() => {
+  const handlePointerUp = useCallback((e: React.PointerEvent) => {
+    if (e.pointerType === 'touch') {
+      activePointers.current.delete(e.pointerId)
+      pinchState.current = null
+      if (activePointers.current.size === 1) {
+        const [remaining] = Array.from(activePointers.current.values())
+        panState.current = { active: true, lastX: remaining.x, lastY: remaining.y }
+        return
+      }
+    }
     panState.current.active = false
   }, [])
 
@@ -1612,8 +1679,6 @@ return (
                     ? { background: node.kind === 'asset' || node.kind === 'video' ? TREE_DARK.cardBgAlt : TREE_DARK.cardBg }
                     : {}),
                                     opacity: dimmed ? 0.35 : 1,
-                  cursor: isDragging ? 'grabbing' : 'grab',
-                  zIndex: isDragging ? 10 : 1,
                   touchAction: 'none',
                 }}
               >
