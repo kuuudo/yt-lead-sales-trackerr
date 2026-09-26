@@ -1403,35 +1403,6 @@ export default function CampaignStructureMap({ embedded = false }: CampaignStruc
         <span style={styles.phaseBadge}>
           <Sparkles size={12} /> Structure preview — static mock data, not connected to live data
         </span>
-               <button
-          type="button"
-          onClick={() => setShowThumbnails((prev) => !prev)}
-          style={{
-            ...styles.legendChip,
-            borderColor: showThumbnails ? '#6366f1' : '#e5e7eb',
-            background: showThumbnails ? '#6366f10f' : '#ffffff',
-            color: showThumbnails ? '#6366f1' : '#374151',
-          }}
-        >
-          Thumbnails: {showThumbnails ? 'On' : 'Off'}
-        </button>
-        <div style={styles.campaignSwitcherWrap}>
-          <select
-            value={campaignId ?? ''}
-            onChange={(e) => navigate(`/marketplace/campaigns/${e.target.value}/structure`)}
-            style={styles.campaignSwitcher}
-          >
-            {campaignId && !campaignOptions.some((c) => c.id === campaignId) && (
-              <option value={campaignId}>{currentCampaignName ?? 'Untitled Campaign'}</option>
-            )}
-            {campaignOptions.map((c) => (
-              <option key={c.id} value={c.id}>
-                {c.campaign_name}
-              </option>
-            ))}
-          </select>
-          <ChevronDown size={12} style={styles.campaignSwitcherIcon} />
-        </div>
       </div>
 
       <div
@@ -1629,6 +1600,49 @@ export default function CampaignStructureMap({ embedded = false }: CampaignStruc
         {renderBranchFilterChip('content', contentSearch, setContentSearch, 'Search content videos...', contentDateRange, setContentDateRange)}
         {renderBranchFilterChip('marketers', marketersSearch, setMarketersSearch, 'Search promotions...', marketersDateRange, setMarketersDateRange)}
         {renderBranchFilterChip('own_assets', ownAssetsSearch, setOwnAssetsSearch, 'Search assets...', ownAssetsDateRange, setOwnAssetsDateRange)}
+        {(() => {
+          // Moved out of the fixed header: Thumbnails toggle + campaign
+          // switcher now anchor to the root campaign node itself, on the
+          // canvas — same anchor math as the branch filter chips above, so
+          // they pan/zoom with the map instead of staying pinned in the UI.
+          const rootNode = liveNodes.find((n) => n.id === 'campaign_a')
+          if (!rootNode) return null
+          const anchorLeft = transform.x + rootNode.center.x * transform.scale + (rootNode.w / 2) * transform.scale + 12
+          const anchorTop = transform.y + rootNode.center.y * transform.scale - 15
+          return (
+            <div style={{ ...styles.contentFilterAnchor, left: anchorLeft, top: anchorTop }}>
+              <button
+                type="button"
+                onClick={() => setShowThumbnails((prev) => !prev)}
+                style={{
+                  ...styles.legendChip,
+                  borderColor: showThumbnails ? '#6366f1' : '#e5e7eb',
+                  background: showThumbnails ? '#6366f10f' : '#ffffff',
+                  color: showThumbnails ? '#6366f1' : '#374151',
+                }}
+              >
+                Thumbnails: {showThumbnails ? 'On' : 'Off'}
+              </button>
+              <div style={styles.campaignSwitcherWrap}>
+                <select
+                  value={campaignId ?? ''}
+                  onChange={(e) => navigate(`/marketplace/campaigns/${e.target.value}/structure`)}
+                  style={styles.campaignSwitcher}
+                >
+                  {campaignId && !campaignOptions.some((c) => c.id === campaignId) && (
+                    <option value={campaignId}>{currentCampaignName ?? 'Untitled Campaign'}</option>
+                  )}
+                  {campaignOptions.map((c) => (
+                    <option key={c.id} value={c.id}>
+                      {c.campaign_name}
+                    </option>
+                  ))}
+                </select>
+                <ChevronDown size={12} style={styles.campaignSwitcherIcon} />
+              </div>
+            </div>
+          )
+        })()}
         {/* Legend */}
         <div style={styles.legend}>
           {legendItems.map((item) => {
