@@ -163,6 +163,12 @@ import {
   resolveAssetCampaignLabel,
   resolveContentCampaignLabel,
 } from './analytics-lego/assetAnalyticsCampaignLabels';
+import { useAnalyticsMobileLayout } from './analytics-lego/useAnalyticsMobileLayout';
+import { AnalyticsMobileViewToggle } from './analytics-lego/AnalyticsMobileViewToggle';
+import {
+  AnalyticsMobileFilterButton,
+  AnalyticsMobileFilterSheet,
+} from './analytics-lego/AnalyticsMobileFilterSheet';
 
 // STUB data sources — return nothing yet. Replace with real fetches/engine
 // calls once ASSET_ANALYTICS_DESIGN.md's open questions are resolved.
@@ -1297,23 +1303,18 @@ export default function AllAssetsAnalytics() {
     setSelectedPromotionIds(prev => (prev.includes(id) ? prev.filter(x => x !== id) : [...prev, id]));
   };
   const [selectedContentOwnerId, setSelectedContentOwnerId] = useState<string>('all');
-  const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [chartOpen, setChartOpen] = useState(true);
 
-  // Mobile landscape: hide header/chart/tabs entirely so the table/cards
-  // get the full screen. Only fires below the lg breakpoint — desktop
-  // (always "landscape" in the literal sense) is unaffected.
-  const [isMobileLandscape, setIsMobileLandscape] = useState(false);
-  useEffect(() => {
-    const mq = window.matchMedia('(max-width: 1023px) and (orientation: landscape)');
-    const update = () => setIsMobileLandscape(mq.matches);
-    update();
-    mq.addEventListener('change', update);
-    return () => mq.removeEventListener('change', update);
-  }, []);
+  // Presentation LEGO — mobile landscape / Cards|Table / filter sheet open.
+  const {
+    isMobileLandscape,
+    viewMode: mobileTab,
+    setViewMode: setMobileTab,
+    filterOpen: mobileMenuOpen,
+    setFilterOpen: setMobileMenuOpen,
+  } = useAnalyticsMobileLayout('cards');
 
   const [mobileFiltersOpen, setMobileFiltersOpen] = useState(false);
-  const [mobileTab, setMobileTab] = useState<'cards' | 'table'>('cards');
   const [expandedCards, setExpandedCards] = useState<Set<string>>(new Set());
   const [activeSource, setActiveSource]   = useState<RevenueView>('total');
   const [selectedPlatforms, setSelectedPlatforms] = useState<string[]>([]);
@@ -2219,22 +2220,10 @@ export default function AllAssetsAnalytics() {
       {/* ── Main content ─────────────────────────────────────────────────── */}
       <div className="flex-1 flex flex-col h-full overflow-hidden bg-black relative">
 
-        {mobileMenuOpen && (
-          <div className="lg:hidden fixed inset-0 z-[9500] flex flex-col justify-end bg-black/70">
-            <div
-              className="max-h-[85vh] bg-zinc-950 border-t border-zinc-800 rounded-t-3xl overflow-y-auto custom-scrollbar px-6 pt-5 pb-8 space-y-8"
-            >
-              {/* Header row: title + close */}
-              <div className="flex items-center justify-between sticky top-0 bg-zinc-950 pb-3 -mt-5 pt-5 -mx-6 px-6 border-b border-zinc-900">
-                <span className="text-xs font-black uppercase tracking-widest text-white">Filters & Sort</span>
-                <button
-                  onClick={() => setMobileMenuOpen(false)}
-                  className="p-2 bg-zinc-900 border border-zinc-800 rounded-xl text-zinc-400"
-                >
-                  <X size={16} />
-                </button>
-              </div>
-
+        <AnalyticsMobileFilterSheet
+          open={mobileMenuOpen}
+          onOpenChange={setMobileMenuOpen}
+        >
               {/* Date Range */}
               <div>
                 <label className="text-[10px] font-black uppercase tracking-widest text-zinc-500 mb-3 block">
@@ -2900,9 +2889,7 @@ export default function AllAssetsAnalytics() {
                   Show {sortedRows.length} Rows
                 </button>
               </div>
-            </div>
-          </div>
-        )}
+        </AnalyticsMobileFilterSheet>
 
         {/* ── Header ─────────────────────────────────────────────────────── */}
         {!isMobileLandscape && (
@@ -3024,13 +3011,10 @@ export default function AllAssetsAnalytics() {
               </div>
             </div>
 
-            {/* Mobile-only: ☰ moved to top right */}
-            <button
-              onClick={() => setMobileMenuOpen(o => !o)}
-              className="lg:hidden w-11 h-11 rounded-full bg-red-600 text-white flex items-center justify-center shadow-lg shrink-0"
-            >
-              <Menu size={20} />
-            </button>
+            {/* Mobile-only: ☰ — AnalyticsMobileFilterButton LEGO */}
+            <AnalyticsMobileFilterButton
+              onClick={() => setMobileMenuOpen(!mobileMenuOpen)}
+            />
           </div>
 
           {/* Second row: platform filter + quick sort */}
@@ -3169,27 +3153,12 @@ export default function AllAssetsAnalytics() {
         )}
 
         {/* ── Table ──────────────────────────────────────────────────────── */}
-                {/* ── Mobile view tabs — mobile only, desktop keeps the table ─────── */}
-        {!isMobileLandscape && (
-        <div className="lg:hidden flex items-center gap-2 px-6 py-3 bg-zinc-950 border-b border-zinc-900">
-          <button
-            onClick={() => setMobileTab('cards')}
-            className={`px-4 py-1.5 rounded-lg text-[10px] font-black uppercase tracking-widest transition-all ${
-              mobileTab === 'cards' ? 'bg-red-600 text-white' : 'border border-zinc-800 text-zinc-500'
-            }`}
-          >
-            Cards
-          </button>
-          <button
-            onClick={() => setMobileTab('table')}
-            className={`px-4 py-1.5 rounded-lg text-[10px] font-black uppercase tracking-widest transition-all ${
-              mobileTab === 'table' ? 'bg-red-600 text-white' : 'border border-zinc-800 text-zinc-500'
-            }`}
-          >
-            Table
-          </button>
-        </div>
-        )}
+                {/* ── Mobile view tabs — AnalyticsMobileViewToggle LEGO ───────────── */}
+        <AnalyticsMobileViewToggle
+          mode={mobileTab}
+          onChange={setMobileTab}
+          hidden={isMobileLandscape}
+        />
 
         {/* ── Mobile card list — mobile only, Cards tab ───────────────────── */}
         {mobileTab === 'cards' && (

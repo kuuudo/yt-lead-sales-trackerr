@@ -780,7 +780,7 @@ export default function AllPromotionsAnalytics() {
                 Promotion Analytics
               </h1>
               <p className="text-[10px] text-zinc-600 font-bold uppercase tracking-widest mt-0.5">
-                Performance per promotion · fact bags · not asset pair sums
+                Performance per promotion
               </p>
             </div>
           </div>
