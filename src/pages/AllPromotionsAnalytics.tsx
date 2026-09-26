@@ -1075,7 +1075,10 @@ export default function AllPromotionsAnalytics() {
                   <div className="flex items-center gap-2 mb-2 flex-wrap">
                     <PromotionAssetsCell
                       assets={assetsByPromotionId.get(row.promotionId) ?? []}
+                      clicksByAssetId={row.asset_clicks_by_asset ?? {}}
+                      totalClicks={row.asset_clicks ?? 0}
                       promotionTitle={title}
+                      variant="assets"
                     />
                   </div>
                   <div className="space-y-2">
@@ -1279,11 +1282,20 @@ export default function AllPromotionsAnalytics() {
                         <td className="px-4 py-4 whitespace-nowrap">
                           <PromotionAssetsCell
                             assets={assetsByPromotionId.get(row.promotionId) ?? []}
+                            clicksByAssetId={row.asset_clicks_by_asset ?? {}}
+                            totalClicks={row.asset_clicks ?? 0}
                             promotionTitle={promotionDisplayTitle(row)}
+                            variant="assets"
                           />
                         </td>
-                        <td className="px-4 py-4 whitespace-nowrap text-sm font-bold text-zinc-400 tabular-nums">
-                          {(row.asset_clicks ?? 0).toLocaleString()}
+                        <td className="px-4 py-4 whitespace-nowrap">
+                          <PromotionAssetsCell
+                            assets={assetsByPromotionId.get(row.promotionId) ?? []}
+                            clicksByAssetId={row.asset_clicks_by_asset ?? {}}
+                            totalClicks={row.asset_clicks ?? 0}
+                            promotionTitle={promotionDisplayTitle(row)}
+                            variant="clicks"
+                          />
                         </td>
                         {PROMOTION_METRIC_COLUMNS.map(key => (
                           <td
