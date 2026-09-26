@@ -41,6 +41,11 @@ import {
   AnalyticsMobileFilterButton,
   AnalyticsMobileFilterSheet,
 } from './analytics-lego/AnalyticsMobileFilterSheet';
+import { PromotionAssetsCell } from './analytics-lego/PromotionAssetsCell';
+import {
+  resolvePromotionAssetsByPromotionIds,
+  type PromotionAssetIdentity,
+} from './analytics-lego/resolvePromotionAssets';
 
 const PROMOTION_METRIC_COLUMNS: MetricType[] = [...TABLE_COLUMNS];
 
@@ -167,6 +172,7 @@ export default function AllPromotionsAnalytics() {
   /** promotionId → marketer user_id (null = no collaborator → Unattributed for marketer filter) */
   const [marketerUserIdByPromotionId, setMarketerUserIdByPromotionId] = useState<Map<string, string | null>>(new Map());
   const [marketerNameByUserId, setMarketerNameByUserId] = useState<Map<string, string>>(new Map());
+  const [assetsByPromotionId, setAssetsByPromotionId] = useState<Map<string, PromotionAssetIdentity[]>>(new Map());
   const [viewerArchivedById, setViewerArchivedById] = useState<Map<string, boolean>>(new Map());
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -316,6 +322,15 @@ export default function AllPromotionsAnalytics() {
           setMarketerUserIdByPromotionId(marketerByPromo);
           setMarketerNameByUserId(nameByUser);
         }
+
+        // Assets on promotion (membership) — includes zero-activity assets
+        try {
+          const assetMap = await resolvePromotionAssetsByPromotionIds(realPromoIds);
+          if (!cancelled) setAssetsByPromotionId(assetMap);
+        } catch (e) {
+          console.warn('[AllPromotionsAnalytics] promotion assets', e);
+          if (!cancelled) setAssetsByPromotionId(new Map());
+        }
       } catch (e: any) {
         if (!cancelled) {
           setError(e?.message ?? String(e));
@@ -436,6 +451,12 @@ export default function AllPromotionsAnalytics() {
         const bt = (b.title ?? '').toLowerCase();
         if (at !== bt) return at > bt ? dir : -dir;
         return a.promotionId > b.promotionId ? dir : -dir;
+      }
+      if (key === 'asset_clicks') {
+        const av = Number(a.asset_clicks ?? 0);
+        const bv = Number(b.asset_clicks ?? 0);
+        if (av === bv) return a.promotionId > b.promotionId ? 1 : -1;
+        return av > bv ? dir : -dir;
       }
       const av = Number((a.metrics as any)[key] ?? 0);
       const bv = Number((b.metrics as any)[key] ?? 0);
@@ -1051,7 +1072,35 @@ export default function AllPromotionsAnalytics() {
                       )}
                     </div>
                   </div>
+                  <div className="flex items-center gap-2 mb-2 flex-wrap">
+                    <PromotionAssetsCell
+                      assets={assetsByPromotionId.get(row.promotionId) ?? []}
+                      promotionTitle={title}
+                    />
+                  </div>
                   <div className="space-y-2">
+                    <div className="flex items-center justify-between text-[11px]">
+                      <span className="text-zinc-600 font-bold uppercase tracking-widest">
+                        Marketer
+                      </span>
+                      <span className="text-zinc-300 font-bold truncate max-w-[50%]">
+                        {row.isUnattributed
+                          ? '—'
+                          : (marketerUserIdByPromotionId.get(row.promotionId)
+                              ? marketerNameByUserId.get(
+                                  marketerUserIdByPromotionId.get(row.promotionId) as string,
+                                ) ?? '—'
+                              : '—')}
+                      </span>
+                    </div>
+                    <div className="flex items-center justify-between text-[11px]">
+                      <span className="text-zinc-600 font-bold uppercase tracking-widest">
+                        Asset Clicks
+                      </span>
+                      <span className="text-zinc-300 font-bold tabular-nums">
+                        {(row.asset_clicks ?? 0).toLocaleString()}
+                      </span>
+                    </div>
                     <div className="flex items-center justify-between text-[11px]">
                       <span className="text-zinc-600 font-bold uppercase tracking-widest">
                         Total Revenue ($)
@@ -1108,6 +1157,24 @@ export default function AllPromotionsAnalytics() {
                       <ArrowUpDown
                         size={10}
                         className={sortConfig.key === 'title' ? 'text-white' : 'text-zinc-700'}
+                      />
+                    </div>
+                  </th>
+                  <th className="px-4 py-5 text-left text-[10px] font-black uppercase tracking-widest text-zinc-600 border-b border-zinc-900 bg-zinc-950 min-w-[120px]">
+                    Marketer
+                  </th>
+                  <th className="px-4 py-5 text-left text-[10px] font-black uppercase tracking-widest text-zinc-600 border-b border-zinc-900 bg-zinc-950 min-w-[100px]">
+                    Assets
+                  </th>
+                  <th
+                    onClick={() => handleSort('asset_clicks')}
+                    className="px-4 py-5 text-left text-[10px] font-black uppercase tracking-widest text-zinc-600 border-b border-zinc-900 bg-zinc-950 min-w-[110px] cursor-pointer hover:text-zinc-300"
+                  >
+                    <div className="flex items-center gap-1.5">
+                      Asset Clicks
+                      <ArrowUpDown
+                        size={10}
+                        className={sortConfig.key === 'asset_clicks' ? 'text-white' : 'text-zinc-700'}
                       />
                     </div>
                   </th>
@@ -1199,6 +1266,24 @@ export default function AllPromotionsAnalytics() {
                               )}
                             </div>
                           </div>
+                        </td>
+                        <td className="px-4 py-4 whitespace-nowrap text-[11px] font-bold text-zinc-300">
+                          {row.isUnattributed
+                            ? '—'
+                            : (marketerUserIdByPromotionId.get(row.promotionId)
+                                ? marketerNameByUserId.get(
+                                    marketerUserIdByPromotionId.get(row.promotionId) as string,
+                                  ) ?? '—'
+                                : '—')}
+                        </td>
+                        <td className="px-4 py-4 whitespace-nowrap">
+                          <PromotionAssetsCell
+                            assets={assetsByPromotionId.get(row.promotionId) ?? []}
+                            promotionTitle={promotionDisplayTitle(row)}
+                          />
+                        </td>
+                        <td className="px-4 py-4 whitespace-nowrap text-sm font-bold text-zinc-400 tabular-nums">
+                          {(row.asset_clicks ?? 0).toLocaleString()}
                         </td>
                         {PROMOTION_METRIC_COLUMNS.map(key => (
                           <td

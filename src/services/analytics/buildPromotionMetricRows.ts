@@ -18,6 +18,7 @@
 
 import { supabase } from '../../lib/supabase';
 import {
+  CLICK_EVENT_MAP,
   type DateRange,
   type CustomDateRange,
   type VideoMetricsResult,
@@ -57,6 +58,13 @@ export interface PromotionMetricRow {
   archivedAt: string | null;
   /** Canonical metrics — one metricsForFactBag call per row. */
   metrics: VideoMetricsResult;
+  /**
+   * Asset Clicks at Promotion/fact-bag grain (NOT sum of AllAssets pair rows).
+   * Same semantics as AllAssets metrics.clicks / design:
+   * events with non-null asset_id whose event_type is in CLICK_EVENT_MAP,
+   * deduped by event id within the promotion bag.
+   */
+  asset_clicks: number;
   /** Debug / verification aids (not required by UI). */
   factCounts: {
     events: number;
@@ -106,6 +114,32 @@ export function resolvePromotionTitle(identity: {
  * Org-scoped promotions + assignment title + campaign name.
  * Does not load marketer / collaborator aggregation (Phase D).
  */
+
+/** Flatten CLICK_EVENT_MAP raw event_type strings (AllAssets Asset Clicks path). */
+const ASSET_CLICK_EVENT_TYPES: Set<string> = new Set(
+  Object.values(CLICK_EVENT_MAP).flatMap(types => types),
+);
+
+/**
+ * Promotion-level Asset Clicks from a fact bag's events only.
+ * - Requires asset_id (asset-scoped event)
+ * - event_type in CLICK_EVENT_MAP values
+ * - Dedupe by event id (bag may already be unique; still safe)
+ * Does NOT sum AllAssets display rows. Does NOT use processVideoMetrics.
+ */
+export function countAssetClicksFromEvents(
+  events: { id: string; asset_id?: string | null; event_type?: string | null }[],
+): number {
+  const seen = new Set<string>();
+  for (const e of events) {
+    if (!e.asset_id) continue;
+    if (!e.event_type || !ASSET_CLICK_EVENT_TYPES.has(e.event_type)) continue;
+    if (seen.has(e.id)) continue;
+    seen.add(e.id);
+  }
+  return seen.size;
+}
+
 export async function fetchOrgPromotionIdentities(
   organizationId: string,
 ): Promise<OrgPromotionIdentity[]> {
@@ -238,6 +272,7 @@ export async function buildPromotionMetricRows(
       isArchived: false,
       archivedAt: null,
       metrics,
+      asset_clicks: countAssetClicksFromEvents(bag?.events ?? []),
       factCounts: bagFactCounts(bag),
     });
   }
@@ -271,6 +306,7 @@ export async function buildPromotionMetricRows(
         isArchived: false,
         archivedAt: null,
         metrics,
+        asset_clicks: countAssetClicksFromEvents(unattributedBag.events),
         factCounts: bagFactCounts(unattributedBag),
       });
     }
@@ -305,6 +341,7 @@ export async function buildPromotionMetricRows(
         redirectLinkLookup: facts.redirectLinkLookup,
         includeEV,
       }),
+      asset_clicks: countAssetClicksFromEvents(bag.events),
       factCounts: bagFactCounts(bag),
     });
   }
