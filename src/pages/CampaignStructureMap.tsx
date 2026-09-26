@@ -49,12 +49,15 @@ import { getAssetAnalyticsRows } from '../services/asset/getAssetAnalyticsRows'
 // Phase 1 thumbnail correction: reuse the existing generic-thumbnail
 // resolvers AllAssetsAnalytics.tsx already uses for campaign_element /
 // resource assets, instead of inventing a new naming/lookup system.
-// resolveThumbnail (the video platform-image *fallback*) is intentionally
-// NOT imported — YouTube video assets here only ever show a real
-// videos.thumbnail_url, never a generic fallback.
+// Phase 2: resolveThumbnail (the video platform-image *fallback*) IS
+// needed here, unlike the Marketer/Promotion asset nodes above — Content
+// videos are multi-platform (FB/IG/Threads/etc, not guaranteed YouTube),
+// so a null videos.thumbnail_url is expected and falls back to the
+// matching /platform-thumbnails/*.jpg via PLATFORM_THUMBNAILS.
 import {
   resolveAssetThumbnail,
   resolveElementThumbnail,
+  resolveThumbnail,
   type ResourceType,
   type CampaignElementType,
 } from '../lib/videoFormatters'
@@ -436,6 +439,7 @@ interface ContentVideo {
   title: string
   createdAt: string
   thumbnailUrl: string | null
+  platform: string | null
 }
 
 /**
@@ -474,7 +478,7 @@ function useCampaignContentBuckets(
       try {
         const { data: videoRows } = await supabase
           .from('videos')
-          .select('id, created_at, video_title, thumbnail_url')
+          .select('id, created_at, video_title, thumbnail_url, platform')
           .eq('campaign_id', campaignId)
 
         const videos: ContentVideo[] = (videoRows ?? [])
@@ -484,6 +488,7 @@ function useCampaignContentBuckets(
             title: (v.video_title as string | null) ?? 'Untitled video',
             createdAt: v.created_at as string,
             thumbnailUrl: (v.thumbnail_url as string | null) ?? null,
+            platform: (v.platform as string | null) ?? null,
           }))
 
         if (!cancelled) setContentVideos(videos)
@@ -941,7 +946,7 @@ function buildContentMonthNodes(
         label: v.title,
         kind: 'video',
         color,
-        thumbnailUrl: v.thumbnailUrl,
+        thumbnailUrl: resolveThumbnail({ thumbnail_url: v.thumbnailUrl, platform: v.platform }),
       }))
       return {
         id,
