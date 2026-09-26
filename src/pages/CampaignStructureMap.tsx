@@ -554,6 +554,19 @@ const MARKETER_A = '#6366f1' // indigo
 const MARKETER_B = '#ec4899' // pink
 const MARKETER_C = '#f59e0b' // amber
 
+// Tree-native dark presentation tokens (visual only — swapped in when
+// presentation === 'tree'; the 'campaign' presentation never reads these).
+const TREE_DARK = {
+  page: '#0a0a0a',
+  canvas: '#0a0a0a',
+  cardBg: '#141414',
+  cardBgAlt: '#111111',
+  border: '#262626',
+  textPrimary: '#f5f5f5',
+  textSecondary: '#a3a3a3',
+  textFaint: '#737373',
+}
+
 const MOCK_CAMPAIGN: TreeNode = {
   id: 'campaign_a',
   label: 'Campaign A',
@@ -1046,10 +1059,14 @@ function dateRangeCutoff(dateRange: DateRangeValue): number | null {
 
 interface CampaignStructureMapProps {
   embedded?: boolean;
+  presentation?: 'campaign' | 'tree';
 }
 
-export default function CampaignStructureMap({ embedded = false }: CampaignStructureMapProps) {
-  const { campaignId } = useParams<{ campaignId: string }>()
+export default function CampaignStructureMap({ embedded = false, presentation = 'campaign' }: CampaignStructureMapProps) {
+  
+  const { campaignId: paramCampaignId } = useParams<{ campaignId: string }>()
+  const [selectedCampaignId, setSelectedCampaignId] = useState<string | undefined>(undefined)
+  const campaignId = presentation === 'tree' ? selectedCampaignId : paramCampaignId
   const navigate = useNavigate()
   const containerRef = useRef<HTMLDivElement>(null)
 
@@ -1059,6 +1076,11 @@ export default function CampaignStructureMap({ embedded = false }: CampaignStruc
   const { viewingMemberId, viewingOrgId, isReadOnly } = useViewing()
   const effectiveViewerId = isReadOnly ? viewingMemberId : (user?.id ?? null)
   const campaignOptions = useCampaignOptions(effectiveViewerId)
+  useEffect(() => {
+  if (presentation === 'tree' && !selectedCampaignId && campaignOptions.length > 0) {
+    setSelectedCampaignId(campaignOptions[0].id)
+  }
+}, [presentation, selectedCampaignId, campaignOptions])
   const currentCampaignName = useMemo(
     () => campaignOptions.find((c) => c.id === campaignId)?.campaign_name ?? null,
     [campaignOptions, campaignId]
@@ -1368,21 +1390,21 @@ export default function CampaignStructureMap({ embedded = false }: CampaignStruc
     const anchorTop = transform.y + branchNode.center.y * transform.scale - 15
     return (
       <div key={branchId} style={{ ...styles.contentFilterAnchor, left: anchorLeft, top: anchorTop }} >
-        <div style={styles.contentSearchWrap} >
-          <Search size={13} color="#9ca3af" />
+        <div style={{ ...styles.contentSearchWrap, ...(presentation === 'tree' ? { background: TREE_DARK.cardBg, borderColor: TREE_DARK.border } : {}) }} >
+          <Search size={13} color={presentation === 'tree' ? TREE_DARK.textFaint : '#9ca3af'} />
           <input
             type="text"
             value={search}
             onChange={(e) => setSearch(e.target.value)}
             placeholder={placeholder}
-            style={styles.contentSearchInput}
+            style={{ ...styles.contentSearchInput, ...(presentation === 'tree' ? { color: TREE_DARK.textPrimary } : {}) }}
             
           />
         </div>
         <select
           value={dateRange}
           onChange={(e) => setDateRange(e.target.value as DateRangeValue)}
-          style={styles.contentDateSelect}
+          style={{ ...styles.contentDateSelect, ...(presentation === 'tree' ? { background: TREE_DARK.cardBg, borderColor: TREE_DARK.border, color: TREE_DARK.textSecondary } : {}) }}
           
         >
           <option value="all">All time</option>
@@ -1395,24 +1417,26 @@ export default function CampaignStructureMap({ embedded = false }: CampaignStruc
     )
   }
 
-  return (
-    <div style={styles.page}>
-      <div style={styles.header} >
-        <Link to={`/campaigns/${campaignId ?? ''}`} style={styles.backLink} >
-          <ArrowLeft size={14} /> <span >Back to campaign</span>
-        </Link>
-        <div style={styles.titleBlock}>
-          <span style={styles.title}>Campaign Structure Map</span>
-          <span style={styles.subtitle}>{currentCampaignName ?? campaignId ?? 'Untitled Campaign'}</span>
-        </div>
-        <span style={styles.phaseBadge} >
-          <Sparkles size={12} /> <span >Structure preview — static mock data, not connected to live data</span>
-        </span>
+return ( 
+  <div style={{ ...styles.page, ...(presentation === 'tree' ? { background: TREE_DARK.page } : {}) }}>
+    {presentation === 'campaign' && (
+      <div style={styles.header} > 
+        <Link to={`/campaigns/${campaignId ?? ''}`} style={styles.backLink} > 
+          <ArrowLeft size={14} /> <span >Back to campaign</span> 
+        </Link> 
+        <div style={styles.titleBlock}> 
+          <span style={styles.title}>Campaign Structure Map</span> 
+          <span style={styles.subtitle}>{currentCampaignName ?? campaignId ?? 'Untitled Campaign'}</span> 
+        </div> 
+        <span style={styles.phaseBadge} > 
+          <Sparkles size={12} /> <span >Structure preview — static mock data, not connected to live data</span> 
+        </span> 
       </div>
+    )}
 
       <div
         ref={containerRef}
-        style={styles.canvasContainer}
+        style={{ ...styles.canvasContainer, ...(presentation === 'tree' ? { background: TREE_DARK.canvas } : {}) }}
         onPointerDown={handlePointerDown}
         onPointerMove={handlePointerMove}
         onPointerUp={handlePointerUp}
@@ -1420,15 +1444,15 @@ export default function CampaignStructureMap({ embedded = false }: CampaignStruc
         onWheel={handleWheel}
       >
         {!isRealDataReady && (
-          <div style={styles.fullMapLoading}>
+          <div style={{ ...styles.fullMapLoading, ...(presentation === 'tree' ? { background: TREE_DARK.page } : {}) }}>
             {isRealDataError ? (
-              <span style={styles.fullMapLoadingText}>
+              <span style={{ ...styles.fullMapLoadingText, ...(presentation === 'tree' ? { color: TREE_DARK.textSecondary } : {}) }}>
                 Couldn't load real campaign data. Try refreshing the page.
               </span>
             ) : (
               <>
                 <Loader2 size={22} className="animate-spin" color="#6366f1" />
-                <span style={styles.fullMapLoadingText}>Loading campaign structure…</span>
+                <span style={{ ...styles.fullMapLoadingText, ...(presentation === 'tree' ? { color: TREE_DARK.textSecondary } : {}) }}>Loading campaign structure…</span>
               </>
             )}
           </div>
@@ -1512,6 +1536,7 @@ export default function CampaignStructureMap({ embedded = false }: CampaignStruc
                     width: node.w,
                     height: node.h,
                     borderColor: `${node.color}66`,
+                    background: presentation === 'tree' ? TREE_DARK.cardBgAlt : undefined,
                     opacity: dimmed ? 0.35 : 1,
                   }}
                 >
@@ -1543,10 +1568,11 @@ export default function CampaignStructureMap({ embedded = false }: CampaignStruc
                     width: node.w,
                     height: node.h,
                     borderColor: node.color,
+                    background: presentation === 'tree' ? TREE_DARK.cardBg : undefined,
                     opacity: dimmed ? 0.35 : 1,
                   }}
                 >
-                  <span style={styles.monthLabel}>{node.label}</span>
+                  <span style={presentation === 'tree' ? { ...styles.monthLabel, color: TREE_DARK.textPrimary } : styles.monthLabel}>{node.label}</span>
                   <span style={{ ...styles.monthSubtitle, color: node.color }}>{meta?.subtitle ?? ''}</span>
                   {isExpanded ? (
                     <ChevronUp size={13} color={node.color} />
@@ -1582,6 +1608,12 @@ export default function CampaignStructureMap({ embedded = false }: CampaignStruc
                     : node.kind === 'asset' || node.kind === 'video'
                     ? '0 2px 6px rgba(15,23,42,0.04)'
                     : `0 0 0 2px ${node.color}1f, 0 4px 10px rgba(15,23,42,0.06)`,
+                  background:
+                    !isRoot && presentation === 'tree'
+                      ? node.kind === 'asset' || node.kind === 'video'
+                        ? TREE_DARK.cardBgAlt
+                        : TREE_DARK.cardBg
+                      : undefined,
                                     opacity: dimmed ? 0.35 : 1,
                   cursor: isDragging ? 'grabbing' : 'grab',
                   zIndex: isDragging ? 10 : 1,
@@ -1593,7 +1625,17 @@ export default function CampaignStructureMap({ embedded = false }: CampaignStruc
                 )}
                 {!isRoot && !thumbnailUrl && <span style={{ ...styles.nodeDot, background: node.color }} />}
                 <div style={styles.nodeTextCol}>
-                  <span style={isRoot ? styles.nodeLabelRoot : styles.nodeLabelCard}>{node.label}</span>
+                  <span
+                    style={
+                      isRoot
+                        ? styles.nodeLabelRoot
+                        : presentation === 'tree'
+                        ? { ...styles.nodeLabelCard, color: TREE_DARK.textPrimary }
+                        : styles.nodeLabelCard
+                    }
+                  >
+                    {node.label}
+                  </span>
                   {!isRoot && (
                     <span style={{ ...styles.nodeKind, color: node.color }}>{NODE_KIND_LABEL[node.kind]}</span>
                   )}
@@ -1621,19 +1663,25 @@ export default function CampaignStructureMap({ embedded = false }: CampaignStruc
                 onClick={() => setShowThumbnails((prev) => !prev)}
                 style={{
                   ...styles.legendChip,
-                  borderColor: showThumbnails ? '#6366f1' : '#e5e7eb',
-                  background: showThumbnails ? '#6366f10f' : '#ffffff',
-                  color: showThumbnails ? '#6366f1' : '#374151',
+                  borderColor: showThumbnails ? '#6366f1' : (presentation === 'tree' ? TREE_DARK.border : '#e5e7eb'),
+                  background: showThumbnails ? '#6366f10f' : (presentation === 'tree' ? TREE_DARK.cardBg : '#ffffff'),
+                  color: showThumbnails ? '#6366f1' : (presentation === 'tree' ? TREE_DARK.textSecondary : '#374151'),
                 }}
               >
                 Thumbnails: {showThumbnails ? 'On' : 'Off'}
               </button>
               <div style={styles.campaignSwitcherWrap}>
-                <select
-                  value={campaignId ?? ''}
-                  onChange={(e) => navigate(`/marketplace/campaigns/${e.target.value}/structure`)}
-                  style={styles.campaignSwitcher}
-                >
+<select 
+  value={campaignId ?? ''} 
+  onChange={(e) => {
+    if (presentation === 'tree') {
+      setSelectedCampaignId(e.target.value)
+    } else {
+      navigate(`/marketplace/campaigns/${e.target.value}/structure`)
+    }
+  }} 
+  style={{ ...styles.campaignSwitcher, ...(presentation === 'tree' ? { background: TREE_DARK.cardBg, borderColor: TREE_DARK.border, color: TREE_DARK.textPrimary } : {}) }}
+>
                   {campaignId && !campaignOptions.some((c) => c.id === campaignId) && (
                     <option value={campaignId}>{currentCampaignName ?? 'Untitled Campaign'}</option>
                   )}
@@ -1643,7 +1691,7 @@ export default function CampaignStructureMap({ embedded = false }: CampaignStruc
                     </option>
                   ))}
                 </select>
-                <ChevronDown size={12} style={styles.campaignSwitcherIcon} />
+                <ChevronDown size={12} style={{ ...styles.campaignSwitcherIcon, ...(presentation === 'tree' ? { color: TREE_DARK.textFaint } : {}) }} />
               </div>
             </div>
           )
@@ -1657,29 +1705,29 @@ export default function CampaignStructureMap({ embedded = false }: CampaignStruc
                 key={item.branchId}
                 style={{
                   ...styles.legendChip,
-                  borderColor: active ? item.color : '#e5e7eb',
-                  background: active ? `${item.color}0f` : '#ffffff',
+                  borderColor: active ? item.color : (presentation === 'tree' ? TREE_DARK.border : '#e5e7eb'),
+                  background: active ? `${item.color}0f` : (presentation === 'tree' ? TREE_DARK.cardBg : '#ffffff'),
                 }}
                 onMouseEnter={() => setHoveredBranchId(item.branchId)}
                 onMouseLeave={() => setHoveredBranchId(null)}
               >
                 <Network size={12} color={item.color} />
-                <span style={{ color: active ? item.color : '#374151' }}>{item.label}</span>
+                <span style={{ color: active ? item.color : (presentation === 'tree' ? TREE_DARK.textSecondary : '#374151') }}>{item.label}</span>
               </button>
             )
           })}
         </div>
 
-        <div style={styles.zoomControls} >
-          <button style={styles.zoomBtn} onClick={zoomIn} title="Zoom in">
+        <div style={{ ...styles.zoomControls, ...(presentation === 'tree' ? { background: TREE_DARK.cardBg, borderColor: TREE_DARK.border } : {}) }} >
+          <button style={{ ...styles.zoomBtn, ...(presentation === 'tree' ? { color: TREE_DARK.textSecondary } : {}) }} onClick={zoomIn} title="Zoom in">
             +
           </button>
-          <span style={styles.zoomLabel}>{scalePercent}%</span>
-          <button style={styles.zoomBtn} onClick={zoomOut} title="Zoom out">
+          <span style={{ ...styles.zoomLabel, ...(presentation === 'tree' ? { color: TREE_DARK.textFaint } : {}) }}>{scalePercent}%</span>
+          <button style={{ ...styles.zoomBtn, ...(presentation === 'tree' ? { color: TREE_DARK.textSecondary } : {}) }} onClick={zoomOut} title="Zoom out">
             −
           </button>
           <button
-            style={{ ...styles.zoomBtn, borderLeft: '1px solid #e5e7eb', marginLeft: 2, paddingLeft: 6 }}
+            style={{ ...styles.zoomBtn, borderLeft: `1px solid ${presentation === 'tree' ? TREE_DARK.border : '#e5e7eb'}`, marginLeft: 2, paddingLeft: 6, ...(presentation === 'tree' ? { color: TREE_DARK.textSecondary } : {}) }}
             
             onClick={resetView}
             title="Reset view"

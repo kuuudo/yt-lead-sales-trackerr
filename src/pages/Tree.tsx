@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-
+import { useNavigate } from 'react-router-dom';
 // ─────────────────────────────────────────────────────────────────────────────
 // Tree.tsx — Follow-the-Money hero (Phase 1)
 //
@@ -36,6 +36,7 @@ const SAMPLE = {
 
 export function Tree() {
   const [hoveredBtn, setHoveredBtn] = useState<HeroButtonKey | null>(null);
+  const navigate = useNavigate();
 
   return (
     <div style={styles.outerCanvas}>
@@ -50,12 +51,14 @@ export function Tree() {
 
         <div style={styles.headerActions}>
           {(['structure', 'journey'] as HeroButtonKey[]).map((key) => (
-            <button
-              key={key}
-              type="button"
-              aria-label={key === 'structure' ? 'Structure (coming soon)' : 'Journey (coming soon)'}
-              // Intentionally unwired — no onClick behavior yet. Visual-only.
-              onMouseEnter={() => setHoveredBtn(key)}
+<button
+  key={key}
+  type="button"
+  aria-label={key === 'structure' ? 'Structure (coming soon)' : 'Journey (coming soon)'}
+  onClick={() => {
+    if (key === 'structure') navigate('/tree/structure');
+  }}
+  onMouseEnter={() => setHoveredBtn(key)}
               onMouseLeave={() => setHoveredBtn((cur) => (cur === key ? null : cur))}
               style={{
                 ...styles.headerButton,
