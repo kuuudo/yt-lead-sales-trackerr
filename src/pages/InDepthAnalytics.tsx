@@ -274,11 +274,19 @@ export default function InDepthAnalyticsTest() {
   const [mobileTab, setMobileTab] = useState<'cards' | 'table'>('cards');
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   useEffect(() => {
-    const mq = window.matchMedia('(max-width: 1023px) and (orientation: landscape)');
-    const update = () => setIsMobileLandscape(mq.matches);
+    // Phone landscape: width under lg AND (CSS landscape OR short viewport height).
+    const mqOrient = window.matchMedia('(max-width: 1023px) and (orientation: landscape)');
+    const mqShort = window.matchMedia('(max-width: 1023px) and (max-height: 500px)');
+    const update = () => setIsMobileLandscape(mqOrient.matches || mqShort.matches);
     update();
-    mq.addEventListener('change', update);
-    return () => mq.removeEventListener('change', update);
+    mqOrient.addEventListener('change', update);
+    mqShort.addEventListener('change', update);
+    window.addEventListener('resize', update);
+    return () => {
+      mqOrient.removeEventListener('change', update);
+      mqShort.removeEventListener('change', update);
+      window.removeEventListener('resize', update);
+    };
   }, []);
 
   // Close columns dropdown on outside click
@@ -1182,20 +1190,11 @@ export default function InDepthAnalyticsTest() {
                 </span>
               </div>
 
-              {/* Mobile filter FAB */}
-              <button
-                type="button"
-                onClick={() => setMobileMenuOpen(o => !o)}
-                className="lg:hidden w-11 h-11 rounded-full bg-red-600 text-white flex items-center justify-center shadow-lg shrink-0"
-                aria-label="Open filters"
-              >
-                <Menu size={20} />
-              </button>
             </div>
           </div>
 
-          {/* Second row: platform filter + quick sort */}
-          <div className="pb-4 flex flex-wrap items-center justify-between gap-3">
+          {/* Second row: platform filter + quick sort — desktop only (mobile uses FAB sheet) */}
+          <div className="hidden lg:flex pb-4 flex-wrap items-center justify-between gap-3">
 
             {/* Platform filter pills */}
             <div className="flex flex-wrap items-center gap-1.5">
@@ -1278,6 +1277,18 @@ export default function InDepthAnalyticsTest() {
         </header>
         )}
 
+        {/* Portrait-only red FAB — fixed so it is never clipped by header flex overflow */}
+        {!isMobileLandscape && (
+          <button
+            type="button"
+            onClick={() => setMobileMenuOpen(o => !o)}
+            className="lg:hidden fixed top-3 right-3 z-[9600] w-11 h-11 rounded-full bg-red-600 text-white flex items-center justify-center shadow-lg"
+            aria-label="Open filters"
+          >
+            <Menu size={20} />
+          </button>
+        )}
+
         {/* Mobile Cards | Table toggle */}
         {!isMobileLandscape && (
           <div className="lg:hidden flex items-center gap-2 px-6 py-3 bg-zinc-950 border-b border-zinc-900">
@@ -1303,7 +1314,7 @@ export default function InDepthAnalyticsTest() {
         )}
 
         {/* Mobile cards — displayRows only, existing formatters/metrics */}
-        {mobileTab === 'cards' && (
+        {mobileTab === 'cards' && !isMobileLandscape && (
           <div className="lg:hidden flex-1 overflow-y-auto px-4 py-3 space-y-3">
             {displayRows.length === 0 && (
               <div className="py-16 text-center text-[11px] font-black uppercase tracking-widest text-zinc-600">
@@ -1387,7 +1398,7 @@ export default function InDepthAnalyticsTest() {
         )}
 
         {/* ── Table — desktop always; mobile when Table tab ─────────────── */}
-        <div className={`${mobileTab === 'table' ? 'block' : 'hidden'} lg:block flex-1 overflow-x-auto custom-scrollbar`}>
+        <div className={`${mobileTab === 'table' || isMobileLandscape ? 'block' : 'hidden'} lg:block flex-1 overflow-x-auto custom-scrollbar`}>
           <div className="inline-block min-w-full align-middle h-full overflow-y-auto">
             <table className="min-w-full divide-y divide-zinc-900 border-collapse">
               <thead className="bg-zinc-950 sticky top-0 z-20 shadow-xl">
