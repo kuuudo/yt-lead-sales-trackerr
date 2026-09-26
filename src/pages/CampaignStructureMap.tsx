@@ -207,7 +207,7 @@ function useCampaignStructureData(
         const result = await getAssetAnalyticsRows({
           organizationId,
           viewerId: resolvedViewerId,
-          dateRange: 'lifetime',
+          dateRange: 'all',
           customRange: null,
           activeSource: 'total',
         })
@@ -366,12 +366,17 @@ function useCampaignStructureData(
           const color = MARKETER_PALETTE[i % MARKETER_PALETTE.length]
           const profile = profileByUserId.get(ownerId)
           const marketerName = profile?.full_name?.trim() || profile?.email || 'Marketer'
+          // Phase 3: month-bucket a marketer by its MOST RECENT promotion's
+          // created_at — sortedPromoIds[0], since sortByCreatedAtDesc already
+          // orders recent-first. No new date source invented.
+          const sortedPromoIds = sortByCreatedAtDesc(Array.from(promoIdSet), promoCreatedAtById)
           return {
             id: `marketer_${ownerId}`,
             label: marketerName,
             kind: 'marketer',
             color,
-            children: sortByCreatedAtDesc(Array.from(promoIdSet), promoCreatedAtById).map((promoId) => ({
+            createdAt: sortedPromoIds.length ? promoCreatedAtById.get(sortedPromoIds[0]) ?? null : null,
+            children: sortedPromoIds.map((promoId) => ({
               id: `promo_${promoId}`,
               label: promotionNameById.get(promoId) ?? 'Promotion',
               kind: 'promotion',
@@ -401,6 +406,8 @@ function useCampaignStructureData(
             label: assetTitleById.get(assetId) ?? assetId,
             kind: 'asset',
             color: '#10b981',
+            // Phase 3: needed to bucket this asset into a Month circle.
+            createdAt: assetCreatedAtById.get(assetId) ?? null,
             thumbnailUrl: assetThumbnailById.get(assetId) ?? null,
           }),
         )
@@ -529,10 +536,16 @@ interface TreeNode {
   /** Phase 1 thumbnails: optional thumbnail URL, populated for kind: 'asset'
    *  nodes only. undefined/null means "no thumbnail available". */
   thumbnailUrl?: string | null
-  /** Phase 2: optional second line of text under a node's main label — used
-   *  by Content month-circle nodes to show "N videos" without baking the
-   *  count into the label string. */
-  subtitle?: string
+  /** Phase 2: optional second line of text under a node's main label — used 
+   *  by Content month-circle nodes to show "N videos" without baking the 
+   *  count into the label string. */ 
+  subtitle?: string 
+  /** Phase 3: ISO date string used to bucket a node into a Month circle
+   *  (Marketers' marketer nodes, Own Assets' asset nodes). Undefined/null on
+   *  nodes that are never month-bucketed themselves (branch/campaign/
+   *  promotion/asset-within-a-promotion/video — video keeps its date in
+   *  ContentVideo.createdAt until buildContentMonthNodes converts it). */
+  createdAt?: string | null
 }
 
 // Per-marketer accent colors so each Marketer -> Promotions -> Assets
@@ -642,8 +655,8 @@ const VIDEO_ROW_GAP = 64
 const NODE_SIZE: Record<NodeKind, { w: number; h: number }> = {
   campaign: { w: 230, h: 72 },
   branch: { w: 190, h: 60 },
-  marketer: { w: 190, h: 58 },
-  promotion: { w: 168, h: 52 },
+  marketer: { w: 118, h: 118 },
+  promotion: { w: 104, h: 104 },
   asset: { w: 148, h: 46 },
   month: { w: 108, h: 108 },
   video: { w: 148, h: 46 },
@@ -714,13 +727,22 @@ function layoutTree(root: TreeNode) {
     // Depth-1 nodes (Content / Own Assets / Marketers) start their own lane.
     // Marketer nodes (children of the "marketers" branch) start their own
     // sub-lane so each marketer's promotions/assets read as one branch.
-    const branchId = depth === 1 ? node.id : parentBranch === 'marketers' ? node.id : parentBranch ?? node.id
+    // Phase 3: was `parentBranch === 'marketers'`, which assumed marketer
+    // nodes were DIRECT children of the Marketers branch. Now they're
+    // grandchildren (Marketers -> Month -> Marketer), so lane-splitting is
+    // keyed off the marketer's own kind instead of its parent id — this is
+    // what keeps each marketer's hover-dim lane working once a Month layer
+    // sits in between.
+    const branchId = depth === 1 ? node.id : node.kind === 'marketer' ? node.id : parentBranch ?? node.id
 
     let x: number
     if (!node.children || node.children.length === 0) {
       x = leafCursor * LEAF_GAP
       leafCursor += 1
-    } else if (node.kind === 'month' && node.children.every((child) => child.kind === 'video')) {
+    } else if (
+      (node.kind === 'month' || node.kind === 'promotion') &&
+      node.children.every((child) => child.kind === 'video' || child.kind === 'asset')
+    ) {
       // Grid-wrap: place every video directly (they have no children of
       // their own, so no further recursion needed), VIDEO_GRID_COLS per
       // row, wrapping down instead of stretching sideways.
@@ -839,31 +861,39 @@ function sliceWithShowMore(
  * from useCampaignStructureData — this function only decides visibility,
  * never ordering.
  */
+/**
+ * Phase 3: Marketer -> Promotion -> Asset circles. Replaces the old
+ * sliceWithShowMore flat list: a collapsed marketer/promotion shows ZERO
+ * children (same convention as a collapsed month) instead of "first N + Show
+ * more"; clicking the circle itself toggles expandedMarketers/
+ * expandedPromotions directly (see handleClusterClick) — no synthetic
+ * show-more node involved anymore. sliceWithShowMore is no longer called
+ * from here (still defined, still used by nothing else after this patch —
+ * see flagged items).
+ */
 function applyStructureCollapse(
   marketerNodes: TreeNode[],
   expandedMarketers: Record<string, boolean>,
   expandedPromotions: Record<string, boolean>,
 ): TreeNode[] {
   return marketerNodes.map((marketer) => {
-    const promotions = (marketer.children ?? []).map((promotion) => ({
-      ...promotion,
-      children: sliceWithShowMore(
-        promotion.children ?? [],
-        3,
-        !!expandedPromotions[promotion.id],
-        `showmore:assets:${promotion.id}`,
-        promotion.color,
-      ),
-    }))
+    const promoCount = marketer.children?.length ?? 0
+    const isMarketerExpanded = !!expandedMarketers[marketer.id]
+    const promotions = isMarketerExpanded
+      ? (marketer.children ?? []).map((promotion) => {
+          const assetCount = promotion.children?.length ?? 0
+          const isPromotionExpanded = !!expandedPromotions[promotion.id]
+          return {
+            ...promotion,
+            subtitle: `${assetCount} asset${assetCount === 1 ? '' : 's'}`,
+            children: isPromotionExpanded ? promotion.children ?? [] : [],
+          }
+        })
+      : []
     return {
       ...marketer,
-      children: sliceWithShowMore(
-        promotions,
-        4,
-        !!expandedMarketers[marketer.id],
-        `showmore:promotions:${marketer.id}`,
-        marketer.color,
-      ),
+      subtitle: `${promoCount} promo${promoCount === 1 ? '' : 's'}`,
+      children: promotions,
     }
   })
 }
@@ -898,24 +928,119 @@ function collectNodeMeta(
  * yet (flagged, not silently solved — narrow the date range or search to
  * see the rest for now).
  */
+/**
+ * Phase 3: generalized month-circle bucketer. Takes ALREADY-BUILT TreeNode
+ * children (each must carry createdAt) instead of a bespoke row type, so the
+ * exact search + date-range + expand/collapse machinery Content shipped with
+ * now backs Own Assets and Marketers too — no second implementation.
+ *  - matchesSearch: per-branch predicate. Content: video title contains
+ *    query. Own Assets: asset label contains query. Marketers: ANY nested
+ *    promotion's label contains query (not the marketer's own label) — per
+ *    spec, search filters Marketers by promotion name.
+ *  - idPrefix: keeps month-circle ids collision-free across branches
+ *    (content_month_*, own_assets_month_*, marketer_month_*) so all three
+ *    branches can share ONE expandedMonths state map.
+ *  - mapExpandedChildren: post-processes an EXPANDED month's exposed,
+ *    recent-first items only. Content caps to 30 + converts nothing further
+ *    (already TreeNodes). Marketers re-runs applyStructureCollapse so the
+ *    Promotion/Asset circles underneath keep working. Own Assets passes
+ *    through unchanged (identity, the default).
+ *  - Items missing createdAt are dropped from every month (flagged, not
+ *    silently bucketed as "now" or "unknown" — matches this file's existing
+ *    convention of flagging gaps instead of guessing).
+ */
+function buildMonthClusterNodes(
+  items: TreeNode[],
+  matchesSearch: (item: TreeNode, query: string) => boolean,
+  search: string,
+  dateRange: DateRangeValue,
+  expandedMonths: Record<string, boolean>,
+  idPrefix: string,
+  color: string,
+  countLabel: (count: number) => string,
+  mapExpandedChildren: (monthItems: TreeNode[]) => TreeNode[] = (x) => x,
+): TreeNode[] {
+  const cutoff = dateRangeCutoff(dateRange)
+  const query = search.trim().toLowerCase()
+  const filtered = items.filter((item) => {
+    if (!item.createdAt) return false
+    if (cutoff !== null && new Date(item.createdAt).getTime() < cutoff) return false
+    if (query && !matchesSearch(item, query)) return false
+    return true
+  })
+
+  const buckets = new Map<string, { year: number; month: number; items: TreeNode[] }>()
+  for (const item of filtered) {
+    const d = new Date(item.createdAt!)
+    const year = d.getUTCFullYear()
+    const month = d.getUTCMonth()
+    const key = `${year}_${month}`
+    if (!buckets.has(key)) buckets.set(key, { year, month, items: [] })
+    buckets.get(key)!.items.push(item)
+  }
+
+  return Array.from(buckets.values())
+    .sort((a, b) => b.year - a.year || b.month - a.month)
+    .map(({ year, month, items: monthItems }) => {
+      const id = `${idPrefix}_${year}_${month}`
+      const sorted = [...monthItems].sort(
+        (a, b) => new Date(b.createdAt!).getTime() - new Date(a.createdAt!).getTime(),
+      )
+      return {
+        id,
+        label: `${MONTH_LABELS[month]} ${year}`,
+        kind: 'month',
+        color,
+        subtitle: countLabel(monthItems.length),
+        children: expandedMonths[id] ? mapExpandedChildren(sorted) : [],
+      }
+    })
+}
+
+/** Content's own month bucketer, now a thin wrapper over buildMonthClusterNodes
+ *  — converts the raw video rows to TreeNodes once, then defers to the shared
+ *  engine. Behavior and ids (content_month_*, content_video_*) are unchanged. */
 function buildContentMonthNodes(
   videos: ContentVideo[],
   search: string,
-  dateRange: 'all' | '7' | '30' | '90' | 'year',
+  dateRange: DateRangeValue,
   expandedMonths: Record<string, boolean>,
   color: string,
 ): TreeNode[] {
+  const videoNodes: TreeNode[] = videos.map((v) => ({
+    id: `content_video_${v.id}`,
+    label: v.title,
+    kind: 'video',
+    color,
+    createdAt: v.createdAt,
+    thumbnailUrl: resolveThumbnail({ thumbnail_url: v.thumbnailUrl, platform: v.platform }),
+  }))
+  return buildMonthClusterNodes(
+    videoNodes,
+    (video, q) => video.label.toLowerCase().includes(q),
+    search,
+    dateRange,
+    expandedMonths,
+    'content_month',
+    color,
+    (n) => `${n} video${n === 1 ? '' : 's'}`,
+    (sorted) => sorted.slice(0, 30),
+  )
+}
+type DateRangeValue = 'all' | '7' | '30' | '90' | 'year'
+
+function dateRangeCutoff(dateRange: DateRangeValue): number | null {
   const now = Date.now()
-  const cutoff: number | null =
-    dateRange === '7'
-      ? now - 7 * 86400000
-      : dateRange === '30'
-      ? now - 30 * 86400000
-      : dateRange === '90'
-      ? now - 90 * 86400000
-      : dateRange === 'year'
-      ? new Date(new Date().getUTCFullYear(), 0, 1).getTime()
-      : null
+  return dateRange === '7'
+    ? now - 7 * 86400000
+    : dateRange === '30'
+    ? now - 30 * 86400000
+    : dateRange === '90'
+    ? now - 90 * 86400000
+    : dateRange === 'year'
+    ? new Date(new Date().getUTCFullYear(), 0, 1).getTime()
+    : null
+}
 
   const query = search.trim().toLowerCase()
   const filtered = videos.filter((v) => {
@@ -1008,14 +1133,22 @@ export default function CampaignStructureMap({ embedded = false }: CampaignStruc
   // (collapsed <-> fully expanded), per spec.
   const [expandedMarketers, setExpandedMarketers] = useState<Record<string, boolean>>({})
   const [expandedPromotions, setExpandedPromotions] = useState<Record<string, boolean>>({})
-  const [ownAssetsExpanded, setOwnAssetsExpanded] = useState(false)
   // Phase 1: global thumbnail toggle, default OFF.
   const [showThumbnails, setShowThumbnails] = useState(false)
   // Phase 2: Content search + date-range filters, and per-month circle
   // expand state. A month circle starts collapsed (no video nodes built)
   // and only gets video children once expanded — see buildContentMonthNodes.
   const [contentSearch, setContentSearch] = useState('')
-  const [contentDateRange, setContentDateRange] = useState<'all' | '7' | '30' | '90' | 'year'>('90')
+  const [contentDateRange, setContentDateRange] = useState<DateRangeValue>('90')
+  // Phase 3: same chip mechanism, now also on Marketers and Own Assets.
+  // Both default to "All time" (Content keeps its 90-day default) per spec.
+  const [marketersSearch, setMarketersSearch] = useState('')
+  const [marketersDateRange, setMarketersDateRange] = useState<DateRangeValue>('all')
+  const [ownAssetsSearch, setOwnAssetsSearch] = useState('')
+  const [ownAssetsDateRange, setOwnAssetsDateRange] = useState<DateRangeValue>('all')
+  // Intentionally ONE shared map for all three branches' month circles — ids
+  // are already prefixed per branch (content_month_ / marketer_month_ /
+  // own_assets_month_) so keys never collide.
   const [expandedMonths, setExpandedMonths] = useState<Record<string, boolean>>({})
 
   const campaignTree = useMemo<TreeNode>(() => {
@@ -1027,18 +1160,31 @@ export default function CampaignStructureMap({ embedded = false }: CampaignStruc
         if (branch.id === 'marketers') {
           return {
             ...branch,
-            children: applyStructureCollapse(structureData.marketerNodes!, expandedMarketers, expandedPromotions),
+            children: buildMonthClusterNodes(
+              structureData.marketerNodes!,
+              (marketer, q) => (marketer.children ?? []).some((promo) => promo.label.toLowerCase().includes(q)),
+              marketersSearch,
+              marketersDateRange,
+              expandedMonths,
+              'marketer_month',
+              branch.color,
+              (n) => `${n} mktr${n === 1 ? '' : 's'}`,
+              (monthMarketers) => applyStructureCollapse(monthMarketers, expandedMarketers, expandedPromotions),
+            ),
           }
         }
         if (branch.id === 'own_assets') {
           return {
             ...branch,
-            children: sliceWithShowMore(
+            children: buildMonthClusterNodes(
               structureData.ownAssetNodes!,
-              7,
-              ownAssetsExpanded,
-              'showmore:own_assets',
+              (asset, q) => asset.label.toLowerCase().includes(q),
+              ownAssetsSearch,
+              ownAssetsDateRange,
+              expandedMonths,
+              'own_assets_month',
               branch.color,
+              (n) => `${n} asset${n === 1 ? '' : 's'}`,
             ),
           }
         }
@@ -1065,9 +1211,12 @@ export default function CampaignStructureMap({ embedded = false }: CampaignStruc
     contentData.contentVideos,
     expandedMarketers,
     expandedPromotions,
-    ownAssetsExpanded,
     contentSearch,
     contentDateRange,
+    marketersSearch,
+    marketersDateRange,
+    ownAssetsSearch,
+    ownAssetsDateRange,
     expandedMonths,
   ])
   const { nodes, edges, canvasW, canvasH } = useMemo(() => layoutTree(campaignTree), [campaignTree])
@@ -1188,9 +1337,18 @@ export default function CampaignStructureMap({ embedded = false }: CampaignStruc
     }
   }, [])
 
-  // Phase 2: month-circle expand/collapse.
-  const handleMonthClick = useCallback((monthId: string) => {
-    setExpandedMonths((prev) => ({ ...prev, [monthId]: !prev[monthId] }))
+  // Phase 3: generalized circle expand/collapse — one handler for Month,
+  // Marketer, and Promotion circles, dispatching to the right state map by
+  // kind. handleShowMoreClick below is left in place but is no longer
+  // called by Marketer/Promotion/Own Assets after this patch.
+  const handleClusterClick = useCallback((node: PositionedNode) => {
+    if (node.kind === 'month') {
+      setExpandedMonths((prev) => ({ ...prev, [node.id]: !prev[node.id] }))
+    } else if (node.kind === 'marketer') {
+      setExpandedMarketers((prev) => ({ ...prev, [node.id]: !prev[node.id] }))
+    } else if (node.kind === 'promotion') {
+      setExpandedPromotions((prev) => ({ ...prev, [node.id]: !prev[node.id] }))
+    }
   }, [])
 
   const handleWheel = useCallback(
@@ -1228,6 +1386,49 @@ export default function CampaignStructureMap({ embedded = false }: CampaignStruc
 
   const liveNodes = nodes.map((n) => ({ ...n, center: dragPositions[n.id] ?? n.center }))
   const liveNodeById = new Map(liveNodes.map((n) => [n.id, n]))
+
+  // Phase 3: the same anchored search+date chip Content already had, now
+  // parameterized so any top-level branch id can get one — still exactly
+  // one chip per branch, anchored to that branch node's live screen
+  // position, same math as before.
+  const renderBranchFilterChip = (
+    branchId: string,
+    search: string,
+    setSearch: (v: string) => void,
+    placeholder: string,
+    dateRange: DateRangeValue,
+    setDateRange: (v: DateRangeValue) => void,
+  ) => {
+    const branchNode = liveNodes.find((n) => n.id === branchId)
+    if (!branchNode) return null
+    const anchorLeft = transform.x + branchNode.center.x * transform.scale + (branchNode.w / 2) * transform.scale + 12
+    const anchorTop = transform.y + branchNode.center.y * transform.scale - 15
+    return (
+      <div key={branchId} style={{ ...styles.contentFilterAnchor, left: anchorLeft, top: anchorTop }}>
+        <div style={styles.contentSearchWrap}>
+          <Search size={13} color="#9ca3af" />
+          <input
+            type="text"
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            placeholder={placeholder}
+            style={styles.contentSearchInput}
+          />
+        </div>
+        <select
+          value={dateRange}
+          onChange={(e) => setDateRange(e.target.value as DateRangeValue)}
+          style={styles.contentDateSelect}
+        >
+          <option value="all">All time</option>
+          <option value="7">Last 7 days</option>
+          <option value="30">Last 30 days</option>
+          <option value="90">Last 90 days</option>
+          <option value="year">This year</option>
+        </select>
+      </div>
+    )
+  }
 
   return (
     <div style={styles.page}>
@@ -1385,13 +1586,18 @@ export default function CampaignStructureMap({ embedded = false }: CampaignStruc
 
             // Phase 2: Content month circle — a clickable cluster/container,
             // not a draggable data node, same treatment as Show More above.
-            if (node.kind === 'month') {
-              const isExpanded = !!expandedMonths[node.id]
+            if (node.kind === 'month' || node.kind === 'marketer' || node.kind === 'promotion') {
+              const isExpanded =
+                node.kind === 'month'
+                  ? !!expandedMonths[node.id]
+                  : node.kind === 'marketer'
+                  ? !!expandedMarketers[node.id]
+                  : !!expandedPromotions[node.id]
               return (
                 <div
                   key={node.id}
                   role="button"
-                  onClick={() => handleMonthClick(node.id)}
+                  onClick={() => handleClusterClick(node)}
                   onMouseEnter={() => setHoveredBranchId(node.branchId)}
                   onMouseLeave={() => setHoveredBranchId(null)}
                   style={{
@@ -1460,37 +1666,9 @@ export default function CampaignStructureMap({ embedded = false }: CampaignStruc
             )
           })}
         </div>
-        {(() => {
-          const contentBranchNode = liveNodes.find((n) => n.id === 'content')
-          if (!contentBranchNode) return null
-          const anchorLeft = transform.x + contentBranchNode.center.x * transform.scale + (contentBranchNode.w / 2) * transform.scale + 12
-          const anchorTop = transform.y + contentBranchNode.center.y * transform.scale - 15
-          return (
-            <div style={{ ...styles.contentFilterAnchor, left: anchorLeft, top: anchorTop }}>
-              <div style={styles.contentSearchWrap}>
-                <Search size={13} color="#9ca3af" />
-                <input
-                  type="text"
-                  value={contentSearch}
-                  onChange={(e) => setContentSearch(e.target.value)}
-                  placeholder="Search content videos..."
-                  style={styles.contentSearchInput}
-                />
-              </div>
-              <select
-                value={contentDateRange}
-                onChange={(e) => setContentDateRange(e.target.value as typeof contentDateRange)}
-                style={styles.contentDateSelect}
-              >
-                <option value="all">All time</option>
-                <option value="7">Last 7 days</option>
-                <option value="30">Last 30 days</option>
-                <option value="90">Last 90 days</option>
-                <option value="year">This year</option>
-              </select>
-            </div>
-          )
-        })()}
+        {renderBranchFilterChip('content', contentSearch, setContentSearch, 'Search content videos...', contentDateRange, setContentDateRange)}
+        {renderBranchFilterChip('marketers', marketersSearch, setMarketersSearch, 'Search promotions...', marketersDateRange, setMarketersDateRange)}
+        {renderBranchFilterChip('own_assets', ownAssetsSearch, setOwnAssetsSearch, 'Search assets...', ownAssetsDateRange, setOwnAssetsDateRange)}
         {/* Legend */}
         <div style={styles.legend}>
           {legendItems.map((item) => {
