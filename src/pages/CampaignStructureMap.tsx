@@ -627,7 +627,13 @@ const LEAF_GAP = 190
 const PADDING_X = 100
 const PADDING_TOP = 70
 const PADDING_BOTTOM = 120
-
+// Phase 2: an expanded month's video children wrap into a grid instead of
+// stretching one row wider per video — see the 'month' case in place()
+// below. Columns reuse LEAF_GAP so a grid never overlaps a sibling month's
+// own leaf slot; VIDEO_ROW_GAP is tighter than ROW_HEIGHT since these are
+// small leaf nodes, not another full tree row.
+const VIDEO_GRID_COLS = 6
+const VIDEO_ROW_GAP = 64
 const NODE_SIZE: Record<NodeKind, { w: number; h: number }> = {
   campaign: { w: 230, h: 72 },
   branch: { w: 190, h: 60 },
@@ -709,6 +715,30 @@ function layoutTree(root: TreeNode) {
     if (!node.children || node.children.length === 0) {
       x = leafCursor * LEAF_GAP
       leafCursor += 1
+    } else if (node.kind === 'month' && node.children.every((child) => child.kind === 'video')) {
+      // Grid-wrap: place every video directly (they have no children of
+      // their own, so no further recursion needed), VIDEO_GRID_COLS per
+      // row, wrapping down instead of stretching sideways.
+      const cols = Math.min(VIDEO_GRID_COLS, node.children.length)
+      const gridStartCursor = leafCursor
+      node.children.forEach((child, i) => {
+        const col = i % cols
+        const row = Math.floor(i / cols)
+        const { w: cw, h: ch } = NODE_SIZE[child.kind]
+        nodes.push({
+          id: child.id,
+          label: child.label,
+          kind: child.kind,
+          color: child.color,
+          center: { x: (gridStartCursor + col) * LEAF_GAP, y: depth * ROW_HEIGHT + ROW_HEIGHT + row * VIDEO_ROW_GAP },
+          w: cw,
+          h: ch,
+          depth: depth + 1,
+          branchId,
+        })
+      })
+      leafCursor += cols
+      x = ((gridStartCursor + 0) * LEAF_GAP + (gridStartCursor + cols - 1) * LEAF_GAP) / 2
     } else {
       const childCenters = node.children.map((child) => place(child, depth + 1, branchId).x)
       x = (childCenters[0] + childCenters[childCenters.length - 1]) / 2
@@ -1207,28 +1237,7 @@ export default function CampaignStructureMap({ embedded = false }: CampaignStruc
         <span style={styles.phaseBadge}>
           <Sparkles size={12} /> Structure preview — static mock data, not connected to live data
         </span>
-        <div style={styles.contentSearchWrap}>
-          <Search size={13} color="#9ca3af" />
-          <input
-            type="text"
-            value={contentSearch}
-            onChange={(e) => setContentSearch(e.target.value)}
-            placeholder="Search content videos..."
-            style={styles.contentSearchInput}
-          />
-        </div>
-        <select
-          value={contentDateRange}
-          onChange={(e) => setContentDateRange(e.target.value as typeof contentDateRange)}
-          style={styles.contentDateSelect}
-        >
-          <option value="all">All time</option>
-          <option value="7">Last 7 days</option>
-          <option value="30">Last 30 days</option>
-          <option value="90">Last 90 days</option>
-          <option value="year">This year</option>
-        </select>
-        <button
+               <button
           type="button"
           onClick={() => setShowThumbnails((prev) => !prev)}
           style={{
@@ -1446,7 +1455,37 @@ export default function CampaignStructureMap({ embedded = false }: CampaignStruc
             )
           })}
         </div>
-
+        {(() => {
+          const contentBranchNode = liveNodes.find((n) => n.id === 'content')
+          if (!contentBranchNode) return null
+          const anchorLeft = transform.x + contentBranchNode.center.x * transform.scale + (contentBranchNode.w / 2) * transform.scale + 12
+          const anchorTop = transform.y + contentBranchNode.center.y * transform.scale - 15
+          return (
+            <div style={{ ...styles.contentFilterAnchor, left: anchorLeft, top: anchorTop }}>
+              <div style={styles.contentSearchWrap}>
+                <Search size={13} color="#9ca3af" />
+                <input
+                  type="text"
+                  value={contentSearch}
+                  onChange={(e) => setContentSearch(e.target.value)}
+                  placeholder="Search content videos..."
+                  style={styles.contentSearchInput}
+                />
+              </div>
+              <select
+                value={contentDateRange}
+                onChange={(e) => setContentDateRange(e.target.value as typeof contentDateRange)}
+                style={styles.contentDateSelect}
+              >
+                <option value="all">All time</option>
+                <option value="7">Last 7 days</option>
+                <option value="30">Last 30 days</option>
+                <option value="90">Last 90 days</option>
+                <option value="year">This year</option>
+              </select>
+            </div>
+          )
+        })()}
         {/* Legend */}
         <div style={styles.legend}>
           {legendItems.map((item) => {
@@ -1554,6 +1593,13 @@ const styles: Record<string, React.CSSProperties> = {
   // Phase 2: Content search + date-range filter, in the header toolbar
   // (global controls, alongside the existing Thumbnails toggle) rather than
   // drawn on the pan/zoom canvas itself.
+    contentFilterAnchor: {
+    position: 'absolute',
+    display: 'flex',
+    alignItems: 'center',
+    gap: 8,
+    pointerEvents: 'auto',
+  },
   contentSearchWrap: {
     display: 'flex',
     alignItems: 'center',
