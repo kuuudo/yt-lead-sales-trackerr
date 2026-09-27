@@ -102,6 +102,20 @@ import { resolveAssetType } from '../services/asset/resolveAssetType'
 // NOT modify journeyGraph.ts, journeyAnalyticsEngine.ts, or analyticsEngine.ts.
 import { resolveDownstreamNodes, resolveDownstreamForVideoIds, type DownstreamResolution, type DownstreamNode } from '../services/journey/journeyDownstreamResolver'
 
+// ─── STEP 10 (additive, 2026-09-27) — per-asset "Upstream" button ─────────────
+// Structural + confirmed upstream walk, one independent expand/collapse per
+// Promotion Asset. See upstreamForRow.ts's own header for the full rationale
+// (structural redirect_links/videos walk vs. confirmed events_journey slice).
+// This import is the ONLY new dependency this patch adds; nothing above is
+// touched, and journeyGraph.ts's own GraphNode/GraphEdge names are untouched
+// by renaming these on import.
+import {
+  loadUpstreamForRow,
+  type UpstreamResult,
+  type UpstreamNode as UpstreamGraphNode,
+  type UpstreamEdge as UpstreamGraphEdge,
+} from '../lib/upstreamForRow'
+
 // ─── STEP 5 (additive, 2026-09-18) — "Unlinked" promoted videos ───────────────
 // Videos created to promote one of THIS promotion's assets, found purely from
 // redirect_links (promotion_id + asset_id). Read-only, single table, no
@@ -142,6 +156,19 @@ const GRAPH_NODE_HEIGHT = 92
 const GRAPH_COL_GAP = 140
 const GRAPH_ROW_GAP = 40
 const GRAPH_START_X = CANVAS_MARGIN + NODE_WIDTH + GRID_GAP_X + 120
+
+// ─── Upstream graph layout (STEP 10, additive) ─────────────────────────────
+// Same node footprint as the observed-graph nodes (GRAPH_NODE_WIDTH/HEIGHT),
+// just mirrored to sit LEFT of the promoted-asset column instead of right of
+// it. Depth 1 (immediately upstream of a Promotion Asset) is the rightmost
+// upstream column, deeper depths move further left (negative x is fine —
+// the canvas is an unbounded pan/zoom surface, not a fixed-size viewport;
+// styles.edgesLayer already renders with overflow:'visible' for this reason).
+const UPSTREAM_NODE_WIDTH = GRAPH_NODE_WIDTH
+const UPSTREAM_NODE_HEIGHT = GRAPH_NODE_HEIGHT
+const UPSTREAM_COL_GAP = GRAPH_COL_GAP
+const UPSTREAM_ROW_GAP = GRAPH_ROW_GAP
+const UPSTREAM_START_X = CANVAS_MARGIN - UPSTREAM_NODE_WIDTH - GRID_GAP_X - 120
 
 // ─── "Unlinked" group layout (STEP 5, additive) ───────────────────────────────
 // Its own region of the canvas, below the promoted-asset column. Deliberately
@@ -522,6 +549,16 @@ const [nodeDetailTarget, setNodeDetailTarget] = useState<
   // conversion data. See journeyDownstreamResolver.ts.
   const [downstream, setDownstream] = useState<DownstreamResolution>({ nodes: [], edges: [] })
 
+  // ── STEP 10 (additive, 2026-09-27) — per-asset "Upstream" button ─────────
+  // Keyed by promoted-asset assetId (same identity `nodes.map` already keys
+  // its cards on) so each Promotion Asset's button expands/collapses
+  // independently. Cached once loaded — a second click just toggles
+  // visibility, same "load once, cache" philosophy as downstreamForRow.ts.
+  const [expandedUpstreamAssetIds, setExpandedUpstreamAssetIds] = useState<Set<string>>(new Set())
+  const [upstreamByAssetId, setUpstreamByAssetId] = useState<Map<string, UpstreamResult>>(new Map())
+  const [upstreamLoadingAssetIds, setUpstreamLoadingAssetIds] = useState<Set<string>>(new Set())
+  const [upstreamErrorByAssetId, setUpstreamErrorByAssetId] = useState<Map<string, string>>(new Map())
+
   // STEP 4 (additive, 2026-09-15) — assetId -> videos.id for each promoted
   // asset whose resource.origin === 'video', via the existing getAssetDetail().
   // Used to (a) query redirect_links directly by video_id, no events_journey
@@ -794,6 +831,159 @@ const [nodeDetailTarget, setNodeDetailTarget] = useState<
 
     return () => { cancelled = true }
   }, [promotionId, allPromotedNodes])
+
+  // ── STEP 10 (additive, 2026-09-27) — toggle a Promotion Asset's upstream ──
+  // Reuses promotedAssetVideoIds as-is (STEP 4, above) — it already maps
+  // assetId -> videos.id for exactly the video-origin promoted assets, via
+  // getAssetDetail()'s existing resource.origin === 'video' check. No new
+  // lookup is added here: a non-video promoted asset (newsletter,
+  // consultation, etc.) simply has no entry in that map, which is also how
+  // the button's own visibility is gated in the JSX below.
+  const handleToggleUpstream = useCallback(
+    (assetId: string) => {
+      if (expandedUpstreamAssetIds.has(assetId)) {
+        setExpandedUpstreamAssetIds((prev) => {
+          const next = new Set(prev)
+          next.delete(assetId)
+          return next
+        })
+        return
+      }
+
+      setExpandedUpstreamAssetIds((prev) => new Set(prev).add(assetId))
+
+      // Already cached or already in flight — just reveal it, don't refetch.
+      if (upstreamByAssetId.has(assetId) || upstreamLoadingAssetIds.has(assetId)) return
+
+      const videoId = promotedAssetVideoIds.get(assetId)
+      if (!videoId) return // defensive — the button is only rendered when this exists
+
+      setUpstreamLoadingAssetIds((prev) => new Set(prev).add(assetId))
+      setUpstreamErrorByAssetId((prev) => {
+        if (!prev.has(assetId)) return prev
+        const next = new Map(prev)
+        next.delete(assetId)
+        return next
+      })
+
+      // The Promotion Asset itself is the boundary: the walk finds every
+      // video that structurally leads into it, but does not try to find
+      // what's upstream of ITSELF (see upstreamForRow.ts's 2026-09-27 fix —
+      // the start and the boundary are allowed to be the same assetId).
+      loadUpstreamForRow(videoId, assetId, { boundaryAssetIds: [assetId] })
+        .then((result) => {
+          setUpstreamByAssetId((prev) => new Map(prev).set(assetId, result))
+        })
+        .catch((err: any) => {
+          setUpstreamErrorByAssetId((prev) => new Map(prev).set(assetId, err?.message ?? String(err)))
+        })
+        .finally(() => {
+          setUpstreamLoadingAssetIds((prev) => {
+            const next = new Set(prev)
+            next.delete(assetId)
+            return next
+          })
+        })
+    },
+    [expandedUpstreamAssetIds, upstreamByAssetId, upstreamLoadingAssetIds, promotedAssetVideoIds],
+  )
+
+  // ── STEP 10 (additive) — merge every currently-expanded asset's upstream
+  // graph into one set of nodes/edges for rendering. Two or more expanded
+  // Promotion Assets can structurally converge on the same earlier video
+  // (fan-in) — dedupe by videoId rather than draw it twice, and never let a
+  // confirmed edge/node get masked by a later, less-informed merge:
+  //   - node depth: keep the shallowest (closest to any root) for stable layout
+  //   - node isBoundary/isRevisited: true if true in ANY contributing walk
+  //   - edge confirmedCount: keep the MAX seen across all contributing walks
+  const mergedUpstream = useMemo(() => {
+    const nodeByVideoId = new Map<string, UpstreamGraphNode>()
+    const edgeByKey = new Map<string, UpstreamGraphEdge>()
+
+    for (const assetId of expandedUpstreamAssetIds) {
+      const result = upstreamByAssetId.get(assetId)
+      if (!result) continue
+
+      for (const n of result.nodes) {
+        const existing = nodeByVideoId.get(n.videoId)
+        if (!existing) {
+          nodeByVideoId.set(n.videoId, { ...n })
+        } else {
+          nodeByVideoId.set(n.videoId, {
+            ...existing,
+            depth: Math.min(existing.depth, n.depth),
+            isBoundary: existing.isBoundary || n.isBoundary,
+            isRevisited: existing.isRevisited || n.isRevisited,
+          })
+        }
+      }
+
+      for (const e of result.edges) {
+        const key = `${e.fromVideoId}::${e.toVideoId}`
+        const existing = edgeByKey.get(key)
+        if (!existing || e.confirmedCount > existing.confirmedCount) {
+          edgeByKey.set(key, e)
+        }
+      }
+    }
+
+    return { nodes: Array.from(nodeByVideoId.values()), edges: Array.from(edgeByKey.values()) }
+  }, [expandedUpstreamAssetIds, upstreamByAssetId])
+
+  // A node's "confirmed" state isn't stored on the node itself (only edges
+  // carry confirmedCount, since "confirmed" is really a statement about a
+  // transition, not a video in isolation) — a node reads as confirmed here
+  // if it touches at least one confirmed edge, matching the "confirmed
+  // edges/nodes use normal styling" rule from the spec.
+  const confirmedUpstreamVideoIds = useMemo(() => {
+    const s = new Set<string>()
+    for (const e of mergedUpstream.edges) {
+      if (e.confirmedCount > 0) {
+        s.add(e.fromVideoId)
+        s.add(e.toVideoId)
+      }
+    }
+    return s
+  }, [mergedUpstream])
+
+  // Where a depth-1 upstream edge's `toVideoId` lands: the ORIGINAL Promotion
+  // Asset card (not another upstream node), so its arrow needs the asset
+  // card's own on-canvas position, not a positionedUpstreamNodes entry.
+  const expandedAssetCardByVideoId = useMemo(() => {
+    const map = new Map<string, JourneyNode>()
+    for (const assetId of expandedUpstreamAssetIds) {
+      const videoId = promotedAssetVideoIds.get(assetId)
+      if (!videoId) continue
+      const card = nodes.find((n) => n.assetId === assetId)
+      if (card) map.set(videoId, card)
+    }
+    return map
+  }, [expandedUpstreamAssetIds, promotedAssetVideoIds, nodes])
+
+  // Layout: group by depth (already computed by upstreamForRow.ts), stack
+  // each depth's column vertically, centered on the same CANVAS_MID_Y the
+  // rest of this page's layout uses. Not a general graph-layout engine —
+  // same "good enough, single pass" spirit as layoutGraphNodes() above.
+  const positionedUpstreamNodes = useMemo(() => {
+    const byDepth = new Map<number, UpstreamGraphNode[]>()
+    for (const n of mergedUpstream.nodes) {
+      if (!byDepth.has(n.depth)) byDepth.set(n.depth, [])
+      byDepth.get(n.depth)!.push(n)
+    }
+    const positioned: Array<UpstreamGraphNode & { x: number; y: number }> = []
+    for (const [depth, list] of byDepth.entries()) {
+      const colHeight = list.length * UPSTREAM_NODE_HEIGHT + Math.max(0, list.length - 1) * UPSTREAM_ROW_GAP
+      const startY = CANVAS_MID_Y - colHeight / 2
+      list.forEach((n, i) => {
+        positioned.push({
+          ...n,
+          x: UPSTREAM_START_X - (depth - 1) * (UPSTREAM_NODE_WIDTH + UPSTREAM_COL_GAP),
+          y: Math.max(CANVAS_MARGIN, startY + i * (UPSTREAM_NODE_HEIGHT + UPSTREAM_ROW_GAP)),
+        })
+      })
+    }
+    return positioned
+  }, [mergedUpstream])
 
   const [graphNodeDragOverrides, setGraphNodeDragOverrides] = useState<Map<string, { x: number; y: number }>>(
     new Map(),
@@ -2056,6 +2246,40 @@ const [nodeDetailTarget, setNodeDetailTarget] = useState<
                 />
               )
             })}
+
+            {/* STEP 10 (additive) — upstream edges. Same path/marker
+                convention as every edge kind above, mirrored leftward. A
+                depth-1 edge's `toVideoId` is the Promotion Asset card itself
+                (expandedAssetCardByVideoId), not another upstream node.
+                Unconfirmed (confirmedCount === 0) edges are faded; confirmed
+                ones use the exact same stroke as every other edge here. */}
+            {mergedUpstream.edges.map((edge) => {
+              const fromPos = positionedUpstreamNodes.find((n) => n.videoId === edge.fromVideoId)
+              if (!fromPos) return null
+
+              const toUpstream = positionedUpstreamNodes.find((n) => n.videoId === edge.toVideoId)
+              const toCard = !toUpstream ? expandedAssetCardByVideoId.get(edge.toVideoId) : undefined
+              if (!toUpstream && !toCard) return null
+
+              const x1 = fromPos.x + UPSTREAM_NODE_WIDTH
+              const y1 = fromPos.y + UPSTREAM_NODE_HEIGHT / 2
+              const x2 = toUpstream ? toUpstream.x : toCard!.x
+              const y2 = toUpstream ? toUpstream.y + UPSTREAM_NODE_HEIGHT / 2 : toCard!.y + NODE_HEIGHT / 2
+              const midX = (x1 + x2) / 2
+              const confirmed = edge.confirmedCount > 0
+
+              return (
+                <path
+                  key={`upstream-${edge.fromVideoId}::${edge.toVideoId}`}
+                  d={`M ${x1} ${y1} C ${midX} ${y1} ${midX} ${y2} ${x2} ${y2}`}
+                  fill="none"
+                  stroke="#c7cbd1"
+                  strokeWidth={1.6}
+                  opacity={confirmed ? 1 : 0.4}
+                  markerEnd="url(#journeyArrow)"
+                />
+              )
+            })}
           </svg>
 
           {nodes.map((node) => (
@@ -2097,8 +2321,78 @@ const [nodeDetailTarget, setNodeDetailTarget] = useState<
                   <ExternalLink size={11} />
                 </a>
               )}
+              {/* STEP 10 (additive) — Upstream button. Only rendered for
+                  video-origin promoted assets (promotedAssetVideoIds already
+                  excludes newsletter/consultation/etc. — see STEP 4 above).
+                  stopPropagation for the same reason as the external-link
+                  icon: don't arm this card's own drag/click-to-navigate. */}
+              {promotedAssetVideoIds.has(node.assetId) && (
+                <button
+                  type="button"
+                  onPointerDown={(e) => e.stopPropagation()}
+                  onClick={(e) => {
+                    e.stopPropagation()
+                    handleToggleUpstream(node.assetId)
+                  }}
+                  style={{
+                    ...styles.upstreamToggleBtn,
+                    ...(expandedUpstreamAssetIds.has(node.assetId) ? styles.upstreamToggleBtnActive : null),
+                    ...(upstreamErrorByAssetId.has(node.assetId) ? styles.upstreamToggleBtnError : null),
+                  }}
+                  title={
+                    upstreamErrorByAssetId.get(node.assetId) ??
+                    'Show videos that could have — or are confirmed to have — led here'
+                  }
+                >
+                  {upstreamLoadingAssetIds.has(node.assetId) ? (
+                    <Loader2 className="animate-spin" size={10} />
+                  ) : null}
+                  Upstream
+                </button>
+              )}
             </div>
           ))}
+
+          {/* STEP 10 (additive) — upstream nodes. Reuses styles.graphNode and
+              GRAPH_TYPE_ACCENT.video exactly as the observed-graph nodes do —
+              upstreamForRow.ts only ever returns video-to-video chain
+              transitions, so 'video' is always the right accent here. No
+              campaign-specific border color exists anywhere in this file
+              today (GRAPH_TYPE_ACCENT colors by node TYPE, not by
+              videos.campaign_id), so per the 2026-09-27 spec this patch does
+              NOT introduce one — these nodes carry node.campaignId in memory
+              (mergedUpstream / positionedUpstreamNodes) for whenever that
+              helper exists, but nothing reads it for color yet. */}
+          {positionedUpstreamNodes.map((uNode) => {
+            const confirmed = confirmedUpstreamVideoIds.has(uNode.videoId)
+            return (
+              <div
+                key={`upstream-${uNode.videoId}`}
+                title={`video: ${uNode.videoId} · asset: ${uNode.assetId}${
+                  uNode.isBoundary ? ' · boundary (not expanded further)' : ''
+                }${confirmed ? ' · confirmed by observed journeys' : ' · structural only — not yet observed'}`}
+                style={{
+                  ...styles.graphNode,
+                  ...(confirmed ? null : styles.graphNodeUnconfirmed),
+                  cursor: 'default',
+                  left: uNode.x,
+                  top: uNode.y,
+                  width: UPSTREAM_NODE_WIDTH,
+                  height: UPSTREAM_NODE_HEIGHT,
+                  borderLeft: `3px solid ${GRAPH_TYPE_ACCENT.video}`,
+                }}
+              >
+                <div style={styles.graphNodeHead}>
+                  <span style={{ ...styles.graphNodeTypeDot, background: GRAPH_TYPE_ACCENT.video }} />
+                  <span style={styles.graphNodeType}>
+                    {GRAPH_TYPE_LABEL.video}
+                    {uNode.isBoundary ? ' · boundary' : ''}
+                  </span>
+                </div>
+                <div style={styles.graphNodeTitle}>{uNode.title}</div>
+              </div>
+            )
+          })}
 
           {/* Creative promoted assets — green ring (like Unlinked, different palette) */}
           {creativeGroupLayout && creativeGroupLayout.placed.length > 0 && (
@@ -3646,5 +3940,41 @@ const styles: Record<string, React.CSSProperties> = {
     letterSpacing: '0.1em',
     textTransform: 'uppercase',
     cursor: 'pointer',
+  },
+
+  // ── STEP 10 (additive, 2026-09-27) — Upstream button + faded/unconfirmed
+  // node state. Purely additive — no existing key above is changed. ────────
+  upstreamToggleBtn: {
+    position: 'absolute',
+    bottom: 5,
+    left: 5,
+    display: 'flex',
+    alignItems: 'center',
+    gap: 3,
+    padding: '2px 6px',
+    borderRadius: 5,
+    background: 'rgba(255,255,255,0.92)',
+    border: '1px solid #e5e7eb',
+    color: '#6b7280',
+    fontSize: 9,
+    fontWeight: 700,
+    letterSpacing: '0.03em',
+    textTransform: 'uppercase',
+    cursor: 'pointer',
+  },
+  upstreamToggleBtnActive: {
+    background: '#eef2ff',
+    border: '1px solid #6366f1',
+    color: '#4f46e5',
+  },
+  upstreamToggleBtnError: {
+    background: '#fef2f2',
+    border: '1px solid #fecaca',
+    color: '#dc2626',
+  },
+  // Applied ON TOP OF styles.graphNode (spread after it) for structural-only
+  // upstream nodes/edges — confirmedCount === 0, never observed yet.
+  graphNodeUnconfirmed: {
+    opacity: 0.42,
   },
 }
