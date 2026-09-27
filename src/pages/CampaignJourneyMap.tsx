@@ -146,6 +146,19 @@ const HUB_R = 92
 
 const ROOT_DIST = 250 // now used as vertical distance from hub down to the root row
 const OUTCOME_DIST = 460 // now used as vertical distance from hub down to the outcome row
+
+// Tree-native dark presentation tokens (visual only — same values as
+// CampaignStructureMap's TREE_DARK, kept in sync for a consistent look).
+const TREE_DARK = {
+  page: '#0a0a0a',
+  canvas: '#0a0a0a',
+  cardBg: '#141414',
+  cardBgAlt: '#111111',
+  border: '#262626',
+  textPrimary: '#f5f5f5',
+  textSecondary: '#a3a3a3',
+  textFaint: '#737373',
+}
 const FORK_OFFSET = 100 // unused now that every branch has one outcome; kept in case a branch gains a second one again
 const COLUMN_SPACING = 260 // horizontal gap between adjacent branch columns
 
@@ -421,7 +434,7 @@ export default function CampaignJourneyMap({ embedded = false, presentation = 'c
             navigate(`/marketplace/campaigns/${e.target.value}/journey`)
           }
         }}
-        style={styles.campaignSwitcher}
+        style={{ ...styles.campaignSwitcher, ...(presentation === 'tree' ? { background: TREE_DARK.cardBg, borderColor: TREE_DARK.border, color: TREE_DARK.textPrimary } : {}) }}
       >
         {campaignId && !campaignOptions.some((c) => c.id === campaignId) && (
           <option value={campaignId}>{currentCampaignName ?? 'Untitled Campaign'}</option>
@@ -432,12 +445,12 @@ export default function CampaignJourneyMap({ embedded = false, presentation = 'c
           </option>
         ))}
       </select>
-      <ChevronDown size={12} style={styles.campaignSwitcherIcon} />
+      <ChevronDown size={12} style={{ ...styles.campaignSwitcherIcon, ...(presentation === 'tree' ? { color: TREE_DARK.textFaint } : {}) }} />
     </div>
   )
 
   return (
-    <div style={styles.page}>
+    <div style={{ ...styles.page, ...(presentation === 'tree' ? { background: TREE_DARK.page } : {}) }}>
       {presentation === 'campaign' && (
         <div style={styles.header}>
           <Link to="/dashboard" style={styles.backLink}>
@@ -459,14 +472,14 @@ export default function CampaignJourneyMap({ embedded = false, presentation = 'c
 
       <div
         ref={containerRef}
-        style={styles.canvasContainer}
+        style={{ ...styles.canvasContainer, ...(presentation === 'tree' ? { background: TREE_DARK.canvas } : {}) }}
         onPointerDown={handlePointerDown}
         onPointerMove={handlePointerMove}
         onPointerUp={handlePointerUp}
         onPointerLeave={handlePointerUp}
         onWheel={handleWheel}
       >
-        <CanvasGrid transform={transform} />
+        <CanvasGrid transform={transform} dark={presentation === 'tree'} />
 
         <div
           style={{
@@ -560,6 +573,7 @@ export default function CampaignJourneyMap({ embedded = false, presentation = 'c
                   boxShadow: isRoot
                     ? `0 0 0 2px ${node.color}1f, 0 4px 10px rgba(15,23,42,0.06)`
                     : '0 2px 6px rgba(15,23,42,0.04)',
+                  ...(presentation === 'tree' ? { background: isRoot ? TREE_DARK.cardBg : TREE_DARK.cardBgAlt } : {}),
                   opacity: dimmed ? 0.35 : 1,
                   cursor: 'grab',
                   touchAction: 'none',
@@ -567,7 +581,17 @@ export default function CampaignJourneyMap({ embedded = false, presentation = 'c
               >
                 <span style={{ ...styles.nodeDot, background: node.color }} />
                 <div style={styles.nodeTextCol}>
-                  <span style={isRoot ? styles.nodeLabelRoot : styles.nodeLabelOutcome}>{node.label}</span>
+                  <span
+                    style={
+                      presentation === 'tree'
+                        ? { ...(isRoot ? styles.nodeLabelRoot : styles.nodeLabelOutcome), color: TREE_DARK.textPrimary }
+                        : isRoot
+                        ? styles.nodeLabelRoot
+                        : styles.nodeLabelOutcome
+                    }
+                  >
+                    {node.label}
+                  </span>
                   <span style={{ ...styles.nodeKind, color: node.color }}>
                     {isRoot ? 'Entry content' : 'Outcome'}
                   </span>
@@ -597,29 +621,29 @@ export default function CampaignJourneyMap({ embedded = false, presentation = 'c
                 key={p.id}
                 style={{
                   ...styles.legendChip,
-                  borderColor: active ? p.color : '#e5e7eb',
-                  background: active ? `${p.color}0f` : '#ffffff',
+                  borderColor: active ? p.color : (presentation === 'tree' ? TREE_DARK.border : '#e5e7eb'),
+                  background: active ? `${p.color}0f` : (presentation === 'tree' ? TREE_DARK.cardBg : '#ffffff'),
                 }}
                 onMouseEnter={() => setHoveredPathId(p.id)}
                 onMouseLeave={() => setHoveredPathId(null)}
               >
                 <Icon size={13} color={p.color} />
-                <span style={{ color: active ? p.color : '#374151' }}>{p.label}</span>
+                <span style={{ color: active ? p.color : (presentation === 'tree' ? TREE_DARK.textSecondary : '#374151') }}>{p.label}</span>
               </button>
             )
           })}
         </div>
 
-        <div style={styles.zoomControls}>
-          <button style={styles.zoomBtn} onClick={zoomIn} title="Zoom in">
+        <div style={{ ...styles.zoomControls, ...(presentation === 'tree' ? { background: TREE_DARK.cardBg, borderColor: TREE_DARK.border } : {}) }}>
+          <button style={{ ...styles.zoomBtn, ...(presentation === 'tree' ? { color: TREE_DARK.textSecondary } : {}) }} onClick={zoomIn} title="Zoom in">
             +
           </button>
-          <span style={styles.zoomLabel}>{scalePercent}%</span>
-          <button style={styles.zoomBtn} onClick={zoomOut} title="Zoom out">
+          <span style={{ ...styles.zoomLabel, ...(presentation === 'tree' ? { color: TREE_DARK.textFaint } : {}) }}>{scalePercent}%</span>
+          <button style={{ ...styles.zoomBtn, ...(presentation === 'tree' ? { color: TREE_DARK.textSecondary } : {}) }} onClick={zoomOut} title="Zoom out">
             −
           </button>
           <button
-            style={{ ...styles.zoomBtn, borderLeft: '1px solid #e5e7eb', marginLeft: 2, paddingLeft: 6 }}
+            style={{ ...styles.zoomBtn, borderLeft: `1px solid ${presentation === 'tree' ? TREE_DARK.border : '#e5e7eb'}`, marginLeft: 2, paddingLeft: 6, ...(presentation === 'tree' ? { color: TREE_DARK.textSecondary } : {}) }}
             onClick={resetView}
             title="Reset view"
           >

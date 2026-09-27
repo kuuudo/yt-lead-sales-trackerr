@@ -1525,7 +1525,7 @@ return (
           </div>
         )}
 
-        <CanvasGrid transform={transform} />
+        <CanvasGrid transform={transform} dark={presentation === 'tree'} />
 
         <div
           style={{

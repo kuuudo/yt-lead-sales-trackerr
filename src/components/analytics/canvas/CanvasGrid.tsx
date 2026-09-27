@@ -17,9 +17,10 @@ import type { CanvasTransform } from '../store/useWorkspaceStore'
 
 interface Props {
   transform: CanvasTransform
+  dark?: boolean
 }
 
-export default function CanvasGrid({ transform }: Props) {
+export default function CanvasGrid({ transform, dark = false }: Props) {
   const { x, y, scale } = transform
 
   // Base grid size in canvas units.
@@ -62,7 +63,7 @@ export default function CanvasGrid({ transform }: Props) {
           height={gridSize}
           patternUnits="userSpaceOnUse"
         >
-          <circle cx={gridSize / 2} cy={gridSize / 2} r={dotRadius} fill="#222" />
+          <circle cx={gridSize / 2} cy={gridSize / 2} r={dotRadius} fill={dark ? 'rgba(255,255,255,0.08)' : '#222'} />
         </pattern>
       </defs>
       <rect width="100%" height="100%" fill={`url(#${patternId})`} />

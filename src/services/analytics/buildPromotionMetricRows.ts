@@ -18,11 +18,14 @@
 
 import { supabase } from '../../lib/supabase';
 import {
-  CLICK_EVENT_MAP,
   type DateRange,
   type CustomDateRange,
   type VideoMetricsResult,
 } from '../../lib/analyticsEngine';
+import {
+  countAssetClicks,
+  countAssetClicksByAssetId,
+} from '../../lib/countAssetClicks';
 import {
   metricsForFactBag,
   type FactBagActiveSource,
@@ -59,10 +62,11 @@ export interface PromotionMetricRow {
   /** Canonical metrics — one metricsForFactBag call per row. */
   metrics: VideoMetricsResult;
   /**
-   * Asset Clicks at Promotion/fact-bag grain (NOT sum of AllAssets pair rows).
-   * Same semantics as AllAssets metrics.clicks / design:
-   * events with non-null asset_id whose event_type is in CLICK_EVENT_MAP,
-   * deduped by event id within the promotion bag.
+   * Asset Clicks at Promotion fact-bag grain (NOT sum of AllAssets pair rows).
+   * Canonical definition: AllAssets computeAssetMetrics clicks —
+   * CLICK_EVENT_MAP type match, raw .length, NO event.id dedupe.
+   * Caller bag should already be promotion-scoped; optional asset_id presence
+   * is not required by the canonical counter (scope is the bag).
    */
   asset_clicks: number;
   /**
@@ -121,50 +125,6 @@ export function resolvePromotionTitle(identity: {
  * Does not load marketer / collaborator aggregation (Phase D).
  */
 
-/** Flatten CLICK_EVENT_MAP raw event_type strings (AllAssets Asset Clicks path). */
-const ASSET_CLICK_EVENT_TYPES: Set<string> = new Set(
-  Object.values(CLICK_EVENT_MAP).flatMap(types => types),
-);
-
-/**
- * Promotion-level Asset Clicks from a fact bag's events only.
- * - Requires asset_id (asset-scoped event)
- * - event_type in CLICK_EVENT_MAP values
- * - Dedupe by event id (bag may already be unique; still safe)
- * Does NOT sum AllAssets display rows. Does NOT use processVideoMetrics.
- */
-export function countAssetClicksFromEvents(
-  events: { id: string; asset_id?: string | null; event_type?: string | null }[],
-): number {
-  const seen = new Set<string>();
-  for (const e of events) {
-    if (!e.asset_id) continue;
-    if (!e.event_type || !ASSET_CLICK_EVENT_TYPES.has(e.event_type)) continue;
-    if (seen.has(e.id)) continue;
-    seen.add(e.id);
-  }
-  return seen.size;
-}
-
-/**
- * Per-asset breakdown using the SAME rules as countAssetClicksFromEvents.
- * sum(values) === countAssetClicksFromEvents(events) when every counted
- * event has a single asset_id (guaranteed by the filter).
- */
-export function countAssetClicksByAssetId(
-  events: { id: string; asset_id?: string | null; event_type?: string | null }[],
-): Map<string, number> {
-  const seen = new Set<string>();
-  const byAsset = new Map<string, number>();
-  for (const e of events) {
-    if (!e.asset_id) continue;
-    if (!e.event_type || !ASSET_CLICK_EVENT_TYPES.has(e.event_type)) continue;
-    if (seen.has(e.id)) continue;
-    seen.add(e.id);
-    byAsset.set(e.asset_id, (byAsset.get(e.asset_id) ?? 0) + 1);
-  }
-  return byAsset;
-}
 
 export async function fetchOrgPromotionIdentities(
   organizationId: string,
@@ -298,7 +258,7 @@ export async function buildPromotionMetricRows(
       isArchived: false,
       archivedAt: null,
       metrics,
-      asset_clicks: countAssetClicksFromEvents(bag?.events ?? []),
+      asset_clicks: countAssetClicks(bag?.events ?? []),
       asset_clicks_by_asset: (() => {
         const m = countAssetClicksByAssetId(bag?.events ?? []);
         const o: Record<string, number> = {};
@@ -338,7 +298,7 @@ export async function buildPromotionMetricRows(
         isArchived: false,
         archivedAt: null,
         metrics,
-        asset_clicks: countAssetClicksFromEvents(unattributedBag.events),
+        asset_clicks: countAssetClicks(unattributedBag.events),
         asset_clicks_by_asset: (() => {
           const m = countAssetClicksByAssetId(unattributedBag.events);
           const o: Record<string, number> = {};
@@ -379,7 +339,7 @@ export async function buildPromotionMetricRows(
         redirectLinkLookup: facts.redirectLinkLookup,
         includeEV,
       }),
-      asset_clicks: countAssetClicksFromEvents(bag.events),
+      asset_clicks: countAssetClicks(bag.events),
       asset_clicks_by_asset: (() => {
         const m = countAssetClicksByAssetId(bag.events);
         const o: Record<string, number> = {};
