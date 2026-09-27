@@ -140,6 +140,22 @@ function resolveResourceLinkType(resourceType: string | null): RedirectLinkType 
   return 'landing_page';
 }
 
+async function clearDownstreamFirstTouch(assetId: string): Promise<void> {
+  const { error } = await supabase
+    .from('videos')
+    .update({ first_touch_id: null })
+    .eq('asset_id', assetId)
+    .not('first_touch_id', 'is', null);
+
+  if (error) {
+    console.warn(
+      '[generateAssetRedirectLinks] clear first_touch_id failed (non-fatal):',
+      assetId,
+      error.message
+    );
+  }
+}
+
 // ---------------------------------------------------------------------------
 // Resource asset provenance lookup
 // ---------------------------------------------------------------------------
@@ -521,6 +537,12 @@ if (context.redirectJobs.length === 0) {
 
   return;
 }
+
+      // First Touch: only video-turn assets. Clear downstream source marker.
+      // Never clear upstream videoId.
+      if (context.assetType === 'video') {
+        await clearDownstreamFirstTouch(selected.asset_id);
+      }
 
       console.log('[generateAssetRedirectLinks] Generating redirects', {
         assetId: context.assetId,

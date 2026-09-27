@@ -1290,3 +1290,17 @@ END $$;
 
 COMMENT ON COLUMN public.assignments.assignment_mode IS
   'Product mode: regular | creative. creative_creation_mode is legacy dual-write until fully retired.';
+
+
+-- First Touch: mark a Video as an unconnected journey source until it is
+-- promoted as a video-turn asset by another Video.
+--
+-- Write path: createVideo.ts sets first_touch_id = gen_random_uuid() on insert.
+-- Clear path: generateAssetRedirectLinks.ts nulls it when that video's asset
+-- is selected as a promoted video-turn asset (edge-by-edge, no chain scan).
+
+ALTER TABLE public.videos
+  ADD COLUMN IF NOT EXISTS first_touch_id uuid NULL;
+
+COMMENT ON COLUMN public.videos.first_touch_id IS
+  'Non-null = this Video is still a first-touch/source node. Cleared when another Video promotes this Video''s asset via generateAssetRedirectLinks.';

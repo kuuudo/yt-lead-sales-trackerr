@@ -87,11 +87,14 @@ export async function createVideo({
     assetType: 'video',
   });
 
+  // First Touch: every newly created Video is a journey source until another
+  // Video promotes its asset (cleared in generateAssetRedirectLinks).
   const row = {
     ...payload,
     organization_id: organizationId,
     user_id: userId,
     asset_id: asset.id,
+    first_touch_id: crypto.randomUUID(),
     created_via_creative: !!createdViaCreative,
     creative_promotion_id: createdViaCreative ? (creativePromotionId ?? null) : null,
     creative_assignment_id: createdViaCreative ? (creativeAssignmentId ?? null) : null,
