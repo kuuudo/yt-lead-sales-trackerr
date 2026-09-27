@@ -170,6 +170,13 @@ const UPSTREAM_COL_GAP = GRAPH_COL_GAP
 const UPSTREAM_ROW_GAP = GRAPH_ROW_GAP
 const UPSTREAM_START_X = CANVAS_MARGIN - UPSTREAM_NODE_WIDTH - GRID_GAP_X - 120
 
+// Independent left-side Upstream toggle (STEP 10, revised 2026-09-27) — sits
+// outside the Promotion Asset card, not inside it. Width is a fixed estimate
+// for the "⟳ Upstream" pill (padding + icon + label); GAP is the breathing
+// room between the toggle and the card's left edge.
+const UPSTREAM_TOGGLE_WIDTH = 78
+const UPSTREAM_TOGGLE_GAP = 10
+
 // ─── "Unlinked" group layout (STEP 5, additive) ───────────────────────────────
 // Its own region of the canvas, below the promoted-asset column. Deliberately
 // NOT on the graph's x-axis and NOT connected to any edge. Cards are smaller
@@ -2321,37 +2328,49 @@ const [nodeDetailTarget, setNodeDetailTarget] = useState<
                   <ExternalLink size={11} />
                 </a>
               )}
-              {/* STEP 10 (additive) — Upstream button. Only rendered for
-                  video-origin promoted assets (promotedAssetVideoIds already
-                  excludes newsletter/consultation/etc. — see STEP 4 above).
-                  stopPropagation for the same reason as the external-link
-                  icon: don't arm this card's own drag/click-to-navigate. */}
-              {promotedAssetVideoIds.has(node.assetId) && (
-                <button
-                  type="button"
-                  onPointerDown={(e) => e.stopPropagation()}
-                  onClick={(e) => {
-                    e.stopPropagation()
-                    handleToggleUpstream(node.assetId)
-                  }}
-                  style={{
-                    ...styles.upstreamToggleBtn,
-                    ...(expandedUpstreamAssetIds.has(node.assetId) ? styles.upstreamToggleBtnActive : null),
-                    ...(upstreamErrorByAssetId.has(node.assetId) ? styles.upstreamToggleBtnError : null),
-                  }}
-                  title={
-                    upstreamErrorByAssetId.get(node.assetId) ??
-                    'Show videos that could have — or are confirmed to have — led here'
-                  }
-                >
-                  {upstreamLoadingAssetIds.has(node.assetId) ? (
-                    <Loader2 className="animate-spin" size={10} />
-                  ) : null}
-                  Upstream
-                </button>
-              )}
             </div>
           ))}
+
+          {/* STEP 10 (additive, revised 2026-09-27) — Upstream toggle, now an
+              INDEPENDENT element outside the card div, not a child of
+              styles.node. It sits immediately to the LEFT of each Promotion
+              Asset card (upstream expands leftward; downstream/graph expands
+              rightward — see UPSTREAM_START_X above for the same convention).
+              Only rendered for video-origin promoted assets (promotedAssetVideoIds
+              already excludes newsletter/consultation/etc. — see STEP 4 above).
+              All three of pointerdown/pointerup/click stopPropagation here so
+              nothing bubbles to the card's drag/navigate handlers OR to the
+              canvas's own pan handler. */}
+          {nodes
+            .filter((node) => promotedAssetVideoIds.has(node.assetId))
+            .map((node) => (
+              <button
+                key={`upstream-toggle-${node.assetId}`}
+                type="button"
+                onPointerDown={(e) => e.stopPropagation()}
+                onPointerUp={(e) => e.stopPropagation()}
+                onClick={(e) => {
+                  e.stopPropagation()
+                  handleToggleUpstream(node.assetId)
+                }}
+                style={{
+                  ...styles.upstreamToggleBtn,
+                  left: node.x - UPSTREAM_TOGGLE_WIDTH - UPSTREAM_TOGGLE_GAP,
+                  top: node.y,
+                  ...(expandedUpstreamAssetIds.has(node.assetId) ? styles.upstreamToggleBtnActive : null),
+                  ...(upstreamErrorByAssetId.has(node.assetId) ? styles.upstreamToggleBtnError : null),
+                }}
+                title={
+                  upstreamErrorByAssetId.get(node.assetId) ??
+                  'Show videos that could have — or are confirmed to have — led here'
+                }
+              >
+                {upstreamLoadingAssetIds.has(node.assetId) ? (
+                  <Loader2 className="animate-spin" size={10} />
+                ) : null}
+                Upstream
+              </button>
+            ))}
 
           {/* STEP 10 (additive) — upstream nodes. Reuses styles.graphNode and
               GRAPH_TYPE_ACCENT.video exactly as the observed-graph nodes do —
@@ -3946,8 +3965,6 @@ const styles: Record<string, React.CSSProperties> = {
   // node state. Purely additive — no existing key above is changed. ────────
   upstreamToggleBtn: {
     position: 'absolute',
-    bottom: 5,
-    left: 5,
     display: 'flex',
     alignItems: 'center',
     gap: 3,
