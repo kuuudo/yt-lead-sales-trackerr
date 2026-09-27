@@ -269,7 +269,10 @@ async function walk(
     for (const f of frontier) byAssetId.set(f.assetId, f);
 
     const incoming = await fetchIncomingLinks(frontier.map((f) => f.assetId));
-    if (incoming.length === 0) continue; // this layer's branches simply end here — not truncation, just no more data
+    if (incoming.length === 0) {
+      frontier = [];
+      continue; // this layer's branches simply end here — not truncation, just no more data
+    }
 
     const upstreamVideoIds = Array.from(
       new Set(incoming.map((l) => l.video_id).filter((v): v is string => !!v)),
