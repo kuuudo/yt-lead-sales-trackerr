@@ -25,6 +25,7 @@ import { supabase } from './supabase';
 import {
   VSTRK_HOSTNAME,
   normalizeTrackingHostname,
+  toRootDomain,
   hostnameKey,
   buildJourneyDomainsForNewEdge,
   filterCandidatesByJourneyBudget,
@@ -128,7 +129,7 @@ export function evaluateNewEdgeAgainstDownstream(
     return {
       ok: true,
       hostname,
-      journeyDomains: [hostname],
+      journeyDomains: [toRootDomain(hostname)],
       blockedBranches: [],
       branchesDiverge: false,
     };
@@ -151,10 +152,11 @@ export function evaluateNewEdgeAgainstDownstream(
     return { ok: false, hostname, journeyDomains: null, blockedBranches, branchesDiverge };
   }
 
+  // journeyDomains values are ROOT domains (deduped).
   let journeyDomains = branchesDiverge
-    ? [hostname]
+    ? [toRootDomain(hostname)]
     : buildJourneyDomainsForNewEdge(branches[0].existingDomains, hostname);
-  if (journeyDomains.length > 2) journeyDomains = [hostname];
+  if (journeyDomains.length > 2) journeyDomains = [toRootDomain(hostname)];
 
   return { ok: true, hostname, journeyDomains, blockedBranches: [], branchesDiverge };
 }

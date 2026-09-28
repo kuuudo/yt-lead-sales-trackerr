@@ -13,6 +13,12 @@ import { supabase } from './supabase';
 /** Product: NULL tracking_hostname means VSTRK. */
 export const VSTRK_HOSTNAME = 'www.vstrk.com';
 
+/**
+ * Canonical ROOT identity for VSTRK in journey_domains + budget keys.
+ * NULL / www.vstrk.com / vstrk.com all map here.
+ */
+export const VSTRK_ROOT = 'vstrk.com';
+
 export function normalizeTrackingHostname(
   trackingHostname: string | null | undefined
 ): string {
@@ -21,25 +27,55 @@ export function normalizeTrackingHostname(
   return h.replace(/^www\./, '') === 'vstrk.com' ? VSTRK_HOSTNAME : trackingHostname!.trim();
 }
 
-/** Stable hostname key for set membership (www.vstrk.com and vstrk.com collapse). */
-export function hostnameKey(host: string): string {
-  const n = normalizeTrackingHostname(host);
-  return n.replace(/^www\./, '').toLowerCase();
+/**
+ * Map any host or legacy journey_domains entry to its ROOT domain key.
+ * ONE identity used by extraction, filter, stamp, and createRedirectLink guard.
+ *
+ * - VSTRK forms → vstrk.com
+ * - optionalKnownRoot from branded_tracking_domains.root_domain when provided
+ * - fallback: ≥3 labels → last two (go.kaksidigitals.com → kaksidigitals.com);
+ *   2 labels unchanged (nike.com → nike.com). Idempotent on already-root strings.
+ */
+export function toRootDomain(
+  hostOrRoot: string | null | undefined,
+  optionalKnownRoot?: string | null
+): string {
+  if (typeof optionalKnownRoot === 'string' && optionalKnownRoot.trim()) {
+    const r = optionalKnownRoot.trim().toLowerCase().replace(/^www\./, '');
+    if (r === 'vstrk.com') return VSTRK_ROOT;
+    return r;
+  }
+
+  const n = normalizeTrackingHostname(hostOrRoot);
+  const bare = n.replace(/^www\./, '').toLowerCase();
+  if (!bare || bare === 'vstrk.com' || bare.endsWith('.vstrk.com')) {
+    return VSTRK_ROOT;
+  }
+
+  const parts = bare.split('.').filter(Boolean);
+  if (parts.length >= 3) {
+    return parts.slice(-2).join('.');
+  }
+  return bare;
 }
 
+/** Budget / set membership key = ROOT domain (not full hostname). */
+export function hostnameKey(host: string): string {
+  return toRootDomain(host);
+}
+
+/** Dedupe by root domain; returned values are ROOT strings. */
 export function dedupeHostnames(hosts: string[]): string[] {
   const seen = new Set<string>();
   const out: string[] = [];
   for (const h of hosts) {
-    const n = normalizeTrackingHostname(h);
-    const k = hostnameKey(n);
-    if (seen.has(k)) continue;
-    seen.add(k);
-    out.push(n);
+    const root = toRootDomain(h);
+    if (seen.has(root)) continue;
+    seen.add(root);
+    out.push(root);
   }
   return out;
 }
-
 // ── Graph types ─────────────────────────────────────────────────────────────
 
 export type StructuralEdge = {
@@ -101,10 +137,11 @@ export function domainsFromEdge(edge: {
   const jd =
     edge.journey_domains ?? edge.journeyDomains ?? null;
   if (jd && Array.isArray(jd) && jd.length > 0) {
+    // New rows: already roots. Legacy rows: full hostnames → mapped to roots.
     return dedupeHostnames(jd.map(String));
   }
   const th = edge.tracking_hostname ?? edge.trackingHostname ?? null;
-  return [normalizeTrackingHostname(th)];
+  return [toRootDomain(normalizeTrackingHostname(th))];
 }
 
 /**
@@ -115,8 +152,8 @@ export function buildJourneyDomainsForNewEdge(
   existingBranchDomains: string[],
   selectedHostname: string | null | undefined
 ): string[] {
-  const selected = normalizeTrackingHostname(selectedHostname);
-  return dedupeHostnames([...existingBranchDomains, selected]);
+  const selectedRoot = toRootDomain(selectedHostname);
+  return dedupeHostnames([...existingBranchDomains, selectedRoot]);
 }
 
 /**
@@ -131,24 +168,27 @@ export function filterCandidatesByJourneyBudget(
   existingCount: number;
   isAnomalous: boolean;
 } {
+  // existing → roots (handles legacy hostname-style entries)
   const existing = dedupeHostnames(existingBranchDomains);
   const existingCount = existing.length;
   const isAnomalous = existingCount >= 3;
-  const existingKeys = new Set(existing.map(hostnameKey));
+  const existingKeys = new Set(existing.map((r) => toRootDomain(r)));
 
   const allowed: string[] = [];
   const blocked: string[] = [];
-  const seen = new Set<string>();
+  // Dedupe candidates by full hostname so go.* and store.* both remain choosable
+  const seenHost = new Set<string>();
 
   for (const raw of candidateHostnames) {
     const n = normalizeTrackingHostname(raw);
-    const k = hostnameKey(n);
-    if (seen.has(k)) continue;
-    seen.add(k);
+    const hostKey = n.toLowerCase();
+    if (seenHost.has(hostKey)) continue;
+    seenHost.add(hostKey);
+
+    const root = toRootDomain(n);
 
     if (isAnomalous) {
-      // Do not expand further — only allow already-on-branch hosts
-      if (existingKeys.has(k)) allowed.push(n);
+      if (existingKeys.has(root)) allowed.push(n);
       else blocked.push(n);
       continue;
     }
@@ -158,12 +198,12 @@ export function filterCandidatesByJourneyBudget(
       continue;
     }
     if (existingCount === 1) {
-      // same or one new
+      // same root OR one new root
       allowed.push(n);
       continue;
     }
-    // existingCount === 2
-    if (existingKeys.has(k)) allowed.push(n);
+    // existingCount === 2 — only roots already on the branch
+    if (existingKeys.has(root)) allowed.push(n);
     else blocked.push(n);
   }
 

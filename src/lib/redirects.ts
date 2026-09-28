@@ -1,5 +1,9 @@
 import { supabase } from './supabase';
-import { hostnameKey, normalizeTrackingHostname } from './structuralJourneyDomains';
+import {
+  normalizeTrackingHostname,
+  toRootDomain,
+  VSTRK_ROOT,
+} from './structuralJourneyDomains';
 import { getSessionId, getJourney, getJourneyId, getEventIds } from './tracker';
 
 const generateToken = (): string => {
@@ -194,13 +198,17 @@ if (trackingDomainId) {
   // never exceed 2 distinct hostnames. Refuse to write rather than store
   // journey_domains that disagree with tracking_hostname.
   if (journeyDomains) {
-    const stampedKeys = new Set(journeyDomains.map((h) => hostnameKey(h)));
-    const actualKey = hostnameKey(normalizeTrackingHostname(trackingHostname));
-    if (stampedKeys.size > 2 || !stampedKeys.has(actualKey)) {
+    const stampedRoots = new Set(
+      journeyDomains.map((h) => toRootDomain(h)).filter(Boolean)
+    );
+    const actualRoot = toRootDomain(normalizeTrackingHostname(trackingHostname));
+    if (stampedRoots.size > 2 || !stampedRoots.has(actualRoot)) {
       console.error('[createRedirectLink] journey_domains guard refused insert', {
         journeyDomains,
+        stampedRoots: [...stampedRoots],
         resolvedTrackingHostname: trackingHostname,
-        actualKey,
+        actualRoot,
+        VSTRK_ROOT,
       });
       return null;
     }
