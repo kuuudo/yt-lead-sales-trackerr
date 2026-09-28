@@ -326,6 +326,10 @@ export async function loadStructuralDownstreamForAsset(
 function toBranch(state: {
   edges: StructuralEdge[];
   domainAcc: string[];
+  // Callers pass whole PathState-like objects; these are ignored here.
+  // Widened ONLY to satisfy tsc excess-property checks (no runtime change).
+  videoId?: string;
+  depth?: number;
 }): StructuralBranch {
   const existingDomains = dedupeHostnames(state.domainAcc);
   return {

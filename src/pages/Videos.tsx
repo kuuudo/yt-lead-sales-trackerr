@@ -74,6 +74,11 @@ import { createVideo } from '../services/video/createVideo';
 import { createRedirectLink } from '../lib/redirects';
 import { buildCampaignRedirectJobs } from '../services/redirect/buildCampaignRedirectJobs';
 import { generateAssetRedirectLinks } from '../services/asset/generateAssetRedirectLinks';
+import {
+  loadStructuralDownstreamForAsset,
+  type StructuralDownstreamResult,
+} from '../lib/structuralJourneyDomains';
+import { preflightJourneyDomains } from '../lib/journeyDomainPreflight';
 import { PromotedAssetPicker, type PromotedAssetRow } from '../components/PromotedAssetPicker';
 import { listVerifiedBrandedDomains, type VerifiedDomainOption } from '../services/domain/brandedDomains';
 import {
@@ -834,6 +839,84 @@ const [resolvingPromotionContext, setResolvingPromotionContext] = useState(false
         : chosenPromotionByAssetId.get(assetId);
     return ctx?.assignmentId ?? null;
   }
+  // ── Journey Domain (video-turn only) ───────────────────────────────────
+  // UI-only cache of structural downstream per promoted asset. The authoritative
+  // MAX-2 check in handleSave re-loads downstream fresh and does NOT read this.
+  const [journeyDownstreamByAssetId, setJourneyDownstreamByAssetId] =
+    useState<Map<string, StructuralDownstreamResult>>(new Map());
+  const [journeyDownstreamLoadingIds, setJourneyDownstreamLoadingIds] =
+    useState<Set<string>>(new Set());
+  const journeyInflightRef = useRef<Set<string>>(new Set());
+
+  // Single place that keeps the cache in sync with promotedAssets: prunes removed
+  // assets (covers every removal path) and loads newly added ones.
+  useEffect(() => {
+    const ids = promotedAssets.map(a => a.asset_id);
+    const idSet = new Set(ids);
+
+    setJourneyDownstreamByAssetId(prev => {
+      let changed = false;
+      const next = new Map(prev);
+      for (const id of prev.keys()) {
+        if (!idSet.has(id)) {
+          next.delete(id);
+          changed = true;
+        }
+      }
+      return changed ? next : prev;
+    });
+
+    for (const id of ids) {
+      if (journeyDownstreamByAssetId.has(id) || journeyInflightRef.current.has(id)) continue;
+      journeyInflightRef.current.add(id);
+      setJourneyDownstreamLoadingIds(prev => new Set(prev).add(id));
+      loadStructuralDownstreamForAsset(id)
+        .then(result => {
+          setJourneyDownstreamByAssetId(prev => new Map(prev).set(id, result));
+        })
+        .catch(e => console.warn('[Videos] structural downstream failed', id, e))
+        .finally(() => {
+          journeyInflightRef.current.delete(id);
+          setJourneyDownstreamLoadingIds(prev => {
+            const s = new Set(prev);
+            s.delete(id);
+            return s;
+          });
+        });
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [promotedAssets.map(a => a.asset_id).join('|')]);
+
+  // Per-journey (per-branch) domain context. Branches are shown separately and
+  // never unioned into one budget.
+  function renderJourneyContext(assetId: string) {
+    const downstream = journeyDownstreamByAssetId.get(assetId);
+    const loading = journeyDownstreamLoadingIds.has(assetId);
+    if (!downstream && !loading) return null;
+    if (downstream && !downstream.isVideoTurn) return null;
+    return (
+      <div className="text-[10px] text-zinc-500 space-y-1">
+        <p className="font-bold uppercase tracking-widest text-zinc-400">Journey domain</p>
+        {!downstream ? (
+          <p>Loading journey domain context…</p>
+        ) : downstream.branches.length === 0 ? (
+          <p>No downstream journey yet — your choice starts this journey&apos;s domain context.</p>
+        ) : (
+          <>
+            <p>Each downstream journey may use at most 2 distinct domains:</p>
+            {downstream.branches.map((b, i) => (
+              <p key={i}>
+                Journey {i + 1} · {b.edges.length} hop(s) ({b.domainCount}/2):{' '}
+                {b.existingDomains.join(', ')}
+                {b.isAnomalous ? ' · anomaly (≥3)' : ''}
+              </p>
+            ))}
+          </>
+        )}
+      </div>
+    );
+  }
+
   const [searchParams, setSearchParams] = useSearchParams();
   useEffect(() => {
     if (searchParams.get('openImport') === 'true' && !isReadOnly) {
@@ -1895,6 +1978,33 @@ const [resolvingPromotionContext, setResolvingPromotionContext] = useState(false
 
       // ── Create path: delegated to createVideo() service ─────────────────
       } else {
+        // ── Journey Domain preflight ─────────────────────────────────────
+        // Runs BEFORE createVideo() so a blocked domain can never leave an
+        // orphan Video row. Throws (→ 'Save Error' alert) when blocked or when a
+        // selected domain id cannot be resolved. Never falls back to vstrk.com.
+        const journeyDomainsByAssetId = await preflightJourneyDomains(
+          promotedAssets.map(asset => {
+            const usageRow = creativeAssetUsageRows.find(r => r.asset_id === asset.asset_id);
+            const asgId = resolvedAssignmentIdForAsset(asset.asset_id);
+            const sharedForAsset = asgId ? (sharedDomainsByAssignmentId.get(asgId) ?? []) : [];
+            const sponsorSource =
+              usageRow?.selected_sponsor_domain_id && usageRow?.selected_sponsor_hostname
+                ? [{ id: usageRow.selected_sponsor_domain_id, hostname: usageRow.selected_sponsor_hostname }]
+                : [];
+            return {
+              assetId: asset.asset_id,
+              label: String((asset as any).display_name || (asset as any).title || asset.asset_id),
+              domainId: selectedAssetDomainByAssetId.get(asset.asset_id) ?? null,
+              domainSources: [
+                ...marketerVerifiedDomains,
+                ...verifiedDomains,
+                ...sharedForAsset,
+                ...sponsorSource,
+              ],
+            };
+          })
+        );
+
         const { savedVideo } = await createVideo({
           payload: {
             platform:                 generated.video.platform!,
@@ -2054,6 +2164,8 @@ const [resolvingPromotionContext, setResolvingPromotionContext] = useState(false
       asset_id: asset.asset_id,
       promotionContext,
       trackingDomainId: selectedAssetDomainByAssetId.get(asset.asset_id) ?? null,
+      // Video-turn only; null for terminal assets. Computed by the preflight above.
+      journeyDomains: journeyDomainsByAssetId.get(asset.asset_id) ?? null,
     };
   });
 console.log(
@@ -2731,6 +2843,7 @@ console.log(
                                     </button>
                                   </div>
                                   <div className="space-y-2">
+                                    {renderJourneyContext(asset.asset_id)}
                                     {showMarketer && (
                                       <div className="space-y-1">
                                         <p className="text-[9px] font-bold uppercase tracking-widest text-zinc-500">
@@ -2871,6 +2984,7 @@ console.log(
                                     ×
                                   </button>
                                 </div>
+                                {renderJourneyContext(asset.asset_id)}
                                 <select
                                   value={currentValue}
                                   onChange={e => {

@@ -1,4 +1,5 @@
 import { supabase } from './supabase';
+import { hostnameKey, normalizeTrackingHostname } from './structuralJourneyDomains';
 import { getSessionId, getJourney, getJourneyId, getEventIds } from './tracker';
 
 const generateToken = (): string => {
@@ -170,6 +171,24 @@ if (trackingDomainId) {
     resolvedBaseUrl = `https://${domainRow.hostname}`;
   }
 }
+
+  // Journey domains guard (fail-closed). Only runs when a caller stamped
+  // journey_domains (video-turn asset edges). The hostname ACTUALLY resolved for
+  // this edge (NULL → vstrk.com) must be inside the stamped set, and the set may
+  // never exceed 2 distinct hostnames. Refuse to write rather than store
+  // journey_domains that disagree with tracking_hostname.
+  if (journeyDomains) {
+    const stampedKeys = new Set(journeyDomains.map((h) => hostnameKey(h)));
+    const actualKey = hostnameKey(normalizeTrackingHostname(trackingHostname));
+    if (stampedKeys.size > 2 || !stampedKeys.has(actualKey)) {
+      console.error('[createRedirectLink] journey_domains guard refused insert', {
+        journeyDomains,
+        resolvedTrackingHostname: trackingHostname,
+        actualKey,
+      });
+      return null;
+    }
+  }
 
   if (!allowDuplicate) {
     let existingQuery = supabase
