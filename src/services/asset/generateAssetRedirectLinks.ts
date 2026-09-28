@@ -597,6 +597,12 @@ if (context.redirectJobs.length === 0) {
                 context.assetType === 'video'
                   ? (selected.journeyDomains ?? null)
                   : null,
+              // P0 (2026-09-28): Video→Video explicit VSTRK is trackingDomainId=null.
+              // Do not substitute org is_default branded domain; persist
+              // tracking_hostname = NULL. Terminal assets / other types keep
+              // existing createRedirectLink fallback behavior.
+              skipOrgDefaultDomain:
+                context.assetType === 'video' && !selected.trackingDomainId,
             }
           );
         })

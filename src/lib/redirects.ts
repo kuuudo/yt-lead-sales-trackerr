@@ -41,6 +41,18 @@ export interface CreateRedirectLinkOptions {
   assetId?: string | null;
   trackingDomainId?: string | null;
   journeyDomains?: string[] | null;
+  /**
+   * When true and trackingDomainId is null/undefined: do NOT fall back to the
+   * org is_default branded domain. Leave tracking_hostname = NULL (canonical
+   * VSTRK for Video→Video / journey-domain edges).
+   *
+   * Default false: preserves existing behavior for campaign links and other
+   * non–journey-domain redirect creation.
+   *
+   * Decision (2026-09-28): limited to structural Video→Video create flow.
+   * May be revisited if broader tracking-domain architecture changes.
+   */
+  skipOrgDefaultDomain?: boolean;
 }
 
 export const createRedirectLink = async (
@@ -60,6 +72,7 @@ export const createRedirectLink = async (
     options?.journeyDomains && options.journeyDomains.length > 0
       ? options.journeyDomains
       : null;
+  const skipOrgDefaultDomain = options?.skipOrgDefaultDomain === true;
 
   console.log('[DEBUG redirect input]', {
     videoId,
@@ -155,7 +168,10 @@ if (trackingDomainId) {
     trackingHostname = chosenDomainRow.hostname;
     resolvedBaseUrl = `https://${chosenDomainRow.hostname}`;
   }
-} else if (organizationId) {
+} else if (organizationId && !skipOrgDefaultDomain) {
+  // Existing behavior for campaign links / non–journey-domain callers.
+  // Skipped when skipOrgDefaultDomain is true (Video→Video explicit VSTRK:
+  // tracking_hostname stays NULL = canonical VSTRK).
   const { data: domainRow, error: domainErr } = await supabase
     .from('branded_tracking_domains')
     .select('hostname')

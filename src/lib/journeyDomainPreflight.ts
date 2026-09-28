@@ -38,7 +38,7 @@ export type JourneyPreflightAsset = {
   assetId: string;
   /** Human label for error messages. */
   label: string;
-  /** The user's selection: a domain id, or null (= "no explicit domain"). */
+  /** Domain id, or null = explicit VSTRK for Video→Video journey-domain edges. */
   domainId: string | null;
   /**
    * Every id→hostname source the UI actually offers for THIS asset
@@ -78,48 +78,20 @@ export function resolveSelectedHostnameOrThrow(
 }
 
 /**
- * domainId === null → effective hostname per product rule:
- *   the asset's Campaign landing_page tracking domain if it has one,
- *   otherwise VSTRK.
+ * domainId === null on a Video→Video / journey-domain edge means explicit VSTRK.
  *
- * BEST-EFFORT ONLY: reads via the caller's RLS, so a cross-org (shared) asset's
- * campaign may be unreadable → falls back to VSTRK here. The authoritative
- * check is the fail-closed guard in createRedirectLink (redirects.ts), which
- * compares against the hostname actually written.
+ * Decision (2026-09-28, limited scope, see journey-domain-implementation.md):
+ *   null → normalized hostname www.vstrk.com
+ *   create path: trackingDomainId null + skipOrgDefaultDomain → tracking_hostname NULL
  *
- * NOTE: createRedirectLink() still falls back to the ORG DEFAULT domain when no
- * domain id is passed. That mismatch is an open question — see the ledger.
+ * Do NOT predict campaign landing-page domain or org default here; that caused
+ * journey_domains vs tracking_hostname mismatch and the fail-closed guard to
+ * refuse the edge after the Video row was already created.
+ *
+ * Revisit if broader tracking-domain architecture changes.
  */
-export async function resolveNullSelectionHostname(assetId: string): Promise<string> {
-  try {
-    const { data: videoRow } = await supabase
-      .from('videos')
-      .select('campaign_id')
-      .eq('asset_id', assetId)
-      .maybeSingle();
-    if (!videoRow?.campaign_id) return VSTRK_HOSTNAME;
-
-    const { data: campaignRow } = await supabase
-      .from('campaigns')
-      .select('landing_page_tracking_domain_id')
-      .eq('id', videoRow.campaign_id)
-      .maybeSingle();
-    const domainId = campaignRow?.landing_page_tracking_domain_id as string | null | undefined;
-    if (!domainId) return VSTRK_HOSTNAME;
-
-    const { data: domainRow } = await supabase
-      .from('branded_tracking_domains')
-      .select('hostname')
-      .eq('id', domainId)
-      .eq('status', 'verified')
-      .maybeSingle();
-    return domainRow?.hostname
-      ? normalizeTrackingHostname(domainRow.hostname)
-      : VSTRK_HOSTNAME;
-  } catch (e) {
-    console.warn('[journeyDomainPreflight] null-selection resolve failed', assetId, e);
-    return VSTRK_HOSTNAME;
-  }
+export async function resolveNullSelectionHostname(_assetId: string): Promise<string> {
+  return VSTRK_HOSTNAME;
 }
 
 /**
