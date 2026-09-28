@@ -77,8 +77,10 @@ import { generateAssetRedirectLinks } from '../services/asset/generateAssetRedir
 import {
   loadStructuralDownstreamForAsset,
   filterCandidatesByJourneyBudget,
+  normalizeTrackingHostname,
   VSTRK_HOSTNAME,
   type StructuralDownstreamResult,
+  type StructuralBranch,
 } from '../lib/structuralJourneyDomains';
 import { preflightJourneyDomains } from '../lib/journeyDomainPreflight';
 import { PromotedAssetPicker, type PromotedAssetRow } from '../components/PromotedAssetPicker';
@@ -848,6 +850,8 @@ const [resolvingPromotionContext, setResolvingPromotionContext] = useState(false
     useState<Map<string, StructuralDownstreamResult>>(new Map());
   const [journeyDownstreamLoadingIds, setJourneyDownstreamLoadingIds] =
     useState<Set<string>>(new Set());
+  /** video_id → title for structural Journey panel (RIGHT column). */
+  const [journeyVideoTitles, setJourneyVideoTitles] = useState<Map<string, string>>(new Map());
   const journeyInflightRef = useRef<Set<string>>(new Set());
 
   // Single place that keeps the cache in sync with promotedAssets: prunes removed
@@ -873,8 +877,35 @@ const [resolvingPromotionContext, setResolvingPromotionContext] = useState(false
       journeyInflightRef.current.add(id);
       setJourneyDownstreamLoadingIds(prev => new Set(prev).add(id));
       loadStructuralDownstreamForAsset(id)
-        .then(result => {
+        .then(async result => {
           setJourneyDownstreamByAssetId(prev => new Map(prev).set(id, result));
+          // Titles for RIGHT Journey panel (structural only — not events_journey)
+          const ids = new Set<string>();
+          if (result.startVideoId) ids.add(result.startVideoId);
+          for (const b of result.branches) {
+            for (const e of b.edges) {
+              if (e.toVideoId) ids.add(e.toVideoId);
+              if (e.fromVideoId) ids.add(e.fromVideoId);
+            }
+          }
+          if (ids.size === 0) return;
+          try {
+            const { data } = await supabase
+              .from('videos')
+              .select('id, video_title')
+              .in('id', Array.from(ids));
+            if (data?.length) {
+              setJourneyVideoTitles(prev => {
+                const next = new Map(prev);
+                for (const row of data) {
+                  if (row.id && row.video_title) next.set(row.id as string, row.video_title as string);
+                }
+                return next;
+              });
+            }
+          } catch (te) {
+            console.warn('[Videos] journey video titles failed', te);
+          }
         })
         .catch(e => console.warn('[Videos] structural downstream failed', id, e))
         .finally(() => {
@@ -894,8 +925,7 @@ const [resolvingPromotionContext, setResolvingPromotionContext] = useState(false
   /**
    * UI mirror of preflight: a candidate hostname is selectable only if EVERY
    * structural downstream branch allows it under the max-2 ROOT-domain budget.
-   * hostname null = explicit VSTRK (VSTRK_HOSTNAME → root vstrk.com).
-   * Empty / non-video-turn / still-loading → allow (backend preflight remains final).
+   * hostname null = explicit VSTRK. Backend preflight remains final enforcement.
    */
   function isHostnameAllowedByJourneyBudget(
     assetId: string,
@@ -912,33 +942,125 @@ const [resolvingPromotionContext, setResolvingPromotionContext] = useState(false
     return true;
   }
 
-  function renderJourneyContext(assetId: string) {
-    const downstream = journeyDownstreamByAssetId.get(assetId);
-    const loading = journeyDownstreamLoadingIds.has(assetId);
-    if (!downstream && !loading) return null;
-    if (downstream && !downstream.isVideoTurn) return null;
+  function journeyVideoLabel(videoId: string | null | undefined, fallback?: string): string {
+    if (!videoId) return fallback || '—';
+    return journeyVideoTitles.get(videoId) || fallback || `Video ${videoId.slice(0, 8)}…`;
+  }
+
+  function edgeHostnameLabel(trackingHostname: string | null | undefined): string {
+    // Exact host on the existing structural edge (NULL → VSTRK display form)
+    return normalizeTrackingHostname(trackingHostname ?? null);
+  }
+
+  /** RIGHT column: structural path + per-edge hostname + root budget (not analytics). */
+  function renderStructuralJourneyPanel() {
+    const videoTurnAssets = promotedAssets.filter(a => {
+      const d = journeyDownstreamByAssetId.get(a.asset_id);
+      return d?.isVideoTurn;
+    });
+    const anyLoading = promotedAssets.some(a => journeyDownstreamLoadingIds.has(a.asset_id));
+
+    if (promotedAssets.length === 0) {
+      return (
+        <div className="border border-dashed border-zinc-800 rounded-2xl p-4 text-[10px] text-zinc-600 uppercase tracking-widest font-bold">
+          Select a promoted video asset to inspect its structural Journey
+        </div>
+      );
+    }
+
+    if (videoTurnAssets.length === 0 && !anyLoading) {
+      return (
+        <div className="border border-dashed border-zinc-800 rounded-2xl p-4 text-[10px] text-zinc-600 uppercase tracking-widest font-bold">
+          Journey panel applies to video-turn assets only
+        </div>
+      );
+    }
+
     return (
-      <div className="text-[10px] text-zinc-500 space-y-1">
-        <p className="font-bold uppercase tracking-widest text-zinc-400">Journey</p>
-        {!downstream ? (
-          <p>Loading journey domain context…</p>
-        ) : downstream.branches.length === 0 ? (
-          <p>No downstream journey yet — your choice starts this journey&apos;s root-domain context (max 2).</p>
-        ) : (
-          <>
-            <p>Each downstream journey may use at most 2 distinct <span className="text-zinc-400">root</span> domains:</p>
-            {downstream.branches.map((b, i) => (
-              <p key={i}>
-                Journey {i + 1} · {b.edges.length} hop(s) · {b.domainCount}/2 root domains
-                {b.existingDomains.length > 0 ? `: ${b.existingDomains.join(', ')}` : ''}
-                {b.isAnomalous ? ' · anomaly (≥3)' : ''}
-              </p>
-            ))}
-          </>
-        )}
+      <div className="space-y-4">
+        <p className="text-[10px] font-black uppercase tracking-widest text-zinc-400">Journey</p>
+        <p className="text-[9px] text-zinc-600 leading-relaxed normal-case font-medium tracking-normal">
+          Structural downstream (redirect links). Root-domain budget max 2 per branch.
+          Tracking Domain on the left picks the exact hostname for this new edge.
+        </p>
+        {promotedAssets.map(asset => {
+          const assetId = asset.asset_id;
+          const label = String((asset as any).display_name || (asset as any).title || assetId);
+          const downstream = journeyDownstreamByAssetId.get(assetId);
+          const loading = journeyDownstreamLoadingIds.has(assetId);
+          if (loading && !downstream) {
+            return (
+              <div key={assetId} className="border border-zinc-800 rounded-xl p-3 text-[10px] text-zinc-500">
+                Loading Journey for {label}…
+              </div>
+            );
+          }
+          if (!downstream || !downstream.isVideoTurn) return null;
+
+          if (downstream.branches.length === 0) {
+            return (
+              <div key={assetId} className="border border-zinc-800 rounded-xl p-3 space-y-2">
+                <p className="text-[10px] font-bold text-zinc-300 truncate">{label}</p>
+                <p className="text-[10px] text-zinc-500">
+                  No downstream Journey yet — your Tracking Domain choice starts this branch&apos;s root-domain context (0/2).
+                </p>
+              </div>
+            );
+          }
+
+          return (
+            <div key={assetId} className="border border-zinc-800 rounded-xl p-3 space-y-4">
+              <p className="text-[10px] font-bold text-zinc-300 truncate">{label}</p>
+              {downstream.branches.map((b: StructuralBranch, i: number) => (
+                <div key={i} className="space-y-2">
+                  <p className="text-[9px] font-black uppercase tracking-widest text-zinc-500">
+                    Journey {i + 1} · {b.edges.length} hop(s)
+                  </p>
+                  <div className="space-y-0 text-[11px]">
+                    <div className="text-zinc-200 font-bold truncate">
+                      {journeyVideoLabel(downstream.startVideoId, label)}
+                    </div>
+                    {b.edges.map((edge, ei) => (
+                      <div key={edge.redirectLinkId || ei} className="pl-2 border-l border-zinc-800 ml-1">
+                        <div className="py-1 font-mono text-[10px] text-amber-400/90">
+                          │ {edgeHostnameLabel(edge.trackingHostname)}
+                        </div>
+                        <div className="text-zinc-300 font-bold truncate">
+                          {edge.toVideoId
+                            ? journeyVideoLabel(edge.toVideoId)
+                            : 'Terminal asset'}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                  <div className="pt-2 border-t border-zinc-900">
+                    <p className="text-[9px] font-black uppercase tracking-widest text-zinc-500">
+                      Journey root domains: {b.domainCount}/2
+                    </p>
+                    <ul className="mt-1 space-y-0.5">
+                      {b.existingDomains.length === 0 ? (
+                        <li className="text-[10px] text-zinc-600">none yet</li>
+                      ) : (
+                        b.existingDomains.map(root => (
+                          <li key={root} className="text-[10px] text-zinc-300 font-mono">
+                            • {root}
+                          </li>
+                        ))
+                      )}
+                    </ul>
+                    {b.isAnomalous && (
+                      <p className="text-[9px] text-amber-500 mt-1">anomaly (≥3 roots)</p>
+                    )}
+                  </div>
+                </div>
+              ))}
+            </div>
+          );
+        })}
       </div>
     );
   }
+
 
   const [searchParams, setSearchParams] = useSearchParams();
   useEffect(() => {
@@ -2866,9 +2988,8 @@ console.log(
                                     </button>
                                   </div>
                                   <div className="space-y-2">
-                                    {renderJourneyContext(asset.asset_id)}
-                                    <p className="text-[9px] font-black uppercase tracking-widest text-zinc-400 pt-1">
-                                      Tracking hostname for this new link
+                                    <p className="text-[9px] font-bold uppercase tracking-widest text-zinc-500 pt-1">
+                                      Tracking Domain
                                     </p>
                                     {showMarketer && (
                                       <div className="space-y-1">
@@ -3043,9 +3164,8 @@ console.log(
                                     ×
                                   </button>
                                 </div>
-                                {renderJourneyContext(asset.asset_id)}
-                                <p className="text-[9px] font-black uppercase tracking-widest text-zinc-400">
-                                  Tracking hostname for this new link
+                                <p className="text-[9px] font-bold uppercase tracking-widest text-zinc-500">
+                                  Tracking Domain
                                 </p>
                                 <select
                                   value={currentValue}
@@ -3518,7 +3638,9 @@ console.log(
     })}
   </div>
 )}
-                <div className="flex flex-col">
+                <div className="flex flex-col gap-6">
+                  {/* Structural Journey — RIGHT column (video-turn context only) */}
+                  {renderStructuralJourneyPanel()}
                   {generated ? (
                     <div className="flex-1 space-y-4">
                       <p className="label-caps !text-zinc-500">Preview & Save</p>
