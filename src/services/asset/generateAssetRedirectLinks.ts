@@ -92,6 +92,15 @@ export interface SelectedPromotedAsset {
    * branded domain" (null).
    */
   trackingDomainId: string | null;
+
+  /**
+   * Pre-computed journey domain context for this NEW structural edge
+   * (existing branch domains ∪ selected hostname). Only used when
+   * assetType === 'video'. Terminal assets (resource / campaign_element)
+   * leave this undefined. Validated by the caller (Videos.tsx) —
+   * never computed inside this file.
+   */
+  journeyDomains?: string[] | null;
 }
 
 export interface GenerateAssetRedirectLinksOptions {
@@ -582,6 +591,12 @@ if (context.redirectJobs.length === 0) {
               assetId: context.assetId,
               promotionId: selected.promotionContext?.promotionId ?? null,
               trackingDomainId: selected.trackingDomainId,
+              // Only structural Video → Video edges stamp journey_domains.
+              // Terminal assets always get null.
+              journeyDomains:
+                context.assetType === 'video'
+                  ? (selected.journeyDomains ?? null)
+                  : null,
             }
           );
         })

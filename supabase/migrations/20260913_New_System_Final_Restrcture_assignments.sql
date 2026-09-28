@@ -1304,3 +1304,15 @@ ALTER TABLE public.videos
 
 COMMENT ON COLUMN public.videos.first_touch_id IS
   'Non-null = this Video is still a first-touch/source node. Cleared when another Video promotes this Video''s asset via generateAssetRedirectLinks.';
+
+
+  -- Journey domain context on each redirect_links edge (structural branch declaration).
+-- NOT a cache of tracking_hostname. Written on NEW structural edges only.
+-- Relay consumption is a later phase.
+-- NULL tracking_hostname is normalized to www.vstrk.com in application code for counting.
+
+ALTER TABLE public.redirect_links
+  ADD COLUMN IF NOT EXISTS journey_domains text[] NULL;
+
+COMMENT ON COLUMN public.redirect_links.journey_domains IS
+  'Declared tracking hostnames for this structural edge/branch context (max 2). Hostnames only. NULL = legacy / not set.';

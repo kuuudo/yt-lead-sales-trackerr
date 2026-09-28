@@ -31,13 +31,15 @@ export interface RedirectLink {
   promotion_id: string | null;
   asset_id: string | null;
   tracking_hostname: string | null;
-  bridge_token: string | null; 
+  bridge_token: string | null;
+  journey_domains?: string[] | null;
 }
 
 export interface CreateRedirectLinkOptions {
   promotionId?: string | null;
   assetId?: string | null;
   trackingDomainId?: string | null;
+  journeyDomains?: string[] | null;
 }
 
 export const createRedirectLink = async (
@@ -53,6 +55,10 @@ export const createRedirectLink = async (
   const promotionId = options?.promotionId ?? null;
   const assetId = options?.assetId ?? null;
   const trackingDomainId = options?.trackingDomainId ?? null;
+  const journeyDomains =
+    options?.journeyDomains && options.journeyDomains.length > 0
+      ? options.journeyDomains
+      : null;
 
   console.log('[DEBUG redirect input]', {
     videoId,
@@ -62,6 +68,7 @@ export const createRedirectLink = async (
     promotionId,
     assetId,
     trackingDomainId,
+    journeyDomains,
   });
 
   if (promotionId && !assetId) {
@@ -210,6 +217,7 @@ if (trackingDomainId) {
       ...(leadMagnetId ? { lead_magnet_id: leadMagnetId } : {}),
       ...(promotionId ? { promotion_id: promotionId } : {}),
       ...(assetId ? { asset_id: assetId } : {}),
+      ...(journeyDomains ? { journey_domains: journeyDomains } : {}),
       ...(assetId ? { bridge_token: generateToken() } : {}), 
     });
 
