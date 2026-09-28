@@ -76,6 +76,8 @@ import { buildCampaignRedirectJobs } from '../services/redirect/buildCampaignRed
 import { generateAssetRedirectLinks } from '../services/asset/generateAssetRedirectLinks';
 import {
   loadStructuralDownstreamForAsset,
+  filterCandidatesByJourneyBudget,
+  VSTRK_HOSTNAME,
   type StructuralDownstreamResult,
 } from '../lib/structuralJourneyDomains';
 import { preflightJourneyDomains } from '../lib/journeyDomainPreflight';
@@ -889,6 +891,27 @@ const [resolvingPromotionContext, setResolvingPromotionContext] = useState(false
 
   // Per-journey (per-branch) domain context. Branches are shown separately and
   // never unioned into one budget.
+  /**
+   * UI mirror of preflight: a candidate hostname is selectable only if EVERY
+   * structural downstream branch allows it under the max-2 ROOT-domain budget.
+   * hostname null = explicit VSTRK (VSTRK_HOSTNAME → root vstrk.com).
+   * Empty / non-video-turn / still-loading → allow (backend preflight remains final).
+   */
+  function isHostnameAllowedByJourneyBudget(
+    assetId: string,
+    hostname: string | null
+  ): boolean {
+    const downstream = journeyDownstreamByAssetId.get(assetId);
+    if (!downstream || !downstream.isVideoTurn) return true;
+    if (downstream.branches.length === 0) return true;
+    const host = hostname ?? VSTRK_HOSTNAME;
+    for (const b of downstream.branches) {
+      const { allowed } = filterCandidatesByJourneyBudget(b.existingDomains, [host]);
+      if (allowed.length === 0) return false;
+    }
+    return true;
+  }
+
   function renderJourneyContext(assetId: string) {
     const downstream = journeyDownstreamByAssetId.get(assetId);
     const loading = journeyDownstreamLoadingIds.has(assetId);
@@ -896,18 +919,18 @@ const [resolvingPromotionContext, setResolvingPromotionContext] = useState(false
     if (downstream && !downstream.isVideoTurn) return null;
     return (
       <div className="text-[10px] text-zinc-500 space-y-1">
-        <p className="font-bold uppercase tracking-widest text-zinc-400">Journey domain</p>
+        <p className="font-bold uppercase tracking-widest text-zinc-400">Journey</p>
         {!downstream ? (
           <p>Loading journey domain context…</p>
         ) : downstream.branches.length === 0 ? (
-          <p>No downstream journey yet — your choice starts this journey&apos;s domain context.</p>
+          <p>No downstream journey yet — your choice starts this journey&apos;s root-domain context (max 2).</p>
         ) : (
           <>
-            <p>Each downstream journey may use at most 2 distinct domains:</p>
+            <p>Each downstream journey may use at most 2 distinct <span className="text-zinc-400">root</span> domains:</p>
             {downstream.branches.map((b, i) => (
               <p key={i}>
-                Journey {i + 1} · {b.edges.length} hop(s) ({b.domainCount}/2):{' '}
-                {b.existingDomains.join(', ')}
+                Journey {i + 1} · {b.edges.length} hop(s) · {b.domainCount}/2 root domains
+                {b.existingDomains.length > 0 ? `: ${b.existingDomains.join(', ')}` : ''}
                 {b.isAnomalous ? ' · anomaly (≥3)' : ''}
               </p>
             ))}
@@ -2844,6 +2867,9 @@ console.log(
                                   </div>
                                   <div className="space-y-2">
                                     {renderJourneyContext(asset.asset_id)}
+                                    <p className="text-[9px] font-black uppercase tracking-widest text-zinc-400 pt-1">
+                                      Tracking hostname for this new link
+                                    </p>
                                     {showMarketer && (
                                       <div className="space-y-1">
                                         <p className="text-[9px] font-bold uppercase tracking-widest text-zinc-500">
@@ -2865,9 +2891,14 @@ console.log(
                                           <option value="">Select a domain</option>
                                           {marketerVerifiedDomains
                                             .filter(d => d.id !== usage.selected_sponsor_domain_id)
-                                            .map(d => (
-                                            <option key={d.id} value={d.id}>{d.hostname}</option>
-                                          ))}
+                                            .map(d => {
+                                              const allowed = isHostnameAllowedByJourneyBudget(asset.asset_id, d.hostname);
+                                              return (
+                                            <option key={d.id} value={d.id} disabled={!allowed}>
+                                              {allowed ? d.hostname : `${d.hostname} — would create a 3rd root domain`}
+                                            </option>
+                                              );
+                                            })}
                                         </select>
                                         {marketerVerifiedDomains.length === 0 && (
                                           <p className="text-[9px] text-zinc-600">
@@ -2882,11 +2913,25 @@ console.log(
                                           Sponsor&apos;s tracking domain
                                         </p>
                                         {usage.selected_sponsor_domain_id ? (
+                                          (() => {
+                                            const sponsorHost = usage.selected_sponsor_hostname ?? null;
+                                            const sponsorAllowed = isHostnameAllowedByJourneyBudget(
+                                              asset.asset_id,
+                                              sponsorHost
+                                            );
+                                            return (
                                           <button
                                             type="button"
-                                            onClick={() => setDomain(usage.selected_sponsor_domain_id)}
+                                            disabled={!sponsorAllowed}
+                                            onClick={() => {
+                                              if (!sponsorAllowed) return;
+                                              setDomain(usage.selected_sponsor_domain_id);
+                                            }}
+                                            title={!sponsorAllowed ? 'Would create a 3rd root domain' : undefined}
                                             className={`w-full text-left font-mono text-xs px-3 py-2 rounded-xl border ${
-                                              usingSponsor
+                                              !sponsorAllowed
+                                                ? 'border-zinc-800 bg-zinc-950 text-zinc-600 cursor-not-allowed opacity-60'
+                                                : usingSponsor
                                                 ? 'border-red-600 bg-red-600/10 text-zinc-100'
                                                 : 'border-zinc-800 bg-zinc-900/80 text-zinc-300 hover:border-zinc-600'
                                             }`}
@@ -2894,9 +2939,11 @@ console.log(
                                             {usage.selected_sponsor_hostname
                                               ?? usage.selected_sponsor_domain_id.slice(0, 8) + '…'}
                                             <span className="ml-2 text-[9px] uppercase tracking-widest text-zinc-500">
-                                              Read only · click to use
+                                              {sponsorAllowed ? 'Read only · click to use' : 'Blocked · 3rd root domain'}
                                             </span>
                                           </button>
+                                            );
+                                          })()
                                         ) : (
                                           <p className="text-xs text-zinc-500 px-1">
                                             Not configured by Sponsor
@@ -2909,17 +2956,29 @@ console.log(
                                         <p className="text-[9px] font-bold uppercase tracking-widest text-zinc-500">
                                           VSTRK tracking domain
                                         </p>
+                                        {(() => {
+                                          const vstrkAllowed = isHostnameAllowedByJourneyBudget(asset.asset_id, null);
+                                          return (
                                         <button
                                           type="button"
-                                          onClick={() => setDomain(null)}
+                                          disabled={!vstrkAllowed}
+                                          onClick={() => {
+                                            if (!vstrkAllowed) return;
+                                            setDomain(null);
+                                          }}
+                                          title={!vstrkAllowed ? 'Would create a 3rd root domain' : undefined}
                                           className={`w-full text-left text-xs px-3 py-2 rounded-xl border ${
-                                            usingVstrk && !usingSponsor && !(currentDomainId && marketerVerifiedDomains.some(d => d.id === currentDomainId))
+                                            !vstrkAllowed
+                                              ? 'border-zinc-800 bg-zinc-950 text-zinc-600 cursor-not-allowed opacity-60'
+                                              : usingVstrk && !usingSponsor && !(currentDomainId && marketerVerifiedDomains.some(d => d.id === currentDomainId))
                                               ? 'border-red-600 bg-red-600/10 text-zinc-100'
                                               : 'border-zinc-800 bg-zinc-900/80 text-zinc-300 hover:border-zinc-600'
                                           }`}
                                         >
-                                          vstrk.com
+                                          {vstrkAllowed ? 'vstrk.com' : 'vstrk.com — would create a 3rd root domain'}
                                         </button>
+                                          );
+                                        })()}
                                       </div>
                                     )}
                                     {!showMarketer && !showSponsor && !showVstrk && (
@@ -2985,6 +3044,9 @@ console.log(
                                   </button>
                                 </div>
                                 {renderJourneyContext(asset.asset_id)}
+                                <p className="text-[9px] font-black uppercase tracking-widest text-zinc-400">
+                                  Tracking hostname for this new link
+                                </p>
                                 <select
                                   value={currentValue}
                                   onChange={e => {
@@ -2994,19 +3056,36 @@ console.log(
                                   }}
                                   className="w-full bg-zinc-950 border border-zinc-800 rounded-xl px-4 py-2.5 text-xs text-zinc-100 focus:outline-none focus:border-red-600"
                                 >
-                                  <option value="">vstrk.com</option>
+                                  <option
+                                    value=""
+                                    disabled={!isHostnameAllowedByJourneyBudget(asset.asset_id, null)}
+                                  >
+                                    {isHostnameAllowedByJourneyBudget(asset.asset_id, null)
+                                      ? 'vstrk.com'
+                                      : 'vstrk.com — would create a 3rd root domain'}
+                                  </option>
                                   {allowCollaboratorDomains && verifiedDomains.length > 0 && (
                                     <optgroup label="Your Domains">
-                                      {verifiedDomains.map(d => (
-                                        <option key={d.id} value={d.id}>{d.hostname}</option>
-                                      ))}
+                                      {verifiedDomains.map(d => {
+                                        const allowed = isHostnameAllowedByJourneyBudget(asset.asset_id, d.hostname);
+                                        return (
+                                        <option key={d.id} value={d.id} disabled={!allowed}>
+                                          {allowed ? d.hostname : `${d.hostname} — would create a 3rd root domain`}
+                                        </option>
+                                        );
+                                      })}
                                     </optgroup>
                                   )}
                                   {sharedDomains.length > 0 && (
                                     <optgroup label="Shared Domains">
-                                      {sharedDomains.map(d => (
-                                        <option key={d.id} value={d.id}>{d.hostname}</option>
-                                      ))}
+                                      {sharedDomains.map(d => {
+                                        const allowed = isHostnameAllowedByJourneyBudget(asset.asset_id, d.hostname);
+                                        return (
+                                        <option key={d.id} value={d.id} disabled={!allowed}>
+                                          {allowed ? d.hostname : `${d.hostname} — would create a 3rd root domain`}
+                                        </option>
+                                        );
+                                      })}
                                     </optgroup>
                                   )}
                                 </select>
