@@ -8,13 +8,8 @@
  * Phase 3A: append validated vt_jid / vt_token to the return URL
  * Phase 3E: on MISS, advance to the next Relay candidate or return clean
  *           target — zero analytics.
- *           UPSTREAM (redirect_link.upstream_domain set, up≠1): probe that
- *             root FIRST via probeState.resolveUpstreamRootCandidate.
- *           PATH A (redirect_link.promotion_id set): sponsor → marketer →
- *             vstrk, resolved via relayCandidates.ts. Unchanged as fallback.
- *           PATH B (redirect_link.promotion_id null): one candidate per
- *             unique campaigns.root_domain (max 3), resolved via
- *             probeState.ts's resolveOrganizationFallbackCandidates().
+ *           MVP: at most ONE cross-domain probe via upstream_domain.
+ *           Path A / Path B code remains in repo but is not entered here.
  */
 
 import React, { useEffect, useState } from 'react';
@@ -27,17 +22,12 @@ import {
   getStoredJourneyId,
 } from '../lib/visitorCookie';
 import {
-  isSafeGroupIndex,
   buildCleanTargetUrl,
-  resolveOrganizationFallbackCandidates,
-  buildFallbackCandidateUrl,
   resolveUpstreamRootCandidate,
   buildUpstreamProbeUrl,
 } from '../lib/probeState';
-import {
-  resolvePromotionRelayCandidates,
-  buildRelayCandidateUrl,
-} from '../lib/relayCandidates';
+// Path A (relayCandidates) / Path B (resolveOrganizationFallbackCandidates) remain
+// available for future advanced recovery — not imported on MVP runtime path.
 import { isContinuationPrecheckHit } from '../lib/continuationPrecheck';
 import RelayLoadingScreen from '../components/RelayLoadingScreen';
 type RelayState =
@@ -108,8 +98,7 @@ export default function ContinuationRelay() {
 
       const params = new URLSearchParams(window.location.search);
       const rawTarget = params.get('target');
-      const rawGi = params.get('gi');
-      const upstreamAlreadyTried = params.get('up') === '1';
+      // gi retained in URL for legacy links; MVP runtime does not advance Path A/B.
 
       // Diagnostic mode (no target)
       if (!rawTarget) {
@@ -190,17 +179,17 @@ export default function ContinuationRelay() {
         return;
       }
 
-      // ── MISS: upstream_domain FIRST, then Path A / Path B unchanged ─────
+      // ── MISS: MVP runtime — at most ONE upstream_domain probe ───────────
+      // Path A / Path B remain in codebase (relayCandidates / probeState) but
+      // are NOT entered on the normal MVP path. upstream MISS → DIRECT only.
       console.log('[ContinuationRelay] MISS — no continuation-valid cookie on this origin');
 
-      const candidateIndex = isSafeGroupIndex(rawGi);
+      const upstreamAlreadyTried = params.get('up') === '1';
       const upstreamRoot =
         typeof (targetLink as { upstream_domain?: string | null }).upstream_domain === 'string'
-          ? (targetLink as { upstream_domain: string }).upstream_domain
+          ? (targetLink as { upstream_domain: string }).upstream_domain.trim()
           : null;
 
-      // First probe: exact source-campaign ROOT from the clicked edge.
-      // up=1 means we already tried this hop — do not probe the same root again.
       if (upstreamRoot && !upstreamAlreadyTried) {
         try {
           const upstreamCand = await resolveUpstreamRootCandidate(
@@ -212,7 +201,7 @@ export default function ContinuationRelay() {
             upstreamCand.hostname.toLowerCase() !== hostname
           ) {
             const nextUrl = buildUpstreamProbeUrl(upstreamCand, rawTarget);
-            console.log('[ContinuationRelay] MISS → upstream_domain first probe', {
+            console.log('[ContinuationRelay] MISS → upstream_domain single probe', {
               upstreamRoot,
               host: upstreamCand.hostname,
             });
@@ -227,93 +216,21 @@ export default function ContinuationRelay() {
               : 'candidate host is current host',
           });
         } catch (err) {
-          console.warn('[ContinuationRelay] upstream probe failed — Path A/B fallback', err);
+          console.warn('[ContinuationRelay] upstream probe failed — DIRECT', err);
         }
       }
 
-      // PATH A — promotion-specific (unchanged list). After upstream (up=1),
-      // allow starting at index 0 when gi is absent so Path A is not skipped.
-      if (targetLink.promotion_id && targetLink.asset_id) {
-        const pathAStart =
-          candidateIndex !== null
-            ? candidateIndex + 1
-            : upstreamAlreadyTried
-              ? 0
-              : null;
-
-        if (pathAStart !== null) {
-          try {
-            const resolution = await resolvePromotionRelayCandidates(
-              targetLink.promotion_id,
-              targetLink.asset_id
-            );
-            const candidates = resolution?.candidates ?? [];
-            const nextIndex = pathAStart;
-
-            if (nextIndex < candidates.length) {
-              const nextUrl = buildRelayCandidateUrl(
-                candidates[nextIndex],
-                rawTarget,
-                nextIndex
-              );
-              console.log('[ContinuationRelay] MISS → next candidate', {
-                nextIndex,
-                role: candidates[nextIndex].role,
-                host: candidates[nextIndex].hostname,
-              });
-              if (!cancelled) setState({ status: 'redirecting', target: rawTarget });
-              window.location.replace(nextUrl);
-              return;
-            }
-          } catch (err) {
-            console.warn('[ContinuationRelay] candidate advance failed — clean target', err);
-          }
-        }
-      } else if (!targetLink.promotion_id && targetLink.organization_id) {
-        // PATH B — promotion_id IS NULL: root-domain fallback probe.
-        // Candidates are recomputed fresh from targetLink.organization_id
-        // on every hop (never from a client-supplied `org` param) — same
-        // recompute-from-target model as Path A above.
-        //
-        // gi absent (candidateIndex === null) means this is the start of
-        // the fallback chain (e.g. Track.tsx's platform-cookie check just
-        // missed) — try candidate 0. gi present means that candidate index
-        // just missed — try the next one. Same nextIndex/advance contract
-        // as Path A, using probeState.ts's own buildFallbackCandidateUrl()
-        // (not relayCandidates.ts's — Path B has no dependency on Path A).
-        try {
-          const candidates = await resolveOrganizationFallbackCandidates(
-            targetLink.organization_id
-          );
-          const nextIndex = candidateIndex === null ? 0 : candidateIndex + 1;
-
-          if (nextIndex < candidates.length) {
-            const nextUrl = buildFallbackCandidateUrl(
-              candidates[nextIndex],
-              rawTarget,
-              nextIndex
-            );
-            console.log('[ContinuationRelay] MISS → next fallback root-domain candidate', {
-              nextIndex,
-              rootDomain: candidates[nextIndex].root_domain,
-              host: candidates[nextIndex].hostname,
-            });
-            if (!cancelled) setState({ status: 'redirecting', target: rawTarget });
-            window.location.replace(nextUrl);
-            return;
-          }
-        } catch (err) {
-          console.warn('[ContinuationRelay] fallback candidate advance failed — clean target', err);
-        }
-      }
-
-      // Exhausted or no probe state → clean platform target with loop guard.
-      // vt_probe=exhausted tells Track not to start discovery again.
-      console.log('[ContinuationRelay] candidates exhausted or absent — clean target (mark exhausted)');
+      // No upstream, already tried (up=1), or probe not possible → DIRECT.
+      // Do NOT fall through to Path A / Path B on MVP runtime.
+      console.log('[ContinuationRelay] MVP DIRECT (no Path A/B)', {
+        upstreamRoot: upstreamRoot || null,
+        upstreamAlreadyTried,
+      });
       if (!cancelled) setState({ status: 'redirecting', target: rawTarget });
       window.location.replace(
         buildCleanTargetUrl(rawTarget, { probeExhausted: true })
       );
+
     };
 
     run();
@@ -351,7 +268,7 @@ export default function ContinuationRelay() {
         <p>vt_jid present: {state.vtJidPresent ? 'true' : 'false'}</p>
       </div>
       <p className="text-zinc-700 text-[10px] uppercase tracking-widest mt-4">
-        Phase 3E — upstream_domain first · Path A/B fallback · no journey writes
+        Phase 3E — MVP: cookie → upstream×1 → DIRECT · Path A/B dormant
       </p>
     </div>
   );

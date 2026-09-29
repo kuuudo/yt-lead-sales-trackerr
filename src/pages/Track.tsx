@@ -34,7 +34,13 @@ import {
 import { supabase } from '../lib/supabase';
 import { AlertCircle } from 'lucide-react';
 import RelayLoadingScreen from '../components/RelayLoadingScreen';
-import { loadProbeCandidates, buildProbeUrl, buildPlatformCandidateUrl } from '../lib/probeState';
+import {
+  resolveUpstreamRootCandidate,
+  buildUpstreamProbeUrl,
+} from '../lib/probeState';
+// loadProbeCandidates / buildProbeUrl / buildPlatformCandidateUrl remain in
+// probeState.ts for dormant Path B / legacy entry — not used on MVP Track path.
+
 import { currentOriginCookieIsUsableHit } from '../lib/continuationPrecheck';
 import { isEntryChoiceEnabled, getEntryChoice, setEntryChoice, type EntryChoice } from '../lib/entryChoice';
 import EntryChoiceGate from '../components/EntryChoiceGate';
@@ -162,15 +168,15 @@ export default function Track() {
           return;
         }
 
-        // ── Phase 3E discovery gate (Step 1 + Step 2) ───────────────────────
-        // 1) URL handoff / vt_probe=exhausted → never discover
-        // 2) Current-origin cookie + continuation precheck HIT → no bounce
-        // 3) If NOT platform → VSTRK platform candidate (/r/platform) first
-        // 4) If platform (or after platform MISS chains here) → branded ≤3
+        // ── Phase 3E discovery gate (MVP) ───────────────────────────────────
+        // Order (at most ONE automatic cross-domain probe):
+        //   1) URL handoff / vt_probe=exhausted → never discover
+        //   2) Current-origin cookie continuation HIT → CONTINUE (no bounce)
+        //   3) target Video still has first_touch_id → DIRECT (source entry)
+        //   4) upstream_domain set → probe ONLY that root once
+        //   5) else → DIRECT (no Path A/B, no org-wide scan)
         //
-        // Entry Choice "direct": skip this entire block. Nothing below it
-        // (Steps 3-7) is affected — token resolution, attribution, journey
-        // handling, event logging, and the final redirect still run.
+        // Entry Choice "direct": skip this entire block. Steps 3–7 unchanged.
         if (!skipDiscovery) {
           const probeParams = new URLSearchParams(window.location.search);
           const hasUrlHandoff = !!(
@@ -185,44 +191,77 @@ export default function Track() {
             typeof (link as any).organization_id === 'string'
               ? ((link as any).organization_id as string)
               : null;
+          const upstreamRoot =
+            typeof (link as any).upstream_domain === 'string' &&
+            (link as any).upstream_domain.trim()
+              ? String((link as any).upstream_domain).trim()
+              : null;
 
-          if (!hasUrlHandoff && !probeExhausted && orgIdForProbe && token) {
+          if (!hasUrlHandoff && !probeExhausted && token) {
             try {
               const localCookieHit = await currentOriginCookieIsUsableHit(
                 token,
                 getStoredRedirectToken
               );
-               if (localCookieHit) {
+              if (localCookieHit) {
                 cookieContinuationHit = true;
                 console.log(
                   '[Track] Phase 3E: current-origin cookie continuation HIT — skip probe'
                 );
-              } else if (!isPlatformHost(currentHost)) {
-                // Step 2: try VSTRK platform cookie before any branded relay
-                const platformUrl = buildPlatformCandidateUrl(token, orgIdForProbe);
-                console.log('[Track] Phase 3E Step 2: trying VSTRK platform candidate');
-                window.location.replace(platformUrl);
-                return;
               } else {
-                // Platform origin: branded external parents only (max 3)
-                const candidates = await loadProbeCandidates(orgIdForProbe);
-                if (candidates.length > 0) {
-                  const first = candidates[0];
-                  const probeUrl = buildProbeUrl(first, token, orgIdForProbe, 0);
-                  console.log('[Track] Phase 3E: starting cookie-parent probe', {
-                    groups: candidates.length,
-                    firstHost: first.hostname,
-                  });
-                  window.location.replace(probeUrl);
-                  return;
+                // ② Structural first-touch source → DIRECT (no cross-domain probe)
+                const videoIdForFt =
+                  (link as any).video_id != null
+                    ? String((link as any).video_id)
+                    : null;
+                if (videoIdForFt) {
+                  const { data: ftRow } = await supabase
+                    .from('videos')
+                    .select('first_touch_id')
+                    .eq('id', videoIdForFt)
+                    .maybeSingle();
+                  if (ftRow && (ftRow as { first_touch_id?: string | null }).first_touch_id) {
+                    console.log(
+                      '[Track] Phase 3E: first_touch_id present — DIRECT (no probe)'
+                    );
+                    // fall through to normal Track (DIRECT)
+                  } else if (upstreamRoot) {
+                    // ③ Single upstream_domain probe only
+                    const upstreamCand = await resolveUpstreamRootCandidate(
+                      orgIdForProbe,
+                      upstreamRoot
+                    );
+                    if (
+                      upstreamCand &&
+                      upstreamCand.hostname.toLowerCase() !== currentHost.toLowerCase()
+                    ) {
+                      const probeUrl = buildUpstreamProbeUrl(upstreamCand, token);
+                      console.log('[Track] Phase 3E: upstream_domain single probe', {
+                        upstreamRoot,
+                        host: upstreamCand.hostname,
+                      });
+                      window.location.replace(probeUrl);
+                      return;
+                    }
+                    console.log(
+                      '[Track] Phase 3E: upstream not probeable — DIRECT',
+                      {
+                        upstreamRoot,
+                        hasCandidate: !!upstreamCand,
+                      }
+                    );
+                  } else {
+                    console.log(
+                      '[Track] Phase 3E: no first_touch_id, no upstream_domain — DIRECT'
+                    );
+                  }
+                } else {
+                  console.log('[Track] Phase 3E: no video_id — DIRECT (no probe)');
                 }
-                console.log(
-                  '[Track] Phase 3E: no probe candidates — continue normal Track'
-                );
               }
             } catch (probeErr) {
               console.warn(
-                '[Track] Phase 3E: discovery failed — continuing normal Track',
+                '[Track] Phase 3E: discovery failed — continuing normal Track (DIRECT)',
                 probeErr
               );
             }
