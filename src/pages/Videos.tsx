@@ -852,6 +852,8 @@ const [resolvingPromotionContext, setResolvingPromotionContext] = useState(false
     useState<Set<string>>(new Set());
   /** video_id → title for structural Journey panel (RIGHT column). */
   const [journeyVideoTitles, setJourneyVideoTitles] = useState<Map<string, string>>(new Map());
+  /** Expanded full path keys: `${assetId}:${branchIndex}` — collapsed by default. */
+  const [expandedJourneyPaths, setExpandedJourneyPaths] = useState<Set<string>>(new Set());
   const journeyInflightRef = useRef<Set<string>>(new Set());
 
   // Single place that keeps the cache in sync with promotedAssets: prunes removed
@@ -1016,23 +1018,49 @@ const [resolvingPromotionContext, setResolvingPromotionContext] = useState(false
                   <p className="text-[9px] font-black uppercase tracking-widest text-zinc-500">
                     Journey {i + 1} · {b.edges.length} hop(s)
                   </p>
-                  <div className="space-y-0 text-[11px]">
-                    <div className="text-zinc-200 font-bold truncate">
-                      {journeyVideoLabel(downstream.startVideoId, label)}
-                    </div>
-                    {b.edges.map((edge, ei) => (
-                      <div key={edge.redirectLinkId || ei} className="pl-2 border-l border-zinc-800 ml-1">
-                        <div className="py-1 font-mono text-[10px] text-amber-400/90">
-                          │ {edgeHostnameLabel(edge.trackingHostname)}
-                        </div>
-                        <div className="text-zinc-300 font-bold truncate">
-                          {edge.toVideoId
-                            ? journeyVideoLabel(edge.toVideoId)
-                            : 'Terminal asset'}
-                        </div>
+                  {(() => {
+                    const pathKey = `${assetId}:${i}`;
+                    const pathOpen = expandedJourneyPaths.has(pathKey);
+                    return (
+                      <div className="space-y-1">
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setExpandedJourneyPaths(prev => {
+                              const next = new Set(prev);
+                              if (next.has(pathKey)) next.delete(pathKey);
+                              else next.add(pathKey);
+                              return next;
+                            });
+                          }}
+                          className="text-[9px] font-black uppercase tracking-widest text-zinc-500 hover:text-zinc-300 transition-colors"
+                        >
+                          {pathOpen ? '▼ SHOW JOURNEY PATH' : '▶ SHOW JOURNEY PATH'}
+                        </button>
+                        {pathOpen && (
+                          <div className="space-y-0 text-[11px] pt-1">
+                            <div className="text-zinc-200 font-bold truncate">
+                              {journeyVideoLabel(downstream.startVideoId, label)}
+                            </div>
+                            {b.edges.map((edge, ei) => (
+                              <div key={edge.redirectLinkId || ei} className="pl-2 ml-1">
+                                <div className="font-mono text-[10px] text-zinc-600 leading-tight">│</div>
+                                <div className="py-0.5 font-mono text-[10px] text-amber-400/90">
+                                  │ {edgeHostnameLabel(edge.trackingHostname)}
+                                </div>
+                                <div className="font-mono text-[10px] text-zinc-600 leading-tight">↓</div>
+                                <div className="text-zinc-300 font-bold truncate">
+                                  {edge.toVideoId
+                                    ? journeyVideoLabel(edge.toVideoId)
+                                    : 'Terminal asset'}
+                                </div>
+                              </div>
+                            ))}
+                          </div>
+                        )}
                       </div>
-                    ))}
-                  </div>
+                    );
+                  })()}
                   <div className="pt-2 border-t border-zinc-900">
                     <p className="text-[9px] font-black uppercase tracking-widest text-zinc-500">
                       Journey root domains: {b.domainCount}/2
