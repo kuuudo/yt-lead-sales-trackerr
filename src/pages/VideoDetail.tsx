@@ -61,6 +61,8 @@ import {
 import type { PromotionContext } from '../services/asset/resolvePromotionContextForAsset';
 
 import { generateAssetRedirectLinks } from '../services/asset/generateAssetRedirectLinks';
+import { resolveUpstreamDomainForVideo } from '../lib/resolveSourceUpstreamDomain';
+
 
 
 const MANAGE_LINK_TYPES = ['landing_page', 'newsletter', 'consultation', 'sales_call'] as const;
@@ -1041,6 +1043,9 @@ if (effectiveOrgId && effectiveUserId) {
     setTrackSaving(true);
     try {
       const appBaseUrl = window.location.origin;
+      // P1: upstream_domain = this Video's Campaign ROOT (creation-time snapshot).
+      // Same for every new edge from this source; does not rewrite existing rows.
+      const sourceUpstreamDomain = await resolveUpstreamDomainForVideo(video.id);
       const existingTypes = new Set(
         (redirectLinks || []).filter((l: any) => !(l as any).asset_id).map((l: any) => l.link_type as string),
       );
@@ -1079,7 +1084,10 @@ if (effectiveOrgId && effectiveUserId) {
             appBaseUrl,
             undefined as any,
             true,
-            { trackingDomainId: trackingDomainId ?? null } as any,
+            {
+              trackingDomainId: trackingDomainId ?? null,
+              upstreamDomain: sourceUpstreamDomain,
+            } as any,
           );
         } catch {
           await createRedirectLink(
@@ -1090,6 +1098,7 @@ if (effectiveOrgId && effectiveUserId) {
             appBaseUrl,
             undefined as any,
             true,
+            { upstreamDomain: sourceUpstreamDomain } as any,
           );
         }
       }
@@ -1114,6 +1123,7 @@ if (effectiveOrgId && effectiveUserId) {
         await generateAssetRedirectLinks({
           videoId: video.id,
           selectedAssets: assetsWithContext,
+          upstreamDomain: sourceUpstreamDomain,
         });
       }
 
@@ -1148,7 +1158,18 @@ if (effectiveOrgId && effectiveUserId) {
       if (!urlToUse) { showAlert('URL Required', 'Please enter a destination URL.', 'info'); return; }
 
       const leadMagnetId = extraLinkType === 'lead_magnet' ? extraLinkLeadMagnetId : undefined;
-      await createRedirectLink(video.id, video.campaign_id, extraLinkType, urlToUse, appBaseUrl, leadMagnetId, true);
+      // P1: same source-video campaign ROOT as Track Content generate path.
+      const sourceUpstreamDomain = await resolveUpstreamDomainForVideo(video.id);
+      await createRedirectLink(
+        video.id,
+        video.campaign_id,
+        extraLinkType,
+        urlToUse,
+        appBaseUrl,
+        leadMagnetId,
+        true,
+        { upstreamDomain: sourceUpstreamDomain },
+      );
 
       const { data: linksData } = await supabase
         .from('redirect_links')
