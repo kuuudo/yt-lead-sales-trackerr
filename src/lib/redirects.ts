@@ -38,6 +38,7 @@ export interface RedirectLink {
   tracking_hostname: string | null;
   bridge_token: string | null;
   journey_domains?: string[] | null;
+  upstream_domain?: string | null;
 }
 
 export interface CreateRedirectLinkOptions {
@@ -57,6 +58,14 @@ export interface CreateRedirectLinkOptions {
    * May be revisited if broader tracking-domain architecture changes.
    */
   skipOrgDefaultDomain?: boolean;
+    /**
+   * Source video Campaign tracking ROOT to persist on this edge.
+   * Callers resolve via videos.campaign_id → campaign/branded root
+   * (getCookieParent / campaigns.root_domain / branded root_domain).
+   * Do NOT pass campaign UUID or full hostname/subdomain.
+   * Optional: omit → column stays NULL (this step; wiring comes later).
+   */
+  upstreamDomain?: string | null;
 }
 
 export const createRedirectLink = async (
@@ -77,7 +86,10 @@ export const createRedirectLink = async (
       ? options.journeyDomains
       : null;
   const skipOrgDefaultDomain = options?.skipOrgDefaultDomain === true;
-
+  const upstreamDomain =
+    options?.upstreamDomain && options.upstreamDomain.trim()
+      ? options.upstreamDomain.trim().toLowerCase()
+      : null;
   console.log('[DEBUG redirect input]', {
     videoId,
     campaignId,
@@ -261,6 +273,7 @@ if (trackingDomainId) {
       ...(promotionId ? { promotion_id: promotionId } : {}),
       ...(assetId ? { asset_id: assetId } : {}),
       ...(journeyDomains ? { journey_domains: journeyDomains } : {}),
+      ...(upstreamDomain ? { upstream_domain: upstreamDomain } : {}),
       ...(assetId ? { bridge_token: generateToken() } : {}), 
     });
 

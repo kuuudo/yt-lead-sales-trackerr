@@ -14,6 +14,7 @@ import { supabase } from '../../lib/supabase';
 import { createRedirectLink } from '../../lib/redirects';
 import { createAsset } from '../asset/createAsset';
 import { buildCampaignRedirectJobs } from '../redirect/buildCampaignRedirectJobs';
+import { resolveUpstreamDomainForVideo } from '../../lib/resolveSourceUpstreamDomain';
 import type { Video, Campaign } from '../../lib/supabase';
 
 export interface CreateVideoPayload {
@@ -125,6 +126,10 @@ export async function createVideo({
   const savedVideo: Video = insertData[0];
   const appBaseUrl = window.location.origin;
 
+  // Source-video Campaign tracking ROOT for every redirect from this Video.
+  // Uses videos.campaign_id (already on savedVideo) — not target asset campaign.
+  const sourceUpstreamDomain = await resolveUpstreamDomainForVideo(savedVideo.id);
+
   if (campaign) {
     let redirectJobs = buildCampaignRedirectJobs(campaign);
 
@@ -161,7 +166,10 @@ export async function createVideo({
           appBaseUrl,
           undefined,
           undefined,
-          { trackingDomainId: domainId ?? null }
+          {
+            trackingDomainId: domainId ?? null,
+            upstreamDomain: sourceUpstreamDomain,
+          }
         );
       })
     );
@@ -183,7 +191,10 @@ export async function createVideo({
               appBaseUrl,
               lm.id,
               undefined,
-              { trackingDomainId: trackingDomainId ?? null }
+              {
+                trackingDomainId: trackingDomainId ?? null,
+                upstreamDomain: sourceUpstreamDomain,
+              }
             )
           )
         );

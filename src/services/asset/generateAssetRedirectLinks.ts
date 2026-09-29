@@ -60,6 +60,7 @@ import type { Campaign } from '../../lib/supabase';
 import type { PromotionContext } from './resolvePromotionContextForAsset';
 import { resolveAuthorizedProvenanceCampaign } from './resolveAuthorizedProvenanceCampaign';
 import { ensureResourcePromotionCampaign } from './ensureResourcePromotionCampaign';
+import { resolveUpstreamDomainForVideo } from '../../lib/resolveSourceUpstreamDomain';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -106,6 +107,12 @@ export interface SelectedPromotedAsset {
 export interface GenerateAssetRedirectLinksOptions {
   videoId: string;
   selectedAssets: SelectedPromotedAsset[];
+  /**
+   * Source video Campaign tracking ROOT (cookie-parent).
+   * Same value for every edge from this videoId.
+   * If omitted, resolved once from videos.campaign_id via resolveUpstreamDomainForVideo.
+   */
+  upstreamDomain?: string | null;
 }
 
 interface RedirectJob {
@@ -474,10 +481,17 @@ async function resolveAssetRedirectContext(
 export async function generateAssetRedirectLinks({
   videoId,
   selectedAssets,
+  upstreamDomain: upstreamDomainOption,
 }: GenerateAssetRedirectLinksOptions): Promise<void> {
   if (!selectedAssets || selectedAssets.length === 0) return;
 
   const appBaseUrl = window.location.origin;
+
+  // Same ROOT for every asset edge from this source Video (not target campaign).
+  const sourceUpstreamDomain =
+    upstreamDomainOption !== undefined
+      ? upstreamDomainOption
+      : await resolveUpstreamDomainForVideo(videoId);
 
   await Promise.all(
     selectedAssets.map(async (selected) => {
@@ -603,6 +617,7 @@ if (context.redirectJobs.length === 0) {
               // existing createRedirectLink fallback behavior.
               skipOrgDefaultDomain:
                 context.assetType === 'video' && !selected.trackingDomainId,
+              upstreamDomain: sourceUpstreamDomain,
             }
           );
         })

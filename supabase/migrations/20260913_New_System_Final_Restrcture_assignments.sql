@@ -1316,3 +1316,20 @@ ALTER TABLE public.redirect_links
 
 COMMENT ON COLUMN public.redirect_links.journey_domains IS
   'Declared tracking hostnames for this structural edge/branch context (max 2). Hostnames only. NULL = legacy / not set.';
+
+-- Additive migration: redirect_links.upstream_domain
+--
+-- Scope: redirect_links ONLY.
+-- Meaning: EDGE-LOCAL source-video Campaign tracking ROOT (cookie-parent),
+--   e.g. go.kaksidigitals.com → kaksidigitals.com.
+-- Not journey_domains. Not tracking_hostname.
+-- Nullable, no default, no backfill — existing rows stay NULL until a
+-- later wiring step populates new inserts (and optional backfill).
+
+ALTER TABLE public.redirect_links
+  ADD COLUMN IF NOT EXISTS upstream_domain text;
+
+-- Deliberately no UPDATE / backfill.
+-- Deliberately no CHECK / FK — application resolves root via
+-- campaigns.root_domain / branded_tracking_domains.root_domain /
+-- getCookieParent(); product rules land in a later step.

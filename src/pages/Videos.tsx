@@ -2213,6 +2213,11 @@ const [resolvingPromotionContext, setResolvingPromotionContext] = useState(false
           creativeAssignmentId: selectedCreativeAssignmentId || selectedEligiblePromotion?.assignmentId || null,
         });
 
+          // Source-video Campaign ROOT for upstream_domain (all edges from this Video).
+          // Uses videos.campaign_id already persisted by createVideo — not target asset campaign.
+          const { resolveUpstreamDomainForVideo } = await import('../lib/resolveSourceUpstreamDomain');
+          const sourceUpstreamDomain = await resolveUpstreamDomainForVideo(savedVideo.id);
+
           // Multi-campaign Links: create redirects for non-primary campaigns.
           // Primary campaign links were created inside createVideo().
           {
@@ -2250,7 +2255,10 @@ const [resolvingPromotionContext, setResolvingPromotionContext] = useState(false
                       appBaseUrl,
                       undefined,
                       undefined,
-                      { trackingDomainId: perType ?? null }
+                      {
+                        trackingDomainId: perType ?? null,
+                        upstreamDomain: sourceUpstreamDomain,
+                      }
                     );
                   })
                 );
@@ -2281,7 +2289,10 @@ const [resolvingPromotionContext, setResolvingPromotionContext] = useState(false
                     appBaseUrl,
                     undefined,
                     undefined,
-                    { trackingDomainId: perType ?? null }
+                    {
+                      trackingDomainId: perType ?? null,
+                      upstreamDomain: sourceUpstreamDomain,
+                    }
                   );
                 })
               );
@@ -2348,6 +2359,7 @@ console.log(
   await generateAssetRedirectLinks({
     videoId: savedVideo.id,
     selectedAssets: assetsWithContext,
+    upstreamDomain: sourceUpstreamDomain,
   });
 }
 
