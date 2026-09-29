@@ -8,8 +8,10 @@
  * Phase 3A: append validated vt_jid / vt_token to the return URL
  * Phase 3E: on MISS, advance to the next Relay candidate or return clean
  *           target — zero analytics.
+ *           UPSTREAM (redirect_link.upstream_domain set, up≠1): probe that
+ *             root FIRST via probeState.resolveUpstreamRootCandidate.
  *           PATH A (redirect_link.promotion_id set): sponsor → marketer →
- *             vstrk, resolved via relayCandidates.ts. Unchanged.
+ *             vstrk, resolved via relayCandidates.ts. Unchanged as fallback.
  *           PATH B (redirect_link.promotion_id null): one candidate per
  *             unique campaigns.root_domain (max 3), resolved via
  *             probeState.ts's resolveOrganizationFallbackCandidates().
@@ -29,6 +31,8 @@ import {
   buildCleanTargetUrl,
   resolveOrganizationFallbackCandidates,
   buildFallbackCandidateUrl,
+  resolveUpstreamRootCandidate,
+  buildUpstreamProbeUrl,
 } from '../lib/probeState';
 import {
   resolvePromotionRelayCandidates,
@@ -105,6 +109,7 @@ export default function ContinuationRelay() {
       const params = new URLSearchParams(window.location.search);
       const rawTarget = params.get('target');
       const rawGi = params.get('gi');
+      const upstreamAlreadyTried = params.get('up') === '1';
 
       // Diagnostic mode (no target)
       if (!rawTarget) {
@@ -185,37 +190,84 @@ export default function ContinuationRelay() {
         return;
       }
 
-      // ── MISS: advance to next Promotion-specific candidate or fall back ─
+      // ── MISS: upstream_domain FIRST, then Path A / Path B unchanged ─────
       console.log('[ContinuationRelay] MISS — no continuation-valid cookie on this origin');
 
       const candidateIndex = isSafeGroupIndex(rawGi);
+      const upstreamRoot =
+        typeof (targetLink as { upstream_domain?: string | null }).upstream_domain === 'string'
+          ? (targetLink as { upstream_domain: string }).upstream_domain
+          : null;
 
-      if (candidateIndex !== null && targetLink.promotion_id && targetLink.asset_id) {
+      // First probe: exact source-campaign ROOT from the clicked edge.
+      // up=1 means we already tried this hop — do not probe the same root again.
+      if (upstreamRoot && !upstreamAlreadyTried) {
         try {
-          const resolution = await resolvePromotionRelayCandidates(
-            targetLink.promotion_id,
-            targetLink.asset_id
+          const upstreamCand = await resolveUpstreamRootCandidate(
+            targetLink.organization_id,
+            upstreamRoot
           );
-          const candidates = resolution?.candidates ?? [];
-          const nextIndex = candidateIndex + 1;
-
-          if (nextIndex < candidates.length) {
-            const nextUrl = buildRelayCandidateUrl(
-              candidates[nextIndex],
-              rawTarget,
-              nextIndex
-            );
-            console.log('[ContinuationRelay] MISS → next candidate', {
-              nextIndex,
-              role: candidates[nextIndex].role,
-              host: candidates[nextIndex].hostname,
+          if (
+            upstreamCand &&
+            upstreamCand.hostname.toLowerCase() !== hostname
+          ) {
+            const nextUrl = buildUpstreamProbeUrl(upstreamCand, rawTarget);
+            console.log('[ContinuationRelay] MISS → upstream_domain first probe', {
+              upstreamRoot,
+              host: upstreamCand.hostname,
             });
             if (!cancelled) setState({ status: 'redirecting', target: rawTarget });
             window.location.replace(nextUrl);
             return;
           }
+          console.log('[ContinuationRelay] upstream probe skipped', {
+            upstreamRoot,
+            reason: !upstreamCand
+              ? 'no verified host for root'
+              : 'candidate host is current host',
+          });
         } catch (err) {
-          console.warn('[ContinuationRelay] candidate advance failed — clean target', err);
+          console.warn('[ContinuationRelay] upstream probe failed — Path A/B fallback', err);
+        }
+      }
+
+      // PATH A — promotion-specific (unchanged list). After upstream (up=1),
+      // allow starting at index 0 when gi is absent so Path A is not skipped.
+      if (targetLink.promotion_id && targetLink.asset_id) {
+        const pathAStart =
+          candidateIndex !== null
+            ? candidateIndex + 1
+            : upstreamAlreadyTried
+              ? 0
+              : null;
+
+        if (pathAStart !== null) {
+          try {
+            const resolution = await resolvePromotionRelayCandidates(
+              targetLink.promotion_id,
+              targetLink.asset_id
+            );
+            const candidates = resolution?.candidates ?? [];
+            const nextIndex = pathAStart;
+
+            if (nextIndex < candidates.length) {
+              const nextUrl = buildRelayCandidateUrl(
+                candidates[nextIndex],
+                rawTarget,
+                nextIndex
+              );
+              console.log('[ContinuationRelay] MISS → next candidate', {
+                nextIndex,
+                role: candidates[nextIndex].role,
+                host: candidates[nextIndex].hostname,
+              });
+              if (!cancelled) setState({ status: 'redirecting', target: rawTarget });
+              window.location.replace(nextUrl);
+              return;
+            }
+          } catch (err) {
+            console.warn('[ContinuationRelay] candidate advance failed — clean target', err);
+          }
         }
       } else if (!targetLink.promotion_id && targetLink.organization_id) {
         // PATH B — promotion_id IS NULL: root-domain fallback probe.
@@ -299,7 +351,7 @@ export default function ContinuationRelay() {
         <p>vt_jid present: {state.vtJidPresent ? 'true' : 'false'}</p>
       </div>
       <p className="text-zinc-700 text-[10px] uppercase tracking-widest mt-4">
-        Phase 3E — Promotion-specific Relay candidates · no journey writes
+        Phase 3E — upstream_domain first · Path A/B fallback · no journey writes
       </p>
     </div>
   );

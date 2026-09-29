@@ -146,6 +146,80 @@ export function buildFallbackCandidateUrl(
   return url.toString();
 }
 
+/**
+ * Resolve ONE verified branded host for an exact upstream ROOT
+ * (redirect_links.upstream_domain). Used as the FIRST probe target on
+ * ContinuationRelay MISS before Path A / Path B fallback.
+ *
+ * - organizationId scopes the branded_tracking_domains read (same as Path B).
+ * - Prefer is_default, else alphabetical hostname (same pick rule as Path B).
+ * - vstrk.com / www.vstrk.com → fixed platform candidate (relay_token platform).
+ * - No verified host for that root → null (caller falls through to Path A/B).
+ */
+export async function resolveUpstreamRootCandidate(
+  organizationId: string | null | undefined,
+  upstreamRoot: string | null | undefined
+): Promise<FallbackRelayCandidate | null> {
+  const root = (upstreamRoot ?? '').trim().toLowerCase().replace(/^www\./, '');
+  if (!root) return null;
+
+  // Canonical VSTRK root — platform relay (same convention as buildPlatformCandidateUrl).
+  if (root === 'vstrk.com' || root.includes('vstrk')) {
+    return {
+      hostname: 'www.vstrk.com',
+      relay_token: 'platform',
+      root_domain: 'vstrk.com',
+    };
+  }
+
+  if (!organizationId) return null;
+
+  const { data: domainRows, error } = await supabase
+    .from('branded_tracking_domains')
+    .select('hostname, relay_token, root_domain, is_default')
+    .eq('organization_id', organizationId)
+    .eq('status', 'verified')
+    .eq('root_domain', root);
+
+  if (error) {
+    console.error('[probeState] upstream root candidate lookup failed:', error.message);
+    return null;
+  }
+
+  const rows = ((domainRows ?? []) as FallbackDomainRow[]).filter(
+    (r) => r.hostname && r.relay_token && r.root_domain
+  );
+  if (rows.length === 0) return null;
+
+  rows.sort((a, b) => {
+    if (!!a.is_default !== !!b.is_default) return a.is_default ? -1 : 1;
+    return a.hostname.localeCompare(b.hostname);
+  });
+
+  const pick = rows[0];
+  return {
+    hostname: pick.hostname.toLowerCase(),
+    relay_token: pick.relay_token,
+    root_domain: pick.root_domain,
+  };
+}
+
+/**
+ * First-hop URL for upstream_domain probe.
+ * Sets up=1 so ContinuationRelay will not probe the same upstream root again.
+ * Does not set gi — after upstream MISS, Path B uses gi-absent→0; Path A
+ * starts at 0 only when up=1 (see ContinuationRelay).
+ */
+export function buildUpstreamProbeUrl(
+  candidate: FallbackRelayCandidate,
+  targetToken: string
+): string {
+  const url = new URL(`https://${candidate.hostname}/r/${candidate.relay_token}`);
+  url.searchParams.set('target', targetToken);
+  url.searchParams.set('up', '1');
+  return url.toString();
+}
+
 const ORG_UUID_RE =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
@@ -217,4 +291,3 @@ export function buildPlatformCandidateUrl(
   url.searchParams.set('org', organizationId);
   return url.toString();
 }
-
