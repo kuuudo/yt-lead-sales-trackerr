@@ -47,7 +47,7 @@ const DEFAULT_PERMISSIONS: AssetPermissionState = {
   allowVstrkDomain: false,
   selectedSponsorDomainId: null,
 };
-
+const SHOW_MARKETER_DOMAIN = false;
 export default function CreateAssignment() {
   const navigate = useNavigate();
   const { notify: notifyTutorial } = useTutorial();
@@ -910,23 +910,25 @@ export default function CreateAssignment() {
                     Promotion Methods
                   </p>
                   <div className="space-y-2">
-                    <label className="flex items-center gap-3 cursor-pointer">
-                      <input
-                        type="checkbox"
-                        checked={p.allowMarketerDomain}
-                        onChange={e =>
-                          setAssetPermission(
-                            asset.assetId,
-                            'allowMarketerDomain',
-                            e.target.checked
-                          )
-                        }
-                        className="accent-red-600"
-                      />
-                      <span className="text-sm text-zinc-200">
-                        Marketer&apos;s tracking domain
-                      </span>
-                    </label>
+                                        {SHOW_MARKETER_DOMAIN && (
+                      <label className="flex items-center gap-3 cursor-pointer">
+                        <input
+                          type="checkbox"
+                          checked={p.allowMarketerDomain}
+                          onChange={e =>
+                            setAssetPermission(
+                              asset.assetId,
+                              'allowMarketerDomain',
+                              e.target.checked
+                            )
+                          }
+                          className="accent-red-600"
+                        />
+                        <span className="text-sm text-zinc-200">
+                          Marketer&apos;s tracking domain
+                        </span>
+                      </label>
+                    )}
                     <div className="space-y-1.5">
                       <label className="flex items-center gap-3 cursor-pointer">
                         <input

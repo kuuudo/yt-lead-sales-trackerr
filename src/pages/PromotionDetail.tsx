@@ -126,7 +126,7 @@ function resolveTypeLabel(resource: AssetResourceView | null): string {
     ? RESOURCE_TYPE_LABELS[resource.resourceType as ResourceType] ?? resource.resourceType
     : 'Asset';
 }
-
+const SHOW_MARKETER_DOMAIN = false;
 export default function PromotionDetail() {
   const { id } = useParams<{ id: string }>();
   const { user } = useAuth();
@@ -1467,8 +1467,9 @@ export default function PromotionDetail() {
                         {isSponsor && assignment ? (
                           <div className="space-y-2 shrink-0 overflow-visible">
                             {/* Marketer: allow_* + select from domains already used on this Promotion → promotion_assets */}
-                            <div className="space-y-1.5 shrink-0 overflow-visible">
-                              <label className="flex items-center gap-2 text-[11px] text-zinc-300 cursor-pointer select-none">
+                            {SHOW_MARKETER_DOMAIN && (
+                              <div className="space-y-1.5 shrink-0 overflow-visible">
+                                <label className="flex items-center gap-2 text-[11px] text-zinc-300 cursor-pointer select-none">
                                 <input
                                   type="checkbox"
                                   className="accent-orange-500 shrink-0"
@@ -1605,6 +1606,7 @@ export default function PromotionDetail() {
                         ) : (
                           /* Marketer / collaborator: full org verified domains + Save → promotion_assets */
                           <div className="space-y-2 text-[11px] text-zinc-400 shrink-0 overflow-visible">
+                            {SHOW_MARKETER_DOMAIN && (<>
                             {pathB.allow_marketer_domain ? (
                               <div className="space-y-1.5">
                                 <p className="text-[9px] font-black uppercase tracking-widest text-zinc-500 flex items-center gap-1.5">
@@ -1663,6 +1665,7 @@ export default function PromotionDetail() {
                             ) : (
                               <p>Marketer domain: Off</p>
                             )}
+                            </>)}                            
                             <p>
                               Sponsor:{' '}
                               {pathB.allow_sponsor_domain
@@ -1808,6 +1811,7 @@ export default function PromotionDetail() {
                     <p className="text-[10px] font-bold uppercase tracking-widest text-zinc-500">
                       Promotion Methods
                     </p>
+                  {SHOW_MARKETER_DOMAIN && (
                     <div className="space-y-1.5 shrink-0 overflow-visible">
                       <label className="flex items-center gap-3 cursor-pointer shrink-0">
                         <input
@@ -1874,6 +1878,7 @@ export default function PromotionDetail() {
                         )
                       )}
                     </div>
+                    )}
                     <div className="space-y-1.5 shrink-0 overflow-visible">
                       <label className="flex items-center gap-3 cursor-pointer">
                         <input
