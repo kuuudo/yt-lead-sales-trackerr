@@ -177,7 +177,7 @@ interface CampaignStructureData {
  *    promotions anywhere would not show here yet — flagged, not silently
  *    special-cased.
  */
-function useCampaignStructureData(
+export function useCampaignStructureData(
   campaignId: string | undefined,
   viewerId: string | null,
   isReadOnly: boolean,
@@ -464,7 +464,7 @@ interface ContentVideo {
  * mirrors AllAssetsAnalytics' own Asset Campaign vs Content Campaign split,
  * not a new distinction invented here.
  */
-function useCampaignContentBuckets(
+export function useCampaignContentBuckets(
   campaignId: string | undefined,
   viewerId: string | null,
 ): { contentVideos: ContentVideo[] | null; loading: boolean; error: string | null } {
@@ -524,7 +524,7 @@ function useCampaignContentBuckets(
 
 type NodeKind = 'campaign' | 'branch' | 'marketer' | 'promotion' | 'asset' | 'month' | 'video'
 
-interface TreeNode {
+export interface TreeNode {
   id: string
   label: string
   kind: NodeKind
@@ -965,7 +965,7 @@ function collectNodeMeta(
  *    silently bucketed as "now" or "unknown" — matches this file's existing
  *    convention of flagging gaps instead of guessing).
  */
-function buildMonthClusterNodes(
+export function buildMonthClusterNodes(
   items: TreeNode[],
   matchesSearch: (item: TreeNode, query: string) => boolean,
   search: string,
@@ -1016,7 +1016,7 @@ function buildMonthClusterNodes(
 /** Content's own month bucketer, now a thin wrapper over buildMonthClusterNodes
  *  — converts the raw video rows to TreeNodes once, then defers to the shared
  *  engine. Behavior and ids (content_month_*, content_video_*) are unchanged. */
-function buildContentMonthNodes(
+export function buildContentMonthNodes(
   videos: ContentVideo[],
   search: string,
   dateRange: DateRangeValue,

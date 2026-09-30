@@ -54,6 +54,13 @@ import type { CanvasTransform } from '../components/analytics/store/useWorkspace
 import { Campaign, supabase } from '../lib/supabase'
 import { useAuth } from '../lib/auth'
 import { useViewing } from '../lib/ViewingContext'
+import {
+  useCampaignStructureData,
+  useCampaignContentBuckets,
+  buildMonthClusterNodes,
+  buildContentMonthNodes,
+  type TreeNode,
+} from './CampaignStructureMap'
 
 // ─── Real-data hook (header name + switcher only) ───────────────────────
 // Identical to the copy in CampaignStructureMap.tsx / AllAssetsAnalytics.tsx
@@ -277,7 +284,7 @@ export default function CampaignJourneyMap({ embedded = false, presentation = 'c
   // Header name + switcher only — same viewer-id resolution as
   // CampaignStructureMap.tsx / AllAssetsAnalytics.tsx (Operator-Mode-aware).
   const { user } = useAuth()
-  const { viewingMemberId, isReadOnly } = useViewing()
+  const { viewingMemberId, viewingOrgId, isReadOnly } = useViewing()
   const effectiveViewerId = isReadOnly ? viewingMemberId : (user?.id ?? null)
   const campaignOptions = useCampaignOptions(effectiveViewerId)
   const currentCampaignName = useMemo(
