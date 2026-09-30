@@ -381,7 +381,7 @@ interface MiniStructureMapProps {
   tree: PanelTree
   campaignLabel: string
   expanded: Record<string, boolean>
-  selectedId: string | null
+  selectedIds: string[]
   onNodeClick: (id: string, kind: TreeNode['kind']) => void
   error: string | null
 }
@@ -397,7 +397,7 @@ function MiniStructureMap({
   tree,
   campaignLabel,
   expanded,
-  selectedId,
+  selectedIds,
   onNodeClick,
   error,
 }: MiniStructureMapProps) {
@@ -513,7 +513,7 @@ function MiniStructureMap({
   }
 
   const renderNode = (n: LaidOutNode) => {
-    const selected = selectedId === n.id
+    const selected = selectedIds.includes(n.id)
     const ring = selected ? `0 0 0 3px ${n.color}66` : undefined
     const base: React.CSSProperties = {
       position: 'absolute',
@@ -871,14 +871,14 @@ export default function CampaignJourneyMap({ embedded = false, presentation = 'c
     }
   }, [presentation, selectedCampaignId, campaignOptions])
 
-  // ── Phase 1: Structure control panel state ────────────────────────────
+    // ── Phase 1: Structure control panel state ────────────────────────────
   const [panelOpen, setPanelOpen] = useState(false)
   // Sticky flag: flips true the first time the panel is opened. Until then
   // both Structure hooks receive campaignId = undefined, so they return null
   // and run NO queries (useCampaignStructureData runs getAssetAnalyticsRows).
   const [structureRequested, setStructureRequested] = useState(false)
   const [panelExpanded, setPanelExpanded] = useState<Record<string, boolean>>({})
-  const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null)
+  const [selectedNodeIds, setSelectedNodeIds] = useState<string[]>([])
 
   const structureData = useCampaignStructureData(
     structureRequested ? campaignId : undefined,
@@ -890,16 +890,20 @@ export default function CampaignJourneyMap({ embedded = false, presentation = 'c
   const contentData = useCampaignContentBuckets(structureRequested ? campaignId : undefined, effectiveViewerId)
 
   useEffect(() => {
-    setSelectedNodeId(null)
+    setSelectedNodeIds([])
     setPanelExpanded({})
   }, [campaignId])
 
   // The selected node is always treated as expanded for the builder, so a
   // selected month always has its children even if its row is collapsed.
-  const builderExpanded = useMemo(
-    () => (selectedNodeId ? { ...panelExpanded, [selectedNodeId]: true } : panelExpanded),
-    [panelExpanded, selectedNodeId],
-  )
+  const builderExpanded = useMemo(() => {
+    if (selectedNodeIds.length === 0) return panelExpanded
+    const m = { ...panelExpanded }
+    selectedNodeIds.forEach((id) => {
+      m[id] = true
+    })
+    return m
+  }, [panelExpanded, selectedNodeIds])
 
   // Full date range on purpose ('all'), no search — see Phase 1 notes.
   // displayTree follows only what the user expanded. panelTree (used just to
@@ -914,39 +918,72 @@ export default function CampaignJourneyMap({ embedded = false, presentation = 'c
     [contentData.contentVideos, structureData.ownAssetNodes, structureData.marketerNodes, builderExpanded],
   )
 
-  // Remembers the last found node so a selected video/asset keeps its card
-  // even if its month is collapsed afterwards.
-  const lastSelectedRef = useRef<TreeNode | null>(null)
-  const selectedNode = useMemo(() => {
-    if (!selectedNodeId) {
-      lastSelectedRef.current = null
-      return null
-    }
-    for (const b of PANEL_BRANCHES) {
-      const hit = findTreeNode(panelTree[b.id], selectedNodeId)
+  // Selection is additive: every selected node contributes its items, until
+  // that node is toggled off. The ref keeps a selected video/asset's node if
+  // its parent circle is collapsed (its own descendants are dropped on toggle-off).
+  const selectedNodesRef = useRef<Map<string, TreeNode>>(new Map())
+  const selectedNodes = useMemo(() => {
+    const keep = new Map<string, TreeNode>()
+    const out: TreeNode[] = []
+    for (const id of selectedNodeIds) {
+      let hit: TreeNode | null = null
+      for (const b of PANEL_BRANCHES) {
+        hit = findTreeNode(panelTree[b.id], id)
+        if (hit) break
+      }
+      hit = hit ?? selectedNodesRef.current.get(id) ?? null
       if (hit) {
-        lastSelectedRef.current = hit
-        return hit
+        keep.set(id, hit)
+        out.push(hit)
       }
     }
-    return lastSelectedRef.current?.id === selectedNodeId ? lastSelectedRef.current : null
-  }, [panelTree, selectedNodeId])
-  const selectedItems = useMemo(() => (selectedNode ? itemsForNode(selectedNode) : []), [selectedNode])
+    selectedNodesRef.current = keep
+    return out
+  }, [panelTree, selectedNodeIds])
+  const selectedItems = useMemo(() => {
+    const seen = new Set<string>()
+    const items: PanelItem[] = []
+    for (const n of selectedNodes) {
+      for (const it of itemsForNode(n)) {
+        if (!seen.has(it.id)) {
+          seen.add(it.id)
+          items.push(it)
+        }
+      }
+    }
+    return items
+  }, [selectedNodes])
+  const selectionLabel =
+    selectedNodes.length === 0 ? null : selectedNodes.length === 1 ? selectedNodes[0].label : `${selectedNodes.length} selections`
 
   const [panelLarge, setPanelLarge] = useState(false)
   const handlePanelToggle = () => {
     setPanelOpen((o) => !o)
     setStructureRequested(true)
   }
-  // Click rule: branch / root do nothing. Month / Marketer / Promotion circle:
-  // first click selects + expands; clicking the already-selected circle
-  // toggles its expansion (selection stays). Video / asset: select only.
+  // Click rule: branch / root do nothing. Any other node toggles: first click
+  // selects it (and expands a Month / Marketer / Promotion circle); clicking it
+  // again deselects it, collapses the circle, and drops anything selected
+  // beneath it. Selecting another node never clears the others.
   const handlePanelNodeClick = (id: string, kind: TreeNode['kind']) => {
     if (kind === 'campaign' || kind === 'branch') return
-    if (kind === 'month' || kind === 'marketer' || kind === 'promotion') {
-      setPanelExpanded((p) => ({ ...p, [id]: selectedNodeId === id ? !p[id] : true }))
+    const isCluster = kind === 'month' || kind === 'marketer' || kind === 'promotion'
+    if (selectedNodeIds.includes(id)) {
+      const drop = new Set<string>([id])
+      const collect = (n: TreeNode) => n.children?.forEach((ch) => { drop.add(ch.id); collect(ch) })
+      for (const b of PANEL_BRANCHES) {
+        const node = findTreeNode(panelTree[b.id], id)
+        if (node) {
+          collect(node)
+          break
+        }
+      }
+      setSelectedNodeIds((prev) => prev.filter((x) => !drop.has(x)))
+      if (isCluster) setPanelExpanded((p) => ({ ...p, [id]: false }))
+    } else {
+      setSelectedNodeIds((prev) => [...prev, id])
+      if (isCluster) setPanelExpanded((p) => ({ ...p, [id]: true }))
     }
-    setSelectedNodeId(id)
   }
 
   const { nodes, connections } = useMemo(() => buildLayout(CAMPAIGN_PATHS), [])
@@ -1189,8 +1226,8 @@ export default function CampaignJourneyMap({ embedded = false, presentation = 'c
             })}
           </svg>
 
-{/* Phase 1: selected Structure items (canvas coordinates, not draggable) */}
-          <SelectedItemsLayer presentation={presentation} label={selectedNode?.label ?? null} items={selectedItems} />
+          {/* Phase 1: selected Structure items (canvas coordinates, not draggable) */}
+          <SelectedItemsLayer presentation={presentation} label={selectionLabel} items={selectedItems} />
 
           {/* Hub node */}
           <div
@@ -1272,8 +1309,8 @@ export default function CampaignJourneyMap({ embedded = false, presentation = 'c
           )
         })()}
 
-{/* Phase 1: Structure control panel (screen space, above zoomControls) */}
-<MiniStructureMap
+        {/* Phase 1: Structure control panel (screen space, above zoomControls) */}
+        <MiniStructureMap
           presentation={presentation}
           open={panelOpen}
           large={panelLarge}
@@ -1282,7 +1319,7 @@ export default function CampaignJourneyMap({ embedded = false, presentation = 'c
           tree={displayTree}
           campaignLabel={currentCampaignName ?? 'Campaign'}
           expanded={panelExpanded}
-          selectedId={selectedNodeId}
+          selectedIds={selectedNodeIds}
           onNodeClick={handlePanelNodeClick}
           error={structureData.error ?? contentData.error}
         />
