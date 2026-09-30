@@ -291,6 +291,7 @@ interface PanelItem {
   label: string
   kind: TreeNode['kind']
   color: string
+  thumbnailUrl?: string | null
 }
 
 const PANEL_ITEM_CAP = 60
@@ -325,7 +326,7 @@ function itemsForNode(node: TreeNode): PanelItem[] {
       : [node]
   return source
     .filter((n) => !n.isShowMore)
-    .map((n) => ({ id: n.id, label: n.label, kind: n.kind, color: n.color }))
+    .map((n) => ({ id: n.id, label: n.label, kind: n.kind, color: n.color, thumbnailUrl: n.thumbnailUrl ?? null }))
 }
 
 type LaidOut = ReturnType<typeof layoutTree>
@@ -813,10 +814,12 @@ function SelectedItemsLayer({
   presentation,
   label,
   items,
+  showThumbnails,
 }: {
   presentation: 'campaign' | 'tree'
   label: string | null
   items: PanelItem[]
+  showThumbnails: boolean
 }) {
   if (!label) return null
   const dark = presentation === 'tree'
@@ -859,7 +862,16 @@ function SelectedItemsLayer({
             boxShadow: dark ? 'none' : '0 2px 6px rgba(15,23,42,0.04)',
           }}
         >
-          <span style={{ width: 8, height: 8, borderRadius: '50%', background: it.color, flexShrink: 0 }} />
+          {showThumbnails && (it.kind === 'video' || it.kind === 'asset') && it.thumbnailUrl ? (
+            <img
+              src={it.thumbnailUrl}
+              alt=""
+              draggable={false}
+              style={{ width: 26, height: 26, borderRadius: 5, objectFit: 'cover', flexShrink: 0 }}
+            />
+          ) : (
+            <span style={{ width: 8, height: 8, borderRadius: '50%', background: it.color, flexShrink: 0 }} />
+          )}
           <div style={{ display: 'flex', flexDirection: 'column', gap: 2, minWidth: 0 }}>
             <span
               style={{
@@ -998,6 +1010,7 @@ export default function CampaignJourneyMap({ embedded = false, presentation = 'c
     selectedNodes.length === 0 ? null : selectedNodes.length === 1 ? selectedNodes[0].label : `${selectedNodes.length} selections`
 
   const [panelLarge, setPanelLarge] = useState(false)
+  const [showThumbnails, setShowThumbnails] = useState(false)
   const handlePanelToggle = () => {
     setPanelOpen((o) => !o)
     setStructureRequested(true)
@@ -1268,7 +1281,7 @@ export default function CampaignJourneyMap({ embedded = false, presentation = 'c
           </svg>
 
           {/* Phase 1: selected Structure items (canvas coordinates, not draggable) */}
-          <SelectedItemsLayer presentation={presentation} label={selectionLabel} items={selectedItems} />
+          <SelectedItemsLayer presentation={presentation} label={selectionLabel} items={selectedItems}showThumbnails={showThumbnails} />
 
           {/* Hub node */}
           <div
@@ -1286,7 +1299,7 @@ export default function CampaignJourneyMap({ embedded = false, presentation = 'c
             }}
           >
             <span style={styles.hubEyebrow}>Campaign</span>
-            <span style={styles.hubTitle}>{campaignId ? campaignId.slice(0, 18) : 'Campaign Name'}</span>
+            <span style={styles.hubTitle}>{currentCampaignName ?? (campaignId ? 'Loading…' : 'Campaign Name')}</span>
           </div>
 
           {/* Path root + outcome nodes */}
@@ -1340,12 +1353,25 @@ export default function CampaignJourneyMap({ embedded = false, presentation = 'c
           })}
         </div>
 
-        {presentation === 'tree' && (() => {
+        {(() => {
           const anchorLeft = transform.x + positions.hub.x * transform.scale + HUB_R * transform.scale + 12
           const anchorTop = transform.y + positions.hub.y * transform.scale - 15
+          const dark = presentation === 'tree'
           return (
-            <div style={{ position: 'absolute', left: anchorLeft, top: anchorTop }}>
-              {renderCampaignSwitcher()}
+            <div style={{ position: 'absolute', left: anchorLeft, top: anchorTop, display: 'flex', alignItems: 'center', gap: 8 }}>
+              <button
+                type="button"
+                onClick={() => setShowThumbnails((prev) => !prev)}
+                style={{
+                  ...styles.legendChip,
+                  borderColor: showThumbnails ? '#6366f1' : dark ? TREE_DARK.border : '#e5e7eb',
+                  background: showThumbnails ? '#6366f10f' : dark ? TREE_DARK.cardBg : '#ffffff',
+                  color: showThumbnails ? '#6366f1' : dark ? TREE_DARK.textSecondary : '#374151',
+                }}
+              >
+                Thumbnails: {showThumbnails ? 'On' : 'Off'}
+              </button>
+              {dark && renderCampaignSwitcher()}
             </div>
           )
         })()}
