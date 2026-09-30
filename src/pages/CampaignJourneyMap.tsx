@@ -63,7 +63,8 @@ import {
   applyStructureCollapse,
   type TreeNode,
 } from './CampaignStructureMap'
-
+import { discoverJourneysForVideos, resolveVideoIdsForAssets } from '../lib/journeyDiscovery'
+import { buildJourneyGraph, type JourneyGraph } from '../lib/journeyGraph'
 // ─── Real-data hook (header name + switcher only) ───────────────────────
 // Identical to the copy in CampaignStructureMap.tsx / AllAssetsAnalytics.tsx
 // — same query, same viewer-id resolution. Not imported because it isn't
@@ -327,6 +328,28 @@ function itemsForNode(node: TreeNode): PanelItem[] {
   return source
     .filter((n) => !n.isShowMore)
     .map((n) => ({ id: n.id, label: n.label, kind: n.kind, color: n.color, thumbnailUrl: n.thumbnailUrl ?? null }))
+}
+
+// ─── Slice A: sticky journey context (engine only — no UI reads this yet) ───
+interface JourneyContext {
+  status: 'idle' | 'loading' | 'ready' | 'error'
+  graph: JourneyGraph | null
+  journeyCount: number
+  excludedJourneys: number
+  truncated: boolean
+  /** requested entry video id -> number of kept journeys containing it */
+  coverage: Record<string, number>
+  error: string | null
+}
+
+const EMPTY_JOURNEY_CONTEXT: JourneyContext = {
+  status: 'idle',
+  graph: null,
+  journeyCount: 0,
+  excludedJourneys: 0,
+  truncated: false,
+  coverage: {},
+  error: null,
 }
 
 type LaidOut = ReturnType<typeof layoutTree>
@@ -1009,7 +1032,178 @@ export default function CampaignJourneyMap({ embedded = false, presentation = 'c
   const selectionLabel =
     selectedNodes.length === 0 ? null : selectedNodes.length === 1 ? selectedNodes[0].label : `${selectedNodes.length} selections`
 
-  const [panelLarge, setPanelLarge] = useState(false)
+// ── Slice A: sticky journey context (engine only) ─────────────────────
+// Structure selection = WHICH items. This block = WHICH real journeys contain
+// them. Entry video ids only ever GROW (until campaign change / clear), so
+// turning a selection off later never removes an already-discovered journey.
+// Slice A covers Content videos (content_video_<videoId>) and Own Assets
+// (own_asset_<assetId>, resolved via videos.asset_id). Marketer / Promotion
+// entries are intentionally ignored here.
+const [journeyEntryVideoIds, setJourneyEntryVideoIds] = useState<string[]>([])
+const [journeyContext, setJourneyContext] = useState<JourneyContext>(EMPTY_JOURNEY_CONTEXT)
+const assetVideoCacheRef = useRef<Map<string, string[]>>(new Map())
+
+const clearJourneyContext = useCallback(() => {
+  setJourneyEntryVideoIds((prev) => (prev.length ? [] : prev))
+  setJourneyContext(EMPTY_JOURNEY_CONTEXT)
+}, [])
+
+useEffect(() => {
+  clearJourneyContext()
+  assetVideoCacheRef.current = new Map()
+}, [campaignId, clearJourneyContext])
+
+// selectedItems -> entry video ids (grow-only)
+useEffect(() => {
+  const contentVideoIds: string[] = []
+  const ownAssetIds: string[] = []
+
+  for (const it of selectedItems) {
+    if (it.id.startsWith('content_video_')) {
+      contentVideoIds.push(it.id.slice('content_video_'.length))
+    } else if (it.id.startsWith('own_asset_')) {
+      ownAssetIds.push(it.id.slice('own_asset_'.length))
+    }
+  }
+
+  if (contentVideoIds.length === 0 && ownAssetIds.length === 0) return
+
+  let cancelled = false
+
+  ;(async () => {
+    try {
+      const cache = assetVideoCacheRef.current
+      const uncached = ownAssetIds.filter((id) => !cache.has(id))
+
+      if (uncached.length > 0) {
+        const found = await resolveVideoIdsForAssets(uncached)
+
+        for (const id of uncached) {
+          cache.set(id, found.get(id) ?? [])
+        }
+      }
+
+      if (cancelled) return
+
+      const fromAssets = ownAssetIds.flatMap((id) => cache.get(id) ?? [])
+      const nonVideoAssets = ownAssetIds.filter(
+        (id) => (cache.get(id) ?? []).length === 0,
+      )
+
+      if (nonVideoAssets.length > 0) {
+        console.log(
+          '[CJM journey] Own Assets with no video (skipped in Slice A):',
+          nonVideoAssets,
+        )
+      }
+
+      setJourneyEntryVideoIds((prev) => {
+        const next = new Set(prev)
+
+        for (const v of [...contentVideoIds, ...fromAssets]) {
+          next.add(v)
+        }
+
+        return next.size === prev.length ? prev : Array.from(next)
+      })
+    } catch (err) {
+      if (!cancelled) {
+        setJourneyContext((c) => ({
+          ...c,
+          status: 'error',
+          error: err instanceof Error ? err.message : String(err),
+        }))
+      }
+    }
+  })()
+
+  return () => {
+    cancelled = true
+  }
+}, [selectedItems])
+
+// entry video ids -> real journeys -> graph (existing buildJourneyGraph)
+useEffect(() => {
+  if (journeyEntryVideoIds.length === 0) return
+
+  let cancelled = false
+
+  setJourneyContext((c) => ({
+    ...c,
+    status: 'loading',
+    error: null,
+  }))
+
+  ;(async () => {
+    try {
+      const result = await discoverJourneysForVideos(journeyEntryVideoIds)
+
+      if (cancelled) return
+
+      setJourneyContext({
+        status: 'ready',
+        graph: buildJourneyGraph(result.journeys),
+        journeyCount: result.journeys.length,
+        excludedJourneys: result.excludedJourneys,
+        truncated: result.truncated,
+        coverage: result.journeyCountByVideoId,
+        error: null,
+      })
+    } catch (err) {
+      if (!cancelled) {
+        setJourneyContext((c) => ({
+          ...c,
+          status: 'error',
+          error: err instanceof Error ? err.message : String(err),
+        }))
+      }
+    }
+  })()
+
+  return () => {
+    cancelled = true
+  }
+}, [journeyEntryVideoIds])
+
+// ── TEMPORARY DEBUG (Slice A only — remove when Slice B renders the graph) ──
+useEffect(() => {
+  if (journeyContext.status === 'error') {
+    console.warn('[CJM journey] error:', journeyContext.error)
+  }
+
+  if (journeyContext.status !== 'ready' || !journeyContext.graph) return
+
+  const g = journeyContext.graph
+
+  console.groupCollapsed(
+    `[CJM journey] ${journeyContext.journeyCount} journey(s), ${g.nodes.length} node(s), ${g.edges.length} edge(s)` +
+      `${journeyContext.truncated ? ' — TRUNCATED' : ''}`,
+  )
+
+  console.log('entry videos:', journeyEntryVideoIds.length, journeyEntryVideoIds)
+  console.log(
+    'excluded (canonical path no longer has the video):',
+    journeyContext.excludedJourneys,
+  )
+  console.log('coverage (entry video -> journeys):', journeyContext.coverage)
+  console.log(
+    'entry videos with NO observed journey:',
+    journeyEntryVideoIds.filter((v) => !journeyContext.coverage[v]),
+  )
+  console.log('nodes:', g.nodes.map((n) => n.videoId))
+  console.log(
+    'edges:',
+    g.edges.map(
+      (e) => `${e.fromVideoId} -> ${e.toVideoId}  x${e.observedCount}`,
+    ),
+  )
+
+  console.groupEnd()
+}, [journeyContext, journeyEntryVideoIds])
+
+// ── end temporary debug ──
+
+const [panelLarge, setPanelLarge] = useState(false)
   const [showThumbnails, setShowThumbnails] = useState(false)
   const handlePanelToggle = () => {
     setPanelOpen((o) => !o)
@@ -1281,7 +1475,7 @@ export default function CampaignJourneyMap({ embedded = false, presentation = 'c
           </svg>
 
           {/* Phase 1: selected Structure items (canvas coordinates, not draggable) */}
-          <SelectedItemsLayer presentation={presentation} label={selectionLabel} items={selectedItems}showThumbnails={showThumbnails} />
+          <SelectedItemsLayer presentation={presentation} label={selectionLabel} items={selectedItems} showThumbnails={showThumbnails} />
 
           {/* Hub node */}
           <div
