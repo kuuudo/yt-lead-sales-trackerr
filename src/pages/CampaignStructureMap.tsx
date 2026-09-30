@@ -734,7 +734,7 @@ interface Edge {
  * walking the tree depth-first — each leaf gets the next slot on a fixed
  * horizontal grid, and each internal node is centered over its children.
  */
-function layoutTree(root: TreeNode) {
+export function layoutTree(root: TreeNode) {
   const nodes: PositionedNode[] = []
   const edges: Edge[] = []
   let leafCursor = 0
@@ -887,7 +887,7 @@ function sliceWithShowMore(
  * from here (still defined, still used by nothing else after this patch —
  * see flagged items).
  */
-function applyStructureCollapse(
+export function applyStructureCollapse(
   marketerNodes: TreeNode[],
   expandedMarketers: Record<string, boolean>,
   expandedPromotions: Record<string, boolean>,

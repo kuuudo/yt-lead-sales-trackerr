@@ -59,6 +59,8 @@ import {
   useCampaignContentBuckets,
   buildMonthClusterNodes,
   buildContentMonthNodes,
+  layoutTree,
+  applyStructureCollapse,
   type TreeNode,
 } from './CampaignStructureMap'
 
@@ -326,77 +328,308 @@ function itemsForNode(node: TreeNode): PanelItem[] {
     .map((n) => ({ id: n.id, label: n.label, kind: n.kind, color: n.color }))
 }
 
-interface StructurePanelProps {
+type LaidOut = ReturnType<typeof layoutTree>
+type LaidOutNode = LaidOut['nodes'][number]
+
+/** Builds the Content / Own Assets / Marketers month trees with the SAME
+ *  Structure helpers CampaignStructureMap uses. Full date range, no search. */
+function buildPanelTree(
+  contentVideos: Parameters<typeof buildContentMonthNodes>[0] | null,
+  ownAssetNodes: TreeNode[] | null,
+  marketerNodes: TreeNode[] | null,
+  expanded: Record<string, boolean>,
+): PanelTree {
+  return {
+    content: contentVideos
+      ? buildContentMonthNodes(contentVideos, '', 'all', expanded, PANEL_BRANCHES[0].color)
+      : null,
+    own_assets: ownAssetNodes
+      ? buildMonthClusterNodes(
+          ownAssetNodes,
+          () => true,
+          '',
+          'all',
+          expanded,
+          'own_assets_month',
+          PANEL_BRANCHES[1].color,
+          (n) => `${n} asset${n === 1 ? '' : 's'}`,
+        )
+      : null,
+    marketers: marketerNodes
+      ? buildMonthClusterNodes(
+          marketerNodes,
+          () => true,
+          '',
+          'all',
+          expanded,
+          'marketer_month',
+          PANEL_BRANCHES[2].color,
+          (n) => `${n} mktr${n === 1 ? '' : 's'}`,
+          // ids are unique across marketers/promotions, so one map serves both
+          (monthMarketers) => applyStructureCollapse(monthMarketers, expanded, expanded),
+        )
+      : null,
+  }
+}
+
+interface MiniStructureMapProps {
   presentation: 'campaign' | 'tree'
   open: boolean
-  onToggle: () => void
+  large: boolean
+  onToggleOpen: () => void
+  onToggleLarge: () => void
   tree: PanelTree
+  campaignLabel: string
   expanded: Record<string, boolean>
-  onToggleExpand: (id: string) => void
   selectedId: string | null
-  onSelect: (node: TreeNode) => void
+  onNodeClick: (id: string, kind: TreeNode['kind']) => void
   error: string | null
 }
 
-function StructurePanel({
+/** Small Structure graph (same layoutTree + circles as CampaignStructureMap),
+ *  with its own pan / zoom, that acts purely as a selector. */
+function MiniStructureMap({
   presentation,
   open,
-  onToggle,
+  large,
+  onToggleOpen,
+  onToggleLarge,
   tree,
+  campaignLabel,
   expanded,
-  onToggleExpand,
   selectedId,
-  onSelect,
+  onNodeClick,
   error,
-}: StructurePanelProps) {
+}: MiniStructureMapProps) {
   const dark = presentation === 'tree'
   const c = dark
-    ? { bg: TREE_DARK.cardBg, border: TREE_DARK.border, text: TREE_DARK.textPrimary, sub: TREE_DARK.textFaint, active: '#232323' }
-    : { bg: '#ffffff', border: '#e5e7eb', text: '#111827', sub: '#9ca3af', active: '#eef2ff' }
-  // Keep every gesture inside the panel away from the canvas pan/zoom handlers.
+    ? { bg: TREE_DARK.cardBg, alt: TREE_DARK.cardBgAlt, border: TREE_DARK.border, text: TREE_DARK.textPrimary, sub: TREE_DARK.textFaint, canvas: TREE_DARK.canvas }
+    : { bg: '#ffffff', alt: '#ffffff', border: '#e5e7eb', text: '#111827', sub: '#9ca3af', canvas: '#fafafa' }
   const stop = (e: React.SyntheticEvent) => e.stopPropagation()
 
-  const rowStyle = (depth: number, selected: boolean): React.CSSProperties => ({
-    display: 'flex',
-    alignItems: 'center',
-    gap: 6,
-    padding: '5px 8px',
-    paddingLeft: 8 + depth * 14,
-    borderRadius: 6,
-    cursor: 'pointer',
-    fontSize: 12,
-    color: c.text,
-    background: selected ? c.active : 'transparent',
-  })
-  const ellipsis: React.CSSProperties = { overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', flex: 1, minWidth: 0 }
+  const root = useMemo<TreeNode>(
+    () => ({
+      id: 'panel_root',
+      label: campaignLabel,
+      kind: 'campaign',
+      color: '#111827',
+      children: PANEL_BRANCHES.map((b) => ({
+        id: b.id,
+        label: b.label,
+        kind: 'branch' as const,
+        color: b.color,
+        children: tree[b.id] ?? [],
+      })),
+    }),
+    [tree, campaignLabel],
+  )
+  const layout = useMemo(() => layoutTree(root), [root])
+  const subtitleById = useMemo(() => {
+    const m = new Map<string, string>()
+    const walk = (n: TreeNode) => {
+      if (n.subtitle) m.set(n.id, n.subtitle)
+      n.children?.forEach(walk)
+    }
+    walk(root)
+    return m
+  }, [root])
+  const nodeById = useMemo(() => new Map(layout.nodes.map((n) => [n.id, n])), [layout])
+  const isLoading = tree.content === null || tree.own_assets === null || tree.marketers === null
 
-  const renderRows = (nodes: TreeNode[], depth: number): React.ReactNode =>
-    nodes
-      .filter((n) => !n.isShowMore)
-      .map((n) => {
-        const expandable = n.kind === 'month' || n.kind === 'marketer' || n.kind === 'promotion'
-        const isOpen = !!expanded[n.id]
-        return (
-          <React.Fragment key={n.id}>
-            <div style={rowStyle(depth, selectedId === n.id)} onClick={() => onSelect(n)} title={n.label}>
-              <span
-                style={{ width: 12, color: c.sub, fontSize: 9, textAlign: 'center', flexShrink: 0 }}
-                onClick={(e) => {
-                  if (!expandable) return
-                  e.stopPropagation()
-                  onToggleExpand(n.id)
-                }}
-              >
-                {expandable ? (isOpen ? '▾' : '▸') : ''}
-              </span>
-              <span style={{ width: 7, height: 7, borderRadius: '50%', background: n.color, flexShrink: 0 }} />
-              <span style={ellipsis}>{n.label}</span>
-              {n.subtitle && <span style={{ fontSize: 10, color: c.sub, flexShrink: 0 }}>{n.subtitle}</span>}
-            </div>
-            {expandable && isOpen && n.children && renderRows(n.children, depth + 1)}
-          </React.Fragment>
-        )
-      })
+  const viewportRef = useRef<HTMLDivElement>(null)
+  const [view, setView] = useState({ x: 0, y: 0, scale: 1 })
+  const userMovedRef = useRef(false)
+  const dragRef = useRef<{ sx: number; sy: number; lx: number; ly: number; moved: boolean } | null>(null)
+  const suppressClickRef = useRef(false)
+
+  const fit = useCallback(() => {
+    const el = viewportRef.current
+    if (!el || !el.clientWidth || !el.clientHeight) return
+    const s = Math.min(1, Math.max(0.12, Math.min(el.clientWidth / layout.canvasW, el.clientHeight / layout.canvasH)))
+    setView({ scale: s, x: (el.clientWidth - layout.canvasW * s) / 2, y: (el.clientHeight - layout.canvasH * s) / 2 })
+  }, [layout.canvasW, layout.canvasH])
+
+  // Auto-fit until the user pans/zooms; the ⌂ button re-enables it.
+  useEffect(() => {
+    if (open && !userMovedRef.current) fit()
+  }, [open, large, fit])
+
+  const handleDown = (e: React.PointerEvent) => {
+    e.stopPropagation()
+    if (e.button !== 0) return
+    dragRef.current = { sx: e.clientX, sy: e.clientY, lx: e.clientX, ly: e.clientY, moved: false }
+  }
+  const handleMove = (e: React.PointerEvent) => {
+    e.stopPropagation()
+    const d = dragRef.current
+    if (!d) return
+    if (!d.moved && Math.hypot(e.clientX - d.sx, e.clientY - d.sy) > 3) d.moved = true
+    if (!d.moved) return
+    const dx = e.clientX - d.lx
+    const dy = e.clientY - d.ly
+    d.lx = e.clientX
+    d.ly = e.clientY
+    userMovedRef.current = true
+    setView((v) => ({ ...v, x: v.x + dx, y: v.y + dy }))
+  }
+  const handleUp = (e: React.PointerEvent) => {
+    e.stopPropagation()
+    if (dragRef.current?.moved) {
+      suppressClickRef.current = true
+      setTimeout(() => {
+        suppressClickRef.current = false
+      }, 0)
+    }
+    dragRef.current = null
+  }
+  const handleWheel = (e: React.WheelEvent) => {
+    e.stopPropagation()
+    const rect = viewportRef.current?.getBoundingClientRect()
+    if (!rect) return
+    const ox = e.clientX - rect.left
+    const oy = e.clientY - rect.top
+    const factor = e.deltaY > 0 ? 0.87 : 1.15
+    userMovedRef.current = true
+    setView((v) => {
+      const s = Math.min(2, Math.max(0.1, v.scale * factor))
+      const cx = (ox - v.x) / v.scale
+      const cy = (oy - v.y) / v.scale
+      return { scale: s, x: ox - cx * s, y: oy - cy * s }
+    })
+  }
+  const handleNodeClick = (n: LaidOutNode) => {
+    if (suppressClickRef.current) return
+    onNodeClick(n.id, n.kind)
+  }
+
+  const headerBtn: React.CSSProperties = {
+    background: 'transparent',
+    border: 'none',
+    color: c.sub,
+    cursor: 'pointer',
+    fontSize: 13,
+    padding: '0 4px',
+    lineHeight: 1,
+  }
+
+  const renderNode = (n: LaidOutNode) => {
+    const selected = selectedId === n.id
+    const ring = selected ? `0 0 0 3px ${n.color}66` : undefined
+    const base: React.CSSProperties = {
+      position: 'absolute',
+      left: n.center.x - n.w / 2,
+      top: n.center.y - n.h / 2,
+      width: n.w,
+      height: n.h,
+      boxSizing: 'border-box',
+    }
+    if (n.kind === 'campaign') {
+      return (
+        <div
+          key={n.id}
+          style={{
+            ...base,
+            borderRadius: 12,
+            background: 'linear-gradient(160deg, #111827 0%, #312e81 100%)',
+            color: '#fff',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            padding: '0 12px',
+            fontSize: 13,
+            fontWeight: 700,
+            textAlign: 'center',
+            overflow: 'hidden',
+          }}
+        >
+          <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{n.label}</span>
+        </div>
+      )
+    }
+    if (n.kind === 'month' || n.kind === 'marketer' || n.kind === 'promotion') {
+      const isOpen = !!expanded[n.id]
+      return (
+        <div
+          key={n.id}
+          role="button"
+          onClick={() => handleNodeClick(n)}
+          style={{
+            ...base,
+            borderRadius: '50%',
+            border: `1.5px solid ${n.color}`,
+            background: c.bg,
+            boxShadow: ring,
+            display: 'flex',
+            flexDirection: 'column',
+            alignItems: 'center',
+            justifyContent: 'center',
+            gap: 2,
+            padding: 8,
+            cursor: 'pointer',
+            textAlign: 'center',
+          }}
+        >
+          <span style={{ fontSize: 12, fontWeight: 700, color: c.text, lineHeight: 1.15, maxWidth: '100%', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+            {n.label}
+          </span>
+          <span style={{ fontSize: 9.5, fontWeight: 700, color: n.color }}>{subtitleById.get(n.id) ?? ''}</span>
+          <span style={{ fontSize: 9, color: n.color }}>{isOpen ? '▲' : '▼'}</span>
+        </div>
+      )
+    }
+    if (n.kind === 'branch') {
+      return (
+        <div
+          key={n.id}
+          style={{
+            ...base,
+            borderRadius: 12,
+            border: `1.5px solid ${n.color}`,
+            background: c.bg,
+            display: 'flex',
+            alignItems: 'center',
+            gap: 10,
+            padding: '0 14px',
+          }}
+        >
+          <span style={{ width: 8, height: 8, borderRadius: '50%', background: n.color, flexShrink: 0 }} />
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 2, minWidth: 0 }}>
+            <span style={{ fontSize: 12.5, fontWeight: 700, color: c.text, whiteSpace: 'nowrap' }}>{n.label}</span>
+            <span style={{ fontSize: 9.5, fontWeight: 700, letterSpacing: '0.05em', textTransform: 'uppercase', color: n.color }}>Branch</span>
+          </div>
+        </div>
+      )
+    }
+    // asset / video leaf
+    return (
+      <div
+        key={n.id}
+        role="button"
+        onClick={() => handleNodeClick(n)}
+        title={n.label}
+        style={{
+          ...base,
+          borderRadius: 10,
+          border: `1.5px solid ${n.color}66`,
+          background: c.alt,
+          boxShadow: ring,
+          display: 'flex',
+          alignItems: 'center',
+          gap: 8,
+          padding: '0 10px',
+          cursor: 'pointer',
+        }}
+      >
+        <span style={{ width: 7, height: 7, borderRadius: '50%', background: n.color, flexShrink: 0 }} />
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 1, minWidth: 0 }}>
+          <span style={{ fontSize: 11, fontWeight: 600, color: c.text, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{n.label}</span>
+          <span style={{ fontSize: 9, fontWeight: 700, letterSpacing: '0.05em', textTransform: 'uppercase', color: n.color }}>
+            {n.kind === 'video' ? 'Video' : 'Asset'}
+          </span>
+        </div>
+      </div>
+    )
+  }
 
   return (
     <div
@@ -408,7 +641,6 @@ function StructurePanel({
     >
       <div
         style={{
-          width: open ? 280 : 'auto',
           background: c.bg,
           border: `1px solid ${c.border}`,
           borderRadius: 10,
@@ -417,14 +649,12 @@ function StructurePanel({
         }}
       >
         <div
-          onClick={onToggle}
           style={{
             display: 'flex',
             alignItems: 'center',
             justifyContent: 'space-between',
-            gap: 10,
+            gap: 14,
             padding: '8px 12px',
-            cursor: 'pointer',
             fontSize: 11,
             fontWeight: 700,
             letterSpacing: '0.06em',
@@ -433,33 +663,102 @@ function StructurePanel({
             boxShadow: open ? `inset 0 -1px 0 ${c.border}` : 'none',
           }}
         >
-          <span>Structure</span>
-          <span style={{ color: c.sub }}>{open ? '×' : '▸'}</span>
+          <span onClick={onToggleOpen} style={{ cursor: 'pointer', flex: 1 }}>
+            Structure
+          </span>
+          {open && (
+            <>
+              <button
+                style={headerBtn}
+                title="Fit to panel"
+                onClick={() => {
+                  userMovedRef.current = false
+                  fit()
+                }}
+              >
+                ⌂
+              </button>
+              <button
+                style={headerBtn}
+                title={large ? 'Shrink' : 'Enlarge'}
+                onClick={() => {
+                  userMovedRef.current = false
+                  onToggleLarge()
+                }}
+              >
+                {large ? '⤡' : '⤢'}
+              </button>
+            </>
+          )}
+          <button style={headerBtn} onClick={onToggleOpen} title={open ? 'Close' : 'Open'}>
+            {open ? '×' : '▸'}
+          </button>
         </div>
         {open && (
-          <div style={{ maxHeight: 'min(380px, calc(100vh - 300px))', overflowY: 'auto', padding: 6, touchAction: 'pan-y' }}>
-            {error && <div style={{ padding: 8, fontSize: 11, color: '#dc2626' }}>{error}</div>}
-            {PANEL_BRANCHES.map((b) => {
-              const isOpen = !!expanded[b.id]
-              const nodes = tree[b.id]
-              return (
-                <React.Fragment key={b.id}>
-                  <div style={{ ...rowStyle(0, false), fontWeight: 700 }} onClick={() => onToggleExpand(b.id)}>
-                    <span style={{ width: 12, color: c.sub, fontSize: 9, textAlign: 'center', flexShrink: 0 }}>{isOpen ? '▾' : '▸'}</span>
-                    <span style={{ width: 8, height: 8, borderRadius: '50%', background: b.color, flexShrink: 0 }} />
-                    <span style={ellipsis}>{b.label}</span>
-                  </div>
-                  {isOpen &&
-                    (nodes === null ? (
-                      <div style={{ padding: '4px 8px 4px 34px', fontSize: 11, color: c.sub }}>Loading…</div>
-                    ) : nodes.length === 0 ? (
-                      <div style={{ padding: '4px 8px 4px 34px', fontSize: 11, color: c.sub }}>Nothing here yet</div>
-                    ) : (
-                      renderRows(nodes, 1)
-                    ))}
-                </React.Fragment>
-              )
-            })}
+          <div
+            ref={viewportRef}
+            onPointerDown={handleDown}
+            onPointerMove={handleMove}
+            onPointerUp={handleUp}
+            onPointerLeave={handleUp}
+            onWheel={handleWheel}
+            style={{
+              position: 'relative',
+              overflow: 'hidden',
+              cursor: 'grab',
+              touchAction: 'none',
+              userSelect: 'none',
+              background: c.canvas,
+              width: large ? 'min(820px, calc(100vw - 80px))' : 380,
+              height: large ? 'min(560px, calc(100vh - 260px))' : 260,
+            }}
+          >
+            <div
+              style={{
+                position: 'absolute',
+                top: 0,
+                left: 0,
+                width: 0,
+                height: 0,
+                transform: `translate(${view.x}px, ${view.y}px) scale(${view.scale})`,
+                transformOrigin: '0 0',
+              }}
+            >
+              <svg style={{ position: 'absolute', top: 0, left: 0, width: layout.canvasW, height: layout.canvasH, overflow: 'visible', pointerEvents: 'none' }}>
+                {layout.edges.map((e, i) => {
+                  const p = nodeById.get(e.fromId)
+                  const ch = nodeById.get(e.toId)
+                  if (!p || !ch) return null
+                  return (
+                    <path
+                      key={i}
+                      d={curvePath({ x: p.center.x, y: p.center.y + p.h / 2 }, { x: ch.center.x, y: ch.center.y - ch.h / 2 })}
+                      fill="none"
+                      stroke={e.color}
+                      strokeWidth={2}
+                      strokeOpacity={0.55}
+                    />
+                  )
+                })}
+              </svg>
+              {layout.nodes.map(renderNode)}
+            </div>
+            {(isLoading || error) && (
+              <div
+                style={{
+                  position: 'absolute',
+                  left: 0,
+                  right: 0,
+                  bottom: 0,
+                  padding: '6px 10px',
+                  fontSize: 11,
+                  color: error ? '#dc2626' : c.sub,
+                  background: c.bg,
+                }}
+              >
+                {error ?? 'Loading structure…'}
+              </div>
+            )}
           </div>
         )}
       </div>
@@ -603,59 +902,51 @@ export default function CampaignJourneyMap({ embedded = false, presentation = 'c
   )
 
   // Full date range on purpose ('all'), no search — see Phase 1 notes.
-  const panelTree = useMemo<PanelTree>(
-    () => ({
-      content: contentData.contentVideos
-        ? buildContentMonthNodes(contentData.contentVideos, '', 'all', builderExpanded, PANEL_BRANCHES[0].color)
-        : null,
-      own_assets: structureData.ownAssetNodes
-        ? buildMonthClusterNodes(
-            structureData.ownAssetNodes,
-            () => true,
-            '',
-            'all',
-            builderExpanded,
-            'own_assets_month',
-            PANEL_BRANCHES[1].color,
-            (n) => `${n} asset${n === 1 ? '' : 's'}`,
-          )
-        : null,
-      marketers: structureData.marketerNodes
-        ? buildMonthClusterNodes(
-            structureData.marketerNodes,
-            () => true,
-            '',
-            'all',
-            builderExpanded,
-            'marketer_month',
-            PANEL_BRANCHES[2].color,
-            (n) => `${n} mktr${n === 1 ? '' : 's'}`,
-          )
-        : null,
-    }),
+  // displayTree follows only what the user expanded. panelTree (used just to
+  // find the selected node's cards) also treats the selected node as expanded,
+  // so a selected-but-collapsed month still yields its items.
+  const displayTree = useMemo(
+    () => buildPanelTree(contentData.contentVideos, structureData.ownAssetNodes, structureData.marketerNodes, panelExpanded),
+    [contentData.contentVideos, structureData.ownAssetNodes, structureData.marketerNodes, panelExpanded],
+  )
+  const panelTree = useMemo(
+    () => buildPanelTree(contentData.contentVideos, structureData.ownAssetNodes, structureData.marketerNodes, builderExpanded),
     [contentData.contentVideos, structureData.ownAssetNodes, structureData.marketerNodes, builderExpanded],
   )
 
+  // Remembers the last found node so a selected video/asset keeps its card
+  // even if its month is collapsed afterwards.
+  const lastSelectedRef = useRef<TreeNode | null>(null)
   const selectedNode = useMemo(() => {
-    if (!selectedNodeId) return null
+    if (!selectedNodeId) {
+      lastSelectedRef.current = null
+      return null
+    }
     for (const b of PANEL_BRANCHES) {
       const hit = findTreeNode(panelTree[b.id], selectedNodeId)
-      if (hit) return hit
+      if (hit) {
+        lastSelectedRef.current = hit
+        return hit
+      }
     }
-    return null
+    return lastSelectedRef.current?.id === selectedNodeId ? lastSelectedRef.current : null
   }, [panelTree, selectedNodeId])
   const selectedItems = useMemo(() => (selectedNode ? itemsForNode(selectedNode) : []), [selectedNode])
 
+  const [panelLarge, setPanelLarge] = useState(false)
   const handlePanelToggle = () => {
     setPanelOpen((o) => !o)
     setStructureRequested(true)
   }
-  const handlePanelToggleExpand = (id: string) => setPanelExpanded((p) => ({ ...p, [id]: !p[id] }))
-  const handlePanelSelect = (node: TreeNode) => {
-    setSelectedNodeId(node.id)
-    if (node.kind === 'month' || node.kind === 'marketer' || node.kind === 'promotion') {
-      setPanelExpanded((p) => ({ ...p, [node.id]: true }))
+  // Click rule: branch / root do nothing. Month / Marketer / Promotion circle:
+  // first click selects + expands; clicking the already-selected circle
+  // toggles its expansion (selection stays). Video / asset: select only.
+  const handlePanelNodeClick = (id: string, kind: TreeNode['kind']) => {
+    if (kind === 'campaign' || kind === 'branch') return
+    if (kind === 'month' || kind === 'marketer' || kind === 'promotion') {
+      setPanelExpanded((p) => ({ ...p, [id]: selectedNodeId === id ? !p[id] : true }))
     }
+    setSelectedNodeId(id)
   }
 
   const { nodes, connections } = useMemo(() => buildLayout(CAMPAIGN_PATHS), [])
@@ -982,15 +1273,17 @@ export default function CampaignJourneyMap({ embedded = false, presentation = 'c
         })()}
 
 {/* Phase 1: Structure control panel (screen space, above zoomControls) */}
-        <StructurePanel
+<MiniStructureMap
           presentation={presentation}
           open={panelOpen}
-          onToggle={handlePanelToggle}
-          tree={panelTree}
+          large={panelLarge}
+          onToggleOpen={handlePanelToggle}
+          onToggleLarge={() => setPanelLarge((l) => !l)}
+          tree={displayTree}
+          campaignLabel={currentCampaignName ?? 'Campaign'}
           expanded={panelExpanded}
-          onToggleExpand={handlePanelToggleExpand}
           selectedId={selectedNodeId}
-          onSelect={handlePanelSelect}
+          onNodeClick={handlePanelNodeClick}
           error={structureData.error ?? contentData.error}
         />
 
