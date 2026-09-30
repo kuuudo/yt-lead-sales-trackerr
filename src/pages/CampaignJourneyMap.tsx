@@ -269,6 +269,280 @@ function buildLayout(paths: CampaignPath[]) {
 
 // ─── Component ──────────────────────────────────────────────────────────────
 
+// ─── Phase 1: Structure control panel (selector only — no journey logic) ────
+// The panel lists Content / Own Assets / Marketers using CampaignStructureMap's
+// own hooks + month bucketer. Clicking a node only sets `selectedNodeId`; the
+// canvas below the outcome row then shows that node's direct children as
+// plain cards. Nothing here touches positions, CAMPAIGN_PATHS or journeys.
+
+const PANEL_BRANCHES = [
+  { id: 'content', label: 'Content', color: '#0ea5e9' },
+  { id: 'own_assets', label: 'Own Assets', color: '#10b981' },
+  { id: 'marketers', label: 'Marketers', color: '#8b5cf6' },
+] as const
+
+type PanelBranchId = (typeof PANEL_BRANCHES)[number]['id']
+type PanelTree = Record<PanelBranchId, TreeNode[] | null> // null = still loading
+
+interface PanelItem {
+  id: string
+  label: string
+  kind: TreeNode['kind']
+  color: string
+}
+
+const PANEL_ITEM_CAP = 60
+const ITEMS_TOP = 1190 // canvas y of the first card row (outcome row ends ~1109)
+const ITEMS_COLS = 4
+const ITEMS_COL_SPACING = 260
+const ITEMS_ROW_SPACING = 84
+const ITEM_KIND_LABEL: Partial<Record<TreeNode['kind'], string>> = {
+  video: 'Video',
+  asset: 'Asset',
+  marketer: 'Marketer',
+  promotion: 'Promotion',
+  month: 'Month',
+}
+
+function findTreeNode(nodes: TreeNode[] | null, id: string): TreeNode | null {
+  if (!nodes) return null
+  for (const n of nodes) {
+    if (n.id === id) return n
+    const hit = findTreeNode(n.children ?? null, id)
+    if (hit) return hit
+  }
+  return null
+}
+
+/** Selection rule: month -> its items, marketer -> its promotions,
+ *  promotion -> its assets, video/asset -> just itself. */
+function itemsForNode(node: TreeNode): PanelItem[] {
+  const source =
+    node.kind === 'month' || node.kind === 'marketer' || node.kind === 'promotion'
+      ? node.children ?? []
+      : [node]
+  return source
+    .filter((n) => !n.isShowMore)
+    .map((n) => ({ id: n.id, label: n.label, kind: n.kind, color: n.color }))
+}
+
+interface StructurePanelProps {
+  presentation: 'campaign' | 'tree'
+  open: boolean
+  onToggle: () => void
+  tree: PanelTree
+  expanded: Record<string, boolean>
+  onToggleExpand: (id: string) => void
+  selectedId: string | null
+  onSelect: (node: TreeNode) => void
+  error: string | null
+}
+
+function StructurePanel({
+  presentation,
+  open,
+  onToggle,
+  tree,
+  expanded,
+  onToggleExpand,
+  selectedId,
+  onSelect,
+  error,
+}: StructurePanelProps) {
+  const dark = presentation === 'tree'
+  const c = dark
+    ? { bg: TREE_DARK.cardBg, border: TREE_DARK.border, text: TREE_DARK.textPrimary, sub: TREE_DARK.textFaint, active: '#232323' }
+    : { bg: '#ffffff', border: '#e5e7eb', text: '#111827', sub: '#9ca3af', active: '#eef2ff' }
+  // Keep every gesture inside the panel away from the canvas pan/zoom handlers.
+  const stop = (e: React.SyntheticEvent) => e.stopPropagation()
+
+  const rowStyle = (depth: number, selected: boolean): React.CSSProperties => ({
+    display: 'flex',
+    alignItems: 'center',
+    gap: 6,
+    padding: '5px 8px',
+    paddingLeft: 8 + depth * 14,
+    borderRadius: 6,
+    cursor: 'pointer',
+    fontSize: 12,
+    color: c.text,
+    background: selected ? c.active : 'transparent',
+  })
+  const ellipsis: React.CSSProperties = { overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', flex: 1, minWidth: 0 }
+
+  const renderRows = (nodes: TreeNode[], depth: number): React.ReactNode =>
+    nodes
+      .filter((n) => !n.isShowMore)
+      .map((n) => {
+        const expandable = n.kind === 'month' || n.kind === 'marketer' || n.kind === 'promotion'
+        const isOpen = !!expanded[n.id]
+        return (
+          <React.Fragment key={n.id}>
+            <div style={rowStyle(depth, selectedId === n.id)} onClick={() => onSelect(n)} title={n.label}>
+              <span
+                style={{ width: 12, color: c.sub, fontSize: 9, textAlign: 'center', flexShrink: 0 }}
+                onClick={(e) => {
+                  if (!expandable) return
+                  e.stopPropagation()
+                  onToggleExpand(n.id)
+                }}
+              >
+                {expandable ? (isOpen ? '▾' : '▸') : ''}
+              </span>
+              <span style={{ width: 7, height: 7, borderRadius: '50%', background: n.color, flexShrink: 0 }} />
+              <span style={ellipsis}>{n.label}</span>
+              {n.subtitle && <span style={{ fontSize: 10, color: c.sub, flexShrink: 0 }}>{n.subtitle}</span>}
+            </div>
+            {expandable && isOpen && n.children && renderRows(n.children, depth + 1)}
+          </React.Fragment>
+        )
+      })
+
+  return (
+    <div
+      onPointerDown={stop}
+      onPointerMove={stop}
+      onPointerUp={stop}
+      onWheel={stop}
+      style={{ position: 'absolute', right: 20, bottom: 70, zIndex: 5, cursor: 'default' }}
+    >
+      <div
+        style={{
+          width: open ? 280 : 'auto',
+          background: c.bg,
+          border: `1px solid ${c.border}`,
+          borderRadius: 10,
+          boxShadow: '0 2px 8px rgba(0,0,0,0.08)',
+          overflow: 'hidden',
+        }}
+      >
+        <div
+          onClick={onToggle}
+          style={{
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'space-between',
+            gap: 10,
+            padding: '8px 12px',
+            cursor: 'pointer',
+            fontSize: 11,
+            fontWeight: 700,
+            letterSpacing: '0.06em',
+            textTransform: 'uppercase',
+            color: c.text,
+            boxShadow: open ? `inset 0 -1px 0 ${c.border}` : 'none',
+          }}
+        >
+          <span>Structure</span>
+          <span style={{ color: c.sub }}>{open ? '×' : '▸'}</span>
+        </div>
+        {open && (
+          <div style={{ maxHeight: 'min(380px, calc(100vh - 300px))', overflowY: 'auto', padding: 6, touchAction: 'pan-y' }}>
+            {error && <div style={{ padding: 8, fontSize: 11, color: '#dc2626' }}>{error}</div>}
+            {PANEL_BRANCHES.map((b) => {
+              const isOpen = !!expanded[b.id]
+              const nodes = tree[b.id]
+              return (
+                <React.Fragment key={b.id}>
+                  <div style={{ ...rowStyle(0, false), fontWeight: 700 }} onClick={() => onToggleExpand(b.id)}>
+                    <span style={{ width: 12, color: c.sub, fontSize: 9, textAlign: 'center', flexShrink: 0 }}>{isOpen ? '▾' : '▸'}</span>
+                    <span style={{ width: 8, height: 8, borderRadius: '50%', background: b.color, flexShrink: 0 }} />
+                    <span style={ellipsis}>{b.label}</span>
+                  </div>
+                  {isOpen &&
+                    (nodes === null ? (
+                      <div style={{ padding: '4px 8px 4px 34px', fontSize: 11, color: c.sub }}>Loading…</div>
+                    ) : nodes.length === 0 ? (
+                      <div style={{ padding: '4px 8px 4px 34px', fontSize: 11, color: c.sub }}>Nothing here yet</div>
+                    ) : (
+                      renderRows(nodes, 1)
+                    ))}
+                </React.Fragment>
+              )
+            })}
+          </div>
+        )}
+      </div>
+    </div>
+  )
+}
+
+/** Phase 1 selected-item cards. Rendered inside the transformed canvas layer
+ *  (canvas coordinates) and deliberately NOT part of `positions`/drag. */
+function SelectedItemsLayer({
+  presentation,
+  label,
+  items,
+}: {
+  presentation: 'campaign' | 'tree'
+  label: string | null
+  items: PanelItem[]
+}) {
+  if (!label) return null
+  const dark = presentation === 'tree'
+  const shown = items.slice(0, PANEL_ITEM_CAP)
+  const left0 = HUB_X - ((ITEMS_COLS - 1) / 2) * ITEMS_COL_SPACING - OUTCOME_W / 2
+  return (
+    <>
+      <div
+        style={{
+          position: 'absolute',
+          left: left0,
+          top: ITEMS_TOP - 34,
+          fontSize: 12,
+          fontWeight: 700,
+          whiteSpace: 'nowrap',
+          color: dark ? TREE_DARK.textSecondary : '#6b7280',
+        }}
+      >
+        {label} · {items.length} item{items.length === 1 ? '' : 's'}
+        {items.length > shown.length ? ` (showing first ${shown.length})` : ''}
+      </div>
+      {shown.map((it, i) => (
+        <div
+          key={it.id}
+          title={it.label}
+          style={{
+            position: 'absolute',
+            left: left0 + (i % ITEMS_COLS) * ITEMS_COL_SPACING,
+            top: ITEMS_TOP + Math.floor(i / ITEMS_COLS) * ITEMS_ROW_SPACING,
+            width: OUTCOME_W,
+            height: OUTCOME_H,
+            boxSizing: 'border-box',
+            display: 'flex',
+            alignItems: 'center',
+            gap: 9,
+            padding: '0 12px',
+            borderRadius: 10,
+            border: `1.5px solid ${it.color}66`,
+            background: dark ? TREE_DARK.cardBgAlt : '#ffffff',
+            boxShadow: dark ? 'none' : '0 2px 6px rgba(15,23,42,0.04)',
+          }}
+        >
+          <span style={{ width: 8, height: 8, borderRadius: '50%', background: it.color, flexShrink: 0 }} />
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 2, minWidth: 0 }}>
+            <span
+              style={{
+                fontSize: 12,
+                fontWeight: 600,
+                whiteSpace: 'nowrap',
+                overflow: 'hidden',
+                textOverflow: 'ellipsis',
+                color: dark ? TREE_DARK.textPrimary : '#374151',
+              }}
+            >
+              {it.label}
+            </span>
+            <span style={{ fontSize: 9.5, fontWeight: 700, letterSpacing: '0.05em', textTransform: 'uppercase', color: it.color }}>
+              {ITEM_KIND_LABEL[it.kind] ?? it.kind}
+            </span>
+          </div>
+        </div>
+      ))}
+    </>
+  )
+}
+
 interface CampaignJourneyMapProps {
   embedded?: boolean;
   presentation?: 'campaign' | 'tree';
@@ -297,6 +571,92 @@ export default function CampaignJourneyMap({ embedded = false, presentation = 'c
       setSelectedCampaignId(campaignOptions[0].id)
     }
   }, [presentation, selectedCampaignId, campaignOptions])
+
+  // ── Phase 1: Structure control panel state ────────────────────────────
+  const [panelOpen, setPanelOpen] = useState(false)
+  // Sticky flag: flips true the first time the panel is opened. Until then
+  // both Structure hooks receive campaignId = undefined, so they return null
+  // and run NO queries (useCampaignStructureData runs getAssetAnalyticsRows).
+  const [structureRequested, setStructureRequested] = useState(false)
+  const [panelExpanded, setPanelExpanded] = useState<Record<string, boolean>>({})
+  const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null)
+
+  const structureData = useCampaignStructureData(
+    structureRequested ? campaignId : undefined,
+    effectiveViewerId,
+    isReadOnly,
+    viewingMemberId,
+    viewingOrgId,
+  )
+  const contentData = useCampaignContentBuckets(structureRequested ? campaignId : undefined, effectiveViewerId)
+
+  useEffect(() => {
+    setSelectedNodeId(null)
+    setPanelExpanded({})
+  }, [campaignId])
+
+  // The selected node is always treated as expanded for the builder, so a
+  // selected month always has its children even if its row is collapsed.
+  const builderExpanded = useMemo(
+    () => (selectedNodeId ? { ...panelExpanded, [selectedNodeId]: true } : panelExpanded),
+    [panelExpanded, selectedNodeId],
+  )
+
+  // Full date range on purpose ('all'), no search — see Phase 1 notes.
+  const panelTree = useMemo<PanelTree>(
+    () => ({
+      content: contentData.contentVideos
+        ? buildContentMonthNodes(contentData.contentVideos, '', 'all', builderExpanded, PANEL_BRANCHES[0].color)
+        : null,
+      own_assets: structureData.ownAssetNodes
+        ? buildMonthClusterNodes(
+            structureData.ownAssetNodes,
+            () => true,
+            '',
+            'all',
+            builderExpanded,
+            'own_assets_month',
+            PANEL_BRANCHES[1].color,
+            (n) => `${n} asset${n === 1 ? '' : 's'}`,
+          )
+        : null,
+      marketers: structureData.marketerNodes
+        ? buildMonthClusterNodes(
+            structureData.marketerNodes,
+            () => true,
+            '',
+            'all',
+            builderExpanded,
+            'marketer_month',
+            PANEL_BRANCHES[2].color,
+            (n) => `${n} mktr${n === 1 ? '' : 's'}`,
+          )
+        : null,
+    }),
+    [contentData.contentVideos, structureData.ownAssetNodes, structureData.marketerNodes, builderExpanded],
+  )
+
+  const selectedNode = useMemo(() => {
+    if (!selectedNodeId) return null
+    for (const b of PANEL_BRANCHES) {
+      const hit = findTreeNode(panelTree[b.id], selectedNodeId)
+      if (hit) return hit
+    }
+    return null
+  }, [panelTree, selectedNodeId])
+  const selectedItems = useMemo(() => (selectedNode ? itemsForNode(selectedNode) : []), [selectedNode])
+
+  const handlePanelToggle = () => {
+    setPanelOpen((o) => !o)
+    setStructureRequested(true)
+  }
+  const handlePanelToggleExpand = (id: string) => setPanelExpanded((p) => ({ ...p, [id]: !p[id] }))
+  const handlePanelSelect = (node: TreeNode) => {
+    setSelectedNodeId(node.id)
+    if (node.kind === 'month' || node.kind === 'marketer' || node.kind === 'promotion') {
+      setPanelExpanded((p) => ({ ...p, [node.id]: true }))
+    }
+  }
 
   const { nodes, connections } = useMemo(() => buildLayout(CAMPAIGN_PATHS), [])
 
@@ -538,6 +898,9 @@ export default function CampaignJourneyMap({ embedded = false, presentation = 'c
             })}
           </svg>
 
+{/* Phase 1: selected Structure items (canvas coordinates, not draggable) */}
+          <SelectedItemsLayer presentation={presentation} label={selectedNode?.label ?? null} items={selectedItems} />
+
           {/* Hub node */}
           <div
             onPointerDown={(e) => handleNodePointerDown(e, 'hub')}
@@ -617,6 +980,19 @@ export default function CampaignJourneyMap({ embedded = false, presentation = 'c
             </div>
           )
         })()}
+
+{/* Phase 1: Structure control panel (screen space, above zoomControls) */}
+        <StructurePanel
+          presentation={presentation}
+          open={panelOpen}
+          onToggle={handlePanelToggle}
+          tree={panelTree}
+          expanded={panelExpanded}
+          onToggleExpand={handlePanelToggleExpand}
+          selectedId={selectedNodeId}
+          onSelect={handlePanelSelect}
+          error={structureData.error ?? contentData.error}
+        />
 
         {/* Legend */}
         <div style={styles.legend}>
