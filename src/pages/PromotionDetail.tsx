@@ -1538,6 +1538,7 @@ export default function PromotionDetail() {
                                 )
                               )}
                             </div>
+                            )}
 
                             {/* Sponsor domain: allow_* + read-only hostname (chosen at Assignment / Start Promoting) */}
                             <div className="space-y-1 shrink-0">
@@ -1665,7 +1666,8 @@ export default function PromotionDetail() {
                             ) : (
                               <p>Marketer domain: Off</p>
                             )}
-                            </>)}                            
+                            </>
+                          )}                            
                             <p>
                               Sponsor:{' '}
                               {pathB.allow_sponsor_domain
