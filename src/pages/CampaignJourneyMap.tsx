@@ -441,6 +441,9 @@ function MiniStructureMap({
   const userMovedRef = useRef(false)
   const dragRef = useRef<{ sx: number; sy: number; lx: number; ly: number; moved: boolean } | null>(null)
   const suppressClickRef = useRef(false)
+  // Manual resize (drag the top-left corner). null = use the preset size.
+  const [customSize, setCustomSize] = useState<{ w: number; h: number } | null>(null)
+  const resizeRef = useRef<{ x: number; y: number; w: number; h: number } | null>(null)
 
   const fit = useCallback(() => {
     const el = viewportRef.current
@@ -452,7 +455,7 @@ function MiniStructureMap({
   // Auto-fit until the user pans/zooms; the ⌂ button re-enables it.
   useEffect(() => {
     if (open && !userMovedRef.current) fit()
-  }, [open, large, fit])
+  }, [open, large, customSize, fit])
 
   const handleDown = (e: React.PointerEvent) => {
     e.stopPropagation()
@@ -683,6 +686,7 @@ function MiniStructureMap({
                 title={large ? 'Shrink' : 'Enlarge'}
                 onClick={() => {
                   userMovedRef.current = false
+                  setCustomSize(null)
                   onToggleLarge()
                 }}
               >
@@ -709,8 +713,8 @@ function MiniStructureMap({
               touchAction: 'none',
               userSelect: 'none',
               background: c.canvas,
-              width: large ? 'min(820px, calc(100vw - 80px))' : 380,
-              height: large ? 'min(560px, calc(100vh - 260px))' : 260,
+              width: customSize ? customSize.w : large ? 'min(820px, calc(100vw - 80px))' : 380,
+              height: customSize ? customSize.h : large ? 'min(560px, calc(100vh - 260px))' : 260,
             }}
           >
             <div
@@ -762,6 +766,43 @@ function MiniStructureMap({
           </div>
         )}
       </div>
+      {open && (
+        <div
+          title="Drag to resize"
+          onPointerDown={(e) => {
+            e.stopPropagation()
+            e.preventDefault()
+            const el = viewportRef.current
+            if (!el) return
+            e.currentTarget.setPointerCapture(e.pointerId)
+            resizeRef.current = { x: e.clientX, y: e.clientY, w: el.clientWidth, h: el.clientHeight }
+          }}
+          onPointerMove={(e) => {
+            e.stopPropagation()
+            const r = resizeRef.current
+            if (!r) return
+            setCustomSize({
+              w: Math.min(window.innerWidth - 60, Math.max(280, r.w + (r.x - e.clientX))),
+              h: Math.min(window.innerHeight - 230, Math.max(180, r.h + (r.y - e.clientY))),
+            })
+          }}
+          onPointerUp={(e) => {
+            e.stopPropagation()
+            resizeRef.current = null
+          }}
+          style={{
+            position: 'absolute',
+            top: 0,
+            left: 0,
+            width: 16,
+            height: 16,
+            zIndex: 2,
+            cursor: 'nwse-resize',
+            touchAction: 'none',
+            background: `linear-gradient(135deg, ${c.sub} 0 2px, transparent 2px 5px, ${c.sub} 5px 7px, transparent 7px)`,
+          }}
+        />
+      )}
     </div>
   )
 }
