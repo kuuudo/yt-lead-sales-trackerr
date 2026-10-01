@@ -78,9 +78,9 @@ export default function CreateAssignment() {
     VerifiedDomainOption[]
   >([]);
   /**
-   * Per normal (non–campaign-element) asset: verified hostnames under the
-   * Asset's Campaign root_domain (same semantics as Phase 2A eligibility).
-   * Campaign Element Assets do NOT use this map — Configure Campaign Links.
+   * Per normal (non–campaign-element) asset: Sponsor domain options scoped
+   * to that Asset's Campaign root_domain. Campaign Element Assets do NOT
+   * use this map — they use Configure Campaign Links on the Black Box row.
    */
   const [normalAssetSponsorDomains, setNormalAssetSponsorDomains] = useState<
     Map<string, VerifiedDomainOption[]>
@@ -253,7 +253,6 @@ export default function CreateAssignment() {
   }, [organizationId]);
 
   // Normal Assets only: Asset → Campaign → root_domain + verified same-root hosts
-  // (Phase 2A eligibility semantics for display; Campaign Element Assets skip).
   useEffect(() => {
     if (!organizationId) {
       setNormalAssetSponsorDomains(new Map());
@@ -274,7 +273,6 @@ export default function CreateAssignment() {
       try {
         const campaignByAsset = new Map<string, string>();
 
-        // 1) campaign_element_assets (edge case if selected via library)
         const { data: elRows } = await supabase
           .from('campaign_element_assets')
           .select('asset_id, campaign_id')
@@ -283,7 +281,6 @@ export default function CreateAssignment() {
           if (r.campaign_id) campaignByAsset.set(r.asset_id as string, r.campaign_id as string);
         }
 
-        // 2) videos.campaign_id
         const still = normalIds.filter(id => !campaignByAsset.has(id));
         if (still.length > 0) {
           const { data: videoRows } = await supabase
@@ -297,7 +294,6 @@ export default function CreateAssignment() {
           }
         }
 
-        // 3) asset_resources.campaign_id (Resource assets)
         const stillRes = normalIds.filter(id => !campaignByAsset.has(id));
         if (stillRes.length > 0) {
           const { data: arRows } = await supabase
@@ -311,7 +307,6 @@ export default function CreateAssignment() {
           }
         }
 
-        // 4) campaign_assets
         const still2 = normalIds.filter(id => !campaignByAsset.has(id));
         if (still2.length > 0) {
           const { data: caRows } = await supabase
@@ -468,7 +463,7 @@ export default function CreateAssignment() {
     }
     if (!email.trim()) return setError('Add a collaborator email');
 
-    // Phase 2A: no user Sponsor/VSTRK selection — do not require selectedSponsorDomainId.
+    // Phase 2A: no user Sponsor/VSTRK selection at create time.
 
     if (assignmentMode === 'creative' && !creativeCampaignId) {
       return setError('Creative Mode requires one Sponsor campaign');
@@ -481,8 +476,6 @@ export default function CreateAssignment() {
         createdByUserId: userId,
         title,
         description: description || null,
-        // Legacy allow_* columns: derived compatibility only — NOT CURRENT domain authority.
-        // NEW marketer link hostnames are resolved later via Phase 2A (Videos / VideoDetail).
         assetPermissions: unifiedSelectedAssets.map(a => {
           const bb = publishedBlackBoxById.get(a.assetId);
           if (bb) {
@@ -504,7 +497,6 @@ export default function CreateAssignment() {
             allowMarketerDomain: false,
             allowSponsorDomain: hasRoot && hasHosts,
             allowVstrkDomain: !hasRoot,
-            // Do not permanently pin a hostname at assignment create time.
             selectedSponsorDomainId: null,
           };
         }),
@@ -958,9 +950,12 @@ export default function CreateAssignment() {
                         </>
                       ) : (
                         <div className="space-y-1.5">
-                          <p className="text-amber-400 text-[11px]">
-                            Needs configuration — no tracking domain for this element type on the
-                            Campaign.
+                          <p className="text-sm text-zinc-200 font-medium">
+                            VSTRK / vstrk.com
+                          </p>
+                          <p className="text-[10px] text-zinc-500">
+                            Campaign Element · no branded domain for this link type (VSTRK).
+                            You can change this in Configure Campaign Links.
                           </p>
                           <button
                             type="button"

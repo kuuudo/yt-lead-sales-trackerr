@@ -2,11 +2,15 @@
  * Shared "Configure Campaign Links" modal.
  * Maps each campaign link type → tracking domain (campaigns.*_tracking_domain_id).
  * Includes a Campaign switcher so the same modal works from Videos and Create Assignment.
+ *
+ * Domain pool is scoped to the SELECTED Campaign:
+ *   Campaign.root_domain → verified branded_tracking_domains (same org + same root)
+ *   root_domain NULL → VSTRK only (no unrelated branded hosts)
  */
 import React, { useEffect, useState } from 'react';
 import { supabase } from '../lib/supabase';
 import {
-  listVerifiedBrandedDomains,
+  listVerifiedBrandedDomainsForCampaign,
   type VerifiedDomainOption,
 } from '../services/domain/brandedDomains';
 
@@ -110,7 +114,7 @@ export function ConfigureCampaignLinksModal({
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  // Load campaign list + domains when opened
+  // Load campaign list when opened (domain pool is per selected Campaign)
   useEffect(() => {
     if (!open || !organizationId) return;
     let cancelled = false;
@@ -118,16 +122,13 @@ export function ConfigureCampaignLinksModal({
       setLoading(true);
       setError(null);
       try {
-        const [campRes, domainList] = await Promise.all([
-          supabase
-            .from('campaigns')
-            .select('id, campaign_name, is_system, archived_at')
-            .eq('organization_id', organizationId)
-            .eq('is_system', false)
-            .is('archived_at', null)
-            .order('campaign_name', { ascending: true }),
-          listVerifiedBrandedDomains(organizationId),
-        ]);
+        const campRes = await supabase
+          .from('campaigns')
+          .select('id, campaign_name, is_system, archived_at')
+          .eq('organization_id', organizationId)
+          .eq('is_system', false)
+          .is('archived_at', null)
+          .order('campaign_name', { ascending: true });
         if (cancelled) return;
         if (campRes.error) throw new Error(campRes.error.message);
         const list = (campRes.data ?? []).map(c => ({
@@ -135,7 +136,6 @@ export function ConfigureCampaignLinksModal({
           campaign_name: (c.campaign_name as string) || 'Campaign',
         }));
         setCampaigns(list);
-        setDomains(domainList);
         const preferred =
           (initialCampaignId && list.some(c => c.id === initialCampaignId)
             ? initialCampaignId
@@ -154,11 +154,12 @@ export function ConfigureCampaignLinksModal({
     };
   }, [open, organizationId, initialCampaignId]);
 
-  // Load selected campaign row + domain map
+  // Load selected campaign row + domain map + eligible hosts for THIS Campaign only
   useEffect(() => {
-    if (!open || !selectedCampaignId) {
+    if (!open || !selectedCampaignId || !organizationId) {
       setCampaignRow(null);
       setDomainByType({});
+      setDomains([]);
       return;
     }
     let cancelled = false;
@@ -170,6 +171,7 @@ export function ConfigureCampaignLinksModal({
           id,
           campaign_name,
           organization_id,
+          root_domain,
           landing_page_url,
           newsletter_url,
           consultation_booking_url,
@@ -189,30 +191,87 @@ export function ConfigureCampaignLinksModal({
         setError(qErr.message);
         setCampaignRow(null);
         setDomainByType({});
+        setDomains([]);
         return;
       }
       setCampaignRow(data);
-      setDomainByType(domainMapFromCampaignRow(data));
+
+      // Eligible hosts: same org + same Campaign root only.
+      // root_domain NULL → VSTRK only (empty branded list).
+      const root = (data?.root_domain as string | null)?.trim() || null;
+      if (!root) {
+        setDomains([]);
+        // Force VSTRK for all link types when campaign has no root
+        const cleared: Partial<Record<CampaignLinkTypeKey, string | null>> = {};
+        for (const k of ALL_KEYS) cleared[k] = null;
+        setDomainByType(cleared);
+        return;
+      }
+
+      const fromRow = domainMapFromCampaignRow(data);
+      try {
+        const eligible = await listVerifiedBrandedDomainsForCampaign(
+          organizationId,
+          selectedCampaignId
+        );
+        if (cancelled) return;
+        setDomains(eligible);
+        const eligibleIds = new Set(eligible.map(d => d.id));
+        // Keep saved selections only if still eligible under this Campaign root
+        const next: Partial<Record<CampaignLinkTypeKey, string | null>> = {
+          ...fromRow,
+        };
+        for (const k of ALL_KEYS) {
+          const id = next[k];
+          if (id && !eligibleIds.has(id)) next[k] = null;
+        }
+        setDomainByType(next);
+      } catch (e: any) {
+        if (!cancelled) {
+          console.error('[ConfigureCampaignLinksModal] eligible domains:', e);
+          setDomains([]);
+          setDomainByType(fromRow);
+        }
+      }
     })();
     return () => {
       cancelled = true;
     };
-  }, [open, selectedCampaignId]);
+  }, [open, selectedCampaignId, organizationId]);
 
   if (!open) return null;
 
   const types = availableCampaignLinkTypes(campaignRow);
+  const campaignHasRoot = !!(
+    campaignRow && String(campaignRow.root_domain || '').trim()
+  );
 
   const handleSave = async () => {
     if (!selectedCampaignId) return;
     setSaving(true);
     setError(null);
     try {
+      // Fail-closed: non-null domain ids must be in the eligible pool for this Campaign.
+      const eligibleIds = new Set(domains.map(d => d.id));
+      const normalized: Record<CampaignLinkTypeKey, string | null> = {
+        landing_page: domainByType.landing_page ?? null,
+        newsletter: domainByType.newsletter ?? null,
+        consultation: domainByType.consultation ?? null,
+        sales_call: domainByType.sales_call ?? null,
+      };
+      for (const k of ALL_KEYS) {
+        const id = normalized[k];
+        if (id && !eligibleIds.has(id)) {
+          throw new Error(
+            'Selected tracking domain is not eligible for this Campaign root. Choose VSTRK or a hostname under this Campaign root only.'
+          );
+        }
+      }
       const payload: Record<string, string | null> = {
-        landing_page_tracking_domain_id: domainByType.landing_page ?? null,
-        newsletter_tracking_domain_id: domainByType.newsletter ?? null,
-        consultation_tracking_domain_id: domainByType.consultation ?? null,
-        sales_call_tracking_domain_id: domainByType.sales_call ?? null,
+        landing_page_tracking_domain_id: normalized.landing_page,
+        newsletter_tracking_domain_id: normalized.newsletter,
+        consultation_tracking_domain_id: normalized.consultation,
+        sales_call_tracking_domain_id: normalized.sales_call,
       };
       const { error: upErr } = await supabase
         .from('campaigns')
@@ -240,7 +299,8 @@ export function ConfigureCampaignLinksModal({
         </p>
         <p className="text-xs text-zinc-400">
           Map each link type to a tracking domain. Saved on this Campaign for
-          everyone who generates links (including Creative marketers).
+          everyone who generates links (including Creative marketers). Only
+          hostnames under this Campaign&apos;s root domain are listed.
         </p>
 
         <div className="space-y-1">
@@ -296,6 +356,12 @@ export function ConfigureCampaignLinksModal({
                 </select>
               </div>
             ))}
+            {types.length > 0 && !campaignHasRoot && (
+              <p className="text-[11px] text-zinc-500">
+                This Campaign has no root_domain. Only VSTRK is available until a
+                Campaign tracking root is set.
+              </p>
+            )}
             {types.length === 0 && selectedCampaignId && (
               <p className="text-xs text-zinc-500">
                 No campaign URLs configured for this campaign.
