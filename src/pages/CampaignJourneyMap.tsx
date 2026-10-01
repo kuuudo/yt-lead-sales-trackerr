@@ -331,6 +331,137 @@ function itemsForNode(node: TreeNode): PanelItem[] {
     .map((n) => ({ id: n.id, label: n.label, kind: n.kind, color: n.color, thumbnailUrl: n.thumbnailUrl ?? null }))
 }
 
+// ─── Slice C: selection chips + node highlights ─────────────────────────────
+// Every selected Structure node becomes a chip. A chip's "members" are the
+// video ids behind that node (month -> its videos/assets, marketer -> its
+// promotions' assets, ...). Active chips highlight the journey-graph nodes
+// they contain; everything else dims. Toggling a chip off only affects the
+// highlight — it never removes a selection or an already-discovered journey.
+
+interface NodeHighlight {
+  colors: string[]
+  labels: string[]
+}
+
+interface SelectionChip {
+  id: string // = the Structure node id
+  label: string
+  branch: PanelBranchId
+  color: string
+  /** members that are nodes of the current journey graph */
+  countInGraph: number
+  /** distinct videos behind this selection (assets resolved via videos.asset_id) */
+  totalCount: number
+}
+
+/** Fallback branch lookup by id prefix (used only if the node is not in panelTree). */
+function chipBranchOf(id: string): PanelBranchId | null {
+  if (id.startsWith('content_')) return 'content'
+  if (id.startsWith('own_assets_') || id.startsWith('own_asset_')) return 'own_assets'
+  if (id.startsWith('marketer_') || id.startsWith('promotion_')) return 'marketers'
+  return null
+}
+
+const UUID_TAIL = /([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})$/i
+
+type LeafRef = { type: 'video' | 'asset'; id: string }
+
+/** A video/asset leaf -> the raw id the journey engine understands. */
+function leafRefOf(n: TreeNode): LeafRef | null {
+  if (n.kind !== 'video' && n.kind !== 'asset') return null
+  if (n.id.startsWith('content_video_')) return { type: 'video', id: n.id.slice('content_video_'.length) }
+  if (n.id.startsWith('own_asset_')) return { type: 'asset', id: n.id.slice('own_asset_'.length) }
+  const m = n.id.match(UUID_TAIL) // e.g. an asset under a promotion
+  return m ? { type: n.kind === 'video' ? 'video' : 'asset', id: m[1] } : null
+}
+
+function collectLeafRefs(node: TreeNode, out: LeafRef[] = []): LeafRef[] {
+  if (node.isShowMore) return out
+  const ref = leafRefOf(node)
+  if (ref) out.push(ref)
+  node.children?.forEach((c) => collectLeafRefs(c, out))
+  return out
+}
+
+/** Screen-space chip row (not zoomed with the canvas, so it stays readable). */
+function JourneyChipBar({
+  presentation,
+  chips,
+  chipOff,
+  onToggleChip,
+}: {
+  presentation: 'campaign' | 'tree'
+  chips: SelectionChip[]
+  chipOff: Set<string>
+  onToggleChip: (id: string) => void
+}) {
+  if (chips.length === 0) return null
+  const dark = presentation === 'tree'
+  return (
+    <div
+      style={{
+        position: 'absolute',
+        top: 16,
+        left: 350,
+        right: 20,
+        zIndex: 4,
+        display: 'flex',
+        flexWrap: 'wrap',
+        gap: 6,
+        pointerEvents: 'none', // empty space between chips still pans the canvas
+      }}
+    >
+      {chips.map((chip) => {
+        const off = chipOff.has(chip.id)
+        return (
+          <button
+            key={chip.id}
+            type="button"
+            aria-pressed={!off}
+            title={`${chip.countInGraph} of ${chip.totalCount} video${chip.totalCount === 1 ? '' : 's'} appear in the journey graph${off ? ' (highlight off)' : ''}`}
+            onPointerDown={(e) => e.stopPropagation()}
+            onClick={() => onToggleChip(chip.id)}
+            style={{
+              pointerEvents: 'auto',
+              display: 'flex',
+              alignItems: 'center',
+              gap: 6,
+              maxWidth: 240,
+              fontSize: 11.5,
+              fontWeight: 600,
+              padding: '5px 10px',
+              borderRadius: 999,
+              cursor: 'pointer',
+              border: `1px solid ${off ? (dark ? TREE_DARK.border : '#e5e7eb') : chip.color}`,
+              background: off ? (dark ? TREE_DARK.cardBg : '#ffffff') : `${chip.color}${dark ? '24' : '14'}`,
+              color: dark ? TREE_DARK.textPrimary : '#374151',
+              opacity: off ? 0.55 : 1,
+              boxShadow: '0 1px 2px rgba(0,0,0,0.04)',
+              transition: 'opacity 150ms ease, background 150ms ease, border-color 150ms ease',
+            }}
+          >
+            <span
+              style={{
+                width: 8,
+                height: 8,
+                borderRadius: '50%',
+                flexShrink: 0,
+                boxSizing: 'border-box',
+                background: off ? 'transparent' : chip.color,
+                border: `1.5px solid ${chip.color}`,
+              }}
+            />
+            <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{chip.label}</span>
+            <span style={{ fontSize: 10.5, fontWeight: 700, flexShrink: 0, color: dark ? TREE_DARK.textFaint : '#9ca3af' }}>
+              {chip.countInGraph}/{chip.totalCount}
+            </span>
+          </button>
+        )
+      })}
+    </div>
+  )
+}
+
 // ─── Slice A: sticky journey context (engine only — no UI reads this yet) ───
 interface JourneyEnd {
   videoId: string
@@ -1134,6 +1265,7 @@ function JourneyGraphLayer({
   entryIds,
   positions,
   onClear,
+  highlights,
 }: {
   presentation: 'campaign' | 'tree'
   context: JourneyContext
@@ -1142,6 +1274,8 @@ function JourneyGraphLayer({
   entryIds: string[]
   positions: Record<string, Pt>
   onClear: () => void
+  /** videoId -> chips that contain it. Empty = nothing highlighted, nothing dimmed. */
+  highlights: Map<string, NodeHighlight>
 }) {
   if (context.status === 'idle' && !context.graph) return null
 
@@ -1152,6 +1286,8 @@ function JourneyGraphLayer({
   const pillText = dark ? TREE_DARK.textSecondary : '#6b7280'
   const entry = new Set(entryIds)
   const graph = context.graph
+  const dimming = highlights.size > 0
+  const FADE = 0.25
 
   let statusText: string
   if (context.status === 'error') statusText = `Journey error: ${context.error ?? 'unknown'}`
@@ -1238,8 +1374,12 @@ function JourneyGraphLayer({
               const isBack = scene.backEdges.has(`${e.fromVideoId}::${e.toVideoId}`)
               const label = `×${e.observedCount}`
               const pillW = 14 + label.length * 6.5
+              const faded = dimming && !(highlights.has(e.fromVideoId) && highlights.has(e.toVideoId))
               return (
-                <g key={`${e.fromVideoId}::${e.toVideoId}`}>
+                <g
+                  key={`${e.fromVideoId}::${e.toVideoId}`}
+                  style={{ opacity: faded ? FADE : 1, transition: 'opacity 150ms ease' }}
+                >
                   <path
                     d={d}
                     fill="none"
@@ -1265,8 +1405,12 @@ function JourneyGraphLayer({
               const { d, mid } = jgCurve({ x: v.x + JG_NODE_W / 2, y: v.y }, { x: o.x, y: o.y + OUTCOME_H / 2 })
               const label = `×${en.count}`
               const pillW = 14 + label.length * 6.5
+              const faded = dimming && !highlights.has(en.videoId)
               return (
-                <g key={`end:${en.videoId}::${en.outcomeId}`}>
+                <g
+                  key={`end:${en.videoId}::${en.outcomeId}`}
+                  style={{ opacity: faded ? FADE : 1, transition: 'opacity 150ms ease' }}
+                >
                   <path
                     d={d}
                     fill="none"
@@ -1286,10 +1430,12 @@ function JourneyGraphLayer({
           {scene.nodes.map((n) => {
             const isEntry = entry.has(n.videoId)
             const title = titles[n.videoId] ?? `Video ${n.videoId.slice(0, 8)}…`
+            const hl = highlights.get(n.videoId)
+            const dim = dimming && !hl
             return (
               <div
                 key={n.videoId}
-                title={`${title}\n${n.videoId}`}
+                title={`${title}\n${n.videoId}${hl ? `\nSelected via: ${hl.labels.join(', ')}` : ''}`}
                 style={{
                   position: 'absolute',
                   left: n.x,
@@ -1305,9 +1451,34 @@ function JourneyGraphLayer({
                   borderRadius: 10,
                   border: `${isEntry ? 2 : 1.5}px solid ${isEntry ? (dark ? '#818cf8' : '#6366f1') : dark ? TREE_DARK.border : '#e5e7eb'}`,
                   background: dark ? TREE_DARK.cardBgAlt : '#ffffff',
-                  boxShadow: dark ? 'none' : '0 2px 6px rgba(15,23,42,0.04)',
+                  boxShadow: hl
+                    ? hl.colors.map((c) => `0 0 10px ${c}66`).join(', ')
+                    : dark
+                    ? 'none'
+                    : '0 2px 6px rgba(15,23,42,0.04)',
+                  opacity: dim ? 0.4 : 1,
+                  transition: 'opacity 150ms ease, box-shadow 150ms ease',
                 }}
               >
+                {hl && (
+                  <div
+                    style={{
+                      position: 'absolute',
+                      left: 0,
+                      top: 0,
+                      bottom: 0,
+                      width: 4,
+                      display: 'flex',
+                      flexDirection: 'column',
+                      overflow: 'hidden',
+                      borderRadius: '8px 0 0 8px',
+                    }}
+                  >
+                    {hl.colors.map((c) => (
+                      <div key={c} style={{ flex: 1, background: c }} />
+                    ))}
+                  </div>
+                )}
                 <span
                   style={{
                     fontSize: 12,
@@ -1559,6 +1730,8 @@ export default function CampaignJourneyMap({ embedded = false, presentation = 'c
 const [journeyEntryVideoIds, setJourneyEntryVideoIds] = useState<string[]>([])
 const [journeyContext, setJourneyContext] = useState<JourneyContext>(EMPTY_JOURNEY_CONTEXT)
 const assetVideoCacheRef = useRef<Map<string, string[]>>(new Map())
+// Bumped whenever the cache above gains entries, so memos that read it recompute.
+const [assetCacheVersion, setAssetCacheVersion] = useState(0)
 
 const clearJourneyContext = useCallback(() => {
   setJourneyEntryVideoIds((prev) => (prev.length ? [] : prev))
@@ -1568,6 +1741,7 @@ const clearJourneyContext = useCallback(() => {
 useEffect(() => {
   clearJourneyContext()
   assetVideoCacheRef.current = new Map()
+  setAssetCacheVersion((v) => v + 1)
 }, [campaignId, clearJourneyContext])
 
 // selectedItems -> entry video ids (grow-only)
@@ -1598,6 +1772,7 @@ useEffect(() => {
         for (const id of uncached) {
           cache.set(id, found.get(id) ?? [])
         }
+        if (!cancelled) setAssetCacheVersion((v) => v + 1)
       }
 
       if (cancelled) return
@@ -1806,6 +1981,107 @@ useEffect(() => {
   }, [selectedItems, journeyContext.graph])
   const itemsTop =
     journeyScene && journeyScene.nodes.length > 0 ? Math.max(ITEMS_TOP, journeyScene.bottom + JG_AFTER_GAP) : ITEMS_TOP
+
+  // ── Slice C: chips (one per selected Structure node) + node highlights ──
+  const [chipOff, setChipOff] = useState<Set<string>>(new Set())
+
+  // Resolve asset leaves under ANY selected node (incl. marketer -> promotion ->
+  // asset) to video ids. Shares assetVideoCacheRef with Slice A: no duplicate lookups.
+  useEffect(() => {
+    const cache = assetVideoCacheRef.current
+    const need = new Set<string>()
+    for (const n of selectedNodes) {
+      for (const r of collectLeafRefs(n)) if (r.type === 'asset' && !cache.has(r.id)) need.add(r.id)
+    }
+    if (need.size === 0) return
+    let cancelled = false
+    ;(async () => {
+      try {
+        const found = await resolveVideoIdsForAssets(Array.from(need))
+        if (cancelled) return
+        for (const id of need) if (!cache.has(id)) cache.set(id, found.get(id) ?? [])
+        setAssetCacheVersion((v) => v + 1)
+      } catch (err) {
+        console.warn('[CJM chips] asset -> video lookup failed', err)
+      }
+    })()
+    return () => {
+      cancelled = true
+    }
+  }, [selectedNodes])
+
+  // Drop toggled-off ids whose selection no longer exists (re-selecting starts "on").
+  useEffect(() => {
+    setChipOff((prev) => {
+      if (prev.size === 0) return prev
+      const live = new Set(selectedNodes.map((n) => n.id))
+      const next = new Set(Array.from(prev).filter((id) => live.has(id)))
+      return next.size === prev.size ? prev : next
+    })
+  }, [selectedNodes])
+
+  // chip id -> distinct raw video ids behind that selection
+  const chipMembers = useMemo(() => {
+    const cache = assetVideoCacheRef.current
+    const out = new Map<string, Set<string>>()
+    for (const n of selectedNodes) {
+      const vids = new Set<string>()
+      for (const ref of collectLeafRefs(n)) {
+        if (ref.type === 'video') vids.add(ref.id)
+        else for (const v of cache.get(ref.id) ?? []) vids.add(v)
+      }
+      out.set(n.id, vids)
+    }
+    return out
+    // assetCacheVersion: the cache is a ref, this is what tells us it changed
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedNodes, assetCacheVersion])
+
+  const graphVideoIds = useMemo(
+    () => new Set((journeyContext.graph?.nodes ?? []).map((n) => n.videoId)),
+    [journeyContext.graph],
+  )
+
+  const selectionChips = useMemo<SelectionChip[]>(
+    () =>
+      selectedNodes.map((n) => {
+        const branchId =
+          PANEL_BRANCHES.find((b) => findTreeNode(panelTree[b.id], n.id))?.id ?? chipBranchOf(n.id) ?? 'content'
+        const branch = PANEL_BRANCHES.find((b) => b.id === branchId) ?? PANEL_BRANCHES[0]
+        const members = chipMembers.get(n.id) ?? new Set<string>()
+        let inGraph = 0
+        members.forEach((v) => {
+          if (graphVideoIds.has(v)) inGraph += 1
+        })
+        return { id: n.id, label: n.label, branch: branch.id, color: branch.color, countInGraph: inGraph, totalCount: members.size }
+      }),
+    [selectedNodes, panelTree, chipMembers, graphVideoIds],
+  )
+
+  // videoId -> which ACTIVE chips contain it
+  const nodeHighlights = useMemo(() => {
+    const map = new Map<string, NodeHighlight>()
+    for (const chip of selectionChips) {
+      if (chipOff.has(chip.id)) continue
+      chipMembers.get(chip.id)?.forEach((v) => {
+        if (!graphVideoIds.has(v)) return
+        const h = map.get(v) ?? { colors: [], labels: [] }
+        if (!h.colors.includes(chip.color)) h.colors.push(chip.color)
+        h.labels.push(chip.label)
+        map.set(v, h)
+      })
+    }
+    return map
+  }, [selectionChips, chipOff, chipMembers, graphVideoIds])
+
+  const handleToggleChip = useCallback((id: string) => {
+    setChipOff((prev) => {
+      const next = new Set(prev)
+      if (next.has(id)) next.delete(id)
+      else next.add(id)
+      return next
+    })
+  }, [])
 
 const [panelLarge, setPanelLarge] = useState(false)
   const [showThumbnails, setShowThumbnails] = useState(false)
@@ -2088,6 +2364,7 @@ const [panelLarge, setPanelLarge] = useState(false)
             entryIds={journeyEntryVideoIds}
             positions={positions}
             onClear={clearJourneyContext}
+            highlights={nodeHighlights}
           />
 
           <SelectedItemsLayer
@@ -2205,6 +2482,14 @@ const [panelLarge, setPanelLarge] = useState(false)
           selectedIds={selectedNodeIds}
           onNodeClick={handlePanelNodeClick}
           error={structureData.error ?? contentData.error}
+        />
+
+        {/* Slice C: one chip per selected Structure node (screen space) */}
+        <JourneyChipBar
+          presentation={presentation}
+          chips={selectionChips}
+          chipOff={chipOff}
+          onToggleChip={handleToggleChip}
         />
 
         {/* Legend */}
