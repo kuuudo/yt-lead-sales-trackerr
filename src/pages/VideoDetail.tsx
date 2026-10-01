@@ -62,6 +62,10 @@ import type { PromotionContext } from '../services/asset/resolvePromotionContext
 
 import { generateAssetRedirectLinks } from '../services/asset/generateAssetRedirectLinks';
 import { resolveUpstreamDomainForVideo } from '../lib/resolveSourceUpstreamDomain';
+import {
+  listEligibleTrackingDomainsForAssignmentAsset,
+  defaultTrackingDomainIdFromEligible,
+} from '../services/domain/listEligibleTrackingDomainsForAssignmentAsset';
 
 
 
@@ -1106,6 +1110,38 @@ if (effectiveOrgId && effectiveUserId) {
       // Promoted assets (same pipeline as Videos.tsx after createVideo)
       if (trackPromotedAssets.length > 0) {
         const cpid = (video as any).creative_promotion_id as string | null | undefined;
+        const asgId = (video as any).creative_assignment_id as string | null | undefined;
+
+        // Phase 2A: when this video has an Assignment, resolve CURRENT Campaign eligibility
+        const domainByAsset = new Map<string, string | null>(trackDomainByAssetId);
+        if (asgId) {
+          for (const asset of trackPromotedAssets) {
+            const eligible = await listEligibleTrackingDomainsForAssignmentAsset(
+              asgId,
+              asset.asset_id
+            );
+            if (eligible.mode === 'misconfigured') {
+              throw new Error(
+                'A promoted asset’s Campaign has a root domain but no verified tracking hostname. VSTRK is not allowed.'
+              );
+            }
+            const prev = domainByAsset.has(asset.asset_id)
+              ? domainByAsset.get(asset.asset_id) ?? null
+              : null;
+            if (eligible.mode === 'multi' && !prev) {
+              throw new Error(
+                'Select a tracking hostname for assets with multiple eligible Campaign domains.'
+              );
+            }
+            if (eligible.mode !== 'unauthorized') {
+              domainByAsset.set(
+                asset.asset_id,
+                defaultTrackingDomainIdFromEligible(eligible, prev)
+              );
+            }
+          }
+        }
+
         const assetsWithContext = trackPromotedAssets.map((asset) => ({
           asset_id: asset.asset_id,
           promotionContext:
@@ -1113,11 +1149,11 @@ if (effectiveOrgId && effectiveUserId) {
             (cpid
               ? ({
                   promotionId: cpid,
-                  assignmentId: (video as any).creative_assignment_id ?? null,
+                  assignmentId: asgId ?? null,
                 } as any)
               : null),
-          trackingDomainId: trackDomainByAssetId.has(asset.asset_id)
-            ? trackDomainByAssetId.get(asset.asset_id) ?? null
+          trackingDomainId: domainByAsset.has(asset.asset_id)
+            ? domainByAsset.get(asset.asset_id) ?? null
             : null,
         }));
         await generateAssetRedirectLinks({

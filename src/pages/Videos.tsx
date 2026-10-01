@@ -93,6 +93,11 @@ import {
 
 import type { PromotionContext } from '../services/asset/resolvePromotionContextForAsset';
 import { listAssignmentTrackingDomainsForCollaborator } from '../services/assignment/getAssignmentDetail';
+import {
+  listEligibleTrackingDomainsForAssignmentAsset,
+  defaultTrackingDomainIdFromEligible,
+  type EligibleTrackingResult,
+} from '../services/domain/listEligibleTrackingDomainsForAssignmentAsset';
 import { getAllowCollaboratorDomainsMap } from '../services/promotion/promotionAssetDomainPolicy';
 import { categorizeAsset } from '../services/redirect/getPromotedAssetDisplay';
 import { resolveAssetType } from '../services/asset/resolveAssetType';
@@ -723,11 +728,15 @@ const [resolvingPromotionContext, setResolvingPromotionContext] = useState(false
   const [sharedDomainsByAssignmentId, setSharedDomainsByAssignmentId] =
     useState<Map<string, VerifiedDomainOption[]>>(new Map());
   // The actual per-asset choice — this is what ends up on
-  // SelectedPromotedAsset.trackingDomainId at generate time. Either a
-  // "Your Domains" id or a "Shared Domains" id; the field doesn't care
-  // which source it came from.
+  // SelectedPromotedAsset.trackingDomainId at generate time.
+  // Phase 2A: when Assignment context exists, CURRENT Campaign eligibility
+  // (RPC) drives defaults/options — not allow_vstrk / assignment_tracking_domains.
   const [selectedAssetDomainByAssetId, setSelectedAssetDomainByAssetId] =
     useState<Map<string, string | null>>(new Map());
+  /** Phase 2A: Campaign eligibility per asset (assignment-scoped RPC). */
+  const [campaignEligibleByAssetId, setCampaignEligibleByAssetId] = useState<
+    Map<string, EligibleTrackingResult>
+  >(new Map());
   // MVP — Promotion-level "Allow collaborator domains" policy, keyed by
   // asset_id (not promotionAssetId — that's an internal detail this
   // component doesn't need). Deliberately a SEPARATE effect/cache from
@@ -789,6 +798,78 @@ const [resolvingPromotionContext, setResolvingPromotionContext] = useState(false
       });
     });
   }, [promotedAssets, promotionContextByAssetId, chosenPromotionByAssetId, sharedDomainsByAssignmentId]);
+
+  // Phase 2A: CURRENT Campaign eligibility via RPC (per assignment asset).
+  // Drives domain options + defaults for NEW links. Legacy sharedDomains
+  // remain loaded for display fallback only when RPC unauthorized.
+  useEffect(() => {
+    let cancelled = false;
+    const work: { assetId: string; assignmentId: string }[] = [];
+
+    for (const asset of promotedAssets) {
+      const assignmentId =
+        resolvedAssignmentIdForAsset(asset.asset_id) ||
+        selectedCreativeAssignmentId ||
+        null;
+      if (!assignmentId) continue;
+      work.push({ assetId: asset.asset_id, assignmentId });
+    }
+
+    // Creative-only path: promoted assets may lack promotionContext yet
+    if (work.length === 0 && selectedCreativeAssignmentId && promotedAssets.length > 0) {
+      for (const asset of promotedAssets) {
+        work.push({
+          assetId: asset.asset_id,
+          assignmentId: selectedCreativeAssignmentId,
+        });
+      }
+    }
+
+    if (work.length === 0) return;
+
+    (async () => {
+      const entries = await Promise.all(
+        work.map(async ({ assetId, assignmentId }) => {
+          const result = await listEligibleTrackingDomainsForAssignmentAsset(
+            assignmentId,
+            assetId
+          );
+          return [assetId, result] as const;
+        })
+      );
+      if (cancelled) return;
+
+      setCampaignEligibleByAssetId(prev => {
+        const next = new Map(prev);
+        for (const [assetId, result] of entries) next.set(assetId, result);
+        return next;
+      });
+
+      setSelectedAssetDomainByAssetId(prev => {
+        const next = new Map(prev);
+        for (const [assetId, result] of entries) {
+          if (result.mode === 'unauthorized') continue;
+          const prevId = next.has(assetId) ? next.get(assetId) : undefined;
+          next.set(
+            assetId,
+            defaultTrackingDomainIdFromEligible(result, prevId ?? null)
+          );
+        }
+        return next;
+      });
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+    // resolvedAssignmentIdForAsset is stable enough via promotion maps
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [
+    promotedAssets,
+    promotionContextByAssetId,
+    chosenPromotionByAssetId,
+    selectedCreativeAssignmentId,
+  ]);
 
   // MVP — independent effect, separate cache, separate data source.
   // Fetches the "Allow collaborator domains" policy per Promotion (not
@@ -2100,6 +2181,32 @@ const [resolvingPromotionContext, setResolvingPromotionContext] = useState(false
     if (isReadOnly) return;
     setSaving(true);
     try {
+      // Phase 2A: block NEW asset links when Campaign root exists but no verified host
+      // (must not fall back to VSTRK). Multi-host requires an explicit selection.
+      for (const asset of promotedAssets) {
+        const eligible = campaignEligibleByAssetId.get(asset.asset_id);
+        if (!eligible || eligible.mode === 'unauthorized') continue;
+        const chosen = selectedAssetDomainByAssetId.get(asset.asset_id) ?? null;
+        if (eligible.mode === 'misconfigured') {
+          throw new Error(
+            'A promoted asset’s Campaign has a root domain but no verified tracking hostname. Add/verify a branded domain before saving (VSTRK is not allowed).'
+          );
+        }
+        if (eligible.mode === 'multi' && !chosen) {
+          throw new Error(
+            'Select a tracking hostname for each promoted asset that has multiple eligible Campaign domains.'
+          );
+        }
+        if (
+          (eligible.mode === 'single' || eligible.mode === 'multi') &&
+          chosen &&
+          !eligible.hosts.some(h => h.id === chosen)
+        ) {
+          throw new Error(
+            'Selected tracking domain is not in the current Campaign eligible set. Re-select a domain and try again.'
+          );
+        }
+      }
 
       // ── Edit path: kept inline until updateVideo() is extracted ──────────
       if (editingVideoId) {
@@ -2995,9 +3102,15 @@ console.log(
                                 next.set(asset.asset_id, id);
                                 setSelectedAssetDomainByAssetId(next);
                               };
-                              const showMarketer = !!usage.allow_marketer_domain;
-                              const showSponsor = !!usage.allow_sponsor_domain;
-                              const showVstrk = !!usage.allow_vstrk_domain;
+                              const eligible = campaignEligibleByAssetId.get(asset.asset_id);
+                              const useCampaignEligible =
+                                !!eligible && eligible.mode !== 'unauthorized';
+                              // Phase 2A: VSTRK only when Campaign has no root (not allow_vstrk_domain)
+                              const showMarketer = !!usage.allow_marketer_domain && !useCampaignEligible;
+                              const showSponsor = !!usage.allow_sponsor_domain && !useCampaignEligible;
+                              const showVstrk = useCampaignEligible
+                                ? eligible!.mode === 'vstrk'
+                                : !!usage.allow_vstrk_domain;
                               const marketerSelected =
                                 currentDomainId &&
                                 marketerVerifiedDomains.some(d => d.id === currentDomainId)
@@ -3030,7 +3143,45 @@ console.log(
                                   <div className="space-y-2">
                                     <p className="text-[9px] font-bold uppercase tracking-widest text-zinc-500 pt-1">
                                       Tracking Domain
+                                      {useCampaignEligible && eligible?.rootDomain
+                                        ? ` · ${eligible.rootDomain}`
+                                        : useCampaignEligible && eligible?.mode === 'vstrk'
+                                          ? ' · VSTRK'
+                                          : ''}
                                     </p>
+                                    {eligible?.mode === 'misconfigured' && (
+                                      <p className="text-[10px] text-amber-400">
+                                        Campaign root is set but no verified hostname exists. Cannot use VSTRK; add a verified domain first.
+                                      </p>
+                                    )}
+                                    {useCampaignEligible &&
+                                      (eligible!.mode === 'single' ||
+                                        eligible!.mode === 'multi') && (
+                                        <select
+                                          value={currentDomainId ?? ''}
+                                          onChange={e => setDomain(e.target.value || null)}
+                                          className="w-full bg-zinc-950 border border-zinc-800 rounded-xl px-3 py-2 text-xs text-zinc-100"
+                                        >
+                                          {eligible!.mode === 'multi' && (
+                                            <option value="" disabled>
+                                              Select tracking hostname
+                                            </option>
+                                          )}
+                                          {eligible!.hosts.map(d => {
+                                            const allowed = isHostnameAllowedByJourneyBudget(
+                                              asset.asset_id,
+                                              d.hostname
+                                            );
+                                            return (
+                                              <option key={d.id} value={d.id} disabled={!allowed}>
+                                                {allowed
+                                                  ? d.hostname
+                                                  : `${d.hostname} — would create a 3rd root domain`}
+                                              </option>
+                                            );
+                                          })}
+                                        </select>
+                                      )}
                                     {showMarketer && (
                                       <div className="space-y-1">
                                         <p className="text-[9px] font-bold uppercase tracking-widest text-zinc-500">
@@ -3181,14 +3332,19 @@ console.log(
                                 </div>
                               );
                             }
-                            // MY assets (no promotion context): keep legacy single domain select
-                            const assignmentId = resolvedAssignmentIdForAsset(asset.asset_id);
+                            // Domain select: Phase 2A Campaign eligibility when assignment-scoped RPC has data
+                            const assignmentId =
+                              resolvedAssignmentIdForAsset(asset.asset_id) ||
+                              selectedCreativeAssignmentId;
                             const sharedDomains = assignmentId
                               ? (sharedDomainsByAssignmentId.get(assignmentId) ?? [])
                               : [];
+                            const eligible = campaignEligibleByAssetId.get(asset.asset_id);
                             const currentValue = selectedAssetDomainByAssetId.get(asset.asset_id) ?? '';
                             const allowCollaboratorDomains =
                               allowCollaboratorDomainsByAssetId.get(asset.asset_id) ?? true;
+                            const useCampaignEligible =
+                              !!eligible && eligible.mode !== 'unauthorized';
                             return (
                               <div key={asset.asset_id} className="pl-1 space-y-1" data-tutorial-id="videos-asset-shared-domain">
                                 <div className="flex items-start justify-between gap-2">
@@ -3206,7 +3362,17 @@ console.log(
                                 </div>
                                 <p className="text-[9px] font-bold uppercase tracking-widest text-zinc-500">
                                   Tracking Domain
+                                  {useCampaignEligible && eligible?.rootDomain
+                                    ? ` · Campaign root ${eligible.rootDomain}`
+                                    : useCampaignEligible && eligible?.mode === 'vstrk'
+                                      ? ' · VSTRK (no Campaign root)'
+                                      : ''}
                                 </p>
+                                {eligible?.mode === 'misconfigured' && (
+                                  <p className="text-[10px] text-amber-400">
+                                    Campaign has a root domain but no verified tracking hostname. Configure a verified domain before creating a branded link (VSTRK is not allowed).
+                                  </p>
+                                )}
                                 <select
                                   value={currentValue}
                                   onChange={e => {
@@ -3216,37 +3382,82 @@ console.log(
                                   }}
                                   className="w-full bg-zinc-950 border border-zinc-800 rounded-xl px-4 py-2.5 text-xs text-zinc-100 focus:outline-none focus:border-red-600"
                                 >
-                                  <option
-                                    value=""
-                                    disabled={!isHostnameAllowedByJourneyBudget(asset.asset_id, null)}
-                                  >
-                                    {isHostnameAllowedByJourneyBudget(asset.asset_id, null)
-                                      ? 'vstrk.com'
-                                      : 'vstrk.com — would create a 3rd root domain'}
-                                  </option>
-                                  {allowCollaboratorDomains && verifiedDomains.length > 0 && (
-                                    <optgroup label="Your Domains">
-                                      {verifiedDomains.map(d => {
-                                        const allowed = isHostnameAllowedByJourneyBudget(asset.asset_id, d.hostname);
-                                        return (
-                                        <option key={d.id} value={d.id} disabled={!allowed}>
-                                          {allowed ? d.hostname : `${d.hostname} — would create a 3rd root domain`}
+                                  {useCampaignEligible ? (
+                                    <>
+                                      {eligible!.mode === 'vstrk' && (
+                                        <option
+                                          value=""
+                                          disabled={!isHostnameAllowedByJourneyBudget(asset.asset_id, null)}
+                                        >
+                                          {isHostnameAllowedByJourneyBudget(asset.asset_id, null)
+                                            ? 'vstrk.com'
+                                            : 'vstrk.com — would create a 3rd root domain'}
                                         </option>
+                                      )}
+                                      {eligible!.mode === 'multi' && (
+                                        <option value="" disabled>
+                                          Select tracking hostname
+                                        </option>
+                                      )}
+                                      {eligible!.hosts.map(d => {
+                                        const allowed = isHostnameAllowedByJourneyBudget(
+                                          asset.asset_id,
+                                          d.hostname
+                                        );
+                                        return (
+                                          <option key={d.id} value={d.id} disabled={!allowed}>
+                                            {allowed
+                                              ? d.hostname
+                                              : `${d.hostname} — would create a 3rd root domain`}
+                                          </option>
                                         );
                                       })}
-                                    </optgroup>
-                                  )}
-                                  {sharedDomains.length > 0 && (
-                                    <optgroup label="Shared Domains">
-                                      {sharedDomains.map(d => {
-                                        const allowed = isHostnameAllowedByJourneyBudget(asset.asset_id, d.hostname);
-                                        return (
-                                        <option key={d.id} value={d.id} disabled={!allowed}>
-                                          {allowed ? d.hostname : `${d.hostname} — would create a 3rd root domain`}
-                                        </option>
-                                        );
-                                      })}
-                                    </optgroup>
+                                    </>
+                                  ) : (
+                                    <>
+                                      <option
+                                        value=""
+                                        disabled={!isHostnameAllowedByJourneyBudget(asset.asset_id, null)}
+                                      >
+                                        {isHostnameAllowedByJourneyBudget(asset.asset_id, null)
+                                          ? 'vstrk.com'
+                                          : 'vstrk.com — would create a 3rd root domain'}
+                                      </option>
+                                      {allowCollaboratorDomains && verifiedDomains.length > 0 && (
+                                        <optgroup label="Your Domains">
+                                          {verifiedDomains.map(d => {
+                                            const allowed = isHostnameAllowedByJourneyBudget(
+                                              asset.asset_id,
+                                              d.hostname
+                                            );
+                                            return (
+                                              <option key={d.id} value={d.id} disabled={!allowed}>
+                                                {allowed
+                                                  ? d.hostname
+                                                  : `${d.hostname} — would create a 3rd root domain`}
+                                              </option>
+                                            );
+                                          })}
+                                        </optgroup>
+                                      )}
+                                      {sharedDomains.length > 0 && (
+                                        <optgroup label="Shared Domains">
+                                          {sharedDomains.map(d => {
+                                            const allowed = isHostnameAllowedByJourneyBudget(
+                                              asset.asset_id,
+                                              d.hostname
+                                            );
+                                            return (
+                                              <option key={d.id} value={d.id} disabled={!allowed}>
+                                                {allowed
+                                                  ? d.hostname
+                                                  : `${d.hostname} — would create a 3rd root domain`}
+                                              </option>
+                                            );
+                                          })}
+                                        </optgroup>
+                                      )}
+                                    </>
                                   )}
                                 </select>
                               </div>
