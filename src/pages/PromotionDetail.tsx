@@ -77,6 +77,10 @@ import { restoreCollaborator } from '../services/assignment/restoreCollaborator'
 import { revokeAssetAccess, restoreAssetAccess } from '../services/assignment/assignmentAssetAccess';
 import { listVerifiedBrandedDomains, type VerifiedDomainOption } from '../services/domain/brandedDomains';
 import {
+  listEligibleTrackingDomainsForAssignmentAsset,
+  type EligibleTrackingResult,
+} from '../services/domain/listEligibleTrackingDomainsForAssignmentAsset';
+import {
   listAssignmentAssetDomainPolicies,
   updateAssignmentAssetDomainPolicy,
 } from '../services/assignment/updateAssignmentAssetDomainPolicy';
@@ -191,6 +195,10 @@ export default function PromotionDetail() {
       }
     >
   >({});
+  /** Phase 2A: per-asset CURRENT Campaign eligibility (read-only display). */
+  const [campaignEligibleByAssetId, setCampaignEligibleByAssetId] = useState<
+    Map<string, EligibleTrackingResult>
+  >(new Map());
   // Actual Promotion×Asset usage (promotion_assets) — display source of truth
   const [promoUsageByAssetId, setPromoUsageByAssetId] = useState<
     Record<
@@ -408,6 +416,33 @@ export default function PromotionDetail() {
       cancelled = true;
     };
   }, [detail?.assignment?.id, detail?.promotion?.id, detail?.assets?.length]);
+
+  // Phase 2A: read-only CURRENT Campaign eligibility per promoted asset
+  useEffect(() => {
+    const assignmentId = detail?.assignment?.id;
+    const assetList = detail?.assets;
+    if (!assignmentId || !assetList?.length) {
+      setCampaignEligibleByAssetId(new Map());
+      return;
+    }
+    let cancelled = false;
+    (async () => {
+      const entries = await Promise.all(
+        assetList.map(async a => {
+          const result = await listEligibleTrackingDomainsForAssignmentAsset(
+            assignmentId,
+            a.assetId
+          );
+          return [a.assetId, result] as const;
+        })
+      );
+      if (cancelled) return;
+      setCampaignEligibleByAssetId(new Map(entries));
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [detail?.assignment?.id, detail?.assets]);
 
   useEffect(() => {
     if (!isSponsor || !detail?.promotion?.organization_id) return;
@@ -933,30 +968,22 @@ export default function PromotionDetail() {
     }
   };
 
-  /** Confirm: upsert assignment_assets Path B flags, then add promotion_assets. */
+  /** Confirm: ensure assignment_assets row exists, then add promotion_assets.
+   *  Phase 2A: no Path B domain checkboxes — domain authority is Campaign (NEW links).
+   *  Legacy allow_* columns still written as false/null for DB compatibility. */
   const confirmPendingAddAssets = async () => {
     if (!detail?.assignment?.id || !detail.promotion?.id || pendingAddAssets.length === 0) return;
     setAddAssetError(null);
-    for (const a of pendingAddAssets) {
-      const p = pendingAddPerms.get(a.assetId) ?? DEFAULT_PENDING_PERM;
-      if (p.allowSponsorDomain && !p.selectedSponsorDomainId) {
-        setAddAssetError(
-          `Select a Sponsor tracking domain for "${a.title}" or uncheck Sponsor's tracking domain.`
-        );
-        return;
-      }
-    }
     setAddingAsset(true);
     try {
       const assignmentId = detail.assignment.id;
       const promotionId = detail.promotion.id;
       for (const a of pendingAddAssets) {
-        const p = pendingAddPerms.get(a.assetId) ?? DEFAULT_PENDING_PERM;
         const payload = {
-          allow_marketer_domain: p.allowMarketerDomain,
-          allow_sponsor_domain: p.allowSponsorDomain,
-          allow_vstrk_domain: p.allowVstrkDomain,
-          selected_sponsor_domain_id: p.allowSponsorDomain ? p.selectedSponsorDomainId : null,
+          allow_marketer_domain: false,
+          allow_sponsor_domain: false,
+          allow_vstrk_domain: false,
+          selected_sponsor_domain_id: null as string | null,
         };
         const { data: existingAa } = await supabase
           .from('assignment_assets')
@@ -1426,14 +1453,6 @@ export default function PromotionDetail() {
                 {assets.map(a => {
                   const thumbnailSrc = resolveThumbnailSrc(a.resource);
                   const title = a.resource?.title || 'Untitled Asset';
-                  const isPolicyBusy = domainPolicyActionId === a.promotionAssetId;
-                  const pathB = pathBByAssetId[a.assetId] || {
-                    allow_marketer_domain: false,
-                    allow_sponsor_domain: false,
-                    allow_vstrk_domain: false,
-                    selected_sponsor_domain_id: null as string | null,
-                  };
-                  const pathBBusy = pathBActionKey?.startsWith(a.assetId + ':') ?? false;
                   const revoking = promoAssetRevokeId === a.promotionAssetId;
                   return (
                     <div
@@ -1459,256 +1478,85 @@ export default function PromotionDetail() {
                         </Link>
                       </div>
 
-                      {/* Tracking domain access — allow_* checkboxes + locked domain selection rules */}
+                      {/* Phase 2A: read-only CURRENT Campaign domain status (not Path B authority) */}
                       <div className="border-t border-zinc-800 pt-3 space-y-2 shrink-0 overflow-visible">
                         <p className="text-[9px] font-black uppercase tracking-widest text-zinc-500">
-                          Tracking domain access
+                          Current Tracking Domain
                         </p>
-                        {isSponsor && assignment ? (
-                          <div className="space-y-2 shrink-0 overflow-visible">
-                            {/* Marketer: allow_* + select from domains already used on this Promotion → promotion_assets */}
-                            {SHOW_MARKETER_DOMAIN && (
-                              <div className="space-y-1.5 shrink-0 overflow-visible">
-                                <label className="flex items-center gap-2 text-[11px] text-zinc-300 cursor-pointer select-none">
-                                <input
-                                  type="checkbox"
-                                  className="accent-orange-500 shrink-0"
-                                  checked={!!pathB.allow_marketer_domain}
-                                  disabled={pathBBusy}
-                                  onChange={e =>
-                                    handlePathBChange(a.assetId, {
-                                      allow_marketer_domain: e.target.checked,
-                                    })
-                                  }
-                                />
-                                Marketer&apos;s tracking domain
-                                {pathB.allow_marketer_domain &&
-                                  !promoUsageByAssetId[a.assetId]?.selected_marketer_domain_id && (
-                                  <span
-                                    className="ml-1 inline-flex items-center justify-center w-4 h-4 rounded-full bg-orange-500 text-[10px] font-black text-black"
-                                    title="No marketer domain selected yet"
-                                  >
-                                    !
-                                  </span>
-                                )}
-                              </label>
-                              {pathB.allow_marketer_domain && (
-                                promotionMarketerDomainOptions.length > 0 ? (
-                                  <select
-                                    className="w-full max-w-sm bg-zinc-950 border border-zinc-700 rounded-lg px-2 py-1.5 text-xs text-zinc-200"
-                                    value={
-                                      promoUsageByAssetId[a.assetId]?.selected_marketer_domain_id ||
-                                      ''
-                                    }
-                                    disabled={pathBBusy}
-                                    onChange={e =>
-                                      handleSponsorSetMarketerDomain(
-                                        a.assetId,
-                                        e.target.value || null
-                                      )
-                                    }
-                                  >
-                                    <option value="">Select marketer tracking domain</option>
-                                    {promotionMarketerDomainOptions.map(d => (
-                                      <option key={d.id} value={d.id}>
-                                        {d.hostname}
-                                      </option>
-                                    ))}
-                                  </select>
-                                ) : (
-                                  <div className="space-y-1 pl-0">
-                                    <p className="text-[10px] text-zinc-500">
-                                      No domain — marketer has not selected a tracking domain on this promotion yet.
-                                    </p>
-                                    <button
-                                      type="button"
-                                      className="inline-flex items-center gap-1.5 text-[10px] font-bold uppercase tracking-wider text-orange-400 hover:text-orange-300"
-                                      onClick={() =>
-                                        setPathBError(
-                                          'Reminder: ask the marketer to open this Promotion and choose their tracking domain for this asset.'
-                                        )
-                                      }
-                                    >
-                                      <span className="inline-flex items-center justify-center w-4 h-4 rounded-full bg-orange-500 text-[10px] font-black text-black">
-                                        !
-                                      </span>
-                                      Send reminder to marketer to add a tracking domain
-                                    </button>
-                                  </div>
-                                )
-                              )}
-                            </div>
-                            )}
-
-                            {/* Sponsor domain: allow_* + read-only hostname (chosen at Assignment / Start Promoting) */}
-                            <div className="space-y-1 shrink-0">
-                              <label className="flex items-center gap-2 text-[11px] text-zinc-300 cursor-pointer select-none">
-                                <input
-                                  type="checkbox"
-                                  className="accent-orange-500 shrink-0"
-                                  checked={!!pathB.allow_sponsor_domain}
-                                  disabled={pathBBusy}
-                                  onChange={e =>
-                                    handlePathBChange(a.assetId, {
-                                      allow_sponsor_domain: e.target.checked,
-                                      selected_sponsor_domain_id: e.target.checked
-                                        ? pathB.selected_sponsor_domain_id
-                                        : null,
-                                    })
-                                  }
-                                />
-                                Sponsor&apos;s tracking domain
-                              </label>
-                              {pathB.allow_sponsor_domain && (
-                                <p className="text-[11px] text-zinc-400 pl-6">
-                                  {pathB.hostname ||
-                                    promoUsageByAssetId[a.assetId]?.sponsor_hostname ||
-                                    'No domain selected yet'}
-                                  <span className="text-zinc-600"> · read only</span>
+                        {(() => {
+                          const eligible = campaignEligibleByAssetId.get(a.assetId);
+                          if (!eligible || eligible.mode === 'unauthorized') {
+                            return (
+                              <p className="text-[11px] text-zinc-500">
+                                {assignment
+                                  ? 'Loading campaign domain status…'
+                                  : 'No assignment context — domain status unavailable.'}
+                              </p>
+                            );
+                          }
+                          if (eligible.mode === 'vstrk') {
+                            return (
+                              <p className="text-sm text-zinc-200 font-medium">VSTRK / vstrk.com</p>
+                            );
+                          }
+                          if (eligible.mode === 'misconfigured') {
+                            return (
+                              <div className="space-y-1">
+                                <p className="text-sm text-zinc-200 font-medium">
+                                  {eligible.rootDomain}
                                 </p>
-                              )}
-                            </div>
-
-                            <label className="flex items-center gap-2 text-[11px] text-zinc-300 cursor-pointer select-none">
-                              <input
-                                type="checkbox"
-                                className="accent-orange-500 shrink-0"
-                                checked={!!pathB.allow_vstrk_domain}
-                                disabled={pathBBusy}
-                                onChange={e =>
-                                  handlePathBChange(a.assetId, {
-                                    allow_vstrk_domain: e.target.checked,
-                                  })
-                                }
-                              />
-                              VSTRK tracking domain
-                            </label>
-
-                            {isSponsor && (
-                              <div className="pt-1">
-                                <button
-                                  type="button"
-                                  onClick={() =>
-                                    handleRevokePromotionAsset(a.promotionAssetId, a.assetId)
-                                  }
-                                  disabled={revoking}
-                                  className="flex items-center gap-1.5 bg-zinc-800 hover:bg-red-600 disabled:opacity-50 text-zinc-300 hover:text-white text-[10px] font-bold uppercase tracking-wider px-3 py-1.5 rounded-lg transition-colors"
-                                >
-                                  {revoking ? (
-                                    <Loader2 size={12} className="animate-spin" />
-                                  ) : (
-                                    <ShieldOff size={12} />
-                                  )}
-                                  Revoke Access
-                                </button>
+                                <p className="text-[10px] text-amber-400">
+                                  Campaign root is set but no verified tracking hostname exists.
+                                  New branded links cannot use VSTRK as a fallback.
+                                </p>
                               </div>
-                            )}
-                          </div>
-                        ) : (
-                          /* Marketer / collaborator: full org verified domains + Save → promotion_assets */
-                          <div className="space-y-2 text-[11px] text-zinc-400 shrink-0 overflow-visible">
-                            {SHOW_MARKETER_DOMAIN && (<>
-                            {pathB.allow_marketer_domain ? (
-                              <div className="space-y-1.5">
-                                <p className="text-[9px] font-black uppercase tracking-widest text-zinc-500 flex items-center gap-1.5">
-                                  Marketer&apos;s tracking domain
-                                  {!promoUsageByAssetId[a.assetId]?.selected_marketer_domain_id &&
-                                    marketerDomainDraft[a.assetId] === undefined && (
-                                    <span className="inline-flex items-center justify-center w-4 h-4 rounded-full bg-orange-500 text-[10px] font-black text-black">
-                                      !
-                                    </span>
-                                  )}
-                                </p>
-                                <select
-                                  className="w-full max-w-sm bg-zinc-950 border border-zinc-700 rounded-lg px-2 py-1.5 text-xs text-zinc-200"
-                                  value={
-                                    marketerDomainDraft[a.assetId] !== undefined
-                                      ? marketerDomainDraft[a.assetId] || ''
-                                      : promoUsageByAssetId[a.assetId]?.selected_marketer_domain_id ||
-                                        ''
-                                  }
-                                  onChange={e =>
-                                    setMarketerDomainDraft(prev => ({
-                                      ...prev,
-                                      [a.assetId]: e.target.value || null,
-                                    }))
-                                  }
-                                >
-                                  <option value="">Select your tracking domain</option>
-                                  {marketerVerifiedDomains.map(d => (
-                                    <option key={d.id} value={d.id}>
-                                      {d.hostname}
-                                    </option>
-                                  ))}
-                                </select>
-                                {marketerVerifiedDomains.length === 0 && (
-                                  <p className="text-[10px] text-zinc-500">
-                                    No verified tracking domain in your organization yet. Add one in domain settings.
+                            );
+                          }
+                          return (
+                            <div className="space-y-1">
+                              <p className="text-sm text-zinc-200 font-medium">
+                                {eligible.rootDomain}
+                              </p>
+                              {eligible.hosts.length > 0 && (
+                                <div className="space-y-0.5">
+                                  <p className="text-[9px] font-black uppercase tracking-widest text-zinc-600">
+                                    Eligible tracking domains
                                   </p>
-                                )}
-                                <button
-                                  type="button"
-                                  disabled={
-                                    marketerDomainSaveKey === a.assetId ||
-                                    marketerDomainDraft[a.assetId] === undefined
-                                  }
-                                  onClick={() =>
-                                    handleSaveMarketerDomain(a.assetId, a.promotionAssetId)
-                                  }
-                                  className="inline-flex items-center gap-1.5 bg-orange-600 hover:bg-orange-500 disabled:opacity-40 text-white text-[10px] font-bold uppercase tracking-wider px-3 py-1.5 rounded-lg"
-                                >
-                                  {marketerDomainSaveKey === a.assetId ? (
-                                    <Loader2 size={12} className="animate-spin" />
-                                  ) : null}
-                                  Save domain
-                                </button>
-                              </div>
-                            ) : (
-                              <p>Marketer domain: Off</p>
-                            )}
-                            </>
-                          )}                            
-                            <p>
-                              Sponsor:{' '}
-                              {pathB.allow_sponsor_domain
-                                ? pathB.hostname ||
-                                  promoUsageByAssetId[a.assetId]?.sponsor_hostname ||
-                                  'Allowed (read only)'
-                                : 'Off'}
-                            </p>
-                            <p>
-                              VSTRK:{' '}
-                              {pathB.allow_vstrk_domain
-                                ? promoUsageByAssetId[a.assetId]?.use_vstrk_domain
-                                  ? 'On'
-                                  : 'Allowed'
-                                : 'Off'}
-                            </p>
+                                  <ul className="text-[11px] text-zinc-400 list-disc list-inside">
+                                    {eligible.hosts.map(h => (
+                                      <li key={h.id}>{h.hostname}</li>
+                                    ))}
+                                  </ul>
+                                </div>
+                              )}
+                            </div>
+                          );
+                        })()}
+                        <p className="text-[10px] text-zinc-600">
+                          Applies to NEW tracking links only. Existing links are unchanged.
+                        </p>
+                        {isSponsor && (
+                          <div className="pt-1">
+                            <button
+                              type="button"
+                              onClick={() =>
+                                handleRevokePromotionAsset(a.promotionAssetId, a.assetId)
+                              }
+                              disabled={revoking}
+                              className="flex items-center gap-1.5 bg-zinc-800 hover:bg-red-600 disabled:opacity-50 text-zinc-300 hover:text-white text-[10px] font-bold uppercase tracking-wider px-3 py-1.5 rounded-lg transition-colors"
+                            >
+                              {revoking ? (
+                                <Loader2 size={12} className="animate-spin" />
+                              ) : (
+                                <ShieldOff size={12} />
+                              )}
+                              Revoke Access
+                            </button>
                           </div>
                         )}
                       </div>
 
-                      {!isRemovedSelf && isSponsor && collaborator && collaborator.status === 'active' && (
-                        <label
-                          data-tutorial-id="promotion-allow-collaborator-domains"
-                          className="flex items-center gap-1.5 text-[9px] font-bold uppercase tracking-widest text-zinc-500 shrink-0 cursor-pointer select-none border-t border-zinc-800 pt-2"
-                        >
-                          <input
-                            type="checkbox"
-                            checked={a.allowCollaboratorDomains}
-                            disabled={isPolicyBusy}
-                            onChange={() =>
-                              handleToggleAllowCollaboratorDomains(
-                                a.promotionAssetId,
-                                !a.allowCollaboratorDomains
-                              )
-                            }
-                            className="accent-red-600"
-                          />
-                          {isPolicyBusy ? <Loader2 size={10} className="animate-spin" /> : null}
-                          Allow collaborator domains
-                        </label>
-                      )}
+                      {/* ALLOW COLLABORATOR DOMAINS — UI hidden (Phase 2A). Handler + DB column retained. */}
                     </div>
                   );
                 })}
@@ -1772,12 +1620,13 @@ export default function PromotionDetail() {
               Pending assets — not saved yet
             </p>
             <p className="text-[10px] text-zinc-500 mt-1">
-              Configure promotion methods for each asset, then Confirm. Cancel discards only these pending rows; existing promoted assets are not removed.
+              Confirm to add these assets to the Assignment and Promotion. Domain eligibility for NEW
+              links follows the Asset&apos;s Campaign (not a manual VSTRK/Sponsor switch). Cancel
+              discards only these pending rows.
             </p>
           </div>
           <div className="flex flex-col gap-4 w-full shrink-0 overflow-visible">
             {pendingAddAssets.map(asset => {
-              const p = pendingAddPerms.get(asset.assetId) ?? DEFAULT_PENDING_PERM;
               return (
                 <div
                   key={asset.assetId}
@@ -1809,131 +1658,10 @@ export default function PromotionDetail() {
                       ×
                     </button>
                   </div>
-                  <div className="w-full shrink-0 overflow-visible space-y-2 border-t border-zinc-800 pt-3">
-                    <p className="text-[10px] font-bold uppercase tracking-widest text-zinc-500">
-                      Promotion Methods
-                    </p>
-                  {SHOW_MARKETER_DOMAIN && (
-                    <div className="space-y-1.5 shrink-0 overflow-visible">
-                      <label className="flex items-center gap-3 cursor-pointer shrink-0">
-                        <input
-                          type="checkbox"
-                          className="accent-orange-500 shrink-0"
-                          checked={p.allowMarketerDomain}
-                          disabled={addingAsset}
-                          onChange={e =>
-                            patchPendingPerm(asset.assetId, {
-                              allowMarketerDomain: e.target.checked,
-                            })
-                          }
-                        />
-                        <span className="text-sm text-zinc-200">Marketer&apos;s tracking domain</span>
-                        {p.allowMarketerDomain && !p.selectedMarketerDomainId && (
-                          <span
-                            className="ml-1 inline-flex items-center justify-center w-4 h-4 rounded-full bg-orange-500 text-[10px] font-black text-black"
-                            title="Marketer domain not set yet"
-                          >
-                            !
-                          </span>
-                        )}
-                      </label>
-                      {p.allowMarketerDomain && (
-                        promotionMarketerDomainOptions.length > 0 ? (
-                          <select
-                            className="w-full max-w-md bg-zinc-950 border border-zinc-700 rounded-lg px-2 py-1.5 text-xs text-zinc-200 ml-0 sm:ml-7"
-                            value={p.selectedMarketerDomainId ?? ''}
-                            disabled={addingAsset}
-                            onChange={e =>
-                              patchPendingPerm(asset.assetId, {
-                                selectedMarketerDomainId: e.target.value || null,
-                              })
-                            }
-                          >
-                            <option value="">Select marketer tracking domain</option>
-                            {promotionMarketerDomainOptions.map(d => (
-                              <option key={d.id} value={d.id}>
-                                {d.hostname}
-                              </option>
-                            ))}
-                          </select>
-                        ) : (
-                          <div className="ml-0 sm:ml-7 space-y-1.5">
-                            <p className="text-[11px] text-zinc-500">
-                              No domain — marketer has not selected a tracking domain on this promotion yet.
-                            </p>
-                            <button
-                              type="button"
-                              disabled={addingAsset}
-                              onClick={() =>
-                                setAddAssetError(
-                                  'Reminder: ask the marketer to open this Promotion and choose their tracking domain for this asset.'
-                                )
-                              }
-                              className="inline-flex items-center gap-1.5 text-[10px] font-bold uppercase tracking-wider text-orange-400 hover:text-orange-300"
-                            >
-                              <span className="inline-flex items-center justify-center w-4 h-4 rounded-full bg-orange-500 text-[10px] font-black text-black">
-                                !
-                              </span>
-                              Send reminder to marketer to add a tracking domain
-                            </button>
-                          </div>
-                        )
-                      )}
-                    </div>
-                    )}
-                    <div className="space-y-1.5 shrink-0 overflow-visible">
-                      <label className="flex items-center gap-3 cursor-pointer">
-                        <input
-                          type="checkbox"
-                          className="accent-orange-500 shrink-0"
-                          checked={p.allowSponsorDomain}
-                          disabled={addingAsset}
-                          onChange={e =>
-                            patchPendingPerm(asset.assetId, {
-                              allowSponsorDomain: e.target.checked,
-                              selectedSponsorDomainId: e.target.checked
-                                ? p.selectedSponsorDomainId
-                                : null,
-                            })
-                          }
-                        />
-                        <span className="text-sm text-zinc-200">Sponsor&apos;s tracking domain</span>
-                      </label>
-                      {p.allowSponsorDomain && (
-                        <select
-                          className="w-full max-w-md bg-zinc-950 border border-zinc-700 rounded-lg px-2 py-1.5 text-xs text-zinc-200 ml-0 sm:ml-7"
-                          value={p.selectedSponsorDomainId ?? ''}
-                          disabled={addingAsset}
-                          onChange={e =>
-                            patchPendingPerm(asset.assetId, {
-                              selectedSponsorDomainId: e.target.value || null,
-                            })
-                          }
-                        >
-                          <option value="">Select Sponsor tracking domain</option>
-                          {sponsorVerifiedDomains.map(d => (
-                            <option key={d.id} value={d.id}>
-                              {d.hostname}
-                            </option>
-                          ))}
-                        </select>
-                      )}
-                    </div>
-                    <label className="flex items-center gap-3 cursor-pointer shrink-0">
-                      <input
-                        type="checkbox"
-                        className="accent-orange-500 shrink-0"
-                        checked={p.allowVstrkDomain}
-                        disabled={addingAsset}
-                        onChange={e =>
-                          patchPendingPerm(asset.assetId, {
-                            allowVstrkDomain: e.target.checked,
-                          })
-                        }
-                      />
-                      <span className="text-sm text-zinc-200">VSTRK tracking domain</span>
-                    </label>
-                  </div>
+                  <p className="text-[10px] text-zinc-600 border-t border-zinc-800 pt-2">
+                    Tracking domain for NEW links is determined by this asset&apos;s Campaign when a
+                    marketer creates content. Existing links are never rewritten.
+                  </p>
                 </div>
               );
             })}
