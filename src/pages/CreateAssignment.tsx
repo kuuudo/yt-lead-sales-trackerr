@@ -78,12 +78,16 @@ export default function CreateAssignment() {
     VerifiedDomainOption[]
   >([]);
   /**
-   * Per normal (non–campaign-element) asset: Sponsor domain options scoped
-   * to that Asset's Campaign root_domain. Campaign Element Assets do NOT
-   * use this map — they use Configure Campaign Links on the Black Box row.
+   * Per normal (non–campaign-element) asset: verified hostnames under the
+   * Asset's Campaign root_domain (same semantics as Phase 2A eligibility).
+   * Campaign Element Assets do NOT use this map — Configure Campaign Links.
    */
   const [normalAssetSponsorDomains, setNormalAssetSponsorDomains] = useState<
     Map<string, VerifiedDomainOption[]>
+  >(new Map());
+  /** Campaign.root_domain per normal asset; null/missing → VSTRK for NEW links. */
+  const [campaignRootByAssetId, setCampaignRootByAssetId] = useState<
+    Map<string, string | null>
   >(new Map());
 
   // PHASE 2: Regular | Creative (replaces none / campaign_asset_only / campaign_links_and_assets)
@@ -248,11 +252,12 @@ export default function CreateAssignment() {
     };
   }, [organizationId]);
 
-  // Normal Assets only: load Sponsor domains scoped to each Asset's Campaign
-  // (root_domain match). Campaign Element Assets skip this path.
+  // Normal Assets only: Asset → Campaign → root_domain + verified same-root hosts
+  // (Phase 2A eligibility semantics for display; Campaign Element Assets skip).
   useEffect(() => {
     if (!organizationId) {
       setNormalAssetSponsorDomains(new Map());
+      setCampaignRootByAssetId(new Map());
       return;
     }
     const normalIds = unifiedSelectedAssets
@@ -260,6 +265,7 @@ export default function CreateAssignment() {
       .filter(id => !publishedBlackBoxById.has(id));
     if (normalIds.length === 0) {
       setNormalAssetSponsorDomains(new Map());
+      setCampaignRootByAssetId(new Map());
       return;
     }
 
@@ -291,7 +297,21 @@ export default function CreateAssignment() {
           }
         }
 
-        // 3) campaign_assets
+        // 3) asset_resources.campaign_id (Resource assets)
+        const stillRes = normalIds.filter(id => !campaignByAsset.has(id));
+        if (stillRes.length > 0) {
+          const { data: arRows } = await supabase
+            .from('asset_resources')
+            .select('asset_id, campaign_id')
+            .in('asset_id', stillRes);
+          for (const r of arRows ?? []) {
+            if (r.asset_id && r.campaign_id) {
+              campaignByAsset.set(r.asset_id as string, r.campaign_id as string);
+            }
+          }
+        }
+
+        // 4) campaign_assets
         const still2 = normalIds.filter(id => !campaignByAsset.has(id));
         if (still2.length > 0) {
           const { data: caRows } = await supabase
@@ -307,6 +327,22 @@ export default function CreateAssignment() {
 
         const uniqueCampaignIds = Array.from(new Set(campaignByAsset.values()));
         const domainsByCampaign = new Map<string, VerifiedDomainOption[]>();
+        const rootByCampaign = new Map<string, string | null>();
+
+        if (uniqueCampaignIds.length > 0) {
+          const { data: campRows } = await supabase
+            .from('campaigns')
+            .select('id, root_domain')
+            .in('id', uniqueCampaignIds);
+          for (const c of campRows ?? []) {
+            const rd = (c.root_domain as string | null) ?? null;
+            rootByCampaign.set(
+              c.id as string,
+              rd && String(rd).trim() !== '' ? String(rd).trim() : null
+            );
+          }
+        }
+
         await Promise.all(
           uniqueCampaignIds.map(async cid => {
             const opts = await listVerifiedBrandedDomainsForCampaign(
@@ -318,15 +354,21 @@ export default function CreateAssignment() {
         );
 
         if (cancelled) return;
-        const next = new Map<string, VerifiedDomainOption[]>();
+        const nextHosts = new Map<string, VerifiedDomainOption[]>();
+        const nextRoots = new Map<string, string | null>();
         for (const assetId of normalIds) {
           const cid = campaignByAsset.get(assetId);
-          next.set(assetId, cid ? domainsByCampaign.get(cid) ?? [] : []);
+          nextHosts.set(assetId, cid ? domainsByCampaign.get(cid) ?? [] : []);
+          nextRoots.set(assetId, cid ? rootByCampaign.get(cid) ?? null : null);
         }
-        setNormalAssetSponsorDomains(next);
+        setNormalAssetSponsorDomains(nextHosts);
+        setCampaignRootByAssetId(nextRoots);
       } catch (e) {
-        console.error('Failed to load per-asset Sponsor domains', e);
-        if (!cancelled) setNormalAssetSponsorDomains(new Map());
+        console.error('Failed to load per-asset Campaign domain eligibility', e);
+        if (!cancelled) {
+          setNormalAssetSponsorDomains(new Map());
+          setCampaignRootByAssetId(new Map());
+        }
       }
     })();
 
@@ -426,20 +468,7 @@ export default function CreateAssignment() {
     }
     if (!email.trim()) return setError('Add a collaborator email');
 
-    for (const a of unifiedSelectedAssets) {
-      const p = assetPermissions.get(a.assetId) ?? DEFAULT_PERMISSIONS;
-      if (p.allowSponsorDomain && !p.selectedSponsorDomainId) {
-        const bb = publishedBlackBoxById.get(a.assetId);
-        if (bb) {
-          return setError(
-            `Campaign Element "${a.title}" has Sponsor tracking enabled but this Campaign has no Configure Campaign Links domain for ${bb.elementType}. Configure it on the Campaign first, or uncheck Sponsor's tracking domain.`
-          );
-        }
-        return setError(
-          'Select a Sponsor tracking domain for each asset with Sponsor tracking enabled'
-        );
-      }
-    }
+    // Phase 2A: no user Sponsor/VSTRK selection — do not require selectedSponsorDomainId.
 
     if (assignmentMode === 'creative' && !creativeCampaignId) {
       return setError('Creative Mode requires one Sponsor campaign');
@@ -452,16 +481,31 @@ export default function CreateAssignment() {
         createdByUserId: userId,
         title,
         description: description || null,
+        // Legacy allow_* columns: derived compatibility only — NOT CURRENT domain authority.
+        // NEW marketer link hostnames are resolved later via Phase 2A (Videos / VideoDetail).
         assetPermissions: unifiedSelectedAssets.map(a => {
-          const p = assetPermissions.get(a.assetId) ?? DEFAULT_PERMISSIONS;
+          const bb = publishedBlackBoxById.get(a.assetId);
+          if (bb) {
+            const configured = bb.configuredSponsorDomainId ?? null;
+            return {
+              assetId: a.assetId,
+              allowMarketerDomain: false,
+              allowSponsorDomain: !!configured,
+              allowVstrkDomain: !configured,
+              selectedSponsorDomainId: configured,
+            };
+          }
+          const root = campaignRootByAssetId.get(a.assetId) ?? null;
+          const hosts = normalAssetSponsorDomains.get(a.assetId) ?? [];
+          const hasRoot = !!(root && String(root).trim());
+          const hasHosts = hosts.length > 0;
           return {
             assetId: a.assetId,
-            allowMarketerDomain: p.allowMarketerDomain,
-            allowSponsorDomain: p.allowSponsorDomain,
-            allowVstrkDomain: p.allowVstrkDomain,
-            selectedSponsorDomainId: p.allowSponsorDomain
-              ? p.selectedSponsorDomainId
-              : null,
+            allowMarketerDomain: false,
+            allowSponsorDomain: hasRoot && hasHosts,
+            allowVstrkDomain: !hasRoot,
+            // Do not permanently pin a hostname at assignment create time.
+            selectedSponsorDomainId: null,
           };
         }),
         domainIds: [],
@@ -845,37 +889,28 @@ export default function CreateAssignment() {
           </div>
         )}
 
-        {/* Per-asset domain permissions */}
+        {/* Per-asset CURRENT Campaign domain status (read-only; not Path B authority) */}
         {unifiedSelectedAssets.length > 0 && (
           <div data-tutorial-id="marketplace-promotion-methods" className="mb-6 space-y-3">
             <label className="block text-[10px] font-bold uppercase tracking-widest text-zinc-500">
               Selected Assets ({unifiedSelectedAssets.length})
             </label>
+            <p className="text-[10px] text-zinc-600">
+              Tracking domain for NEW marketer links follows each asset&apos;s Campaign. Existing
+              links are never rewritten here.
+            </p>
             {unifiedSelectedAssets.map(asset => {
-              const p = assetPermissions.get(asset.assetId) ?? DEFAULT_PERMISSIONS;
               const bb = publishedBlackBoxById.get(asset.assetId);
               const fromBlackBox = Boolean(bb);
-              // Campaign Element → Configure Campaign Links for that link type
-              // Normal Asset → domains under that Asset's Campaign (root_domain)
               const elementConfiguredId = bb?.configuredSponsorDomainId ?? null;
               const elementConfiguredHostname =
                 elementConfiguredId
                   ? sponsorVerifiedDomains.find(d => d.id === elementConfiguredId)
                       ?.hostname ?? elementConfiguredId
                   : null;
-              const normalOptions =
+              const normalHosts =
                 normalAssetSponsorDomains.get(asset.assetId) ?? [];
-              const sponsorOptions: VerifiedDomainOption[] = fromBlackBox
-                ? elementConfiguredId
-                  ? [
-                      {
-                        id: elementConfiguredId,
-                        hostname:
-                          elementConfiguredHostname || elementConfiguredId,
-                      },
-                    ]
-                  : []
-                : normalOptions;
+              const campaignRoot = campaignRootByAssetId.get(asset.assetId) ?? null;
 
               return (
                 <div
@@ -907,117 +942,65 @@ export default function CreateAssignment() {
                   </div>
 
                   <p className="text-[10px] font-bold uppercase tracking-widest text-zinc-500 mb-2">
-                    Promotion Methods
+                    Current Tracking Domain
                   </p>
-                  <div className="space-y-2">
-                                        {SHOW_MARKETER_DOMAIN && (
-                      <label className="flex items-center gap-3 cursor-pointer">
-                        <input
-                          type="checkbox"
-                          checked={p.allowMarketerDomain}
-                          onChange={e =>
-                            setAssetPermission(
-                              asset.assetId,
-                              'allowMarketerDomain',
-                              e.target.checked
-                            )
-                          }
-                          className="accent-red-600"
-                        />
-                        <span className="text-sm text-zinc-200">
-                          Marketer&apos;s tracking domain
-                        </span>
-                      </label>
-                    )}
-                    <div className="space-y-1.5">
-                      <label className="flex items-center gap-3 cursor-pointer">
-                        <input
-                          type="checkbox"
-                          checked={p.allowSponsorDomain}
-                          onChange={e =>
-                            setAssetPermission(
-                              asset.assetId,
-                              'allowSponsorDomain',
-                              e.target.checked
-                            )
-                          }
-                          className="accent-red-600"
-                        />
-                        <span className="text-sm text-zinc-200">
-                          Sponsor&apos;s tracking domain
-                        </span>
-                      </label>
-                      {p.allowSponsorDomain && (
-                        fromBlackBox ? (
-                          <div className="w-full bg-zinc-950 border border-zinc-800 rounded-lg px-3 py-2 text-xs text-zinc-100">
-                            {elementConfiguredHostname ? (
-                              <>
-                                <span className="text-zinc-200">
-                                  {elementConfiguredHostname}
-                                </span>
-                                <span className="block text-[10px] text-zinc-500 mt-0.5">
-                                  From Campaign Configure Campaign Links (
-                                  {bb?.elementType}) — read only
-                                </span>
-                              </>
-                            ) : (
-                              <div className="space-y-1.5">
-                                <span className="text-amber-400 block">
-                                  No domain configured for this link type on the
-                                  Campaign.
-                                </span>
-                                <button
-                                  type="button"
-                                  onClick={() => {
-                                    setConfigureLinksCampaignId(
-                                      bb?.campaignId ?? null
-                                    );
-                                    setShowConfigureLinksModal(true);
-                                  }}
-                                  className="text-[11px] font-bold uppercase tracking-widest text-orange-400 hover:text-orange-300 underline underline-offset-2"
-                                >
-                                  Open Configure Campaign Links →
-                                </button>
-                              </div>
-                            )}
-                          </div>
-                        ) : (
-                          <select
-                            value={p.selectedSponsorDomainId ?? ''}
-                            onChange={e =>
-                              setSelectedSponsorDomain(
-                                asset.assetId,
-                                e.target.value || null
-                              )
-                            }
-                            className="w-full bg-zinc-950 border border-zinc-800 rounded-lg px-3 py-2 text-xs text-zinc-100"
+                  {fromBlackBox ? (
+                    <div className="space-y-1.5 text-xs">
+                      {elementConfiguredHostname ? (
+                        <>
+                          <p className="text-sm text-zinc-200 font-medium">
+                            {elementConfiguredHostname}
+                          </p>
+                          <p className="text-[10px] text-zinc-500">
+                            Campaign Element · Configure Campaign Links (
+                            {bb?.elementType}) — read only
+                          </p>
+                        </>
+                      ) : (
+                        <div className="space-y-1.5">
+                          <p className="text-amber-400 text-[11px]">
+                            Needs configuration — no tracking domain for this element type on the
+                            Campaign.
+                          </p>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setConfigureLinksCampaignId(bb?.campaignId ?? null);
+                              setShowConfigureLinksModal(true);
+                            }}
+                            className="text-[11px] font-bold uppercase tracking-widest text-orange-400 hover:text-orange-300 underline underline-offset-2"
                           >
-                            <option value="">Select Sponsor tracking domain</option>
-                            {sponsorOptions.map(d => (
-                              <option key={d.id} value={d.id}>
-                                {d.hostname}
-                              </option>
-                            ))}
-                          </select>
-                        )
+                            Open Configure Campaign Links →
+                          </button>
+                        </div>
                       )}
                     </div>
-                    <label className="flex items-center gap-3 cursor-pointer">
-                      <input
-                        type="checkbox"
-                        checked={p.allowVstrkDomain}
-                        onChange={e =>
-                          setAssetPermission(
-                            asset.assetId,
-                            'allowVstrkDomain',
-                            e.target.checked
-                          )
-                        }
-                        className="accent-red-600"
-                      />
-                      <span className="text-sm text-zinc-200">VSTRK tracking domain</span>
-                    </label>
-                  </div>
+                  ) : !campaignRoot ? (
+                    <p className="text-sm text-zinc-200 font-medium">VSTRK / vstrk.com</p>
+                  ) : normalHosts.length === 0 ? (
+                    <div className="space-y-1">
+                      <p className="text-sm text-zinc-200 font-medium">{campaignRoot}</p>
+                      <p className="text-[10px] text-amber-400">
+                        Campaign root is set but no verified tracking hostname exists. New branded
+                        links cannot use VSTRK as a fallback until a domain is verified.
+                      </p>
+                    </div>
+                  ) : (
+                    <div className="space-y-1">
+                      <p className="text-sm text-zinc-200 font-medium">{campaignRoot}</p>
+                      <p className="text-[9px] font-black uppercase tracking-widest text-zinc-600">
+                        Eligible tracking domains
+                      </p>
+                      <ul className="text-[11px] text-zinc-400 list-disc list-inside">
+                        {normalHosts.map(d => (
+                          <li key={d.id}>{d.hostname}</li>
+                        ))}
+                      </ul>
+                    </div>
+                  )}
+                  <p className="text-[10px] text-zinc-600 mt-2">
+                    Applies to NEW tracking links only. Existing links are unchanged.
+                  </p>
                 </div>
               );
             })}
