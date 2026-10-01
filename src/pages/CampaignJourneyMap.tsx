@@ -63,8 +63,9 @@ import {
   applyStructureCollapse,
   type TreeNode,
 } from './CampaignStructureMap'
-import { discoverJourneysForVideos, resolveVideoIdsForAssets } from '../lib/journeyDiscovery'
+import { discoverJourneysForVideos, resolveVideoIdsForAssets, type DiscoveredJourney } from '../lib/journeyDiscovery'
 import { buildJourneyGraph, type JourneyGraph } from '../lib/journeyGraph'
+import { resolveDownstreamNodes } from '../services/journey/journeyDownstreamResolver'
 // ─── Real-data hook (header name + switcher only) ───────────────────────
 // Identical to the copy in CampaignStructureMap.tsx / AllAssetsAnalytics.tsx
 // — same query, same viewer-id resolution. Not imported because it isn't
@@ -331,6 +332,19 @@ function itemsForNode(node: TreeNode): PanelItem[] {
 }
 
 // ─── Slice A: sticky journey context (engine only — no UI reads this yet) ───
+interface JourneyEnd {
+  videoId: string
+  outcomeId: string
+  count: number
+}
+
+const OUTCOME_BY_ELEMENT_TYPE: Record<string, string> = {
+  sales_call: 'sales_call',
+  landing_page: 'direct_purchase',
+  consultation: 'consultation',
+  newsletter: 'newsletter',
+}
+
 interface JourneyContext {
   status: 'idle' | 'loading' | 'ready' | 'error'
   graph: JourneyGraph | null
@@ -339,6 +353,14 @@ interface JourneyContext {
   truncated: boolean
   /** requested entry video id -> number of kept journeys containing it */
   coverage: Record<string, number>
+
+  /** Where observed journeys END: last video -> outcome node */
+  ends: JourneyEnd[]
+  /** Outcome resolution is still running / finished / failed */
+  endsStatus: 'pending' | 'ready' | 'failed'
+  /** Journey ends that did not map to one of the 4 outcome nodes */
+  endsUnmapped: number
+
   error: string | null
 }
 
@@ -349,7 +371,65 @@ const EMPTY_JOURNEY_CONTEXT: JourneyContext = {
   excludedJourneys: 0,
   truncated: false,
   coverage: {},
+  ends: [],
+  endsStatus: 'pending',
+  endsUnmapped: 0,
   error: null,
+}
+
+/** Resolve where each kept journey ENDS, with the EXISTING resolver, the same
+ *  way downstreamForRow.ts does: take every journey's own terminal step
+ *  (destinationVideoId === null, per journey.ts TERMINAL SEMANTICS) and resolve
+ *  it on a fabricated terminal-only graph. Resolving per journey (not on the
+ *  merged graph) means a video that is terminal in one journey but mid-path in
+ *  another still gets its end resolved where it actually ends. */
+async function resolveJourneyEnds(journeys: DiscoveredJourney[]): Promise<{ ends: JourneyEnd[]; unmapped: number }> {
+  const tally = new Map<string, { videoId: string; redirectLinkId: string; count: number }>()
+  for (const j of journeys) {
+    const last = j.path.steps[j.path.steps.length - 1]
+    if (!last || last.destinationVideoId !== null || !last.redirectLinkId) continue
+    const key = `${last.videoId}::${last.redirectLinkId}`
+    const t = tally.get(key)
+    if (t) t.count += 1
+    else tally.set(key, { videoId: last.videoId, redirectLinkId: last.redirectLinkId, count: 1 })
+  }
+  if (tally.size === 0) return { ends: [], unmapped: 0 }
+
+  const linksByVideo = new Map<string, string[]>()
+  for (const t of tally.values()) {
+    const list = linksByVideo.get(t.videoId)
+    if (list) list.push(t.redirectLinkId)
+    else linksByVideo.set(t.videoId, [t.redirectLinkId])
+  }
+  const terminalGraph: JourneyGraph = {
+    nodes: Array.from(linksByVideo, ([videoId, links]) => ({
+      videoId,
+      observedAssetIds: [],
+      observedRedirectLinkIds: links,
+    })),
+    edges: [],
+  }
+  const resolution = await resolveDownstreamNodes(terminalGraph)
+
+  const outcomeByLink = new Map<string, string | null>()
+  for (const n of resolution.nodes) {
+    outcomeByLink.set(n.redirectLinkId, n.elementType ? OUTCOME_BY_ELEMENT_TYPE[n.elementType] ?? null : null)
+  }
+
+  const merged = new Map<string, JourneyEnd>()
+  let unmapped = 0
+  for (const t of tally.values()) {
+    const outcomeId = outcomeByLink.get(t.redirectLinkId)
+    if (!outcomeId) {
+      unmapped += t.count
+      continue
+    }
+    const key = `${t.videoId}::${outcomeId}`
+    const prev = merged.get(key)
+    if (prev) prev.count += t.count
+    else merged.set(key, { videoId: t.videoId, outcomeId, count: t.count })
+  }
+  return { ends: Array.from(merged.values()), unmapped }
 }
 
 type LaidOut = ReturnType<typeof layoutTree>
@@ -831,22 +911,32 @@ function MiniStructureMap({
   )
 }
 
-// ─── Slice B: journey graph rendering ───────────────────────────────────────
+// ─── Slice B2: journey scene (videos connected to each other AND to outcomes) ──
 // Renders journeyContext.graph (the existing JourneyGraph from buildJourneyGraph)
 // as-is: one card per GraphNode, one arrow per GraphEdge, label = observedCount.
+// New in B2: every connected group of videos is placed UNDER THE OUTCOME COLUMN
+// its journeys end in, and the last video is connected up into that outcome node
+// (Sales Call / Direct Purchase / Consultation / Newsletter) using `ends`.
+//
 // Layout is LOCAL and deliberately small (no shared/exported layout code):
-//   1. drop DFS back-edges (loops) so the rest is a DAG,
-//   2. longest-path layering, so a fan-in node sits BELOW all of its sources
-//      (never beside/before a source) and merged journeys line up,
-//   3. result-oriented flow like the rest of this map: journey START at the
-//      bottom, journey END at the top, arrows point up toward the result.
-// Placed in free canvas space to the right of the hub group + Phase 1 cards.
-const JG_LEFT = 1700
-const JG_TOP = 470
+//   1. split the graph into connected groups,
+//   2. per group: drop DFS back-edges (loops), then longest-path layering so a
+//      fan-in node sits ABOVE all of its sources,
+//   3. result-oriented flow like the rest of this map: journey END at the top
+//      (nearest the outcome row), journey START at the bottom, arrows point up,
+//   4. groups are centered under the outcome column(s) they end in; groups with
+//      no resolved outcome are packed to the right. Packing never overlaps.
+// Outcome columns use their DEFAULT x (stable layout); the connectors read the
+// LIVE `positions`, so dragging an outcome node drags its connectors with it.
 const JG_NODE_W = 190
 const JG_NODE_H = 56
 const JG_GAP_X = 40
 const JG_GAP_Y = 76
+const JG_COMP_GAP = 70 // horizontal gap between separate connected groups
+const JG_TOP = 1190 // canvas y of the top journey row (outcome row ends ~1109)
+const JG_AFTER_GAP = 96 // gap between the journey area and the Phase 1 cards below it
+const JG_FIRST_COL_LEFT = HUB_X - ((CAMPAIGN_PATHS.length - 1) / 2) * COLUMN_SPACING - OUTCOME_W / 2 // left edge of the first outcome node (labels)
+const JG_MIN_LEFT = HUB_X - ((CAMPAIGN_PATHS.length - 1) / 2) * COLUMN_SPACING - JG_NODE_W / 2 // leftmost a card may start: a lone card still centers under column 0
 
 interface JgNode {
   videoId: string
@@ -854,17 +944,31 @@ interface JgNode {
   x: number
   y: number
 }
-interface JgLayout {
-  nodes: JgNode[]
+interface JgLocalLayout {
+  nodes: JgNode[] // x/y relative to the group's own top-left
+  backEdges: Set<string>
+  width: number
+  height: number
+}
+interface JgScene {
+  nodes: JgNode[] // absolute canvas coordinates
   byId: Map<string, JgNode>
   backEdges: Set<string>
+  bottom: number
 }
 
-function layoutJourneyGraph(graph: JourneyGraph): JgLayout {
-  const ids = graph.nodes.map((n) => n.videoId)
+/** Default x of an outcome node's center (what buildLayout() gives it). */
+function defaultOutcomeX(outcomeId: string): number | null {
+  const p = CAMPAIGN_PATHS.find((c) => c.outcomes[0].id === outcomeId)
+  return p ? HUB_X + (p.column - (CAMPAIGN_PATHS.length - 1) / 2) * COLUMN_SPACING : null
+}
+
+/** Layered layout of ONE connected group. Top row (y = 0) = deepest layer = journey end. */
+function layoutJourneyGroup(nodesIn: JourneyGraph['nodes'], edgesIn: JourneyGraph['edges']): JgLocalLayout {
+  const ids = nodesIn.map((n) => n.videoId)
   const out = new Map<string, string[]>(ids.map((id) => [id, []]))
   const hasIncoming = new Set<string>()
-  for (const e of graph.edges) {
+  for (const e of edgesIn) {
     if (e.fromVideoId === e.toVideoId) continue
     const list = out.get(e.fromVideoId)
     if (!list || !out.has(e.toVideoId)) continue
@@ -872,7 +976,7 @@ function layoutJourneyGraph(graph: JourneyGraph): JgLayout {
     hasIncoming.add(e.toVideoId)
   }
 
-  // 1. back edges (loops) via DFS from the roots first
+  // 1. back edges (loops) via DFS, roots first
   const state = new Map<string, 1 | 2>()
   const backEdges = new Set<string>()
   const visit = (u: string) => {
@@ -904,7 +1008,7 @@ function layoutJourneyGraph(graph: JourneyGraph): JgLayout {
     }
   }
 
-  // 3. rows: layer 0 at the bottom, deepest layer at the top; each row centered
+  // 3. rows: deepest layer at the top (y = 0); each row centered
   const rows = new Map<number, string[]>()
   for (const id of ids) {
     const l = layer.get(id) ?? 0
@@ -914,81 +1018,138 @@ function layoutJourneyGraph(graph: JourneyGraph): JgLayout {
   }
   const maxLayer = Math.max(0, ...Array.from(rows.keys()))
   const maxCount = Math.max(1, ...Array.from(rows.values(), (r) => r.length))
-  const fullWidth = maxCount * JG_NODE_W + (maxCount - 1) * JG_GAP_X
+  const width = maxCount * JG_NODE_W + (maxCount - 1) * JG_GAP_X
   const nodes: JgNode[] = []
   for (const [l, row] of rows) {
     const rowWidth = row.length * JG_NODE_W + (row.length - 1) * JG_GAP_X
-    const x0 = JG_LEFT + (fullWidth - rowWidth) / 2
+    const x0 = (width - rowWidth) / 2
     row.forEach((videoId, i) => {
-      nodes.push({
-        videoId,
-        layer: l,
-        x: x0 + i * (JG_NODE_W + JG_GAP_X),
-        y: JG_TOP + (maxLayer - l) * (JG_NODE_H + JG_GAP_Y),
-      })
+      nodes.push({ videoId, layer: l, x: x0 + i * (JG_NODE_W + JG_GAP_X), y: (maxLayer - l) * (JG_NODE_H + JG_GAP_Y) })
     })
   }
-  return { nodes, byId: new Map(nodes.map((n) => [n.videoId, n])), backEdges }
+  return { nodes, backEdges, width, height: (maxLayer + 1) * JG_NODE_H + maxLayer * JG_GAP_Y }
 }
 
-/** Cubic path from node `a` to node `b` + its midpoint (for the count label). */
-function jgEdgeGeometry(a: JgNode, b: JgNode): { d: string; mid: Pt } {
-  const acx = a.x + JG_NODE_W / 2
-  const bcx = b.x + JG_NODE_W / 2
-  let p0: Pt
-  let p1: Pt
-  let c1: Pt
-  let c2: Pt
-  if (b.y < a.y) {
-    // target above (normal forward flow): leave a's top, arrive at b's bottom
-    p0 = { x: acx, y: a.y }
-    p1 = { x: bcx, y: b.y + JG_NODE_H }
-    const dy = (p0.y - p1.y) / 2
-    c1 = { x: p0.x, y: p0.y - dy }
-    c2 = { x: p1.x, y: p1.y + dy }
-  } else if (b.y > a.y) {
-    // target below (loop / back edge)
-    p0 = { x: acx, y: a.y + JG_NODE_H }
-    p1 = { x: bcx, y: b.y }
-    const dy = (p1.y - p0.y) / 2
-    c1 = { x: p0.x, y: p0.y + dy }
-    c2 = { x: p1.x, y: p1.y - dy }
-  } else {
-    // same row: side to side
-    const right = bcx > acx
-    p0 = { x: right ? a.x + JG_NODE_W : a.x, y: a.y + JG_NODE_H / 2 }
-    p1 = { x: right ? b.x : b.x + JG_NODE_W, y: b.y + JG_NODE_H / 2 }
-    const dx = (p1.x - p0.x) / 2
-    c1 = { x: p0.x + dx, y: p0.y }
-    c2 = { x: p1.x - dx, y: p1.y }
+/** Whole scene: connected groups placed under the outcome column they end in. */
+function layoutJourneyScene(graph: JourneyGraph, ends: JourneyEnd[]): JgScene {
+  // connected groups (undirected)
+  const parent = new Map<string, string>(graph.nodes.map((n) => [n.videoId, n.videoId]))
+  const find = (x: string): string => {
+    let r = x
+    while (parent.get(r) !== r) r = parent.get(r) as string
+    return r
   }
+  for (const e of graph.edges) {
+    if (parent.has(e.fromVideoId) && parent.has(e.toVideoId)) parent.set(find(e.fromVideoId), find(e.toVideoId))
+  }
+  const groups = new Map<string, { nodes: JourneyGraph['nodes']; edges: JourneyGraph['edges'] }>()
+  for (const n of graph.nodes) {
+    const r = find(n.videoId)
+    const g = groups.get(r)
+    if (g) g.nodes.push(n)
+    else groups.set(r, { nodes: [n], edges: [] })
+  }
+  for (const e of graph.edges) {
+    if (!parent.has(e.fromVideoId) || !parent.has(e.toVideoId)) continue
+    groups.get(find(e.fromVideoId))?.edges.push(e)
+  }
+
+  const endsByVideo = new Map<string, JourneyEnd[]>()
+  for (const e of ends) {
+    const list = endsByVideo.get(e.videoId)
+    if (list) list.push(e)
+    else endsByVideo.set(e.videoId, [e])
+  }
+
+  const comps = Array.from(groups.values()).map((g) => {
+    const local = layoutJourneyGroup(g.nodes, g.edges)
+    const xs: number[] = []
+    for (const n of g.nodes) {
+      for (const e of endsByVideo.get(n.videoId) ?? []) {
+        const x = defaultOutcomeX(e.outcomeId)
+        if (x !== null) xs.push(x)
+      }
+    }
+    return { local, desired: xs.length > 0 ? xs.reduce((a, b) => a + b, 0) / xs.length : null }
+  })
+
+  // attached groups left-to-right by the column they end in, then the rest
+  const ordered = [
+    ...comps.filter((c) => c.desired !== null).sort((a, b) => (a.desired as number) - (b.desired as number)),
+    ...comps.filter((c) => c.desired === null),
+  ]
+  const nodes: JgNode[] = []
+  const backEdges = new Set<string>()
+  let cursor = JG_MIN_LEFT - JG_COMP_GAP
+  let bottom = JG_TOP
+  for (const c of ordered) {
+    const want = c.desired === null ? -Infinity : c.desired - c.local.width / 2
+    const left = Math.max(cursor + JG_COMP_GAP, want)
+    for (const n of c.local.nodes) nodes.push({ ...n, x: left + n.x, y: JG_TOP + n.y })
+    c.local.backEdges.forEach((k) => backEdges.add(k))
+    cursor = left + c.local.width
+    bottom = Math.max(bottom, JG_TOP + c.local.height)
+  }
+  return { nodes, byId: new Map(nodes.map((n) => [n.videoId, n])), backEdges, bottom }
+}
+
+/** Vertical S-curve p0 -> p1 (works upward or downward) + its midpoint (for the count pill). */
+function jgCurve(p0: Pt, p1: Pt): { d: string; mid: Pt } {
+  const dy = (p1.y - p0.y) / 2
+  const c1 = { x: p0.x, y: p0.y + dy }
+  const c2 = { x: p1.x, y: p1.y - dy }
   return {
     d: `M ${p0.x} ${p0.y} C ${c1.x} ${c1.y}, ${c2.x} ${c2.y}, ${p1.x} ${p1.y}`,
     mid: { x: (p0.x + 3 * c1.x + 3 * c2.x + p1.x) / 8, y: (p0.y + 3 * c1.y + 3 * c2.y + p1.y) / 8 },
   }
 }
 
-/** Slice B: draws journeyContext.graph in canvas coordinates. Not draggable,
- *  not part of `positions`. Simple styling on purpose — Slice C adds
- *  category / highlight treatment. */
+/** Video -> video connector geometry. */
+function jgEdgeGeometry(a: JgNode, b: JgNode): { d: string; mid: Pt } {
+  const acx = a.x + JG_NODE_W / 2
+  const bcx = b.x + JG_NODE_W / 2
+  if (b.y < a.y) return jgCurve({ x: acx, y: a.y }, { x: bcx, y: b.y + JG_NODE_H }) // normal: up
+  if (b.y > a.y) return jgCurve({ x: acx, y: a.y + JG_NODE_H }, { x: bcx, y: b.y }) // loop / back edge: down
+  // same row: side to side
+  const right = bcx > acx
+  const p0 = { x: right ? a.x + JG_NODE_W : a.x, y: a.y + JG_NODE_H / 2 }
+  const p1 = { x: right ? b.x : b.x + JG_NODE_W, y: b.y + JG_NODE_H / 2 }
+  const dx = (p1.x - p0.x) / 2
+  const c1 = { x: p0.x + dx, y: p0.y }
+  const c2 = { x: p1.x - dx, y: p1.y }
+  return {
+    d: `M ${p0.x} ${p0.y} C ${c1.x} ${c1.y}, ${c2.x} ${c2.y}, ${p1.x} ${p1.y}`,
+    mid: { x: (p0.x + 3 * c1.x + 3 * c2.x + p1.x) / 8, y: (p0.y + 3 * c1.y + 3 * c2.y + p1.y) / 8 },
+  }
+}
+
+/** Draws journeyContext.graph + the journey -> outcome connectors in canvas
+ *  coordinates. Not draggable, not part of `positions` (it only READS them). Simple
+ *  styling on purpose — Slice C adds category / highlight treatment. */
 function JourneyGraphLayer({
   presentation,
   context,
+  scene,
   titles,
   entryIds,
+  positions,
   onClear,
 }: {
   presentation: 'campaign' | 'tree'
   context: JourneyContext
+  scene: JgScene | null
   titles: Record<string, string>
   entryIds: string[]
+  positions: Record<string, Pt>
   onClear: () => void
 }) {
-  const layout = useMemo(() => (context.graph ? layoutJourneyGraph(context.graph) : null), [context.graph])
   if (context.status === 'idle' && !context.graph) return null
 
   const dark = presentation === 'tree'
   const edgeColor = dark ? '#525252' : '#94a3b8'
+  const pillBg = dark ? TREE_DARK.cardBg : '#ffffff'
+  const pillBorder = dark ? TREE_DARK.border : '#e5e7eb'
+  const pillText = dark ? TREE_DARK.textSecondary : '#6b7280'
   const entry = new Set(entryIds)
   const graph = context.graph
 
@@ -999,16 +1160,22 @@ function JourneyGraphLayer({
   else {
     statusText =
       `Observed journey · ${context.journeyCount} journey${context.journeyCount === 1 ? '' : 's'} · ${graph.nodes.length} video${graph.nodes.length === 1 ? '' : 's'}` +
+      (context.endsStatus === 'pending' ? ' · finding outcomes…' : '') +
+      (context.endsStatus === 'failed' ? ' · outcome lookup failed' : '') +
+      (context.endsStatus === 'ready' && context.ends.length > 0 ? ` · ${context.ends.length} outcome link${context.ends.length === 1 ? '' : 's'}` : '') +
+      (context.endsUnmapped > 0 ? ` · ${context.endsUnmapped} end${context.endsUnmapped === 1 ? '' : 's'} with no outcome node` : '') +
       (context.truncated ? ' · truncated (newest 50 journeys)' : '') +
       (context.status === 'loading' ? ' · updating…' : '')
   }
+
+  const outcomeColor = (outcomeId: string) => CAMPAIGN_PATHS.find((c) => c.outcomes[0].id === outcomeId)?.color ?? edgeColor
 
   return (
     <>
       <div
         style={{
           position: 'absolute',
-          left: JG_LEFT,
+          left: JG_FIRST_COL_LEFT,
           top: JG_TOP - 34,
           display: 'flex',
           alignItems: 'center',
@@ -1030,8 +1197,8 @@ function JourneyGraphLayer({
             padding: '2px 8px',
             borderRadius: 999,
             cursor: 'pointer',
-            border: `1px solid ${dark ? TREE_DARK.border : '#e5e7eb'}`,
-            background: dark ? TREE_DARK.cardBg : '#ffffff',
+            border: `1px solid ${pillBorder}`,
+            background: pillBg,
             color: dark ? TREE_DARK.textSecondary : '#374151',
           }}
         >
@@ -1039,20 +1206,36 @@ function JourneyGraphLayer({
         </button>
       </div>
 
-      {graph && layout && (
+      {graph && scene && (
         <>
           <svg style={{ position: 'absolute', left: 0, top: 0, width: 1, height: 1, overflow: 'visible', pointerEvents: 'none' }}>
             <defs>
               <marker id="jgArrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
                 <path d="M 0 0 L 10 5 L 0 10 z" fill={edgeColor} />
               </marker>
+              {CAMPAIGN_PATHS.map((p) => (
+                <marker
+                  key={p.outcomes[0].id}
+                  id={`jgArrow-${p.outcomes[0].id}`}
+                  viewBox="0 0 10 10"
+                  refX="9"
+                  refY="5"
+                  markerWidth="7"
+                  markerHeight="7"
+                  orient="auto-start-reverse"
+                >
+                  <path d="M 0 0 L 10 5 L 0 10 z" fill={p.color} />
+                </marker>
+              ))}
             </defs>
+
+            {/* video -> video: one arrow per GraphEdge, label = observedCount */}
             {graph.edges.map((e) => {
-              const a = layout.byId.get(e.fromVideoId)
-              const b = layout.byId.get(e.toVideoId)
+              const a = scene.byId.get(e.fromVideoId)
+              const b = scene.byId.get(e.toVideoId)
               if (!a || !b || a === b) return null
               const { d, mid } = jgEdgeGeometry(a, b)
-              const isBack = layout.backEdges.has(`${e.fromVideoId}::${e.toVideoId}`)
+              const isBack = scene.backEdges.has(`${e.fromVideoId}::${e.toVideoId}`)
               const label = `×${e.observedCount}`
               const pillW = 14 + label.length * 6.5
               return (
@@ -1065,23 +1248,34 @@ function JourneyGraphLayer({
                     strokeDasharray={isBack ? '5 4' : undefined}
                     markerEnd="url(#jgArrow)"
                   />
-                  <rect
-                    x={mid.x - pillW / 2}
-                    y={mid.y - 9}
-                    width={pillW}
-                    height={18}
-                    rx={9}
-                    fill={dark ? TREE_DARK.cardBg : '#ffffff'}
-                    stroke={dark ? TREE_DARK.border : '#e5e7eb'}
+                  <rect x={mid.x - pillW / 2} y={mid.y - 9} width={pillW} height={18} rx={9} fill={pillBg} stroke={pillBorder} />
+                  <text x={mid.x} y={mid.y + 4} textAnchor="middle" fontSize={10.5} fontWeight={700} fill={pillText}>
+                    {label}
+                  </text>
+                </g>
+              )
+            })}
+
+            {/* last video -> outcome node (reads LIVE node positions, so dragging follows) */}
+            {context.ends.map((en) => {
+              const v = scene.byId.get(en.videoId)
+              const o = positions[en.outcomeId]
+              if (!v || !o) return null
+              const color = outcomeColor(en.outcomeId)
+              const { d, mid } = jgCurve({ x: v.x + JG_NODE_W / 2, y: v.y }, { x: o.x, y: o.y + OUTCOME_H / 2 })
+              const label = `×${en.count}`
+              const pillW = 14 + label.length * 6.5
+              return (
+                <g key={`end:${en.videoId}::${en.outcomeId}`}>
+                  <path
+                    d={d}
+                    fill="none"
+                    stroke={color}
+                    strokeWidth={1.25 + Math.min(3.5, Math.log2(Math.max(1, en.count)) * 0.7)}
+                    markerEnd={`url(#jgArrow-${en.outcomeId})`}
                   />
-                  <text
-                    x={mid.x}
-                    y={mid.y + 4}
-                    textAnchor="middle"
-                    fontSize={10.5}
-                    fontWeight={700}
-                    fill={dark ? TREE_DARK.textSecondary : '#6b7280'}
-                  >
+                  <rect x={mid.x - pillW / 2} y={mid.y - 9} width={pillW} height={18} rx={9} fill={pillBg} stroke={color} />
+                  <text x={mid.x} y={mid.y + 4} textAnchor="middle" fontSize={10.5} fontWeight={700} fill={color}>
                     {label}
                   </text>
                 </g>
@@ -1089,7 +1283,7 @@ function JourneyGraphLayer({
             })}
           </svg>
 
-          {layout.nodes.map((n) => {
+          {scene.nodes.map((n) => {
             const isEntry = entry.has(n.videoId)
             const title = titles[n.videoId] ?? `Video ${n.videoId.slice(0, 8)}…`
             return (
@@ -1147,7 +1341,6 @@ function JourneyGraphLayer({
 }
 
 
-
 /** Phase 1 selected-item cards. Rendered inside the transformed canvas layer
  *  (canvas coordinates) and deliberately NOT part of `positions`/drag. */
 function SelectedItemsLayer({
@@ -1155,11 +1348,17 @@ function SelectedItemsLayer({
   label,
   items,
   showThumbnails,
+  top,
+  connectedCount,
 }: {
   presentation: 'campaign' | 'tree'
   label: string | null
   items: PanelItem[]
   showThumbnails: boolean
+  /** canvas y of the first card row (moves down when a journey is drawn above) */
+  top: number
+  /** selected items already drawn as nodes in the journey above */
+  connectedCount: number
 }) {
   if (!label) return null
   const dark = presentation === 'tree'
@@ -1171,14 +1370,15 @@ function SelectedItemsLayer({
         style={{
           position: 'absolute',
           left: left0,
-          top: ITEMS_TOP - 34,
+          top: top - 34,
           fontSize: 12,
           fontWeight: 700,
           whiteSpace: 'nowrap',
           color: dark ? TREE_DARK.textSecondary : '#6b7280',
         }}
       >
-        {label} · {items.length} item{items.length === 1 ? '' : 's'}
+        {label} · {items.length + connectedCount} item{items.length + connectedCount === 1 ? '' : 's'}
+        {connectedCount > 0 ? ` · ${connectedCount} connected in the journey above` : ''}
         {items.length > shown.length ? ` (showing first ${shown.length})` : ''}
       </div>
       {shown.map((it, i) => (
@@ -1188,7 +1388,7 @@ function SelectedItemsLayer({
           style={{
             position: 'absolute',
             left: left0 + (i % ITEMS_COLS) * ITEMS_COL_SPACING,
-            top: ITEMS_TOP + Math.floor(i / ITEMS_COLS) * ITEMS_ROW_SPACING,
+            top: top + Math.floor(i / ITEMS_COLS) * ITEMS_ROW_SPACING,
             width: OUTCOME_W,
             height: OUTCOME_H,
             boxSizing: 'border-box',
@@ -1464,8 +1664,21 @@ useEffect(() => {
         excludedJourneys: result.excludedJourneys,
         truncated: result.truncated,
         coverage: result.journeyCountByVideoId,
+        ends: [],
+        endsStatus: 'pending',
+        endsUnmapped: 0,
         error: null,
       })
+
+      // Phase 2 of loading (graph is already drawn): where do these journeys END?
+      try {
+        const { ends, unmapped } = await resolveJourneyEnds(result.journeys)
+        if (cancelled) return
+        setJourneyContext((c) => ({ ...c, ends, endsStatus: 'ready', endsUnmapped: unmapped }))
+      } catch (endErr) {
+        console.warn('[CJM journey] resolving journey ends failed', endErr)
+        if (!cancelled) setJourneyContext((c) => ({ ...c, endsStatus: 'failed' }))
+      }
     } catch (err) {
       if (!cancelled) {
         setJourneyContext((c) => ({
@@ -1507,6 +1720,7 @@ useEffect(() => {
     'entry videos with NO observed journey:',
     journeyEntryVideoIds.filter((v) => !journeyContext.coverage[v]),
   )
+  console.log('ends (last video -> outcome):', journeyContext.endsStatus, journeyContext.ends, 'unmapped:', journeyContext.endsUnmapped)
   console.log('nodes:', g.nodes.map((n) => n.videoId))
   console.log(
     'edges:',
@@ -1569,6 +1783,29 @@ useEffect(() => {
     cancelled = true
   }
 }, [journeyContext.graph])
+
+  // ── Slice B2: one scene — journey videos sit under the outcome they END in ──
+  const journeyScene = useMemo(
+    () => (journeyContext.graph ? layoutJourneyScene(journeyContext.graph, journeyContext.ends) : null),
+    [journeyContext.graph, journeyContext.ends],
+  )
+  // Phase 1 cards for videos that are now nodes of the journey are not drawn twice;
+  // selected videos with no observed journey stay as plain cards below it.
+  const { looseItems, connectedItemCount } = useMemo(() => {
+    const inGraph = new Set((journeyContext.graph?.nodes ?? []).map((n) => n.videoId))
+    if (inGraph.size === 0) return { looseItems: selectedItems, connectedItemCount: 0 }
+    const loose = selectedItems.filter((it) => {
+      if (it.id.startsWith('content_video_')) return !inGraph.has(it.id.slice('content_video_'.length))
+      if (it.id.startsWith('own_asset_')) {
+        const vids = assetVideoCacheRef.current.get(it.id.slice('own_asset_'.length)) ?? []
+        return !vids.some((v) => inGraph.has(v))
+      }
+      return true
+    })
+    return { looseItems: loose, connectedItemCount: selectedItems.length - loose.length }
+  }, [selectedItems, journeyContext.graph])
+  const itemsTop =
+    journeyScene && journeyScene.nodes.length > 0 ? Math.max(ITEMS_TOP, journeyScene.bottom + JG_AFTER_GAP) : ITEMS_TOP
 
 const [panelLarge, setPanelLarge] = useState(false)
   const [showThumbnails, setShowThumbnails] = useState(false)
@@ -1844,13 +2081,23 @@ const [panelLarge, setPanelLarge] = useState(false)
           {/* Phase 1: selected Structure items (canvas coordinates, not draggable) */}
           {/* Slice B: observed journey graph (canvas coordinates, right of the hub group) */}
 <JourneyGraphLayer
-  presentation={presentation}
-  context={journeyContext}
-  titles={journeyTitles}
-  entryIds={journeyEntryVideoIds}
-  onClear={clearJourneyContext}
-/>
-          <SelectedItemsLayer presentation={presentation} label={selectionLabel} items={selectedItems} showThumbnails={showThumbnails} />
+            presentation={presentation}
+            context={journeyContext}
+            scene={journeyScene}
+            titles={journeyTitles}
+            entryIds={journeyEntryVideoIds}
+            positions={positions}
+            onClear={clearJourneyContext}
+          />
+
+          <SelectedItemsLayer
+            presentation={presentation}
+            label={selectionLabel}
+            items={looseItems}
+            showThumbnails={showThumbnails}
+            top={itemsTop}
+            connectedCount={connectedItemCount}
+          />
 
           {/* Hub node */}
           <div

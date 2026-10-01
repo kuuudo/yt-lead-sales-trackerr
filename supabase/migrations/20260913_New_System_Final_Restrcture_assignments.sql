@@ -1333,3 +1333,210 @@ ALTER TABLE public.redirect_links
 -- Deliberately no CHECK / FK — application resolves root via
 -- campaigns.root_domain / branded_tracking_domains.root_domain /
 -- getCookieParent(); product rules land in a later step.
+
+
+-- Phase 2A MVP: Marketer (or Sponsor creator) can read CURRENT eligible
+-- tracking hostnames for an Assignment asset, without cross-org RLS blocking
+-- campaigns / branded_tracking_domains.
+--
+-- Authority: Asset → Campaign → root_domain → verified hosts (same root).
+-- root_domain IS NULL → one row with null hosts (caller treats as VSTRK).
+-- No writes. No client-supplied campaign_id. No hostname restriction.
+
+CREATE OR REPLACE FUNCTION public.list_eligible_tracking_domains_for_assignment_asset(
+  p_assignment_id uuid,
+  p_asset_id uuid
+)
+RETURNS TABLE (
+  campaign_id uuid,
+  root_domain text,
+  domain_id uuid,
+  hostname text,
+  is_system_campaign boolean
+)
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path TO 'public'
+AS $function$
+DECLARE
+  v_assignment_org uuid;
+  v_assignment_creator uuid;
+  v_is_sponsor boolean := false;
+  v_collaborator_id uuid;
+  v_campaign_id uuid;
+  v_campaign_org uuid;
+  v_root text;
+  v_is_system boolean := false;
+  v_resource_org uuid;
+BEGIN
+  IF p_assignment_id IS NULL OR p_asset_id IS NULL THEN
+    RETURN;
+  END IF;
+
+  IF auth.uid() IS NULL THEN
+    RETURN;
+  END IF;
+
+  -- Assignment must exist
+  SELECT a.organization_id, a.created_by_user_id
+  INTO v_assignment_org, v_assignment_creator
+  FROM public.assignments a
+  WHERE a.id = p_assignment_id;
+
+  IF v_assignment_org IS NULL THEN
+    RETURN;
+  END IF;
+
+  -- Auth: Sponsor (assignment creator) OR active collaborator
+  IF v_assignment_creator IS NOT DISTINCT FROM auth.uid() THEN
+    v_is_sponsor := true;
+  ELSE
+    SELECT ac.id
+    INTO v_collaborator_id
+    FROM public.assignment_collaborators ac
+    WHERE ac.assignment_id = p_assignment_id
+      AND ac.user_id = auth.uid()
+      AND ac.status = 'active';
+
+    IF v_collaborator_id IS NULL THEN
+      RETURN;
+    END IF;
+  END IF;
+
+  -- Asset must be on this Assignment
+  IF NOT EXISTS (
+    SELECT 1
+    FROM public.assignment_assets aa
+    WHERE aa.assignment_id = p_assignment_id
+      AND aa.asset_id = p_asset_id
+  ) THEN
+    RETURN;
+  END IF;
+
+  -- Collaborator path: respect per-asset revoke
+  IF NOT v_is_sponsor AND v_collaborator_id IS NOT NULL THEN
+    IF EXISTS (
+      SELECT 1
+      FROM public.assignment_asset_access_states s
+      WHERE s.assignment_collaborator_id = v_collaborator_id
+        AND s.asset_id = p_asset_id
+        AND s.revoked_at IS NOT NULL
+    ) THEN
+      RETURN;
+    END IF;
+  END IF;
+
+  -- ── Asset → Campaign (internal; never trust client campaign_id) ──
+  -- 1) Campaign Element
+  SELECT cea.campaign_id
+  INTO v_campaign_id
+  FROM public.campaign_element_assets cea
+  WHERE cea.asset_id = p_asset_id
+  LIMIT 1;
+
+  -- 2) Video
+  IF v_campaign_id IS NULL THEN
+    SELECT v.campaign_id
+    INTO v_campaign_id
+    FROM public.videos v
+    WHERE v.asset_id = p_asset_id
+    LIMIT 1;
+  END IF;
+
+  -- 3) Resource with explicit campaign_id
+  IF v_campaign_id IS NULL THEN
+    SELECT ar.campaign_id, ar.organization_id
+    INTO v_campaign_id, v_resource_org
+    FROM public.asset_resources ar
+    WHERE ar.asset_id = p_asset_id
+    LIMIT 1;
+  END IF;
+
+  -- 4) Resource with no campaign_id → ONLY PROMOTE ASSET (read-only lookup)
+  IF v_campaign_id IS NULL THEN
+    IF v_resource_org IS NULL THEN
+      SELECT a.organization_id
+      INTO v_resource_org
+      FROM public.assets a
+      WHERE a.id = p_asset_id;
+    END IF;
+
+    IF v_resource_org IS NOT NULL THEN
+      SELECT c.id
+      INTO v_campaign_id
+      FROM public.campaigns c
+      WHERE c.organization_id = v_resource_org
+        AND c.campaign_name = 'ONLY PROMOTE ASSET'
+      LIMIT 1;
+    END IF;
+  END IF;
+
+  IF v_campaign_id IS NULL THEN
+    RETURN;
+  END IF;
+
+  SELECT
+    c.id,
+    c.organization_id,
+    c.root_domain,
+    COALESCE(c.is_system, false)
+  INTO
+    v_campaign_id,
+    v_campaign_org,
+    v_root,
+    v_is_system
+  FROM public.campaigns c
+  WHERE c.id = v_campaign_id;
+
+  IF v_campaign_id IS NULL OR v_campaign_org IS NULL THEN
+    RETURN;
+  END IF;
+
+  -- root_domain NULL → one sentinel row (caller = VSTRK); no branded hosts
+  IF v_root IS NULL OR btrim(v_root) = '' THEN
+    campaign_id := v_campaign_id;
+    root_domain := NULL;
+    domain_id := NULL;
+    hostname := NULL;
+    is_system_campaign := v_is_system;
+    RETURN NEXT;
+    RETURN;
+  END IF;
+
+  -- Eligible: verified + same org as campaign + same root_domain
+  RETURN QUERY
+  SELECT
+    v_campaign_id,
+    v_root,
+    btd.id,
+    btd.hostname,
+    v_is_system
+  FROM public.branded_tracking_domains btd
+  WHERE btd.organization_id = v_campaign_org
+    AND btd.status = 'verified'
+    AND btd.root_domain IS NOT NULL
+    AND lower(btd.root_domain) = lower(v_root)
+  ORDER BY btd.hostname ASC;
+
+  -- root exists but zero verified hosts → one sentinel row (not VSTRK)
+  IF NOT FOUND THEN
+    campaign_id := v_campaign_id;
+    root_domain := v_root;
+    domain_id := NULL;
+    hostname := NULL;
+    is_system_campaign := v_is_system;
+    RETURN NEXT;
+  END IF;
+END;
+$function$;
+
+COMMENT ON FUNCTION public.list_eligible_tracking_domains_for_assignment_asset(uuid, uuid) IS
+  'Phase 2A MVP read-only: authorized Assignment actor gets CURRENT Campaign eligibility (root + verified same-root hostnames) for one Assignment asset. Empty hosts + null root_domain => VSTRK fallback at caller. No writes, no restriction list, no client campaign_id.';
+
+-- Optional: allow authenticated clients to execute (Supabase typical)
+GRANT EXECUTE ON FUNCTION public.list_eligible_tracking_domains_for_assignment_asset(uuid, uuid)
+  TO authenticated;
+
+-- Anon should not list Sponsor domains
+REVOKE ALL ON FUNCTION public.list_eligible_tracking_domains_for_assignment_asset(uuid, uuid)
+  FROM anon;
