@@ -37,7 +37,7 @@
  * `widgets` table — same as PromotionJourneyMap.tsx.
  */
 
-import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { useParams, useNavigate, Link } from 'react-router-dom'
 import {
   ArrowLeft,
@@ -181,6 +181,12 @@ const OUTCOME_H = 58
 const MIN_SCALE = 0.4
 const MAX_SCALE = 2.2
 const ZOOM_STEP = 0.15
+// Mobile/fit additions: lower zoom floor (so a phone can fit the whole map),
+// floor for the initial auto-fit, and the container width below which the
+// layout is treated as "narrow" (phone).
+const JOURNEY_MIN_SCALE = 0.15
+const JOURNEY_FIT_MIN_SCALE = 0.2
+const JOURNEY_NARROW_PX = 640
 
 // ─── Geometry helpers ───────────────────────────────────────────────────────
 
@@ -389,27 +395,51 @@ function JourneyChipBar({
   chips,
   chipOff,
   onToggleChip,
+  narrow = false,
+  narrowTop = 16,
 }: {
   presentation: 'campaign' | 'tree'
   chips: SelectionChip[]
   chipOff: Set<string>
   onToggleChip: (id: string) => void
+  /** phone layout: vertical stack under the legend instead of a wrapped row */
+  narrow?: boolean
+  narrowTop?: number
 }) {
   if (chips.length === 0) return null
   const dark = presentation === 'tree'
   return (
     <div
-      style={{
-        position: 'absolute',
-        top: 16,
-        left: 350,
-        right: 20,
-        zIndex: 4,
-        display: 'flex',
-        flexWrap: 'wrap',
-        gap: 6,
-        pointerEvents: 'none', // empty space between chips still pans the canvas
-      }}
+      onPointerDown={narrow ? (e) => e.stopPropagation() : undefined}
+      style={
+        narrow
+          ? {
+              position: 'absolute',
+              top: narrowTop,
+              left: 12,
+              maxWidth: 'min(70vw, 260px)',
+              maxHeight: `calc(100% - ${narrowTop + 84}px)`, // keep clear of the bottom-right controls
+              overflowY: 'auto',
+              touchAction: 'pan-y',
+              zIndex: 4,
+              display: 'flex',
+              flexDirection: 'column',
+              alignItems: 'flex-start',
+              flexWrap: 'nowrap',
+              gap: 6,
+            }
+          : {
+              position: 'absolute',
+              top: 16,
+              left: 350,
+              right: 20,
+              zIndex: 4,
+              display: 'flex',
+              flexWrap: 'wrap',
+              gap: 6,
+              pointerEvents: 'none', // empty space between chips still pans the canvas
+            }
+      }
     >
       {chips.map((chip) => {
         const off = chipOff.has(chip.id)
@@ -426,7 +456,7 @@ function JourneyChipBar({
               display: 'flex',
               alignItems: 'center',
               gap: 6,
-              maxWidth: 240,
+              maxWidth: narrow ? '100%' : 240,
               fontSize: 11.5,
               fontWeight: 600,
               padding: '5px 10px',
@@ -692,13 +722,46 @@ function MiniStructureMap({
     if (open && !userMovedRef.current) fit()
   }, [open, large, customSize, fit])
 
+  // Pinch-to-zoom (touch only) — same pattern as CampaignStructureMap's
+  // activePointers / pinchState. Single-finger pan and wheel are unchanged.
+  const miniPointers = useRef<Map<number, { x: number; y: number }>>(new Map())
+  const miniPinch = useRef<{ startDist: number; startScale: number } | null>(null)
+
   const handleDown = (e: React.PointerEvent) => {
     e.stopPropagation()
+    if (e.pointerType === 'touch') {
+      miniPointers.current.set(e.pointerId, { x: e.clientX, y: e.clientY })
+      if (miniPointers.current.size === 2) {
+        dragRef.current = null
+        const pts = Array.from(miniPointers.current.values())
+        miniPinch.current = { startDist: Math.hypot(pts[0].x - pts[1].x, pts[0].y - pts[1].y), startScale: view.scale }
+        return
+      }
+    }
     if (e.button !== 0) return
     dragRef.current = { sx: e.clientX, sy: e.clientY, lx: e.clientX, ly: e.clientY, moved: false }
   }
   const handleMove = (e: React.PointerEvent) => {
     e.stopPropagation()
+    if (e.pointerType === 'touch' && miniPointers.current.has(e.pointerId)) {
+      miniPointers.current.set(e.pointerId, { x: e.clientX, y: e.clientY })
+    }
+    if (miniPointers.current.size === 2 && miniPinch.current) {
+      const rect = viewportRef.current?.getBoundingClientRect()
+      const pts = Array.from(miniPointers.current.values())
+      const dist = Math.hypot(pts[0].x - pts[1].x, pts[0].y - pts[1].y)
+      const ox = (pts[0].x + pts[1].x) / 2 - (rect?.left ?? 0)
+      const oy = (pts[0].y + pts[1].y) / 2 - (rect?.top ?? 0)
+      const target = miniPinch.current.startScale * (dist / (miniPinch.current.startDist || 1))
+      userMovedRef.current = true
+      setView((v) => {
+        const sc = Math.min(2, Math.max(0.1, target))
+        const cx = (ox - v.x) / v.scale
+        const cy = (oy - v.y) / v.scale
+        return { scale: sc, x: ox - cx * sc, y: oy - cy * sc }
+      })
+      return
+    }
     const d = dragRef.current
     if (!d) return
     if (!d.moved && Math.hypot(e.clientX - d.sx, e.clientY - d.sy) > 3) d.moved = true
@@ -719,6 +782,15 @@ function MiniStructureMap({
       }, 0)
     }
     dragRef.current = null
+    if (e.pointerType === 'touch') {
+      miniPointers.current.delete(e.pointerId)
+      miniPinch.current = null
+      if (miniPointers.current.size === 1) {
+        // one finger left after a pinch: keep panning from where it is (moved=true suppresses an accidental tap)
+        const [rest] = Array.from(miniPointers.current.values())
+        dragRef.current = { sx: rest.x, sy: rest.y, lx: rest.x, ly: rest.y, moved: true }
+      }
+    }
   }
   const handleWheel = (e: React.WheelEvent) => {
     e.stopPropagation()
@@ -940,6 +1012,7 @@ function MiniStructureMap({
             onPointerMove={handleMove}
             onPointerUp={handleUp}
             onPointerLeave={handleUp}
+            onPointerCancel={handleUp}
             onWheel={handleWheel}
             style={{
               position: 'relative',
@@ -948,7 +1021,7 @@ function MiniStructureMap({
               touchAction: 'none',
               userSelect: 'none',
               background: c.canvas,
-              width: customSize ? customSize.w : large ? 'min(820px, calc(100vw - 80px))' : 380,
+              width: customSize ? customSize.w : large ? 'min(820px, calc(100vw - 80px))' : 'min(380px, calc(100vw - 40px))',
               height: customSize ? customSize.h : large ? 'min(560px, calc(100vh - 260px))' : 260,
             }}
           >
@@ -2157,6 +2230,7 @@ const [panelLarge, setPanelLarge] = useState(false)
 
   const handleNodePointerDown = useCallback(
     (e: React.PointerEvent, id: string) => {
+      if (e.pointerType === 'touch') return // touch: one finger pans / two pinch — no card drag, let it reach the canvas
       e.stopPropagation()
       ;(e.currentTarget as HTMLElement).setPointerCapture(e.pointerId)
       dragRef.current = { id, startClientX: e.clientX, startClientY: e.clientY, startCenter: positions[id] }
@@ -2182,21 +2256,109 @@ const [panelLarge, setPanelLarge] = useState(false)
     dragRef.current = null
   }, [])
 
+  // True once the user has panned/zoomed: auto-fit stops overriding the view.
+  const userMovedRef = useRef(false)
+  const legendRef = useRef<HTMLDivElement>(null)
+  const [containerSize, setContainerSize] = useState({ w: 0, h: 0 })
+  const [legendBottom, setLegendBottom] = useState(0)
+  const isNarrow = containerSize.w > 0 && containerSize.w < JOURNEY_NARROW_PX
+
   const pan = useCallback((dx: number, dy: number) => {
+    if (dx !== 0 || dy !== 0) userMovedRef.current = true
     setTransform((t) => ({ ...t, x: t.x + dx, y: t.y + dy }))
   }, [])
 
   const zoom = useCallback((delta: number, originX: number, originY: number) => {
+    userMovedRef.current = true
     setTransform((t) => {
       const factor = delta > 0 ? 1 + ZOOM_STEP : 1 - ZOOM_STEP
-      const newScale = Math.min(MAX_SCALE, Math.max(MIN_SCALE, t.scale * factor))
+      const newScale = Math.min(MAX_SCALE, Math.max(JOURNEY_MIN_SCALE, t.scale * factor))
       const canvasX = (originX - t.x) / t.scale
       const canvasY = (originY - t.y) / t.scale
       return { scale: newScale, x: originX - canvasX * newScale, y: originY - canvasY * newScale }
     })
   }, [])
 
-  const resetView = useCallback(() => setTransform({ x: -360, y: -340, scale: 0.8 }), [])
+  // Extents of what is actually drawn (read-only: uses the same constants /
+  // journeyScene / itemsTop / looseItems the canvas already uses).
+  const contentBounds = useMemo(() => {
+    const colsHalf = ((CAMPAIGN_PATHS.length - 1) / 2) * COLUMN_SPACING + OUTCOME_W / 2
+    let minX = HUB_X - colsHalf
+    let maxX = HUB_X + colsHalf
+    const minY = HUB_Y - HUB_R
+    let maxY = HUB_Y + OUTCOME_DIST + OUTCOME_H / 2
+    if (journeyScene && journeyScene.nodes.length > 0) {
+      for (const n of journeyScene.nodes) {
+        minX = Math.min(minX, n.x)
+        maxX = Math.max(maxX, n.x + JG_NODE_W)
+      }
+      maxY = Math.max(maxY, journeyScene.bottom)
+    }
+    if (looseItems.length > 0) {
+      const half = ((ITEMS_COLS - 1) / 2) * ITEMS_COL_SPACING + OUTCOME_W / 2
+      minX = Math.min(minX, HUB_X - half)
+      maxX = Math.max(maxX, HUB_X + half)
+      const rows = Math.ceil(Math.min(looseItems.length, PANEL_ITEM_CAP) / ITEMS_COLS)
+      maxY = Math.max(maxY, itemsTop + (rows - 1) * ITEMS_ROW_SPACING + OUTCOME_H)
+    }
+    return { minX, maxX, minY, maxY }
+  }, [journeyScene, looseItems, itemsTop])
+
+  // Same idea as CampaignStructureMap's tree auto-fit: scale = min(fitW, fitH),
+  // centred. Capped at 1 so desktop never starts blown-up.
+  const computeFit = useCallback((): CanvasTransform | null => {
+    const el = containerRef.current
+    if (!el || !el.clientWidth || !el.clientHeight) return null
+    const w = el.clientWidth
+    const h = el.clientHeight
+    const b = contentBounds
+    const cw = b.maxX - b.minX
+    const ch = b.maxY - b.minY
+    const padX = 32
+    const padTop = 16
+    const padBottom = 72 // clear of the bottom-right controls
+    const availW = w - padX
+    const availH = Math.max(1, h - padTop - padBottom)
+    const scale = Math.min(1, Math.max(JOURNEY_FIT_MIN_SCALE, Math.min(availW / cw, availH / ch)))
+    return {
+      scale,
+      x: (w - cw * scale) / 2 - b.minX * scale,
+      y: padTop + (availH - ch * scale) / 2 - b.minY * scale,
+    }
+  }, [contentBounds])
+
+  const resetView = useCallback(() => {
+    userMovedRef.current = false
+    const t = computeFit()
+    if (t) setTransform(t)
+  }, [computeFit])
+
+  // Auto-fit until the user pans/zooms (re-fits if content or viewport size changes).
+  useLayoutEffect(() => {
+    if (userMovedRef.current) return
+    const t = computeFit()
+    if (t) setTransform(t)
+  }, [computeFit, containerSize.w, containerSize.h])
+
+  // Track container size (+ legend bottom, for the stacked mobile chips).
+  useEffect(() => {
+    const el = containerRef.current
+    if (!el) return
+    const measure = () => {
+      setContainerSize((prev) => (prev.w === el.clientWidth && prev.h === el.clientHeight ? prev : { w: el.clientWidth, h: el.clientHeight }))
+      const lg = legendRef.current
+      if (lg) setLegendBottom((prev) => (prev === lg.offsetTop + lg.offsetHeight ? prev : lg.offsetTop + lg.offsetHeight))
+    }
+    measure()
+    if (typeof ResizeObserver === 'undefined') {
+      window.addEventListener('resize', measure)
+      return () => window.removeEventListener('resize', measure)
+    }
+    const ro = new ResizeObserver(measure)
+    ro.observe(el)
+    if (legendRef.current) ro.observe(legendRef.current)
+    return () => ro.disconnect()
+  }, [])
 
   const panState = useRef<{ active: boolean; lastX: number; lastY: number }>({
     active: false,
@@ -2204,13 +2366,54 @@ const [panelLarge, setPanelLarge] = useState(false)
     lastY: 0,
   })
 
-  const handlePointerDown = useCallback((e: React.PointerEvent) => {
-    if (e.button !== 0) return
-    panState.current = { active: true, lastX: e.clientX, lastY: e.clientY }
+  // Pinch-to-zoom (touch only) — same pattern as CampaignStructureMap
+  // (activePointers / pinchState / zoomToScale). Mouse pan, wheel and the
+  // +/- buttons still go through the existing paths.
+  const activePointers = useRef<Map<number, { x: number; y: number }>>(new Map())
+  const pinchState = useRef<{ startDist: number; startScale: number } | null>(null)
+  const pointerDistance = (a: { x: number; y: number }, b: { x: number; y: number }) => Math.hypot(a.x - b.x, a.y - b.y)
+
+  const zoomToScale = useCallback((newScaleRaw: number, originX: number, originY: number) => {
+    userMovedRef.current = true
+    setTransform((t) => {
+      const newScale = Math.min(MAX_SCALE, Math.max(JOURNEY_MIN_SCALE, newScaleRaw))
+      const canvasX = (originX - t.x) / t.scale
+      const canvasY = (originY - t.y) / t.scale
+      return { scale: newScale, x: originX - canvasX * newScale, y: originY - canvasY * newScale }
+    })
   }, [])
+
+  const handlePointerDown = useCallback(
+    (e: React.PointerEvent) => {
+      if (e.pointerType === 'touch') {
+        activePointers.current.set(e.pointerId, { x: e.clientX, y: e.clientY })
+        if (activePointers.current.size === 2) {
+          panState.current.active = false
+          const pts = Array.from(activePointers.current.values())
+          pinchState.current = { startDist: pointerDistance(pts[0], pts[1]), startScale: transform.scale }
+          return
+        }
+      }
+      if (e.button !== 0) return
+      panState.current = { active: true, lastX: e.clientX, lastY: e.clientY }
+    },
+    [transform.scale]
+  )
 
   const handlePointerMove = useCallback(
     (e: React.PointerEvent) => {
+      if (e.pointerType === 'touch' && activePointers.current.has(e.pointerId)) {
+        activePointers.current.set(e.pointerId, { x: e.clientX, y: e.clientY })
+      }
+      if (activePointers.current.size === 2 && pinchState.current) {
+        const rect = containerRef.current?.getBoundingClientRect()
+        const pts = Array.from(activePointers.current.values())
+        const dist = pointerDistance(pts[0], pts[1])
+        const midX = (pts[0].x + pts[1].x) / 2 - (rect?.left ?? 0)
+        const midY = (pts[0].y + pts[1].y) / 2 - (rect?.top ?? 0)
+        zoomToScale(pinchState.current.startScale * (dist / (pinchState.current.startDist || 1)), midX, midY)
+        return
+      }
       if (!panState.current.active) return
       const dx = e.clientX - panState.current.lastX
       const dy = e.clientY - panState.current.lastY
@@ -2218,10 +2421,19 @@ const [panelLarge, setPanelLarge] = useState(false)
       panState.current.lastY = e.clientY
       pan(dx, dy)
     },
-    [pan]
+    [pan, zoomToScale]
   )
 
-  const handlePointerUp = useCallback(() => {
+  const handlePointerUp = useCallback((e: React.PointerEvent) => {
+    if (e.pointerType === 'touch') {
+      activePointers.current.delete(e.pointerId)
+      pinchState.current = null
+      if (activePointers.current.size === 1) {
+        const [remaining] = Array.from(activePointers.current.values())
+        panState.current = { active: true, lastX: remaining.x, lastY: remaining.y }
+        return
+      }
+    }
     panState.current.active = false
   }, [])
 
@@ -2300,6 +2512,7 @@ const [panelLarge, setPanelLarge] = useState(false)
         onPointerMove={handlePointerMove}
         onPointerUp={handlePointerUp}
         onPointerLeave={handlePointerUp}
+        onPointerCancel={handlePointerUp}
         onWheel={handleWheel}
       >
         <CanvasGrid transform={transform} dark={presentation === 'tree'} />
@@ -2490,10 +2703,12 @@ const [panelLarge, setPanelLarge] = useState(false)
           chips={selectionChips}
           chipOff={chipOff}
           onToggleChip={handleToggleChip}
+          narrow={isNarrow}
+          narrowTop={legendBottom + 8}
         />
 
         {/* Legend */}
-        <div style={styles.legend}>
+        <div ref={legendRef} style={styles.legend}>
           {CAMPAIGN_PATHS.map((p) => {
             const Icon = p.icon
             const active = hoveredPathId === p.id
