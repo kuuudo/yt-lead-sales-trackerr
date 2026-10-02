@@ -3196,13 +3196,17 @@ useEffect(() => {
       if (it.id.startsWith('own_asset_')) return it.id.slice('own_asset_'.length)
       return it.id.match(UUID_TAIL)?.[1] ?? null
     }
-    const loose = selectedItems.filter((it) => {
+    // Marketer / Promotion are selection chips only — never journey-graph nodes and
+    // must not flood the bottom inventory row (they already appear in the chip bar).
+    const isOrgSelector = (it: PanelItem) => it.kind === 'marketer' || it.kind === 'promotion'
+    const leafItems = selectedItems.filter((it) => !isOrgSelector(it))
+    const loose = leafItems.filter((it) => {
       const aid = assetIdOf(it)
       if (aid && importAssetIdSet.has(aid)) return false // shown on Import Assets hub
       if (placedVideoIds.size === 0) return true
       return !videoIdsOf(it).some((v) => placedVideoIds.has(v))
     })
-    return { looseItems: loose, connectedItemCount: selectedItems.length - loose.length }
+    return { looseItems: loose, connectedItemCount: leafItems.length - loose.length }
     // assetCacheVersion: the asset->video cache is a ref
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedItems, journeyContext.graph, assetCacheVersion, importAssetIdSet])
