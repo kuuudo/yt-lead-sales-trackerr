@@ -1294,6 +1294,226 @@ function layoutJourneyGroup(nodesIn: JourneyGraph['nodes'], edgesIn: JourneyGrap
   return { nodes, backEdges, width, height: (maxLayer + 1) * JG_NODE_H + maxLayer * JG_GAP_Y }
 }
 
+// ═══════════════════════════════════════════════════════════════════════════
+// Month / Part assignment — LAYOUT ONLY.
+//
+// Month = X-axis column, Part = vertical continuation inside that month.
+// Pure function over the EXISTING JourneyGraph: it only READS graph.nodes /
+// graph.edges and never creates, removes or changes a node, an edge or a
+// canonical videoId. A Part boundary is NOT a graph relationship.
+//
+//   Flat  = connected component of 1 video (no video->video edge)
+//   Chain = connected component of 2+ videos (real edges); NEVER split
+// A Chain's month = month of its EARLIEST dated member (it stays together even
+// if its videos span several calendar months). Components with no dated member
+// go to a trailing 'undated' group so nothing is dropped.
+// Parts are homogeneous: within a month, Flat Parts first, then Chain Parts.
+// ═══════════════════════════════════════════════════════════════════════════
+const MONTH_PART_INNER_W = (CAMPAIGN_PATHS.length - 1) * COLUMN_SPACING + OUTCOME_W // 958: width of the 4 outcome columns
+export const FLAT_CARD_W = 220 // PROVISIONAL (thumbnail-on baseline) — tune freely
+export const FLAT_CARD_H = 170 // PROVISIONAL — not used by assignMonthParts, reserved for the layout patch
+export const FLAT_CARD_GAP = 24
+export const FLAT_COLUMNS = Math.max(1, Math.floor((MONTH_PART_INNER_W + FLAT_CARD_GAP) / (FLAT_CARD_W + FLAT_CARD_GAP))) // 4
+export const FLAT_ROWS_PER_PART = 5
+export const FLAT_PART_CAPACITY = FLAT_COLUMNS * FLAT_ROWS_PER_PART // 20 (tunable, not a product rule)
+export const CHAIN_PART_CAPACITY = 12 // counted in nodes; a starting guideline, not a hard limit
+
+export type MonthPartKind = 'flat' | 'chain'
+
+/** UTC year / 0-based month, same rule as the month chips (CampaignStructureMap). */
+export interface VideoMonthInfo {
+  year: number
+  month: number
+  createdAtMs: number
+}
+
+export interface MonthPart {
+  partIndex: number // 0-based inside its month; Flat and Chain Parts share one running index
+  kind: MonthPartKind
+  videoIds: string[] // canonical videoIds only
+}
+
+export interface MonthPartGroup {
+  monthKey: string // `${year}_${month}`, or 'undated'
+  year: number | null
+  month: number | null
+  partCount: number
+  segmented: boolean // partCount > 1 (later: orange vs purple)
+  parts: MonthPart[]
+}
+
+export interface MonthPartResult {
+  groups: MonthPartGroup[] // ascending in time, 'undated' last
+  partByVideoId: Map<string, { monthKey: string; partIndex: number; kind: MonthPartKind }>
+}
+
+export interface MonthPartOptions {
+  flatCapacity?: number
+  chainCapacity?: number
+}
+
+const UNDATED_MONTH_KEY = 'undated'
+const monthKeyOf = (year: number, month: number) => `${year}_${month}`
+const cmpId = (x: string, y: string) => (x < y ? -1 : x > y ? 1 : 0)
+
+export function assignMonthParts(
+  graph: JourneyGraph,
+  monthInfoByVideoId: Map<string, VideoMonthInfo>,
+  options?: MonthPartOptions,
+): MonthPartResult {
+  const flatCapacity = Math.max(1, options?.flatCapacity ?? FLAT_PART_CAPACITY)
+  const chainCapacity = Math.max(1, options?.chainCapacity ?? CHAIN_PART_CAPACITY)
+
+  // 1. Unique node ids (read-only over graph.nodes).
+  const ids: string[] = []
+  const idSet = new Set<string>()
+  for (const n of graph.nodes) {
+    if (idSet.has(n.videoId)) continue
+    idSet.add(n.videoId)
+    ids.push(n.videoId)
+  }
+
+  // 2. Connected components — same edge rule as layoutJourneyScene:
+  //    both endpoints must be graph nodes, self-loops ignored.
+  const parent = new Map<string, string>()
+  for (const id of ids) parent.set(id, id)
+  const find = (x: string): string => {
+    let root = x
+    while (parent.get(root) !== root) root = parent.get(root) as string
+    let cur = x
+    while (parent.get(cur) !== root) {
+      const next = parent.get(cur) as string
+      parent.set(cur, root)
+      cur = next
+    }
+    return root
+  }
+  for (const e of graph.edges) {
+    if (e.fromVideoId === e.toVideoId) continue
+    if (!idSet.has(e.fromVideoId) || !idSet.has(e.toVideoId)) continue
+    const a = find(e.fromVideoId)
+    const b = find(e.toVideoId)
+    if (a !== b) parent.set(a, b)
+  }
+  const members = new Map<string, string[]>()
+  for (const id of ids) {
+    const root = find(id)
+    const list = members.get(root)
+    if (list) list.push(id)
+    else members.set(root, [id])
+  }
+
+  // 3. Classify each component and pick its month bucket.
+  const msOf = (id: string) => monthInfoByVideoId.get(id)?.createdAtMs ?? Infinity
+  interface Comp {
+    ids: string[]
+    kind: MonthPartKind
+    monthKey: string
+    year: number | null
+    month: number | null
+    anchorMs: number
+  }
+  const comps: Comp[] = []
+  members.forEach((list) => {
+    const sorted = list.slice().sort((x, y) => {
+      const ax = msOf(x)
+      const ay = msOf(y)
+      if (ax !== ay) return ax < ay ? -1 : 1
+      return cmpId(x, y)
+    })
+    let earliest: VideoMonthInfo | null = null
+    for (const id of sorted) {
+      const info = monthInfoByVideoId.get(id)
+      if (info && (earliest === null || info.createdAtMs < earliest.createdAtMs)) earliest = info
+    }
+    comps.push({
+      ids: sorted,
+      kind: sorted.length > 1 ? 'chain' : 'flat',
+      monthKey: earliest ? monthKeyOf(earliest.year, earliest.month) : UNDATED_MONTH_KEY,
+      year: earliest ? earliest.year : null,
+      month: earliest ? earliest.month : null,
+      anchorMs: earliest ? earliest.createdAtMs : 0,
+    })
+  })
+
+  const byMonth = new Map<string, Comp[]>()
+  for (const c of comps) {
+    const list = byMonth.get(c.monthKey)
+    if (list) list.push(c)
+    else byMonth.set(c.monthKey, [c])
+  }
+
+  // 4. Per month: balanced Flat Parts first, then Chain Parts (components atomic).
+  const newestFirst = (a: Comp, b: Comp) =>
+    a.anchorMs !== b.anchorMs ? b.anchorMs - a.anchorMs : cmpId(a.ids[0], b.ids[0])
+
+  const groups: MonthPartGroup[] = []
+  byMonth.forEach((monthComps, monthKey) => {
+    const parts: MonthPart[] = []
+
+    const flatIds = monthComps
+      .filter((c) => c.kind === 'flat')
+      .sort(newestFirst)
+      .map((c) => c.ids[0])
+    if (flatIds.length > 0) {
+      const partCount = Math.ceil(flatIds.length / flatCapacity)
+      const base = Math.floor(flatIds.length / partCount)
+      const extra = flatIds.length % partCount
+      let cursor = 0
+      for (let p = 0; p < partCount; p++) {
+        const size = base + (p < extra ? 1 : 0)
+        parts.push({ partIndex: parts.length, kind: 'flat', videoIds: flatIds.slice(cursor, cursor + size) })
+        cursor += size
+      }
+    }
+
+    let current: string[] = []
+    const flushChain = () => {
+      if (current.length === 0) return
+      parts.push({ partIndex: parts.length, kind: 'chain', videoIds: current })
+      current = []
+    }
+    for (const c of monthComps.filter((x) => x.kind === 'chain').sort(newestFirst)) {
+      if (current.length > 0 && current.length + c.ids.length > chainCapacity) flushChain()
+      current.push(...c.ids) // a component is never split, even if it alone exceeds chainCapacity
+    }
+    flushChain()
+
+    groups.push({
+      monthKey,
+      year: monthComps[0].year,
+      month: monthComps[0].month,
+      partCount: parts.length,
+      segmented: parts.length > 1,
+      parts,
+    })
+  })
+
+  groups.sort((a, b) => {
+    if (a.year === null || a.month === null) return b.year === null ? 0 : 1
+    if (b.year === null || b.month === null) return -1
+    return a.year * 12 + a.month - (b.year * 12 + b.month)
+  })
+
+  // 5. Lookup + invariant: every canonical videoId is assigned exactly once.
+  const partByVideoId = new Map<string, { monthKey: string; partIndex: number; kind: MonthPartKind }>()
+  let assigned = 0
+  for (const g of groups) {
+    for (const p of g.parts) {
+      for (const id of p.videoIds) {
+        if (partByVideoId.has(id)) console.warn('[assignMonthParts] videoId assigned twice:', id)
+        partByVideoId.set(id, { monthKey: g.monthKey, partIndex: p.partIndex, kind: p.kind })
+        assigned += 1
+      }
+    }
+  }
+  if (assigned !== ids.length || partByVideoId.size !== ids.length) {
+    console.warn('[assignMonthParts] assignment mismatch', { nodes: ids.length, assigned, unique: partByVideoId.size })
+  }
+
+  return { groups, partByVideoId }
+}
+
 /** Whole scene: connected groups placed under the outcome column they end in. */
 function layoutJourneyScene(graph: JourneyGraph, ends: JourneyEnd[], outcomeX?: Map<string, number>): JgScene {
   // connected groups (undirected)
