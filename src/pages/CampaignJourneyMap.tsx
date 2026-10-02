@@ -2494,6 +2494,58 @@ useEffect(() => {
   }
 }, [journeyContext.graph])
 
+  // ── Month/Part Patch 2: videoId -> visual month (layout INPUT only, nothing is drawn yet) ──
+  // Visual month = Content `videos.created_at` first; only when the video is not a
+  // Content video, fall back to its Own Asset's `assets.created_at`.
+  // UTC year / 0-based month = same rule as the month chips. Chip membership is untouched.
+  const monthInfoByVideoId = useMemo(() => {
+    const out = new Map<string, VideoMonthInfo>()
+    const toInfo = (iso: string | null | undefined): VideoMonthInfo | null => {
+      if (!iso) return null
+      const ms = Date.parse(iso)
+      if (Number.isNaN(ms)) return null
+      const d = new Date(ms)
+      return { year: d.getUTCFullYear(), month: d.getUTCMonth(), createdAtMs: ms }
+    }
+    for (const v of contentData.contentVideos ?? []) {
+      const info = toInfo(v.createdAt)
+      if (info) out.set(v.id, info)
+    }
+    const cache = assetVideoCacheRef.current
+    for (const a of structureData.ownAssetNodes ?? []) {
+      const info = toInfo(a.createdAt)
+      if (!info || !a.id.startsWith('own_asset_')) continue
+      for (const videoId of cache.get(a.id.slice('own_asset_'.length)) ?? []) {
+        if (!out.has(videoId)) out.set(videoId, info) // Content date wins
+      }
+    }
+    return out
+    // assetCacheVersion: the asset->video cache is a ref
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [contentData.contentVideos, structureData.ownAssetNodes, assetCacheVersion])
+
+  // ── TEMPORARY DEBUG (Month/Part Patch 2) — remove when the layout patch lands ──
+  useEffect(() => {
+    const g = journeyContext.graph
+    if (!g || g.nodes.length === 0) return
+    const res = assignMonthParts(g, monthInfoByVideoId)
+    console.groupCollapsed(`[CJM month/part] ${g.nodes.length} node(s) -> ${res.groups.length} month group(s)`)
+    for (const grp of res.groups) {
+      const label =
+        grp.year !== null && grp.month !== null
+          ? `${grp.year}-${String(grp.month + 1).padStart(2, '0')}`
+          : 'undated'
+      console.log(
+        `${label}  parts=${grp.partCount}  ${grp.segmented ? 'SEGMENTED (orange)' : 'single (purple)'}`,
+        grp.parts.map((p) => `#${p.partIndex + 1} ${p.kind} x${p.videoIds.length}`),
+      )
+    }
+    const undated = res.groups.find((x) => x.monthKey === 'undated')
+    console.log('undated videoIds:', undated ? undated.parts.flatMap((p) => p.videoIds) : [])
+    console.log('assigned:', res.partByVideoId.size, 'of', g.nodes.length)
+    console.groupEnd()
+  }, [journeyContext.graph, monthInfoByVideoId])
+
   // ── Slice B2: one scene — journey videos sit under the outcome they END in ──
   // Observed ends + structural ends (an observed end for the same video/outcome wins).
   const allEnds = useMemo(() => {
