@@ -2540,9 +2540,13 @@ export default function CampaignJourneyMap({ embedded = false, presentation = 'c
 // Structure selection = WHICH items. This block = WHICH real journeys contain
 // them. Entry video ids only ever GROW (until campaign change / clear), so
 // turning a selection off later never removes an already-discovered journey.
-// Slice A covers Content videos (content_video_<videoId>) and Own Assets
-// (own_asset_<assetId>, resolved via videos.asset_id). Marketer / Promotion
-// entries are intentionally ignored here.
+//
+// Entry sources (Patch 1 — Interpretation A):
+//   Content video leaves          → video ids directly
+//   Own Asset leaves              → resolve via videos.asset_id
+//   Marketer / Promotion clusters → leaf assets under them, same resolve
+//   Promotion-context assets      → asset_${promoId}_${assetId} → asset id
+// Graph remains video-id only; marketer/promotion are never graph node types.
 const [journeyEntryVideoIds, setJourneyEntryVideoIds] = useState<string[]>([])
 const [journeyContext, setJourneyContext] = useState<JourneyContext>(EMPTY_JOURNEY_CONTEXT)
 const assetVideoCacheRef = useRef<Map<string, string[]>>(new Map())
@@ -2562,27 +2566,36 @@ useEffect(() => {
   setAssetCacheVersion((v) => v + 1)
 }, [campaignId, clearJourneyContext])
 
-// selectedItems -> entry video ids (grow-only)
+// selectedNodes -> entry video ids (grow-only). Uses collectLeafRefs so a
+// selected marketer/promotion expands to its asset leaves (same helper chips use).
 useEffect(() => {
-  const contentVideoIds: string[] = []
-  const ownAssetIds: string[] = []
+  const videoIds: string[] = []
+  const assetIds: string[] = []
+  const seenV = new Set<string>()
+  const seenA = new Set<string>()
 
-  for (const it of selectedItems) {
-    if (it.id.startsWith('content_video_')) {
-      contentVideoIds.push(it.id.slice('content_video_'.length))
-    } else if (it.id.startsWith('own_asset_')) {
-      ownAssetIds.push(it.id.slice('own_asset_'.length))
+  for (const n of selectedNodes) {
+    for (const ref of collectLeafRefs(n)) {
+      if (ref.type === 'video') {
+        if (!seenV.has(ref.id)) {
+          seenV.add(ref.id)
+          videoIds.push(ref.id)
+        }
+      } else if (!seenA.has(ref.id)) {
+        seenA.add(ref.id)
+        assetIds.push(ref.id)
+      }
     }
   }
 
-  if (contentVideoIds.length === 0 && ownAssetIds.length === 0) return
+  if (videoIds.length === 0 && assetIds.length === 0) return
 
   let cancelled = false
 
   ;(async () => {
     try {
       const cache = assetVideoCacheRef.current
-      const uncached = ownAssetIds.filter((id) => !cache.has(id))
+      const uncached = assetIds.filter((id) => !cache.has(id))
 
       if (uncached.length > 0) {
         const found = await resolveVideoIdsForAssets(uncached)
@@ -2595,25 +2608,19 @@ useEffect(() => {
 
       if (cancelled) return
 
-      const fromAssets = ownAssetIds.flatMap((id) => cache.get(id) ?? [])
-      const nonVideoAssets = ownAssetIds.filter(
-        (id) => (cache.get(id) ?? []).length === 0,
-      )
+      const fromAssets = assetIds.flatMap((id) => cache.get(id) ?? [])
+      const nonVideoAssets = assetIds.filter((id) => (cache.get(id) ?? []).length === 0)
 
       if (nonVideoAssets.length > 0) {
         console.log(
-          '[CJM journey] Own Assets with no video (skipped in Slice A):',
+          '[CJM journey] Assets with no video (skipped in Slice A):',
           nonVideoAssets,
         )
       }
 
       setJourneyEntryVideoIds((prev) => {
         const next = new Set(prev)
-
-        for (const v of [...contentVideoIds, ...fromAssets]) {
-          next.add(v)
-        }
-
+        for (const v of [...videoIds, ...fromAssets]) next.add(v)
         return next.size === prev.length ? prev : Array.from(next)
       })
     } catch (err) {
@@ -2630,7 +2637,7 @@ useEffect(() => {
   return () => {
     cancelled = true
   }
-}, [selectedItems])
+}, [selectedNodes])
 
 // entry video ids -> real journeys -> graph (existing buildJourneyGraph)
 useEffect(() => {
