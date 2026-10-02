@@ -66,6 +66,7 @@ import {
 import { discoverJourneysForVideos, resolveVideoIdsForAssets, type DiscoveredJourney } from '../lib/journeyDiscovery'
 import { buildJourneyGraph, type JourneyGraph } from '../lib/journeyGraph'
 import { resolveDownstreamNodes, resolveStructuralLinksForVideos, type StructuralLink } from '../services/journey/journeyDownstreamResolver'
+import { resolveThumbnail } from '../lib/videoFormatters'
 // ─── Real-data hook (header name + switcher only) ───────────────────────
 // Identical to the copy in CampaignStructureMap.tsx / AllAssetsAnalytics.tsx
 // — same query, same viewer-id resolution. Not imported because it isn't
@@ -2040,6 +2041,8 @@ function JourneyGraphLayer({
   context,
   scene,
   titles,
+  thumbnails,
+  showThumbnails,
   entryIds,
   positions,
   onClear,
@@ -2050,6 +2053,9 @@ function JourneyGraphLayer({
   context: JourneyContext
   scene: JgScene | null
   titles: Record<string, string>
+  /** videoId -> resolved thumbnail URL (StructureMap semantics via resolveThumbnail). */
+  thumbnails: Record<string, string>
+  showThumbnails: boolean
   entryIds: string[]
   positions: Record<string, Pt>
   onClear: () => void
@@ -2228,6 +2234,7 @@ function JourneyGraphLayer({
           {scene.nodes.map((n) => {
             const isEntry = entry.has(n.videoId)
             const title = titles[n.videoId] ?? `Video ${n.videoId.slice(0, 8)}…`
+            const thumb = showThumbnails ? thumbnails[n.videoId] : undefined
             const hl = highlights.get(n.videoId)
             const dim = dimming && !hl
             return (
@@ -2242,10 +2249,11 @@ function JourneyGraphLayer({
                   height: JG_NODE_H,
                   boxSizing: 'border-box',
                   display: 'flex',
-                  flexDirection: 'column',
+                  flexDirection: thumb ? 'row' : 'column',
+                  alignItems: thumb ? 'center' : undefined,
                   justifyContent: 'center',
-                  gap: 2,
-                  padding: '0 12px',
+                  gap: thumb ? 9 : 2,
+                  padding: thumb ? '0 10px' : '0 12px',
                   borderRadius: 10,
                   border: `${isEntry ? 2 : 1.5}px solid ${isEntry ? (dark ? '#818cf8' : '#6366f1') : dark ? TREE_DARK.border : '#e5e7eb'}`,
                   background: dark ? TREE_DARK.cardBgAlt : '#ffffff',
@@ -2277,29 +2285,39 @@ function JourneyGraphLayer({
                     ))}
                   </div>
                 )}
-                <span
-                  style={{
-                    fontSize: 12,
-                    fontWeight: 600,
-                    whiteSpace: 'nowrap',
-                    overflow: 'hidden',
-                    textOverflow: 'ellipsis',
-                    color: dark ? TREE_DARK.textPrimary : '#374151',
-                  }}
-                >
-                  {title}
-                </span>
-                <span
-                  style={{
-                    fontSize: 9.5,
-                    fontWeight: 700,
-                    letterSpacing: '0.05em',
-                    textTransform: 'uppercase',
-                    color: isEntry ? (dark ? '#818cf8' : '#6366f1') : dark ? TREE_DARK.textFaint : '#9ca3af',
-                  }}
-                >
-                  {isEntry ? 'Entry' : 'In journey'}
-                </span>
+                {thumb ? (
+                  <img
+                    src={thumb}
+                    alt=""
+                    draggable={false}
+                    style={{ width: 26, height: 26, borderRadius: 5, objectFit: 'cover', flexShrink: 0 }}
+                  />
+                ) : null}
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 2, minWidth: 0, flex: thumb ? 1 : undefined }}>
+                  <span
+                    style={{
+                      fontSize: 12,
+                      fontWeight: 600,
+                      whiteSpace: 'nowrap',
+                      overflow: 'hidden',
+                      textOverflow: 'ellipsis',
+                      color: dark ? TREE_DARK.textPrimary : '#374151',
+                    }}
+                  >
+                    {title}
+                  </span>
+                  <span
+                    style={{
+                      fontSize: 9.5,
+                      fontWeight: 700,
+                      letterSpacing: '0.05em',
+                      textTransform: 'uppercase',
+                      color: isEntry ? (dark ? '#818cf8' : '#6366f1') : dark ? TREE_DARK.textFaint : '#9ca3af',
+                    }}
+                  >
+                    {isEntry ? 'Entry' : 'In journey'}
+                  </span>
+                </div>
               </div>
             )
           })}
@@ -2729,8 +2747,9 @@ useEffect(() => {
 
 // ── end temporary debug ──
 
-// ── Slice B: display titles for graph nodes (metadata lookup only) ───────
+// ── Slice B: display titles + thumbnails for graph nodes (metadata lookup only) ───────
 const [journeyTitles, setJourneyTitles] = useState<Record<string, string>>({})
+const [journeyThumbnails, setJourneyThumbnails] = useState<Record<string, string>>({})
 
 useEffect(() => {
   const g = journeyContext.graph
@@ -2740,17 +2759,18 @@ useEffect(() => {
   let cancelled = false
 
   ;(async () => {
-    const found: Record<string, string> = {}
+    const foundTitles: Record<string, string> = {}
+    const foundThumbs: Record<string, string> = {}
 
     for (let i = 0; i < ids.length; i += 80) {
       const { data, error } = await supabase
         .from('videos')
-        .select('id, video_title')
+        .select('id, video_title, thumbnail_url, platform')
         .in('id', ids.slice(i, i + 80))
 
       if (error) {
         console.warn(
-          '[CJM journey] title lookup failed',
+          '[CJM journey] title/thumbnail lookup failed',
           error.message,
         )
         continue
@@ -2759,17 +2779,30 @@ useEffect(() => {
       for (const v of (data ?? []) as {
         id: string
         video_title: string | null
+        thumbnail_url: string | null
+        platform: string | null
       }[]) {
         if (v.video_title) {
-          found[v.id] = v.video_title
+          foundTitles[v.id] = v.video_title
         }
+        // Same Content semantics as StructureMap buildContentMonthNodes:
+        // videos.thumbnail_url with resolveThumbnail platform fallback.
+        const resolved = resolveThumbnail({
+          thumbnail_url: v.thumbnail_url,
+          platform: v.platform,
+        })
+        if (resolved) foundThumbs[v.id] = resolved
       }
     }
 
     if (!cancelled) {
       setJourneyTitles((prev) => ({
         ...prev,
-        ...found,
+        ...foundTitles,
+      }))
+      setJourneyThumbnails((prev) => ({
+        ...prev,
+        ...foundThumbs,
       }))
     }
   })()
@@ -2808,28 +2841,6 @@ useEffect(() => {
     // assetCacheVersion: the asset->video cache is a ref
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [contentData.contentVideos, structureData.ownAssetNodes, assetCacheVersion])
-
-  // ── TEMPORARY DEBUG (Month/Part Patch 2) — remove when the layout patch lands ──
-  useEffect(() => {
-    const g = journeyContext.graph
-    if (!g || g.nodes.length === 0) return
-    const res = assignMonthParts(g, monthInfoByVideoId)
-    console.groupCollapsed(`[CJM month/part] ${g.nodes.length} node(s) -> ${res.groups.length} month group(s)`)
-    for (const grp of res.groups) {
-      const label =
-        grp.year !== null && grp.month !== null
-          ? `${grp.year}-${String(grp.month + 1).padStart(2, '0')}`
-          : 'undated'
-      console.log(
-        `${label}  parts=${grp.partCount}  ${grp.segmented ? 'SEGMENTED (orange)' : 'single (purple)'}`,
-        grp.parts.map((p) => `#${p.partIndex + 1} ${p.kind} x${p.videoIds.length}`),
-      )
-    }
-    const undated = res.groups.find((x) => x.monthKey === 'undated')
-    console.log('undated videoIds:', undated ? undated.parts.flatMap((p) => p.videoIds) : [])
-    console.log('assigned:', res.partByVideoId.size, 'of', g.nodes.length)
-    console.groupEnd()
-  }, [journeyContext.graph, monthInfoByVideoId])
 
   // ── Slice B2: one scene — journey videos sit under the outcome they END in ──
   // Observed ends + structural ends (an observed end for the same video/outcome wins).
@@ -3462,6 +3473,8 @@ const [panelLarge, setPanelLarge] = useState(false)
             context={layerContext}
             scene={journeyScene}
             titles={journeyTitles}
+            thumbnails={journeyThumbnails}
+            showThumbnails={showThumbnails}
             entryIds={journeyEntryVideoIds}
             positions={layerPositions}
             onClear={clearJourneyContext}
