@@ -1897,6 +1897,163 @@ function ContextCampaignLayer({
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
+
+// ═══════════════════════════════════════════════════════════════════════════
+// Import Assets contextual hub (presentation only — not graph / not outcomes)
+//
+// Membership: marketer/promotion selection context + asset_type === 'resource'
+// + no videos.asset_id row. Campaign elements never join this hub.
+// ═══════════════════════════════════════════════════════════════════════════
+
+type ImportAssetItem = {
+  assetId: string
+  label: string
+  thumbnailUrl?: string | null
+}
+
+type ImportAssetsLayout = {
+  hub: Pt
+  cards: { assetId: string; label: string; thumbnailUrl?: string | null; center: Pt; w: number; h: number }[]
+}
+
+const IMPORT_HUB_LABEL = 'Import Assets'
+const IMPORT_CARD_GAP_Y = 72
+const IMPORT_CARD_W = OUTCOME_W
+const IMPORT_CARD_H = OUTCOME_H
+
+/** Place Import hub on the first-row band, to the right of foreign context layouts. */
+function buildImportAssetsLayout(
+  items: ImportAssetItem[],
+  foreignLayouts: { hub: Pt; nodes: PositionedNode[] }[],
+): ImportAssetsLayout | null {
+  if (items.length === 0) return null
+  let left = HUB_X + ((CAMPAIGN_PATHS.length - 1) / 2) * COLUMN_SPACING + OUTCOME_W / 2 + CTX_GAP
+  for (const L of foreignLayouts) {
+    let maxX = L.hub.x + HUB_R
+    for (const n of L.nodes) maxX = Math.max(maxX, n.center.x + n.w / 2)
+    left = Math.max(left, maxX + CTX_GAP)
+  }
+  const hub: Pt = { x: left + HUB_R, y: HUB_Y }
+  const cards = items.map((it, i) => ({
+    assetId: it.assetId,
+    label: it.label,
+    thumbnailUrl: it.thumbnailUrl,
+    center: { x: hub.x, y: hub.y + HUB_R + 36 + i * IMPORT_CARD_GAP_Y + IMPORT_CARD_H / 2 },
+    w: IMPORT_CARD_W,
+    h: IMPORT_CARD_H,
+  }))
+  return { hub, cards }
+}
+
+function ImportAssetsLayer({
+  presentation,
+  layout,
+  showThumbnails,
+}: {
+  presentation: 'campaign' | 'tree'
+  layout: ImportAssetsLayout | null
+  showThumbnails: boolean
+}) {
+  if (!layout) return null
+  const dark = presentation === 'tree'
+  const { hub, cards } = layout
+  return (
+    <>
+      <svg style={{ position: 'absolute', left: 0, top: 0, width: 1, height: 1, overflow: 'visible', pointerEvents: 'none' }}>
+        {cards.map((c) => {
+          const from = circleAnchor(hub, HUB_R, c.center)
+          const to = rectAnchor(c.center, c.w, c.h, hub)
+          return (
+            <path
+              key={`import-edge:${c.assetId}`}
+              d={curvePath(from, to)}
+              fill="none"
+              stroke={dark ? '#a3a3a3' : '#94a3b8'}
+              strokeWidth={1.5}
+              strokeOpacity={0.55}
+            />
+          )
+        })}
+      </svg>
+      <div
+        title="Imported resource assets (no video — not part of the journey graph)"
+        style={{
+          ...styles.hub,
+          left: hub.x - HUB_R,
+          top: hub.y - HUB_R,
+          width: HUB_R * 2,
+          height: HUB_R * 2,
+          background: dark
+            ? 'linear-gradient(160deg, #1c1917 0%, #44403c 100%)'
+            : 'linear-gradient(160deg, #292524 0%, #57534e 100%)',
+          boxShadow: '0 0 0 6px rgba(168,162,158,0.10), 0 12px 28px rgba(41,37,36,0.25)',
+        }}
+      >
+        <span style={{ ...styles.hubEyebrow, color: '#d6d3d1' }}>Contextual</span>
+        <span style={styles.hubTitle}>{IMPORT_HUB_LABEL}</span>
+      </div>
+      {cards.map((c) => (
+        <div
+          key={`import-card:${c.assetId}`}
+          title={c.label}
+          style={{
+            position: 'absolute',
+            left: c.center.x - c.w / 2,
+            top: c.center.y - c.h / 2,
+            width: c.w,
+            height: c.h,
+            boxSizing: 'border-box',
+            display: 'flex',
+            alignItems: 'center',
+            gap: 9,
+            padding: '0 12px',
+            borderRadius: 10,
+            border: `1.5px solid ${dark ? TREE_DARK.border : '#d6d3d1'}`,
+            background: dark ? TREE_DARK.cardBgAlt : '#ffffff',
+            boxShadow: dark ? 'none' : '0 2px 6px rgba(15,23,42,0.04)',
+          }}
+        >
+          {showThumbnails && c.thumbnailUrl ? (
+            <img
+              src={c.thumbnailUrl}
+              alt=""
+              draggable={false}
+              style={{ width: 26, height: 26, borderRadius: 5, objectFit: 'cover', flexShrink: 0 }}
+            />
+          ) : (
+            <span style={{ width: 8, height: 8, borderRadius: '50%', background: '#a8a29e', flexShrink: 0 }} />
+          )}
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 2, minWidth: 0 }}>
+            <span
+              style={{
+                fontSize: 12,
+                fontWeight: 600,
+                whiteSpace: 'nowrap',
+                overflow: 'hidden',
+                textOverflow: 'ellipsis',
+                color: dark ? TREE_DARK.textPrimary : '#374151',
+              }}
+            >
+              {c.label}
+            </span>
+            <span
+              style={{
+                fontSize: 9.5,
+                fontWeight: 700,
+                letterSpacing: '0.05em',
+                textTransform: 'uppercase',
+                color: '#a8a29e',
+              }}
+            >
+              Import
+            </span>
+          </div>
+        </div>
+      ))}
+    </>
+  )
+}
+
 // MonthPartLayer (Patch 3b) — READ-ONLY renderer for layoutMonthPartScene().
 //
 // Draws, per Part block: the month circle, the root/outcome INSTANCES
@@ -2554,15 +2711,20 @@ const campaignIdRef = useRef<string | undefined>(campaignId)
 campaignIdRef.current = campaignId
 // Bumped whenever the cache above gains entries, so memos that read it recompute.
 const [assetCacheVersion, setAssetCacheVersion] = useState(0)
+// Import Assets hub: promotion-context resource assets with no video (not campaign_element).
+const [importAssets, setImportAssets] = useState<ImportAssetItem[]>([])
+const assetTypeCacheRef = useRef<Map<string, string>>(new Map())
 
 const clearJourneyContext = useCallback(() => {
   setJourneyEntryVideoIds((prev) => (prev.length ? [] : prev))
   setJourneyContext(EMPTY_JOURNEY_CONTEXT)
+  setImportAssets([])
 }, [])
 
 useEffect(() => {
   clearJourneyContext()
   assetVideoCacheRef.current = new Map()
+  assetTypeCacheRef.current = new Map()
   setAssetCacheVersion((v) => v + 1)
 }, [campaignId, clearJourneyContext])
 
@@ -2638,6 +2800,99 @@ useEffect(() => {
     cancelled = true
   }
 }, [selectedNodes])
+
+// Import Assets: promotion-context resource assets with no video (batched asset_type lookup).
+// Campaign elements with no video stay out of this hub and out of the journey graph.
+useEffect(() => {
+  const promoAssetIds: string[] = []
+  const seen = new Set<string>()
+  const metaByAssetId = new Map<string, { label: string; thumbnailUrl?: string | null }>()
+
+  const walkMeta = (n: TreeNode) => {
+    if (n.isShowMore) return
+    if (n.kind === 'asset') {
+      const ref = leafRefOf(n)
+      if (ref?.type === 'asset') {
+        metaByAssetId.set(ref.id, { label: n.label, thumbnailUrl: n.thumbnailUrl ?? null })
+      }
+    }
+    n.children?.forEach(walkMeta)
+  }
+
+  for (const n of selectedNodes) {
+    const promoCtx =
+      n.kind === 'marketer' ||
+      n.kind === 'promotion' ||
+      (n.kind === 'asset' && n.id.startsWith('asset_'))
+    if (!promoCtx) continue
+    walkMeta(n)
+    for (const ref of collectLeafRefs(n)) {
+      if (ref.type !== 'asset') continue
+      if (seen.has(ref.id)) continue
+      seen.add(ref.id)
+      promoAssetIds.push(ref.id)
+    }
+  }
+
+  if (promoAssetIds.length === 0) {
+    setImportAssets((prev) => (prev.length === 0 ? prev : []))
+    return
+  }
+
+  let cancelled = false
+  ;(async () => {
+    try {
+      const videoCache = assetVideoCacheRef.current
+      const needVideo = promoAssetIds.filter((id) => !videoCache.has(id))
+      if (needVideo.length > 0) {
+        const found = await resolveVideoIdsForAssets(needVideo)
+        for (const id of needVideo) videoCache.set(id, found.get(id) ?? [])
+        if (!cancelled) setAssetCacheVersion((v) => v + 1)
+      }
+      if (cancelled) return
+
+      const nonVideo = promoAssetIds.filter((id) => (videoCache.get(id) ?? []).length === 0)
+      if (nonVideo.length === 0) {
+        if (!cancelled) setImportAssets((prev) => (prev.length === 0 ? prev : []))
+        return
+      }
+
+      const typeCache = assetTypeCacheRef.current
+      const needType = nonVideo.filter((id) => !typeCache.has(id))
+      for (let i = 0; i < needType.length; i += 80) {
+        const slice = needType.slice(i, i + 80)
+        const { data, error } = await supabase.from('assets').select('id, asset_type').in('id', slice)
+        if (error) {
+          console.warn('[CJM import] asset_type lookup failed', error.message)
+          continue
+        }
+        for (const row of (data ?? []) as { id: string; asset_type: string | null }[]) {
+          if (row.asset_type) typeCache.set(row.id, row.asset_type)
+        }
+      }
+      if (cancelled) return
+
+      const next: ImportAssetItem[] = []
+      for (const id of nonVideo) {
+        const t = typeCache.get(id)
+        if (t !== 'resource') continue // campaign_element and unknown stay out of Import Hub
+        const meta = metaByAssetId.get(id)
+        next.push({
+          assetId: id,
+          label: meta?.label ?? `Asset ${id.slice(0, 8)}…`,
+          thumbnailUrl: meta?.thumbnailUrl ?? null,
+        })
+      }
+      if (!cancelled) setImportAssets(next)
+    } catch (err) {
+      console.warn('[CJM import] classification failed', err)
+    }
+  })()
+
+  return () => {
+    cancelled = true
+  }
+}, [selectedNodes, assetCacheVersion])
 
 // entry video ids -> real journeys -> graph (existing buildJourneyGraph)
 useEffect(() => {
@@ -2884,6 +3139,10 @@ useEffect(() => {
   const hasLegacyEnds = journeyContext.structuralEnds.some((e) => e.outcomeId === LEGACY_OUTCOME_ID)
   const ctx = useMemo(() => buildContextLayouts(journeyContext.foreign, hasLegacyEnds), [journeyContext.foreign, hasLegacyEnds])
   const layerContext = useMemo(() => ({ ...journeyContext, ends: allEnds }), [journeyContext, allEnds])
+  const importLayout = useMemo(
+    () => buildImportAssetsLayout(importAssets, ctx.layouts),
+    [importAssets, ctx.layouts],
+  )
 
   // ── Month/Part (Patch 3c): layout-only. USE_MONTH_PART_LAYOUT = false restores the old scene. ──
   const monthPartScene = useMemo(
@@ -2908,11 +3167,12 @@ useEffect(() => {
   )
   // Phase 1 cards for videos that are now nodes of the journey are not drawn twice;
   // selected videos with no observed journey stay as plain cards below it.
+  const importAssetIdSet = useMemo(() => new Set(importAssets.map((a) => a.assetId)), [importAssets])
+
   const { looseItems, connectedItemCount } = useMemo(() => {
     // placedVideoIds: every video that is a canonical node of the final graph
     // (observed + upstream/downstream + structural + videos behind contextual campaigns).
     const placedVideoIds = new Set((journeyContext.graph?.nodes ?? []).map((n) => n.videoId))
-    if (placedVideoIds.size === 0) return { looseItems: selectedItems, connectedItemCount: 0 }
     const cache = assetVideoCacheRef.current
     // Any item id -> the video ids behind it (not just the content_video_/own_asset_ prefixes).
     const videoIdsOf = (it: PanelItem): string[] => {
@@ -2924,11 +3184,21 @@ useEffect(() => {
       if (it.kind === 'asset') return cache.get(tail) ?? []
       return []
     }
-    const loose = selectedItems.filter((it) => !videoIdsOf(it).some((v) => placedVideoIds.has(v)))
+    const assetIdOf = (it: PanelItem): string | null => {
+      if (it.kind !== 'asset') return null
+      if (it.id.startsWith('own_asset_')) return it.id.slice('own_asset_'.length)
+      return it.id.match(UUID_TAIL)?.[1] ?? null
+    }
+    const loose = selectedItems.filter((it) => {
+      const aid = assetIdOf(it)
+      if (aid && importAssetIdSet.has(aid)) return false // shown on Import Assets hub
+      if (placedVideoIds.size === 0) return true
+      return !videoIdsOf(it).some((v) => placedVideoIds.has(v))
+    })
     return { looseItems: loose, connectedItemCount: selectedItems.length - loose.length }
     // assetCacheVersion: the asset->video cache is a ref
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [selectedItems, journeyContext.graph, assetCacheVersion])
+  }, [selectedItems, journeyContext.graph, assetCacheVersion, importAssetIdSet])
   const itemsTop =
     journeyScene && journeyScene.nodes.length > 0 ? Math.max(ITEMS_TOP, journeyScene.bottom + JG_AFTER_GAP) : ITEMS_TOP
 
@@ -3191,6 +3461,15 @@ const [panelLarge, setPanelLarge] = useState(false)
     }
     const lp = ctx.positions[LEGACY_OUTCOME_ID]
     if (lp) minX = Math.min(minX, lp.x - OUTCOME_W / 2)
+    if (importLayout) {
+      minX = Math.min(minX, importLayout.hub.x - HUB_R)
+      maxX = Math.max(maxX, importLayout.hub.x + HUB_R)
+      for (const c of importLayout.cards) {
+        minX = Math.min(minX, c.center.x - c.w / 2)
+        maxX = Math.max(maxX, c.center.x + c.w / 2)
+        maxY = Math.max(maxY, c.center.y + c.h / 2)
+      }
+    }
     if (looseItems.length > 0) {
       const half = ((ITEMS_COLS - 1) / 2) * ITEMS_COL_SPACING + OUTCOME_W / 2
       minX = Math.min(minX, HUB_X - half)
@@ -3199,7 +3478,7 @@ const [panelLarge, setPanelLarge] = useState(false)
       maxY = Math.max(maxY, itemsTop + (rows - 1) * ITEMS_ROW_SPACING + OUTCOME_H)
     }
     return { minX, maxX, minY, maxY }
-  }, [journeyScene, monthPartScene, looseItems, itemsTop, ctx])
+  }, [journeyScene, monthPartScene, looseItems, itemsTop, ctx, importLayout])
 
   // Same idea as CampaignStructureMap's tree auto-fit: scale = min(fitW, fitH),
   // centred. Capped at 1 so desktop never starts blown-up.
@@ -3472,6 +3751,8 @@ const [panelLarge, setPanelLarge] = useState(false)
             names={foreignNames}
             legacyPos={ctx.positions[LEGACY_OUTCOME_ID] ?? null}
           />
+
+          <ImportAssetsLayer presentation={presentation} layout={importLayout} showThumbnails={showThumbnails} />
 
           <MonthPartLayer presentation={presentation} scene={monthPartScene} />
 
