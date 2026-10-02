@@ -65,7 +65,7 @@ import {
 } from './CampaignStructureMap'
 import { discoverJourneysForVideos, resolveVideoIdsForAssets, type DiscoveredJourney } from '../lib/journeyDiscovery'
 import { buildJourneyGraph, type JourneyGraph } from '../lib/journeyGraph'
-import { resolveDownstreamNodes } from '../services/journey/journeyDownstreamResolver'
+import { resolveDownstreamNodes, resolveStructuralLinksForVideos, type StructuralLink } from '../services/journey/journeyDownstreamResolver'
 // ─── Real-data hook (header name + switcher only) ───────────────────────
 // Identical to the copy in CampaignStructureMap.tsx / AllAssetsAnalytics.tsx
 // — same query, same viewer-id resolution. Not imported because it isn't
@@ -497,6 +497,57 @@ interface JourneyEnd {
   videoId: string
   outcomeId: string
   count: number
+  /** true = from redirect_links structure (nobody has traversed it); drawn dashed, no count pill */
+  structural?: boolean
+}
+
+// ─── Structural (redirect_links) outcomes ───────────────────────────────────
+// Contextual (foreign) campaign outcome ids are namespaced `ctx:<campaignId>:<outcomeId>`
+// so they can never collide with the primary campaign's fixed outcome ids.
+const LEGACY_OUTCOME_ID = 'legacy'
+const ctxOutcomeId = (campaignId: string, outcomeId: string) => `ctx:${campaignId}:${outcomeId}`
+/** 'ctx:<cid>:sales_call' -> 'sales_call'; primary ids pass through unchanged. */
+const baseOutcomeId = (id: string) => (id.startsWith('ctx:') ? id.slice(id.lastIndexOf(':') + 1) : id)
+
+interface ForeignCampaign {
+  campaignId: string
+  /** primary-style outcome ids reached ('sales_call' | 'direct_purchase' | ...) */
+  outcomeBases: string[]
+}
+
+/** Structural facts -> journey ends. Situation A (owner = selected campaign) maps to the
+ *  primary outcome ids; Situation B (owner = another campaign) to namespaced ctx ids. */
+function buildStructuralEnds(links: StructuralLink[], primaryCampaignId: string | undefined) {
+  const ends = new Map<string, JourneyEnd>()
+  const foreign = new Map<string, Set<string>>()
+  const legacyLinks = new Set<string>()
+  const videoIds = new Set<string>()
+  for (const l of links) {
+    if (l.resolution === 'legacy') {
+      legacyLinks.add(l.redirectLinkId)
+      ends.set(`${l.videoId}::${LEGACY_OUTCOME_ID}`, { videoId: l.videoId, outcomeId: LEGACY_OUTCOME_ID, count: 0, structural: true })
+      videoIds.add(l.videoId)
+      continue
+    }
+    const base = OUTCOME_BY_ELEMENT_TYPE[l.elementType]
+    if (!base) continue
+    const isForeign = !!l.ownerCampaignId && !!primaryCampaignId && l.ownerCampaignId !== primaryCampaignId
+    let outcomeId = base
+    if (isForeign && l.ownerCampaignId) {
+      outcomeId = ctxOutcomeId(l.ownerCampaignId, base)
+      const set = foreign.get(l.ownerCampaignId) ?? new Set<string>()
+      set.add(base)
+      foreign.set(l.ownerCampaignId, set)
+    }
+    ends.set(`${l.videoId}::${outcomeId}`, { videoId: l.videoId, outcomeId, count: 0, structural: true })
+    videoIds.add(l.videoId)
+  }
+  return {
+    ends: Array.from(ends.values()),
+    foreign: Array.from(foreign, ([campaignId, set]) => ({ campaignId, outcomeBases: Array.from(set) })) as ForeignCampaign[],
+    legacyCount: legacyLinks.size,
+    videoIds,
+  }
 }
 
 const OUTCOME_BY_ELEMENT_TYPE: Record<string, string> = {
@@ -517,6 +568,12 @@ interface JourneyContext {
 
   /** Where observed journeys END: last video -> outcome node */
   ends: JourneyEnd[]
+  /** Structural (redirect_links) ends for the selected videos — supplements `ends`, never replaces it */
+  structuralEnds: JourneyEnd[]
+  /** Other campaigns whose Campaign Element Assets the selected videos promote (contextual, not switchable) */
+  foreign: ForeignCampaign[]
+  /** redirect links that no longer match a campaign field (outdated / legacy) */
+  legacyCount: number
   /** Outcome resolution is still running / finished / failed */
   endsStatus: 'pending' | 'ready' | 'failed'
   /** Journey ends that did not map to one of the 4 outcome nodes */
@@ -533,6 +590,9 @@ const EMPTY_JOURNEY_CONTEXT: JourneyContext = {
   truncated: false,
   coverage: {},
   ends: [],
+  structuralEnds: [],
+  foreign: [],
+  legacyCount: 0,
   endsStatus: 'pending',
   endsUnmapped: 0,
   error: null,
@@ -1235,7 +1295,7 @@ function layoutJourneyGroup(nodesIn: JourneyGraph['nodes'], edgesIn: JourneyGrap
 }
 
 /** Whole scene: connected groups placed under the outcome column they end in. */
-function layoutJourneyScene(graph: JourneyGraph, ends: JourneyEnd[]): JgScene {
+function layoutJourneyScene(graph: JourneyGraph, ends: JourneyEnd[], outcomeX?: Map<string, number>): JgScene {
   // connected groups (undirected)
   const parent = new Map<string, string>(graph.nodes.map((n) => [n.videoId, n.videoId]))
   const find = (x: string): string => {
@@ -1270,7 +1330,7 @@ function layoutJourneyScene(graph: JourneyGraph, ends: JourneyEnd[]): JgScene {
     const xs: number[] = []
     for (const n of g.nodes) {
       for (const e of endsByVideo.get(n.videoId) ?? []) {
-        const x = defaultOutcomeX(e.outcomeId)
+        const x = outcomeX?.get(e.outcomeId) ?? defaultOutcomeX(e.outcomeId)
         if (x !== null) xs.push(x)
       }
     }
@@ -1327,6 +1387,149 @@ function jgEdgeGeometry(a: JgNode, b: JgNode): { d: string; mid: Pt } {
   }
 }
 
+// ─── Contextual (foreign) campaign hubs + legacy node ───────────────────────
+// Situation B: a selected video promotes ANOTHER campaign's Campaign Element Asset.
+// Read-only: no switcher, not draggable, not part of `positions`. Only the branches
+// actually reached are drawn. Node ids are namespaced (ctx:<campaignId>:<outcomeId>).
+const CTX_GAP = 140
+
+interface CtxHubLayout {
+  campaignId: string
+  hub: Pt
+  nodes: PositionedNode[]
+  connections: { fromId: string; toId: string; color: string; pathId: string }[]
+}
+
+function buildContextLayouts(foreign: ForeignCampaign[], showLegacy: boolean) {
+  const layouts: CtxHubLayout[] = []
+  const positions: Record<string, Pt> = {}
+  const outcomeX = new Map<string, number>()
+  let left = HUB_X + ((CAMPAIGN_PATHS.length - 1) / 2) * COLUMN_SPACING + OUTCOME_W / 2 + CTX_GAP
+  for (const f of foreign) {
+    const paths = CAMPAIGN_PATHS.filter((p) => f.outcomeBases.includes(p.outcomes[0].id))
+    if (paths.length === 0) continue
+    const n = paths.length
+    const hubX = left + OUTCOME_W / 2 + ((n - 1) / 2) * COLUMN_SPACING
+    const layout: CtxHubLayout = { campaignId: f.campaignId, hub: { x: hubX, y: HUB_Y }, nodes: [], connections: [] }
+    paths.forEach((path, i) => {
+      const colX = hubX + (i - (n - 1) / 2) * COLUMN_SPACING
+      const rootId = ctxOutcomeId(f.campaignId, path.root.id)
+      const outId = ctxOutcomeId(f.campaignId, path.outcomes[0].id)
+      const rootCenter = { x: colX, y: HUB_Y + ROOT_DIST }
+      const outCenter = { x: colX, y: HUB_Y + OUTCOME_DIST }
+      layout.nodes.push(
+        { id: rootId, label: path.root.label, center: rootCenter, w: ROOT_W, h: ROOT_H, kind: 'root', pathId: path.id, color: path.color },
+        { id: outId, label: path.outcomes[0].label, center: outCenter, w: OUTCOME_W, h: OUTCOME_H, kind: 'outcome', pathId: path.id, color: path.color },
+      )
+      layout.connections.push(
+        { fromId: 'hub', toId: rootId, color: path.color, pathId: path.id },
+        { fromId: rootId, toId: outId, color: path.color, pathId: path.id },
+      )
+      positions[rootId] = rootCenter
+      positions[outId] = outCenter
+      outcomeX.set(outId, colX)
+    })
+    layouts.push(layout)
+    left = hubX + ((n - 1) / 2) * COLUMN_SPACING + OUTCOME_W / 2 + CTX_GAP
+  }
+  if (showLegacy) {
+    positions[LEGACY_OUTCOME_ID] = {
+      x: HUB_X - ((CAMPAIGN_PATHS.length - 1) / 2) * COLUMN_SPACING - COLUMN_SPACING,
+      y: HUB_Y + OUTCOME_DIST,
+    }
+  }
+  return { layouts, positions, outcomeX }
+}
+
+function ContextCampaignLayer({
+  presentation,
+  layouts,
+  names,
+  legacyPos,
+}: {
+  presentation: 'campaign' | 'tree'
+  layouts: CtxHubLayout[]
+  names: Record<string, string>
+  legacyPos: Pt | null
+}) {
+  if (layouts.length === 0 && !legacyPos) return null
+  const dark = presentation === 'tree'
+  return (
+    <>
+      <svg style={{ position: 'absolute', left: 0, top: 0, width: 1, height: 1, overflow: 'visible', pointerEvents: 'none' }}>
+        {layouts.map((L) => {
+          const byId = new Map(L.nodes.map((n) => [n.id, n]))
+          return L.connections.map((c, i) => {
+            const toNode = byId.get(c.toId)
+            const fromNode = c.fromId === 'hub' ? null : byId.get(c.fromId)
+            if (!toNode) return null
+            const fromCenter = fromNode ? fromNode.center : L.hub
+            const from = fromNode ? rectAnchor(fromNode.center, fromNode.w, fromNode.h, toNode.center) : circleAnchor(L.hub, HUB_R, toNode.center)
+            const to = rectAnchor(toNode.center, toNode.w, toNode.h, fromCenter)
+            return <path key={`${L.campaignId}:${i}`} d={curvePath(from, to)} fill="none" stroke={c.color} strokeWidth={2} strokeOpacity={0.55} />
+          })
+        })}
+      </svg>
+      {layouts.map((L) => (
+        <React.Fragment key={L.campaignId}>
+          <div
+            title="Promoted campaign (contextual — not switchable)"
+            style={{ ...styles.hub, left: L.hub.x - HUB_R, top: L.hub.y - HUB_R, width: HUB_R * 2, height: HUB_R * 2 }}
+          >
+            <span style={styles.hubEyebrow}>Promoted campaign</span>
+            <span style={styles.hubTitle}>{names[L.campaignId] ?? 'Loading…'}</span>
+          </div>
+          {L.nodes.map((node) => {
+            const isRoot = node.kind === 'root'
+            return (
+              <div
+                key={node.id}
+                style={{
+                  ...(isRoot ? styles.rootNode : styles.outcomeNode),
+                  left: node.center.x - node.w / 2,
+                  top: node.center.y - node.h / 2,
+                  width: node.w,
+                  height: node.h,
+                  borderColor: isRoot ? node.color : `${node.color}66`,
+                  ...(dark ? { background: isRoot ? TREE_DARK.cardBg : TREE_DARK.cardBgAlt } : {}),
+                }}
+              >
+                <span style={{ ...styles.nodeDot, background: node.color }} />
+                <div style={styles.nodeTextCol}>
+                  <span style={{ ...(isRoot ? styles.nodeLabelRoot : styles.nodeLabelOutcome), ...(dark ? { color: TREE_DARK.textPrimary } : {}) }}>
+                    {node.label}
+                  </span>
+                  <span style={{ ...styles.nodeKind, color: node.color }}>{isRoot ? 'Entry content' : 'Outcome'}</span>
+                </div>
+              </div>
+            )
+          })}
+        </React.Fragment>
+      ))}
+      {legacyPos && (
+        <div
+          title="Redirect links whose destination no longer matches a current campaign field"
+          style={{
+            ...styles.outcomeNode,
+            left: legacyPos.x - OUTCOME_W / 2,
+            top: legacyPos.y - OUTCOME_H / 2,
+            width: OUTCOME_W,
+            height: OUTCOME_H,
+            borderColor: '#9ca3af88',
+            ...(dark ? { background: TREE_DARK.cardBgAlt } : {}),
+          }}
+        >
+          <span style={{ ...styles.nodeDot, background: '#9ca3af' }} />
+          <div style={styles.nodeTextCol}>
+            <span style={{ ...styles.nodeLabelOutcome, ...(dark ? { color: TREE_DARK.textPrimary } : {}) }}>Outdated links</span>
+            <span style={{ ...styles.nodeKind, color: '#9ca3af' }}>Legacy</span>
+          </div>
+        </div>
+      )}
+    </>
+  )
+}
+
 /** Draws journeyContext.graph + the journey -> outcome connectors in canvas
  *  coordinates. Not draggable, not part of `positions` (it only READS them). Simple
  *  styling on purpose — Slice C adds category / highlight treatment. */
@@ -1365,10 +1568,16 @@ function JourneyGraphLayer({
   let statusText: string
   if (context.status === 'error') statusText = `Journey error: ${context.error ?? 'unknown'}`
   else if (!graph) statusText = 'Discovering journeys…'
-  else if (graph.nodes.length === 0) statusText = 'No observed journey for the selected videos yet'
+  else if (graph.nodes.length === 0) statusText = 'No observed journey or structural link for the selected videos'
   else {
+    const structuralCount = context.structuralEnds.filter((e) => e.outcomeId !== LEGACY_OUTCOME_ID).length
     statusText =
-      `Observed journey · ${context.journeyCount} journey${context.journeyCount === 1 ? '' : 's'} · ${graph.nodes.length} video${graph.nodes.length === 1 ? '' : 's'}` +
+      (context.journeyCount > 0
+        ? `Observed journey · ${context.journeyCount} journey${context.journeyCount === 1 ? '' : 's'} · `
+        : 'Structural journey · ') +
+      `${graph.nodes.length} video${graph.nodes.length === 1 ? '' : 's'}` +
+      (structuralCount > 0 ? ` · ${structuralCount} structural link${structuralCount === 1 ? '' : 's'}` : '') +
+      (context.legacyCount > 0 ? ` · ${context.legacyCount} outdated link${context.legacyCount === 1 ? '' : 's'}` : '') +
       (context.endsStatus === 'pending' ? ' · finding outcomes…' : '') +
       (context.endsStatus === 'failed' ? ' · outcome lookup failed' : '') +
       (context.endsStatus === 'ready' && context.ends.length > 0 ? ` · ${context.ends.length} outcome link${context.ends.length === 1 ? '' : 's'}` : '') +
@@ -1377,7 +1586,12 @@ function JourneyGraphLayer({
       (context.status === 'loading' ? ' · updating…' : '')
   }
 
-  const outcomeColor = (outcomeId: string) => CAMPAIGN_PATHS.find((c) => c.outcomes[0].id === outcomeId)?.color ?? edgeColor
+  const outcomeColor = (outcomeId: string) =>
+    CAMPAIGN_PATHS.find((c) => c.outcomes[0].id === baseOutcomeId(outcomeId))?.color ?? edgeColor
+  const arrowId = (outcomeId: string) => {
+    const base = baseOutcomeId(outcomeId)
+    return CAMPAIGN_PATHS.some((c) => c.outcomes[0].id === base) ? `jgArrow-${base}` : 'jgArrow'
+  }
 
   return (
     <>
@@ -1488,13 +1702,19 @@ function JourneyGraphLayer({
                     d={d}
                     fill="none"
                     stroke={color}
-                    strokeWidth={1.25 + Math.min(3.5, Math.log2(Math.max(1, en.count)) * 0.7)}
-                    markerEnd={`url(#jgArrow-${en.outcomeId})`}
+                    strokeWidth={en.structural ? 1.4 : 1.25 + Math.min(3.5, Math.log2(Math.max(1, en.count)) * 0.7)}
+                    strokeDasharray={en.structural ? '6 4' : undefined}
+                    strokeOpacity={en.structural ? 0.8 : 1}
+                    markerEnd={`url(#${arrowId(en.outcomeId)})`}
                   />
-                  <rect x={mid.x - pillW / 2} y={mid.y - 9} width={pillW} height={18} rx={9} fill={pillBg} stroke={color} />
-                  <text x={mid.x} y={mid.y + 4} textAnchor="middle" fontSize={10.5} fontWeight={700} fill={color}>
-                    {label}
-                  </text>
+                  {!en.structural && (
+                    <>
+                      <rect x={mid.x - pillW / 2} y={mid.y - 9} width={pillW} height={18} rx={9} fill={pillBg} stroke={color} />
+                      <text x={mid.x} y={mid.y + 4} textAnchor="middle" fontSize={10.5} fontWeight={700} fill={color}>
+                        {label}
+                      </text>
+                    </>
+                  )}
                 </g>
               )
             })}
@@ -1803,6 +2023,8 @@ export default function CampaignJourneyMap({ embedded = false, presentation = 'c
 const [journeyEntryVideoIds, setJourneyEntryVideoIds] = useState<string[]>([])
 const [journeyContext, setJourneyContext] = useState<JourneyContext>(EMPTY_JOURNEY_CONTEXT)
 const assetVideoCacheRef = useRef<Map<string, string[]>>(new Map())
+const campaignIdRef = useRef<string | undefined>(campaignId)
+campaignIdRef.current = campaignId
 // Bumped whenever the cache above gains entries, so memos that read it recompute.
 const [assetCacheVersion, setAssetCacheVersion] = useState(0)
 
@@ -1901,18 +2123,38 @@ useEffect(() => {
 
   ;(async () => {
     try {
-      const result = await discoverJourneysForVideos(journeyEntryVideoIds)
+      // Observed journeys + structural redirect_links, resolved together so a selected
+      // video never flashes as an isolated card. Structural failure degrades to observed-only.
+      const [result, structuralLinks] = await Promise.all([
+        discoverJourneysForVideos(journeyEntryVideoIds),
+        resolveStructuralLinksForVideos(journeyEntryVideoIds).catch((e) => {
+          console.warn('[CJM journey] structural link resolution failed', e)
+          return [] as StructuralLink[]
+        }),
+      ])
 
       if (cancelled) return
 
+      const graph = buildJourneyGraph(result.journeys)
+      const structural = buildStructuralEnds(structuralLinks, campaignIdRef.current)
+      // One canonical node per video: a structural-only video becomes a (possibly edgeless)
+      // graph node; videos already in the observed graph are never added twice.
+      const inGraph = new Set(graph.nodes.map((n) => n.videoId))
+      structural.videoIds.forEach((v) => {
+        if (!inGraph.has(v)) graph.nodes.push({ videoId: v, observedAssetIds: [], observedRedirectLinkIds: [] })
+      })
+
       setJourneyContext({
         status: 'ready',
-        graph: buildJourneyGraph(result.journeys),
+        graph,
         journeyCount: result.journeys.length,
         excludedJourneys: result.excludedJourneys,
         truncated: result.truncated,
         coverage: result.journeyCountByVideoId,
         ends: [],
+        structuralEnds: structural.ends,
+        foreign: structural.foreign,
+        legacyCount: structural.legacyCount,
         endsStatus: 'pending',
         endsUnmapped: 0,
         error: null,
@@ -2033,25 +2275,68 @@ useEffect(() => {
 }, [journeyContext.graph])
 
   // ── Slice B2: one scene — journey videos sit under the outcome they END in ──
+  // Observed ends + structural ends (an observed end for the same video/outcome wins).
+  const allEnds = useMemo(() => {
+    const seen = new Set(journeyContext.ends.map((e) => `${e.videoId}::${e.outcomeId}`))
+    return [...journeyContext.ends, ...journeyContext.structuralEnds.filter((e) => !seen.has(`${e.videoId}::${e.outcomeId}`))]
+  }, [journeyContext.ends, journeyContext.structuralEnds])
+
+  // Contextual (foreign) campaigns: names are display-only; RLS may hide another owner's campaign row.
+  const [foreignNames, setForeignNames] = useState<Record<string, string>>({})
+  useEffect(() => {
+    const ids = journeyContext.foreign.map((f) => f.campaignId).filter((id) => !(id in foreignNames))
+    if (ids.length === 0) return
+    let cancelled = false
+    supabase
+      .from('campaigns')
+      .select('id, campaign_name')
+      .in('id', ids)
+      .then(({ data }) => {
+        if (cancelled) return
+        const found = new Map((data ?? []).map((c: { id: string; campaign_name: string | null }) => [c.id, c.campaign_name]))
+        setForeignNames((prev) => {
+          const next = { ...prev }
+          for (const id of ids) next[id] = found.get(id) || 'Promoted campaign'
+          return next
+        })
+      })
+    return () => {
+      cancelled = true
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [journeyContext.foreign])
+
+  const hasLegacyEnds = journeyContext.structuralEnds.some((e) => e.outcomeId === LEGACY_OUTCOME_ID)
+  const ctx = useMemo(() => buildContextLayouts(journeyContext.foreign, hasLegacyEnds), [journeyContext.foreign, hasLegacyEnds])
+  const layerContext = useMemo(() => ({ ...journeyContext, ends: allEnds }), [journeyContext, allEnds])
+
   const journeyScene = useMemo(
-    () => (journeyContext.graph ? layoutJourneyScene(journeyContext.graph, journeyContext.ends) : null),
-    [journeyContext.graph, journeyContext.ends],
+    () => (journeyContext.graph ? layoutJourneyScene(journeyContext.graph, allEnds, ctx.outcomeX) : null),
+    [journeyContext.graph, allEnds, ctx.outcomeX],
   )
   // Phase 1 cards for videos that are now nodes of the journey are not drawn twice;
   // selected videos with no observed journey stay as plain cards below it.
   const { looseItems, connectedItemCount } = useMemo(() => {
-    const inGraph = new Set((journeyContext.graph?.nodes ?? []).map((n) => n.videoId))
-    if (inGraph.size === 0) return { looseItems: selectedItems, connectedItemCount: 0 }
-    const loose = selectedItems.filter((it) => {
-      if (it.id.startsWith('content_video_')) return !inGraph.has(it.id.slice('content_video_'.length))
-      if (it.id.startsWith('own_asset_')) {
-        const vids = assetVideoCacheRef.current.get(it.id.slice('own_asset_'.length)) ?? []
-        return !vids.some((v) => inGraph.has(v))
-      }
-      return true
-    })
+    // placedVideoIds: every video that is a canonical node of the final graph
+    // (observed + upstream/downstream + structural + videos behind contextual campaigns).
+    const placedVideoIds = new Set((journeyContext.graph?.nodes ?? []).map((n) => n.videoId))
+    if (placedVideoIds.size === 0) return { looseItems: selectedItems, connectedItemCount: 0 }
+    const cache = assetVideoCacheRef.current
+    // Any item id -> the video ids behind it (not just the content_video_/own_asset_ prefixes).
+    const videoIdsOf = (it: PanelItem): string[] => {
+      if (it.id.startsWith('content_video_')) return [it.id.slice('content_video_'.length)]
+      if (it.id.startsWith('own_asset_')) return cache.get(it.id.slice('own_asset_'.length)) ?? []
+      const tail = it.id.match(UUID_TAIL)?.[1]
+      if (!tail) return []
+      if (it.kind === 'video') return [tail]
+      if (it.kind === 'asset') return cache.get(tail) ?? []
+      return []
+    }
+    const loose = selectedItems.filter((it) => !videoIdsOf(it).some((v) => placedVideoIds.has(v)))
     return { looseItems: loose, connectedItemCount: selectedItems.length - loose.length }
-  }, [selectedItems, journeyContext.graph])
+    // assetCacheVersion: the asset->video cache is a ref
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedItems, journeyContext.graph, assetCacheVersion])
   const itemsTop =
     journeyScene && journeyScene.nodes.length > 0 ? Math.max(ITEMS_TOP, journeyScene.bottom + JG_AFTER_GAP) : ITEMS_TOP
 
@@ -2202,6 +2487,9 @@ const [panelLarge, setPanelLarge] = useState(false)
     return initial
   })
 
+  // Primary (draggable) positions + read-only contextual-campaign / legacy positions, for the journey connectors.
+  const layerPositions = useMemo(() => ({ ...ctx.positions, ...positions }), [ctx.positions, positions])
+
   const nodeById = useMemo(() => {
     const map: Record<string, PositionedNode> = {}
     nodes.forEach((n) => {
@@ -2294,6 +2582,15 @@ const [panelLarge, setPanelLarge] = useState(false)
       }
       maxY = Math.max(maxY, journeyScene.bottom)
     }
+    for (const L of ctx.layouts) {
+      for (const n of L.nodes) {
+        minX = Math.min(minX, n.center.x - n.w / 2)
+        maxX = Math.max(maxX, n.center.x + n.w / 2)
+      }
+      maxX = Math.max(maxX, L.hub.x + HUB_R)
+    }
+    const lp = ctx.positions[LEGACY_OUTCOME_ID]
+    if (lp) minX = Math.min(minX, lp.x - OUTCOME_W / 2)
     if (looseItems.length > 0) {
       const half = ((ITEMS_COLS - 1) / 2) * ITEMS_COL_SPACING + OUTCOME_W / 2
       minX = Math.min(minX, HUB_X - half)
@@ -2302,7 +2599,7 @@ const [panelLarge, setPanelLarge] = useState(false)
       maxY = Math.max(maxY, itemsTop + (rows - 1) * ITEMS_ROW_SPACING + OUTCOME_H)
     }
     return { minX, maxX, minY, maxY }
-  }, [journeyScene, looseItems, itemsTop])
+  }, [journeyScene, looseItems, itemsTop, ctx])
 
   // Same idea as CampaignStructureMap's tree auto-fit: scale = min(fitW, fitH),
   // centred. Capped at 1 so desktop never starts blown-up.
@@ -2569,13 +2866,20 @@ const [panelLarge, setPanelLarge] = useState(false)
 
           {/* Phase 1: selected Structure items (canvas coordinates, not draggable) */}
           {/* Slice B: observed journey graph (canvas coordinates, right of the hub group) */}
-<JourneyGraphLayer
+<ContextCampaignLayer
             presentation={presentation}
-            context={journeyContext}
+            layouts={ctx.layouts}
+            names={foreignNames}
+            legacyPos={ctx.positions[LEGACY_OUTCOME_ID] ?? null}
+          />
+
+          <JourneyGraphLayer
+            presentation={presentation}
+            context={layerContext}
             scene={journeyScene}
             titles={journeyTitles}
             entryIds={journeyEntryVideoIds}
-            positions={positions}
+            positions={layerPositions}
             onClear={clearJourneyContext}
             highlights={nodeHighlights}
           />

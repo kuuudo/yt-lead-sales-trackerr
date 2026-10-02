@@ -84,6 +84,11 @@ export interface DownstreamNode {
   assetId: string | null
   redirectLinkId: string
   sourceVideoId: string
+  // Owner campaign of the promoted element: campaign_element_assets.campaign_id
+  // when resolved from an asset, else redirect_links.campaign_id (inferred).
+  // Additive field (CampaignJourneyMap structural resolution); existing
+  // consumers ignore it.
+  ownerCampaignId?: string | null
 }
 
 export interface DownstreamEdge {
@@ -102,6 +107,7 @@ type RedirectLinkRow = {
   asset_id: string | null
   campaign_id: string | null
   link_type: string | null
+  destination_url?: string | null
 }
 
 type CampaignElementAssetRow = {
@@ -127,6 +133,7 @@ async function resolveLinksToDownstream(links: RedirectLinkRow[]): Promise<Downs
 
   let elementTypeByCompositeKey = new Map<string, string>()
   let elementTypeByAssetId = new Map<string, string>()
+  let ownerByAssetId = new Map<string, string>()
   if (compositeCandidates.length > 0) {
     const assetIds = Array.from(new Set(compositeCandidates.map((r) => r.asset_id)))
     const { data: elementAssets, error: ceaError } = await supabase
@@ -148,6 +155,9 @@ async function resolveLinksToDownstream(links: RedirectLinkRow[]): Promise<Downs
     elementTypeByAssetId = new Map(
       ((elementAssets ?? []) as CampaignElementAssetRow[]).map((r) => [r.asset_id, r.element_type]),
     )
+    ownerByAssetId = new Map(
+      ((elementAssets ?? []) as CampaignElementAssetRow[]).map((r) => [r.asset_id, r.campaign_id]),
+    )
   }
 
   const nodes: DownstreamNode[] = []
@@ -164,6 +174,7 @@ async function resolveLinksToDownstream(links: RedirectLinkRow[]): Promise<Downs
     let kind: DownstreamNodeKind | null = null
     let elementType: string | null = null
     let resolvedFrom: DownstreamNode['resolvedFrom'] | null = null
+    let ownerCampaignId: string | null = null
 
     if (link.asset_id) {
       const resolved = await resolveAssetType(link.asset_id)
@@ -177,6 +188,10 @@ async function resolveLinksToDownstream(links: RedirectLinkRow[]): Promise<Downs
           kind = 'campaign_element'
           elementType = foundElementType
           resolvedFrom = 'asset'
+          // composite hit => the link's own campaign owns the element;
+          // otherwise (creative links) the CEA row's campaign does.
+          ownerCampaignId =
+            key && elementTypeByCompositeKey.has(key) ? link.campaign_id : ownerByAssetId.get(link.asset_id) ?? null
         }
         // else: fall through to the link_type fallback below instead of
         // locking resolvedFrom on a composite-key miss.
@@ -198,6 +213,7 @@ async function resolveLinksToDownstream(links: RedirectLinkRow[]): Promise<Downs
       kind = 'campaign_element'
       elementType = link.link_type
       resolvedFrom = 'link_type'
+      ownerCampaignId = link.campaign_id
     }
 
     if (!kind || !resolvedFrom) continue // nothing real to show — don't invent a node
@@ -210,6 +226,7 @@ async function resolveLinksToDownstream(links: RedirectLinkRow[]): Promise<Downs
       assetId: link.asset_id,
       redirectLinkId: link.id,
       sourceVideoId: link.video_id,
+      ownerCampaignId,
     })
     seenNodeIds.add(nodeId)
     edges.push({ fromVideoId: link.video_id, toNodeId: nodeId })
@@ -606,4 +623,118 @@ async function resolveConversionOutcomes(
     })
   }
   return { nodes, edges: [] }
+}
+
+// ── Entry point 3 (CampaignJourneyMap structural resolution) ────────────────
+// From a VIDEO id alone — no promotion scope, no events_journey — resolve
+// every redirect link the video owns into a structural outcome fact. Reuses
+// resolveLinksToDownstream (the asset_id -> campaign_element_assets rule) so
+// there is one copy of that business logic. On top of it:
+//   - resolvedFrom 'asset'                -> resolution 'asset' (confident)
+//   - resolvedFrom 'link_type' (asset_id null / unresolved): link_type alone is
+//     NOT proof. destination_url must equal the promoting campaign's matching
+//     field (campaigns.<field>) => 'link_type_validated'.
+//       * mismatch + landing_page + video-host URL => a video reference, not an
+//         outcome: dropped (observed journeys / upstream own video->video).
+//       * any other mismatch => 'legacy' (outdated link), surfaced not hidden.
+export type StructuralResolution = 'asset' | 'link_type_validated' | 'legacy'
+
+export interface StructuralLink {
+  videoId: string
+  redirectLinkId: string
+  elementType: string
+  ownerCampaignId: string | null
+  resolution: StructuralResolution
+}
+
+const LINK_TYPE_CAMPAIGN_FIELD: Record<string, string> = {
+  landing_page: 'landing_page_url',
+  newsletter: 'newsletter_url',
+  sales_call: 'sales_call_booking_url',
+  consultation: 'consultation_booking_url',
+}
+const VIDEO_HOST_RE = /(^|\.)(youtube\.com|youtu\.be|vimeo\.com|tiktok\.com|bilibili\.com)$/i
+
+function normalizeUrl(u: string): string {
+  const raw = u.trim()
+  try {
+    const url = new URL(raw)
+    return (url.hostname.replace(/^www\./i, '') + url.pathname.replace(/\/+$/, '')).toLowerCase()
+  } catch {
+    return raw.toLowerCase().replace(/^https?:\/\/(www\.)?/, '').replace(/[?#].*$/, '').replace(/\/+$/, '')
+  }
+}
+
+function isVideoHostUrl(u: string): boolean {
+  try {
+    return VIDEO_HOST_RE.test(new URL(u.trim()).hostname)
+  } catch {
+    return false
+  }
+}
+
+export async function resolveStructuralLinksForVideos(videoIds: string[]): Promise<StructuralLink[]> {
+  const ids = Array.from(new Set(videoIds.filter(Boolean)))
+  if (ids.length === 0) return []
+
+  const rows: RedirectLinkRow[] = []
+  for (let i = 0; i < ids.length; i += 80) {
+    const { data, error } = await supabase
+      .from('redirect_links')
+      .select('id, video_id, asset_id, campaign_id, link_type, destination_url')
+      .in('video_id', ids.slice(i, i + 80))
+    if (error) {
+      throw new Error(`journeyDownstreamResolver.ts: redirect_links (structural) query failed — ${error.message}`)
+    }
+    rows.push(...((data ?? []) as RedirectLinkRow[]))
+  }
+  if (rows.length === 0) return []
+
+  const resolution = await resolveLinksToDownstream(rows)
+  const rowById = new Map(rows.map((r) => [r.id, r]))
+
+  // Promoting campaigns' URL fields, only for links that need validation.
+  const inferredCampaignIds = Array.from(
+    new Set(
+      resolution.nodes
+        .filter((n) => n.resolvedFrom === 'link_type')
+        .map((n) => rowById.get(n.redirectLinkId)?.campaign_id)
+        .filter((x): x is string => !!x),
+    ),
+  )
+  const campaignById = new Map<string, Record<string, string | null>>()
+  if (inferredCampaignIds.length > 0) {
+    const { data, error } = await supabase
+      .from('campaigns')
+      .select('id, landing_page_url, newsletter_url, sales_call_booking_url, consultation_booking_url')
+      .in('id', inferredCampaignIds)
+    if (error) {
+      console.warn('[journeyDownstreamResolver] campaigns (structural validation) failed:', error.message)
+    } else {
+      for (const c of (data ?? []) as ({ id: string } & Record<string, string | null>)[]) campaignById.set(c.id, c)
+    }
+  }
+
+  const out: StructuralLink[] = []
+  for (const n of resolution.nodes) {
+    if (!n.elementType) continue // resources / nothing real
+    const base = { videoId: n.sourceVideoId, redirectLinkId: n.redirectLinkId, elementType: n.elementType }
+    if (n.resolvedFrom === 'asset') {
+      out.push({ ...base, ownerCampaignId: n.ownerCampaignId ?? null, resolution: 'asset' })
+      continue
+    }
+    if (n.resolvedFrom !== 'link_type') continue
+    const row = rowById.get(n.redirectLinkId)
+    const field = LINK_TYPE_CAMPAIGN_FIELD[n.elementType]
+    const campaignUrl = row?.campaign_id && field ? campaignById.get(row.campaign_id)?.[field] : null
+    const dest = row?.destination_url ?? null
+    if (dest && campaignUrl && normalizeUrl(dest) === normalizeUrl(campaignUrl)) {
+      out.push({ ...base, ownerCampaignId: row?.campaign_id ?? null, resolution: 'link_type_validated' })
+    } else if (n.elementType === 'landing_page' && dest && isVideoHostUrl(dest)) {
+      continue // video reference, not a campaign outcome
+    } else {
+      out.push({ ...base, ownerCampaignId: row?.campaign_id ?? null, resolution: 'legacy' })
+    }
+  }
+  return out
 }
