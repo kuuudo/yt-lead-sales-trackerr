@@ -1577,6 +1577,151 @@ function layoutJourneyScene(graph: JourneyGraph, ends: JourneyEnd[], outcomeX?: 
   return { nodes, byId: new Map(nodes.map((n) => [n.videoId, n])), backEdges, bottom }
 }
 
+// ═══════════════════════════════════════════════════════════════════════════
+// Month / Part SCENE layout (Patch 3a) — pure function, nothing calls it yet.
+//
+// Month = X column, Part = vertical continuation inside that column.
+// Reads the graph and an existing assignMonthParts() result; never mutates
+// either. Returns a JgScene-compatible object (+ `blocks`) in ABSOLUTE canvas
+// coordinates, so itemsTop / contentBounds / scene.byId consumers keep working.
+//
+//   Flat Part  : FLAT_COLUMNS-wide grid of the existing 190x56 cards.
+//   Chain Part : existing layoutJourneyScene() on the Part's own sub-graph
+//                (outcomeX = undefined), then translated into the column.
+//   Every Part gets its own month circle + root/outcome INSTANCES, built from
+//   buildLayout(CAMPAIGN_PATHS) shifted by (dx, dy) — no second geometry.
+// ═══════════════════════════════════════════════════════════════════════════
+export const USE_MONTH_PART_LAYOUT = true // 3c switch: false = old layoutJourneyScene
+export const MP_TOP = JG_TOP // partTop of the first Part in every column
+export const MP_COL_GAP = 242 // gap between month columns
+export const MP_COL_PITCH = MONTH_PART_INNER_W + MP_COL_GAP // 1200
+export const MP_VIDEOS_GAP = 81 // outcome row bottom -> first video row (same as JG_TOP - 1109)
+export const MP_PART_GAP = 120 // last video row bottom -> next Part's circle top (tunable)
+export const FLAT_ROW_PITCH = JG_NODE_H + FLAT_CARD_GAP // 80; swap for FLAT_CARD_H + gap when thumbnails land
+export const MP_ORANGE = '#F97316'
+const MP_VIDEOS_OFFSET = OUTCOME_DIST + OUTCOME_H / 2 + MP_VIDEOS_GAP // hub-circle center -> videos top (570)
+
+export interface MonthPartBlock {
+  key: string // `${monthKey}#${partIndex}`
+  monthKey: string
+  year: number | null
+  month: number | null
+  partIndex: number
+  partCount: number
+  segmented: boolean // later: orange vs purple
+  kind: MonthPartKind
+  colCenterX: number
+  top: number // circle top
+  hub: Pt // month circle center
+  videosTop: number
+  bottom: number // bottom edge of the last video row
+  videoIds: string[]
+  /** root + outcome instances of THIS Part (buildLayout nodes shifted by dx, dy). */
+  nodes: PositionedNode[]
+  /** base outcome id -> center of this Part's outcome instance (for outcomeAnchor). */
+  outcomeCenters: Record<string, Pt>
+}
+export interface MonthPartScene extends JgScene {
+  blocks: MonthPartBlock[]
+  blockByVideoId: Map<string, MonthPartBlock>
+}
+
+export function layoutMonthPartScene(
+  graph: JourneyGraph,
+  ends: JourneyEnd[],
+  assignment: MonthPartResult,
+): MonthPartScene {
+  const base = buildLayout(CAMPAIGN_PATHS)
+  const nodes: JgNode[] = []
+  const backEdges = new Set<string>()
+  const blocks: MonthPartBlock[] = []
+  const blockByVideoId = new Map<string, MonthPartBlock>()
+  let bottom = JG_TOP
+
+  assignment.groups.forEach((group, k) => {
+    const colCenterX = HUB_X + k * MP_COL_PITCH
+    const dx = colCenterX - HUB_X
+    let partTop = MP_TOP
+    for (const part of group.parts) {
+      const hub: Pt = { x: colCenterX, y: partTop + HUB_R }
+      const dy = hub.y - HUB_Y
+      const videosTop = hub.y + MP_VIDEOS_OFFSET
+      let partBottom = videosTop
+
+      if (part.kind === 'flat') {
+        const cellW = FLAT_CARD_W + FLAT_CARD_GAP
+        const gridLeft = colCenterX - (FLAT_COLUMNS * cellW - FLAT_CARD_GAP) / 2
+        part.videoIds.forEach((videoId, i) => {
+          const col = i % FLAT_COLUMNS
+          const row = Math.floor(i / FLAT_COLUMNS)
+          nodes.push({
+            videoId,
+            layer: 0,
+            x: gridLeft + col * cellW + (FLAT_CARD_W - JG_NODE_W) / 2, // 190 card centered in its cell
+            y: videosTop + row * FLAT_ROW_PITCH,
+          })
+        })
+        const rows = Math.ceil(part.videoIds.length / FLAT_COLUMNS)
+        partBottom = videosTop + (rows - 1) * FLAT_ROW_PITCH + JG_NODE_H
+      } else {
+        // Chain: reuse the existing layout on this Part's own sub-graph, then translate.
+        const idSet = new Set(part.videoIds)
+        const sub: JourneyGraph = {
+          nodes: graph.nodes.filter((n) => idSet.has(n.videoId)),
+          edges: graph.edges.filter((e) => idSet.has(e.fromVideoId) && idSet.has(e.toVideoId)),
+        }
+        const subScene = layoutJourneyScene(
+          sub,
+          ends.filter((e) => idSet.has(e.videoId)),
+          undefined, // never let a foreign hub x pull a Chain out of its column
+        )
+        const sdx = dx
+        const sdy = videosTop - JG_TOP
+        for (const n of subScene.nodes) nodes.push({ ...n, x: n.x + sdx, y: n.y + sdy })
+        subScene.backEdges.forEach((key) => backEdges.add(key))
+        partBottom = Math.max(videosTop, subScene.bottom + sdy)
+      }
+
+      const shifted = base.nodes.map((n) => ({ ...n, center: { x: n.center.x + dx, y: n.center.y + dy } }))
+      const outcomeCenters: Record<string, Pt> = {}
+      for (const n of shifted) if (n.kind === 'outcome') outcomeCenters[n.id] = n.center
+      const block: MonthPartBlock = {
+        key: `${group.monthKey}#${part.partIndex}`,
+        monthKey: group.monthKey,
+        year: group.year,
+        month: group.month,
+        partIndex: part.partIndex,
+        partCount: group.partCount,
+        segmented: group.segmented,
+        kind: part.kind,
+        colCenterX,
+        top: partTop,
+        hub,
+        videosTop,
+        bottom: partBottom,
+        videoIds: part.videoIds,
+        nodes: shifted,
+        outcomeCenters,
+      }
+      blocks.push(block)
+      for (const id of part.videoIds) blockByVideoId.set(id, block)
+      bottom = Math.max(bottom, partBottom)
+      partTop = partBottom + MP_PART_GAP
+    }
+  })
+
+  // Dev check: a Part boundary must never cut a real edge (assignMonthParts keeps components whole).
+  for (const e of graph.edges) {
+    const a = assignment.partByVideoId.get(e.fromVideoId)
+    const b = assignment.partByVideoId.get(e.toVideoId)
+    if (a && b && (a.monthKey !== b.monthKey || a.partIndex !== b.partIndex)) {
+      console.warn('[layoutMonthPartScene] edge crosses Part boundary:', e.fromVideoId, '->', e.toVideoId)
+    }
+  }
+
+  return { nodes, byId: new Map(nodes.map((n) => [n.videoId, n])), backEdges, bottom, blocks, blockByVideoId }
+}
+
 /** Vertical S-curve p0 -> p1 (works upward or downward) + its midpoint (for the count pill). */
 function jgCurve(p0: Pt, p1: Pt): { d: string; mid: Pt } {
   const dy = (p1.y - p0.y) / 2
