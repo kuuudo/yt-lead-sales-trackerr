@@ -292,6 +292,9 @@ const PANEL_BRANCHES = [
   { id: 'marketers', label: 'Marketers', color: '#8b5cf6' },
 ] as const
 
+/** Promotion / promotion-context asset border (visual grammar — not entry/graph semantics). */
+const PROMOTION_BORDER = '#E7A93B'
+
 type PanelBranchId = (typeof PANEL_BRANCHES)[number]['id']
 type PanelTree = Record<PanelBranchId, TreeNode[] | null> // null = still loading
 
@@ -2008,7 +2011,7 @@ function ImportAssetsLayer({
             gap: 9,
             padding: '0 12px',
             borderRadius: 10,
-            border: `1.5px solid ${dark ? TREE_DARK.border : '#d6d3d1'}`,
+            border: `1.5px solid ${PROMOTION_BORDER}`,
             background: dark ? TREE_DARK.cardBgAlt : '#ffffff',
             boxShadow: dark ? 'none' : '0 2px 6px rgba(15,23,42,0.04)',
           }}
@@ -2541,7 +2544,11 @@ function SelectedItemsLayer({
             gap: 9,
             padding: '0 12px',
             borderRadius: 10,
-            border: `1.5px solid ${it.color}66`,
+            border: `1.5px solid ${
+              it.kind === 'promotion' || (it.kind === 'asset' && it.id.startsWith('asset_'))
+                ? PROMOTION_BORDER
+                : `${it.color}66`
+            }`,
             background: dark ? TREE_DARK.cardBgAlt : '#ffffff',
             boxShadow: dark ? 'none' : '0 2px 6px rgba(15,23,42,0.04)',
           }}
