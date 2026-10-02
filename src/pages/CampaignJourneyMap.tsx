@@ -2044,6 +2044,7 @@ function JourneyGraphLayer({
   positions,
   onClear,
   highlights,
+  outcomeAnchor,
 }: {
   presentation: 'campaign' | 'tree'
   context: JourneyContext
@@ -2054,6 +2055,8 @@ function JourneyGraphLayer({
   onClear: () => void
   /** videoId -> chips that contain it. Empty = nothing highlighted, nothing dimmed. */
   highlights: Map<string, NodeHighlight>
+  /** Month/Part: per-video outcome instance. undefined result = use positions[outcomeId] as before. */
+  outcomeAnchor?: (videoId: string, outcomeId: string) => Pt | undefined
 }) {
   if (context.status === 'idle' && !context.graph) return null
 
@@ -2188,7 +2191,7 @@ function JourneyGraphLayer({
             {/* last video -> outcome node (reads LIVE node positions, so dragging follows) */}
             {context.ends.map((en) => {
               const v = scene.byId.get(en.videoId)
-              const o = positions[en.outcomeId]
+              const o = outcomeAnchor?.(en.videoId, en.outcomeId) ?? positions[en.outcomeId]
               if (!v || !o) return null
               const color = outcomeColor(en.outcomeId)
               const { d, mid } = jgCurve({ x: v.x + JG_NODE_W / 2, y: v.y }, { x: o.x, y: o.y + OUTCOME_H / 2 })
@@ -2864,9 +2867,26 @@ useEffect(() => {
   const ctx = useMemo(() => buildContextLayouts(journeyContext.foreign, hasLegacyEnds), [journeyContext.foreign, hasLegacyEnds])
   const layerContext = useMemo(() => ({ ...journeyContext, ends: allEnds }), [journeyContext, allEnds])
 
+  // ── Month/Part (Patch 3c): layout-only. USE_MONTH_PART_LAYOUT = false restores the old scene. ──
+  const monthPartScene = useMemo(
+    () =>
+      USE_MONTH_PART_LAYOUT && journeyContext.graph
+        ? layoutMonthPartScene(journeyContext.graph, allEnds, assignMonthParts(journeyContext.graph, monthInfoByVideoId))
+        : null,
+    [journeyContext.graph, allEnds, monthInfoByVideoId],
+  )
   const journeyScene = useMemo(
-    () => (journeyContext.graph ? layoutJourneyScene(journeyContext.graph, allEnds, ctx.outcomeX) : null),
-    [journeyContext.graph, allEnds, ctx.outcomeX],
+    () => monthPartScene ?? (journeyContext.graph ? layoutJourneyScene(journeyContext.graph, allEnds, ctx.outcomeX) : null),
+    [monthPartScene, journeyContext.graph, allEnds, ctx.outcomeX],
+  )
+  // video -> outcome connectors land on the outcome instance of the video's OWN Part.
+  // Only primary outcome ids are keys; ctx:* / legacy return undefined and keep their old positions.
+  const outcomeAnchor = useMemo(
+    () =>
+      monthPartScene
+        ? (videoId: string, outcomeId: string): Pt | undefined => monthPartScene.blockByVideoId.get(videoId)?.outcomeCenters[outcomeId]
+        : undefined,
+    [monthPartScene],
   )
   // Phase 1 cards for videos that are now nodes of the journey are not drawn twice;
   // selected videos with no observed journey stay as plain cards below it.
@@ -3136,6 +3156,14 @@ const [panelLarge, setPanelLarge] = useState(false)
       }
       maxY = Math.max(maxY, journeyScene.bottom)
     }
+    for (const b of monthPartScene?.blocks ?? []) {
+      minX = Math.min(minX, b.hub.x - HUB_R)
+      maxX = Math.max(maxX, b.hub.x + HUB_R)
+      for (const n of b.nodes) {
+        minX = Math.min(minX, n.center.x - n.w / 2)
+        maxX = Math.max(maxX, n.center.x + n.w / 2)
+      }
+    }
     for (const L of ctx.layouts) {
       for (const n of L.nodes) {
         minX = Math.min(minX, n.center.x - n.w / 2)
@@ -3153,7 +3181,7 @@ const [panelLarge, setPanelLarge] = useState(false)
       maxY = Math.max(maxY, itemsTop + (rows - 1) * ITEMS_ROW_SPACING + OUTCOME_H)
     }
     return { minX, maxX, minY, maxY }
-  }, [journeyScene, looseItems, itemsTop, ctx])
+  }, [journeyScene, monthPartScene, looseItems, itemsTop, ctx])
 
   // Same idea as CampaignStructureMap's tree auto-fit: scale = min(fitW, fitH),
   // centred. Capped at 1 so desktop never starts blown-up.
@@ -3427,6 +3455,8 @@ const [panelLarge, setPanelLarge] = useState(false)
             legacyPos={ctx.positions[LEGACY_OUTCOME_ID] ?? null}
           />
 
+          <MonthPartLayer presentation={presentation} scene={monthPartScene} />
+
           <JourneyGraphLayer
             presentation={presentation}
             context={layerContext}
@@ -3436,6 +3466,7 @@ const [panelLarge, setPanelLarge] = useState(false)
             positions={layerPositions}
             onClear={clearJourneyContext}
             highlights={nodeHighlights}
+            outcomeAnchor={outcomeAnchor}
           />
 
           <SelectedItemsLayer
