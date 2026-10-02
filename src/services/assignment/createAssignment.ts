@@ -98,14 +98,6 @@ export async function createAssignment({
     throw new Error('At least one Asset must be selected (Black Box and/or library)');
   }
 
-  for (const p of uniquePermissions) {
-    if (p.allowSponsorDomain && !p.selectedSponsorDomainId) {
-      throw new Error(
-        `selectedSponsorDomainId is required when allowSponsorDomain is true (asset ${p.assetId})`
-      );
-    }
-  }
-
   const assetIds = uniquePermissions.map(p => p.assetId);
 
   // --------------------------------------------------
