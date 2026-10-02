@@ -1722,144 +1722,7 @@ export function layoutMonthPartScene(
   return { nodes, byId: new Map(nodes.map((n) => [n.videoId, n])), backEdges, bottom, blocks, blockByVideoId }
 }
 
-// ═══════════════════════════════════════════════════════════════════════════
-// MonthPartLayer (Patch 3b) — READ-ONLY renderer for layoutMonthPartScene().
-//
-// Draws, per Part block: the month circle, the root/outcome INSTANCES
-// (MonthPartBlock.nodes) and the hub -> root -> outcome connectors, using the
-// same primitives / styles as ContextCampaignLayer. It only READS the scene:
-// no graph, ends, positions or data are touched, and nothing is fetched.
-//
-// Video cards are normally drawn by JourneyGraphLayer from scene.nodes (it owns
-// titles, entry ring and chip highlights), so by default this layer draws NO
-// cards — drawing them twice would duplicate every card once wired in 3c.
-// `showVideoCards` is an opt-in plain preview of the SAME 190x56 geometry,
-// for checking placement in isolation; leave it off in 3c.
-// Not wired anywhere yet.
-// ═══════════════════════════════════════════════════════════════════════════
-const MP_MONTH_FMT = new Intl.DateTimeFormat('en-US', { month: 'long', year: 'numeric', timeZone: 'UTC' })
-
-export function MonthPartLayer({
-  presentation,
-  scene,
-  titles,
-  showVideoCards = false,
-}: {
-  presentation: 'campaign' | 'tree'
-  scene: MonthPartScene | null
-  titles?: Record<string, string>
-  showVideoCards?: boolean
-}) {
-  if (!scene || scene.blocks.length === 0) return null
-  const dark = presentation === 'tree'
-  const connections = buildLayout(CAMPAIGN_PATHS).connections
-
-  return (
-    <>
-      <svg style={{ position: 'absolute', left: 0, top: 0, width: 1, height: 1, overflow: 'visible', pointerEvents: 'none' }}>
-        {scene.blocks.map((b) => {
-          const byId = new Map(b.nodes.map((n) => [n.id, n]))
-          return connections.map((c, i) => {
-            const toNode = byId.get(c.toId)
-            const fromNode = c.fromId === 'hub' ? null : byId.get(c.fromId)
-            if (!toNode) return null
-            const fromCenter = fromNode ? fromNode.center : b.hub
-            const from = fromNode ? rectAnchor(fromNode.center, fromNode.w, fromNode.h, toNode.center) : circleAnchor(b.hub, HUB_R, toNode.center)
-            const to = rectAnchor(toNode.center, toNode.w, toNode.h, fromCenter)
-            return <path key={`${b.key}:${i}`} d={curvePath(from, to)} fill="none" stroke={c.color} strokeWidth={2} strokeOpacity={0.55} />
-          })
-        })}
-      </svg>
-
-      {scene.blocks.map((b) => {
-        const monthLabel =
-          b.year !== null && b.month !== null ? MP_MONTH_FMT.format(new Date(Date.UTC(b.year, b.month, 1))) : 'No date'
-        const hubStyle: React.CSSProperties = b.segmented
-          ? {
-              background: `linear-gradient(160deg, #111827 0%, ${MP_ORANGE} 100%)`,
-              boxShadow: '0 0 0 6px rgba(249,115,22,0.10), 0 12px 28px rgba(249,115,22,0.25)',
-            }
-          : {}
-        return (
-          <React.Fragment key={b.key}>
-            <div
-              title={`${monthLabel} · Part ${b.partIndex + 1} of ${b.partCount} (${b.kind}, ${b.videoIds.length} video${b.videoIds.length === 1 ? '' : 's'})`}
-              style={{ ...styles.hub, ...hubStyle, left: b.hub.x - HUB_R, top: b.hub.y - HUB_R, width: HUB_R * 2, height: HUB_R * 2 }}
-            >
-              <span style={{ ...styles.hubEyebrow, ...(b.segmented ? { color: '#fed7aa' } : {}) }}>
-                {`Part ${b.partIndex + 1}${b.segmented ? ` / ${b.partCount}` : ''}`}
-              </span>
-              <span style={styles.hubTitle}>{monthLabel}</span>
-            </div>
-            {b.nodes.map((node) => {
-              const isRoot = node.kind === 'root'
-              return (
-                <div
-                  key={`${b.key}:${node.id}`}
-                  style={{
-                    ...(isRoot ? styles.rootNode : styles.outcomeNode),
-                    left: node.center.x - node.w / 2,
-                    top: node.center.y - node.h / 2,
-                    width: node.w,
-                    height: node.h,
-                    borderColor: isRoot ? node.color : `${node.color}66`,
-                    ...(dark ? { background: isRoot ? TREE_DARK.cardBg : TREE_DARK.cardBgAlt } : {}),
-                  }}
-                >
-                  <span style={{ ...styles.nodeDot, background: node.color }} />
-                  <div style={styles.nodeTextCol}>
-                    <span style={{ ...(isRoot ? styles.nodeLabelRoot : styles.nodeLabelOutcome), ...(dark ? { color: TREE_DARK.textPrimary } : {}) }}>
-                      {node.label}
-                    </span>
-                    <span style={{ ...styles.nodeKind, color: node.color }}>{isRoot ? 'Entry content' : 'Outcome'}</span>
-                  </div>
-                </div>
-              )
-            })}
-          </React.Fragment>
-        )
-      })}
-
-      {showVideoCards &&
-        scene.nodes.map((n) => (
-          <div
-            key={`mpcard:${n.videoId}`}
-            title={`${titles?.[n.videoId] ?? n.videoId}\n${n.videoId}`}
-            style={{
-              position: 'absolute',
-              left: n.x,
-              top: n.y,
-              width: JG_NODE_W,
-              height: JG_NODE_H,
-              boxSizing: 'border-box',
-              display: 'flex',
-              flexDirection: 'column',
-              justifyContent: 'center',
-              padding: '0 12px',
-              borderRadius: 10,
-              border: `1.5px solid ${dark ? TREE_DARK.border : '#e5e7eb'}`,
-              background: dark ? TREE_DARK.cardBgAlt : '#ffffff',
-            }}
-          >
-            <span
-              style={{
-                fontSize: 12,
-                fontWeight: 600,
-                whiteSpace: 'nowrap',
-                overflow: 'hidden',
-                textOverflow: 'ellipsis',
-                color: dark ? TREE_DARK.textPrimary : '#374151',
-              }}
-            >
-              {titles?.[n.videoId] ?? `Video ${n.videoId.slice(0, 8)}…`}
-            </span>
-          </div>
-        ))}
-    </>
-  )
-}
-
-/** Draws journeyContext.graph + the journey -> outcome connectors in canvas
+/** Vertical S-curve p0 -> p1 (works upward or downward) + its midpoint (for the count pill). */
 function jgCurve(p0: Pt, p1: Pt): { d: string; mid: Pt } {
   const dy = (p1.y - p0.y) / 2
   const c1 = { x: p0.x, y: p0.y + dy }
@@ -2028,6 +1891,143 @@ function ContextCampaignLayer({
           </div>
         </div>
       )}
+    </>
+  )
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// MonthPartLayer (Patch 3b) — READ-ONLY renderer for layoutMonthPartScene().
+//
+// Draws, per Part block: the month circle, the root/outcome INSTANCES
+// (MonthPartBlock.nodes) and the hub -> root -> outcome connectors, using the
+// same primitives / styles as ContextCampaignLayer. It only READS the scene:
+// no graph, ends, positions or data are touched, and nothing is fetched.
+//
+// Video cards are normally drawn by JourneyGraphLayer from scene.nodes (it owns
+// titles, entry ring and chip highlights), so by default this layer draws NO
+// cards — drawing them twice would duplicate every card once wired in 3c.
+// `showVideoCards` is an opt-in plain preview of the SAME 190x56 geometry,
+// for checking placement in isolation; leave it off in 3c.
+// Not wired anywhere yet.
+// ═══════════════════════════════════════════════════════════════════════════
+const MP_MONTH_FMT = new Intl.DateTimeFormat('en-US', { month: 'long', year: 'numeric', timeZone: 'UTC' })
+
+export function MonthPartLayer({
+  presentation,
+  scene,
+  titles,
+  showVideoCards = false,
+}: {
+  presentation: 'campaign' | 'tree'
+  scene: MonthPartScene | null
+  titles?: Record<string, string>
+  showVideoCards?: boolean
+}) {
+  if (!scene || scene.blocks.length === 0) return null
+  const dark = presentation === 'tree'
+  const connections = buildLayout(CAMPAIGN_PATHS).connections
+
+  return (
+    <>
+      <svg style={{ position: 'absolute', left: 0, top: 0, width: 1, height: 1, overflow: 'visible', pointerEvents: 'none' }}>
+        {scene.blocks.map((b) => {
+          const byId = new Map(b.nodes.map((n) => [n.id, n]))
+          return connections.map((c, i) => {
+            const toNode = byId.get(c.toId)
+            const fromNode = c.fromId === 'hub' ? null : byId.get(c.fromId)
+            if (!toNode) return null
+            const fromCenter = fromNode ? fromNode.center : b.hub
+            const from = fromNode ? rectAnchor(fromNode.center, fromNode.w, fromNode.h, toNode.center) : circleAnchor(b.hub, HUB_R, toNode.center)
+            const to = rectAnchor(toNode.center, toNode.w, toNode.h, fromCenter)
+            return <path key={`${b.key}:${i}`} d={curvePath(from, to)} fill="none" stroke={c.color} strokeWidth={2} strokeOpacity={0.55} />
+          })
+        })}
+      </svg>
+
+      {scene.blocks.map((b) => {
+        const monthLabel =
+          b.year !== null && b.month !== null ? MP_MONTH_FMT.format(new Date(Date.UTC(b.year, b.month, 1))) : 'No date'
+        const hubStyle: React.CSSProperties = b.segmented
+          ? {
+              background: `linear-gradient(160deg, #111827 0%, ${MP_ORANGE} 100%)`,
+              boxShadow: '0 0 0 6px rgba(249,115,22,0.10), 0 12px 28px rgba(249,115,22,0.25)',
+            }
+          : {}
+        return (
+          <React.Fragment key={b.key}>
+            <div
+              title={`${monthLabel} · Part ${b.partIndex + 1} of ${b.partCount} (${b.kind}, ${b.videoIds.length} video${b.videoIds.length === 1 ? '' : 's'})`}
+              style={{ ...styles.hub, ...hubStyle, left: b.hub.x - HUB_R, top: b.hub.y - HUB_R, width: HUB_R * 2, height: HUB_R * 2 }}
+            >
+              <span style={{ ...styles.hubEyebrow, ...(b.segmented ? { color: '#fed7aa' } : {}) }}>
+                {`Part ${b.partIndex + 1}${b.segmented ? ` / ${b.partCount}` : ''}`}
+              </span>
+              <span style={styles.hubTitle}>{monthLabel}</span>
+            </div>
+            {b.nodes.map((node) => {
+              const isRoot = node.kind === 'root'
+              return (
+                <div
+                  key={`${b.key}:${node.id}`}
+                  style={{
+                    ...(isRoot ? styles.rootNode : styles.outcomeNode),
+                    left: node.center.x - node.w / 2,
+                    top: node.center.y - node.h / 2,
+                    width: node.w,
+                    height: node.h,
+                    borderColor: isRoot ? node.color : `${node.color}66`,
+                    ...(dark ? { background: isRoot ? TREE_DARK.cardBg : TREE_DARK.cardBgAlt } : {}),
+                  }}
+                >
+                  <span style={{ ...styles.nodeDot, background: node.color }} />
+                  <div style={styles.nodeTextCol}>
+                    <span style={{ ...(isRoot ? styles.nodeLabelRoot : styles.nodeLabelOutcome), ...(dark ? { color: TREE_DARK.textPrimary } : {}) }}>
+                      {node.label}
+                    </span>
+                    <span style={{ ...styles.nodeKind, color: node.color }}>{isRoot ? 'Entry content' : 'Outcome'}</span>
+                  </div>
+                </div>
+              )
+            })}
+          </React.Fragment>
+        )
+      })}
+
+      {showVideoCards &&
+        scene.nodes.map((n) => (
+          <div
+            key={`mpcard:${n.videoId}`}
+            title={`${titles?.[n.videoId] ?? n.videoId}\n${n.videoId}`}
+            style={{
+              position: 'absolute',
+              left: n.x,
+              top: n.y,
+              width: JG_NODE_W,
+              height: JG_NODE_H,
+              boxSizing: 'border-box',
+              display: 'flex',
+              flexDirection: 'column',
+              justifyContent: 'center',
+              padding: '0 12px',
+              borderRadius: 10,
+              border: `1.5px solid ${dark ? TREE_DARK.border : '#e5e7eb'}`,
+              background: dark ? TREE_DARK.cardBgAlt : '#ffffff',
+            }}
+          >
+            <span
+              style={{
+                fontSize: 12,
+                fontWeight: 600,
+                whiteSpace: 'nowrap',
+                overflow: 'hidden',
+                textOverflow: 'ellipsis',
+                color: dark ? TREE_DARK.textPrimary : '#374151',
+              }}
+            >
+              {titles?.[n.videoId] ?? `Video ${n.videoId.slice(0, 8)}…`}
+            </span>
+          </div>
+        ))}
     </>
   )
 }
