@@ -10,12 +10,14 @@ import { LayoutDashboard, Globe, BarChart3, Video, Library, Briefcase, Users, Lo
 import { motion, AnimatePresence } from 'motion/react';
 import { useTracker, useLanguage } from './lib/hooks';
 import { AuthProvider, useAuth } from './lib/auth';
+import { useAccessStatus } from './lib/useAccessStatus';
 import { ViewingProvider, useViewing } from './lib/ViewingContext';
 import { OnboardingOverlayProvider } from './lib/onboarding-overlay';
 import { TutorialProvider } from './lib/tutorial-overlay';
 import TutorialRunner from './components/tutorial/TutorialRunner';
 import { useEffectiveIdentity } from './lib/useEffectiveIdentity';
 import MobileRankingsButton from './components/MobileRankingsButton';
+import AccessInactiveScreen from './components/AccessInactiveScreen';
 import OnboardingOverlay from './components/onboarding/OnboardingOverlay';
 import LeaveTestimonialModal from './components/testimonial/LeaveTestimonialModal';
 import Auth from './pages/Auth';
@@ -528,15 +530,19 @@ function Navigation() {
 function MainContent() {
   const { user, loading } = useAuth();
   useTracker();
-
-  if (loading) {
+  const { pathname } = useLocation();
+  const access = useAccessStatus(user?.id);
+  if (loading || (access === 'loading' && !isRelayRoute(pathname))) {
     return (
       <div className="min-h-screen bg-zinc-950 flex items-center justify-center">
         <Loader2 className="text-red-600 animate-spin" size={32} />
       </div>
     );
   }
-
+  if (access === 'inactive' && !isRelayRoute(pathname)) {
+    return <AccessInactiveScreen />;
+  }
+  
   if (!user) {
     // Allow public token redirects even when not logged in
     return (
