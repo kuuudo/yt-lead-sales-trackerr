@@ -549,6 +549,7 @@ function MainContent() {
         <Route path="/r/:relayToken" element={<ContinuationRelay />} />
         <Route path="/track/:token" element={<Track />} />
         <Route path="/:token" element={<Track />} />
+        <Route path="/" element={<PageWrapper><Website /></PageWrapper>} />
         <Route path="*" element={<PageWrapper><Auth /></PageWrapper>} />
       </Routes>
     );

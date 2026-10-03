@@ -1,10 +1,4 @@
-import React, { useEffect, useState } from 'react'
-import { Loader2 } from 'lucide-react'
-import TestimonialCard from '../components/testimonial/TestimonialCard'
-import {
-  fetchWebsiteTestimonials,
-  type PublicTestimonial,
-} from '../services/testimonial/publicTestimonials'
+import React, { useState } from 'react'
 import TrackingJourneyOnboardingVideo from '../components/onboarding/OnboardingVideo/TrackingJourneyOnboardingVideo'
 
 const C = {
@@ -291,28 +285,7 @@ function Walkthrough({ label }: { label: string }) {
 }
 
 /* ---------- Page ---------- */
-export default function Website() {
-  // Testimonials the owner marks "show on website" appear in the strip below.
-  const [items, setItems] = useState<PublicTestimonial[]>([])
-  const [loading, setLoading] = useState(true)
-
-  useEffect(() => {
-    let cancelled = false
-    ;(async () => {
-      try {
-        const rows = await fetchWebsiteTestimonials(6)
-        if (!cancelled) setItems(rows)
-      } catch {
-        // Silent fail: the landing page still renders without testimonials
-      } finally {
-        if (!cancelled) setLoading(false)
-      }
-    })()
-    return () => {
-      cancelled = true
-    }
-  }, [])
-
+export default function LandingPage() {
   return (
     <div style={{ background: C.bg, color: C.text, fontFamily: SANS, minHeight: '100vh' }}>
       <style>{`.lp-nav-links{display:flex;gap:22px}@media(max-width:640px){.lp-nav-links{display:none}}`}</style>
@@ -358,35 +331,6 @@ export default function Website() {
           <CrossDomain />
           <Walkthrough label="Watch how domains work" />
         </Section>
-
-        <section className="flex flex-col gap-6" style={{ marginTop: 88 }}>
-          <div className="text-center">
-            <h2 className="text-lg font-bold text-white">Loved by creators</h2>
-            <p className="text-zinc-500 text-sm mt-1">
-              Selected feedback from the VS-Track community.
-            </p>
-          </div>
-
-          {loading && (
-            <div className="flex justify-center py-12">
-              <Loader2 className="text-red-600 animate-spin" size={28} />
-            </div>
-          )}
-
-          {!loading && items.length === 0 && (
-            <p className="text-center text-zinc-600 text-sm py-8">
-              No website testimonials selected yet.
-            </p>
-          )}
-
-          {!loading && items.length > 0 && (
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-              {items.map((t) => (
-                <TestimonialCard key={t.id} testimonial={t} compact />
-              ))}
-            </div>
-          )}
-        </section>
 
         <section style={{ marginTop: 96, textAlign: 'center' }}>
           <div style={{ fontSize: 'clamp(22px,4vw,30px)', fontWeight: 500, marginBottom: 16 }}>Stop guessing. Start tracking.</div>
