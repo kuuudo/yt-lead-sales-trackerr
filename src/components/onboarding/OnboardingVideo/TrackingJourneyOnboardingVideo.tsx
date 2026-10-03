@@ -192,19 +192,19 @@ const CAPTIONS = [
   // ---- SC_BUILD: start with F, E promotes F, repeat backward, payoff (4 lines) ----
   windowCaption(
     "So we start with the final piece, Video F. Once Video F is ready, we turn it into an asset — now there's something the previous video can promote.",
-    into("SC_BUILD", 0), into("SC_BUILD", 10000)
+    into("SC_BUILD", 0), into("SC_BUILD", 9000)
   ),
   windowCaption(
     "Now we create Video E, and have it promote the Video F asset — so Video E leads into Video F. Then we turn Video E into an asset too, so the video before it can promote it.",
-    into("SC_BUILD", 10000), into("SC_BUILD", 22000)
+    into("SC_BUILD", 10000), into("SC_BUILD", 17000)
   ),
   windowCaption(
     "And we simply keep repeating that process — Video D promotes Video E, Video C promotes Video D, Video B promotes Video C, and finally Video A promotes Video B. By working backward, we build the entire journey one piece at a time.",
-    into("SC_BUILD", 22000), into("SC_BUILD", 35000)
+    into("SC_BUILD", 22000), into("SC_BUILD", 32000)
   ),
   windowCaption(
     "And now we have our complete journey — from Video A all the way to Video F.",
-    into("SC_BUILD", 35000), into("SC_BUILD", 40200)
+    into("SC_BUILD", 35000), into("SC_BUILD", 40000)
   ),
 
   // ---- SC5: one root tracking domain (3 lines) ----
