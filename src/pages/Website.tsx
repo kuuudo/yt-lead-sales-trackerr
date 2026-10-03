@@ -14,7 +14,7 @@ const C = {
 }
 const MONO = 'ui-monospace, SFMono-Regular, Menlo, monospace'
 const SANS = '-apple-system, BlinkMacSystemFont, "Helvetica Neue", sans-serif'
-const CTA_HREF = '/signup' // change to your real signup route
+const CTA_HREF = '/login' // every "Start tracking" button goes here
 
 const mono = (color = C.mut, size = 11): React.CSSProperties => ({
   fontFamily: MONO, fontSize: size, color, letterSpacing: '0.12em', textTransform: 'uppercase',
