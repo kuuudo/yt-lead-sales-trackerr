@@ -550,6 +550,7 @@ function MainContent() {
         <Route path="/track/:token" element={<Track />} />
         <Route path="/:token" element={<Track />} />
         <Route path="/" element={<PageWrapper><Website /></PageWrapper>} />
+        <Route path="/login" element={<PageWrapper><Auth /></PageWrapper>} />
         <Route path="*" element={<PageWrapper><Auth /></PageWrapper>} />
       </Routes>
     );
