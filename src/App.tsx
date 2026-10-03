@@ -223,7 +223,7 @@ function Navigation() {
               <Menu size={20} />
             </button>
           )}
-          <Link to="/dashboard" className="text-sm font-black uppercase tracking-[0.2em] text-white flex items-center gap-2 shrink-0">
+          <Link to="/website" className="text-sm font-black uppercase tracking-[0.2em] text-white flex items-center gap-2 shrink-0">
             <div className="w-2 h-2 bg-red-600 rounded-sm shadow-[0_0_10px_rgba(220,38,38,0.5)]" />
             VS-Track
           </Link>
@@ -286,7 +286,7 @@ function Navigation() {
 
         <div className="flex items-center gap-4">
           <button
-            onClick={toggleLanguage}
+            onClick={toggleLanguage} style={{ display: 'none' }}
             className="hidden md:flex items-center gap-2 px-3 py-1 rounded-md border border-zinc-800 bg-zinc-900/50 text-zinc-500 hover:text-zinc-300 transition-all text-[10px] font-bold uppercase tracking-widest"
           >
             <Globe size={11} />
@@ -356,7 +356,7 @@ function Navigation() {
             >
               <div className="flex items-center justify-between h-14 px-4 border-b border-zinc-900/50 shrink-0">
                 <Link
-                  to="/dashboard"
+                  to="/website"
                   onClick={() => setMobileOpen(false)}
                   className="text-sm font-black uppercase tracking-[0.2em] text-white flex items-center gap-2"
                 >
@@ -477,7 +477,7 @@ function Navigation() {
                   Testimonials
                 </Link>
                 <button
-                  onClick={toggleLanguage}
+                  onClick={toggleLanguage} style={{ display: 'none' }}
                   className="flex items-center gap-3 px-3 py-2.5 rounded-md text-[11px] font-bold uppercase tracking-widest text-zinc-500 hover:text-zinc-300 hover:bg-zinc-900/50 transition-all"
                 >
                   <Globe size={15} />
