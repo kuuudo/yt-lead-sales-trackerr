@@ -424,7 +424,7 @@ export default function PaidConsultationInstallationOnboarding({
           overflow: 'auto',
           padding: '28px 24px 24px',
         }}
-      ></div>
+      >
 
       <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 8 }}>
         <CreditCard size={18} style={{ color: '#5b3df0' }} />
@@ -730,6 +730,7 @@ export default function PaidConsultationInstallationOnboarding({
         >
           {notEnabled ? 'Skip →' : 'Done →'}
         </button>
+      </div>
       </div>
     </div>
   );

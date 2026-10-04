@@ -177,7 +177,7 @@ export default function SalesCallInstallationOnboarding({
           overflow: 'auto',
           padding: '28px 24px 24px',
         }}
-      ></div>
+      >
       <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 8 }}>
         <Phone size={18} style={{ color: '#5b3df0' }} />
         <h2 style={{ fontSize: 20, fontWeight: 800, color: '#15151f', margin: 0 }}>
@@ -403,6 +403,7 @@ export default function SalesCallInstallationOnboarding({
         >
           {notEnabled ? 'Skip →' : 'Next →'}
         </button>
+      </div>
       </div>
     </div>
   );
