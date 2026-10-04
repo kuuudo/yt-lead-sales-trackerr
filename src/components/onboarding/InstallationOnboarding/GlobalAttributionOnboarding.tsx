@@ -20,15 +20,16 @@ import HowtoInstallGlobalAttribution from '../PixelSetupVideo/HowtoInstallGlobal
 // OnboardingOverlay.tsx's HUB_VIDEO_TABS / VideoScene systems — this tab
 // state lives and dies inside this component, per product decision to keep
 // it fully separate from the hub-level video machinery.
-type GlobalAttributionVideoTabKey = 'why' | 'how';
+type GlobalAttributionVideoTabKey = 'why' | 'how' | 'guide';
 
 const GLOBAL_ATTRIBUTION_VIDEO_TABS: {
   key: GlobalAttributionVideoTabKey;
   label: string;
-  Component: React.ComponentType<{ onSkip?: () => void; onComplete?: () => void }>;
+  Component?: React.ComponentType<{ onSkip?: () => void; onComplete?: () => void }>;
 }[] = [
   { key: 'why', label: 'Why It Matters', Component: WhyGlobalAttributionOnMultipleWebsite },
   { key: 'how', label: 'How to Install', Component: HowtoInstallGlobalAttribution },
+  { key: 'guide', label: 'How to Install (Required Guide)' },
 ];
 
 /**
@@ -131,7 +132,51 @@ export default function GlobalAttributionOnboarding({
         >
           {GLOBAL_ATTRIBUTION_VIDEO_TABS.map((tab) => {
             if (tab.key !== videoTab) return null;
+
+            if (tab.key === 'guide') {
+              return (
+                <div
+                  key={tab.key}
+                  style={{
+                    height: '100%',
+                    overflow: 'auto',
+                    padding: 14,
+                    display: 'flex',
+                    flexDirection: 'column',
+                    gap: 12,
+                  }}
+                >
+                  <img
+                    src="/onboarding/global_attribution_script.jpg"
+                    alt="Where to paste the Global Attribution Script"
+                    style={{
+                      width: '100%',
+                      height: 'auto',
+                      borderRadius: 8,
+                      border: '1px solid #e4e4e7',
+                      display: 'block',
+                    }}
+                  />
+                  <a
+                    href="https://docs.google.com/document/d/1-l9l1AQQNMRsC6JYki774HD2D0DGpZkAikGQ9u-tj04/edit?tab=t.0"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    style={{
+                      fontSize: 12.5,
+                      fontWeight: 700,
+                      color: '#5b3df0',
+                      textDecoration: 'underline',
+                      lineHeight: 1.4,
+                    }}
+                  >
+                    Installation of Global Attribution Script
+                  </a>
+                </div>
+              );
+            }
+
             const VideoComponent = tab.Component;
+            if (!VideoComponent) return null;
             return <VideoComponent key={tab.key} onSkip={goToNextVideoTab} onComplete={goToNextVideoTab} />;
           })}
         </div>
