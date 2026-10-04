@@ -565,6 +565,8 @@ function MainContent() {
   return (
     <AnimatePresence mode="wait">
       <Routes>
+        <Route path="/login" element={<Navigate to="/tree" replace />} />
+        <Route path="/" element={<Navigate to="/tree" replace />} />
         <Route path="/dashboard" element={<PageWrapper><Dashboard /></PageWrapper>} />
         <Route path="/tree" element={<PageWrapper><Tree /></PageWrapper>} />
         <Route path="/tree/structure" element={<PageWrapper><CampaignStructureMap presentation="tree" /></PageWrapper>} />
@@ -593,7 +595,7 @@ function MainContent() {
         <Route path="/r/:relayToken" element={<ContinuationRelay />} />
         <Route path="/track/:token" element={<Track />} />
         <Route path="/:token" element={<Track />} />
-        <Route path="*" element={<Navigate to="/dashboard" replace />} />
+        <Route path="*" element={<Navigate to="/tree" replace />} />
         <Route path="/analytics-test" element={<AnalyticsTest />} />
         <Route path="/pricing" element={<PageWrapper><Pricing /></PageWrapper>} />
         <Route path="/workspace" element={<PageWrapper><Workspace /></PageWrapper>} />
