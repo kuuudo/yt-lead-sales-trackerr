@@ -182,91 +182,15 @@ export default function GlobalAttributionOnboarding({
         </div>
       </div>
 
-    {/* LEFT: video panel — local tab state only, intentionally separate
-          from OnboardingOverlay.tsx's hub-level video systems. */}
+      {/* RIGHT: existing Global Attribution setup content — unchanged */}
       <div
         style={{
-          width: 320,
-          flexShrink: 0,
-          borderRight: '1px solid #e4e4e7',
-          background: '#fafafa',
-          display: 'flex',
-          flexDirection: 'column',
-          padding: 20,
+          flex: 1,
+          minWidth: 0,
           overflow: 'auto',
+          padding: '28px 24px 24px',
         }}
       >
-        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginBottom: 14 }}>
-          <button
-            type="button"
-            style={{
-              padding: '6px 10px',
-              borderRadius: 999,
-              border: '1.5px solid #16a34a',
-              background: '#16a34a',
-              color: '#fff',
-              fontSize: 10.5,
-              fontWeight: 700,
-              cursor: 'default',
-              whiteSpace: 'nowrap',
-            }}
-          >
-            How to Install (Required Guide)
-          </button>
-        </div>
-        <div
-          style={{
-            flex: 1,
-            minHeight: 260,
-            borderRadius: 12,
-            overflow: 'auto',
-            background: '#fff',
-            border: '1px solid #e4e4e7',
-            padding: 14,
-            display: 'flex',
-            flexDirection: 'column',
-            gap: 12,
-          }}
-        >
-          <img
-            src="/onboarding/setup.jpg"
-            alt="Stripe setup guide"
-            style={{
-              width: '100%',
-              height: 'auto',
-              borderRadius: 8,
-              border: '1px solid #e4e4e7',
-              display: 'block',
-            }}
-          />
-          <a
-            href="https://docs.google.com/document/d/1KI05r0z6zsvQkSS5QOaUxRTDz8XIIRIoZSY59Ut9pEI/edit?tab=t.0"
-            target="_blank"
-            rel="noopener noreferrer"
-            style={{
-              fontSize: 12.5,
-              fontWeight: 700,
-              color: '#5b3df0',
-              textDecoration: 'underline',
-              lineHeight: 1.4,
-            }}
-          >
-            Stripe Setup Guide
-          </a>
-        </div>
-      </div>
-
-
-{/* RIGHT: existing Global Attribution setup content — unchanged */}
-<div
-  style={{
-    flex: 1,
-    minWidth: 0,
-    height: '100%',
-    overflow: 'auto',
-    padding: '28px 24px 24px',
-  }}
->
       <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 8 }}>
         <Globe size={18} style={{ color: '#16a34a' }} />
         <h2 style={{ fontSize: 20, fontWeight: 800, color: '#15151f', margin: 0 }}>
