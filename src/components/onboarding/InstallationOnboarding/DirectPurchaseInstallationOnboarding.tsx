@@ -49,6 +49,7 @@ export default function DirectPurchaseInstallationOnboarding({
   const [trackedUrl, setTrackedUrl] = useState<string | null>(null);
   const [webhookSecret, setWebhookSecret] = useState('');
   const [savingSecret, setSavingSecret] = useState(false);
+  const [guideTab, setGuideTab] = useState<'stripe' | 'pixel'>('stripe');
   const [completed, setCompleted] = useState(() =>
   isPixelSetupComplete(campaignId, 'purchase')
 );
@@ -198,6 +199,38 @@ export default function DirectPurchaseInstallationOnboarding({
   const purchasePixel = generateAttributionPixel(campaign.id, 'purchase', campaign.offer_price ?? null);
   const intentPixel = generateAttributionPixel(campaign.id, 'checkout_intent', 0);
 
+  const showStripeGuide =
+    funnelState === 'active' &&
+    (purchaseMethod === 'stripe_checkout' || purchaseMethod === 'stripe_embedded');
+  const showPixelGuide =
+    funnelState === 'active' &&
+    (purchaseMethod === 'stripe_embedded' || purchaseMethod === 'embedded_alternative_payment');
+
+  const guides = [
+    ...(showStripeGuide
+      ? [{
+          key: 'stripe' as const,
+          shortLabel: 'Stripe Guide',
+          image: '/onboarding/setup.jpg',
+          alt: 'Stripe setup guide',
+          href: 'https://docs.google.com/document/d/1KI05r0z6zsvQkSS5QOaUxRTDz8XIIRIoZSY59Ut9pEI/edit?tab=t.0',
+          linkText: 'Stripe Setup Guide',
+        }]
+      : []),
+    ...(showPixelGuide
+      ? [{
+          key: 'pixel' as const,
+          shortLabel: 'Pixel Guide',
+          image: '/onboarding/pixel.jpg',
+          alt: 'Pixel installation guide',
+          href: 'https://docs.google.com/document/d/1-Dhb3BGdJLNJJwiwTN1Zg0Rcrznom4eH8ZHBcxPND0k/edit?tab=t.0',
+          linkText: 'Installation of Pixel',
+        }]
+      : []),
+  ];
+  const activeGuide = guides.find((g) => g.key === guideTab) ?? guides[0];
+
+
   const card = {
     border: '1px solid #e4e4e7',
     borderRadius: 12,
@@ -216,79 +249,85 @@ export default function DirectPurchaseInstallationOnboarding({
         background: '#fff',
       }}
     >
-      {/* LEFT: video panel — local tab state only, intentionally separate
+           {/* LEFT: guide panel — local tab state only, intentionally separate
           from OnboardingOverlay.tsx's hub-level video systems. */}
-      <div
-        style={{
-          width: 320,
-          flexShrink: 0,
-          borderRight: '1px solid #e4e4e7',
-          background: '#fafafa',
-          display: 'flex',
-          flexDirection: 'column',
-          padding: 20,
-          overflow: 'auto',
-        }}
-      >
-        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginBottom: 14 }}>
-          <button
-            type="button"
-            style={{
-              padding: '6px 10px',
-              borderRadius: 999,
-              border: '1.5px solid #16a34a',
-              background: '#16a34a',
-              color: '#fff',
-              fontSize: 10.5,
-              fontWeight: 700,
-              cursor: 'default',
-              whiteSpace: 'nowrap',
-            }}
-          >
-            How to Install (Required Guide)
-          </button>
-        </div>
+      {activeGuide && (
         <div
           style={{
-            flex: 1,
-            minHeight: 260,
-            borderRadius: 12,
-            overflow: 'auto',
-            background: '#fff',
-            border: '1px solid #e4e4e7',
-            padding: 14,
+            width: 320,
+            flexShrink: 0,
+            borderRight: '1px solid #e4e4e7',
+            background: '#fafafa',
             display: 'flex',
             flexDirection: 'column',
-            gap: 12,
+            padding: 20,
+            overflow: 'auto',
           }}
         >
-          <img
-            src="/onboarding/setup.jpg"
-            alt="Stripe setup guide"
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginBottom: 14 }}>
+            {guides.map((g) => (
+              <button
+                key={g.key}
+                type="button"
+                onClick={() => setGuideTab(g.key)}
+                style={{
+                  padding: '6px 10px',
+                  borderRadius: 999,
+                  border: activeGuide.key === g.key ? '1.5px solid #16a34a' : '1px solid #d9d9e3',
+                  background: activeGuide.key === g.key ? '#16a34a' : '#fff',
+                  color: activeGuide.key === g.key ? '#fff' : '#6b6b78',
+                  fontSize: 10.5,
+                  fontWeight: 700,
+                  cursor: 'pointer',
+                  whiteSpace: 'nowrap',
+                }}
+              >
+                {guides.length > 1 ? g.shortLabel : 'How to Install (Required Guide)'}
+              </button>
+            ))}
+          </div>
+          <div
             style={{
-              width: '100%',
-              height: 'auto',
-              borderRadius: 8,
+              flex: 1,
+              minHeight: 260,
+              borderRadius: 12,
+              overflow: 'auto',
+              background: '#fff',
               border: '1px solid #e4e4e7',
-              display: 'block',
-            }}
-          />
-          <a
-            href="https://docs.google.com/document/d/1KI05r0z6zsvQkSS5QOaUxRTDz8XIIRIoZSY59Ut9pEI/edit?tab=t.0"
-            target="_blank"
-            rel="noopener noreferrer"
-            style={{
-              fontSize: 12.5,
-              fontWeight: 700,
-              color: '#5b3df0',
-              textDecoration: 'underline',
-              lineHeight: 1.4,
+              padding: 14,
+              display: 'flex',
+              flexDirection: 'column',
+              gap: 12,
             }}
           >
-            Stripe Setup Guide
-          </a>
+            <img
+              src={activeGuide.image}
+              alt={activeGuide.alt}
+              style={{
+                width: '100%',
+                height: 'auto',
+                borderRadius: 8,
+                border: '1px solid #e4e4e7',
+                display: 'block',
+              }}
+            />
+            <a
+              href={activeGuide.href}
+              target="_blank"
+              rel="noopener noreferrer"
+              style={{
+                fontSize: 12.5,
+                fontWeight: 700,
+                color: '#5b3df0',
+                textDecoration: 'underline',
+                lineHeight: 1.4,
+              }}
+            >
+              {activeGuide.linkText}
+            </a>
+          </div>
         </div>
-      </div>
+      )}
 
       {/* RIGHT: existing Direct Purchase content */}
       <div
