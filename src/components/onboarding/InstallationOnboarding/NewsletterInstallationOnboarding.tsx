@@ -9,6 +9,7 @@ import {
 } from '../../installation/installationHelpers';
 import { CopyButton } from '../../installation/CopyButton';
 import { isPixelSetupComplete, setPixelSetupComplete } from './pixelSetupCompletion';
+import InstallGuidePanel, { PIXEL_GUIDE } from './InstallGuidePanel'; 
 /**
  * Installation Onboarding — Newsletter (GlobalAttribution-style white UI).
  * Reuses generateAttributionPixel only — no new tracking system.
@@ -89,17 +90,28 @@ export default function NewsletterInstallationOnboarding({
   const inactive = funnelState === 'inactive';
   const snippet = generateAttributionPixel(campaign.id, 'newsletter', 0);
   const hasThankYou = !!campaign.newsletter_thankyou_url;
-
+  const guides = inactive ? [] : [PIXEL_GUIDE];
   return (
     <div
       style={{
         height: '100%',
-        overflow: 'auto',
-        padding: '28px 24px 24px',
+        display: 'flex',
+        overflow: 'hidden',
         fontFamily: '-apple-system, BlinkMacSystemFont, "Helvetica Neue", sans-serif',
         background: '#fff',
       }}
     >
+      <InstallGuidePanel guides={guides} />
+
+      <div
+        style={{
+          flex: 1,
+          minWidth: 0,
+          height: '100%',
+          overflow: 'auto',
+          padding: '28px 24px 24px',
+        }}
+      >
       <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 8 }}>
         <Newspaper size={18} style={{ color: '#5b3df0' }} />
         <h2 style={{ fontSize: 20, fontWeight: 800, color: '#15151f', margin: 0 }}>
@@ -274,6 +286,7 @@ export default function NewsletterInstallationOnboarding({
         >
           {inactive ? 'Skip →' : 'Next →'}
         </button>
+      </div>
       </div>
     </div>
   );

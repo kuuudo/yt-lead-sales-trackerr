@@ -11,6 +11,7 @@ import {
 } from '../../installation/installationHelpers';
 import { CopyButton } from '../../installation/CopyButton';
 import { isPixelSetupComplete, setPixelSetupComplete } from './pixelSetupCompletion';
+import InstallGuidePanel, { PIXEL_GUIDE } from './InstallGuidePanel';
 
 function generateToken(): string {
   const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789';
@@ -147,7 +148,7 @@ export default function SalesCallInstallationOnboarding({
   const salesPixel = generateAttributionPixel(campaign.id, 'sales_call', null);
 
   const hasThankYou = !!campaign.sales_call_thankyou_url;
-
+  const guides = !notEnabled && !isExternal && funnelState !== 'inactive' ? [PIXEL_GUIDE] : [];
   const card = {
     border: '1px solid #e4e4e7',
     borderRadius: 12,
@@ -156,16 +157,27 @@ export default function SalesCallInstallationOnboarding({
     background: '#fafafa',
   } as const;
 
-  return (
+    return (
     <div
       style={{
         height: '100%',
-        overflow: 'auto',
-        padding: '28px 24px 24px',
+        display: 'flex',
+        overflow: 'hidden',
         fontFamily: '-apple-system, BlinkMacSystemFont, "Helvetica Neue", sans-serif',
         background: '#fff',
       }}
     >
+      <InstallGuidePanel guides={guides} />
+
+      <div
+        style={{
+          flex: 1,
+          minWidth: 0,
+          height: '100%',
+          overflow: 'auto',
+          padding: '28px 24px 24px',
+        }}
+      ></div>
       <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 8 }}>
         <Phone size={18} style={{ color: '#5b3df0' }} />
         <h2 style={{ fontSize: 20, fontWeight: 800, color: '#15151f', margin: 0 }}>

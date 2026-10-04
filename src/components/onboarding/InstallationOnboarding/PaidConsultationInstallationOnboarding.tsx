@@ -21,6 +21,7 @@ import {
 } from '../../installation/installationHelpers';
 import { CopyButton } from '../../installation/CopyButton';
 import { isPixelSetupComplete, setPixelSetupComplete } from './pixelSetupCompletion';
+import InstallGuidePanel, { PIXEL_GUIDE, STRIPE_GUIDE, type InstallGuide } from './InstallGuidePanel';
 import WhyDoWeNeedThankYouPagePixel from '../PixelSetupVideo/WhyDoWeNeedThankYouPagePixel';
 import WhyThankyouPixelOnMultipleWebsite from '../PixelSetupVideo/WhyThankyouPixelOnMultipleWebsite';
 
@@ -365,6 +366,25 @@ export default function PaidConsultationInstallationOnboarding({
     campaign.consultation_fee ?? null
   );
 
+  const showStripeGuide =
+    !notEnabled &&
+    funnelState !== 'inactive' &&
+    consultationDelivery === 'own_website' &&
+    (consultationPaymentMethod === 'stripe_checkout' ||
+      consultationPaymentMethod === 'stripe_embedded');
+
+  const showPixelGuide =
+    !notEnabled &&
+    funnelState !== 'inactive' &&
+    ((consultationDelivery === 'own_website' &&
+      consultationPaymentMethod === 'embedded_alternative_payment') ||
+      (!!archC && needsRedirect && archC.showConfirmationPixel));
+
+  const guides: InstallGuide[] = [
+    ...(showStripeGuide ? [STRIPE_GUIDE] : []),
+    ...(showPixelGuide ? [PIXEL_GUIDE] : []),
+  ];
+
   const card = {
     border: '1px solid #e4e4e7',
     borderRadius: 12,
@@ -384,16 +404,28 @@ export default function PaidConsultationInstallationOnboarding({
             ? 'Alternative payment'
             : 'Payment instructions page';
 
-  return (
+    return (
     <div
       style={{
         height: '100%',
-        overflow: 'auto',
-        padding: '28px 24px 24px',
+        display: 'flex',
+        overflow: 'hidden',
         fontFamily: '-apple-system, BlinkMacSystemFont, "Helvetica Neue", sans-serif',
         background: '#fff',
       }}
     >
+      <InstallGuidePanel guides={guides} />
+
+      <div
+        style={{
+          flex: 1,
+          minWidth: 0,
+          height: '100%',
+          overflow: 'auto',
+          padding: '28px 24px 24px',
+        }}
+      ></div>
+
       <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 8 }}>
         <CreditCard size={18} style={{ color: '#5b3df0' }} />
         <h2 style={{ fontSize: 20, fontWeight: 800, color: '#15151f', margin: 0 }}>
