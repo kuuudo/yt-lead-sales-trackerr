@@ -854,7 +854,7 @@ export default function OnboardingOverlay() {
               boxShadow: '0 6px 16px rgba(91,61,240,0.3)',
             }}
           >
-            Continue to app →
+            Continue Domain Setup →
           </button>
         </div>
         </div>
