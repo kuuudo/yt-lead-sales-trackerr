@@ -666,3 +666,144 @@ grant execute on function public.owner_add_members(text[]) to authenticated;
 -- =============================================================================
 -- End of Patch B1
 -- =============================================================================
+
+-- =============================================================================
+-- Patch C2 — default account_access = inactive for every NEW auth user
+-- Exception-safe. No Team logic. Does not modify existing rows or functions.
+-- =============================================================================
+
+create or replace function public.handle_new_user_access()
+returns trigger
+language plpgsql
+security definer
+set search_path = public
+as $$
+begin
+  -- Best-effort only: never block auth.users insert.
+  begin
+    insert into public.account_access (user_id, status)
+    values (new.id, 'inactive')
+    on conflict (user_id) do nothing;
+  exception
+    when others then
+      raise warning 'handle_new_user_access failed for %: %', new.id, sqlerrm;
+  end;
+  return new;
+end;
+$$;
+
+revoke all on function public.handle_new_user_access() from public;
+revoke execute on function public.handle_new_user_access() from anon, authenticated;
+-- Trigger runs as definer; no client EXECUTE needed.
+
+drop trigger if exists on_auth_user_created_access on auth.users;
+
+create trigger on_auth_user_created_access
+  after insert on auth.users
+  for each row
+  execute function public.handle_new_user_access();
+
+-- =============================================================================
+-- End of Patch C2
+-- =============================================================================
+
+create or replace function public.admin_set_member_limit(
+  p_customer_id   uuid,
+  p_member_limit  integer
+)
+returns jsonb
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  v_cust public.customers%rowtype;
+  v_used integer;
+begin
+  if not public.team_is_admin() then
+    return jsonb_build_object('success', false, 'error', 'not_admin');
+  end if;
+
+  if p_member_limit is null or p_member_limit < 1 then
+    return jsonb_build_object('success', false, 'error', 'invalid_member_limit');
+  end if;
+
+  select * into v_cust
+  from public.customers
+  where id = p_customer_id
+  for update;
+
+  if not found then
+    return jsonb_build_object('success', false, 'error', 'customer_not_found');
+  end if;
+
+  select count(*) into v_used
+  from public.customer_members
+  where customer_id = p_customer_id;
+
+  if p_member_limit < v_used then
+    return jsonb_build_object(
+      'success', false,
+      'error', 'below_current_count',
+      'used', v_used,
+      'member_limit', p_member_limit
+    );
+  end if;
+
+  if v_cust.member_limit = p_member_limit then
+    return jsonb_build_object(
+      'success', true,
+      'customer_id', p_customer_id,
+      'member_limit', p_member_limit,
+      'used', v_used,
+      'unchanged', true
+    );
+  end if;
+
+  update public.customers
+  set member_limit = p_member_limit
+  where id = p_customer_id;
+
+  return jsonb_build_object(
+    'success', true,
+    'customer_id', p_customer_id,
+    'member_limit', p_member_limit,
+    'used', v_used,
+    'unchanged', false
+  );
+end;
+$$;
+
+revoke all on function public.admin_set_member_limit(uuid, integer) from public;
+revoke execute on function public.admin_set_member_limit(uuid, integer) from anon;
+grant execute on function public.admin_set_member_limit(uuid, integer) to authenticated;
+
+
+
+
+following is test i did 
+
+1. another test, i try to create a new account(without invitation ),  i try fail\@gmail.com and i see Access inactive
+
+   **VSTRK**
+
+   Your VSTRK access is currently inactive. Access is granted when your email has been pre-registered by VSTRK. If you believe this is a mistake, contact us on WhatsApp.
+
+   Your tracking links and redirects continue to work.  Your tracking links and redirects continue to work.
+
+   [**Contact VSTRK on WhatsApp**](https://chat.whatsapp.com/G07wVgoAyRS3Z171uRDQ1K?s=cl\&p=a\&mlu=4)       so i create thsi **99test**
+
+2782544c-c742-49b2-a910-4e2affda4247
+
+Limit 3 · Used 1 · Status active id,name,member_limit,status,created_at 
+2782544c-c742-49b2-a910-4e2affda4247,99test,3,active,2026-10-05 09:36:22.777854+00 
+96361350-bf6a-46de-9f42-52569354dae3,98test,3,active,2026-10-05 09:43:30.298834+00
+**Deactivate**
+
+- 99test\@gmail.com (owner)  so i try to create account,  and it success (and i can type in my own password0  then i go to www.vstrk.com/team  so i add two accounts 97test\@gmail.com,   96test\@gmail.com it is successfully added i see  user_id,status 
+
+  035c640a-797f-4f43-a785-d1cc82725418,active id,customer_id,email,role,status,user_id,created_at,activated_at 
+  1742e9e3-0cd0-48fe-b12b-9fa0cf9d4002,2782544c-c742-49b2-a910-4e2affda4247,97test@gmail.com,member,pending,,2026-10-05 09:47:51.077834+00, 
+  18102207-3696-4106-abbd-be4e43fa109f,2782544c-c742-49b2-a910-4e2affda4247,96test@gmail.com,member,pending,,2026-10-05 09:47:51.077834+00, 
+  4b6fed31-9e9f-4f76-96d2-b6f9fe472f79,2782544c-c742-49b2-a910-4e2affda4247,99test@gmail.com,owner,active,035c640a-797f-4f43-a785-d1cc82725418,2026-10-05 09:36:22.777854+00,2026-10-05 09:45:41.85402+00           so i try to create a new account  97test@gmail.com   97test    and it is a success,  so did i do all the test?   id,customer_id,email,role,status,user_id,created_at,activated_at 
+  1742e9e3-0cd0-48fe-b12b-9fa0cf9d4002,2782544c-c742-49b2-a910-4e2affda4247,97test@gmail.com,member,active,ed43b410-f3d6-40df-a048-b5907ce353e7,2026-10-05 09:47:51.077834+00,2026-10-05 09:53:04.998601+00        i go to /team i see Team You are not an approved Team Owner for any Customer. and i try to deactive a account, 98test@gmail.com and i refresh in 98test@gmail.com i see Access inactive VSTRK Your VSTRK access is currently inactive. Access is granted when your email has been pre-registered by VSTRK. If you believe this is a mistake, contact us on WhatsApp. and the account that is under it also got deactivated, (so lets say i deactive 99test@gmail.com and under 99test@gmail.com it has 94test@gmail.com, when i deactivate 99test@gmail.com , 94also deactivate, and when i activate 99, 94 also reactivate, did i do all the test? Your tracking links and redirects continue to work.                
