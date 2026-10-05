@@ -67,6 +67,9 @@ import CampaignAnalytics from './pages/CampaignAnalytics';
 import CampaignJourneyMap from './pages/CampaignJourneyMap';
 import CampaignStructureMap from './pages/CampaignStructureMap';
 import AssetAnalyticsMock from './pages/AssetAnalyticsMock';
+import AdminCustomers from './pages/AdminCustomers';
+import Team from './pages/Team';
+import { useMyTeam } from './lib/useMyTeam';
 // Top-level path segments that are "real" app pages (i.e. matched by an
 // explicit <Route> before the catch-all "/:token" route). If a single-segment
 // pathname is NOT in this set, react-router falls through to "/:token" and
@@ -76,8 +79,9 @@ const KNOWN_APP_PATHS = new Set([
   'dashboard', 'tree', 'campaigns', 'videos', 'assets', 'unmapped-videos',
   'analytics', 'installation', 'settings', 'pricing', 'workspace',
   'marketplace', 'operator', 'testimonials', 'testimonialss', 'website',
-  'analytics-test',
+  'analytics-test', 'team',
 ]);
+
 
 // True for any route that is part of the external redirect/relay flow
 // (kaksidigitals.com/1234 -> vstrk.com/123 -> final destination):
@@ -119,8 +123,12 @@ function Navigation() {
   // Same source Marketplace.tsx already uses for its organization id.
   const { organizationId: effectiveOrgId } = useEffectiveIdentity();
 
+  // Approved Team Owner? Used to show the Team nav link (desktop + mobile).
+  const { customer: myTeamCustomer } = useMyTeam();
+
   // Contextual default for the global mobile Rankings modal.
   const rankingsDefault = location.pathname === '/assets' ? 'assets' : 'promotions';
+
 
   // True hover/pointer capability — NOT a screen-width guess. A narrow
   // touchscreen laptop and a wide touch tablet both get this right, where
@@ -158,10 +166,15 @@ function Navigation() {
       { to: '/marketplace/promotions-analytics', label: 'Promotions Analytics' },
     ] },
     { to: '/operator', icon: Users, label: t.nav.operator },
+    // Team link only for an approved Owner (RLS-backed via useMyTeam).
+    ...(myTeamCustomer
+      ? [{ to: '/team', icon: Users, label: t.nav.team || 'Team' }]
+      : []),
     { to: '/workspace', icon: Briefcase, label: t.nav.workspace },
     { to: '/analytics', icon: BarChart3, label: t.nav.analytics },
     { to: '/pricing', icon: DollarSign, label: t.nav.pricing },
   ];
+
 
   // Close the drawer whenever the route changes (e.g. after clicking a link).
   useEffect(() => {
@@ -623,7 +636,10 @@ function MainContent() {
                 <Route path="/testimonials" element={<PageWrapper><Testimonials /></PageWrapper>} />
         <Route path="/website" element={<PageWrapper><Website /></PageWrapper>} />
         <Route path="/assets/analytics" element={<PageWrapper><AssetAnalyticsMock /></PageWrapper>} />
+        <Route path="/team" element={<PageWrapper><Team /></PageWrapper>} />
+        <Route path="/admin/customers" element={<PageWrapper><AdminCustomers /></PageWrapper>} />
       </Routes>
+
     </AnimatePresence>
   );
 }

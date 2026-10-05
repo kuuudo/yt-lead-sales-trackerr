@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import { supabase } from './supabase';
+import { claimTeamMembership } from './claimTeamMembership';
 
 export type AccessState = 'loading' | 'allowed' | 'inactive';
 
@@ -11,6 +12,7 @@ type Result = { userId: string; state: 'allowed' | 'inactive' };
  *  - status = 'active' / no row         -> 'allowed'
  *  - query error (V1: fail-open, logged) -> 'allowed'
  * Checked once per user id (login / page load).
+ * Before reading access, attempts claim_team_membership (idempotent).
  */
 export function useAccessStatus(userId: string | null | undefined): AccessState {
   const [result, setResult] = useState<Result | null>(null);
@@ -20,6 +22,10 @@ export function useAccessStatus(userId: string | null | undefined): AccessState 
     let cancelled = false;
 
     (async () => {
+      // Claim any pending Team membership for this email before reading access.
+      // Errors are ignored — gate still fail-opens on the account_access read.
+      await claimTeamMembership();
+
       let state: Result['state'] = 'allowed';
       try {
         const { data, error } = await supabase
@@ -49,3 +55,4 @@ export function useAccessStatus(userId: string | null | undefined): AccessState 
   if (!result || result.userId !== userId) return 'loading';
   return result.state;
 }
+
