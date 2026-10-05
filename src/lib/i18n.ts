@@ -15,6 +15,7 @@ export const translations = {
       installation: 'Setup',
       pricing: 'Pricing',
       settings: 'Settings',
+      team: 'Team',
       logout: 'Logout',
     },
     auth: {
@@ -25,6 +26,8 @@ export const translations = {
       noAccount: "Don't have an account?",
       hasAccount: 'Already have an account?',
       welcome: 'Welcome Back',
+      accessHint: 'VSTRK access is for pre-registered emails only. Sign up with the email provided to you by VSTRK.',
+      contactSupport: 'No access? Contact VSTRK on WhatsApp',
     },
     dashboard: {
       title: 'Revenue Intelligence',
@@ -118,6 +121,7 @@ export const translations = {
       installation: '安裝設置',
       pricing: '定價',
       settings: '設置',
+      team: '團隊',
       logout: '登出',
     },
     auth: {
@@ -128,6 +132,8 @@ export const translations = {
       noAccount: '尚未擁有帳號？',
       hasAccount: '已經有帳號了？',
       welcome: '歡迎回來',
+      accessHint: 'VSTRK 僅開放給預先登錄的電子郵件。請使用 VSTRK 提供給您的信箱註冊。',
+      contactSupport: '沒有權限？透過 WhatsApp 聯絡 VSTRK',
     },
     dashboard: {
       title: '營收情報系統',
