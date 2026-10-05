@@ -118,6 +118,25 @@ export const addBrandedDomain = async (
   // recomputation. Does not change getCookieParent() or the cap logic itself.
   const root_domain = getCookieParent(hostname);
 
+  // Rollback support: campaigns.root_domain only counts as established if THIS
+  // call goes on to create the tracking domain. If this call wrote the root
+  // (Case 1 below) and a later step fails (cap check query error, 3-group cap
+  // reached, insert error), undo exactly that write — scoped to this campaign
+  // AND to the exact value this call set, so a root written by any other flow
+  // in the meantime, or a pre-existing root (Case 2), is never touched.
+  let rootSetByThisCall = false;
+  const rollbackRootIfSetByThisCall = async (): Promise<void> => {
+    if (!rootSetByThisCall) return;
+    const { error: rollbackErr } = await supabase
+      .from('campaigns')
+      .update({ root_domain: null })
+      .eq('id', campaignId)
+      .eq('root_domain', root_domain);
+    if (rollbackErr) {
+      console.error('[brandedDomains] failed to roll back campaign root_domain:', rollbackErr.message);
+    }
+  };
+
   // Campaign <-> root_domain validation (Step 4). Backend is the sole
   // authority — this runs regardless of what the UI already filtered.
   // Does NOT add campaign_id to branded_tracking_domains; the link is
@@ -180,6 +199,7 @@ export const addBrandedDomain = async (
         console.error('[brandedDomains] failed to set campaign root_domain:', setRootErr.message);
         return null;
       }
+      rootSetByThisCall = true;
     } else if (campaignRow.root_domain !== root_domain) {
       // Case 3: campaign already belongs to a different root-domain family.
       console.error('[brandedDomains] rejected domain: campaign already has a different root_domain', {
@@ -202,6 +222,7 @@ export const addBrandedDomain = async (
 
     if (existingErr) {
       console.error('[brandedDomains] cookie-parent check failed:', existingErr.message);
+      await rollbackRootIfSetByThisCall();
       return null;
     }
 
@@ -217,6 +238,7 @@ export const addBrandedDomain = async (
           '[brandedDomains] rejected domain: organization already has 3 cookie-parent groups',
           { organizationId, newParent, currentGroups }
         );
+        await rollbackRootIfSetByThisCall();
         return null;
       }
     }
@@ -241,6 +263,7 @@ export const addBrandedDomain = async (
 
   if (error || !data) {
     console.error('[brandedDomains] addBrandedDomain failed:', error?.message);
+    await rollbackRootIfSetByThisCall();
     return null;
   }
 

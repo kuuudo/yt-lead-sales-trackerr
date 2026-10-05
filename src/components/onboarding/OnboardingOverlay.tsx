@@ -28,6 +28,7 @@ import DirectPurchaseInstallationOnboarding from './InstallationOnboarding/Direc
 import NewsletterInstallationOnboarding from './InstallationOnboarding/NewsletterInstallationOnboarding';
 import SalesCallInstallationOnboarding from './InstallationOnboarding/SalesCallInstallationOnboarding';
 import PaidConsultationInstallationOnboarding from './InstallationOnboarding/PaidConsultationInstallationOnboarding';
+import TrackingDomainInstallationOnboarding from './InstallationOnboarding/TrackingDomainInstallationOnboarding';
 import CampaignOnboardingVideo from './CampaignOnboardingVideo/CampaignOnboardingVideo';
 import CampaignOnboardingStripeVideo from './CampaignOnboardingVideo/CampaignOnboardingStripeVideo';
 import CampaignOnboardingPixelVideo from './CampaignOnboardingVideo/CampaignOnboardingPixelVideo';
@@ -48,7 +49,7 @@ import { isGlobalAttributionComplete, type GlobalAttributionPath } from './Insta
 import { isPixelSetupComplete, type PixelSetupPath } from './InstallationOnboarding/pixelSetupCompletion';
 import { useEffectiveIdentity } from '../../lib/useEffectiveIdentity';
 
-type OnboardingStep = 'welcome' | 'video' | 'campaign' | 'hub' | 'newsletter' | 'sales_call' | 'consultation' | 'lead_magnet' | 'install_global' | 'install_direct_purchase' | 'install_newsletter' | 'install_sales_call' | 'install_consultation';
+type OnboardingStep = 'welcome' | 'video' | 'campaign' | 'hub' | 'newsletter' | 'sales_call' | 'consultation' | 'lead_magnet' | 'install_global' | 'install_direct_purchase' | 'install_newsletter' | 'install_sales_call' | 'install_consultation' | 'install_tracking_domain';
 
 type LeadMagnetRow = {
   lead_magnet_name: string;
@@ -839,7 +840,7 @@ export default function OnboardingOverlay() {
 
           <button
             type="button"
-            onClick={() => close()}
+            onClick={() => setStep('install_tracking_domain')}
             style={{
               width: '100%',
               padding: '12px 20px',
@@ -1062,10 +1063,31 @@ export default function OnboardingOverlay() {
         onDone={() => setStep('hub')}
       />
     </div>
+   </div> 
+)}
+
+{step === 'install_tracking_domain' && campaignId && (
+  <div
+    className="w-full bg-white rounded-2xl overflow-hidden shadow-2xl"
+    style={{
+      maxWidth: 1080,
+      width: 'min(1080px, 94vw)',
+      maxHeight: '90vh',
+    }}
+    onClick={(e) => e.stopPropagation()}
+  >
+    <div style={{ maxHeight: '90vh', overflow: 'auto' }}>
+      <TrackingDomainInstallationOnboarding
+        campaignId={campaignId}
+        userId={userId ?? null}
+        onBack={() => setStep('hub')}
+        onDone={() => close()}
+      />
+    </div>
   </div>
 )}
-        </motion.div>
-      )}
+        </motion.div> 
+      )} 
     </AnimatePresence>
   );
 }
