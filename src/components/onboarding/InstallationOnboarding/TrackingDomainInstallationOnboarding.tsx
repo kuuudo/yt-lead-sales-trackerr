@@ -634,7 +634,7 @@ export default function TrackingDomainInstallationOnboarding({ campaignId, userI
                 </div>
                 <p style={{ fontSize: 11.5, color: MUTED, margin: '10px 0 0', lineHeight: 1.55 }}>
                   Just the domain, like <code style={{ color: INK }}>kaksidigitals.com</code>. Only .com domains are
-                  supported in this setup for now. You can add other domains later in Settings → Tracking Domains.
+                  supported for now.
                 </p>
               </>
             )}

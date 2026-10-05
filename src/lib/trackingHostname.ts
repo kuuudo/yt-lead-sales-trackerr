@@ -1,16 +1,17 @@
 /**
  * lib/trackingHostname.ts
  *
- * Pure, dependency-free helpers for the onboarding "tracking domain" step.
+ * Pure, dependency-free helpers for adding tracking domains. Shared by the
+ * onboarding step and Settings → Tracking Domains, so both follow one model.
  *
- * Deliberately NARROW. Onboarding supports exactly one root-domain shape:
+ * Deliberately NARROW. Both support exactly one root-domain shape:
  *
  *     <name>.com        or        www.<name>.com   (www is dropped)
  *
  * This is NOT a general domain parser: no Public Suffix List, no multi-part
  * suffix handling, no use of getCookieParent(). Anything outside the supported
- * shape is rejected with a message, never "fixed up". Other domains can still
- * be added from Settings → Tracking Domains (unchanged).
+ * shape is rejected with a message, never "fixed up". Other domains (other
+ * TLDs, multi-part suffixes) are not supported yet, in onboarding or Settings.
  *
  * Why this is enough for addBrandedDomain(): every hostname built here is
  * exactly `<label>.<name>.com` (three labels). getCookieParent() derives
@@ -86,8 +87,7 @@ export function normalizeRootInput(input: string): RootCheck {
     return {
       ok: false,
       code: 'unsupported_ending',
-      message:
-        'Only .com domains are supported in this setup for now. You can add other domains later in Settings → Tracking Domains.',
+      message: 'Only .com domains are supported for now.',
     };
   }
 

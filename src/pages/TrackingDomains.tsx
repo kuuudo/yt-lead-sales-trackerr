@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { Globe, Plus, Trash2, Ban, Loader2, Copy, Check, ShieldCheck, ChevronDown, ChevronRight } from 'lucide-react';
+import { Globe, Plus, Trash2, Ban, Loader2, Copy, Check, ShieldCheck, ChevronDown, ChevronRight, Lock } from 'lucide-react';
 // Star and CircleHelp are no longer imported — they were only used by the
 // "Set Default" action, which is hidden (not deleted) below. Re-add both
 // to this import line if that block gets restored.
@@ -15,6 +15,12 @@ import {
   verifyDomain,
   type BrandedTrackingDomain,
 } from '../services/domain/brandedDomains';
+import {
+  buildTrackingHostname,
+  isSupportedOnboardingRoot,
+  normalizeRootInput,
+  validateSubdomainLabel,
+} from '../lib/trackingHostname';
 
 export default function TrackingDomains() {
   const { organizationId } = useOrganization();
@@ -23,7 +29,11 @@ export default function TrackingDomains() {
 
   const [domains, setDomains] = useState<BrandedTrackingDomain[]>([]);
   const [loading, setLoading] = useState(true);
-  const [newHostname, setNewHostname] = useState('');
+  // Add-domain form follows the same model as onboarding: a root domain plus a
+  // single subdomain label. The full hostname is never typed — it is built by
+  // buildTrackingHostname() (lib/trackingHostname.ts) from the validated pair.
+  const [rootInput, setRootInput] = useState('');
+  const [labelInput, setLabelInput] = useState('');
   const [adding, setAdding] = useState(false);
   // Step 4: eligible (non-archived) campaigns for the Campaign selector.
   // Query pattern reused from pages/Campaigns.tsx's fetchCampaigns() —
@@ -193,12 +203,38 @@ export default function TrackingDomains() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [effectiveOrgId]);
 
+  // Add-domain form state, derived from the selected campaign's existing
+  // root_domain (already loaded above — no new query). If the campaign has a
+  // root it is locked; otherwise the user enters one (validated, never saved
+  // anywhere by this form). The root only becomes official when
+  // addBrandedDomain() successfully creates the first tracking domain.
+  const selectedCampaign = campaigns.find((c) => c.id === selectedCampaignId) ?? null;
+  const officialRoot = selectedCampaign?.root_domain ?? null;
+  const officialRootSupported = officialRoot ? isSupportedOnboardingRoot(officialRoot) : false;
+  const rootCheck = normalizeRootInput(rootInput);
+  const rootHasText = rootInput.trim().length > 0;
+  const effectiveRoot: string | null = !selectedCampaign
+    ? null
+    : officialRoot
+    ? officialRootSupported
+      ? officialRoot
+      : null
+    : rootCheck.ok
+    ? rootCheck.root
+    : null;
+  const labelCheck = effectiveRoot ? validateSubdomainLabel(labelInput, effectiveRoot) : null;
+  const labelHasText = labelInput.trim().length > 0;
+  const builtHostname =
+    effectiveRoot && labelCheck && labelCheck.ok ? buildTrackingHostname(labelCheck.label, effectiveRoot) : null;
+  const canAdd = !isReadOnly && !adding && !!effectiveOrgId && !!selectedCampaignId && !!builtHostname;
+
   const handleAdd = async () => {
-    if (isReadOnly || !effectiveOrgId || !newHostname.trim() || !selectedCampaignId) return;
+    if (isReadOnly || !effectiveOrgId || !selectedCampaignId || !builtHostname) return;
     setAdding(true);
     setActionError(null);
 
-    const result = await addBrandedDomain(effectiveOrgId, newHostname, selectedCampaignId);
+    // Same backend flow as before; only the hostname is now built, not typed.
+    const result = await addBrandedDomain(effectiveOrgId, builtHostname, selectedCampaignId);
 
     if (!result) {
       setActionError('Failed to add domain. Check the hostname and try again.');
@@ -206,9 +242,13 @@ export default function TrackingDomains() {
       return;
     }
 
-    setNewHostname('');
+    setLabelInput('');
+    setRootInput('');
     setAdding(false);
     await refresh();
+    // The first domain may have just established this campaign's root_domain;
+    // reload campaigns so the root locks and the "Campaign:" labels resolve.
+    await fetchCampaigns();
   };
 
   // Feature 1: "Remove root domain from this Campaign". The ONLY effect
@@ -399,7 +439,12 @@ const handleVerify = async (domainId: string) => {
         </label>
         <select
           value={selectedCampaignId}
-          onChange={(e) => setSelectedCampaignId(e.target.value)}
+          onChange={(e) => {
+            setSelectedCampaignId(e.target.value);
+            setRootInput('');
+            setLabelInput('');
+            setActionError(null);
+          }}
           disabled={isReadOnly || campaignsLoading}
           className="w-full bg-zinc-950 border border-zinc-800 rounded-md px-3 py-2 text-sm text-zinc-100 focus:outline-none focus:border-red-600 mb-4"
         >
@@ -413,21 +458,96 @@ const handleVerify = async (domainId: string) => {
           ))}
         </select>
 
-        <label className="text-[11px] font-bold uppercase tracking-widest text-zinc-400 mb-2 block">
+        <label
+          htmlFor={officialRoot ? undefined : 'td-root-input'}
+          className="text-[11px] font-bold uppercase tracking-widest text-zinc-400 mb-2 block"
+        >
+          Root domain
+        </label>
+        {officialRoot ? (
+          <>
+            <div className="flex items-center justify-between bg-zinc-950 border border-zinc-800 rounded-md px-3 py-2">
+              <span className="text-sm text-zinc-100 font-mono">{officialRoot}</span>
+              <Lock size={13} className="text-zinc-600" aria-label="Locked" />
+            </div>
+            {officialRootSupported ? (
+              <p className="text-zinc-500 text-[11px] mt-1.5 mb-4">
+                This campaign already uses <span className="text-zinc-400 font-mono">{officialRoot}</span> as its root domain. New tracking domains are created under it.
+              </p>
+            ) : (
+              <p className="text-red-500 text-[11px] mt-1.5 mb-4">
+                Only plain .com root domains are supported for now, so new tracking domains can't be added to this campaign. Its existing domains can still be managed below.
+              </p>
+            )}
+          </>
+        ) : (
+          <>
+            <input
+              id="td-root-input"
+              type="text"
+              value={rootInput}
+              onChange={(e) => setRootInput(e.target.value)}
+              placeholder="yourdomain.com"
+              disabled={isReadOnly || !selectedCampaignId}
+              autoComplete="off"
+              autoCapitalize="off"
+              spellCheck={false}
+              aria-invalid={rootHasText && !rootCheck.ok}
+              className="w-full bg-zinc-950 border border-zinc-800 rounded-md px-3 py-2 text-sm text-zinc-100 placeholder-zinc-600 focus:outline-none focus:border-red-600 disabled:opacity-50"
+            />
+            {rootHasText && !rootCheck.ok && (
+              <p className="text-red-500 text-[11px] mt-1.5">
+                {rootCheck.message}
+                {rootCheck.suggestion && (
+                  <>
+                    {' '}Did you mean <span className="font-mono text-zinc-300">{rootCheck.suggestion}</span>?
+                  </>
+                )}
+              </p>
+            )}
+            {rootCheck.ok && rootCheck.strippedWww && (
+              <p className="text-zinc-500 text-[11px] mt-1.5">
+                We'll use <span className="font-mono text-zinc-300">{rootCheck.root}</span> — the www isn't part of the root domain.
+              </p>
+            )}
+            <p className="text-zinc-600 text-[11px] mt-1.5 mb-4">
+              Just the domain you own, like <span className="font-mono">kaksidigitals.com</span>. Only .com domains are supported for now.
+            </p>
+          </>
+        )}
+
+        <label
+          htmlFor="td-label-input"
+          className="text-[11px] font-bold uppercase tracking-widest text-zinc-400 mb-2 block"
+        >
           Tracking domain
         </label>
         <div className="flex gap-3">
-          <input
-            type="text"
-            value={newHostname}
-            onChange={(e) => setNewHostname(e.target.value)}
-            placeholder="go.yourdomain.com"
-            disabled={isReadOnly}
-            className="flex-1 bg-zinc-950 border border-zinc-800 rounded-md px-3 py-2 text-sm text-zinc-100 placeholder-zinc-600 focus:outline-none focus:border-red-600"
-          />
+          <div className="flex flex-1 min-w-0">
+            <input
+              id="td-label-input"
+              type="text"
+              value={labelInput}
+              onChange={(e) => setLabelInput(e.target.value)}
+              placeholder="go"
+              disabled={isReadOnly || !effectiveRoot || adding}
+              autoComplete="off"
+              autoCapitalize="off"
+              spellCheck={false}
+              aria-invalid={labelHasText && !!labelCheck && !labelCheck.ok}
+              className="flex-1 min-w-0 bg-zinc-950 border border-zinc-800 border-r-0 rounded-l-md px-3 py-2 text-sm text-zinc-100 placeholder-zinc-600 focus:outline-none focus:border-red-600 disabled:opacity-50"
+            />
+            <div
+              title="Locked root domain"
+              className="flex items-center gap-1.5 bg-zinc-900 border border-zinc-800 rounded-r-md px-3 text-sm text-zinc-300 font-mono whitespace-nowrap"
+            >
+              .{effectiveRoot ?? 'yourdomain.com'}
+              <Lock size={12} className="text-zinc-600" aria-label="Locked" />
+            </div>
+          </div>
           <button
             onClick={handleAdd}
-            disabled={adding || !newHostname.trim() || !selectedCampaignId || isReadOnly}
+            disabled={!canAdd}
             className="flex items-center gap-2 px-4 py-2 rounded-md bg-red-600 hover:bg-red-500 disabled:bg-zinc-800 disabled:text-zinc-600 text-white text-[11px] font-bold uppercase tracking-widest transition-colors"
           >
             {adding ? <Loader2 className="animate-spin" size={14} /> : <Plus size={14} />}
@@ -435,10 +555,20 @@ const handleVerify = async (domainId: string) => {
           </button>
         </div>
 
+        {labelHasText && labelCheck && !labelCheck.ok && (
+          <p className="text-red-500 text-[11px] mt-1.5">{labelCheck.message}</p>
+        )}
+        {builtHostname && (
+          <p className="text-zinc-500 text-[11px] mt-1.5">
+            Your tracking domain will be <span className="font-mono text-zinc-300">{builtHostname}</span>
+          </p>
+        )}
+
         <p className="text-zinc-500 text-[11px] mt-2">
-          Enter a subdomain of a domain you own — not the root domain itself, e.g.{' '}
-          <span className="text-zinc-400 font-mono">go.yourdomain.com</span> or{' '}
-          <span className="text-zinc-400 font-mono">shop.yourdomain.com</span>. It doesn't need to exist yet — we'll set it up together in the next step.
+          Type only the first part of your tracking link, e.g.{' '}
+          <span className="text-zinc-400 font-mono">go</span>,{' '}
+          <span className="text-zinc-400 font-mono">shop</span> or{' '}
+          <span className="text-zinc-400 font-mono">track</span>. It doesn't need to exist yet — we'll set it up together in the next step.
         </p>
         <p className="text-zinc-600 text-[11px] mt-1.5">
           You can create multiple tracking domains from the same root domain. For example, <span className="font-mono">kaksidigitals.com</span> could use <span className="font-mono">go.kaksidigitals.com</span>, <span className="font-mono">shop.kaksidigitals.com</span>, and <span className="font-mono">track.kaksidigitals.com</span> — each tracked separately.
