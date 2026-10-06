@@ -333,7 +333,8 @@ console.log("resourceErr", resourceErr);
   // behavior for the other two branches.
   if (wantsCampaignElement) {
     const { data: elementAssetRows, error: elementErr } = await elementQueryPromise!;
-
+   console.log('elementAssetRows', elementAssetRows);
+   console.log('elementErr', elementErr);
     if (elementErr) {
       throw new Error(`Failed to load shared campaign element assets: ${elementErr.message}`);
     }
