@@ -306,7 +306,14 @@ export interface AssetAnalyticsEngineInput {
   resources: AssetResourceRow[];
 
   /** Journey evidence context. Session-scoped, NOT asset-filtered. Optional: if omitted, journeyGraph is returned empty rather than throwing. */
-  journeyContext?: AssetJourneyContext;
+journeyContext?: AssetJourneyContext;
+
+  /**
+   * Layer 3 — Stripe owner override: stripe_purchases.id → the (videoId, assetId) row that
+   * must own that purchase (TRUE START of its journey). Built by getAssetAnalyticsRows.
+   * Absent/empty = legacy behaviour. Ignored when activeSource === 'pixel'.
+   */
+  stripePurchaseOwnerByPurchaseId?: Map<string, { videoId: string; assetId: string }>;
 }
 
 // ═════════════════════════════════════════════════════════════════════════════
@@ -360,7 +367,43 @@ function scopeToAsset(input: AssetAnalyticsEngineInput) {
       (p.organization_id == null || p.organization_id === organizationId),
   );
 
-  return { events, stripePurchases, pixelPurchases, redirectLinks };
+// ── Layer 3: Stripe owner override ──────────────────────────────────────
+  //   • this asset is NOT the owner → purchase leaves scope (no double count); in 'total'
+  //     mode its same-session pixel twin leaves too, because the Stripe⇄pixel session
+  //     dedupe can no longer see the Stripe row in this call.
+  //   • this asset IS the owner → purchase enters scope even if the token/session bridge
+  //     above missed it, and video_id is rewritten to the owner video so
+  //     computeRelationships() buckets it on the owner row.
+  //   • no override entry → legacy behaviour. Ignored in 'pixel' mode.
+  const owners =
+    input.activeSource === 'pixel' ? undefined : input.stripePurchaseOwnerByPurchaseId;
+  if (owners && owners.size > 0) {
+    const inBase = new Set(stripePurchases.map(p => p.id));
+    const movedAwaySessionIds = new Set<string>();
+    const ownedHere: AssetStripePurchaseRow[] = [];
+    for (const p of stripePurchases) {
+      const o = owners.get(p.id);
+      if (!o) {
+        ownedHere.push(p);
+        continue;
+      }
+      if (o.assetId === assetId) ownedHere.push({ ...p, video_id: o.videoId });
+      else if (p.session_id) movedAwaySessionIds.add(p.session_id);
+    }
+    for (const p of input.stripePurchases) {
+      const o = owners.get(p.id);
+      if (!o || o.assetId !== assetId || inBase.has(p.id)) continue;
+      if (p.organization_id != null && p.organization_id !== organizationId) continue;
+      ownedHere.push({ ...p, video_id: o.videoId });
+    }
+    const pixelOut =
+      input.activeSource === 'total' && movedAwaySessionIds.size > 0
+        ? pixelPurchases.filter(p => !(p.session_id && movedAwaySessionIds.has(p.session_id)))
+        : pixelPurchases;
+    return { events, stripePurchases: ownedHere, pixelPurchases: pixelOut, redirectLinks, owners };
+  }
+
+  return { events, stripePurchases, pixelPurchases, redirectLinks, owners };
 }
 
 // ═════════════════════════════════════════════════════════════════════════════
@@ -742,7 +785,10 @@ export function computeAssetAnalytics(input: AssetAnalyticsEngineInput): AssetAn
   const { assetId, assetType, dateRange, activeSource, includeEV = true } = input;
 
   const scoped = scopeToAsset(input);
-  const redirectLinkTokenToLinkType = buildRedirectLinkLookup(
+const redirectLinkTokenToLinkType = withOwnedLinkTypes(
+    scoped.stripePurchases,
+    scoped.owners,
+    input.redirectLinks,
     scoped.redirectLinks.map(r => ({ token: r.token, link_type: r.link_type })),
   );
 
@@ -798,5 +844,28 @@ export function computeAssetAnalytics(input: AssetAnalyticsEngineInput): AssetAn
 
 // Re-exported so getAssetAnalytics.ts (and any future caller) can build
 // dateBounds without a second import of analyticsEngine.ts's internals.
+/**
+ * Layer 3 helper — starts from this asset's own token→link_type lookup (legacy behaviour)
+ * and, ONLY for purchases re-owned to this asset, adds the link_type of their
+ * redirect_link_token from the full link set, so revenue_type is not silently
+ * reclassified as 'offer' just because the token belongs to another asset's link.
+ */
+function withOwnedLinkTypes(
+  purchases: AssetStripePurchaseRow[],
+  owners: Map<string, { videoId: string; assetId: string }> | undefined,
+  allLinks: AssetRedirectLinkRow[],
+  baseLinks: Parameters<typeof buildRedirectLinkLookup>[0],
+): Record<string, string | null> {
+  const lookup = buildRedirectLinkLookup(baseLinks);
+  if (!owners || owners.size === 0) return lookup;
+  for (const p of purchases) {
+    const tok = p.redirect_link_token;
+    if (!tok || !owners.has(p.id) || tok in lookup) continue;
+    const link = allLinks.find(r => r.token === tok);
+    if (link) lookup[tok] = link.link_type ?? null;
+  }
+  return lookup;
+}
+
 export { getDateBounds };
 export type { DateRange, CustomDateRange };

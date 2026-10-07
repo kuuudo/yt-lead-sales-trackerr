@@ -584,6 +584,38 @@ const assetCampaignById = new Map<
   }
 
   // ── 5. Per-asset computeAssetAnalytics — KEEP relationships ───────────
+// ── Layer 3: Stripe purchase → TRUE START owner row ──────────────────────
+  // Only purchases whose journey START resolved AND whose (video, asset) is a real table
+  // identity are re-owned. Anything else keeps the legacy attribution (nothing vanishes).
+  const stripeOwnerByPurchaseId = new Map<string, { videoId: string; assetId: string }>();
+  {
+    const identityKeys = new Set(
+      (identities as AssetAnalyticsRowIdentity[]).map((i) => `${i.video_id}::${i.asset_id}`),
+    );
+    let resolvedWithStart = 0;
+    let skippedNoIdentity = 0;
+    stripeJourneyByPurchaseId.forEach((r) => {
+      if (r.status !== 'resolved' || !r.startVideoId || !r.startAssetId) return;
+      resolvedWithStart += 1;
+      if (
+        !identityKeys.has(`${r.startVideoId}::${r.startAssetId}`) ||
+        !assetTypeById.has(r.startAssetId)
+      ) {
+        skippedNoIdentity += 1;
+        return;
+      }
+      stripeOwnerByPurchaseId.set(r.purchaseId, {
+        videoId: r.startVideoId,
+        assetId: r.startAssetId,
+      });
+    });
+    console.log('[AssetAnalyticsRows] stripe owner overrides', {
+      applied: stripeOwnerByPurchaseId.size,
+      resolvedWithStart,
+      skippedNoIdentity,
+    });
+  }
+
   console.time('[AssetAnalyticsRows] computeAssetAnalytics loop (CPU)');
   const relationshipsByAsset = new Map<string, AssetRelationshipRow[]>();
 
@@ -606,6 +638,7 @@ const assetCampaignById = new Map<
       stripePurchases,
       pixelPurchases,
       redirectLinks: engineRedirectLinks,
+      stripePurchaseOwnerByPurchaseId: stripeOwnerByPurchaseId,
       campaignElementAssets,
       videos,
       resources,
