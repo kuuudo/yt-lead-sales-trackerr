@@ -60,6 +60,10 @@ import {
 
 import { getAssignedAssetSummaryForOwner } from './getAssignedAssetSummaryForOwner';
 import { listSharedAssetsForCollaborator } from './listSharedAssetsForCollaborator';
+import {
+  resolveStripePurchaseJourneys,
+  type StripePurchaseJourneyResolution,
+} from '../attribution/resolveStripePurchaseJourneys';
 
 // ---------------------------------------------------------------------------
 // Public types
@@ -116,6 +120,9 @@ export interface AssetAnalyticsTableRow {
 }
 
 export interface GetAssetAnalyticsRowsResult {
+  /** Layer 1+2 attribution foundation: stripe purchase id → journey_id → TRUE START.
+   *  Read-only for now; metrics are NOT changed by it (Layer 3 will consume it). */
+  stripeJourneyByPurchaseId?: Map<string, StripePurchaseJourneyResolution>;
   rows: AssetAnalyticsTableRow[];
   assetIds: string[];
   unmatchedIdentityCount: number;
@@ -137,7 +144,7 @@ const EVENTS_COLUMNS =
   'id, session_id, video_id, campaign_id, event_type, created_at, organization_id, promotion_id, asset_id, redirect_link_id, tracking_hostname, link_type';
 
 const STRIPE_PURCHASES_COLUMNS =
-  'id, promotion_id, session_id, video_id, campaign_id, amount, created_at, redirect_link_id, redirect_link_token, organization_id';
+  'id, token, promotion_id, session_id, video_id, campaign_id, amount, created_at, redirect_link_id, redirect_link_token, organization_id';
 
 const PIXEL_PURCHASES_COLUMNS =
   'id, promotion_id, session_id, video_id, campaign_id, amount, created_at, event_type, organization_id';
@@ -493,7 +500,40 @@ export async function getAssetAnalyticsRows(
   const stripePurchases = Array.from(
     new Map([...stripeByToken, ...stripeBySession].map((p) => [p.id, p])).values(),
   );
-  console.log('[AssetAnalyticsRows] counts', { stripePurchases: stripePurchases.length, pixelPurchases: pixelPurchases.length });
+console.log('[AssetAnalyticsRows] counts', { stripePurchases: stripePurchases.length, pixelPurchases: pixelPurchases.length });
+
+  // ── Layer 1+2 attribution foundation (read-only; failure must never break the table) ──
+  let stripeJourneyByPurchaseId = new Map<string, StripePurchaseJourneyResolution>();
+  try {
+    console.time('[AssetAnalyticsRows] stripe-journey-start');
+    stripeJourneyByPurchaseId = await resolveStripePurchaseJourneys(
+      stripePurchases.map((p) => {
+        const sp = p as unknown as {
+          id: string;
+          session_id?: string | null;
+          token?: string | null;
+          created_at: string;
+        };
+        return {
+          id: sp.id,
+          session_id: sp.session_id ?? null,
+          token: sp.token ?? null,
+          created_at: sp.created_at,
+        };
+      }),
+    );
+    console.timeEnd('[AssetAnalyticsRows] stripe-journey-start');
+    const statusCounts: Record<string, number> = {};
+    stripeJourneyByPurchaseId.forEach((r) => {
+      statusCounts[r.status] = (statusCounts[r.status] ?? 0) + 1;
+    });
+    console.log('[AssetAnalyticsRows] stripe-journey status', statusCounts);
+    // TEMP verification — remove after confirming:
+    const t = stripeJourneyByPurchaseId.get('992fbb1f-bc3b-4274-98d9-c18612863c82');
+    if (t) console.log('[AssetAnalyticsRows] test purchase 992fbb1f', t);
+  } catch (err) {
+    console.error('[AssetAnalyticsRows] stripe-journey-start failed (ignored)', err);
+  }
 
   // ── 4b. Canonical Asset Campaign — LOCKED definition. Mirrors
   // resolveAssetCampaign.ts's per-asset-type mapping exactly (video →
@@ -639,7 +679,8 @@ const assetCampaignById = new Map<
 
   return {
     rows,
-    assetIds: distinctAssetIds,
+assetIds: distinctAssetIds,
+    stripeJourneyByPurchaseId,
     unmatchedIdentityCount,
     debug: {
       redirectLinkCount: redirectLinks.length,
