@@ -198,6 +198,10 @@ export const generateAttributionPixel = (
     localStorage.getItem('yt_tracker_events_journey_id') ||
     null;
 
+    const eventId =
+  params.get('vt_eid') ||
+  localStorage.getItem('yt_tracker_event_id') ||
+  null;
   // Forward-validated journey (see FORWARD_VALIDATED_ATTRIBUTION_JOURNEY.md).
   // Carried through untouched from Track.tsx — this destination-side script
   // has no Supabase access and must NOT attempt to re-validate or re-derive
@@ -228,6 +232,7 @@ export const generateAttributionPixel = (
   if (firstTouchRedirectLinkId) localStorage.setItem('yt_tracker_ft_redirect_link_id', firstTouchRedirectLinkId);
   if (redirectLinkId) localStorage.setItem('yt_tracker_redirect_link_id', redirectLinkId);
   if (eventsJourneyId) localStorage.setItem('yt_tracker_events_journey_id', eventsJourneyId);
+  if (eventId) localStorage.setItem('yt_tracker_event_id', eventId);
   if (journey) localStorage.setItem('yt_tracker_journey', JSON.stringify(journey));
   const payload = {
     session_id: sessionId,
@@ -240,6 +245,7 @@ export const generateAttributionPixel = (
     first_touch_redirect_link_id: firstTouchRedirectLinkId,
     redirect_link_id: redirectLinkId,
     events_journey_id: eventsJourneyId,
+    event_id: eventId,
     journey: journey ? JSON.stringify(journey) : null,
     event_type: CONFIG.event_type,
     conversion_id: conversionId

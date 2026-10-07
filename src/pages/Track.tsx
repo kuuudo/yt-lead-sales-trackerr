@@ -624,7 +624,13 @@ export default function Track() {
         const eventId = await logRedirectEvent(link, trackingPageUrl);
 
         let eventsJourneyId: string | null = null;
-
+if (eventId) {
+  try {
+    localStorage.setItem('yt_tracker_event_id', eventId);
+  } catch (e) {
+    /* storage blocked */
+  }
+}
         if (!eventId) {
           console.warn('[Track] ⚠ logRedirectEvent returned no id — skipping events_journey insert');
         } else {
@@ -767,6 +773,10 @@ try {
     currentTrackingHost,
     eventsJourneyId
   );
+
+if (eventId) {
+  url.searchParams.set('vt_eid', eventId);
+}
 
   // ── Composite client_reference_id for deterministic Stripe attribution ──
   // Format: "{token}__{session_id}__{video_id}__{redirect_link_id}__{redirect_link_token}"

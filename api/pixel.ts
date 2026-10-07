@@ -42,6 +42,7 @@ export default async function handler(
     conversion_id,
     journey,
     events_journey_id,
+    event_id,
   } = req.body;
 console.log('PIXEL BODY', {
   session_id,
@@ -327,6 +328,27 @@ if (typeof events_journey_id === 'string' && events_journey_id.length > 0) {
   if (ejCheck?.id) validatedEventsJourneyId = ejCheck.id;
 }
 
+// Persist event_id only when that events row exists and matches session context.
+let validatedEventId: string | null = null;
+if (typeof event_id === 'string' && event_id.length > 0) {
+  const { data: ev } = await supabase
+    .from('events')
+    .select('id, session_id, created_at')
+    .eq('id', event_id)
+    .maybeSingle();
+
+  if (ev?.id) {
+    const sessionOk =
+      !session_id || !ev.session_id || ev.session_id === session_id;
+    const timeOk =
+      !ev.created_at ||
+      new Date(ev.created_at).getTime() <= Date.now() + 60_000;
+    if (sessionOk && timeOk) {
+      validatedEventId = ev.id;
+    }
+  }
+}
+
 // Insert into pixel_purchases (conversion_id = idempotency key for thank-you pixels)
 const { data: insertedPurchase, error: purchaseError } =
   await supabase
@@ -345,6 +367,7 @@ const { data: insertedPurchase, error: purchaseError } =
       session_id: session_id ?? null,
       conversion_id: conversion_id ?? null,
       events_journey_id: validatedEventsJourneyId,
+      event_id: validatedEventId,
     })
     .select('id')
     .maybeSingle();
