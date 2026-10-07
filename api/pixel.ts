@@ -316,6 +316,17 @@ console.log('INSERT VALUES', {
   session_id: session_id ?? null,
 });
 
+// Persist events_journey_id only when that events_journey row really exists; otherwise null.
+let validatedEventsJourneyId: string | null = null;
+if (typeof events_journey_id === 'string' && events_journey_id.length > 0) {
+  const { data: ejCheck } = await supabase
+    .from('events_journey')
+    .select('id')
+    .eq('id', events_journey_id)
+    .maybeSingle();
+  if (ejCheck?.id) validatedEventsJourneyId = ejCheck.id;
+}
+
 // Insert into pixel_purchases (conversion_id = idempotency key for thank-you pixels)
 const { data: insertedPurchase, error: purchaseError } =
   await supabase
@@ -333,6 +344,7 @@ const { data: insertedPurchase, error: purchaseError } =
       event_type: finalEventType,
       session_id: session_id ?? null,
       conversion_id: conversion_id ?? null,
+      events_journey_id: validatedEventsJourneyId,
     })
     .select('id')
     .maybeSingle();

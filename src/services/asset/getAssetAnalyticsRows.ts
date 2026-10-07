@@ -64,6 +64,7 @@ import {
   resolveStripePurchaseJourneys,
   type StripePurchaseJourneyResolution,
 } from '../attribution/resolveStripePurchaseJourneys';
+import { resolvePixelPurchaseJourneys } from '../attribution/resolvePixelPurchaseJourneys';
 
 // ---------------------------------------------------------------------------
 // Public types
@@ -147,7 +148,7 @@ const STRIPE_PURCHASES_COLUMNS =
   'id, token, promotion_id, session_id, video_id, campaign_id, amount, created_at, redirect_link_id, redirect_link_token, organization_id';
 
 const PIXEL_PURCHASES_COLUMNS =
-  'id, promotion_id, session_id, video_id, campaign_id, amount, created_at, event_type, organization_id';
+  'id, promotion_id, session_id, video_id, campaign_id, amount, created_at, event_type, organization_id, events_journey_id';
 
 const CAMPAIGN_ELEMENT_ASSETS_COLUMNS =
   'id, asset_id, campaign_id, element_type, source_field, display_name';
@@ -623,6 +624,42 @@ const assetCampaignById = new Map<
     });
   }
 
+  // ── Pixel Scenario 2: pixel_purchases.events_journey_id → TRUE START owner ──
+  // Same ONE-owner rule as Stripe. purchase/consultation pixels sharing a session with a Stripe
+  // purchase follow Stripe's owner (existing session identity); never a second owner.
+  const pixelOwnerByPurchaseId = new Map<string, { videoId: string; assetId: string }>();
+  try {
+    const pxIdentityKeys = new Set(
+      (identities as AssetAnalyticsRowIdentity[]).map((i) => `${i.video_id}::${i.asset_id}`),
+    );
+    const stripeOwnerBySession = new Map<string, { videoId: string; assetId: string } | null>();
+    for (const sp of stripePurchases) {
+      if (!sp.session_id) continue;
+      const o = stripeOwnerByPurchaseId.get(sp.id) ?? null;
+      if (o || !stripeOwnerBySession.has(sp.session_id)) stripeOwnerBySession.set(sp.session_id, o);
+    }
+    const pixelRes = await resolvePixelPurchaseJourneys(
+      pixelPurchases.map((p) => ({ id: p.id, events_journey_id: p.events_journey_id ?? null })),
+    );
+    const pixelById = new Map(pixelPurchases.map((p) => [p.id, p]));
+    pixelRes.forEach((r) => {
+      if (r.status !== 'resolved' || !r.startVideoId || !r.startAssetId) return;
+      const p = pixelById.get(r.purchaseId);
+      if (!p) return;
+      let owner = { videoId: r.startVideoId, assetId: r.startAssetId };
+      const stripeTwinType = p.event_type === 'purchase' || p.event_type === 'consultation';
+      if (stripeTwinType && p.session_id && stripeOwnerBySession.has(p.session_id)) {
+        const so = stripeOwnerBySession.get(p.session_id) ?? null;
+        if (so) owner = so;
+        else if (activeSource !== 'pixel') return; // Stripe twin keeps legacy attribution
+      }
+      if (!pxIdentityKeys.has(`${owner.videoId}::${owner.assetId}`) || !assetTypeById.has(owner.assetId)) return;
+      pixelOwnerByPurchaseId.set(p.id, owner);
+    });
+  } catch (err) {
+    console.error('[AssetAnalyticsRows] pixel owner resolution failed (ignored)', err);
+  }
+
   console.time('[AssetAnalyticsRows] computeAssetAnalytics loop (CPU)');
   const relationshipsByAsset = new Map<string, AssetRelationshipRow[]>();
 
@@ -646,6 +683,7 @@ const assetCampaignById = new Map<
       pixelPurchases,
       redirectLinks: engineRedirectLinks,
       stripePurchaseOwnerByPurchaseId: stripeOwnerByPurchaseId,
+      pixelPurchaseOwnerByPurchaseId: pixelOwnerByPurchaseId,
       campaignElementAssets,
       videos,
       resources,

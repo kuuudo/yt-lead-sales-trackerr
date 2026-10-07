@@ -96,6 +96,7 @@ export interface AssetPixelPurchaseRow {
   amount: number | string | null;
   created_at: string;
   event_type: string | null;
+  events_journey_id?: string | null;
   organization_id?: string | null;
 }
 
@@ -314,6 +315,8 @@ journeyContext?: AssetJourneyContext;
    * Absent/empty = legacy behaviour. Ignored when activeSource === 'pixel'.
    */
   stripePurchaseOwnerByPurchaseId?: Map<string, { videoId: string; assetId: string }>;
+  /** Pixel Scenario 2 — pixel_purchases.id → owner (TRUE START) row. Ignored when activeSource === 'stripe'. */
+  pixelPurchaseOwnerByPurchaseId?: Map<string, { videoId: string; assetId: string }>;
 }
 
 // ═════════════════════════════════════════════════════════════════════════════
@@ -363,7 +366,7 @@ function scopeToAsset(input: AssetAnalyticsEngineInput) {
       (p.organization_id == null || p.organization_id === organizationId || !!ownerMap?.has(p.id)),
   );
 
-  const pixelPurchases = input.pixelPurchases.filter(
+  const basePixelPurchases = input.pixelPurchases.filter(
     p =>
       p.session_id != null &&
       validSessionIds.has(p.session_id) &&
@@ -378,6 +381,27 @@ function scopeToAsset(input: AssetAnalyticsEngineInput) {
   //     above missed it, and video_id is rewritten to the owner video so
   //     computeRelationships() buckets it on the owner row.
   //   • no override entry → legacy behaviour. Ignored in 'pixel' mode.
+  // ── Pixel Scenario 2 owner override (org-independent, same shape as Stripe) ──
+  const pixelOwners =
+    input.activeSource === 'stripe' ? undefined : input.pixelPurchaseOwnerByPurchaseId;
+  let pixelPurchases = basePixelPurchases;
+  if (pixelOwners && pixelOwners.size > 0) {
+    const inBasePx = new Set(basePixelPurchases.map(p => p.id));
+    const kept: AssetPixelPurchaseRow[] = [];
+    for (const p of basePixelPurchases) {
+      const o = pixelOwners.get(p.id);
+      if (!o) kept.push(p);
+      else if (o.assetId === assetId) kept.push({ ...p, video_id: o.videoId });
+      // owner is another asset → leaves this asset's scope
+    }
+    for (const p of input.pixelPurchases) {
+      const o = pixelOwners.get(p.id);
+      if (!o || o.assetId !== assetId || inBasePx.has(p.id)) continue;
+      kept.push({ ...p, video_id: o.videoId }); // enters even if the session/org bridge missed it
+    }
+    pixelPurchases = kept;
+  }
+
   const owners =
     input.activeSource === 'pixel' ? undefined : input.stripePurchaseOwnerByPurchaseId;
   if (owners && owners.size > 0) {
