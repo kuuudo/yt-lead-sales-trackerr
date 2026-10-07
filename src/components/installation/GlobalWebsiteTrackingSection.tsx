@@ -25,6 +25,7 @@ export const GLOBAL_TRACKING_SCRIPT = `<script>
   const ftRlid = p.get('vt_first_touch_redirect_link_id');
   const rlid = p.get('vt_rlid');
   const ejId = p.get('vt_ej_id');
+  const eid = p.get('vt_eid');
 
   if (sid) localStorage.setItem('yt_tracker_session_id', sid);
   if (vid) localStorage.setItem('yt_tracker_video_id', vid);
@@ -36,8 +37,9 @@ export const GLOBAL_TRACKING_SCRIPT = `<script>
   if (ftRlid) localStorage.setItem('yt_tracker_ft_redirect_link_id', ftRlid);
   if (rlid) localStorage.setItem('yt_tracker_redirect_link_id', rlid);
   if (ejId) localStorage.setItem('yt_tracker_events_journey_id', ejId);
+  if (eid) localStorage.setItem('yt_tracker_event_id', eid);
 
-  if (sid || vid || cid || oid || pid || aid || th || ftRlid || rlid || ejId) {
+  if (sid || vid || cid || oid || pid || aid || th || ftRlid || rlid || ejId || eid) {
     const clean = new URL(window.location.href);
 
     clean.searchParams.delete('vt_sid');
@@ -50,7 +52,7 @@ export const GLOBAL_TRACKING_SCRIPT = `<script>
     clean.searchParams.delete('vt_first_touch_redirect_link_id');
     clean.searchParams.delete('vt_rlid');
     clean.searchParams.delete('vt_ej_id');
-
+    clean.searchParams.delete('vt_eid');
     window.history.replaceState({}, '', clean.toString());
   }
 })();
