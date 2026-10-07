@@ -144,6 +144,7 @@ function resolveOne(
   jrows: JourneyRow[],
   eventById: Map<string, EventRow>,
   linkById: Map<string, LinkRow>,
+  ownAssetByVideoId: Map<string, string | null>,
 ): JourneyStartResolution {
   const diagnostics: string[] = [];
   const fail = (status: JourneyStartStatus, pathRoot: string | null = null): JourneyStartResolution => ({
@@ -240,22 +241,32 @@ function resolveOne(
     const curTimes = evidence.get(current.id);
     const curFirst = curTimes && curTimes.length > 0 ? Math.min(...curTimes) : null;
 
-    const parents: { link: LinkRow; t: number }[] = [];
+    // Asset-based proof: the video that owns `current` has its OWN asset (videos.asset_id);
+    // a landing_page link pointing at that asset is a structural parent.
+    const curOwnAssetId = current.video_id ? ownAssetByVideoId.get(current.video_id) ?? null : null;
+    const parents: { link: LinkRow; t: number; via: 'destination' | 'asset' }[] = [];
     for (const [linkId, times] of Array.from(evidence.entries())) {
       if (visited.has(linkId)) continue;
       const p = linkById.get(linkId);
       if (!p || p.link_type === 'checkout') continue;
       const dest = parseDestination(p.destination_url);
-      if (!dest || dest.host !== curHost || dest.token !== current.token) continue;
+      const byDestination = !!dest && dest.host === curHost && dest.token === current.token;
+      const byAsset =
+        p.link_type === 'landing_page' &&
+        !!curOwnAssetId &&
+        p.asset_id === curOwnAssetId &&
+        p.video_id !== current.video_id; // never a self-loop
+      if (!byDestination && !byAsset) continue;
       const qualifying = curFirst === null ? times : times.filter((t) => t <= curFirst);
       if (qualifying.length === 0) continue;
-      parents.push({ link: p, t: Math.max(...qualifying) });
+      parents.push({ link: p, t: Math.max(...qualifying), via: byDestination ? 'destination' : 'asset' });
     }
     if (parents.length === 0) break;
 
     parents.sort((a, b) => b.t - a.t || a.link.id.localeCompare(b.link.id));
     if (parents.length > 1) diagnostics.push(`multiple_parents:${current.id}`);
 
+    if (parents[0].via === 'asset') diagnostics.push(`hop_via_asset:${parents[0].link.id}`);
     current = parents[0].link;
     visited.add(current.id);
     hops.push(current.id);
@@ -327,9 +338,24 @@ export async function resolveJourneyStarts(
   const links = await fetchRowsByIn<LinkRow>('redirect_links', LINK_COLUMNS, 'id', linkIds);
   const linkById = new Map(links.map((l) => [l.id, l]));
 
+  // 3b. each link's video → that video's OWN asset (videos.asset_id), for the asset-based parent proof
+  const linkVideoIds = Array.from(
+    new Set(links.map((l) => l.video_id).filter((v): v is string => !!v)),
+  );
+  const videoRows = await fetchRowsByIn<{ id: string; asset_id: string | null }>(
+    'videos',
+    'id, asset_id',
+    'id',
+    linkVideoIds,
+  );
+  const ownAssetByVideoId = new Map(videoRows.map((v) => [v.id, v.asset_id] as const));
+
   // 4. pure per-journey resolution
   for (const journeyId of ids) {
-    out.set(journeyId, resolveOne(journeyId, rowsByJourney.get(journeyId) ?? [], eventById, linkById));
+    out.set(
+      journeyId,
+      resolveOne(journeyId, rowsByJourney.get(journeyId) ?? [], eventById, linkById, ownAssetByVideoId),
+    );
   }
   return out;
 }
