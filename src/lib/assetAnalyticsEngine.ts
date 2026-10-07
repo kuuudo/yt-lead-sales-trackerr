@@ -353,11 +353,14 @@ function scopeToAsset(input: AssetAnalyticsEngineInput) {
   // without the session bridge every purchase through a checkout link would
   // be silently dropped here, the exact bug class fixed in Promotion
   // Analytics (see file header / getPromotionAnalytics.ts §3).
+  // Attribution is org-independent: a purchase with a resolved owner is never dropped for org reasons here.
+  const ownerMap =
+    input.activeSource === 'pixel' ? undefined : input.stripePurchaseOwnerByPurchaseId;
   const stripePurchases = input.stripePurchases.filter(
     p =>
       ((p.redirect_link_token != null && validTokens.has(p.redirect_link_token)) ||
-        (p.session_id != null && validSessionIds.has(p.session_id))) &&
-      (p.organization_id == null || p.organization_id === organizationId),
+      (p.session_id != null && validSessionIds.has(p.session_id))) &&
+      (p.organization_id == null || p.organization_id === organizationId || !!ownerMap?.has(p.id)),
   );
 
   const pixelPurchases = input.pixelPurchases.filter(
@@ -393,7 +396,6 @@ function scopeToAsset(input: AssetAnalyticsEngineInput) {
     for (const p of input.stripePurchases) {
       const o = owners.get(p.id);
       if (!o || o.assetId !== assetId || inBase.has(p.id)) continue;
-      if (p.organization_id != null && p.organization_id !== organizationId) continue;
       ownedHere.push({ ...p, video_id: o.videoId });
     }
     const pixelOut =
