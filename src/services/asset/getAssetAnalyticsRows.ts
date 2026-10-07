@@ -27,7 +27,7 @@
  *   - AssetRelationshipRow.promotingSourceId + .metrics
  *   - getAssetArchiveContextsForViewer(AssetForArchiveContext[], viewerId) → Map
  */
-
+import { resolveJourneyStarts } from '../attribution/resolveJourneyStart';
 import { supabase } from '../../lib/supabase';
 import {
   buildAssetAnalyticsRows,
@@ -531,6 +531,13 @@ console.log('[AssetAnalyticsRows] counts', { stripePurchases: stripePurchases.le
     // TEMP verification — remove after confirming:
     const t = stripeJourneyByPurchaseId.get('992fbb1f-bc3b-4274-98d9-c18612863c82');
     if (t) console.log('[AssetAnalyticsRows] test purchase 992fbb1f', t);
+
+    // TEMP — remove after verifying 10/7 journey
+    const tj = await resolveJourneyStarts(['9ff81ccc-15a3-4b5d-a7ff-dcd201eaf504']);
+    console.log(
+      '[TEMP] journey 9ff81ccc start',
+      tj.get('9ff81ccc-15a3-4b5d-a7ff-dcd201eaf504'),
+    );
   } catch (err) {
     console.error('[AssetAnalyticsRows] stripe-journey-start failed (ignored)', err);
   }
