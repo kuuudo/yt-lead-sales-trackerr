@@ -2,9 +2,10 @@
 // JourneyAnalytics.tsx
 // Route: /analytics/journey
 //
-// Journey rows + optional horizontal analytics columns.
-// Asset scope / type / campaign / promotion filters operate at JOURNEY level.
-// Visual: asset border + My/Shared/Assigned colors; Show Content Owner toggle.
+// Membership = Videos.tsx organization content universe
+//   (organization_id + deleted_at IS NULL). Discovery is enrichment only:
+//   observed multi-hop paths stay full rows; videos with no journey evidence
+//   become singleton [Video] rows. Asset filters are row-level only.
 // ─────────────────────────────────────────────────────────────────────────────
 
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
@@ -26,6 +27,7 @@ import {
 import { Campaign, supabase } from '../lib/supabase';
 import { useAuth } from '../lib/auth';
 import { useViewing } from '../lib/ViewingContext';
+import { useOrganization } from '../lib/useOrganization';
 import { resolveThumbnail } from '../lib/videoFormatters';
 import {
   getDateBounds,
@@ -51,7 +53,8 @@ import JourneyStrip, {
   type AssetScopeTag,
 } from '../components/analytics/JourneyStrip';
 
-const ENTRY_VIDEO_CAP = 80;
+/** Batch size for discoverJourneysForVideos — not a membership gate. */
+const DISCOVERY_BATCH = 50;
 
 const JOURNEY_ANALYTICS_EXTRA = [
   { key: 'type', label: 'Type' },
@@ -103,26 +106,6 @@ const SCOPE_OPTIONS = [
 ] as const;
 
 // ── Org + campaigns + promotions ────────────────────────────────────────────
-
-async function resolveOrganizationId(
-  viewerId: string,
-  viewing?: { viewingMemberId: string | null; viewingOrgId: string | null },
-): Promise<string | null> {
-  if (viewing?.viewingMemberId && viewing?.viewingOrgId) return viewing.viewingOrgId;
-  const { data: membership } = await supabase
-    .from('organization_members')
-    .select('organization_id')
-    .eq('user_id', viewerId)
-    .limit(1)
-    .maybeSingle();
-  if (membership?.organization_id) return membership.organization_id as string;
-  const { data: asset } = await supabase
-    .from('assets')
-    .select('organization_id')
-    .limit(1)
-    .maybeSingle();
-  return (asset?.organization_id as string) ?? null;
-}
 
 function useCampaignOptions(viewerId: string | null): Campaign[] {
   const [campaigns, setCampaigns] = useState<Campaign[]>([]);
@@ -193,32 +176,64 @@ function usePromotionOptions(
   return promos;
 }
 
-async function loadCampaignVideoIds(campaignId: string): Promise<string[]> {
+/**
+ * Canonical Content Video universe — same membership as Videos.tsx:
+ *   organization_id = effectiveOrgId, deleted_at IS NULL.
+ * campaign_id is NOT a membership gate.
+ */
+async function loadOrgContentVideoIds(organizationId: string): Promise<string[]> {
   const { data, error } = await supabase
     .from('videos')
     .select('id')
-    .eq('campaign_id', campaignId)
-    .order('created_at', { ascending: false })
-    .limit(ENTRY_VIDEO_CAP);
-  if (error) throw new Error(`Failed to load campaign videos: ${error.message}`);
+    .eq('organization_id', organizationId)
+    .is('deleted_at', null)
+    .order('created_at', { ascending: false });
+  if (error) throw new Error(`Failed to load org videos: ${error.message}`);
   return ((data ?? []) as { id: string }[]).map((r) => r.id);
 }
 
-async function loadEntryVideoIds(
-  campaignId: string,
-  ownedCampaignIds: string[],
-): Promise<string[]> {
-  if (campaignId !== 'all') return loadCampaignVideoIds(campaignId);
-  const ids = ownedCampaignIds.slice(0, 20);
-  if (ids.length === 0) return [];
-  const { data, error } = await supabase
-    .from('videos')
-    .select('id')
-    .in('campaign_id', ids)
-    .order('created_at', { ascending: false })
-    .limit(ENTRY_VIDEO_CAP);
-  if (error) throw new Error(`Failed to load videos: ${error.message}`);
-  return ((data ?? []) as { id: string }[]).map((r) => r.id);
+/** Run discovery in batches; merge by journeyId. Does not rewrite the engine. */
+async function discoverJourneysBatched(
+  videoIds: string[],
+): Promise<{
+  journeys: DiscoveredJourney[];
+  truncated: boolean;
+  excludedJourneys: number;
+  journeyCountByVideoId: Record<string, number>;
+}> {
+  const byId = new Map<string, DiscoveredJourney>();
+  let truncated = false;
+  let excludedJourneys = 0;
+  const journeyCountByVideoId: Record<string, number> = {};
+
+  for (let i = 0; i < videoIds.length; i += DISCOVERY_BATCH) {
+    const slice = videoIds.slice(i, i + DISCOVERY_BATCH);
+    const result = await discoverJourneysForVideos(slice);
+    truncated = truncated || !!result.truncated;
+    excludedJourneys += result.excludedJourneys ?? 0;
+    for (const j of result.journeys ?? []) {
+      if (!byId.has(j.journeyId)) byId.set(j.journeyId, j);
+    }
+    const cov = (result as any).journeyCountByVideoId ?? {};
+    for (const [vid, n] of Object.entries(cov)) {
+      journeyCountByVideoId[vid] = (journeyCountByVideoId[vid] ?? 0) + (n as number);
+    }
+  }
+
+  return {
+    journeys: Array.from(byId.values()),
+    truncated,
+    excludedJourneys,
+    journeyCountByVideoId,
+  };
+}
+
+/** Singleton row for a content video with no observed journey path. */
+function makeSingletonJourney(videoId: string): DiscoveredJourney {
+  return {
+    journeyId: `singleton:${videoId}`,
+    path: { steps: [{ videoId }] },
+  } as DiscoveredJourney;
 }
 
 // ── Per-video enrichment (canonical fields reused from All Assets model) ────
@@ -524,26 +539,14 @@ export default function JourneyAnalytics() {
   const { campaignId: paramCampaignId } = useParams<{ campaignId?: string }>();
   const { user } = useAuth();
   const { viewingMemberId, viewingOrgId, isReadOnly } = useViewing();
+  const { organizationId: hookOrgId } = useOrganization();
+  // Same effective org as Videos.tsx — membership key for content universe
+  const effectiveOrgId = isReadOnly ? (viewingOrgId ?? null) : (hookOrgId ?? null);
   const effectiveViewerId = isReadOnly ? viewingMemberId : (user?.id ?? null);
 
   const campaignOptions = useCampaignOptions(effectiveViewerId);
-  const [organizationId, setOrganizationId] = useState<string | null>(null);
-
-  useEffect(() => {
-    if (!effectiveViewerId) return;
-    let cancelled = false;
-    resolveOrganizationId(
-      effectiveViewerId,
-      isReadOnly
-        ? { viewingMemberId: viewingMemberId ?? null, viewingOrgId: viewingOrgId ?? null }
-        : undefined,
-    ).then((id) => {
-      if (!cancelled) setOrganizationId(id);
-    });
-    return () => {
-      cancelled = true;
-    };
-  }, [effectiveViewerId, isReadOnly, viewingMemberId, viewingOrgId]);
+  // organizationId used for Asset scope + promotion options (may equal effectiveOrgId)
+  const organizationId = effectiveOrgId;
 
   const promotionOptions = usePromotionOptions(effectiveViewerId, organizationId);
 
@@ -592,11 +595,6 @@ export default function JourneyAnalytics() {
   const [entryVideoCount, setEntryVideoCount] = useState(0);
   const [videoDisplay, setVideoDisplay] = useState<Map<string, VideoDisplay>>(new Map());
 
-  const ownedCampaignIds = useMemo(
-    () => campaignOptions.map((c) => c.id),
-    [campaignOptions],
-  );
-
   useEffect(() => {
     let cancelled = false;
     setLoading(true);
@@ -606,7 +604,17 @@ export default function JourneyAnalytics() {
 
     (async () => {
       try {
-        const videoIds = await loadEntryVideoIds(selectedCampaignId, ownedCampaignIds);
+        if (!effectiveOrgId) {
+          setJourneys([]);
+          setVideoDisplay(new Map());
+          setEntryVideoCount(0);
+          setTruncated(false);
+          setExcludedJourneys(0);
+          return;
+        }
+
+        // 1) Full org content universe (Videos.tsx membership)
+        const videoIds = await loadOrgContentVideoIds(effectiveOrgId);
         if (cancelled) return;
         setEntryVideoCount(videoIds.length);
 
@@ -618,26 +626,26 @@ export default function JourneyAnalytics() {
           return;
         }
 
-        const [discovery, structuralLinks] = await Promise.all([
-          discoverJourneysForVideos(videoIds),
-          resolveStructuralLinksForVideos(videoIds).catch((e) => {
-            console.warn('[JourneyAnalytics] structural resolution failed', e);
-            return [] as StructuralLink[];
-          }),
-        ]);
+        // 2) Observed journeys (enrichment) — batched, engine unchanged
+        const discovery = await discoverJourneysBatched(videoIds);
         if (cancelled) return;
 
         const stepVideoIds = discovery.journeys.flatMap((j) =>
           (j.path?.steps ?? []).map((s) => s.videoId),
         );
-        const extraIds = stepVideoIds.filter((id) => !videoIds.includes(id));
-        let allLinks = structuralLinks;
-        if (extraIds.length > 0) {
-          const extraLinks = await resolveStructuralLinksForVideos(extraIds).catch(
-            () => [] as StructuralLink[],
-          );
-          allLinks = [...structuralLinks, ...extraLinks];
+        const allVideoIdsForLinks = Array.from(
+          new Set([...videoIds, ...stepVideoIds]),
+        );
+        let allLinks: StructuralLink[] = [];
+        for (let i = 0; i < allVideoIdsForLinks.length; i += DISCOVERY_BATCH) {
+          const slice = allVideoIdsForLinks.slice(i, i + DISCOVERY_BATCH);
+          const links = await resolveStructuralLinksForVideos(slice).catch((e) => {
+            console.warn('[JourneyAnalytics] structural resolution failed', e);
+            return [] as StructuralLink[];
+          });
+          allLinks = [...allLinks, ...links];
         }
+        if (cancelled) return;
 
         let display = await loadVideoDisplayMap(
           [...videoIds, ...stepVideoIds],
@@ -646,7 +654,24 @@ export default function JourneyAnalytics() {
         if (cancelled) return;
         display = applyPromotedTypes(display, allLinks);
 
-        setJourneys(discovery.journeys);
+        // 3) Videos that appear on at least one observed path
+        const videosInObservedPaths = new Set<string>();
+        for (const j of discovery.journeys) {
+          for (const s of j.path?.steps ?? []) {
+            if (s.videoId) videosInObservedPaths.add(s.videoId);
+          }
+        }
+
+        // 4) Singleton rows for org catalog videos with zero journey evidence
+        const singletons: DiscoveredJourney[] = [];
+        for (const vid of videoIds) {
+          if (!videosInObservedPaths.has(vid)) {
+            singletons.push(makeSingletonJourney(vid));
+          }
+        }
+
+        // Observed journeys first (full paths), then singleton [Video] rows
+        setJourneys([...discovery.journeys, ...singletons]);
         setTruncated(discovery.truncated);
         setExcludedJourneys(discovery.excludedJourneys);
         setVideoDisplay(display);
@@ -663,7 +688,7 @@ export default function JourneyAnalytics() {
     return () => {
       cancelled = true;
     };
-  }, [selectedCampaignId, ownedCampaignIds.join(','), organizationId]);
+  }, [effectiveOrgId, organizationId]);
 
   const presentPlatforms = useMemo(() => {
     const seen = new Set<string>();
@@ -722,7 +747,16 @@ export default function JourneyAnalytics() {
       );
     }
 
-    // Content Campaign — any step video.campaign_id
+    // Sidebar Campaign select — journey-level (not membership)
+    if (selectedCampaignId !== 'all') {
+      list = list.filter((j) =>
+        (j.path?.steps ?? []).some(
+          (s) => videoDisplay.get(s.videoId)?.campaignId === selectedCampaignId,
+        ),
+      );
+    }
+
+    // Content Campaign multi-select — any step video.campaign_id
     if (selectedContentCampaignIds.length > 0) {
       list = list.filter((j) =>
         (j.path?.steps ?? []).some((s) => {
@@ -796,6 +830,7 @@ export default function JourneyAnalytics() {
     selectedVideoId,
     selectedPlatforms,
     selectedContentOwnerId,
+    selectedCampaignId,
     selectedContentCampaignIds,
     selectedAssetCampaignIds,
     selectedPromotionIds,
@@ -1453,8 +1488,7 @@ export default function JourneyAnalytics() {
               })}
             </div>
             <div className="text-[9px] font-bold text-zinc-600 uppercase tracking-widest">
-              Entry {entryVideoCount}
-              {entryVideoCount >= ENTRY_VIDEO_CAP ? ' (capped)' : ''} · Journeys {journeys.length} ·
+              Content {entryVideoCount} · Rows {journeys.length} ·
               Showing {visibleJourneys.length}
               {truncated && <span className="text-amber-600"> · Truncated</span>}
             </div>
