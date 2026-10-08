@@ -2,10 +2,11 @@
 // src/components/analytics/JourneyStrip.tsx
 //
 // Presentational ONLY. One journey = one horizontal strip, left → right:
-//   [Video A] → [Video B] → [Video C] → [outcome]
-// Takes already-ordered steps (from DiscoveredJourney.path.steps) and an
-// optional resolved outcome. No data fetching, no attribution, no merging.
-// Long journeys scroll horizontally inside the strip; nodes never shrink.
+//   [Video A] → [Video B] → [Video C]
+// Takes already-ordered steps (from DiscoveredJourney.path.steps).
+// Optional per-step Campaign Links (WebMood 2×2) light up when that video
+// promotes a campaign link / campaign-element asset.
+// Long journeys scroll horizontally; nodes never shrink.
 // ─────────────────────────────────────────────────────────────────────────────
 
 import React, { useEffect, useRef } from 'react';
@@ -16,6 +17,12 @@ export type JourneyStripStep = {
   title: string;
   thumbnailUrl: string | null;
   platform?: string | null;
+  /**
+   * Which campaign-link cells to light up for this video
+   * (sales_call | consultation | newsletter | landing_page).
+   * Empty / missing = promote nothing → all cells dim.
+   */
+  promotedTypes?: ReadonlySet<string> | string[];
 };
 
 export type JourneyEndKey = 'sales_call' | 'purchase' | 'consultation' | 'newsletter' | 'other';
@@ -25,17 +32,45 @@ export type JourneyStripEnd = {
   label: string;
 };
 
-// Same accent colors CampaignJourneyMap uses for its four outcomes.
-const END_STYLE: Record<JourneyEndKey, { color: string; icon: string }> = {
-  sales_call: { color: '#6366f1', icon: '📞' },
-  purchase: { color: '#ea580c', icon: '💰' },
-  consultation: { color: '#10b981', icon: '🗓️' },
-  newsletter: { color: '#0ea5e9', icon: '✉️' },
-  other: { color: '#a1a1aa', icon: '●' },
-};
+const WEBMOOD_CELLS: { type: string; label: string }[] = [
+  { type: 'sales_call', label: 'SALES' },
+  { type: 'consultation', label: 'CONSULT' },
+  { type: 'newsletter', label: 'NEWS' },
+  { type: 'landing_page', label: 'PURCHASE' },
+];
+
+function StepCampaignLinks({ types }: { types?: ReadonlySet<string> | string[] }) {
+  const active =
+    types instanceof Set
+      ? types
+      : new Set(Array.isArray(types) ? types : []);
+  return (
+    <div
+      className="grid grid-cols-2 gap-px w-full mt-1.5 rounded overflow-hidden border border-zinc-800 bg-zinc-950"
+      title="Campaign links this video promotes (orange = active)"
+    >
+      {WEBMOOD_CELLS.map((cell) => {
+        const on = active.has(cell.type);
+        return (
+          <div
+            key={cell.type}
+            className={
+              on
+                ? 'flex items-center justify-center text-[6px] font-black tracking-wider text-orange-400 bg-orange-500/20 py-0.5'
+                : 'flex items-center justify-center text-[6px] font-black tracking-wider text-zinc-600 bg-zinc-900/80 py-0.5'
+            }
+          >
+            {cell.label}
+          </div>
+        );
+      })}
+    </div>
+  );
+}
 
 export interface JourneyStripProps {
   steps: JourneyStripStep[];
+  /** @deprecated Outcome end pills removed — use per-step promotedTypes instead. Kept optional for back-compat. */
   end?: JourneyStripEnd | null;
   /** Every step whose videoId matches is highlighted; the full journey stays visible. */
   highlightVideoId?: string | null;
@@ -44,18 +79,24 @@ export interface JourneyStripProps {
 
 function Arrow() {
   return (
-    <div className="flex items-center shrink-0 px-1 text-zinc-600" aria-hidden>
-      <div className="w-5 h-px bg-zinc-700" />
-      <ArrowRight size={14} className="-ml-1" />
+    <div className="flex items-center shrink-0 px-0.5 text-zinc-600" aria-hidden>
+      <div className="w-3 h-px bg-zinc-700" />
+      <ArrowRight size={11} className="-ml-0.5" />
     </div>
   );
 }
 
-export default function JourneyStrip({ steps, end, highlightVideoId, onSelectVideo }: JourneyStripProps) {
+export default function JourneyStrip({
+  steps,
+  end: _end,
+  highlightVideoId,
+  onSelectVideo,
+}: JourneyStripProps) {
+  // Outcome end pills intentionally unused — campaign links grid on each step replaces them.
+  void _end;
+
   const highlightRef = useRef<HTMLDivElement | null>(null);
 
-  // Long journey: bring the highlighted step into view inside THIS strip only
-  // (block: 'nearest' so the page itself never jumps).
   useEffect(() => {
     highlightRef.current?.scrollIntoView({ block: 'nearest', inline: 'center', behavior: 'smooth' });
   }, [highlightVideoId, steps]);
@@ -63,7 +104,7 @@ export default function JourneyStrip({ steps, end, highlightVideoId, onSelectVid
   let firstHighlightAssigned = false;
 
   return (
-    <div className="flex items-center overflow-x-auto custom-scrollbar py-2">
+    <div className="flex items-center overflow-x-auto custom-scrollbar py-1">
       {steps.map((step, i) => {
         const highlighted = !!highlightVideoId && step.videoId === highlightVideoId;
         const assignRef = highlighted && !firstHighlightAssigned;
@@ -75,7 +116,7 @@ export default function JourneyStrip({ steps, end, highlightVideoId, onSelectVid
               ref={assignRef ? highlightRef : undefined}
               onClick={() => onSelectVideo?.(step.videoId)}
               title={step.title}
-              className={`shrink-0 w-[168px] rounded-xl border p-2 transition-colors ${
+              className={`shrink-0 w-[112px] rounded-lg border p-1.5 transition-colors ${
                 onSelectVideo ? 'cursor-pointer' : ''
               } ${
                 highlighted
@@ -86,44 +127,26 @@ export default function JourneyStrip({ steps, end, highlightVideoId, onSelectVid
               <img
                 src={step.thumbnailUrl ?? ''}
                 alt=""
-                className="w-full h-[84px] object-cover rounded-lg border border-zinc-800 bg-zinc-900"
+                className="w-full h-[52px] object-cover rounded-md border border-zinc-800 bg-zinc-900"
                 onError={(e) => {
                   const t = e.currentTarget;
                   t.onerror = null;
-                  t.src = `https://placehold.co/160x90/18181b/52525b?text=${encodeURIComponent(
+                  t.src = `https://placehold.co/112x52/18181b/52525b?text=${encodeURIComponent(
                     (step.platform ?? 'video').toUpperCase(),
                   )}`;
                 }}
               />
-              <div className="mt-2 text-xs font-bold truncate leading-snug text-zinc-200">{step.title}</div>
-              <div className="text-[9px] font-black uppercase tracking-widest mt-0.5 text-zinc-600">Video</div>
+              <div className="mt-1 text-[10px] font-bold truncate leading-snug text-zinc-200">
+                {step.title}
+              </div>
+              <div className="text-[8px] font-black uppercase tracking-widest mt-0.5 text-zinc-600">
+                Video
+              </div>
+              <StepCampaignLinks types={step.promotedTypes} />
             </div>
           </React.Fragment>
         );
       })}
-
-      {end && (
-        <>
-          <Arrow />
-          <div
-            title={`${end.label} — end of observed path`}
-            className="shrink-0 w-[132px] rounded-xl border p-3 flex flex-col items-center justify-center text-center"
-            style={{
-              borderColor: `${END_STYLE[end.key].color}66`,
-              background: `${END_STYLE[end.key].color}14`,
-              minHeight: 118,
-            }}
-          >
-            <div className="text-2xl leading-none">{END_STYLE[end.key].icon}</div>
-            <div
-              className="mt-2 text-[10px] font-black uppercase tracking-widest"
-              style={{ color: END_STYLE[end.key].color }}
-            >
-              {end.label}
-            </div>
-          </div>
-        </>
-      )}
     </div>
   );
 }
