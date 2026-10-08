@@ -67,7 +67,7 @@ const STRIPE_PURCHASES_COLUMNS =
   'id, promotion_id, session_id, video_id, campaign_id, amount, created_at, redirect_link_id, redirect_link_token, organization_id';
 
 const PIXEL_PURCHASES_COLUMNS =
-  'id, promotion_id, session_id, video_id, campaign_id, amount, created_at, event_type, organization_id';
+  'id, promotion_id, session_id, video_id, campaign_id, amount, created_at, event_type, organization_id, event_id';
 
 const CAMPAIGN_ELEMENT_ASSETS_COLUMNS = 'id, asset_id, campaign_id, element_type, source_field, display_name';
 
