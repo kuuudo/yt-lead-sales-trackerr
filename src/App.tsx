@@ -161,6 +161,7 @@ function Navigation() {
     ] },
     { to: '/assets', icon: Library, label: t.nav.assets, children: [
       { to: '/assets/analytics', label: 'Asset Analytics' },
+      { to: '/analytics/journey', label: t.nav.journeyAnalytics },
     ] },
     { to: '/marketplace', icon: Briefcase, label: t.nav.marketplace, children: [
       { to: '/marketplace/marketer-analytics', label: 'Marketer Analytics' },
