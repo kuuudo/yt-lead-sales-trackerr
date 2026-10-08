@@ -28,6 +28,7 @@ import Dashboard from './pages/Dashboard';
 import Campaigns from './pages/Campaigns';
 import Videos from './pages/Videos';
 import Analytics from './pages/Analytics';
+import JourneyAnalytics from './pages/JourneyAnalytics';
 import Installation from './pages/Installation';
 import VideoDetail from './pages/VideoDetail';
 import AssetDetail from './pages/AssetDetail';
@@ -598,6 +599,7 @@ function MainContent() {
         <Route path="/campaigns/:id/analytics" element={<PageWrapper><CampaignAnalytics /></PageWrapper>} />
         <Route path="/campaigns/:id/campaignjourneymap" element={<PageWrapper><CampaignJourneyMap /></PageWrapper>} />
         <Route path="/analytics" element={<PageWrapper><Analytics /></PageWrapper>} />
+        <Route path="/analytics/journey" element={<JourneyAnalytics />} />
         <Route path="/analytics/indepth" element={<InDepthAnalytics />} />
         <Route path="/installation" element={<PageWrapper><Installation /></PageWrapper>} />
         <Route path="/settings" element={<PageWrapper><Settings /></PageWrapper>} />
