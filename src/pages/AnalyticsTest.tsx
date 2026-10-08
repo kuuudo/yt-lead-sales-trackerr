@@ -166,7 +166,7 @@ export default function AnalyticsTest() {
             ? Promise.resolve({ data: [] as any[], error: null })
             : supabase
                 .from('pixel_purchases')
-                .select('video_id, campaign_id, amount, event_type, session_id, created_at, event_id');
+.select('video_id, campaign_id, amount, event_type, session_id, created_at, event_id')
                 .eq('organization_id', organizationId)
                 .gte('created_at', startIso)
                 .lte('created_at', endIso),
