@@ -232,8 +232,10 @@ async function strategySessionTypeWindow(args: {
 
   const candidates: EventCandidate[] = [];
   for (const row of data as EventCandidate[]) {
-    if (!row.created_at) continue;
-    if (absDiffSeconds(row.created_at, purchaseAt) > maxSeconds) continue;
+if (!row.created_at) continue;
+// Event must occur at or before purchase; then hard window on that lag.
+if (new Date(row.created_at).getTime() > new Date(purchaseAt).getTime()) continue;
+if (absDiffSeconds(row.created_at, purchaseAt) > maxSeconds) continue;
     if (!(await isEventUnassigned(row.id, purchaseId))) continue;
     candidates.push(row);
   }
@@ -320,6 +322,8 @@ async function strategyStrongIdentity(args: {
   const candidates: EventCandidate[] = [];
   for (const row of data as EventCandidate[]) {
     if (!row.created_at) continue;
+    // Event must occur at or before purchase; then hard window on that lag.
+    if (new Date(row.created_at).getTime() > new Date(purchaseAt).getTime()) continue;
     if (absDiffSeconds(row.created_at, purchaseAt) > maxSeconds) continue;
     if (!notDistinctFrom(row.video_id, videoId)) continue;
     if (!notDistinctFrom(row.campaign_id, campaignId)) continue;

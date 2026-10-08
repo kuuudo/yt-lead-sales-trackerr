@@ -1,6 +1,6 @@
 import type { VercelRequest, VercelResponse } from '@vercel/node';
 import { createClient } from '@supabase/supabase-js';
-import { resolvePixelPurchaseEventId } from '../services/attribution/resolvePixelPurchaseEventId';
+import { resolvePixelPurchaseEventId } from '../src/services/attribution/resolvePixelPurchaseEventId';
 const supabase = createClient(
   process.env.SUPABASE_URL!,
   process.env.SUPABASE_SERVICE_KEY!
