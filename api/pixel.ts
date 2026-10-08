@@ -1,6 +1,6 @@
 import type { VercelRequest, VercelResponse } from '@vercel/node';
 import { createClient } from '@supabase/supabase-js';
-
+import { resolvePixelPurchaseEventId } from '../services/attribution/resolvePixelPurchaseEventId';
 const supabase = createClient(
   process.env.SUPABASE_URL!,
   process.env.SUPABASE_SERVICE_KEY!
@@ -346,6 +346,28 @@ if (typeof event_id === 'string' && event_id.length > 0) {
     if (sessionOk && timeOk) {
       validatedEventId = ev.id;
     }
+  }
+}
+
+// Future protection: recover event_id only when still missing. Never overwrites.
+// Does not change Scenario 2 when event_id was already valid.
+if (!validatedEventId) {
+  try {
+    validatedEventId = await resolvePixelPurchaseEventId({
+      purchaseId: null,
+      event_id: null,
+      session_id: session_id ?? null,
+      video_id: resolvedVideoId ?? null,
+      campaign_id: resolvedCampaignId ?? null,
+      promotion_id: purchasePromotionId ?? null,
+      asset_id: purchaseAssetId ?? null,
+      event_type: finalEventType ?? null,
+      created_at: new Date().toISOString(),
+      events_journey_id: validatedEventsJourneyId,
+    });
+  } catch (recoverErr) {
+    console.error('[pixel] event_id recovery failed (left null):', recoverErr);
+    validatedEventId = null;
   }
 }
 
