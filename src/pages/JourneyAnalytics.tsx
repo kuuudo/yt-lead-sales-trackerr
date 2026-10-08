@@ -1,10 +1,12 @@
 // ─────────────────────────────────────────────────────────────────────────────
 // JourneyAnalytics.tsx
 //
-// Journey list + selection highlight + AllAssets-style filters + Show Analytics
-// shell. Real analytics table is still a later patch.
+// Layout mirrors AllAssetsAnalytics:
+//   fixed inset-0 full-screen shell (sits above app nav, same as All Assets)
+//   left filter sidebar — HIDDEN by default, opened via Filter button
+//   main area: journey strips + optional analytics placeholder
 //
-// Route: /analytics/journeys  or  /marketplace/campaigns/:campaignId/journeys
+// Route: /analytics/journey
 // ─────────────────────────────────────────────────────────────────────────────
 
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
@@ -17,6 +19,9 @@ import {
   X,
   Calendar,
   Filter,
+  Briefcase,
+  Megaphone,
+  User,
 } from 'lucide-react';
 
 import { Campaign, supabase } from '../lib/supabase';
@@ -46,10 +51,8 @@ import JourneyStrip, {
   type JourneyStripStep,
 } from '../components/analytics/JourneyStrip';
 
-// Cap entry videos so discovery stays bounded.
 const ENTRY_VIDEO_CAP = 80;
 
-/** Map redirect/element type → WebMood cell key (same as assetAnalyticsColumns). */
 function elementTypeToWebmood(elementType: string | null | undefined): string | null {
   if (!elementType) return null;
   const t = elementType.toLowerCase();
@@ -60,16 +63,6 @@ function elementTypeToWebmood(elementType: string | null | undefined): string | 
     return 'landing_page';
   return null;
 }
-
-const DATE_OPTIONS: { value: DateRange; label: string }[] = [
-  { value: '7days', label: 'Last 7 Days' },
-  { value: '30days', label: 'Last 30 Days' },
-  { value: '2months', label: 'Last 2 Months' },
-  { value: '6months', label: 'Last 6 Months' },
-  { value: '1year', label: 'Last Year' },
-  { value: 'all', label: 'Lifetime' },
-  { value: 'custom', label: 'Custom Range' },
-];
 
 const ASSET_TYPE_OPTIONS = [
   { value: 'campaign_element', label: 'Campaign Element' },
@@ -84,8 +77,6 @@ const SCOPE_OPTIONS = [
   { value: 'shared', label: 'Shared' },
   { value: 'assigned', label: 'Assigned' },
 ] as const;
-
-// ── Campaign list ───────────────────────────────────────────────────────────
 
 function useCampaignOptions(viewerId: string | null): Campaign[] {
   const [campaigns, setCampaigns] = useState<Campaign[]>([]);
@@ -113,10 +104,25 @@ async function loadCampaignVideoIds(campaignId: string): Promise<string[]> {
     .eq('campaign_id', campaignId)
     .order('created_at', { ascending: false })
     .limit(ENTRY_VIDEO_CAP);
+  if (error) throw new Error(`Failed to load campaign videos: ${error.message}`);
+  return ((data ?? []) as { id: string }[]).map((r) => r.id);
+}
 
-  if (error) {
-    throw new Error(`Failed to load campaign videos: ${error.message}`);
-  }
+/** When campaign is "all", use videos from all owned campaigns (still capped). */
+async function loadEntryVideoIds(
+  campaignId: string,
+  ownedCampaignIds: string[],
+): Promise<string[]> {
+  if (campaignId !== 'all') return loadCampaignVideoIds(campaignId);
+  const ids = ownedCampaignIds.slice(0, 20); // bound campaign fan-out
+  if (ids.length === 0) return [];
+  const { data, error } = await supabase
+    .from('videos')
+    .select('id')
+    .in('campaign_id', ids)
+    .order('created_at', { ascending: false })
+    .limit(ENTRY_VIDEO_CAP);
+  if (error) throw new Error(`Failed to load videos: ${error.message}`);
   return ((data ?? []) as { id: string }[]).map((r) => r.id);
 }
 
@@ -127,7 +133,6 @@ type VideoDisplay = {
   campaignId: string | null;
   createdAt: string | null;
   userId: string | null;
-  /** WebMood keys this video promotes via redirect_links / campaign elements */
   promotedTypes: Set<string>;
 };
 
@@ -135,14 +140,11 @@ async function loadVideoDisplayMap(videoIds: string[]): Promise<Map<string, Vide
   const map = new Map<string, VideoDisplay>();
   const ids = Array.from(new Set(videoIds.filter(Boolean)));
   if (ids.length === 0) return map;
-
   const CHUNK = 80;
   for (let i = 0; i < ids.length; i += CHUNK) {
     const slice = ids.slice(i, i + CHUNK);
     const { data, error } = await supabase.from('videos').select('*').in('id', slice);
-    if (error) {
-      throw new Error(`Failed to load video display data: ${error.message}`);
-    }
+    if (error) throw new Error(`Failed to load video display data: ${error.message}`);
     for (const v of (data ?? []) as any[]) {
       map.set(v.id, {
         title: (v.video_title as string) || 'Untitled video',
@@ -213,33 +215,34 @@ export default function JourneyAnalytics() {
   const effectiveViewerId = isReadOnly ? viewingMemberId : (user?.id ?? null);
 
   const campaignOptions = useCampaignOptions(effectiveViewerId);
-  const [selectedCampaignId, setSelectedCampaignId] = useState<string | null>(
-    paramCampaignId ?? null,
-  );
 
-  // ── Filter state (AllAssets parity — UI + client filter on journeys) ─────
+  // ── Filters (same vocabulary as AllAssetsAnalytics) ───────────────────────
   const [dateRange, setDateRange] = useState<DateRange>('30days');
   const [customRange, setCustomRange] = useState<CustomDateRange | null>(null);
   const [activeSource, setActiveSource] = useState<RevenueView>('total');
+  const [selectedCampaignId, setSelectedCampaignId] = useState<string>(
+    paramCampaignId ?? 'all',
+  );
   const [selectedPlatforms, setSelectedPlatforms] = useState<string[]>([]);
   const [selectedAssetTypes, setSelectedAssetTypes] = useState<string[]>([]);
-  const [selectedAssetSource, setSelectedAssetSource] = useState<'all' | 'my' | 'shared' | 'assigned'>('all');
+  const [selectedAssetSource, setSelectedAssetSource] = useState<
+    'all' | 'my' | 'shared' | 'assigned'
+  >('all');
+  const [selectedContentOwnerId, setSelectedContentOwnerId] = useState<string>('all');
+  const [hideArchivedAsset, setHideArchivedAsset] = useState(false);
   const [hideArchivedContent, setHideArchivedContent] = useState(false);
-  const [filtersOpen, setFiltersOpen] = useState(true);
+  const [hideArchivedCampaign, setHideArchivedCampaign] = useState(false);
+  const [hideArchivedPromotion, setHideArchivedPromotion] = useState(false);
+
+  // Sidebar: HIDDEN by default (user request). Filter button opens it.
+  const [sidebarOpen, setSidebarOpen] = useState(false);
+
+  const [selectedVideoId, setSelectedVideoId] = useState<string | null>(null);
+  const [showAnalytics, setShowAnalytics] = useState(false);
 
   useEffect(() => {
     if (paramCampaignId) setSelectedCampaignId(paramCampaignId);
   }, [paramCampaignId]);
-
-  useEffect(() => {
-    if (selectedCampaignId) return;
-    if (campaignOptions.length > 0) setSelectedCampaignId(campaignOptions[0].id);
-  }, [campaignOptions, selectedCampaignId]);
-
-  const currentCampaignName = useMemo(
-    () => campaignOptions.find((c) => c.id === selectedCampaignId)?.campaign_name ?? null,
-    [campaignOptions, selectedCampaignId],
-  );
 
   // ── Journey load ──────────────────────────────────────────────────────────
   const [loading, setLoading] = useState(true);
@@ -250,17 +253,12 @@ export default function JourneyAnalytics() {
   const [entryVideoCount, setEntryVideoCount] = useState(0);
   const [videoDisplay, setVideoDisplay] = useState<Map<string, VideoDisplay>>(new Map());
 
-  const [selectedVideoId, setSelectedVideoId] = useState<string | null>(null);
-  const [showAnalytics, setShowAnalytics] = useState(false);
+  const ownedCampaignIds = useMemo(
+    () => campaignOptions.map((c) => c.id),
+    [campaignOptions],
+  );
 
   useEffect(() => {
-    if (!selectedCampaignId) {
-      setLoading(false);
-      setJourneys([]);
-      setEntryVideoCount(0);
-      return;
-    }
-
     let cancelled = false;
     setLoading(true);
     setError(null);
@@ -269,7 +267,7 @@ export default function JourneyAnalytics() {
 
     (async () => {
       try {
-        const videoIds = await loadCampaignVideoIds(selectedCampaignId);
+        const videoIds = await loadEntryVideoIds(selectedCampaignId, ownedCampaignIds);
         if (cancelled) return;
         setEntryVideoCount(videoIds.length);
 
@@ -293,8 +291,6 @@ export default function JourneyAnalytics() {
         const stepVideoIds = discovery.journeys.flatMap((j) =>
           (j.path?.steps ?? []).map((s) => s.videoId),
         );
-        // Also resolve structural links for step videos not in the entry set
-        // so campaign-link grids light up on mid-path / terminal videos too.
         const extraIds = stepVideoIds.filter((id) => !videoIds.includes(id));
         let allLinks = structuralLinks;
         if (extraIds.length > 0) {
@@ -325,16 +321,23 @@ export default function JourneyAnalytics() {
     return () => {
       cancelled = true;
     };
-  }, [selectedCampaignId]);
+  }, [selectedCampaignId, ownedCampaignIds.join(',')]);
 
-  // Platforms present in loaded video display (for pills)
   const presentPlatforms = useMemo(() => {
     const seen = new Set<string>();
     videoDisplay.forEach((v) => seen.add(v.platform ?? 'youtube'));
     return Array.from(seen).sort();
   }, [videoDisplay]);
 
-  // Client-side journey filters (platform + date on step video created_at + selection)
+  const contentMarketers = useMemo(() => {
+    const byId = new Map<string, string>();
+    videoDisplay.forEach((v) => {
+      if (!v.userId) return;
+      if (!byId.has(v.userId)) byId.set(v.userId, v.userId.slice(0, 8));
+    });
+    return Array.from(byId.entries()).map(([id, label]) => ({ id, label }));
+  }, [videoDisplay]);
+
   const visibleJourneys = useMemo(() => {
     let list = journeys;
 
@@ -353,8 +356,14 @@ export default function JourneyAnalytics() {
       );
     }
 
-    // Date filter: keep journeys that have at least one step video created in range.
-    // discoverJourneysForVideos itself is not date-scoped; this is display-only.
+    if (selectedContentOwnerId !== 'all') {
+      list = list.filter((j) =>
+        (j.path?.steps ?? []).some(
+          (s) => videoDisplay.get(s.videoId)?.userId === selectedContentOwnerId,
+        ),
+      );
+    }
+
     if (dateRange !== 'all') {
       const { start, end } = getDateBounds(dateRange, customRange);
       list = list.filter((j) =>
@@ -372,6 +381,7 @@ export default function JourneyAnalytics() {
     journeys,
     selectedVideoId,
     selectedPlatforms,
+    selectedContentOwnerId,
     videoDisplay,
     dateRange,
     customRange,
@@ -381,308 +391,414 @@ export default function JourneyAnalytics() {
     setSelectedVideoId((prev) => (prev === videoId ? null : videoId));
   }, []);
 
-  const handleClearSelection = useCallback(() => setSelectedVideoId(null), []);
-
-  const handleCampaignChange = (id: string) => {
-    setSelectedCampaignId(id);
-    if (paramCampaignId !== undefined) {
-      navigate(`/marketplace/campaigns/${id}/journeys`, { replace: true });
-    }
-  };
-
-  // ── Render ────────────────────────────────────────────────────────────────
-
-  return (
-    <div className="min-h-screen bg-black text-white flex flex-col">
-      {/* Sticky top bar — Show Analytics always reachable */}
-      <header className="shrink-0 sticky top-0 z-40 border-b border-zinc-900 bg-zinc-950/95 backdrop-blur px-3 lg:px-5 py-2.5">
-        <div className="flex flex-wrap items-center gap-2 justify-between">
-          <div className="flex items-center gap-2 min-w-0">
-            <button
-              type="button"
-              onClick={() => navigate(-1)}
-              className="h-8 w-8 rounded-lg border border-zinc-800 bg-zinc-900 flex items-center justify-center text-zinc-400 hover:text-white hover:border-zinc-600 transition-colors shrink-0"
-              aria-label="Back"
-            >
-              <ChevronLeft size={16} />
-            </button>
-            <div className="min-w-0">
-              <div className="text-[9px] font-black uppercase tracking-widest text-zinc-500">
-                Journey Map
-              </div>
-              <div className="text-xs font-bold truncate text-zinc-100 max-w-[200px] lg:max-w-[320px]">
-                {currentCampaignName ?? (selectedCampaignId ? 'Loading…' : 'Select a campaign')}
-              </div>
-            </div>
+  // ── Sidebar filter block (exact control set / order as AllAssets) ─────────
+  const sidebarFilters = (
+    <div className="flex-1 overflow-y-auto px-6 py-6 custom-scrollbar space-y-8">
+      {/* Date Range */}
+      <div>
+        <label className="text-[10px] font-black uppercase tracking-widest text-zinc-500 mb-3 block">
+          Date Range
+        </label>
+        <div className="relative">
+          <select
+            value={dateRange}
+            onChange={(e) => {
+              const v = e.target.value as DateRange;
+              setDateRange(v);
+              if (v !== 'custom') setCustomRange(null);
+            }}
+            className="w-full bg-zinc-900 border border-zinc-800 rounded-xl px-4 py-2.5 text-[10px] font-bold uppercase tracking-widest outline-none focus:border-red-600 appearance-none cursor-pointer"
+          >
+            <option value="7days">Last 7 Days</option>
+            <option value="30days">Last 30 Days</option>
+            <option value="2months">Last 2 Months</option>
+            <option value="6months">Last 6 Months</option>
+            <option value="1year">Last Year</option>
+            <option value="all">Lifetime</option>
+            <option value="custom">Custom Range</option>
+          </select>
+          <Calendar
+            size={12}
+            className="absolute right-4 top-1/2 -translate-y-1/2 text-zinc-600 pointer-events-none"
+          />
+        </div>
+        {dateRange === 'custom' && (
+          <div className="mt-2 space-y-2">
+            <input
+              type="date"
+              value={
+                customRange?.start
+                  ? typeof customRange.start === 'string'
+                    ? customRange.start.slice(0, 10)
+                    : customRange.start.toISOString().slice(0, 10)
+                  : ''
+              }
+              onChange={(e) =>
+                setCustomRange((prev) => ({
+                  start: e.target.value,
+                  end: prev?.end ?? e.target.value,
+                }))
+              }
+              className="w-full bg-zinc-900 border border-zinc-800 rounded-xl px-3 py-2 text-[10px] text-zinc-300"
+            />
+            <input
+              type="date"
+              value={
+                customRange?.end
+                  ? typeof customRange.end === 'string'
+                    ? customRange.end.slice(0, 10)
+                    : customRange.end.toISOString().slice(0, 10)
+                  : ''
+              }
+              onChange={(e) =>
+                setCustomRange((prev) => ({
+                  start: prev?.start ?? e.target.value,
+                  end: e.target.value,
+                }))
+              }
+              className="w-full bg-zinc-900 border border-zinc-800 rounded-xl px-3 py-2 text-[10px] text-zinc-300"
+            />
           </div>
+        )}
+      </div>
 
-          <div className="flex flex-wrap items-center gap-1.5">
-            <div className="relative">
-              <select
-                value={selectedCampaignId ?? ''}
-                onChange={(e) => handleCampaignChange(e.target.value)}
-                className="appearance-none h-8 pl-2.5 pr-7 rounded-lg border border-zinc-800 bg-zinc-900 text-[9px] font-black uppercase tracking-widest text-zinc-300 hover:border-zinc-600 cursor-pointer max-w-[160px]"
-              >
-                {selectedCampaignId &&
-                  !campaignOptions.some((c) => c.id === selectedCampaignId) && (
-                    <option value={selectedCampaignId}>
-                      {currentCampaignName ?? 'Untitled Campaign'}
-                    </option>
-                  )}
-                {campaignOptions.map((c) => (
-                  <option key={c.id} value={c.id}>
-                    {c.campaign_name}
-                  </option>
-                ))}
-              </select>
-              <ChevronDown
-                size={11}
-                className="pointer-events-none absolute right-2 top-1/2 -translate-y-1/2 text-zinc-500"
-              />
-            </div>
+      {/* Campaign */}
+      <div>
+        <label className="text-[10px] font-black uppercase tracking-widest text-zinc-500 mb-3 block">
+          Campaign
+        </label>
+        <div className="relative">
+          <select
+            value={selectedCampaignId}
+            onChange={(e) => setSelectedCampaignId(e.target.value)}
+            className="w-full bg-zinc-900 border border-zinc-800 rounded-xl px-4 py-2.5 text-[10px] font-bold uppercase tracking-widest outline-none focus:border-red-600 appearance-none cursor-pointer"
+          >
+            <option value="all">All Campaigns</option>
+            {campaignOptions.map((c) => (
+              <option key={c.id} value={c.id}>
+                {c.campaign_name}
+              </option>
+            ))}
+          </select>
+          <Briefcase
+            size={12}
+            className="absolute right-4 top-1/2 -translate-y-1/2 text-zinc-600 pointer-events-none"
+          />
+        </div>
+      </div>
 
-            {/* Source: total / pixel / stripe */}
-            <div className="flex h-8 rounded-lg border border-zinc-800 overflow-hidden">
-              {(['total', 'pixel', 'stripe'] as RevenueView[]).map((v) => (
-                <button
-                  key={v}
-                  type="button"
-                  onClick={() => setActiveSource(v)}
-                  className={`px-2.5 text-[9px] font-black uppercase tracking-widest transition-colors ${
-                    activeSource === v
-                      ? 'bg-zinc-700 text-white'
-                      : 'bg-zinc-900 text-zinc-500 hover:text-zinc-300'
-                  }`}
-                >
-                  {v}
-                </button>
-              ))}
-            </div>
+      {/* Asset Campaign — shell (full multi-select lands with analytics table) */}
+      <div>
+        <label className="text-[10px] font-black uppercase tracking-widest text-zinc-500 mb-3 block">
+          Asset Campaign
+        </label>
+        <button
+          type="button"
+          className="w-full flex items-center justify-between gap-2 px-4 py-2.5 rounded-xl border border-zinc-800 bg-zinc-900 text-[10px] font-bold uppercase tracking-widest text-zinc-400"
+        >
+          <span className="flex items-center gap-2 truncate">
+            <Briefcase size={12} className="shrink-0 text-zinc-600" />
+            All Asset Campaigns
+          </span>
+          <ChevronDown size={11} className="shrink-0" />
+        </button>
+      </div>
 
-            <button
-              type="button"
-              onClick={() => setFiltersOpen((o) => !o)}
-              className={`h-8 px-2.5 rounded-lg border text-[9px] font-black uppercase tracking-widest transition-all flex items-center gap-1 ${
-                filtersOpen
-                  ? 'border-zinc-600 bg-zinc-800 text-white'
-                  : 'border-zinc-800 bg-zinc-900 text-zinc-400 hover:border-zinc-600'
-              }`}
-            >
-              <Filter size={11} />
-              Filters
-            </button>
+      {/* Content Campaign — shell */}
+      <div>
+        <label className="text-[10px] font-black uppercase tracking-widest text-zinc-500 mb-3 block">
+          Content Campaign
+        </label>
+        <button
+          type="button"
+          className="w-full flex items-center justify-between gap-2 px-4 py-2.5 rounded-xl border border-zinc-800 bg-zinc-900 text-[10px] font-bold uppercase tracking-widest text-zinc-400"
+        >
+          <span className="flex items-center gap-2 truncate">
+            <Briefcase size={12} className="shrink-0 text-zinc-600" />
+            All Content Campaigns
+          </span>
+          <ChevronDown size={11} className="shrink-0" />
+        </button>
+      </div>
 
-            {selectedVideoId && (
+      {/* Promotion — shell */}
+      <div>
+        <label className="text-[10px] font-black uppercase tracking-widest text-zinc-500 mb-3 block">
+          Promotion
+        </label>
+        <button
+          type="button"
+          className="w-full flex items-center justify-between gap-2 px-4 py-2.5 rounded-xl border border-zinc-800 bg-zinc-900 text-[10px] font-bold uppercase tracking-widest text-zinc-400"
+        >
+          <span className="flex items-center gap-2 truncate">
+            <Megaphone size={12} className="shrink-0 text-zinc-600" />
+            All Promotions
+          </span>
+          <ChevronDown size={11} className="shrink-0" />
+        </button>
+      </div>
+
+      {/* Content Marketer */}
+      <div>
+        <label className="text-[10px] font-black uppercase tracking-widest text-zinc-500 mb-3 block">
+          Content Marketer
+        </label>
+        <div className="relative">
+          <select
+            value={selectedContentOwnerId}
+            onChange={(e) => setSelectedContentOwnerId(e.target.value)}
+            className="w-full bg-zinc-900 border border-zinc-800 rounded-xl px-4 py-2.5 text-[10px] font-bold uppercase tracking-widest outline-none focus:border-red-600 appearance-none cursor-pointer"
+          >
+            <option value="all">All Content Marketers</option>
+            {contentMarketers.map((m) => (
+              <option key={m.id} value={m.id}>
+                {m.label}
+              </option>
+            ))}
+          </select>
+          <User
+            size={12}
+            className="absolute right-4 top-1/2 -translate-y-1/2 text-zinc-600 pointer-events-none"
+          />
+        </div>
+      </div>
+
+      {/* Asset Type */}
+      <div>
+        <label className="text-[10px] font-black uppercase tracking-widest text-zinc-500 mb-3 block">
+          Asset Type
+        </label>
+        <div className="flex flex-wrap gap-2">
+          {ASSET_TYPE_OPTIONS.map((o) => {
+            const active = selectedAssetTypes.includes(o.value);
+            return (
               <button
+                key={o.value}
                 type="button"
-                onClick={handleClearSelection}
-                className="h-8 px-2.5 rounded-lg border border-red-600/40 bg-red-600/10 text-[9px] font-black uppercase tracking-widest text-red-400 hover:bg-red-600/20 transition-colors flex items-center gap-1"
+                onClick={() =>
+                  setSelectedAssetTypes((prev) =>
+                    prev.includes(o.value)
+                      ? prev.filter((x) => x !== o.value)
+                      : [...prev, o.value],
+                  )
+                }
+                className={`px-3 py-1.5 rounded-full border text-[9px] font-black uppercase tracking-widest transition-all ${
+                  active
+                    ? 'bg-red-600 border-red-600 text-white'
+                    : 'border-zinc-800 bg-zinc-900 text-zinc-500 hover:border-zinc-600'
+                }`}
               >
-                Video selected
-                <X size={11} />
+                {o.label}
               </button>
-            )}
+            );
+          })}
+        </div>
+      </div>
 
+      {/* Asset Scope */}
+      <div>
+        <label className="text-[10px] font-black uppercase tracking-widest text-zinc-500 mb-3 block">
+          Asset Scope
+        </label>
+        <div className="flex gap-1.5">
+          {SCOPE_OPTIONS.map((o) => (
             <button
+              key={o.value}
               type="button"
-              onClick={() => setShowAnalytics((v) => !v)}
-              className={`h-8 px-3 rounded-lg border text-[9px] font-black uppercase tracking-widest transition-all flex items-center gap-1.5 shrink-0 ${
-                showAnalytics
+              onClick={() => setSelectedAssetSource(o.value)}
+              className={`flex-1 py-2 rounded-xl border text-[9px] font-black uppercase tracking-widest transition-all ${
+                selectedAssetSource === o.value
                   ? 'bg-red-600 border-red-600 text-white'
-                  : 'border-zinc-800 bg-zinc-900 text-zinc-300 hover:border-zinc-600 hover:text-white'
+                  : 'border-zinc-800 bg-zinc-900 text-zinc-500 hover:border-zinc-600'
               }`}
             >
-              <BarChart3 size={12} />
-              {showAnalytics ? 'Hide Analytics' : 'Show Analytics'}
+              {o.label}
             </button>
-          </div>
+          ))}
         </div>
+      </div>
 
-        {/* Meta */}
-        <div className="mt-1.5 flex flex-wrap items-center gap-2 text-[8px] font-bold text-zinc-600 uppercase tracking-widest">
-          <span>
-            Entry videos: <span className="text-zinc-400">{entryVideoCount}</span>
-            {entryVideoCount >= ENTRY_VIDEO_CAP ? ' (capped)' : ''}
-          </span>
-          <span>
-            Journeys: <span className="text-zinc-400">{journeys.length}</span>
-            {selectedVideoId || selectedPlatforms.length > 0 || dateRange !== 'all' ? (
-              <>
-                {' '}
-                · showing: <span className="text-zinc-300">{visibleJourneys.length}</span>
-              </>
-            ) : null}
-          </span>
-          {truncated && <span className="text-amber-600">Truncated (recency cap)</span>}
-          {excludedJourneys > 0 && (
-            <span className="text-zinc-600">{excludedJourneys} excluded</span>
-          )}
-          <span className="text-zinc-700">Source: {activeSource}</span>
-        </div>
-      </header>
-
-      {/* Filter bar — AllAssets-style controls */}
-      {filtersOpen && (
-        <div className="shrink-0 border-b border-zinc-900 bg-black px-3 lg:px-5 py-3 space-y-3">
-          {/* Row 1: Date + Campaign already in header; Asset Scope + Hide Archived */}
-          <div className="flex flex-wrap items-end gap-3">
-            <div className="min-w-[140px]">
-              <label className="flex items-center gap-1 text-[8px] font-black uppercase tracking-widest text-zinc-600 mb-1">
-                <Calendar size={10} /> Date Range
-              </label>
-              <select
-                value={dateRange}
-                onChange={(e) => {
-                  const v = e.target.value as DateRange;
-                  setDateRange(v);
-                  if (v !== 'custom') setCustomRange(null);
-                }}
-                className="w-full h-8 bg-zinc-900 border border-zinc-800 rounded-lg px-2 text-[9px] font-bold uppercase tracking-widest text-zinc-300 outline-none focus:border-red-600"
-              >
-                {DATE_OPTIONS.map((o) => (
-                  <option key={o.value} value={o.value}>
-                    {o.label}
-                  </option>
-                ))}
-              </select>
-            </div>
-
-            {dateRange === 'custom' && (
-              <div className="flex items-end gap-2">
-                <div>
-                  <label className="text-[8px] font-black uppercase tracking-widest text-zinc-600 mb-1 block">
-                    From
-                  </label>
-                  <input
-                    type="date"
-                    value={
-                      customRange?.start
-                        ? typeof customRange.start === 'string'
-                          ? customRange.start.slice(0, 10)
-                          : customRange.start.toISOString().slice(0, 10)
-                        : ''
-                    }
-                    onChange={(e) =>
-                      setCustomRange((prev) => ({
-                        start: e.target.value,
-                        end: prev?.end ?? e.target.value,
-                      }))
-                    }
-                    className="h-8 bg-zinc-900 border border-zinc-800 rounded-lg px-2 text-[9px] text-zinc-300"
-                  />
-                </div>
-                <div>
-                  <label className="text-[8px] font-black uppercase tracking-widest text-zinc-600 mb-1 block">
-                    To
-                  </label>
-                  <input
-                    type="date"
-                    value={
-                      customRange?.end
-                        ? typeof customRange.end === 'string'
-                          ? customRange.end.slice(0, 10)
-                          : customRange.end.toISOString().slice(0, 10)
-                        : ''
-                    }
-                    onChange={(e) =>
-                      setCustomRange((prev) => ({
-                        start: prev?.start ?? e.target.value,
-                        end: e.target.value,
-                      }))
-                    }
-                    className="h-8 bg-zinc-900 border border-zinc-800 rounded-lg px-2 text-[9px] text-zinc-300"
-                  />
-                </div>
-              </div>
-            )}
-
-            <div className="min-w-[120px]">
-              <label className="text-[8px] font-black uppercase tracking-widest text-zinc-600 mb-1 block">
-                Asset Scope
-              </label>
-              <div className="flex h-8 rounded-lg border border-zinc-800 overflow-hidden">
-                {SCOPE_OPTIONS.map((o) => (
-                  <button
-                    key={o.value}
-                    type="button"
-                    onClick={() => setSelectedAssetSource(o.value)}
-                    className={`px-2 text-[8px] font-black uppercase tracking-widest ${
-                      selectedAssetSource === o.value
-                        ? 'bg-red-600 text-white'
-                        : 'bg-zinc-900 text-zinc-500 hover:text-zinc-300'
-                    }`}
-                  >
-                    {o.label}
-                  </button>
-                ))}
-              </div>
-            </div>
-
-            <label className="flex items-center gap-1.5 h-8 px-2 rounded-lg border border-zinc-800 bg-zinc-900 cursor-pointer">
+      {/* Hide Archived */}
+      <div>
+        <label className="text-[10px] font-black uppercase tracking-widest text-zinc-500 mb-3 block">
+          Hide Archived
+        </label>
+        <div className="space-y-2">
+          {(
+            [
+              { key: 'asset', label: 'Asset', value: hideArchivedAsset, set: setHideArchivedAsset },
+              {
+                key: 'content',
+                label: 'Content',
+                value: hideArchivedContent,
+                set: setHideArchivedContent,
+              },
+              {
+                key: 'campaign',
+                label: 'Campaign',
+                value: hideArchivedCampaign,
+                set: setHideArchivedCampaign,
+              },
+              {
+                key: 'promotion',
+                label: 'Promotion',
+                value: hideArchivedPromotion,
+                set: setHideArchivedPromotion,
+              },
+            ] as const
+          ).map((row) => (
+            <label
+              key={row.key}
+              className="flex items-center gap-2 px-3 py-2 rounded-xl border border-zinc-800 bg-zinc-900 cursor-pointer"
+            >
               <input
                 type="checkbox"
-                checked={hideArchivedContent}
-                onChange={(e) => setHideArchivedContent(e.target.checked)}
+                checked={row.value}
+                onChange={(e) => row.set(e.target.checked)}
                 className="rounded border-zinc-700"
               />
-              <span className="text-[8px] font-black uppercase tracking-widest text-zinc-400">
-                Hide Archived Content
+              <span className="text-[10px] font-bold uppercase tracking-widest text-zinc-400">
+                {row.label}
               </span>
             </label>
-          </div>
+          ))}
+        </div>
+      </div>
+    </div>
+  );
 
-          {/* Asset Type pills */}
-          <div>
-            <div className="text-[8px] font-black uppercase tracking-widest text-zinc-600 mb-1.5">
-              Asset Type
+  // ── Shell: same fixed full-screen pattern as AllAssetsAnalytics ───────────
+  return (
+    <div className="flex h-screen bg-black text-zinc-300 overflow-hidden fixed inset-0 z-[100]">
+      {/* ── Left filter sidebar — hidden until Filter button ─────────────── */}
+      <aside
+        className={`${
+          sidebarOpen ? 'flex' : 'hidden'
+        } w-80 bg-zinc-950 border-r border-zinc-900 flex-col shrink-0 fixed inset-y-0 left-0 z-50 lg:static`}
+      >
+        <div className="flex items-center justify-between px-6 py-4 border-b border-zinc-900 shrink-0">
+          <span className="text-[10px] font-black uppercase tracking-widest text-zinc-500">
+            Filters
+          </span>
+          <button
+            type="button"
+            onClick={() => setSidebarOpen(false)}
+            className="p-2 rounded-xl border border-zinc-800 bg-zinc-900 text-zinc-400 hover:text-white"
+            aria-label="Close filters"
+          >
+            <X size={16} />
+          </button>
+        </div>
+        {sidebarFilters}
+      </aside>
+
+      {/* Mobile backdrop when sidebar open */}
+      {sidebarOpen && (
+        <div
+          className="fixed inset-0 bg-black/60 z-40 lg:hidden"
+          onClick={() => setSidebarOpen(false)}
+          aria-hidden
+        />
+      )}
+
+      {/* ── Main ─────────────────────────────────────────────────────────── */}
+      <div className="flex-1 flex flex-col min-w-0 overflow-hidden">
+        {/* Header — always visible, not under app nav (shell is z-100 full screen) */}
+        <header className="shrink-0 border-b border-zinc-900 bg-zinc-950 px-4 lg:px-6 py-4">
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <div className="flex items-center gap-3 min-w-0">
+              <button
+                type="button"
+                onClick={() => navigate(-1)}
+                className="p-3 bg-zinc-900 border border-zinc-800 rounded-2xl text-zinc-400 hover:text-white transition-all"
+                aria-label="Back"
+              >
+                <ChevronLeft size={20} />
+              </button>
+              <button
+                type="button"
+                title="Sidebar filters"
+                onClick={() => setSidebarOpen((o) => !o)}
+                className={`p-3 border rounded-2xl transition-all ${
+                  sidebarOpen
+                    ? 'bg-red-600 border-red-600 text-white'
+                    : 'bg-zinc-900 border-zinc-800 text-zinc-400 hover:text-white'
+                }`}
+              >
+                <Filter size={20} />
+              </button>
+              <div className="min-w-0">
+                <h2 className="text-xl lg:text-2xl font-black text-white uppercase tracking-tight">
+                  Journey Analytics
+                </h2>
+                <p className="text-[10px] text-zinc-600 font-bold uppercase tracking-widest mt-0.5">
+                  Horizontal paths · campaign links per video
+                </p>
+              </div>
             </div>
-            <div className="flex flex-wrap gap-1.5">
-              {ASSET_TYPE_OPTIONS.map((o) => {
-                const active = selectedAssetTypes.includes(o.value);
-                return (
+
+            <div className="flex flex-wrap items-center gap-2">
+              {/* total / pixel / stripe */}
+              <div className="flex items-center gap-1 p-1 bg-zinc-900 border border-zinc-800 rounded-xl">
+                {(['total', 'pixel', 'stripe'] as RevenueView[]).map((v) => (
                   <button
-                    key={o.value}
+                    key={v}
                     type="button"
-                    onClick={() =>
-                      setSelectedAssetTypes((prev) =>
-                        prev.includes(o.value)
-                          ? prev.filter((x) => x !== o.value)
-                          : [...prev, o.value],
-                      )
-                    }
-                    className={`h-7 px-2.5 rounded-lg border text-[8px] font-black uppercase tracking-widest ${
-                      active
-                        ? 'bg-red-600 border-red-600 text-white'
-                        : 'border-zinc-800 bg-zinc-900 text-zinc-500 hover:border-zinc-600'
+                    onClick={() => setActiveSource(v)}
+                    className={`px-3 py-1.5 rounded-lg text-[9px] font-black uppercase tracking-widest transition-all ${
+                      activeSource === v
+                        ? 'bg-zinc-700 text-white'
+                        : 'text-zinc-600 hover:text-zinc-400'
                     }`}
                   >
-                    {o.label}
+                    {v}
                   </button>
-                );
-              })}
+                ))}
+              </div>
+
+              {selectedVideoId && (
+                <button
+                  type="button"
+                  onClick={() => setSelectedVideoId(null)}
+                  className="h-9 px-3 rounded-xl border border-red-600/40 bg-red-600/10 text-[9px] font-black uppercase tracking-widest text-red-400 flex items-center gap-1.5"
+                >
+                  Video selected
+                  <X size={12} />
+                </button>
+              )}
+
+              <button
+                type="button"
+                onClick={() => setShowAnalytics((v) => !v)}
+                className={`h-9 px-4 rounded-xl border text-[9px] font-black uppercase tracking-widest transition-all flex items-center gap-1.5 ${
+                  showAnalytics
+                    ? 'bg-red-600 border-red-600 text-white'
+                    : 'bg-zinc-900 border-zinc-800 text-zinc-300 hover:text-white hover:border-zinc-600'
+                }`}
+              >
+                <BarChart3 size={14} />
+                {showAnalytics ? 'Hide Analytics' : 'Show Analytics'}
+              </button>
             </div>
           </div>
 
-          {/* Platform pills */}
-          <div>
-            <div className="text-[8px] font-black uppercase tracking-widest text-zinc-600 mb-1.5">
-              Platform
-            </div>
-            <div className="flex flex-wrap gap-1.5">
+          {/* Platform pills + meta (same row pattern as All Assets) */}
+          <div className="mt-4 flex flex-wrap items-center justify-between gap-3">
+            <div className="flex flex-wrap items-center gap-1.5">
               <button
                 type="button"
                 onClick={() => setSelectedPlatforms([])}
-                className={`h-7 px-2.5 rounded-lg border text-[8px] font-black uppercase tracking-widest ${
+                className={`h-7 px-3 rounded-lg border text-[9px] font-black uppercase tracking-widest transition-all ${
                   selectedPlatforms.length === 0
                     ? 'bg-red-600 border-red-600 text-white'
                     : 'border-zinc-800 bg-zinc-900 text-zinc-500 hover:border-zinc-600'
                 }`}
               >
                 All
+                <span className="ml-1.5 text-[8px] opacity-70">{journeys.length}</span>
               </button>
               {presentPlatforms.map((p) => {
                 const cfg = PLATFORM_CONFIG[p as Platform];
-                const label = cfg?.label ?? p;
                 const active = selectedPlatforms.includes(p);
                 const color = cfg?.color ?? '#dc2626';
                 return (
@@ -695,93 +811,71 @@ export default function JourneyAnalytics() {
                       )
                     }
                     style={active ? { backgroundColor: color, borderColor: color } : {}}
-                    className={`h-7 px-2.5 rounded-lg border text-[8px] font-black uppercase tracking-widest ${
+                    className={`h-7 px-3 rounded-lg border text-[9px] font-black uppercase tracking-widest transition-all ${
                       active
                         ? 'text-white'
                         : 'border-zinc-800 bg-zinc-900 text-zinc-500 hover:border-zinc-600'
                     }`}
                   >
                     {cfg?.icon ? <span className="mr-1 opacity-70">{cfg.icon}</span> : null}
-                    {label}
+                    {cfg?.label ?? p}
                   </button>
                 );
               })}
             </div>
-          </div>
-
-          <div className="text-[8px] text-zinc-700 leading-relaxed max-w-3xl">
-            Platform + date filter the journey list client-side. Source / Asset Type / Asset Scope
-            are wired for the upcoming analytics panel (same state as All Assets). Journey discovery
-            itself remains campaign-entry + video-id based.
-          </div>
-        </div>
-      )}
-
-      {/* Body */}
-      <div
-        className={`flex-1 flex min-h-0 ${showAnalytics ? 'flex-col lg:flex-row' : 'flex-col'}`}
-      >
-        <div
-          className={`flex-1 overflow-y-auto custom-scrollbar px-3 lg:px-5 py-3 ${
-            showAnalytics ? 'lg:border-r lg:border-zinc-900 lg:max-w-[55%]' : ''
-          }`}
-        >
-          {loading && (
-            <div className="py-16 text-center">
-              <Loader2 className="animate-spin text-red-600 mx-auto" size={28} aria-hidden />
-              <div className="text-[10px] font-black uppercase tracking-widest text-zinc-400 mt-3">
-                Loading journeys…
-              </div>
-            </div>
-          )}
-
-          {!loading && error && (
-            <div className="py-16 text-center">
-              <div className="text-[10px] font-black uppercase tracking-widest text-red-500">
-                Failed to load journeys
-              </div>
-              <div className="text-[10px] text-zinc-500 mt-2 max-w-md mx-auto">{error}</div>
-            </div>
-          )}
-
-          {!loading && !error && !selectedCampaignId && (
-            <div className="py-16 text-center">
-              <div className="text-[10px] font-black uppercase tracking-widest text-zinc-600">
-                No campaign selected
-              </div>
-            </div>
-          )}
-
-          {!loading && !error && selectedCampaignId && visibleJourneys.length === 0 && (
-            <div className="py-16 text-center">
-              <div className="text-[10px] font-black uppercase tracking-widest text-zinc-600">
-                {selectedVideoId
-                  ? 'No journeys contain this video'
-                  : 'No journeys match the current filters'}
-              </div>
-              <div className="text-[10px] text-zinc-700 mt-2 max-w-md mx-auto">
-                Clear selection or filters to see more journeys.
-              </div>
-              {(selectedVideoId || selectedPlatforms.length > 0) && (
-                <button
-                  type="button"
-                  onClick={() => {
-                    handleClearSelection();
-                    setSelectedPlatforms([]);
-                  }}
-                  className="mt-3 h-8 px-4 rounded-lg border border-zinc-800 bg-zinc-900 text-[9px] font-black uppercase tracking-widest text-zinc-300"
-                >
-                  Clear filters
-                </button>
+            <div className="text-[9px] font-bold text-zinc-600 uppercase tracking-widest">
+              Entry {entryVideoCount}
+              {entryVideoCount >= ENTRY_VIDEO_CAP ? ' (capped)' : ''} · Journeys{' '}
+              {journeys.length}
+              {(selectedVideoId || selectedPlatforms.length > 0 || dateRange !== 'all') && (
+                <> · Showing {visibleJourneys.length}</>
               )}
+              {truncated && <span className="text-amber-600"> · Truncated</span>}
             </div>
-          )}
+          </div>
+        </header>
 
-          {!loading && !error && visibleJourneys.length > 0 && (
-            <div className="space-y-2">
-              {visibleJourneys.map((j) => {
-                const steps = stepsForJourney(j, videoDisplay);
-                return (
+        {/* Body: journeys (+ analytics panel) */}
+        <div
+          className={`flex-1 flex min-h-0 ${showAnalytics ? 'flex-col lg:flex-row' : 'flex-col'}`}
+        >
+          <div
+            className={`flex-1 overflow-y-auto custom-scrollbar px-4 lg:px-6 py-4 ${
+              showAnalytics ? 'lg:border-r lg:border-zinc-900 lg:max-w-[55%]' : ''
+            }`}
+          >
+            {loading && (
+              <div className="py-20 text-center">
+                <Loader2 className="animate-spin text-red-600 mx-auto" size={32} aria-hidden />
+                <div className="text-[11px] font-black uppercase tracking-widest text-zinc-400 mt-4">
+                  Loading journeys…
+                </div>
+              </div>
+            )}
+
+            {!loading && error && (
+              <div className="py-20 text-center">
+                <div className="text-[11px] font-black uppercase tracking-widest text-red-500">
+                  Failed to load journeys
+                </div>
+                <div className="text-[10px] text-zinc-500 mt-2 max-w-md mx-auto">{error}</div>
+              </div>
+            )}
+
+            {!loading && !error && visibleJourneys.length === 0 && (
+              <div className="py-20 text-center">
+                <div className="text-[11px] font-black uppercase tracking-widest text-zinc-600">
+                  No journeys match the current filters
+                </div>
+                <div className="text-[10px] text-zinc-700 mt-2 max-w-md mx-auto">
+                  Open filters (funnel icon) or clear platform / video selection.
+                </div>
+              </div>
+            )}
+
+            {!loading && !error && visibleJourneys.length > 0 && (
+              <div className="space-y-2">
+                {visibleJourneys.map((j) => (
                   <div
                     key={j.journeyId}
                     className="rounded-xl border border-zinc-900 bg-zinc-950/80 px-2 py-1.5"
@@ -790,50 +884,48 @@ export default function JourneyAnalytics() {
                       Journey · {j.journeyId.slice(0, 8)}…
                     </div>
                     <JourneyStrip
-                      steps={steps}
+                      steps={stepsForJourney(j, videoDisplay)}
                       highlightVideoId={selectedVideoId}
                       onSelectVideo={handleSelectVideo}
                     />
                   </div>
-                );
-              })}
+                ))}
+              </div>
+            )}
+          </div>
+
+          {showAnalytics && (
+            <div className="flex-1 overflow-y-auto custom-scrollbar px-4 lg:px-6 py-4 bg-zinc-950/40 lg:min-w-[45%]">
+              <div className="flex items-center justify-between mb-4">
+                <div>
+                  <div className="text-[10px] font-black uppercase tracking-widest text-zinc-500">
+                    Analytics
+                  </div>
+                  <div className="text-xs font-bold text-zinc-300 mt-0.5">
+                    Placeholder — table in next patch
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setShowAnalytics(false)}
+                  className="p-2 rounded-xl border border-zinc-800 bg-zinc-900 text-zinc-400 hover:text-white"
+                >
+                  <X size={14} />
+                </button>
+              </div>
+              <div className="rounded-2xl border border-dashed border-zinc-800 bg-black/40 p-8 text-center">
+                <BarChart3 className="mx-auto text-zinc-700 mb-3" size={28} />
+                <div className="text-[11px] font-black uppercase tracking-widest text-zinc-600">
+                  All Assets–style horizontal table
+                </div>
+                <div className="text-[10px] text-zinc-700 mt-2 max-w-sm mx-auto leading-relaxed">
+                  Same filter state drives this panel when the table is built (source=
+                  {activeSource}, date={dateRange}).
+                </div>
+              </div>
             </div>
           )}
         </div>
-
-        {showAnalytics && (
-          <div className="flex-1 overflow-y-auto custom-scrollbar px-3 lg:px-5 py-3 bg-zinc-950/50 lg:min-w-[45%]">
-            <div className="flex items-center justify-between mb-3">
-              <div>
-                <div className="text-[9px] font-black uppercase tracking-widest text-zinc-500">
-                  Analytics
-                </div>
-                <div className="text-xs font-bold text-zinc-300 mt-0.5">
-                  Placeholder — table in next patch
-                </div>
-              </div>
-              <button
-                type="button"
-                onClick={() => setShowAnalytics(false)}
-                className="h-8 w-8 rounded-lg border border-zinc-800 bg-zinc-900 flex items-center justify-center text-zinc-400 hover:text-white"
-                aria-label="Hide analytics"
-              >
-                <X size={14} />
-              </button>
-            </div>
-            <div className="rounded-xl border border-dashed border-zinc-800 bg-black/40 p-6 text-center">
-              <BarChart3 className="mx-auto text-zinc-700 mb-2" size={24} />
-              <div className="text-[10px] font-black uppercase tracking-widest text-zinc-600">
-                All Assets–style horizontal table (not built yet)
-              </div>
-              <div className="text-[9px] text-zinc-700 mt-2 max-w-sm mx-auto leading-relaxed">
-                Filters above (source={activeSource}, date={dateRange}, platforms=
-                {selectedPlatforms.length || 'all'}) will drive the same dataset as All Assets
-                when the table lands.
-              </div>
-            </div>
-          </div>
-        )}
       </div>
     </div>
   );
