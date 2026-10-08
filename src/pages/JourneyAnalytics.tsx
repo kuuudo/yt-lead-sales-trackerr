@@ -1,12 +1,10 @@
 // ─────────────────────────────────────────────────────────────────────────────
 // JourneyAnalytics.tsx
-//
-// Full-screen shell (same as AllAssetsAnalytics).
-// Left filter sidebar — hidden by default, Filter button opens it.
-// Journey list = rows. Show Analytics expands metric columns to the RIGHT
-// of the Journey Map column (ONE wide table, not a side panel).
-//
 // Route: /analytics/journey
+//
+// Journey rows + optional horizontal analytics columns.
+// Asset scope / type / campaign / promotion filters operate at JOURNEY level.
+// Visual: asset border + My/Shared/Assigned colors; Show Content Owner toggle.
 // ─────────────────────────────────────────────────────────────────────────────
 
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
@@ -38,10 +36,7 @@ import {
   type RevenueView,
   type MetricType,
 } from '../lib/analyticsEngine';
-import {
-  PLATFORM_CONFIG,
-  type Platform,
-} from '../lib/platformParser';
+import { PLATFORM_CONFIG, type Platform } from '../lib/platformParser';
 import {
   discoverJourneysForVideos,
   type DiscoveredJourney,
@@ -53,11 +48,11 @@ import {
 
 import JourneyStrip, {
   type JourneyStripStep,
+  type AssetScopeTag,
 } from '../components/analytics/JourneyStrip';
 
 const ENTRY_VIDEO_CAP = 80;
 
-/** Identity + analytics columns shown when Show Analytics is on (no Asset / Promoting Content / Content Owner). */
 const JOURNEY_ANALYTICS_EXTRA = [
   { key: 'type', label: 'Type' },
   { key: 'promotion', label: 'Promotion' },
@@ -74,9 +69,23 @@ function elementTypeToWebmood(elementType: string | null | undefined): string | 
   if (t === 'sales_call' || t === 'sales') return 'sales_call';
   if (t === 'consultation' || t === 'consult') return 'consultation';
   if (t === 'newsletter' || t === 'news') return 'newsletter';
-  if (t === 'landing_page' || t === 'landing' || t === 'purchase' || t === 'direct_purchase')
+  if (
+    t === 'landing_page' ||
+    t === 'landing' ||
+    t === 'purchase' ||
+    t === 'direct_purchase'
+  )
     return 'landing_page';
   return null;
+}
+
+/** Same taxonomy as assetAnalyticsColumns.toAssetTypeTag */
+function toAssetTypeTag(assetType: string | null | undefined): string | null {
+  if (!assetType) return null;
+  if (assetType === 'campaign_element') return 'campaign_element';
+  if (assetType === 'resource') return 'resource';
+  if (assetType === 'video') return 'promotional_video';
+  return 'content_video';
 }
 
 const ASSET_TYPE_OPTIONS = [
@@ -92,6 +101,28 @@ const SCOPE_OPTIONS = [
   { value: 'shared', label: 'Shared' },
   { value: 'assigned', label: 'Assigned' },
 ] as const;
+
+// ── Org + campaigns + promotions ────────────────────────────────────────────
+
+async function resolveOrganizationId(
+  viewerId: string,
+  viewing?: { viewingMemberId: string | null; viewingOrgId: string | null },
+): Promise<string | null> {
+  if (viewing?.viewingMemberId && viewing?.viewingOrgId) return viewing.viewingOrgId;
+  const { data: membership } = await supabase
+    .from('organization_members')
+    .select('organization_id')
+    .eq('user_id', viewerId)
+    .limit(1)
+    .maybeSingle();
+  if (membership?.organization_id) return membership.organization_id as string;
+  const { data: asset } = await supabase
+    .from('assets')
+    .select('organization_id')
+    .limit(1)
+    .maybeSingle();
+  return (asset?.organization_id as string) ?? null;
+}
 
 function useCampaignOptions(viewerId: string | null): Campaign[] {
   const [campaigns, setCampaigns] = useState<Campaign[]>([]);
@@ -114,31 +145,51 @@ function useCampaignOptions(viewerId: string | null): Campaign[] {
 
 type PromotionOption = { id: string; name: string };
 
-function usePromotionOptions(viewerId: string | null): PromotionOption[] {
+function usePromotionOptions(
+  viewerId: string | null,
+  organizationId: string | null,
+): PromotionOption[] {
   const [promos, setPromos] = useState<PromotionOption[]>([]);
   useEffect(() => {
-    if (!viewerId) return;
+    if (!viewerId && !organizationId) return;
     let cancelled = false;
     (async () => {
-      // Prefer promotions owned by viewer; fall back to any the viewer can read.
-      const { data, error } = await supabase
-        .from('promotions')
-        .select('id, title, name')
-        .limit(200);
-      if (error || cancelled) {
-        if (error) console.warn('[JourneyAnalytics] promotions load', error.message);
+      // Try several column shapes — schema has varied over time (title / name).
+      // Prefer org-scoped when available (matches marketplace promotions).
+      let q = supabase.from('promotions').select('id, title, name, organization_id').limit(300);
+      if (organizationId) q = q.eq('organization_id', organizationId);
+      const { data, error } = await q;
+      if (cancelled) return;
+      if (error) {
+        // Fallback without organization_id filter / name column
+        const { data: d2, error: e2 } = await supabase
+          .from('promotions')
+          .select('id, title')
+          .limit(300);
+        if (e2) {
+          console.warn('[JourneyAnalytics] promotions load failed', e2.message);
+          setPromos([]);
+          return;
+        }
+        setPromos(
+          ((d2 ?? []) as any[]).map((p) => ({
+            id: p.id as string,
+            name: (p.title as string) || p.id,
+          })),
+        );
         return;
       }
-      const list = ((data ?? []) as any[]).map((p) => ({
-        id: p.id as string,
-        name: (p.title as string) || (p.name as string) || p.id,
-      }));
-      if (!cancelled) setPromos(list);
+      setPromos(
+        ((data ?? []) as any[]).map((p) => ({
+          id: p.id as string,
+          name: (p.title as string) || (p.name as string) || p.id,
+        })),
+      );
     })();
     return () => {
       cancelled = true;
     };
-  }, [viewerId]);
+  }, [viewerId, organizationId]);
   return promos;
 }
 
@@ -170,6 +221,8 @@ async function loadEntryVideoIds(
   return ((data ?? []) as { id: string }[]).map((r) => r.id);
 }
 
+// ── Per-video enrichment (canonical fields reused from All Assets model) ────
+
 type VideoDisplay = {
   title: string;
   thumbnailUrl: string | null;
@@ -177,29 +230,185 @@ type VideoDisplay = {
   campaignId: string | null;
   createdAt: string | null;
   userId: string | null;
+  contentOwnerName: string | null;
   promotedTypes: Set<string>;
+  /** Asset identity */
+  isAsset: boolean;
+  assetId: string | null;
+  assetTypeTag: string | null;
+  assetOrganizationId: string | null;
+  assetScope: AssetScopeTag | null;
+  assetCampaignId: string | null;
+  isAssigned: boolean;
+  promotionIds: string[];
 };
 
-async function loadVideoDisplayMap(videoIds: string[]): Promise<Map<string, VideoDisplay>> {
+async function loadVideoDisplayMap(
+  videoIds: string[],
+  organizationId: string | null,
+): Promise<Map<string, VideoDisplay>> {
   const map = new Map<string, VideoDisplay>();
   const ids = Array.from(new Set(videoIds.filter(Boolean)));
   if (ids.length === 0) return map;
+
   const CHUNK = 80;
+  const allVideos: any[] = [];
   for (let i = 0; i < ids.length; i += CHUNK) {
     const slice = ids.slice(i, i + CHUNK);
     const { data, error } = await supabase.from('videos').select('*').in('id', slice);
     if (error) throw new Error(`Failed to load video display data: ${error.message}`);
-    for (const v of (data ?? []) as any[]) {
-      map.set(v.id, {
-        title: (v.video_title as string) || 'Untitled video',
-        thumbnailUrl: resolveThumbnail(v) ?? null,
-        platform: (v.platform as string | null) ?? null,
-        campaignId: (v.campaign_id as string | null) ?? null,
-        createdAt: (v.created_at as string | null) ?? null,
-        userId: (v.user_id as string | null) ?? null,
-        promotedTypes: new Set(),
+    allVideos.push(...(data ?? []));
+  }
+
+  const assetIds = Array.from(
+    new Set(allVideos.map((v) => v.asset_id).filter(Boolean) as string[]),
+  );
+  const ownerIds = Array.from(
+    new Set(allVideos.map((v) => v.user_id).filter(Boolean) as string[]),
+  );
+
+  // Assets — type + org (campaign on asset is optional; many installs omit it)
+  const assetById = new Map<
+    string,
+    {
+      asset_type: string | null;
+      organization_id: string | null;
+      campaign_id: string | null;
+    }
+  >();
+  for (let i = 0; i < assetIds.length; i += CHUNK) {
+    const slice = assetIds.slice(i, i + CHUNK);
+    let rows: any[] = [];
+    {
+      const { data, error } = await supabase
+        .from('assets')
+        .select('id, asset_type, organization_id')
+        .in('id', slice);
+      if (error) {
+        console.warn('[JourneyAnalytics] assets load', error.message);
+      } else {
+        rows = data ?? [];
+      }
+    }
+    for (const a of rows) {
+      assetById.set(a.id, {
+        asset_type: a.asset_type ?? null,
+        organization_id: a.organization_id ?? null,
+        campaign_id: null,
       });
     }
+  }
+
+  // Promotion membership via redirect_links (asset_id + promotion_id) —
+  // same real table journeyDownstreamResolver already uses. promotion_assets
+  // is not assumed to exist.
+  const promotionIdsByAsset = new Map<string, string[]>();
+  if (assetIds.length > 0) {
+    for (let i = 0; i < assetIds.length; i += CHUNK) {
+      const slice = assetIds.slice(i, i + CHUNK);
+      const { data, error } = await supabase
+        .from('redirect_links')
+        .select('asset_id, promotion_id')
+        .in('asset_id', slice)
+        .not('promotion_id', 'is', null);
+      if (error) {
+        console.warn('[JourneyAnalytics] redirect_links promotions', error.message);
+        continue;
+      }
+      for (const row of (data ?? []) as any[]) {
+        if (!row.asset_id || !row.promotion_id) continue;
+        const list = promotionIdsByAsset.get(row.asset_id) ?? [];
+        if (!list.includes(row.promotion_id)) list.push(row.promotion_id);
+        promotionIdsByAsset.set(row.asset_id, list);
+      }
+    }
+  }
+
+  // Also map promotions from videos via redirect_links.video_id
+  const promotionIdsByVideo = new Map<string, string[]>();
+  for (let i = 0; i < ids.length; i += CHUNK) {
+    const slice = ids.slice(i, i + CHUNK);
+    const { data, error } = await supabase
+      .from('redirect_links')
+      .select('video_id, promotion_id, asset_id')
+      .in('video_id', slice)
+      .not('promotion_id', 'is', null);
+    if (error) continue;
+    for (const row of (data ?? []) as any[]) {
+      if (!row.video_id || !row.promotion_id) continue;
+      const list = promotionIdsByVideo.get(row.video_id) ?? [];
+      if (!list.includes(row.promotion_id)) list.push(row.promotion_id);
+      promotionIdsByVideo.set(row.video_id, list);
+      if (row.asset_id) {
+        const al = promotionIdsByAsset.get(row.asset_id) ?? [];
+        if (!al.includes(row.promotion_id)) al.push(row.promotion_id);
+        promotionIdsByAsset.set(row.asset_id, al);
+      }
+    }
+  }
+
+  // Profiles for content owner names (same select pattern as AllAssets)
+  const profileById = new Map<string, { full_name: string | null; email: string | null }>();
+  for (let i = 0; i < ownerIds.length; i += CHUNK) {
+    const slice = ownerIds.slice(i, i + CHUNK);
+    const { data } = await supabase
+      .from('profiles')
+      .select('id, email, full_name')
+      .in('id', slice);
+    for (const p of (data ?? []) as any[]) {
+      profileById.set(p.id, {
+        full_name: p.full_name ?? null,
+        email: p.email ?? null,
+      });
+    }
+  }
+
+  for (const v of allVideos) {
+    const assetId = (v.asset_id as string | null) ?? null;
+    const asset = assetId ? assetById.get(assetId) : undefined;
+    const isAsset = !!assetId && !!asset;
+    const assetOrg = asset?.organization_id ?? null;
+    const isAssigned =
+      !!v.created_via_creative ||
+      (assetId ? (promotionIdsByAsset.get(assetId)?.length ?? 0) > 0 : false);
+
+    let assetScope: AssetScopeTag | null = null;
+    if (isAsset && organizationId) {
+      const isMy = assetOrg === organizationId;
+      if (isMy && isAssigned) assetScope = 'assigned';
+      else if (isMy) assetScope = 'my';
+      else assetScope = 'shared';
+    } else if (isAsset) {
+      assetScope = 'my'; // no org context — treat as my
+    }
+
+    const profile = v.user_id ? profileById.get(v.user_id) : null;
+    const contentOwnerName =
+      profile?.full_name?.trim() || profile?.email || null;
+
+    map.set(v.id, {
+      title: (v.video_title as string) || 'Untitled video',
+      thumbnailUrl: resolveThumbnail(v) ?? null,
+      platform: (v.platform as string | null) ?? null,
+      campaignId: (v.campaign_id as string | null) ?? null,
+      createdAt: (v.created_at as string | null) ?? null,
+      userId: (v.user_id as string | null) ?? null,
+      contentOwnerName,
+      promotedTypes: new Set(),
+      isAsset,
+      assetId,
+      assetTypeTag: toAssetTypeTag(asset?.asset_type),
+      assetOrganizationId: assetOrg,
+      assetScope,
+      assetCampaignId: asset?.campaign_id ?? (isAsset ? ((v.campaign_id as string | null) ?? null) : null),
+      isAssigned,
+      promotionIds: Array.from(
+        new Set([
+          ...(assetId ? promotionIdsByAsset.get(assetId) ?? [] : []),
+          ...(promotionIdsByVideo.get(v.id) ?? []),
+        ]),
+      ),
+    });
   }
   return map;
 }
@@ -214,18 +423,7 @@ function applyPromotedTypes(
     const key = elementTypeToWebmood(link.elementType);
     if (!key) continue;
     const existing = next.get(link.videoId);
-    if (!existing) {
-      next.set(link.videoId, {
-        title: `Video ${link.videoId.slice(0, 8)}…`,
-        thumbnailUrl: null,
-        platform: null,
-        campaignId: link.ownerCampaignId ?? null,
-        createdAt: null,
-        userId: null,
-        promotedTypes: new Set([key]),
-      });
-      continue;
-    }
+    if (!existing) continue;
     const types = new Set(existing.promotedTypes);
     types.add(key);
     next.set(link.videoId, { ...existing, promotedTypes: types });
@@ -245,19 +443,20 @@ function stepsForJourney(
       thumbnailUrl: d?.thumbnailUrl ?? null,
       platform: d?.platform ?? null,
       promotedTypes: d?.promotedTypes ?? new Set(),
+      isAsset: d?.isAsset ?? false,
+      assetScope: d?.assetScope ?? null,
+      contentOwnerName: d?.contentOwnerName ?? null,
     };
   });
 }
 
-/** Aggregate WebMood types across all steps in a journey (for Type column). */
 function journeyPromotedTypes(
   journey: DiscoveredJourney,
   display: Map<string, VideoDisplay>,
 ): Set<string> {
   const out = new Set<string>();
   for (const s of journey.path?.steps ?? []) {
-    const t = display.get(s.videoId)?.promotedTypes;
-    t?.forEach((k) => out.add(k));
+    display.get(s.videoId)?.promotedTypes.forEach((k) => out.add(k));
   }
   return out;
 }
@@ -290,8 +489,6 @@ function TypeCell({ types }: { types: Set<string> }) {
     </div>
   );
 }
-
-// ── Multi-select panel helper ───────────────────────────────────────────────
 
 function FilterMultiPanel({
   open,
@@ -326,13 +523,31 @@ export default function JourneyAnalytics() {
   const navigate = useNavigate();
   const { campaignId: paramCampaignId } = useParams<{ campaignId?: string }>();
   const { user } = useAuth();
-  const { viewingMemberId, isReadOnly } = useViewing();
+  const { viewingMemberId, viewingOrgId, isReadOnly } = useViewing();
   const effectiveViewerId = isReadOnly ? viewingMemberId : (user?.id ?? null);
 
   const campaignOptions = useCampaignOptions(effectiveViewerId);
-  const promotionOptions = usePromotionOptions(effectiveViewerId);
+  const [organizationId, setOrganizationId] = useState<string | null>(null);
 
-  // ── Filters ───────────────────────────────────────────────────────────────
+  useEffect(() => {
+    if (!effectiveViewerId) return;
+    let cancelled = false;
+    resolveOrganizationId(
+      effectiveViewerId,
+      isReadOnly
+        ? { viewingMemberId: viewingMemberId ?? null, viewingOrgId: viewingOrgId ?? null }
+        : undefined,
+    ).then((id) => {
+      if (!cancelled) setOrganizationId(id);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [effectiveViewerId, isReadOnly, viewingMemberId, viewingOrgId]);
+
+  const promotionOptions = usePromotionOptions(effectiveViewerId, organizationId);
+
+  // Filters
   const [dateRange, setDateRange] = useState<DateRange>('30days');
   const [customRange, setCustomRange] = useState<CustomDateRange | null>(null);
   const [activeSource, setActiveSource] = useState<RevenueView>('total');
@@ -356,8 +571,8 @@ export default function JourneyAnalytics() {
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [selectedVideoId, setSelectedVideoId] = useState<string | null>(null);
   const [showAnalytics, setShowAnalytics] = useState(false);
+  const [showContentOwner, setShowContentOwner] = useState(false);
 
-  // Dropdown open state
   const [assetCampaignOpen, setAssetCampaignOpen] = useState(false);
   const [contentCampaignOpen, setContentCampaignOpen] = useState(false);
   const [promotionOpen, setPromotionOpen] = useState(false);
@@ -369,7 +584,6 @@ export default function JourneyAnalytics() {
     if (paramCampaignId) setSelectedCampaignId(paramCampaignId);
   }, [paramCampaignId]);
 
-  // ── Journey load ──────────────────────────────────────────────────────────
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [journeys, setJourneys] = useState<DiscoveredJourney[]>([]);
@@ -425,7 +639,10 @@ export default function JourneyAnalytics() {
           allLinks = [...structuralLinks, ...extraLinks];
         }
 
-        let display = await loadVideoDisplayMap([...videoIds, ...stepVideoIds]);
+        let display = await loadVideoDisplayMap(
+          [...videoIds, ...stepVideoIds],
+          organizationId,
+        );
         if (cancelled) return;
         display = applyPromotedTypes(display, allLinks);
 
@@ -446,7 +663,7 @@ export default function JourneyAnalytics() {
     return () => {
       cancelled = true;
     };
-  }, [selectedCampaignId, ownedCampaignIds.join(',')]);
+  }, [selectedCampaignId, ownedCampaignIds.join(','), organizationId]);
 
   const presentPlatforms = useMemo(() => {
     const seen = new Set<string>();
@@ -454,24 +671,39 @@ export default function JourneyAnalytics() {
     return Array.from(seen).sort();
   }, [videoDisplay]);
 
+  // Content marketers with real names
   const contentMarketers = useMemo(() => {
     const byId = new Map<string, string>();
     videoDisplay.forEach((v) => {
       if (!v.userId) return;
-      if (!byId.has(v.userId)) byId.set(v.userId, v.userId.slice(0, 8));
+      if (!byId.has(v.userId)) {
+        byId.set(v.userId, v.contentOwnerName || v.userId.slice(0, 8));
+      }
     });
-    return Array.from(byId.entries()).map(([id, label]) => ({ id, label }));
+    return Array.from(byId.entries())
+      .map(([id, name]) => ({ id, name }))
+      .sort((a, b) => a.name.localeCompare(b.name));
   }, [videoDisplay]);
 
+  // Campaign name lookup for filters / cells
+  const campaignNameById = useMemo(() => {
+    const m = new Map<string, string>();
+    campaignOptions.forEach((c) => m.set(c.id, c.campaign_name));
+    return m;
+  }, [campaignOptions]);
+
+  // ── Journey-level filters (AND) ───────────────────────────────────────────
   const visibleJourneys = useMemo(() => {
     let list = journeys;
 
+    // Selected video
     if (selectedVideoId) {
       list = list.filter((j) =>
         (j.path?.steps ?? []).some((s) => s.videoId === selectedVideoId),
       );
     }
 
+    // Platform — any step
     if (selectedPlatforms.length > 0) {
       list = list.filter((j) =>
         (j.path?.steps ?? []).some((s) => {
@@ -481,6 +713,7 @@ export default function JourneyAnalytics() {
       );
     }
 
+    // Content Marketer — any step content owner
     if (selectedContentOwnerId !== 'all') {
       list = list.filter((j) =>
         (j.path?.steps ?? []).some(
@@ -489,6 +722,7 @@ export default function JourneyAnalytics() {
       );
     }
 
+    // Content Campaign — any step video.campaign_id
     if (selectedContentCampaignIds.length > 0) {
       list = list.filter((j) =>
         (j.path?.steps ?? []).some((s) => {
@@ -498,6 +732,52 @@ export default function JourneyAnalytics() {
       );
     }
 
+    // Asset Campaign — journey must contain an Asset with matching assetCampaignId
+    if (selectedAssetCampaignIds.length > 0) {
+      list = list.filter((j) =>
+        (j.path?.steps ?? []).some((s) => {
+          const d = videoDisplay.get(s.videoId);
+          return (
+            d?.isAsset &&
+            d.assetCampaignId != null &&
+            selectedAssetCampaignIds.includes(d.assetCampaignId)
+          );
+        }),
+      );
+    }
+
+    // Promotion — journey must contain an Asset linked to one of the promotions
+    if (selectedPromotionIds.length > 0) {
+      list = list.filter((j) =>
+        (j.path?.steps ?? []).some((s) => {
+          const d = videoDisplay.get(s.videoId);
+          if (!d?.isAsset) return false;
+          return d.promotionIds.some((pid) => selectedPromotionIds.includes(pid));
+        }),
+      );
+    }
+
+    // Asset Type — journey must contain an Asset of one of the selected types
+    if (selectedAssetTypes.length > 0) {
+      list = list.filter((j) =>
+        (j.path?.steps ?? []).some((s) => {
+          const d = videoDisplay.get(s.videoId);
+          return d?.isAsset && d.assetTypeTag != null && selectedAssetTypes.includes(d.assetTypeTag);
+        }),
+      );
+    }
+
+    // Asset Scope — journey must contain an Asset with matching scope
+    if (selectedAssetSource !== 'all') {
+      list = list.filter((j) =>
+        (j.path?.steps ?? []).some((s) => {
+          const d = videoDisplay.get(s.videoId);
+          return d?.isAsset && d.assetScope === selectedAssetSource;
+        }),
+      );
+    }
+
+    // Date — any step video created_at
     if (dateRange !== 'all') {
       const { start, end } = getDateBounds(dateRange, customRange);
       list = list.filter((j) =>
@@ -517,6 +797,10 @@ export default function JourneyAnalytics() {
     selectedPlatforms,
     selectedContentOwnerId,
     selectedContentCampaignIds,
+    selectedAssetCampaignIds,
+    selectedPromotionIds,
+    selectedAssetTypes,
+    selectedAssetSource,
     videoDisplay,
     dateRange,
     customRange,
@@ -530,10 +814,25 @@ export default function JourneyAnalytics() {
     set(list.includes(id) ? list.filter((x) => x !== id) : [...list, id]);
   };
 
+  // Asset type counts for filter pills
+  const assetTypeCounts = useMemo(() => {
+    const counts: Record<string, number> = {
+      campaign_element: 0,
+      promotional_video: 0,
+      resource: 0,
+      content_video: 0,
+    };
+    videoDisplay.forEach((v) => {
+      if (v.isAsset && v.assetTypeTag && counts[v.assetTypeTag] !== undefined) {
+        counts[v.assetTypeTag] += 1;
+      }
+    });
+    return counts;
+  }, [videoDisplay]);
+
   // ── Sidebar ───────────────────────────────────────────────────────────────
   const sidebarFilters = (
     <div className="flex-1 overflow-y-auto px-6 py-6 custom-scrollbar space-y-8">
-      {/* Date Range */}
       <div>
         <label className="text-[10px] font-black uppercase tracking-widest text-zinc-500 mb-3 block">
           Date Range
@@ -601,7 +900,6 @@ export default function JourneyAnalytics() {
         )}
       </div>
 
-      {/* Campaign */}
       <div>
         <label className="text-[10px] font-black uppercase tracking-widest text-zinc-500 mb-3 block">
           Campaign
@@ -626,7 +924,7 @@ export default function JourneyAnalytics() {
         </div>
       </div>
 
-      {/* Asset Campaign — working multi-select panel */}
+      {/* Asset Campaign */}
       <div>
         <label className="text-[10px] font-black uppercase tracking-widest text-zinc-500 mb-3 block">
           Asset Campaign
@@ -699,7 +997,7 @@ export default function JourneyAnalytics() {
         </div>
       </div>
 
-      {/* Content Campaign — working multi-select */}
+      {/* Content Campaign */}
       <div>
         <label className="text-[10px] font-black uppercase tracking-widest text-zinc-500 mb-3 block">
           Content Campaign
@@ -772,7 +1070,7 @@ export default function JourneyAnalytics() {
         </div>
       </div>
 
-      {/* Promotion — working multi-select */}
+      {/* Promotion */}
       <div>
         <label className="text-[10px] font-black uppercase tracking-widest text-zinc-500 mb-3 block">
           Promotion
@@ -822,7 +1120,9 @@ export default function JourneyAnalytics() {
               All Promotions
             </button>
             {promotionOptions.length === 0 && (
-              <div className="px-4 py-3 text-[10px] text-zinc-600">No promotions loaded</div>
+              <div className="px-4 py-3 text-[10px] text-zinc-600">
+                No promotions found for this organization
+              </div>
             )}
             {promotionOptions.map((p) => {
               const on = selectedPromotionIds.includes(p.id);
@@ -860,7 +1160,7 @@ export default function JourneyAnalytics() {
             <option value="all">All Content Marketers</option>
             {contentMarketers.map((m) => (
               <option key={m.id} value={m.id}>
-                {m.label}
+                {m.name}
               </option>
             ))}
           </select>
@@ -871,7 +1171,7 @@ export default function JourneyAnalytics() {
         </div>
       </div>
 
-      {/* Asset Type — toggles (state kept for upcoming metrics wiring) */}
+      {/* Asset Type — real filter */}
       <div>
         <label className="text-[10px] font-black uppercase tracking-widest text-zinc-500 mb-3 block">
           Asset Type
@@ -879,6 +1179,7 @@ export default function JourneyAnalytics() {
         <div className="flex flex-wrap gap-2">
           {ASSET_TYPE_OPTIONS.map((o) => {
             const active = selectedAssetTypes.includes(o.value);
+            const count = assetTypeCounts[o.value] ?? 0;
             return (
               <button
                 key={o.value}
@@ -897,13 +1198,14 @@ export default function JourneyAnalytics() {
                 }`}
               >
                 {o.label}
+                <span className="ml-1 opacity-70">{count}</span>
               </button>
             );
           })}
         </div>
       </div>
 
-      {/* Asset Scope */}
+      {/* Asset Scope — real filter */}
       <div>
         <label className="text-[10px] font-black uppercase tracking-widest text-zinc-500 mb-3 block">
           Asset Scope
@@ -924,9 +1226,14 @@ export default function JourneyAnalytics() {
             </button>
           ))}
         </div>
+        <div className="mt-2 flex flex-wrap gap-2 text-[8px] font-bold uppercase tracking-widest text-zinc-600">
+          <span className="text-rose-400">● My</span>
+          <span className="text-violet-400">● Shared</span>
+          <span className="text-cyan-400">● Assigned</span>
+        </div>
       </div>
 
-      {/* Hide Archived */}
+      {/* Hide Archived — UI state for later metrics wiring */}
       <div>
         <label className="text-[10px] font-black uppercase tracking-widest text-zinc-500 mb-3 block">
           Hide Archived
@@ -975,18 +1282,17 @@ export default function JourneyAnalytics() {
     </div>
   );
 
-  // ── Render journey row content ────────────────────────────────────────────
   const renderJourneyStrip = (j: DiscoveredJourney) => (
     <JourneyStrip
       steps={stepsForJourney(j, videoDisplay)}
       highlightVideoId={selectedVideoId}
       onSelectVideo={handleSelectVideo}
+      showContentOwner={showContentOwner}
     />
   );
 
   return (
     <div className="flex h-screen bg-black text-zinc-300 overflow-hidden fixed inset-0 z-[100]">
-      {/* Sidebar */}
       <aside
         className={`${
           sidebarOpen ? 'flex' : 'hidden'
@@ -1017,7 +1323,6 @@ export default function JourneyAnalytics() {
       )}
 
       <div className="flex-1 flex flex-col min-w-0 overflow-hidden">
-        {/* Header */}
         <header className="shrink-0 border-b border-zinc-900 bg-zinc-950 px-4 lg:px-6 py-4">
           <div className="flex flex-wrap items-center justify-between gap-3">
             <div className="flex items-center gap-3 min-w-0">
@@ -1046,7 +1351,7 @@ export default function JourneyAnalytics() {
                   Journey Analytics
                 </h2>
                 <p className="text-[10px] text-zinc-600 font-bold uppercase tracking-widest mt-0.5">
-                  One row = one journey · Show Analytics expands columns
+                  One row = one journey
                 </p>
               </div>
             </div>
@@ -1068,6 +1373,18 @@ export default function JourneyAnalytics() {
                   </button>
                 ))}
               </div>
+
+              <button
+                type="button"
+                onClick={() => setShowContentOwner((v) => !v)}
+                className={`h-9 px-3 rounded-xl border text-[9px] font-black uppercase tracking-widest transition-all ${
+                  showContentOwner
+                    ? 'bg-zinc-700 border-zinc-600 text-white'
+                    : 'bg-zinc-900 border-zinc-800 text-zinc-400 hover:text-white'
+                }`}
+              >
+                {showContentOwner ? 'Hide Content Owner' : 'Show Content Owner'}
+              </button>
 
               {selectedVideoId && (
                 <button
@@ -1137,22 +1454,13 @@ export default function JourneyAnalytics() {
             </div>
             <div className="text-[9px] font-bold text-zinc-600 uppercase tracking-widest">
               Entry {entryVideoCount}
-              {entryVideoCount >= ENTRY_VIDEO_CAP ? ' (capped)' : ''} · Journeys {journeys.length}
-              {(selectedVideoId ||
-                selectedPlatforms.length > 0 ||
-                dateRange !== 'all' ||
-                selectedContentCampaignIds.length > 0) && (
-                <> · Showing {visibleJourneys.length}</>
-              )}
+              {entryVideoCount >= ENTRY_VIDEO_CAP ? ' (capped)' : ''} · Journeys {journeys.length} ·
+              Showing {visibleJourneys.length}
               {truncated && <span className="text-amber-600"> · Truncated</span>}
-              {excludedJourneys > 0 && (
-                <span className="text-zinc-600"> · {excludedJourneys} excluded</span>
-              )}
             </div>
           </div>
         </header>
 
-        {/* Body */}
         <div className="flex-1 overflow-auto custom-scrollbar">
           {loading && (
             <div className="py-20 text-center">
@@ -1180,7 +1488,6 @@ export default function JourneyAnalytics() {
             </div>
           )}
 
-          {/* COLLAPSED: journey list only */}
           {!loading && !error && visibleJourneys.length > 0 && !showAnalytics && (
             <div className="px-4 lg:px-6 py-4 space-y-2">
               {visibleJourneys.map((j) => (
@@ -1197,7 +1504,6 @@ export default function JourneyAnalytics() {
             </div>
           )}
 
-          {/* EXPANDED: one wide table — Journey Map is first column */}
           {!loading && !error && visibleJourneys.length > 0 && showAnalytics && (
             <div className="inline-block min-w-full align-middle">
               <table className="min-w-full divide-y divide-zinc-900 border-collapse">
@@ -1232,32 +1538,33 @@ export default function JourneyAnalytics() {
                         key={j.journeyId}
                         className="hover:bg-zinc-950/80 transition-colors group"
                       >
-                        {/* Journey Map — sticky first column */}
                         <td className="px-3 py-3 sticky left-0 z-10 bg-black group-hover:bg-zinc-950 transition-colors min-w-[320px] max-w-[480px]">
                           <div className="text-[7px] font-black uppercase tracking-widest text-zinc-700 mb-0.5">
                             {j.journeyId.slice(0, 8)}…
                           </div>
                           {renderJourneyStrip(j)}
                         </td>
-
-                        {/* Type */}
                         <td className="px-4 py-3 whitespace-nowrap">
                           <TypeCell types={types} />
                         </td>
-
-                        {/* Promotion / Asset Campaign / Content Campaign / Asset Clicks / Downstream / Total Revenue front — placeholders */}
-                        <td className="px-4 py-3 whitespace-nowrap text-sm font-bold text-zinc-600">—</td>
-                        <td className="px-4 py-3 whitespace-nowrap text-sm font-bold text-zinc-600">—</td>
-                        <td className="px-4 py-3 whitespace-nowrap text-sm font-bold text-zinc-600">—</td>
+                        <td className="px-4 py-3 whitespace-nowrap text-sm font-bold text-zinc-600">
+                          —
+                        </td>
+                        <td className="px-4 py-3 whitespace-nowrap text-sm font-bold text-zinc-600">
+                          —
+                        </td>
+                        <td className="px-4 py-3 whitespace-nowrap text-sm font-bold text-zinc-600">
+                          —
+                        </td>
                         <td className="px-4 py-3 whitespace-nowrap text-sm font-bold text-zinc-600 tabular-nums">
                           —
                         </td>
-                        <td className="px-4 py-3 whitespace-nowrap text-sm font-bold text-zinc-600">—</td>
+                        <td className="px-4 py-3 whitespace-nowrap text-sm font-bold text-zinc-600">
+                          —
+                        </td>
                         <td className="px-4 py-3 whitespace-nowrap text-sm font-bold text-zinc-600 tabular-nums">
                           —
                         </td>
-
-                        {/* Engine metric columns — placeholder zeros */}
                         {TABLE_COLUMNS.map((key) => (
                           <td
                             key={key}

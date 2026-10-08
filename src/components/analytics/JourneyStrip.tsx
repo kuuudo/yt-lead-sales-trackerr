@@ -1,36 +1,31 @@
 // ─────────────────────────────────────────────────────────────────────────────
 // src/components/analytics/JourneyStrip.tsx
-//
-// Presentational ONLY. One journey = one horizontal strip, left → right:
-//   [Video A] → [Video B] → [Video C]
-// Takes already-ordered steps (from DiscoveredJourney.path.steps).
-// Optional per-step Campaign Links (WebMood 2×2) light up when that video
-// promotes a campaign link / campaign-element asset.
-// Long journeys scroll horizontally; nodes never shrink.
+// Presentational ONLY. One journey = one horizontal strip.
+// Optional: asset border, asset-scope badge, content-owner line.
 // ─────────────────────────────────────────────────────────────────────────────
 
 import React, { useEffect, useRef } from 'react';
 import { ArrowRight } from 'lucide-react';
+
+export type AssetScopeTag = 'my' | 'shared' | 'assigned';
 
 export type JourneyStripStep = {
   videoId: string;
   title: string;
   thumbnailUrl: string | null;
   platform?: string | null;
-  /**
-   * Which campaign-link cells to light up for this video
-   * (sales_call | consultation | newsletter | landing_page).
-   * Empty / missing = promote nothing → all cells dim.
-   */
+  /** Campaign-link cells (sales_call | consultation | newsletter | landing_page). */
   promotedTypes?: ReadonlySet<string> | string[];
+  /** True when this step is an Asset (has assets row). */
+  isAsset?: boolean;
+  /** Asset ownership scope — only meaningful when isAsset. */
+  assetScope?: AssetScopeTag | null;
+  /** Canonical content owner display name (videos.user_id → profiles). */
+  contentOwnerName?: string | null;
 };
 
 export type JourneyEndKey = 'sales_call' | 'purchase' | 'consultation' | 'newsletter' | 'other';
-
-export type JourneyStripEnd = {
-  key: JourneyEndKey;
-  label: string;
-};
+export type JourneyStripEnd = { key: JourneyEndKey; label: string };
 
 const WEBMOOD_CELLS: { type: string; label: string }[] = [
   { type: 'sales_call', label: 'SALES' },
@@ -39,15 +34,35 @@ const WEBMOOD_CELLS: { type: string; label: string }[] = [
   { type: 'landing_page', label: 'PURCHASE' },
 ];
 
+/** Scope accent colors — distinct, VSTRK-toned status indicators (not decoration). */
+export const ASSET_SCOPE_STYLE: Record<
+  AssetScopeTag,
+  { border: string; badge: string; label: string }
+> = {
+  my: {
+    border: 'border-rose-500/70',
+    badge: 'bg-rose-500/15 border-rose-500/40 text-rose-400',
+    label: 'My',
+  },
+  shared: {
+    border: 'border-violet-500/70',
+    badge: 'bg-violet-500/15 border-violet-500/40 text-violet-400',
+    label: 'Shared',
+  },
+  assigned: {
+    border: 'border-cyan-500/70',
+    badge: 'bg-cyan-500/15 border-cyan-500/40 text-cyan-400',
+    label: 'Assigned',
+  },
+};
+
 function StepCampaignLinks({ types }: { types?: ReadonlySet<string> | string[] }) {
   const active =
-    types instanceof Set
-      ? types
-      : new Set(Array.isArray(types) ? types : []);
+    types instanceof Set ? types : new Set(Array.isArray(types) ? types : []);
   return (
     <div
-      className="grid grid-cols-2 gap-px w-full mt-1.5 rounded overflow-hidden border border-zinc-800 bg-zinc-950"
-      title="Campaign links this video promotes (orange = active)"
+      className="grid grid-cols-2 gap-px w-full mt-1 rounded overflow-hidden border border-zinc-800 bg-zinc-950"
+      title="Campaign links this video promotes"
     >
       {WEBMOOD_CELLS.map((cell) => {
         const on = active.has(cell.type);
@@ -70,11 +85,11 @@ function StepCampaignLinks({ types }: { types?: ReadonlySet<string> | string[] }
 
 export interface JourneyStripProps {
   steps: JourneyStripStep[];
-  /** @deprecated Outcome end pills removed — use per-step promotedTypes instead. Kept optional for back-compat. */
   end?: JourneyStripEnd | null;
-  /** Every step whose videoId matches is highlighted; the full journey stays visible. */
   highlightVideoId?: string | null;
   onSelectVideo?: (videoId: string) => void;
+  /** When true, show content owner under each step title. */
+  showContentOwner?: boolean;
 }
 
 function Arrow() {
@@ -91,14 +106,17 @@ export default function JourneyStrip({
   end: _end,
   highlightVideoId,
   onSelectVideo,
+  showContentOwner = false,
 }: JourneyStripProps) {
-  // Outcome end pills intentionally unused — campaign links grid on each step replaces them.
   void _end;
-
   const highlightRef = useRef<HTMLDivElement | null>(null);
 
   useEffect(() => {
-    highlightRef.current?.scrollIntoView({ block: 'nearest', inline: 'center', behavior: 'smooth' });
+    highlightRef.current?.scrollIntoView({
+      block: 'nearest',
+      inline: 'center',
+      behavior: 'smooth',
+    });
   }, [highlightVideoId, steps]);
 
   let firstHighlightAssigned = false;
@@ -109,6 +127,20 @@ export default function JourneyStrip({
         const highlighted = !!highlightVideoId && step.videoId === highlightVideoId;
         const assignRef = highlighted && !firstHighlightAssigned;
         if (assignRef) firstHighlightAssigned = true;
+
+        const isAsset = !!step.isAsset;
+        const scope = step.assetScope ?? null;
+        const scopeStyle = scope ? ASSET_SCOPE_STYLE[scope] : null;
+
+        // Selected ring stays independent of asset border.
+        const borderClass = highlighted
+          ? 'border-red-600 ring-2 ring-red-600/40 bg-red-600/10'
+          : isAsset && scopeStyle
+            ? `${scopeStyle.border} bg-zinc-950`
+            : isAsset
+              ? 'border-zinc-500 bg-zinc-950'
+              : 'border-zinc-800 bg-zinc-950 hover:border-zinc-600';
+
         return (
           <React.Fragment key={`${step.videoId}-${i}`}>
             {i > 0 && <Arrow />}
@@ -118,11 +150,7 @@ export default function JourneyStrip({
               title={step.title}
               className={`shrink-0 w-[112px] rounded-lg border p-1.5 transition-colors ${
                 onSelectVideo ? 'cursor-pointer' : ''
-              } ${
-                highlighted
-                  ? 'border-red-600 bg-red-600/10 ring-2 ring-red-600/40'
-                  : 'border-zinc-800 bg-zinc-950 hover:border-zinc-600'
-              }`}
+              } ${borderClass}`}
             >
               <img
                 src={step.thumbnailUrl ?? ''}
@@ -139,9 +167,26 @@ export default function JourneyStrip({
               <div className="mt-1 text-[10px] font-bold truncate leading-snug text-zinc-200">
                 {step.title}
               </div>
-              <div className="text-[8px] font-black uppercase tracking-widest mt-0.5 text-zinc-600">
-                Video
+              <div className="flex items-center gap-1 mt-0.5 min-w-0">
+                <span className="text-[8px] font-black uppercase tracking-widest text-zinc-600 shrink-0">
+                  {isAsset ? 'Asset' : 'Video'}
+                </span>
+                {isAsset && scopeStyle && (
+                  <span
+                    className={`shrink-0 inline-flex items-center px-1 py-px rounded border text-[7px] font-black uppercase tracking-widest ${scopeStyle.badge}`}
+                  >
+                    {scopeStyle.label}
+                  </span>
+                )}
               </div>
+              {showContentOwner && step.contentOwnerName && (
+                <div
+                  className="mt-0.5 text-[8px] font-bold text-zinc-400 truncate"
+                  title={step.contentOwnerName}
+                >
+                  {step.contentOwnerName}
+                </div>
+              )}
               <StepCampaignLinks types={step.promotedTypes} />
             </div>
           </React.Fragment>
