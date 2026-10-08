@@ -45,7 +45,7 @@ export const STRIPE_PURCHASES_FACT_COLUMNS =
 // created_at, event_type, organization_id, promotion_id, pricing_version_id,
 // conversion_id, asset_id
 export const PIXEL_PURCHASES_FACT_COLUMNS =
-  'id, token, session_id, video_id, campaign_id, amount, created_at, event_type, organization_id, promotion_id, asset_id';
+  'id, token, session_id, video_id, campaign_id, amount, created_at, event_type, organization_id, promotion_id, asset_id, event_id';
 
 export const REDIRECT_LINKS_FACT_COLUMNS =
   'id, token, link_type, promotion_id, asset_id, video_id, organization_id';
@@ -88,6 +88,7 @@ export interface OrgPixelFact {
   organization_id: string | null;
   asset_id: string | null;
   token: string | null;
+  event_id: string | null;
 }
 
 export interface OrgRedirectLinkFact {
@@ -427,6 +428,7 @@ export async function fetchOrgAnalyticsFacts(
       organization_id: (p.organization_id as string | null) ?? null,
       asset_id: (p.asset_id as string | null) ?? null,
       token: (p.token as string | null) ?? null,
+      event_id: (p.event_id as string | null) ?? null,
     }))
     .filter(p => {
       if (p.organization_id && p.organization_id !== organizationId) return false;

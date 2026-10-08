@@ -339,7 +339,7 @@ export default function InDepthAnalyticsWidget({ widget, onUpdate }: Props) {
           campaignIds.length
             ? supabase
                 .from('pixel_purchases')
-                .select('video_id, campaign_id, amount, event_type, session_id')
+                .select('video_id, campaign_id, amount, event_type, session_id, event_id')
                 .in('campaign_id', campaignIds)
             : Promise.resolve({ data: [] as any[] }),
         ])

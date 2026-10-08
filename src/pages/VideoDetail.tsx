@@ -659,7 +659,7 @@ if (effectiveOrgId && effectiveUserId) {
         // pixel_purchases — fetch by video_id OR campaign_id (same OR pattern as Analytics)
         supabase
           .from('pixel_purchases')
-          .select('video_id, campaign_id, amount, event_type, session_id')
+          .select('video_id, campaign_id, amount, event_type, session_id, event_id')
           .or(`video_id.eq.${videoIdVal},campaign_id.eq.${campaignId}`),
       ]);
 

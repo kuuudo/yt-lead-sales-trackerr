@@ -219,7 +219,7 @@ export default function Analytics() {
         (() => {
           const q = supabase
             .from('pixel_purchases')
-            .select('video_id, campaign_id, amount, event_type, session_id, created_at');
+            .select('video_id, campaign_id, amount, event_type, session_id, created_at, event_id');
           if (campaignIds.length && videoIds.length) {
             return q.or(
               `video_id.in.(${videoIds.join(',')}),campaign_id.in.(${campaignIds.join(',')})`,

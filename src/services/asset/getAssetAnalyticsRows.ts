@@ -638,10 +638,14 @@ const assetCampaignById = new Map<
       const o = stripeOwnerByPurchaseId.get(sp.id) ?? null;
       if (o || !stripeOwnerBySession.has(sp.session_id)) stripeOwnerBySession.set(sp.session_id, o);
     }
-    const pixelRes = await resolvePixelPurchaseJourneys(
-      pixelPurchases.map((p) => ({ id: p.id, events_journey_id: p.events_journey_id ?? null })),
-    );
-    const pixelById = new Map(pixelPurchases.map((p) => [p.id, p]));
+   const pixelRes = await resolvePixelPurchaseJourneys(
+  pixelPurchases.map((p) => ({
+    id: p.id,
+    event_id: p.event_id ?? null,
+  })),
+);
+
+const pixelById = new Map(pixelPurchases.map((p) => [p.id, p]));
     pixelRes.forEach((r) => {
       if (r.status !== 'resolved' || !r.startVideoId || !r.startAssetId) return;
       const p = pixelById.get(r.purchaseId);
