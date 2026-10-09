@@ -52,7 +52,17 @@ import JourneyStrip, {
   type JourneyStripStep,
   type AssetScopeTag,
 } from '../components/analytics/JourneyStrip';
-
+import {
+  getPromotionAssignmentGroups,
+  type PromotionAssignmentGroups,
+  type AssignmentGroup,
+} from '../services/promotion/getPromotionAssignmentGroups';
+import { useAnalyticsMobileLayout } from './analytics-lego/useAnalyticsMobileLayout';
+import { AnalyticsMobileViewToggle } from './analytics-lego/AnalyticsMobileViewToggle';
+import {
+  AnalyticsMobileFilterButton,
+  AnalyticsMobileFilterSheet,
+} from './analytics-lego/AnalyticsMobileFilterSheet';
 /** Batch size for discoverJourneysForVideos — not a membership gate. */
 const DISCOVERY_BATCH = 50;
 
@@ -309,6 +319,7 @@ type VideoDisplay = {
   assetCampaignId: string | null;
   isAssigned: boolean;
   promotionIds: string[];
+  createdViaCreative: boolean;
 };
 
 async function loadVideoDisplayMap(
@@ -470,6 +481,7 @@ async function loadVideoDisplayMap(
       assetScope,
       assetCampaignId: asset?.campaign_id ?? (isAsset ? ((v.campaign_id as string | null) ?? null) : null),
       isAssigned,
+      createdViaCreative: !!v.created_via_creative,
       promotionIds: Array.from(
         new Set([
           ...(assetId ? promotionIdsByAsset.get(assetId) ?? [] : []),
@@ -625,6 +637,13 @@ export default function JourneyAnalytics() {
   const [hideArchivedPromotion, setHideArchivedPromotion] = useState(false);
 
   const [sidebarOpen, setSidebarOpen] = useState(false);
+    // Mobile chrome — same LEGO AllAssetsAnalytics uses. Cards|Table is mapped
+  // onto the existing showAnalytics flag, so only landscape + sheet state is used.
+  const {
+    isMobileLandscape,
+    filterOpen: mobileMenuOpen,
+    setFilterOpen: setMobileMenuOpen,
+  } = useAnalyticsMobileLayout('cards');
   const [selectedVideoId, setSelectedVideoId] = useState<string | null>(null);
   const [showAnalytics, setShowAnalytics] = useState(false);
   const [showContentOwner, setShowContentOwner] = useState(false);
@@ -659,6 +678,53 @@ export default function JourneyAnalytics() {
     return Array.from(ids).sort();
   }, [videoDisplay]);
   const promotionOptions = usePromotionOptions(loadedPromotionIds);
+    const promotionNameById = useMemo(
+    () => new Map(promotionOptions.map((p) => [p.id, p.name])),
+    [promotionOptions],
+  );
+
+  // Promotion panel tabs — same service/shape as AllAssetsAnalytics.
+  const [promotionTab, setPromotionTab] = useState<'all' | 'toMe' | 'byMe'>('all');
+  const [selectedPersonId, setSelectedPersonId] = useState<string | null>(null);
+  const [assignmentGroups, setAssignmentGroups] = useState<PromotionAssignmentGroups | null>(null);
+  const [assignmentGroupsLoading, setAssignmentGroupsLoading] = useState(false);
+  const [creativeScopeFilter, setCreativeScopeFilter] = useState<null | 'toMe' | 'byMe'>(null);
+
+  // Lazy-load on first open (desktop panel or mobile sheet) — not refetched on tab switch.
+  useEffect(() => {
+    if (
+      (!promotionOpen && !mobileMenuOpen) ||
+      assignmentGroups ||
+      assignmentGroupsLoading ||
+      !user?.id
+    )
+      return;
+    setAssignmentGroupsLoading(true);
+    getPromotionAssignmentGroups(user.id)
+      .then(setAssignmentGroups)
+      .catch((e) => {
+        console.warn('[JourneyAnalytics] promotion assignment groups failed', e?.message ?? e);
+        setAssignmentGroups({ assignedToMe: [], assignedByMe: [] });
+      })
+      .finally(() => setAssignmentGroupsLoading(false));
+  }, [promotionOpen, mobileMenuOpen, assignmentGroups, assignmentGroupsLoading, user?.id]);
+
+  const activeGroupList: AssignmentGroup[] =
+    promotionTab === 'toMe'
+      ? assignmentGroups?.assignedToMe ?? []
+      : promotionTab === 'byMe'
+        ? assignmentGroups?.assignedByMe ?? []
+        : [];
+  const selectedPerson = activeGroupList.find((g) => g.person.id === selectedPersonId) ?? null;
+
+  const promotionButtonLabel =
+    selectedPromotionIds.length > 0
+      ? `${selectedPromotionIds.length} Selected`
+      : creativeScopeFilter
+        ? creativeScopeFilter === 'toMe'
+          ? 'Creative · To Me'
+          : 'Creative · By Me'
+        : 'All Promotions';
   useEffect(() => {
     let cancelled = false;
     setLoading(true);
@@ -854,7 +920,19 @@ export default function JourneyAnalytics() {
         }),
       );
     }
-
+    // Creative scope (Promotion → Assigned to Me / by Me → Creative).
+    // Same rule as filterByCreativeScope, applied to any step; full path is kept.
+    if (creativeScopeFilter) {
+      list = list.filter((j) =>
+        (j.path?.steps ?? []).some((s) => {
+          const d = videoDisplay.get(s.videoId);
+          if (!d?.createdViaCreative || !d.userId) return false;
+          return creativeScopeFilter === 'toMe'
+            ? d.userId === user?.id
+            : d.userId !== user?.id;
+        }),
+      );
+    }
     // Asset Type — journey must contain an Asset of one of the selected types
     if (selectedAssetTypes.length > 0) {
       list = list.filter((j) =>
@@ -899,6 +977,8 @@ export default function JourneyAnalytics() {
     selectedAssetCampaignIds,
     selectedPromotionIds,
     selectedAssetTypes,
+    creativeScopeFilter,
+    user?.id,
     selectedAssetSource,
     videoDisplay,
     dateRange,
@@ -931,7 +1011,7 @@ export default function JourneyAnalytics() {
 
   // ── Sidebar ───────────────────────────────────────────────────────────────
   const sidebarFilters = (
-    <div className="flex-1 overflow-y-auto px-6 py-6 custom-scrollbar space-y-8">
+        <div className="space-y-8">
       <div>
         <label className="text-[10px] font-black uppercase tracking-widest text-zinc-500 mb-3 block">
           Date Range
@@ -1191,9 +1271,7 @@ export default function JourneyAnalytics() {
             <span className="flex items-center gap-2 min-w-0 truncate">
               <Megaphone size={12} className="shrink-0 text-zinc-600" />
               <span className="truncate">
-                {selectedPromotionIds.length === 0
-                  ? 'All Promotions'
-                  : `${selectedPromotionIds.length} Selected`}
+                {promotionButtonLabel}
               </span>
             </span>
             <ChevronDown
@@ -1206,41 +1284,180 @@ export default function JourneyAnalytics() {
             onClose={() => setPromotionOpen(false)}
             panelRef={promotionRef}
           >
-            <button
-              type="button"
-              onClick={() => setSelectedPromotionIds([])}
-              className="w-full flex items-center gap-2 text-left px-4 py-2.5 text-[10px] font-bold text-zinc-300 hover:bg-zinc-800 border-b border-zinc-800"
-            >
-              {selectedPromotionIds.length === 0 ? (
-                <Check size={11} className="shrink-0 text-red-500" />
-              ) : (
-                <span className="w-[11px] shrink-0" />
-              )}
-              All Promotions
-            </button>
-            {promotionOptions.length === 0 && (
-              <div className="px-4 py-3 text-[10px] text-zinc-600">
-                No promotions found in the loaded journeys
-              </div>
-            )}
-            {promotionOptions.map((p) => {
-              const on = selectedPromotionIds.includes(p.id);
-              return (
+            <div className="flex items-center gap-1 px-3 pt-3 pb-2 border-b border-zinc-800">
+              {(
+                [
+                  { key: 'all', label: 'All' },
+                  { key: 'toMe', label: 'Assigned to Me' },
+                  { key: 'byMe', label: 'Assigned by Me' },
+                ] as const
+              ).map((tab) => (
                 <button
-                  key={p.id}
+                  key={tab.key}
                   type="button"
-                  onClick={() => toggleId(p.id, selectedPromotionIds, setSelectedPromotionIds)}
-                  className="w-full flex items-center gap-2 text-left px-4 py-2 text-[10px] font-bold text-zinc-300 hover:bg-zinc-800 truncate"
+                  onClick={() => {
+                    setPromotionTab(tab.key);
+                    setSelectedPersonId(null);
+                  }}
+                  className={`px-2.5 py-1.5 rounded-lg text-[9px] font-black uppercase tracking-widest transition-all ${
+                    promotionTab === tab.key
+                      ? 'bg-zinc-700 text-white'
+                      : 'text-zinc-600 hover:text-zinc-400'
+                  }`}
                 >
-                  {on ? (
+                  {tab.label}
+                </button>
+              ))}
+            </div>
+
+            {promotionTab === 'all' && (
+              <div>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setSelectedPromotionIds([]);
+                    setCreativeScopeFilter(null);
+                  }}
+                  className="w-full flex items-center gap-2 text-left px-4 py-2.5 text-[10px] font-bold text-zinc-300 hover:bg-zinc-800 border-b border-zinc-800"
+                >
+                  {selectedPromotionIds.length === 0 && !creativeScopeFilter ? (
                     <Check size={11} className="shrink-0 text-red-500" />
                   ) : (
                     <span className="w-[11px] shrink-0" />
                   )}
-                  <span className="truncate">{p.name}</span>
+                  All Promotions
                 </button>
-              );
-            })}
+                {promotionOptions.length === 0 && (
+                  <div className="px-4 py-3 text-[10px] text-zinc-600">
+                    No promotions found in the loaded journeys
+                  </div>
+                )}
+                {promotionOptions.map((p) => {
+                  const on = selectedPromotionIds.includes(p.id);
+                  return (
+                    <button
+                      key={p.id}
+                      type="button"
+                      onClick={() => toggleId(p.id, selectedPromotionIds, setSelectedPromotionIds)}
+                      className="w-full flex items-center gap-2 text-left px-4 py-2 text-[10px] font-bold text-zinc-300 hover:bg-zinc-800 truncate"
+                    >
+                      {on ? (
+                        <Check size={11} className="shrink-0 text-red-500" />
+                      ) : (
+                        <span className="w-[11px] shrink-0" />
+                      )}
+                      <span className="truncate">{p.name}</span>
+                    </button>
+                  );
+                })}
+              </div>
+            )}
+
+            {(promotionTab === 'toMe' || promotionTab === 'byMe') && (
+              <div>
+                <div className="px-3 py-2 border-b border-zinc-800">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setCreativeScopeFilter(promotionTab === 'toMe' ? 'toMe' : 'byMe');
+                      setSelectedPromotionIds([]);
+                      setPromotionOpen(false);
+                    }}
+                    className={`w-full text-left px-3 py-2 rounded-lg text-[9px] font-black uppercase tracking-widest border transition-all ${
+                      creativeScopeFilter === (promotionTab === 'toMe' ? 'toMe' : 'byMe')
+                        ? 'bg-red-600 border-red-600 text-white'
+                        : 'bg-zinc-950 border-zinc-800 text-zinc-400 hover:border-zinc-600'
+                    }`}
+                  >
+                    Creative
+                  </button>
+                  {creativeScopeFilter && (
+                    <button
+                      type="button"
+                      onClick={() => setCreativeScopeFilter(null)}
+                      className="mt-1 w-full text-left px-3 py-1.5 text-[9px] font-bold text-zinc-600 hover:text-zinc-400"
+                    >
+                      Clear Creative filter
+                    </button>
+                  )}
+                </div>
+
+                <div className="py-2">
+                  {assignmentGroupsLoading && (
+                    <div className="px-4 py-6 text-center text-[10px] font-bold text-zinc-600">
+                      Loading…
+                    </div>
+                  )}
+
+                  {!assignmentGroupsLoading && !selectedPerson && activeGroupList.length === 0 && (
+                    <div className="px-4 py-6 text-center text-[10px] font-bold text-zinc-600">
+                      Nothing here yet.
+                    </div>
+                  )}
+
+                  {!assignmentGroupsLoading &&
+                    !selectedPerson &&
+                    activeGroupList.map((group) => (
+                      <button
+                        key={group.person.id}
+                        type="button"
+                        onClick={() => setSelectedPersonId(group.person.id)}
+                        className="w-full flex items-center justify-between gap-2 px-4 py-2.5 hover:bg-zinc-800 transition-colors text-left"
+                      >
+                        <span className="min-w-0">
+                          <span className="block text-[8px] font-black uppercase tracking-widest text-zinc-600">
+                            {promotionTab === 'toMe' ? 'Sponsor' : 'Marketer'}
+                          </span>
+                          <span className="block text-[10px] font-bold text-zinc-300 truncate">
+                            {group.person.name}
+                          </span>
+                        </span>
+                        <span className="shrink-0 text-[9px] font-bold text-zinc-500 whitespace-nowrap">
+                          {group.promotions.length} Promotion
+                          {group.promotions.length === 1 ? '' : 's'} →
+                        </span>
+                      </button>
+                    ))}
+
+                  {!assignmentGroupsLoading && selectedPerson && (
+                    <div>
+                      <button
+                        type="button"
+                        onClick={() => setSelectedPersonId(null)}
+                        className="w-full flex items-center gap-1.5 px-4 py-2 text-[9px] font-black uppercase tracking-widest text-zinc-500 hover:text-white transition-colors"
+                      >
+                        <ChevronLeft size={11} />
+                        {selectedPerson.person.name}
+                      </button>
+                      {selectedPerson.promotions.map((p) => {
+                        const on = selectedPromotionIds.includes(p.id);
+                        return (
+                          <button
+                            key={p.id}
+                            type="button"
+                            onClick={() =>
+                              toggleId(p.id, selectedPromotionIds, setSelectedPromotionIds)
+                            }
+                            className="w-full flex items-center gap-2 text-left px-4 py-2 text-[10px] font-bold text-zinc-300 hover:bg-zinc-800 truncate"
+                          >
+                            {on ? (
+                              <Check size={11} className="shrink-0 text-red-500" />
+                            ) : (
+                              <span className="w-[11px] shrink-0" />
+                            )}
+                            <span className="truncate">
+                              {promotionNameById.get(p.id) ??
+                                p.assignment?.title ??
+                                `Promotion ${p.id.slice(0, 8)}`}
+                            </span>
+                          </button>
+                        );
+                      })}
+                    </div>
+                  )}
+                </div>
+              </div>
+            )}
           </FilterMultiPanel>
         </div>
       </div>
@@ -1394,7 +1611,7 @@ export default function JourneyAnalytics() {
     <div className="flex h-screen bg-black text-zinc-300 overflow-hidden fixed inset-0 z-[100]">
       <aside
         className={`${
-          sidebarOpen ? 'flex' : 'hidden'
+          sidebarOpen ? 'hidden lg:flex' : 'hidden'
         } w-80 bg-zinc-950 border-r border-zinc-900 flex-col shrink-0 fixed inset-y-0 left-0 z-50 lg:static`}
       >
         <div className="flex items-center justify-between px-6 py-4 border-b border-zinc-900 shrink-0">
@@ -1410,21 +1627,33 @@ export default function JourneyAnalytics() {
             <X size={16} />
           </button>
         </div>
-        {sidebarFilters}
+                {sidebarOpen && (
+          <div className="flex-1 overflow-y-auto px-6 py-6 custom-scrollbar">
+            {sidebarFilters}
+          </div>
+        )}
       </aside>
 
-      {sidebarOpen && (
-        <div
-          className="fixed inset-0 bg-black/60 z-40 lg:hidden"
-          onClick={() => setSidebarOpen(false)}
-          aria-hidden
-        />
-      )}
+   
 
       <div className="flex-1 flex flex-col min-w-0 overflow-hidden">
+        <AnalyticsMobileFilterSheet open={mobileMenuOpen} onOpenChange={setMobileMenuOpen}>
+          {sidebarFilters}
+          <div className="pt-2">
+            <button
+              type="button"
+              onClick={() => setMobileMenuOpen(false)}
+              className="w-full py-3 rounded-xl bg-red-600 text-white text-[11px] font-black uppercase tracking-widest"
+            >
+              Show {visibleJourneys.length} Journeys
+            </button>
+          </div>
+        </AnalyticsMobileFilterSheet>
+
+        {!isMobileLandscape && (
         <header className="shrink-0 border-b border-zinc-900 bg-zinc-950 px-4 lg:px-6 py-4">
           <div className="flex flex-wrap items-center justify-between gap-3">
-            <div className="flex items-center gap-3 min-w-0">
+            <div className="flex items-center gap-3 min-w-0 w-full lg:w-auto">
               <button
                 type="button"
                 onClick={() => navigate(-1)}
@@ -1437,7 +1666,7 @@ export default function JourneyAnalytics() {
                 type="button"
                 title="Sidebar filters"
                 onClick={() => setSidebarOpen((o) => !o)}
-                className={`p-3 border rounded-2xl transition-all ${
+                className={`hidden lg:flex p-3 border rounded-2xl transition-all ${
                   sidebarOpen
                     ? 'bg-red-600 border-red-600 text-white'
                     : 'bg-zinc-900 border-zinc-800 text-zinc-400 hover:text-white'
@@ -1453,6 +1682,10 @@ export default function JourneyAnalytics() {
                   One row = one journey
                 </p>
               </div>
+              <AnalyticsMobileFilterButton
+                className="ml-auto"
+                onClick={() => setMobileMenuOpen(!mobileMenuOpen)}
+              />
             </div>
 
             <div className="flex flex-wrap items-center gap-2">
@@ -1499,7 +1732,7 @@ export default function JourneyAnalytics() {
               <button
                 type="button"
                 onClick={() => setShowAnalytics((v) => !v)}
-                className={`h-9 px-4 rounded-xl border text-[9px] font-black uppercase tracking-widest transition-all flex items-center gap-1.5 ${
+                className={`hidden lg:flex h-9 px-4 rounded-xl border text-[9px] font-black uppercase tracking-widest transition-all items-center gap-1.5 ${
                   showAnalytics
                     ? 'bg-red-600 border-red-600 text-white'
                     : 'bg-zinc-900 border-zinc-800 text-zinc-300 hover:text-white hover:border-zinc-600'
@@ -1557,9 +1790,13 @@ export default function JourneyAnalytics() {
               {truncated && <span className="text-amber-600"> · Truncated</span>}
             </div>
           </div>
-        </header>
+```
+    </header>
+    )}
 
-        <div className="flex-1 overflow-auto custom-scrollbar">
+    <div className="flex-1 overflow-auto custom-scrollbar">
+```
+
           {loading && (
             <div className="py-20 text-center">
               <Loader2 className="animate-spin text-red-600 mx-auto" size={32} aria-hidden />
