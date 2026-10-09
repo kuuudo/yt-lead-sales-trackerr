@@ -514,7 +514,7 @@ export default function PartnerAnalytics() {
   );
 
   return (
-<div className="flex flex-col gap-6 overflow-x-clip">
+<div className="flex flex-col gap-6">
       {/* Header */}
       <div className="flex flex-wrap items-end justify-between gap-4">
         <div className="min-w-0">
