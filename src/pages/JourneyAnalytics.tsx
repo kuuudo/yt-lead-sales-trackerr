@@ -66,7 +66,7 @@ import {
 /** Batch size for discoverJourneysForVideos — not a membership gate. */
 const DISCOVERY_BATCH = 50;
 
-const JOURNEY_ANALYTICS_EXTRA = [
+export const JOURNEY_ANALYTICS_EXTRA = [
   { key: 'type', label: 'Type' },
   { key: 'promotion', label: 'Promotion' },
   { key: 'asset_campaign', label: 'Asset Campaign' },
