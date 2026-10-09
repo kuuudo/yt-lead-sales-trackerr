@@ -237,7 +237,7 @@ export default function PartnerJourneySection({
 
   // ── Load lazily: only once the section is near the viewport ──────────────
   const rootRef = useRef<HTMLElement>(null);
-  const [armed, setArmed] = useState(false);
+const [armed, setArmed] = useState(true);
   useEffect(() => {
     const el = rootRef.current;
     if (!el || armed) return;
@@ -541,7 +541,7 @@ const [sheetOpen, setSheetOpen] = useState(false);
     <section
       ref={rootRef}
       aria-label={labels.title}
-className="relative left-1/2 -ml-[50vw] w-screen flex bg-black border-y border-zinc-900"
+className="relative left-1/2 -ml-[50vw] w-screen flex mt-8 min-h-[75vh] border-t border-zinc-800/60 bg-gradient-to-b from-zinc-950 via-black to-black"
     >
       {/* Filters sidebar: sits beside the content, so it pushes it */}
       {isDesktop && panelOpen && (
@@ -717,9 +717,24 @@ className="relative left-1/2 -ml-[50vw] w-screen flex bg-black border-y border-z
 
       {/* Rows */}
       {(!armed || loading) && (
-        <div className="py-16 text-center">
-          <Loader2 className="animate-spin text-red-600 mx-auto" size={28} aria-hidden />
-          <div className="text-[11px] font-black uppercase tracking-widest text-zinc-400 mt-3">{labels.loading}</div>
+        <div className="space-y-2" aria-busy="true">
+          <div className="flex items-center gap-2 text-[10px] font-black uppercase tracking-widest text-zinc-500">
+            <Loader2 className="animate-spin text-red-600" size={14} aria-hidden />
+            {labels.loading}
+          </div>
+          {[0, 1, 2, 3].map((i) => (
+            <div key={i} className="rounded-xl border border-zinc-900 bg-zinc-950/80 px-3 py-3 animate-pulse">
+              <div className="h-1.5 w-16 rounded bg-zinc-800 mb-3" />
+              <div className="flex items-center gap-3">
+                {[0, 1, 2].map((k) => (
+                  <React.Fragment key={k}>
+                    <div className="w-[100px] h-[120px] rounded-lg border border-zinc-800 bg-zinc-900" />
+                    {k < 2 && <div className="w-4 h-px bg-zinc-800" />}
+                  </React.Fragment>
+                ))}
+              </div>
+            </div>
+          ))}
         </div>
       )}
 
