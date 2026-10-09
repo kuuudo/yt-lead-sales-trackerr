@@ -101,14 +101,14 @@ function toAssetTypeTag(assetType: string | null | undefined): string | null {
   return 'content_video';
 }
 
-const ASSET_TYPE_OPTIONS = [
+export const ASSET_TYPE_OPTIONS = [
   { value: 'campaign_element', label: 'Campaign Element' },
   { value: 'promotional_video', label: 'Promotional Video' },
   { value: 'resource', label: 'Resource' },
   { value: 'content_video', label: 'Content Video' },
 ] as const;
 
-const SCOPE_OPTIONS = [
+export const SCOPE_OPTIONS = [
   { value: 'all', label: 'All' },
   { value: 'my', label: 'My' },
   { value: 'shared', label: 'Shared' },
@@ -117,7 +117,7 @@ const SCOPE_OPTIONS = [
 
 // ── Org + campaigns + promotions ────────────────────────────────────────────
 
-function useCampaignOptions(viewerId: string | null): Campaign[] {
+export function useCampaignOptions(viewerId: string | null): Campaign[] {
   const [campaigns, setCampaigns] = useState<Campaign[]>([]);
   useEffect(() => {
     if (!viewerId) return;
@@ -136,7 +136,7 @@ function useCampaignOptions(viewerId: string | null): Campaign[] {
   return campaigns;
 }
 
-type PromotionOption = { id: string; name: string };
+export type PromotionOption = { id: string; name: string };
 
 /** Fetch rows from `table` by primary key, in chunks. Errors are logged, never swallowed. */
 async function fetchRowsByIds(
@@ -172,7 +172,7 @@ async function fetchRowsByIds(
  *   else promotions.campaign_id → campaigns.campaign_name
  *   else "Promotion XXXXXXXX" (first 8 chars of the id)
  */
-function usePromotionOptions(promotionIds: string[]): PromotionOption[] {
+export function usePromotionOptions(promotionIds: string[]): PromotionOption[] {
   const [names, setNames] = useState<Map<string, string>>(new Map());
   const idsKey = promotionIds.join(',');
 
@@ -301,7 +301,7 @@ function makeSingletonJourney(videoId: string): DiscoveredJourney {
 
 // ── Per-video enrichment (canonical fields reused from All Assets model) ────
 
-type VideoDisplay = {
+export type VideoDisplay = {
   title: string;
   thumbnailUrl: string | null;
   platform: string | null;
@@ -511,7 +511,7 @@ function applyPromotedTypes(
   return next;
 }
 
-function stepsForJourney(
+export function stepsForJourney(
   journey: DiscoveredJourney,
   display: Map<string, VideoDisplay>,
 ): JourneyStripStep[] {
@@ -530,7 +530,7 @@ function stepsForJourney(
   });
 }
 
-function journeyPromotedTypes(
+export function journeyPromotedTypes(
   journey: DiscoveredJourney,
   display: Map<string, VideoDisplay>,
 ): Set<string> {
@@ -548,7 +548,7 @@ const WEBMOOD_CELLS = [
   { type: 'landing_page', label: 'PURCHASE' },
 ] as const;
 
-function TypeCell({ types }: { types: Set<string> }) {
+export function TypeCell({ types }: { types: Set<string> }) {
   return (
     <div className="grid grid-cols-2 gap-px w-[88px] h-[44px] rounded-md overflow-hidden border border-zinc-800 bg-zinc-950 shrink-0">
       {WEBMOOD_CELLS.map((cell) => {
@@ -570,7 +570,7 @@ function TypeCell({ types }: { types: Set<string> }) {
   );
 }
 
-function FilterMultiPanel({
+export function FilterMultiPanel({
   open,
   onClose,
   panelRef,
@@ -595,6 +595,171 @@ function FilterMultiPanel({
       {children}
     </div>
   );
+}
+
+// ── Shared dataset loader (JourneyAnalytics + PartnerJourneySection) ─────────
+// Moved verbatim out of JourneyAnalytics' load effect — same membership rules:
+// org content universe (Videos.tsx) + observed journeys + singleton rows.
+
+export type JourneyDataset = {
+  journeys: DiscoveredJourney[];
+  videoDisplay: Map<string, VideoDisplay>;
+  entryVideoCount: number;
+  truncated: boolean;
+  excludedJourneys: number;
+};
+
+export async function loadJourneyDataset(
+  effectiveOrgId: string | null,
+  organizationId: string | null,
+  isCancelled: () => boolean = () => false,
+): Promise<JourneyDataset | null> {
+  const empty: JourneyDataset = {
+    journeys: [],
+    videoDisplay: new Map(),
+    entryVideoCount: 0,
+    truncated: false,
+    excludedJourneys: 0,
+  };
+  if (!effectiveOrgId) return empty;
+
+  // 1) Full org content universe (Videos.tsx membership)
+  const videoIds = await loadOrgContentVideoIds(effectiveOrgId);
+  if (isCancelled()) return null;
+  if (videoIds.length === 0) return empty;
+
+  // 2) Observed journeys (enrichment) — batched, engine unchanged
+  const discovery = await discoverJourneysBatched(videoIds);
+  if (isCancelled()) return null;
+
+  const stepVideoIds = discovery.journeys.flatMap((j) =>
+    (j.path?.steps ?? []).map((s) => s.videoId),
+  );
+  const allVideoIdsForLinks = Array.from(new Set([...videoIds, ...stepVideoIds]));
+  let allLinks: StructuralLink[] = [];
+  for (let i = 0; i < allVideoIdsForLinks.length; i += DISCOVERY_BATCH) {
+    const slice = allVideoIdsForLinks.slice(i, i + DISCOVERY_BATCH);
+    const links = await resolveStructuralLinksForVideos(slice).catch((e) => {
+      console.warn('[JourneyAnalytics] structural resolution failed', e);
+      return [] as StructuralLink[];
+    });
+    allLinks = [...allLinks, ...links];
+  }
+  if (isCancelled()) return null;
+
+  let display = await loadVideoDisplayMap([...videoIds, ...stepVideoIds], organizationId);
+  if (isCancelled()) return null;
+  display = applyPromotedTypes(display, allLinks);
+
+  // 3) Videos that appear on at least one observed path
+  const videosInObservedPaths = new Set<string>();
+  for (const j of discovery.journeys) {
+    for (const s of j.path?.steps ?? []) {
+      if (s.videoId) videosInObservedPaths.add(s.videoId);
+    }
+  }
+
+  // 4) Singleton rows for org catalog videos with zero journey evidence
+  const singletons: DiscoveredJourney[] = [];
+  for (const vid of videoIds) {
+    if (!videosInObservedPaths.has(vid)) singletons.push(makeSingletonJourney(vid));
+  }
+
+  return {
+    journeys: [...discovery.journeys, ...singletons],
+    videoDisplay: display,
+    entryVideoCount: videoIds.length,
+    truncated: discovery.truncated,
+    excludedJourneys: discovery.excludedJourneys,
+  };
+}
+
+// ── Shared journey-level filters (AND). Every filter matches ANY step, and the
+// journey is always returned whole — the full path is never truncated. ───────
+
+export type JourneyFilters = {
+  selectedVideoId: string | null;
+  platforms: string[];
+  /** Content owner user ids (OR). Empty = all. */
+  contentOwnerIds: string[];
+  campaignId: string; // 'all' = off
+  contentCampaignIds: string[];
+  assetCampaignIds: string[];
+  promotionIds: string[];
+  assetTypes: string[];
+  creativeScope: null | 'toMe' | 'byMe';
+  viewerId: string | null;
+  assetSource: 'all' | 'my' | 'shared' | 'assigned';
+  dateRange: DateRange;
+  customRange: CustomDateRange | null;
+};
+
+export function filterJourneys(
+  journeys: DiscoveredJourney[],
+  videoDisplay: Map<string, VideoDisplay>,
+  f: JourneyFilters,
+): DiscoveredJourney[] {
+  let list = journeys;
+  const anyStep = (j: DiscoveredJourney, fn: (d: VideoDisplay | undefined) => boolean) =>
+    (j.path?.steps ?? []).some((s) => fn(videoDisplay.get(s.videoId)));
+
+  if (f.selectedVideoId) {
+    list = list.filter((j) => (j.path?.steps ?? []).some((s) => s.videoId === f.selectedVideoId));
+  }
+  if (f.platforms.length > 0) {
+    list = list.filter((j) => anyStep(j, (d) => f.platforms.includes(d?.platform ?? 'youtube')));
+  }
+  if (f.contentOwnerIds.length > 0) {
+    list = list.filter((j) => anyStep(j, (d) => !!d?.userId && f.contentOwnerIds.includes(d.userId)));
+  }
+  if (f.campaignId !== 'all') {
+    list = list.filter((j) => anyStep(j, (d) => d?.campaignId === f.campaignId));
+  }
+  if (f.contentCampaignIds.length > 0) {
+    list = list.filter((j) =>
+      anyStep(j, (d) => d?.campaignId != null && f.contentCampaignIds.includes(d.campaignId)),
+    );
+  }
+  if (f.assetCampaignIds.length > 0) {
+    list = list.filter((j) =>
+      anyStep(
+        j,
+        (d) => !!d?.isAsset && d.assetCampaignId != null && f.assetCampaignIds.includes(d.assetCampaignId),
+      ),
+    );
+  }
+  if (f.promotionIds.length > 0) {
+    list = list.filter((j) =>
+      anyStep(j, (d) => !!d?.isAsset && d.promotionIds.some((pid) => f.promotionIds.includes(pid))),
+    );
+  }
+  if (f.creativeScope) {
+    list = list.filter((j) =>
+      anyStep(j, (d) => {
+        if (!d?.createdViaCreative || !d.userId) return false;
+        return f.creativeScope === 'toMe' ? d.userId === f.viewerId : d.userId !== f.viewerId;
+      }),
+    );
+  }
+  if (f.assetTypes.length > 0) {
+    list = list.filter((j) =>
+      anyStep(j, (d) => !!d?.isAsset && d.assetTypeTag != null && f.assetTypes.includes(d.assetTypeTag)),
+    );
+  }
+  if (f.assetSource !== 'all') {
+    list = list.filter((j) => anyStep(j, (d) => !!d?.isAsset && d.assetScope === f.assetSource));
+  }
+  if (f.dateRange !== 'all') {
+    const { start, end } = getDateBounds(f.dateRange, f.customRange);
+    list = list.filter((j) =>
+      anyStep(j, (d) => {
+        if (!d?.createdAt) return false;
+        const t = new Date(d.createdAt);
+        return t >= start && t <= end;
+      }),
+    );
+  }
+  return list;
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -734,77 +899,13 @@ export default function JourneyAnalytics() {
 
     (async () => {
       try {
-        if (!effectiveOrgId) {
-          setJourneys([]);
-          setVideoDisplay(new Map());
-          setEntryVideoCount(0);
-          setTruncated(false);
-          setExcludedJourneys(0);
-          return;
-        }
-
-        // 1) Full org content universe (Videos.tsx membership)
-        const videoIds = await loadOrgContentVideoIds(effectiveOrgId);
-        if (cancelled) return;
-        setEntryVideoCount(videoIds.length);
-
-        if (videoIds.length === 0) {
-          setJourneys([]);
-          setVideoDisplay(new Map());
-          setTruncated(false);
-          setExcludedJourneys(0);
-          return;
-        }
-
-        // 2) Observed journeys (enrichment) — batched, engine unchanged
-        const discovery = await discoverJourneysBatched(videoIds);
-        if (cancelled) return;
-
-        const stepVideoIds = discovery.journeys.flatMap((j) =>
-          (j.path?.steps ?? []).map((s) => s.videoId),
-        );
-        const allVideoIdsForLinks = Array.from(
-          new Set([...videoIds, ...stepVideoIds]),
-        );
-        let allLinks: StructuralLink[] = [];
-        for (let i = 0; i < allVideoIdsForLinks.length; i += DISCOVERY_BATCH) {
-          const slice = allVideoIdsForLinks.slice(i, i + DISCOVERY_BATCH);
-          const links = await resolveStructuralLinksForVideos(slice).catch((e) => {
-            console.warn('[JourneyAnalytics] structural resolution failed', e);
-            return [] as StructuralLink[];
-          });
-          allLinks = [...allLinks, ...links];
-        }
-        if (cancelled) return;
-
-        let display = await loadVideoDisplayMap(
-          [...videoIds, ...stepVideoIds],
-          organizationId,
-        );
-        if (cancelled) return;
-        display = applyPromotedTypes(display, allLinks);
-
-        // 3) Videos that appear on at least one observed path
-        const videosInObservedPaths = new Set<string>();
-        for (const j of discovery.journeys) {
-          for (const s of j.path?.steps ?? []) {
-            if (s.videoId) videosInObservedPaths.add(s.videoId);
-          }
-        }
-
-        // 4) Singleton rows for org catalog videos with zero journey evidence
-        const singletons: DiscoveredJourney[] = [];
-        for (const vid of videoIds) {
-          if (!videosInObservedPaths.has(vid)) {
-            singletons.push(makeSingletonJourney(vid));
-          }
-        }
-
-        // Observed journeys first (full paths), then singleton [Video] rows
-        setJourneys([...discovery.journeys, ...singletons]);
-        setTruncated(discovery.truncated);
-        setExcludedJourneys(discovery.excludedJourneys);
-        setVideoDisplay(display);
+        const ds = await loadJourneyDataset(effectiveOrgId, organizationId, () => cancelled);
+        if (cancelled || !ds) return;
+        setEntryVideoCount(ds.entryVideoCount);
+        setJourneys(ds.journeys);
+        setTruncated(ds.truncated);
+        setExcludedJourneys(ds.excludedJourneys);
+        setVideoDisplay(ds.videoDisplay);
       } catch (e: any) {
         if (!cancelled) {
           setError(e?.message ?? String(e));
@@ -848,142 +949,41 @@ export default function JourneyAnalytics() {
   }, [campaignOptions]);
 
   // ── Journey-level filters (AND) ───────────────────────────────────────────
-  const visibleJourneys = useMemo(() => {
-    let list = journeys;
-
-    // Selected video
-    if (selectedVideoId) {
-      list = list.filter((j) =>
-        (j.path?.steps ?? []).some((s) => s.videoId === selectedVideoId),
-      );
-    }
-
-    // Platform — any step
-    if (selectedPlatforms.length > 0) {
-      list = list.filter((j) =>
-        (j.path?.steps ?? []).some((s) => {
-          const p = videoDisplay.get(s.videoId)?.platform ?? 'youtube';
-          return selectedPlatforms.includes(p);
-        }),
-      );
-    }
-
-    // Content Marketer — any step content owner
-    if (selectedContentOwnerId !== 'all') {
-      list = list.filter((j) =>
-        (j.path?.steps ?? []).some(
-          (s) => videoDisplay.get(s.videoId)?.userId === selectedContentOwnerId,
-        ),
-      );
-    }
-
-    // Sidebar Campaign select — journey-level (not membership)
-    if (selectedCampaignId !== 'all') {
-      list = list.filter((j) =>
-        (j.path?.steps ?? []).some(
-          (s) => videoDisplay.get(s.videoId)?.campaignId === selectedCampaignId,
-        ),
-      );
-    }
-
-    // Content Campaign multi-select — any step video.campaign_id
-    if (selectedContentCampaignIds.length > 0) {
-      list = list.filter((j) =>
-        (j.path?.steps ?? []).some((s) => {
-          const cid = videoDisplay.get(s.videoId)?.campaignId;
-          return cid != null && selectedContentCampaignIds.includes(cid);
-        }),
-      );
-    }
-
-    // Asset Campaign — journey must contain an Asset with matching assetCampaignId
-    if (selectedAssetCampaignIds.length > 0) {
-      list = list.filter((j) =>
-        (j.path?.steps ?? []).some((s) => {
-          const d = videoDisplay.get(s.videoId);
-          return (
-            d?.isAsset &&
-            d.assetCampaignId != null &&
-            selectedAssetCampaignIds.includes(d.assetCampaignId)
-          );
-        }),
-      );
-    }
-
-    // Promotion — journey must contain an Asset linked to one of the promotions
-    if (selectedPromotionIds.length > 0) {
-      list = list.filter((j) =>
-        (j.path?.steps ?? []).some((s) => {
-          const d = videoDisplay.get(s.videoId);
-          if (!d?.isAsset) return false;
-          return d.promotionIds.some((pid) => selectedPromotionIds.includes(pid));
-        }),
-      );
-    }
-    // Creative scope (Promotion → Assigned to Me / by Me → Creative).
-    // Same rule as filterByCreativeScope, applied to any step; full path is kept.
-    if (creativeScopeFilter) {
-      list = list.filter((j) =>
-        (j.path?.steps ?? []).some((s) => {
-          const d = videoDisplay.get(s.videoId);
-          if (!d?.createdViaCreative || !d.userId) return false;
-          return creativeScopeFilter === 'toMe'
-            ? d.userId === user?.id
-            : d.userId !== user?.id;
-        }),
-      );
-    }
-    // Asset Type — journey must contain an Asset of one of the selected types
-    if (selectedAssetTypes.length > 0) {
-      list = list.filter((j) =>
-        (j.path?.steps ?? []).some((s) => {
-          const d = videoDisplay.get(s.videoId);
-          return d?.isAsset && d.assetTypeTag != null && selectedAssetTypes.includes(d.assetTypeTag);
-        }),
-      );
-    }
-
-    // Asset Scope — journey must contain an Asset with matching scope
-    if (selectedAssetSource !== 'all') {
-      list = list.filter((j) =>
-        (j.path?.steps ?? []).some((s) => {
-          const d = videoDisplay.get(s.videoId);
-          return d?.isAsset && d.assetScope === selectedAssetSource;
-        }),
-      );
-    }
-
-    // Date — any step video created_at
-    if (dateRange !== 'all') {
-      const { start, end } = getDateBounds(dateRange, customRange);
-      list = list.filter((j) =>
-        (j.path?.steps ?? []).some((s) => {
-          const created = videoDisplay.get(s.videoId)?.createdAt;
-          if (!created) return false;
-          const t = new Date(created);
-          return t >= start && t <= end;
-        }),
-      );
-    }
-
-    return list;
-  }, [
-    journeys,
-    selectedVideoId,
-    selectedPlatforms,
-    selectedContentOwnerId,
-    selectedCampaignId,
-    selectedContentCampaignIds,
-    selectedAssetCampaignIds,
-    selectedPromotionIds,
-    selectedAssetTypes,
-    creativeScopeFilter,
-    user?.id,
-    selectedAssetSource,
-    videoDisplay,
-    dateRange,
-    customRange,
-  ]);
+  const visibleJourneys = useMemo(
+    () =>
+      filterJourneys(journeys, videoDisplay, {
+        selectedVideoId,
+        platforms: selectedPlatforms,
+        contentOwnerIds: selectedContentOwnerId === 'all' ? [] : [selectedContentOwnerId],
+        campaignId: selectedCampaignId,
+        contentCampaignIds: selectedContentCampaignIds,
+        assetCampaignIds: selectedAssetCampaignIds,
+        promotionIds: selectedPromotionIds,
+        assetTypes: selectedAssetTypes,
+        creativeScope: creativeScopeFilter,
+        viewerId: user?.id ?? null,
+        assetSource: selectedAssetSource,
+        dateRange,
+        customRange,
+      }),
+    [
+      journeys,
+      selectedVideoId,
+      selectedPlatforms,
+      selectedContentOwnerId,
+      selectedCampaignId,
+      selectedContentCampaignIds,
+      selectedAssetCampaignIds,
+      selectedPromotionIds,
+      selectedAssetTypes,
+      creativeScopeFilter,
+      user?.id,
+      selectedAssetSource,
+      videoDisplay,
+      dateRange,
+      customRange,
+    ],
+  );
 
   const handleSelectVideo = useCallback((videoId: string) => {
     setSelectedVideoId((prev) => (prev === videoId ? null : videoId));
@@ -1790,12 +1790,10 @@ export default function JourneyAnalytics() {
               {truncated && <span className="text-amber-600"> · Truncated</span>}
             </div>
           </div>
-```
     </header>
     )}
 
     <div className="flex-1 overflow-auto custom-scrollbar">
-```
 
           {loading && (
             <div className="py-20 text-center">

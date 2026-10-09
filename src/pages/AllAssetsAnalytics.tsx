@@ -107,7 +107,7 @@ import {
 
 import {
   ChevronLeft, Filter, Columns, ChevronDown, ArrowUpDown, Boxes,
-  Calendar, Briefcase, Megaphone, Check, User, Menu, X, Loader2,
+  Calendar, Briefcase, Megaphone, Check, User, Users, Menu, X, Loader2,
 } from 'lucide-react';
 
 import {
@@ -2883,6 +2883,13 @@ export default function AllAssetsAnalytics() {
               {/* Row count + Apply */}
               <div className="pt-2">
                 <button
+                  onClick={() => navigate('/analytics/partners')}
+                  className="w-full mb-2 py-3 rounded-xl border border-zinc-800 bg-zinc-900 text-zinc-300 text-[11px] font-black uppercase tracking-widest flex items-center justify-center gap-2"
+                >
+                  <Users size={13} />
+                  Partner Analytics
+                </button>
+                <button
                   onClick={() => setMobileMenuOpen(false)}
                   className="w-full py-3 rounded-xl bg-red-600 text-white text-[11px] font-black uppercase tracking-widest"
                 >
@@ -3002,6 +3009,15 @@ export default function AllAssetsAnalytics() {
                   </div>
                 )}
               </div>
+
+              {/* Entry point → Partner Analytics (existing route /analytics/partners) */}
+              <button
+                onClick={() => navigate('/analytics/partners')}
+                className="flex items-center gap-2 px-3 py-2 rounded-xl border border-zinc-800 bg-zinc-900 text-[9px] font-black uppercase tracking-widest text-zinc-400 hover:text-white transition-all"
+              >
+                <Users size={13} />
+                Partner Analytics
+              </button>
 
               {/* Row count */}
               <div className="px-4 py-2 bg-zinc-900/50 border border-zinc-900 rounded-xl">
