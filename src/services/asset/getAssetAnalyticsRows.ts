@@ -64,7 +64,8 @@ import {
   resolveStripePurchaseJourneys,
   type StripePurchaseJourneyResolution,
 } from '../attribution/resolveStripePurchaseJourneys';
-import { resolvePixelPurchaseJourneys } from '../attribution/resolvePixelPurchaseJourneys';
+import { resolveConversionOwners } from '../attribution/resolveConversionOwners';
+
 
 // ---------------------------------------------------------------------------
 // Public types
@@ -592,77 +593,134 @@ const assetCampaignById = new Map<
   }
 
   // ── 5. Per-asset computeAssetAnalytics — KEEP relationships ───────────
-// ── Layer 3: Stripe purchase → TRUE START owner row ──────────────────────
-  // Only purchases whose journey START resolved AND whose (video, asset) is a real table
-  // identity are re-owned. Anything else keeps the legacy attribution (nothing vanishes).
-  const stripeOwnerByPurchaseId = new Map<string, { videoId: string; assetId: string }>();
-  {
+  // ── Phase 1: Canonical ownership (independent of activeSource) ──────────
+  // Ownership is resolved once. activeSource only controls which purchases
+  // are fed into metric aggregation (existing source isolation in the engine).
+  let stripeOwnerByPurchaseId = new Map<string, { videoId: string; assetId: string }>();
+  let pixelOwnerByPurchaseId = new Map<string, { videoId: string; assetId: string }>();
+  let uncountedPixelIds = new Set<string>();
+  let suppressedPixelIds = new Set<string>();
+
+  try {
+    console.time('[AssetAnalyticsRows] resolveConversionOwners');
+    const owners = await resolveConversionOwners({
+      stripePurchases: stripePurchases.map((p) => {
+        const sp = p as unknown as {
+          id: string;
+          session_id?: string | null;
+          token?: string | null;
+          video_id?: string | null;
+          campaign_id?: string | null;
+          amount: number | string | null;
+          created_at: string;
+          redirect_link_id?: string | null;
+          redirect_link_token?: string | null;
+          organization_id?: string | null;
+          conversion_id?: string | null;
+        };
+        return {
+          id: sp.id,
+          session_id: sp.session_id ?? null,
+          token: sp.token ?? null,
+          video_id: sp.video_id ?? null,
+          campaign_id: sp.campaign_id ?? null,
+          amount: sp.amount,
+          created_at: sp.created_at,
+          redirect_link_id: sp.redirect_link_id ?? null,
+          redirect_link_token: sp.redirect_link_token ?? null,
+          organization_id: sp.organization_id ?? null,
+          conversion_id: sp.conversion_id ?? null,
+        };
+      }),
+      pixelPurchases: pixelPurchases.map((p) => {
+        const pp = p as unknown as {
+          id: string;
+          event_id?: string | null;
+          session_id?: string | null;
+          video_id?: string | null;
+          campaign_id?: string | null;
+          amount: number | string | null;
+          event_type: string | null;
+          created_at: string;
+          asset_id?: string | null;
+          conversion_id?: string | null;
+          events_journey_id?: string | null;
+          organization_id?: string | null;
+          promotion_id?: string | null;
+        };
+        return {
+          id: pp.id,
+          event_id: pp.event_id ?? null,
+          session_id: pp.session_id ?? null,
+          video_id: pp.video_id ?? null,
+          campaign_id: pp.campaign_id ?? null,
+          amount: pp.amount,
+          event_type: pp.event_type,
+          created_at: pp.created_at,
+          asset_id: pp.asset_id ?? null,
+          conversion_id: pp.conversion_id ?? null,
+          events_journey_id: pp.events_journey_id ?? null,
+          organization_id: pp.organization_id ?? null,
+          promotion_id: pp.promotion_id ?? null,
+        };
+      }),
+    });
+    console.timeEnd('[AssetAnalyticsRows] resolveConversionOwners');
+
+    // Layer 2 (AllAssets only): keep owner overrides whose (video, asset)
+    // identity is in the current table scope. This does NOT re-decide owner;
+    // it only decides whether the override is applicable on this page.
     const identityKeys = new Set(
       (identities as AssetAnalyticsRowIdentity[]).map((i) => `${i.video_id}::${i.asset_id}`),
     );
-    let resolvedWithStart = 0;
-    let skippedNoIdentity = 0;
-    stripeJourneyByPurchaseId.forEach((r) => {
-      if (r.status !== 'resolved' || !r.startVideoId || !r.startAssetId) return;
-      resolvedWithStart += 1;
+
+    let stripeSkippedNoIdentity = 0;
+    owners.stripeOwnerByPurchaseId.forEach((o, purchaseId) => {
       if (
-        !identityKeys.has(`${r.startVideoId}::${r.startAssetId}`) ||
-        !assetTypeById.has(r.startAssetId)
+        identityKeys.has(`${o.videoId}::${o.assetId}`) &&
+        assetTypeById.has(o.assetId)
       ) {
-        skippedNoIdentity += 1;
-        return;
+        stripeOwnerByPurchaseId.set(purchaseId, o);
+      } else {
+        stripeSkippedNoIdentity += 1;
       }
-      stripeOwnerByPurchaseId.set(r.purchaseId, {
-        videoId: r.startVideoId,
-        assetId: r.startAssetId,
-      });
     });
-    console.log('[AssetAnalyticsRows] stripe owner overrides', {
-      applied: stripeOwnerByPurchaseId.size,
-      resolvedWithStart,
-      skippedNoIdentity,
-    });
-  }
 
-  // ── Pixel Scenario 2: pixel_purchases.events_journey_id → TRUE START owner ──
-  // Same ONE-owner rule as Stripe. purchase/consultation pixels sharing a session with a Stripe
-  // purchase follow Stripe's owner (existing session identity); never a second owner.
-  const pixelOwnerByPurchaseId = new Map<string, { videoId: string; assetId: string }>();
-  try {
-    const pxIdentityKeys = new Set(
-      (identities as AssetAnalyticsRowIdentity[]).map((i) => `${i.video_id}::${i.asset_id}`),
-    );
-    const stripeOwnerBySession = new Map<string, { videoId: string; assetId: string } | null>();
-    for (const sp of stripePurchases) {
-      if (!sp.session_id) continue;
-      const o = stripeOwnerByPurchaseId.get(sp.id) ?? null;
-      if (o || !stripeOwnerBySession.has(sp.session_id)) stripeOwnerBySession.set(sp.session_id, o);
-    }
-   const pixelRes = await resolvePixelPurchaseJourneys(
-  pixelPurchases.map((p) => ({
-    id: p.id,
-    event_id: p.event_id ?? null,
-  })),
-);
-
-const pixelById = new Map(pixelPurchases.map((p) => [p.id, p]));
-    pixelRes.forEach((r) => {
-      if (r.status !== 'resolved' || !r.startVideoId || !r.startAssetId) return;
-      const p = pixelById.get(r.purchaseId);
-      if (!p) return;
-      let owner = { videoId: r.startVideoId, assetId: r.startAssetId };
-      const stripeTwinType = p.event_type === 'purchase' || p.event_type === 'consultation';
-      if (stripeTwinType && p.session_id && stripeOwnerBySession.has(p.session_id)) {
-        const so = stripeOwnerBySession.get(p.session_id) ?? null;
-        if (so) owner = so;
-        else if (activeSource !== 'pixel') return; // Stripe twin keeps legacy attribution
+    let pixelSkippedNoIdentity = 0;
+    owners.pixelOwnerByPurchaseId.forEach((o, purchaseId) => {
+      if (
+        identityKeys.has(`${o.videoId}::${o.assetId}`) &&
+        assetTypeById.has(o.assetId)
+      ) {
+        pixelOwnerByPurchaseId.set(purchaseId, o);
+      } else {
+        pixelSkippedNoIdentity += 1;
       }
-      if (!pxIdentityKeys.has(`${owner.videoId}::${owner.assetId}`) || !assetTypeById.has(owner.assetId)) return;
-      pixelOwnerByPurchaseId.set(p.id, owner);
+    });
+
+    uncountedPixelIds = owners.uncountedPixelIds;
+    suppressedPixelIds = owners.suppressedPixelIds;
+
+    console.log('[AssetAnalyticsRows] canonical owners', {
+      stripeApplied: stripeOwnerByPurchaseId.size,
+      stripeSkippedNoIdentity,
+      pixelApplied: pixelOwnerByPurchaseId.size,
+      pixelSkippedNoIdentity,
+      uncounted: uncountedPixelIds.size,
+      suppressed: suppressedPixelIds.size,
     });
   } catch (err) {
-    console.error('[AssetAnalyticsRows] pixel owner resolution failed (ignored)', err);
+    console.error('[AssetAnalyticsRows] resolveConversionOwners failed (legacy maps empty)', err);
   }
+
+  // Exclude uncounted + Stripe-suppressed Pixel rows from formal revenue input.
+  // Raw rows remain in the DB; they are simply not fed into metric aggregation.
+  const pixelPurchasesForMetrics =
+    uncountedPixelIds.size > 0 || suppressedPixelIds.size > 0
+      ? pixelPurchases.filter(
+          (p) => !uncountedPixelIds.has(p.id) && !suppressedPixelIds.has(p.id),
+        )
+      : pixelPurchases;
 
   console.time('[AssetAnalyticsRows] computeAssetAnalytics loop (CPU)');
   const relationshipsByAsset = new Map<string, AssetRelationshipRow[]>();
@@ -684,7 +742,7 @@ const pixelById = new Map(pixelPurchases.map((p) => [p.id, p]));
       includeEV,
       events,
       stripePurchases,
-      pixelPurchases,
+      pixelPurchases: pixelPurchasesForMetrics,
       redirectLinks: engineRedirectLinks,
       stripePurchaseOwnerByPurchaseId: stripeOwnerByPurchaseId,
       pixelPurchaseOwnerByPurchaseId: pixelOwnerByPurchaseId,
