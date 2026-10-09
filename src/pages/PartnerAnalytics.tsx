@@ -20,16 +20,14 @@
 //  • Scaling lives in lib/chartScale.ts and only changes presentation.
 // ─────────────────────────────────────────────────────────────────────────────
 
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
-import { createPortal } from 'react-dom';
+import React, { useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { ArrowUpRight, BarChart3, Calendar, Check, EyeOff, Minus, X } from 'lucide-react';
 
 import { useLanguage } from '../lib/hooks';
 import { type ScaleMode } from '../lib/chartScale';
 import PartnerChart, { type ChartSeries, type ChartText } from '../components/analytics/PartnerChart';
-import JourneyAnalytics from './JourneyAnalytics';
-import type { DateRange } from '../lib/analyticsEngine';
+import PartnerJourneySection from '../components/analytics/PartnerJourneySection';
 
 // ── Types ───────────────────────────────────────────────────────────────────
 
@@ -209,7 +207,6 @@ const COPY = {
     'journey.addPartner': 'Add partner…',
     'journey.range': 'Date range follows the selector above',
     'journey.truncated': 'Truncated',
-    'journey.open': 'Open Journey Analytics',
   },
   zh: {
     title: '合作夥伴分析',
@@ -288,7 +285,7 @@ const COPY = {
     'journey.partner': '合作夥伴',
     'journey.addPartner': '新增夥伴…',
     'journey.range': '日期範圍與上方選擇器相同',
-    'journey.open': '開啟 Journey Analytics',
+    'journey.truncated': '已截斷',
   },
 } as const;
 
@@ -397,7 +394,6 @@ export default function PartnerAnalytics() {
   const [selectedIds, setSelectedIds] = useState<string[]>([PREVIEW_PARTNERS.marketer[0].id]);
   const [chartHidden, setChartHidden] = useState(false);
   const [modalOpen, setModalOpen] = useState(false);
-  const [journeyOpen, setJourneyOpen] = useState(false);
 
   const partners = PREVIEW_PARTNERS[mode];
   const partnerRole: PartnerMode = mode === 'marketer' ? 'sponsor' : 'marketer';
@@ -466,13 +462,6 @@ export default function PartnerAnalytics() {
     navigate(buildJourneyHref({ mode, partnerId, range, from: customStart, to: customEnd }));
 
   const kpi = PREVIEW_KPI[mode];
-
-  const scopeLabel = partners
-    .filter((p) => selectedIds.includes(p.id))
-    .map((p) => p.name)
-    .join(', ');
-  // JourneyAnalytics has no 15-day option, so 15days falls back to 30days.
-  const journeyRange: DateRange = (range === '15days' ? '30days' : range) as DateRange;
 
   const renderChartPanel = (variant: 'inline' | 'modal') => (
     <section className="bg-zinc-950 border border-zinc-900 rounded-2xl">
@@ -733,23 +722,46 @@ export default function PartnerAnalytics() {
         </div>
       </section>
 
-      {/* Journeys → full-screen JourneyAnalytics */}
-      <section className="flex flex-wrap items-center justify-between gap-3 bg-zinc-950 border border-zinc-900 rounded-2xl px-6 py-5">
-        <div className="min-w-0">
-          <h3 className="text-sm font-black text-white uppercase tracking-tight">{tr('journey.title')}</h3>
-          <p className="text-[10px] text-zinc-600 font-bold uppercase tracking-widest mt-0.5 truncate">
-            {tr('journey.scopedTo')} {scopeLabel || tr('journey.allPartners')}
-          </p>
-        </div>
-        <button
-          type="button"
-          onClick={() => setJourneyOpen(true)}
-          className="h-9 px-4 rounded-xl bg-red-600 text-white text-[10px] font-black uppercase tracking-widest flex items-center gap-1.5 hover:bg-red-500 transition-colors"
-        >
-          {tr('journey.open')}
-          <ArrowUpRight size={14} />
-        </button>
-      </section>
+      {/* Phase 2 — journeys for the checked partners (selection state shared) */}
+      <PartnerJourneySection
+        mode={mode}
+        partners={partners.map((p, i) => ({ id: p.id, name: p.name, color: PARTNER_COLORS[i % PARTNER_COLORS.length] }))}
+        selectedIds={selectedIds}
+        onTogglePartner={toggle}
+        onClearPartners={() => setSelectedIds([])}
+        range={range}
+        customStart={customStart}
+        customEnd={customEnd}
+        labels={{
+          title: tr('journey.title'),
+          hint: tr('journey.hint'),
+          allPartners: tr('journey.allPartners'),
+          scopedTo: tr('journey.scopedTo'),
+          removePartner: tr('removePartner'),
+          filters: tr('journey.filters'),
+          clear: tr('journey.clear'),
+          showMore: tr('journey.showMore'),
+          showing: tr('journey.showing'),
+          of: tr('journey.of'),
+          loading: tr('journey.loading'),
+          empty: tr('journey.empty'),
+          showOwner: tr('journey.showOwner'),
+          hideOwner: tr('journey.hideOwner'),
+          done: tr('journey.done'),
+          allPlatforms: tr('journey.allPlatforms'),
+          assetType: tr('journey.assetType'),
+          assetScope: tr('journey.assetScope'),
+          promotion: tr('journey.promotion'),
+          assetCampaign: tr('journey.assetCampaign'),
+          contentCampaign: tr('journey.contentCampaign'),
+          campaign: tr('journey.campaign'),
+          allCampaigns: tr('journey.allCampaigns'),
+          partner: tr('journey.partner'),
+          addPartner: tr('journey.addPartner'),
+          rangeLabel: tr('journey.range'),
+          truncated: tr('journey.truncated'),
+        }}
+      />
 
       {/* Hidden chart → corner button → modal */}
       {chartHidden && !modalOpen && (
@@ -770,17 +782,6 @@ export default function PartnerAnalytics() {
           <div className="relative w-full max-w-5xl max-h-[90vh] overflow-y-auto">{renderChartPanel('modal')}</div>
         </div>
       )}
-
-      {journeyOpen &&
-        createPortal(
-          <JourneyAnalytics
-            onClose={() => setJourneyOpen(false)}
-            scopeLabel={scopeLabel || undefined}
-            initialDateRange={journeyRange}
-            initialCustomRange={range === 'custom' ? { start: customStart, end: customEnd } : null}
-          />,
-          document.body,
-        )}
     </div>
   );
 }
