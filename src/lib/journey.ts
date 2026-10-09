@@ -157,7 +157,7 @@ export async function getJourneysForEvent(eventId: string): Promise<GetJourneysF
   const { data, error } = await supabase
     .from('events_journey')
     .select(EVENTS_JOURNEY_COLUMNS)
-    .contains('event_ids', [eventId]);
+    .contains('event_ids', JSON.stringify([eventId]));
 
   if (error) {
     throw new Error(`journey.ts getJourneysForEvent: events_journey query failed — ${error.message}`);
