@@ -128,52 +128,105 @@ function useCampaignOptions(viewerId: string | null): Campaign[] {
 
 type PromotionOption = { id: string; name: string };
 
-function usePromotionOptions(
-  viewerId: string | null,
-  organizationId: string | null,
-): PromotionOption[] {
-  const [promos, setPromos] = useState<PromotionOption[]>([]);
+/** Fetch rows from `table` by primary key, in chunks. Errors are logged, never swallowed. */
+async function fetchRowsByIds(
+  table: string,
+  columns: string,
+  ids: string[],
+): Promise<any[]> {
+  const CHUNK = 80;
+  const rows: any[] = [];
+  for (let i = 0; i < ids.length; i += CHUNK) {
+    const { data, error } = await supabase
+      .from(table)
+      .select(columns)
+      .in('id', ids.slice(i, i + CHUNK));
+    if (error) {
+      console.warn(`[JourneyAnalytics] ${table} load failed`, error.message);
+      continue;
+    }
+    rows.push(...((data ?? []) as any[]));
+  }
+  return rows;
+}
+
+/**
+ * Promotion options come ONLY from promotion ids already present on the loaded
+ * journeys' Asset steps (VideoDisplay.promotionIds) — the exact data the
+ * Promotion filter matches against. So every option is selectable, matches at
+ * least one journey, and visibility is never widened beyond what is already
+ * on screen (no organization-wide or unscoped promotions query).
+ *
+ * `promotions` has NO title / name column. Display name is resolved as:
+ *   promotions.assignment_id → assignments.title
+ *   else promotions.campaign_id → campaigns.campaign_name
+ *   else "Promotion XXXXXXXX" (first 8 chars of the id)
+ */
+function usePromotionOptions(promotionIds: string[]): PromotionOption[] {
+  const [names, setNames] = useState<Map<string, string>>(new Map());
+  const idsKey = promotionIds.join(',');
+
   useEffect(() => {
-    if (!viewerId && !organizationId) return;
+    if (promotionIds.length === 0) {
+      setNames(new Map());
+      return;
+    }
     let cancelled = false;
     (async () => {
-      // Try several column shapes — schema has varied over time (title / name).
-      // Prefer org-scoped when available (matches marketplace promotions).
-      let q = supabase.from('promotions').select('id, title, name, organization_id').limit(300);
-      if (organizationId) q = q.eq('organization_id', organizationId);
-      const { data, error } = await q;
-      if (cancelled) return;
-      if (error) {
-        // Fallback without organization_id filter / name column
-        const { data: d2, error: e2 } = await supabase
-          .from('promotions')
-          .select('id, title')
-          .limit(300);
-        if (e2) {
-          console.warn('[JourneyAnalytics] promotions load failed', e2.message);
-          setPromos([]);
-          return;
-        }
-        setPromos(
-          ((d2 ?? []) as any[]).map((p) => ({
-            id: p.id as string,
-            name: (p.title as string) || p.id,
-          })),
-        );
-        return;
-      }
-      setPromos(
-        ((data ?? []) as any[]).map((p) => ({
-          id: p.id as string,
-          name: (p.title as string) || (p.name as string) || p.id,
-        })),
+      const promoRows = await fetchRowsByIds(
+        'promotions',
+        'id, assignment_id, campaign_id',
+        promotionIds,
       );
+      const assignmentIds = Array.from(
+        new Set(promoRows.map((p) => p.assignment_id as string | null).filter(Boolean) as string[]),
+      );
+      const campaignIds = Array.from(
+        new Set(promoRows.map((p) => p.campaign_id as string | null).filter(Boolean) as string[]),
+      );
+      const [assignmentRows, campaignRows] = await Promise.all([
+        assignmentIds.length > 0
+          ? fetchRowsByIds('assignments', 'id, title', assignmentIds)
+          : Promise.resolve([] as any[]),
+        campaignIds.length > 0
+          ? fetchRowsByIds('campaigns', 'id, campaign_name', campaignIds)
+          : Promise.resolve([] as any[]),
+      ]);
+      if (cancelled) return;
+
+      const titleByAssignmentId = new Map<string, string>();
+      for (const a of assignmentRows) {
+        const t = typeof a.title === 'string' ? a.title.trim() : '';
+        if (t) titleByAssignmentId.set(a.id as string, t);
+      }
+      const nameByCampaignId = new Map<string, string>();
+      for (const c of campaignRows) {
+        const n = typeof c.campaign_name === 'string' ? c.campaign_name.trim() : '';
+        if (n) nameByCampaignId.set(c.id as string, n);
+      }
+
+      const next = new Map<string, string>();
+      for (const p of promoRows) {
+        const name =
+          (p.assignment_id && titleByAssignmentId.get(p.assignment_id)) ||
+          (p.campaign_id && nameByCampaignId.get(p.campaign_id)) ||
+          null;
+        if (name) next.set(p.id as string, name);
+      }
+      setNames(next);
     })();
     return () => {
       cancelled = true;
     };
-  }, [viewerId, organizationId]);
-  return promos;
+  }, [idsKey]);
+
+  return useMemo(
+    () =>
+      promotionIds
+        .map((id) => ({ id, name: names.get(id) ?? `Promotion ${id.slice(0, 8)}` }))
+        .sort((a, b) => a.name.localeCompare(b.name)),
+    [idsKey, names],
+  );
 }
 
 /**
@@ -548,7 +601,7 @@ export default function JourneyAnalytics() {
   // organizationId used for Asset scope + promotion options (may equal effectiveOrgId)
   const organizationId = effectiveOrgId;
 
-  const promotionOptions = usePromotionOptions(effectiveViewerId, organizationId);
+
 
   // Filters
   const [dateRange, setDateRange] = useState<DateRange>('30days');
@@ -595,6 +648,17 @@ export default function JourneyAnalytics() {
   const [entryVideoCount, setEntryVideoCount] = useState(0);
   const [videoDisplay, setVideoDisplay] = useState<Map<string, VideoDisplay>>(new Map());
 
+  // Promotion options: ids already on the loaded journeys' Asset steps — the
+  // same data the Promotion filter matches against (see usePromotionOptions).
+  const loadedPromotionIds = useMemo(() => {
+    const ids = new Set<string>();
+    videoDisplay.forEach((d) => {
+      if (!d.isAsset) return;
+      d.promotionIds.forEach((pid) => ids.add(pid));
+    });
+    return Array.from(ids).sort();
+  }, [videoDisplay]);
+  const promotionOptions = usePromotionOptions(loadedPromotionIds);
   useEffect(() => {
     let cancelled = false;
     setLoading(true);
@@ -1156,7 +1220,7 @@ export default function JourneyAnalytics() {
             </button>
             {promotionOptions.length === 0 && (
               <div className="px-4 py-3 text-[10px] text-zinc-600">
-                No promotions found for this organization
+                No promotions found in the loaded journeys
               </div>
             )}
             {promotionOptions.map((p) => {
