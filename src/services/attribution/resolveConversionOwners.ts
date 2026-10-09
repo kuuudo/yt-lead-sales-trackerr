@@ -290,7 +290,12 @@ export async function resolveConversionOwners(
   const linkByToken = await fetchLinksByTokens(stripeTokens);
 
   // ── 3. Stripe ownership ─────────────────────────────────────────────────
-  // Build eventId → stripe purchase id for cross-source dedup (verified event trace).
+  // Cross-source dedup key: only a shared *conversion* event_id is comparable.
+  // Stripe checkoutEventId is a checkout event, NOT a pixel conversion event —
+  // it must not be treated as interchangeable with pixel_purchases.event_id.
+  // Until Stripe rows expose a real conversion event_id (or a verified shared
+  // event trace), stripeIdByEventId stays empty and suppressed stays 0.
+  // Do not invent matches from session_id or amount.
   const stripeIdByEventId = new Map<string, string>();
 
   for (const p of stripePurchases) {
@@ -353,7 +358,9 @@ export async function resolveConversionOwners(
       }
     }
 
-    if (eventId) stripeIdByEventId.set(eventId, p.id);
+    // Intentionally do NOT register checkoutEventId into stripeIdByEventId.
+    // checkout event ≠ pixel conversion event; registering it would create
+    // false non-matches or (worse) false suppressions if IDs ever collided.
 
     const result: ConversionOwnerResult = {
       source: 'stripe',
@@ -530,6 +537,30 @@ export async function resolveConversionOwners(
     }
   }
 
+  // Reason breakdown — required for Phase 1.5 validation.
+  // stripeOwners/pixelOwners only count rows with BOTH video+asset; they do
+  // NOT equal "TRUE START succeeded". Always read reasons.* for that.
+  const reasonCounts = {
+    stripe: {
+      true_start_upstream: 0,
+      true_start_path_root: 0,
+      direct: 0,
+      unresolved: 0,
+      uncounted: 0,
+    },
+    pixel: {
+      true_start_upstream: 0,
+      true_start_path_root: 0,
+      direct: 0,
+      unresolved: 0,
+      uncounted: 0,
+    },
+  };
+  byKey.forEach((r) => {
+    const bucket = r.source === 'stripe' ? reasonCounts.stripe : reasonCounts.pixel;
+    bucket[r.attributionReason] += 1;
+  });
+
   console.log('[resolveConversionOwners] summary', {
     stripe: stripePurchases.length,
     pixel: pixelPurchases.length,
@@ -537,6 +568,23 @@ export async function resolveConversionOwners(
     pixelOwners: pixelOwnerByPurchaseId.size,
     uncounted: uncountedPixelIds.size,
     suppressed: suppressedPixelIds.size,
+    reasons: reasonCounts,
+  });
+
+  // Compact per-record lines for browser validation (ids only, no invention).
+  byKey.forEach((r) => {
+    console.log('[resolveConversionOwners] record', {
+      key: conversionOwnerKey(r.source, r.sourceRecordId),
+      reason: r.attributionReason,
+      ownerVideoId: r.ownerVideoId,
+      ownerAssetId: r.ownerAssetId,
+      journeyId: r.journeyId,
+      eventId: r.eventId,
+      startRedirectLinkId: r.startRedirectLinkId,
+      lastEntryRedirectLinkId: r.lastEntryRedirectLinkId,
+      suppressedByStripeId: r.suppressedByStripeId,
+      formalRevenue: r.attributionReason !== 'uncounted' && !r.suppressedByStripeId,
+    });
   });
 
   return {
