@@ -365,9 +365,10 @@ function Checkbox({ state, onClick, label }: { state: 'on' | 'off' | 'some'; onC
 
 function KpiCell({ label, value, hint }: { label: string; value: string; hint: string }) {
   return (
-    <div className="px-6 py-5 min-w-0">
+<div className="relative px-6 py-5 min-w-0">
+      <div className="absolute inset-x-0 top-0 h-px bg-gradient-to-r from-red-600/70 via-red-600/10 to-transparent" />
       <div className="text-[10px] font-black uppercase tracking-widest text-zinc-500">{label}</div>
-      <div className="mt-2 text-3xl font-black text-white tabular-nums truncate">{value}</div>
+      <div className="mt-2 text-3xl font-black tabular-nums truncate bg-gradient-to-b from-white to-zinc-400 bg-clip-text text-transparent">{value}</div>
       <div className="mt-1 text-[10px] font-bold uppercase tracking-widest text-zinc-600">{hint}</div>
     </div>
   );
@@ -463,9 +464,9 @@ export default function PartnerAnalytics() {
   const kpi = PREVIEW_KPI[mode];
 
   const renderChartPanel = (variant: 'inline' | 'modal') => (
-    <section className="bg-zinc-950 border border-zinc-900 rounded-2xl">
+    <section className="bg-gradient-to-b from-zinc-900/50 to-zinc-950 border border-zinc-800/80 rounded-2xl shadow-[0_0_40px_-24px_rgba(220,38,38,0.4)]">
       <div className="flex flex-wrap items-center justify-between gap-3 px-6 py-4 border-b border-zinc-900">
-        <h3 className="text-sm font-black text-white uppercase tracking-tight">{tr('trend')}</h3>
+        <h3 className="text-sm font-black text-white uppercase tracking-tight flex items-center gap-2"><span className="w-1 h-4 rounded-full bg-red-600" />{tr('trend')}</h3>
         <div className="flex flex-wrap items-center gap-2">
           <Segmented<Metric>
             small
@@ -615,7 +616,7 @@ export default function PartnerAnalytics() {
       </div>
 
       {/* KPI row (independent of the table) */}
-      <section className="grid grid-cols-1 sm:grid-cols-2 sm:divide-x divide-y sm:divide-y-0 divide-zinc-900 bg-zinc-950 border border-zinc-900 rounded-2xl">
+      <section className="grid grid-cols-1 sm:grid-cols-2 sm:divide-x divide-y sm:divide-y-0 divide-zinc-900 bg-gradient-to-br from-zinc-900/60 to-zinc-950 border border-zinc-800/80 rounded-2xl overflow-hidden shadow-[0_0_40px_-20px_rgba(220,38,38,0.45)]">
         <KpiCell label={tr('totalRevenue')} value={formatMoney(kpi.revenue)} hint={tr(`revenueHint.${mode}` as CopyKey)} />
         <KpiCell label={tr('assetClicks')} value={formatCount(kpi.clicks)} hint={tr(`clicksHint.${mode}` as CopyKey)} />
       </section>
@@ -627,7 +628,7 @@ export default function PartnerAnalytics() {
       <section className="flex flex-col gap-3">
         <div className="flex flex-wrap items-end justify-between gap-2">
           <div>
-            <h3 className="text-sm font-black text-white uppercase tracking-tight">{tr(`list.${mode}` as CopyKey)}</h3>
+            <h3 className="text-sm font-black text-white uppercase tracking-tight flex items-center gap-2"><span className="w-1 h-4 rounded-full bg-red-600" />{tr(`list.${mode}` as CopyKey)}</h3>
             <p className="text-[10px] text-zinc-600 font-bold uppercase tracking-widest mt-0.5">
               {tr(`listHint.${mode}` as CopyKey)}
             </p>
@@ -679,9 +680,9 @@ export default function PartnerAnalytics() {
                       <tr
                         key={p.id}
                         onClick={() => toggle(p.id)}
-                        className={`cursor-pointer transition-colors ${on ? 'bg-zinc-900/60' : 'hover:bg-zinc-900/40'}`}
+                        className={`cursor-pointer transition-colors ${on ? 'bg-gradient-to-r from-zinc-800/60 to-transparent' : 'hover:bg-zinc-900/40'}`}
                       >
-                        <td className="pl-5 py-4">
+                        <td className="pl-5 py-4" style={{ boxShadow: on ? `inset 3px 0 0 ${PARTNER_COLORS[i % PARTNER_COLORS.length]}` : undefined }}>
                           <Checkbox state={on ? 'on' : 'off'} label={p.name} onClick={() => toggle(p.id)} />
                         </td>
                         <td className="px-4 py-4">

@@ -541,7 +541,7 @@ const [sheetOpen, setSheetOpen] = useState(false);
     <section
       ref={rootRef}
       aria-label={labels.title}
-className="relative left-1/2 -ml-[50vw] w-screen flex mt-8 min-h-[75vh] border-t border-zinc-800/60 bg-gradient-to-b from-zinc-950 via-black to-black"
+className="relative left-1/2 -ml-[50vw] w-screen flex mt-8 min-h-[75vh] border-t border-red-600/40 bg-gradient-to-b from-zinc-950 via-black to-black"
     >
       {/* Filters sidebar: sits beside the content, so it pushes it */}
       {isDesktop && panelOpen && (
@@ -565,7 +565,7 @@ className="relative left-1/2 -ml-[50vw] w-screen flex mt-8 min-h-[75vh] border-t
       {/* Title + context */}
       <div className="flex flex-wrap items-end justify-between gap-2">
         <div className="min-w-0">
-          <h3 className="text-sm font-black text-white uppercase tracking-tight">{labels.title}</h3>
+          <h3 className="text-sm font-black text-white uppercase tracking-tight flex items-center gap-2"><span className="w-1 h-4 rounded-full bg-red-600" />{labels.title}</h3>
           <p className="text-[10px] text-zinc-600 font-bold uppercase tracking-widest mt-0.5">{labels.hint}</p>
         </div>
         <div className="flex flex-wrap items-center gap-2">
@@ -629,7 +629,7 @@ className="relative left-1/2 -ml-[50vw] w-screen flex mt-8 min-h-[75vh] border-t
       </div>
 
       {/* Scope banner: which partners this list is for */}
-      <div className="flex flex-wrap items-center gap-2 px-4 py-3 bg-zinc-950 border border-zinc-900 rounded-2xl">
+      <div className="flex flex-wrap items-center gap-2 px-4 py-3 bg-zinc-950 border border-zinc-900 border-l-2 border-l-red-600 rounded-2xl">
         <span className="text-[9px] font-black uppercase tracking-widest text-zinc-600">{labels.scopedTo}</span>
         {selectedIds.length === 0 ? (
           <span className="text-[11px] font-bold text-zinc-400">{labels.allPartners}</span>
@@ -803,7 +803,7 @@ className="relative left-1/2 -ml-[50vw] w-screen flex mt-8 min-h-[75vh] border-t
           ) : (
           <div className="space-y-2">
             {shown.map((j) => (
-              <div key={j.journeyId} className="rounded-xl border border-zinc-900 bg-zinc-950/80 px-2 py-1.5 overflow-x-auto">
+              <div key={j.journeyId} className="rounded-xl border border-zinc-900 bg-zinc-950/80 px-2 py-1.5 overflow-x-auto transition-colors hover:border-zinc-700 hover:bg-zinc-900/60">
                 <div className="text-[7px] font-black uppercase tracking-widest text-zinc-700 mb-0.5 px-0.5">
                   Journey · {j.journeyId.slice(0, 8)}…
                 </div>
