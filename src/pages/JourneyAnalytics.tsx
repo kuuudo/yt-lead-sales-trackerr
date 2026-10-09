@@ -1732,7 +1732,7 @@ export default function JourneyAnalytics() {
               <button
                 type="button"
                 onClick={() => setShowAnalytics((v) => !v)}
-                className={`hidden lg:flex h-9 px-4 rounded-xl border text-[9px] font-black uppercase tracking-widest transition-all items-center gap-1.5 ${
+                className={`h-9 px-4 rounded-xl border text-[9px] font-black uppercase tracking-widest transition-all flex items-center gap-1.5 ${
                   showAnalytics
                     ? 'bg-red-600 border-red-600 text-white'
                     : 'bg-zinc-900 border-zinc-800 text-zinc-300 hover:text-white hover:border-zinc-600'
