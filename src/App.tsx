@@ -29,6 +29,7 @@ import Campaigns from './pages/Campaigns';
 import Videos from './pages/Videos';
 import Analytics from './pages/Analytics';
 import JourneyAnalytics from './pages/JourneyAnalytics';
+import PartnerAnalytics from './pages/PartnerAnalytics';
 import Installation from './pages/Installation';
 import VideoDetail from './pages/VideoDetail';
 import AssetDetail from './pages/AssetDetail';
@@ -166,6 +167,7 @@ function Navigation() {
     { to: '/marketplace', icon: Briefcase, label: t.nav.marketplace, children: [
       { to: '/marketplace/marketer-analytics', label: 'Marketer Analytics' },
       { to: '/marketplace/promotions-analytics', label: 'Promotions Analytics' },
+      { to: '/analytics/partners', label: 'Partner Analytics' },
     ] },
     { to: '/operator', icon: Users, label: t.nav.operator },
     // Team link only for an approved Owner (RLS-backed via useMyTeam).
@@ -601,6 +603,7 @@ function MainContent() {
         <Route path="/campaigns/:id/campaignjourneymap" element={<PageWrapper><CampaignJourneyMap /></PageWrapper>} />
         <Route path="/analytics" element={<PageWrapper><Analytics /></PageWrapper>} />
         <Route path="/analytics/journey" element={<JourneyAnalytics />} />
+        <Route path="/analytics/partners" element={<PageWrapper><PartnerAnalytics /></PageWrapper>} />
         <Route path="/analytics/indepth" element={<InDepthAnalytics />} />
         <Route path="/installation" element={<PageWrapper><Installation /></PageWrapper>} />
         <Route path="/settings" element={<PageWrapper><Settings /></PageWrapper>} />
