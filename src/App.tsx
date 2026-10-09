@@ -689,7 +689,7 @@ export default function App() {
           <OnboardingOverlayProvider>
             <TutorialProvider>
               <DrillDownProvider>
-                <div className="min-h-screen bg-zinc-950 text-zinc-100 selection:bg-red-500/30 selection:text-white font-sans antialiased">
+                <div className="min-h-screen overflow-x-clip bg-zinc-950 text-zinc-100 selection:bg-red-500/30 selection:text-white font-sans antialiased">
                   <AppChrome />
                   <MainContent />
                   <OnboardingOverlay />

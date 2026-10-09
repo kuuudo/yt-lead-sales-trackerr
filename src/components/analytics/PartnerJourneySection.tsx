@@ -541,7 +541,7 @@ const [sheetOpen, setSheetOpen] = useState(false);
     <section
       ref={rootRef}
       aria-label={labels.title}
-      className="flex bg-black"
+className="relative left-1/2 -ml-[50vw] w-screen flex bg-black border-y border-zinc-900"
     >
       {/* Filters sidebar: sits beside the content, so it pushes it */}
       {isDesktop && panelOpen && (
