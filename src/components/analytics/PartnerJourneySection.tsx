@@ -23,7 +23,7 @@
 // ─────────────────────────────────────────────────────────────────────────────
 
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { BarChart3, ChevronDown, ChevronLeft, Check, Filter, Loader2, Maximize2, X } from 'lucide-react';
+import { BarChart3, ChevronDown, Check, Filter, Loader2, X } from 'lucide-react';
 
 import { useAuth } from '../../lib/auth';
 import { useViewing } from '../../lib/ViewingContext';
@@ -292,24 +292,10 @@ export default function PartnerJourneySection({
   const [selectedVideoId, setSelectedVideoId] = useState<string | null>(null);
   const [showOwner, setShowOwner] = useState(false);
   const [panelOpen, setPanelOpen] = useState(false);
-  const [sheetOpen, setSheetOpen] = useState(false);
-  const [fullScreen, setFullScreen] = useState(false);
-  const [sidebarOpen, setSidebarOpen] = useState(true);
+const [sheetOpen, setSheetOpen] = useState(false);
   const [activeSource, setActiveSource] = useState<RevenueView>('total');
   const [showAnalytics, setShowAnalytics] = useState(false);
 
-  // Full screen: Esc closes, background scroll locked.
-  useEffect(() => {
-    if (!fullScreen) return;
-    const onKey = (e: KeyboardEvent) => e.key === 'Escape' && setFullScreen(false);
-    window.addEventListener('keydown', onKey);
-    const prev = document.body.style.overflow;
-    document.body.style.overflow = 'hidden';
-    return () => {
-      window.removeEventListener('keydown', onKey);
-      document.body.style.overflow = prev;
-    };
-  }, [fullScreen]);
   const toggle = (id: string, list: string[], set: (v: string[]) => void) =>
     set(list.includes(id) ? list.filter((x) => x !== id) : [...list, id]);
 
@@ -551,247 +537,31 @@ export default function PartnerJourneySection({
     </div>
   );
 
-  const renderStrip = (j: (typeof visible)[number]) => (
-    <JourneyStrip
-      steps={stepsForJourney(j, display)}
-      highlightVideoId={selectedVideoId}
-      onSelectVideo={(id: string) => setSelectedVideoId((p) => (p === id ? null : id))}
-      showContentOwner={showOwner}
-    />
-  );
-
-  const thCls =
-    'px-4 py-4 text-left text-[10px] font-black uppercase tracking-widest text-zinc-600 border-b border-zinc-900 bg-zinc-950 whitespace-nowrap';
-  const dashCls = 'px-4 py-3 whitespace-nowrap text-sm font-bold text-zinc-600 tabular-nums';
-
-  const fullScreenView = fullScreen
-    ? createPortal(
-        <div className="flex h-screen bg-black text-zinc-300 overflow-hidden fixed inset-0 z-[100]">
-          {/* Sidebar: static on lg so it PUSHES the content */}
-          <aside
-            className={`${
-              sidebarOpen ? 'hidden lg:flex' : 'hidden'
-            } w-80 bg-zinc-950 border-r border-zinc-900 flex-col shrink-0 fixed inset-y-0 left-0 z-50 lg:static`}
-          >
-            <div className="flex items-center justify-between px-6 py-4 border-b border-zinc-900 shrink-0">
-              <span className="text-[10px] font-black uppercase tracking-widest text-zinc-500">{labels.filters}</span>
-              <button
-                type="button"
-                onClick={() => setSidebarOpen(false)}
-                className="p-2 rounded-xl border border-zinc-800 bg-zinc-900 text-zinc-400 hover:text-white"
-                aria-label="Close filters"
-              >
-                <X size={16} />
-              </button>
-            </div>
-            {sidebarOpen && <div className="flex-1 overflow-y-auto px-6 py-6">{filtersBody}</div>}
-          </aside>
-
-          <div className="flex-1 flex flex-col min-w-0 overflow-hidden">
-            <AnalyticsMobileFilterSheet open={sheetOpen} onOpenChange={setSheetOpen}>
-              {filtersBody}
-              <div className="pt-2">
-                <button
-                  type="button"
-                  onClick={() => setSheetOpen(false)}
-                  className="w-full py-3 rounded-xl bg-red-600 text-white text-[11px] font-black uppercase tracking-widest"
-                >
-                  {labels.done} · {visible.length}
-                </button>
-              </div>
-            </AnalyticsMobileFilterSheet>
-
-            <header className="shrink-0 border-b border-zinc-900 bg-zinc-950 px-4 lg:px-6 py-4">
-              <div className="flex flex-wrap items-center justify-between gap-3">
-                <div className="flex items-center gap-3 min-w-0">
-                  <button
-                    type="button"
-                    onClick={() => setFullScreen(false)}
-                    className="p-3 bg-zinc-900 border border-zinc-800 rounded-2xl text-zinc-400 hover:text-white transition-all"
-                    aria-label="Back"
-                  >
-                    <ChevronLeft size={20} />
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => (isDesktop ? setSidebarOpen((o) => !o) : setSheetOpen(true))}
-                    className={`p-3 border rounded-2xl transition-all ${
-                      sidebarOpen && isDesktop
-                        ? 'bg-red-600 border-red-600 text-white'
-                        : 'bg-zinc-900 border-zinc-800 text-zinc-400 hover:text-white'
-                    }`}
-                  >
-                    <Filter size={20} />
-                  </button>
-                  <div className="min-w-0">
-                    <h2 className="text-xl lg:text-2xl font-black text-white uppercase tracking-tight">{labels.title}</h2>
-                    <p className="text-[10px] text-zinc-600 font-bold uppercase tracking-widest mt-0.5">
-                      {selectedIds.length === 0
-                        ? labels.allPartners
-                        : selectedIds.map((id) => partnerById.get(id)?.name ?? id).join(', ')}
-                    </p>
-                  </div>
-                </div>
-
-                <div className="flex flex-wrap items-center gap-2">
-                  <div className="flex items-center gap-1 p-1 bg-zinc-900 border border-zinc-800 rounded-xl">
-                    {(['total', 'pixel', 'stripe'] as RevenueView[]).map((v) => (
-                      <button
-                        key={v}
-                        type="button"
-                        onClick={() => setActiveSource(v)}
-                        className={`px-3 py-1.5 rounded-lg text-[9px] font-black uppercase tracking-widest transition-all ${
-                          activeSource === v ? 'bg-zinc-700 text-white' : 'text-zinc-600 hover:text-zinc-400'
-                        }`}
-                      >
-                        {v}
-                      </button>
-                    ))}
-                  </div>
-                  <button
-                    type="button"
-                    onClick={() => setShowOwner((v) => !v)}
-                    className={`h-9 px-3 rounded-xl border text-[9px] font-black uppercase tracking-widest transition-all ${
-                      showOwner
-                        ? 'bg-zinc-700 border-zinc-600 text-white'
-                        : 'bg-zinc-900 border-zinc-800 text-zinc-400 hover:text-white'
-                    }`}
-                  >
-                    {showOwner ? labels.hideOwner : labels.showOwner}
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setShowAnalytics((v) => !v)}
-                    className={`h-9 px-4 rounded-xl border text-[9px] font-black uppercase tracking-widest transition-all flex items-center gap-1.5 ${
-                      showAnalytics
-                        ? 'bg-red-600 border-red-600 text-white'
-                        : 'bg-zinc-900 border-zinc-800 text-zinc-300 hover:text-white hover:border-zinc-600'
-                    }`}
-                  >
-                    <BarChart3 size={14} />
-                    {showAnalytics ? 'Hide Analytics' : 'Show Analytics'}
-                  </button>
-                </div>
-              </div>
-
-              <div className="mt-4 flex flex-wrap items-center justify-between gap-3">
-                <div className="flex flex-wrap items-center gap-1.5">
-                  <button type="button" onClick={() => setPlatforms([])} className={pill(platforms.length === 0)}>
-                    {labels.allPlatforms}
-                    <span className="ml-1.5 text-[8px] opacity-70">{journeys.length}</span>
-                  </button>
-                  {presentPlatforms.map((p) => {
-                    const cfg = PLATFORM_CONFIG[p as Platform];
-                    const active = platforms.includes(p);
-                    const color = cfg?.color ?? '#dc2626';
-                    return (
-                      <button
-                        key={p}
-                        type="button"
-                        onClick={() => toggle(p, platforms, setPlatforms)}
-                        style={active ? { backgroundColor: color, borderColor: color } : {}}
-                        className={`h-7 px-3 rounded-lg border text-[9px] font-black uppercase tracking-widest transition-all ${
-                          active ? 'text-white' : 'border-zinc-800 bg-zinc-900 text-zinc-500 hover:border-zinc-600'
-                        }`}
-                      >
-                        {cfg?.icon ? <span className="mr-1 opacity-70">{cfg.icon}</span> : null}
-                        {cfg?.label ?? p}
-                      </button>
-                    );
-                  })}
-                </div>
-                <div className="text-[9px] font-bold text-zinc-600 uppercase tracking-widest">
-                  Rows {journeys.length} · Showing {visible.length}
-                  {dataset?.truncated && <span className="text-amber-600"> · {labels.truncated}</span>}
-                </div>
-              </div>
-            </header>
-
-            <div className="flex-1 overflow-auto">
-              {(!armed || loading) && (
-                <div className="py-20 text-center">
-                  <Loader2 className="animate-spin text-red-600 mx-auto" size={32} aria-hidden />
-                  <div className="text-[11px] font-black uppercase tracking-widest text-zinc-400 mt-4">{labels.loading}</div>
-                </div>
-              )}
-              {armed && !loading && error && (
-                <div className="py-20 text-center text-[11px] font-black uppercase tracking-widest text-red-500">{error}</div>
-              )}
-              {armed && !loading && !error && visible.length === 0 && (
-                <div className="py-20 text-center text-[11px] font-black uppercase tracking-widest text-zinc-600">
-                  {labels.empty}
-                </div>
-              )}
-
-              {armed && !loading && !error && visible.length > 0 && !showAnalytics && (
-                <div className="px-4 lg:px-6 py-4 space-y-2">
-                  {visible.map((j) => (
-                    <div key={j.journeyId} className="rounded-xl border border-zinc-900 bg-zinc-950/80 px-2 py-1.5">
-                      <div className="text-[7px] font-black uppercase tracking-widest text-zinc-700 mb-0.5 px-0.5">
-                        Journey · {j.journeyId.slice(0, 8)}…
-                      </div>
-                      {renderStrip(j)}
-                    </div>
-                  ))}
-                </div>
-              )}
-
-              {armed && !loading && !error && visible.length > 0 && showAnalytics && (
-                <div className="inline-block min-w-full align-middle">
-                  <table className="min-w-full divide-y divide-zinc-900 border-collapse">
-                    <thead className="bg-zinc-950 sticky top-0 z-20 shadow-xl">
-                      <tr>
-                        <th className={`${thCls} min-w-[320px] sticky left-0 z-30`}>Journey Map</th>
-                        {JOURNEY_ANALYTICS_EXTRA.map((col) => (
-                          <th key={col.key} className={thCls}>
-                            {col.label}
-                          </th>
-                        ))}
-                        {TABLE_COLUMNS.map((key) => (
-                          <th key={key} className={thCls}>
-                            {COLUMN_LABELS[key as MetricType] ?? key}
-                          </th>
-                        ))}
-                      </tr>
-                    </thead>
-                    <tbody className="bg-black divide-y divide-zinc-900">
-                      {visible.map((j) => (
-                        <tr key={j.journeyId} className="hover:bg-zinc-950/80 transition-colors group">
-                          <td className="px-3 py-3 sticky left-0 z-10 bg-black group-hover:bg-zinc-950 transition-colors min-w-[320px] max-w-[480px]">
-                            <div className="text-[7px] font-black uppercase tracking-widest text-zinc-700 mb-0.5">
-                              {j.journeyId.slice(0, 8)}…
-                            </div>
-                            {renderStrip(j)}
-                          </td>
-                          <td className="px-4 py-3 whitespace-nowrap">
-                            <TypeCell types={journeyPromotedTypes(j, display)} />
-                          </td>
-                          {/* promotion, asset campaign, content campaign, clicks, downstream, revenue (placeholders, same as JourneyAnalytics) */}
-                          {JOURNEY_ANALYTICS_EXTRA.slice(1).map((c) => (
-                            <td key={c.key} className={dashCls}>
-                              —
-                            </td>
-                          ))}
-                          {TABLE_COLUMNS.map((key) => (
-                            <td key={key} className={dashCls}>
-                              —
-                            </td>
-                          ))}
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-              )}
-            </div>
-          </div>
-        </div>,
-        document.body,
-      )
-    : null;
-
   return (
-    <section ref={rootRef} className="flex flex-col gap-3" aria-label={labels.title}>
+    <section
+      ref={rootRef}
+      aria-label={labels.title}
+      className="relative left-1/2 -ml-[50vw] w-screen flex bg-black border-y border-zinc-900"
+    >
+      {/* Filters sidebar: sits beside the content, so it pushes it */}
+      {isDesktop && panelOpen && (
+        <aside className="w-80 shrink-0 bg-zinc-950 border-r border-zinc-900 flex flex-col">
+          <div className="flex items-center justify-between px-6 py-4 border-b border-zinc-900 shrink-0">
+            <span className="text-[10px] font-black uppercase tracking-widest text-zinc-500">{labels.filters}</span>
+            <button
+              type="button"
+              onClick={() => setPanelOpen(false)}
+              aria-label="Close filters"
+              className="p-2 rounded-xl border border-zinc-800 bg-zinc-900 text-zinc-400 hover:text-white"
+            >
+              <X size={16} />
+            </button>
+          </div>
+          <div className="px-6 py-6">{filtersBody}</div>
+        </aside>
+      )}
+
+      <div className="flex-1 min-w-0 flex flex-col gap-3 px-4 lg:px-6 py-4">
       {/* Title + context */}
       <div className="flex flex-wrap items-end justify-between gap-2">
         <div className="min-w-0">
@@ -811,16 +581,32 @@ export default function PartnerJourneySection({
             {showOwner ? labels.hideOwner : labels.showOwner}
           </button>
 
+          <div className="flex items-center gap-1 p-1 bg-zinc-900 border border-zinc-800 rounded-xl">
+            {(['total', 'pixel', 'stripe'] as RevenueView[]).map((v) => (
+              <button
+                key={v}
+                type="button"
+                onClick={() => setActiveSource(v)}
+                className={`px-3 py-1.5 rounded-lg text-[9px] font-black uppercase tracking-widest transition-all ${
+                  activeSource === v ? 'bg-zinc-700 text-white' : 'text-zinc-600 hover:text-zinc-400'
+                }`}
+              >
+                {v}
+              </button>
+            ))}
+          </div>
+
           <button
             type="button"
-            onClick={() => {
-              setArmed(true);
-              setFullScreen(true);
-            }}
-            className="h-9 px-3 rounded-xl border border-zinc-800 bg-zinc-900 text-[9px] font-black uppercase tracking-widest text-zinc-300 hover:text-white flex items-center gap-1.5"
+            onClick={() => setShowAnalytics((v) => !v)}
+            className={`h-9 px-4 rounded-xl border text-[9px] font-black uppercase tracking-widest transition-all flex items-center gap-1.5 ${
+              showAnalytics
+                ? 'bg-red-600 border-red-600 text-white'
+                : 'bg-zinc-900 border-zinc-800 text-zinc-300 hover:text-white hover:border-zinc-600'
+            }`}
           >
-            <Maximize2 size={13} />
-            Full screen
+            <BarChart3 size={14} />
+            {showAnalytics ? 'Hide Analytics' : 'Show Analytics'}
           </button>
 
           <button
@@ -911,13 +697,10 @@ export default function PartnerJourneySection({
         })}
       </div>
 
-      {/* Desktop inline filter panel */}
-      {isDesktop && panelOpen && (
-        <div className="bg-zinc-950 border border-zinc-900 rounded-2xl p-5">{filtersBody}</div>
-      )}
+
 
       {/* Mobile filter sheet — same LEGO JourneyAnalytics uses */}
-            {!isDesktop && !fullScreen && (
+      {!isDesktop && (
         <AnalyticsMobileFilterSheet open={sheetOpen} onOpenChange={setSheetOpen}>
           {filtersBody}
           <div className="pt-2">
@@ -954,6 +737,55 @@ export default function PartnerJourneySection({
 
       {armed && !loading && !error && visible.length > 0 && (
         <>
+          {showAnalytics ? (
+            <div className="overflow-x-auto">
+              <table className="min-w-full divide-y divide-zinc-900 border-collapse">
+                <thead className="bg-zinc-950">
+                  <tr>
+                    <th className="px-4 py-4 text-left text-[10px] font-black uppercase tracking-widest text-zinc-600 border-b border-zinc-900 bg-zinc-950 min-w-[320px] sticky left-0 z-10">
+                      Journey Map
+                    </th>
+                    {JOURNEY_ANALYTICS_EXTRA.map((c) => (
+                      <th key={c.key} className="px-4 py-4 text-left text-[10px] font-black uppercase tracking-widest text-zinc-600 border-b border-zinc-900 whitespace-nowrap">
+                        {c.label}
+                      </th>
+                    ))}
+                    {TABLE_COLUMNS.map((k) => (
+                      <th key={k} className="px-4 py-4 text-left text-[10px] font-black uppercase tracking-widest text-zinc-600 border-b border-zinc-900 whitespace-nowrap">
+                        {COLUMN_LABELS[k as MetricType] ?? k}
+                      </th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody className="bg-black divide-y divide-zinc-900">
+                  {shown.map((j) => (
+                    <tr key={j.journeyId} className="hover:bg-zinc-950/80 group">
+                      <td className="px-3 py-3 sticky left-0 z-[5] bg-black group-hover:bg-zinc-950 min-w-[320px] max-w-[480px]">
+                        <div className="text-[7px] font-black uppercase tracking-widest text-zinc-700 mb-0.5">
+                          {j.journeyId.slice(0, 8)}…
+                        </div>
+                        <JourneyStrip
+                          steps={stepsForJourney(j, display)}
+                          highlightVideoId={selectedVideoId}
+                          onSelectVideo={(id: string) => setSelectedVideoId((p) => (p === id ? null : id))}
+                          showContentOwner={showOwner}
+                        />
+                      </td>
+                      <td className="px-4 py-3 whitespace-nowrap">
+                        <TypeCell types={journeyPromotedTypes(j, display)} />
+                      </td>
+                      {JOURNEY_ANALYTICS_EXTRA.slice(1).map((c) => (
+                        <td key={c.key} className="px-4 py-3 whitespace-nowrap text-sm font-bold text-zinc-600">—</td>
+                      ))}
+                      {TABLE_COLUMNS.map((k) => (
+                        <td key={k} className="px-4 py-3 whitespace-nowrap text-sm font-bold text-zinc-600 tabular-nums">—</td>
+                      ))}
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          ) : (
           <div className="space-y-2">
             {shown.map((j) => (
               <div key={j.journeyId} className="rounded-xl border border-zinc-900 bg-zinc-950/80 px-2 py-1.5 overflow-x-auto">
@@ -969,6 +801,7 @@ export default function PartnerJourneySection({
               </div>
             ))}
           </div>
+          )}
 
           <div className="flex flex-wrap items-center justify-center gap-3 py-2">
             <span className="text-[9px] font-bold uppercase tracking-widest text-zinc-600">
@@ -987,7 +820,7 @@ export default function PartnerJourneySection({
           </div>
         </>
       )}
-            {fullScreenView}
+            </div>
     </section>
   );
 }

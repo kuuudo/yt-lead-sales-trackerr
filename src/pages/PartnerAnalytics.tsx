@@ -9,8 +9,7 @@
 //   the user unchecks them. Colors are fixed per partner (list position).
 // • "Hide Chart" removes the chart from the page and leaves a corner button
 //   that opens the same chart in a modal.
-// • Phase 2: <PartnerJourneySection/> below the table lists journeys scoped to the
-//   checked partners. Selection state stays HERE and is shared with that section.
+// • Phase 2 (not built): journey table below, filtered by selected partner(s).
 //
 // RULES FOR WHEN DATA IS CONNECTED LATER
 //  • KPI cards are their own query; never derive them by summing the table
@@ -27,7 +26,6 @@ import { ArrowUpRight, BarChart3, Calendar, Check, EyeOff, Minus, X } from 'luci
 import { useLanguage } from '../lib/hooks';
 import { type ScaleMode } from '../lib/chartScale';
 import PartnerChart, { type ChartSeries, type ChartText } from '../components/analytics/PartnerChart';
-import PartnerJourneySection from '../components/analytics/PartnerJourneySection';
 
 // ── Types ───────────────────────────────────────────────────────────────────
 
@@ -181,32 +179,6 @@ const COPY = {
     'chart.forcedLinearHint': '{name} is far larger than the rest, so smaller partners are hard to see. Try Auto or Log.',
     'chart.logUnavailable': 'Log scale needs non-negative values, so Linear is shown.',
     'chart.noValue': '—',
-    'journey.title': 'Journeys',
-    'journey.hint': 'Full journey paths for the selected partners. Uncheck a partner above to widen the list.',
-    'journey.allPartners': 'All partners (none selected)',
-    'journey.scopedTo': 'Showing journeys for',
-    'journey.filters': 'Filters',
-    'journey.clear': 'Clear',
-    'journey.showMore': 'Show more',
-    'journey.showing': 'Showing',
-    'journey.of': 'of',
-    'journey.loading': 'Loading journeys…',
-    'journey.empty': 'No journeys match the selected partners and filters',
-    'journey.showOwner': 'Show Content Owner',
-    'journey.hideOwner': 'Hide Content Owner',
-    'journey.done': 'Show journeys',
-    'journey.allPlatforms': 'All',
-    'journey.assetType': 'Asset Type',
-    'journey.assetScope': 'Asset Scope',
-    'journey.promotion': 'Promotion',
-    'journey.assetCampaign': 'Asset Campaign',
-    'journey.contentCampaign': 'Content Campaign',
-    'journey.campaign': 'Campaign',
-    'journey.allCampaigns': 'All',
-    'journey.partner': 'Partner',
-    'journey.addPartner': 'Add partner…',
-    'journey.range': 'Date range follows the selector above',
-    'journey.truncated': 'Truncated',
   },
   zh: {
     title: '合作夥伴分析',
@@ -260,32 +232,6 @@ const COPY = {
     'chart.forcedLinearHint': '{name} 遠大於其他夥伴,較小的夥伴不易看見。可改用「自動」或「對數」。',
     'chart.logUnavailable': '對數刻度需要非負數值,因此改以線性顯示。',
     'chart.noValue': '—',
-    'journey.title': 'Journey',
-    'journey.hint': '所選合作夥伴的完整 Journey 路徑。取消勾選上方夥伴即可擴大範圍。',
-    'journey.allPartners': '全部合作夥伴(未選取)',
-    'journey.scopedTo': '顯示以下夥伴的 Journey',
-    'journey.filters': '篩選',
-    'journey.clear': '清除',
-    'journey.showMore': '顯示更多',
-    'journey.showing': '顯示',
-    'journey.of': '/',
-    'journey.loading': '正在載入 Journey…',
-    'journey.empty': '沒有符合所選夥伴與篩選條件的 Journey',
-    'journey.showOwner': '顯示內容擁有者',
-    'journey.hideOwner': '隱藏內容擁有者',
-    'journey.done': '顯示 Journey',
-    'journey.allPlatforms': '全部',
-    'journey.assetType': 'Asset 類型',
-    'journey.assetScope': 'Asset 範圍',
-    'journey.promotion': '推廣',
-    'journey.assetCampaign': 'Asset Campaign',
-    'journey.contentCampaign': 'Content Campaign',
-    'journey.campaign': 'Campaign',
-    'journey.allCampaigns': '全部',
-    'journey.partner': '合作夥伴',
-    'journey.addPartner': '新增夥伴…',
-    'journey.range': '日期範圍與上方選擇器相同',
-    'journey.truncated': '已截斷',
   },
 } as const;
 
@@ -568,7 +514,7 @@ export default function PartnerAnalytics() {
   );
 
   return (
-    <div className="flex flex-col gap-6">
+<div className="flex flex-col gap-6 overflow-x-clip">
       {/* Header */}
       <div className="flex flex-wrap items-end justify-between gap-4">
         <div className="min-w-0">
@@ -721,47 +667,6 @@ export default function PartnerAnalytics() {
           )}
         </div>
       </section>
-
-      {/* Phase 2 — journeys for the checked partners (selection state shared) */}
-      <PartnerJourneySection
-        mode={mode}
-        partners={partners.map((p, i) => ({ id: p.id, name: p.name, color: PARTNER_COLORS[i % PARTNER_COLORS.length] }))}
-        selectedIds={selectedIds}
-        onTogglePartner={toggle}
-        onClearPartners={() => setSelectedIds([])}
-        range={range}
-        customStart={customStart}
-        customEnd={customEnd}
-        labels={{
-          title: tr('journey.title'),
-          hint: tr('journey.hint'),
-          allPartners: tr('journey.allPartners'),
-          scopedTo: tr('journey.scopedTo'),
-          removePartner: tr('removePartner'),
-          filters: tr('journey.filters'),
-          clear: tr('journey.clear'),
-          showMore: tr('journey.showMore'),
-          showing: tr('journey.showing'),
-          of: tr('journey.of'),
-          loading: tr('journey.loading'),
-          empty: tr('journey.empty'),
-          showOwner: tr('journey.showOwner'),
-          hideOwner: tr('journey.hideOwner'),
-          done: tr('journey.done'),
-          allPlatforms: tr('journey.allPlatforms'),
-          assetType: tr('journey.assetType'),
-          assetScope: tr('journey.assetScope'),
-          promotion: tr('journey.promotion'),
-          assetCampaign: tr('journey.assetCampaign'),
-          contentCampaign: tr('journey.contentCampaign'),
-          campaign: tr('journey.campaign'),
-          allCampaigns: tr('journey.allCampaigns'),
-          partner: tr('journey.partner'),
-          addPartner: tr('journey.addPartner'),
-          rangeLabel: tr('journey.range'),
-          truncated: tr('journey.truncated'),
-        }}
-      />
 
       {/* Hidden chart → corner button → modal */}
       {chartHidden && !modalOpen && (
