@@ -2,278 +2,320 @@
 // PartnerAnalytics.tsx
 // Route: /analytics/partners   (rendered inside <PageWrapper> in App.tsx)
 //
-// MVP, UI ONLY. Nothing here is wired to real analytics yet.
-//   Overview  →  Partner list  →  Partner detail  →  JourneyAnalytics
+// PHASE 1, UI ONLY. Nothing here is wired to real analytics.
+//   KPI overview → comparison chart → partner table (checkbox multi-select)
 //
-// Marketer Mode: "What results does my promotion bring for each Sponsor?"
-// Sponsor Mode : "What results do my campaigns get, and which Marketers help?"
+// • Checking a partner ADDS it to the chart; earlier selections are kept until
+//   the user unchecks them. Colors are fixed per partner (list position).
+// • "Hide Chart" removes the chart from the page and leaves a corner button
+//   that opens the same chart in a modal.
+// • Phase 2 (not built): journey table below, filtered by selected partner(s).
 //
 // RULES FOR WHEN DATA IS CONNECTED LATER
-//  • Summary cards are their own query. Do NOT derive them by summing the
-//    partner rows (a journey/revenue could be attributed to more than one
-//    partner, so a sum may double count).
-//  • Do NOT treat "assigned" as proof of revenue attribution.
-//  • Partner source is unverified (see PLACEHOLDER_PARTNERS).
-//  • This file must not touch JourneyAnalytics / CampaignJourneyMap /
-//    AllAssetsAnalytics or any attribution logic.
+//  • KPI cards are their own query; never derive them by summing the table
+//    (a journey may be attributed to more than one partner → double counting).
+//  • "Assigned" is not proof of revenue attribution.
+//  • Partner source is unverified; PREVIEW_PARTNERS below is sample data.
+//  • Scaling lives in lib/chartScale.ts and only changes presentation.
 // ─────────────────────────────────────────────────────────────────────────────
 
-import React, { useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { ChevronRight, ArrowUpRight, Calendar, X } from 'lucide-react';
+import { ArrowUpRight, BarChart3, Calendar, Check, EyeOff, Minus, X } from 'lucide-react';
 
 import { useLanguage } from '../lib/hooks';
+import { type ScaleMode } from '../lib/chartScale';
+import PartnerChart, { type ChartSeries, type ChartText } from '../components/analytics/PartnerChart';
 
 // ── Types ───────────────────────────────────────────────────────────────────
 
 type PartnerMode = 'marketer' | 'sponsor';
-
-// NOTE: JourneyAnalytics' own select has 7days/30days/2months/6months/1year/
-// all/custom. '15days' is new here. Keep this local until analyticsEngine's
-// DateRange / getDateBounds is confirmed to support it.
-type PartnerRange =
-  | '7days'
-  | '15days'
-  | '30days'
-  | '6months'
-  | '1year'
-  | 'all'
-  | 'custom';
+type PartnerRange = '7days' | '15days' | '30days' | '6months' | '1year' | 'all' | 'custom';
+type Metric = 'revenue' | 'clicks';
+type ChartView = 'trend' | 'totals';
 
 type PartnerRow = {
   id: string;
   name: string;
-  /** Asset clicks for the selected range. null = not connected yet. */
-  assetClicks: number | null;
-  /** Revenue for the selected range. null = not connected yet. */
-  revenue: number | null;
-};
-
-type PartnerCampaignRow = {
-  id: string;
-  campaignName: string;
-  promotionName: string;
   assetClicks: number | null;
   revenue: number | null;
 };
 
-// ── Placeholder data (REMOVE when real source is connected) ─────────────────
-// Names come from the product brief only. How Sponsor–Marketer relationships
-// are stored (assignments / assignment_collaborators / promotions) has not been
-// verified against the schema, so no relationship logic is implied here.
+// ── PREVIEW DATA (remove when the real source is connected) ─────────────────
+// Magnitudes deliberately span $100 → $100,000,000 to exercise the chart
+// scaling. Partner names beyond Ali / 178 / Webmood are invented labels.
 
-const PLACEHOLDER_PARTNERS: Record<PartnerMode, PartnerRow[]> = {
+const PREVIEW_PARTNERS: Record<PartnerMode, PartnerRow[]> = {
   marketer: [
-    { id: 'placeholder-ali', name: 'Ali', assetClicks: null, revenue: null },
-    { id: 'placeholder-178', name: '178', assetClicks: null, revenue: null },
+    { id: 'preview-ali', name: 'Ali', assetClicks: 42, revenue: 100 },
+    { id: 'preview-178', name: '178', assetClicks: 1_200_000, revenue: 100_000_000 },
+    { id: 'preview-sponsor-c', name: 'Sponsor C', assetClicks: 9_800, revenue: 25_000 },
   ],
   sponsor: [
-    { id: 'placeholder-webmood', name: 'Webmood', assetClicks: null, revenue: null },
+    { id: 'preview-webmood', name: 'Webmood', assetClicks: 9_800, revenue: 25_000 },
+    { id: 'preview-marketer-b', name: 'Marketer B', assetClicks: 1_200_000, revenue: 100_000_000 },
+    { id: 'preview-marketer-c', name: 'Marketer C', assetClicks: 42, revenue: 100 },
   ],
 };
 
-const PLACEHOLDER_CAMPAIGN_ROWS: PartnerCampaignRow[] = [
-  { id: 'placeholder-row', campaignName: '—', promotionName: '—', assetClicks: null, revenue: null },
-];
+// KPI cards are independent of the table. Preview values only.
+const PREVIEW_KPI: Record<PartnerMode, { revenue: number; clicks: number }> = {
+  marketer: { revenue: 100_025_100, clicks: 1_209_842 },
+  sponsor: { revenue: 100_025_100, clicks: 1_209_842 },
+};
+
+const PARTNER_COLORS = ['#ef4444', '#38bdf8', '#a78bfa', '#34d399', '#fbbf24', '#f472b6', '#fb923c', '#2dd4bf'];
+
+function hash(str: string): number {
+  let h = 2166136261;
+  for (let i = 0; i < str.length; i++) {
+    h ^= str.charCodeAt(i);
+    h = Math.imul(h, 16777619);
+  }
+  return h >>> 0;
+}
+
+function previewSeries(total: number | null, points: number, seed: string, integer: boolean): (number | null)[] {
+  if (total === null) return Array.from({ length: points }, () => null);
+  let s = hash(seed) || 1;
+  const rnd = () => {
+    s = (Math.imul(s, 1664525) + 1013904223) >>> 0;
+    return s / 4294967296;
+  };
+  const raw = Array.from({ length: points }, () => (rnd() < 0.1 ? 0 : 0.4 + 1.2 * rnd()));
+  const sum = raw.reduce((a, b) => a + b, 0) || 1;
+  return raw.map((r) => (integer ? Math.round((r / sum) * total) : Math.round((r / sum) * total * 100) / 100));
+}
+
+function buildTimeline(range: PartnerRange, customStart: string, customEnd: string) {
+  const day = 86_400_000;
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  const fmtDay = (d: Date) => d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+  const fmtFull = (d: Date) => d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+  const fmtMonth = (d: Date) => d.toLocaleDateString('en-US', { month: 'short', year: '2-digit' });
+
+  let dates: Date[] = [];
+  let mode: 'day' | 'week' | 'month' = 'day';
+
+  if (range === '6months') {
+    mode = 'week';
+    dates = Array.from({ length: 26 }, (_, i) => new Date(today.getTime() - (25 - i) * 7 * day));
+  } else if (range === '1year' || range === 'all') {
+    mode = 'month';
+    dates = Array.from({ length: 12 }, (_, i) => new Date(today.getFullYear(), today.getMonth() - (11 - i), 1));
+  } else {
+    let n = range === '7days' ? 7 : range === '15days' ? 15 : 30;
+    let start = new Date(today.getTime() - (n - 1) * day);
+    if (range === 'custom' && customStart && customEnd) {
+      const a = new Date(customStart);
+      const b = new Date(customEnd);
+      const span = Math.round((b.getTime() - a.getTime()) / day) + 1;
+      if (Number.isFinite(span) && span >= 1) {
+        n = Math.min(90, span);
+        start = a;
+      }
+    }
+    dates = Array.from({ length: n }, (_, i) => new Date(start.getTime() + i * day));
+  }
+  return {
+    labels: dates.map((d) => (mode === 'month' ? fmtMonth(d) : fmtDay(d))),
+    fullLabels: dates.map((d) => (mode === 'month' ? fmtMonth(d) : fmtFull(d))),
+  };
+}
 
 // ── Copy (EN / 繁體中文) ────────────────────────────────────────────────────
-// Kept local so this page does not depend on the shape of the shared
-// translations file. Keys are named so they can move into it unchanged.
 
 const COPY = {
   en: {
-    'partnerAnalytics.title': 'Partner Analytics',
-    'partnerAnalytics.subtitle': 'Summary by partner',
-    'partnerAnalytics.mode.marketer': 'Marketer Mode',
-    'partnerAnalytics.mode.sponsor': 'Sponsor Mode',
-    'partnerAnalytics.range.7days': 'Last 7 Days',
-    'partnerAnalytics.range.15days': 'Last 15 Days',
-    'partnerAnalytics.range.30days': 'Last 30 Days',
-    'partnerAnalytics.range.6months': 'Last 6 Months',
-    'partnerAnalytics.range.1year': 'Last Year',
-    'partnerAnalytics.range.all': 'Lifetime',
-    'partnerAnalytics.range.custom': 'Custom Range',
-    'partnerAnalytics.overview': 'Performance Overview',
-    'partnerAnalytics.totalRevenue': 'Total Revenue',
-    'partnerAnalytics.assetClicks': 'Asset Clicks',
-    'partnerAnalytics.revenueHint.marketer': 'Revenue associated with my promotion',
-    'partnerAnalytics.revenueHint.sponsor': 'Revenue associated with my campaigns',
-    'partnerAnalytics.clicksHint.marketer': 'My promotion activity',
-    'partnerAnalytics.clicksHint.sponsor': 'Activity on my campaigns',
-    'partnerAnalytics.list.marketer': 'My Sponsor Performance',
-    'partnerAnalytics.list.sponsor': 'My Marketer Performance',
-    'partnerAnalytics.listHint.marketer': 'Which sponsors am I helping?',
-    'partnerAnalytics.listHint.sponsor': 'Which marketers help promote my campaigns?',
-    'partnerAnalytics.role.sponsor': 'Sponsor',
-    'partnerAnalytics.role.marketer': 'Marketer',
-    'partnerAnalytics.col.partner': 'Partner',
-    'partnerAnalytics.col.campaign': 'Campaign',
-    'partnerAnalytics.col.promotion': 'Promotion',
-    'partnerAnalytics.viewDetails': 'View',
-    'partnerAnalytics.detail.close': 'Close',
-    'partnerAnalytics.detail.title.marketer': 'My promotion for',
-    'partnerAnalytics.detail.title.sponsor': 'Promotion by',
-    'partnerAnalytics.detail.empty': 'Campaign and promotion breakdown will appear here once analytics is connected.',
-    'partnerAnalytics.viewJourneyDetails': 'View Journey Details',
-    'partnerAnalytics.notConnected': 'Preview layout. Analytics is not connected yet.',
-    'partnerAnalytics.empty': 'No partners to show yet.',
+    title: 'Partner Analytics',
+    subtitle: 'Performance by partner',
+    preview: 'Preview data · analytics not connected',
+    'mode.marketer': 'Marketer Mode',
+    'mode.sponsor': 'Sponsor Mode',
+    'range.7days': 'Last 7 Days',
+    'range.15days': 'Last 15 Days',
+    'range.30days': 'Last 30 Days',
+    'range.6months': 'Last 6 Months',
+    'range.1year': 'Last Year',
+    'range.all': 'Lifetime',
+    'range.custom': 'Custom Range',
+    totalRevenue: 'Total Revenue',
+    assetClicks: 'Asset Clicks',
+    'revenueHint.marketer': 'Revenue associated with my promotion',
+    'revenueHint.sponsor': 'Revenue associated with my campaigns',
+    'clicksHint.marketer': 'My promotion activity',
+    'clicksHint.sponsor': 'Activity on my campaigns',
+    trend: 'Trend',
+    totals: 'Totals',
+    scale: 'Scale',
+    'scale.auto': 'Auto',
+    'scale.linear': 'Linear',
+    'scale.log': 'Log',
+    hideChart: 'Hide Chart',
+    showChart: 'Show chart',
+    pinChart: 'Show on page',
+    close: 'Close',
+    'list.marketer': 'My Sponsor Performance',
+    'list.sponsor': 'My Marketer Performance',
+    'listHint.marketer': 'Which sponsors am I helping? Check several to compare.',
+    'listHint.sponsor': 'Which marketers help promote my campaigns? Check several to compare.',
+    'role.sponsor': 'Sponsor',
+    'role.marketer': 'Marketer',
+    partner: 'Partner',
+    journeys: 'Journeys',
+    selectAll: 'Select all',
+    clearAll: 'Clear selection',
+    removePartner: 'Remove',
+    empty: 'No partners to show yet.',
+    'chart.empty': 'Check a partner in the table to see it here.',
+    'chart.noData': 'No data for the selected range.',
+    'chart.linearBadge': 'Linear scale',
+    'chart.logBadge': 'Log scale',
+    'chart.auto': 'auto',
+    'chart.logNote': 'Each gridline is 10× the one below. Compare ratios, not differences.',
+    'chart.zeroNote': 'Zero values sit on the axis floor.',
+    'chart.hatchNote': 'Hatched bars are drawn at a minimum width; exact values are shown at right.',
+    'chart.forcedLinearHint': '{name} is far larger than the rest, so smaller partners are hard to see. Try Auto or Log.',
+    'chart.logUnavailable': 'Log scale needs non-negative values, so Linear is shown.',
+    'chart.noValue': '—',
   },
   zh: {
-    'partnerAnalytics.title': '合作夥伴分析',
-    'partnerAnalytics.subtitle': '依合作夥伴彙整成效',
-    'partnerAnalytics.mode.marketer': 'Marketer 模式',
-    'partnerAnalytics.mode.sponsor': 'Sponsor 模式',
-    'partnerAnalytics.range.7days': '最近 7 天',
-    'partnerAnalytics.range.15days': '最近 15 天',
-    'partnerAnalytics.range.30days': '最近 30 天',
-    'partnerAnalytics.range.6months': '最近 6 個月',
-    'partnerAnalytics.range.1year': '最近一年',
-    'partnerAnalytics.range.all': '全部時間',
-    'partnerAnalytics.range.custom': '自訂範圍',
-    'partnerAnalytics.overview': '成效總覽',
-    'partnerAnalytics.totalRevenue': '總收入',
-    'partnerAnalytics.assetClicks': 'Asset 點擊數',
-    'partnerAnalytics.revenueHint.marketer': '與我的推廣相關的收入',
-    'partnerAnalytics.revenueHint.sponsor': '與我的 Campaign 相關的收入',
-    'partnerAnalytics.clicksHint.marketer': '我的推廣活動量',
-    'partnerAnalytics.clicksHint.sponsor': '我的 Campaign 的活動量',
-    'partnerAnalytics.list.marketer': '我的 Sponsor 成效',
-    'partnerAnalytics.list.sponsor': '我的 Marketer 成效',
-    'partnerAnalytics.listHint.marketer': '我正在幫哪些 Sponsor 推廣？',
-    'partnerAnalytics.listHint.sponsor': '哪些 Marketer 在幫我推廣 Campaign？',
-    'partnerAnalytics.role.sponsor': 'Sponsor',
-    'partnerAnalytics.role.marketer': 'Marketer',
-    'partnerAnalytics.col.partner': '合作夥伴',
-    'partnerAnalytics.col.campaign': 'Campaign',
-    'partnerAnalytics.col.promotion': 'Promotion',
-    'partnerAnalytics.viewDetails': '查看',
-    'partnerAnalytics.detail.close': '關閉',
-    'partnerAnalytics.detail.title.marketer': '我為此 Sponsor 的推廣：',
-    'partnerAnalytics.detail.title.sponsor': '推廣者：',
-    'partnerAnalytics.detail.empty': '連接 Analytics 後，這裡會顯示 Campaign 與 Promotion 明細。',
-    'partnerAnalytics.viewJourneyDetails': '查看 Journey 詳情',
-    'partnerAnalytics.notConnected': '版面預覽，尚未連接 Analytics。',
-    'partnerAnalytics.empty': '目前沒有可顯示的合作夥伴。',
+    title: '合作夥伴分析',
+    subtitle: '依合作夥伴檢視成效',
+    preview: '預覽資料 · 尚未連接 Analytics',
+    'mode.marketer': 'Marketer 模式',
+    'mode.sponsor': 'Sponsor 模式',
+    'range.7days': '最近 7 天',
+    'range.15days': '最近 15 天',
+    'range.30days': '最近 30 天',
+    'range.6months': '最近 6 個月',
+    'range.1year': '最近一年',
+    'range.all': '全部時間',
+    'range.custom': '自訂範圍',
+    totalRevenue: '總收入',
+    assetClicks: 'Asset 點擊數',
+    'revenueHint.marketer': '與我的推廣相關的收入',
+    'revenueHint.sponsor': '與我的 Campaign 相關的收入',
+    'clicksHint.marketer': '我的推廣活動量',
+    'clicksHint.sponsor': '我的 Campaign 的活動量',
+    trend: '趨勢',
+    totals: '總計',
+    scale: '刻度',
+    'scale.auto': '自動',
+    'scale.linear': '線性',
+    'scale.log': '對數',
+    hideChart: '隱藏圖表',
+    showChart: '顯示圖表',
+    pinChart: '放回頁面',
+    close: '關閉',
+    'list.marketer': '我的 Sponsor 成效',
+    'list.sponsor': '我的 Marketer 成效',
+    'listHint.marketer': '我正在幫哪些 Sponsor 推廣?勾選多個即可比較。',
+    'listHint.sponsor': '哪些 Marketer 在幫我推廣 Campaign?勾選多個即可比較。',
+    'role.sponsor': 'Sponsor',
+    'role.marketer': 'Marketer',
+    partner: '合作夥伴',
+    journeys: 'Journey',
+    selectAll: '全選',
+    clearAll: '清除選取',
+    removePartner: '移除',
+    empty: '目前沒有可顯示的合作夥伴。',
+    'chart.empty': '在下方表格勾選合作夥伴,就會顯示在這裡。',
+    'chart.noData': '所選範圍內沒有資料。',
+    'chart.linearBadge': '線性刻度',
+    'chart.logBadge': '對數刻度',
+    'chart.auto': '自動',
+    'chart.logNote': '每一條格線是下一條的 10 倍,請比較倍數而非差距。',
+    'chart.zeroNote': '數值為 0 的點會落在座標軸底部。',
+    'chart.hatchNote': '斜線長條為最小寬度的示意,精確數值顯示在右側。',
+    'chart.forcedLinearHint': '{name} 遠大於其他夥伴,較小的夥伴不易看見。可改用「自動」或「對數」。',
+    'chart.logUnavailable': '對數刻度需要非負數值,因此改以線性顯示。',
+    'chart.noValue': '—',
   },
 } as const;
 
 type CopyKey = keyof (typeof COPY)['en'];
 
 const RANGE_ORDER: PartnerRange[] = ['7days', '15days', '30days', '6months', '1year', 'all', 'custom'];
-
-// ── Helpers ─────────────────────────────────────────────────────────────────
-
 const DASH = '—';
 
-function formatCount(n: number | null): string {
-  return n === null ? DASH : n.toLocaleString();
-}
-
-function formatMoney(n: number | null): string {
-  return n === null
-    ? DASH
-    : `$${n.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
-}
+const formatCount = (n: number | null) => (n === null ? DASH : n.toLocaleString());
+const formatMoney = (n: number | null) =>
+  n === null ? DASH : `$${n.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 
 /**
- * Builds the link to the existing Journey Analytics page.
- *
- * TODAY JourneyAnalytics reads NO query params (its only URL input is a
- * `:campaignId` path param, and /analytics/journey has no such param in
- * App.tsx), so these params are ignored. They are sent now so the contract is
- * fixed: when JourneyAnalytics learns to read them, this page needs no change.
- * Always navigate to journeys, never to a rebuilt/truncated path view.
+ * Link into the existing Journey Analytics page. TODAY JourneyAnalytics reads
+ * no query params, so these are ignored until it is taught to read them.
  */
-function buildJourneyHref(args: {
-  mode: PartnerMode;
-  partnerId: string;
-  range: PartnerRange;
-  customStart: string;
-  customEnd: string;
-}): string {
-  const params = new URLSearchParams();
-  params.set('partnerMode', args.mode);
-  params.set('partnerId', args.partnerId);
-  params.set('range', args.range);
-  if (args.range === 'custom') {
-    if (args.customStart) params.set('from', args.customStart);
-    if (args.customEnd) params.set('to', args.customEnd);
+function buildJourneyHref(a: { mode: PartnerMode; partnerId: string; range: PartnerRange; from: string; to: string }) {
+  const p = new URLSearchParams({ partnerMode: a.mode, partnerId: a.partnerId, range: a.range });
+  if (a.range === 'custom') {
+    if (a.from) p.set('from', a.from);
+    if (a.to) p.set('to', a.to);
   }
-  return `/analytics/journey?${params.toString()}`;
+  return `/analytics/journey?${p.toString()}`;
 }
 
-// ── Small reusable pieces (local to this page) ──────────────────────────────
+// ── Small pieces ────────────────────────────────────────────────────────────
 
-function ModeSwitch({
-  mode,
-  onChange,
-  labels,
-}: {
-  mode: PartnerMode;
-  onChange: (m: PartnerMode) => void;
-  labels: Record<PartnerMode, string>;
-}) {
-  return (
-    <div className="inline-flex items-center gap-1 p-1 bg-zinc-900 border border-zinc-800 rounded-xl">
-      {(['marketer', 'sponsor'] as PartnerMode[]).map((m) => (
-        <button
-          key={m}
-          type="button"
-          onClick={() => onChange(m)}
-          aria-pressed={mode === m}
-          className={`px-4 py-2 rounded-lg text-[10px] font-black uppercase tracking-widest transition-all ${
-            mode === m ? 'bg-zinc-700 text-white' : 'text-zinc-600 hover:text-zinc-400'
-          }`}
-        >
-          {labels[m]}
-        </button>
-      ))}
-    </div>
-  );
-}
-
-function RangePills({
-  range,
-  onChange,
-  label,
-}: {
-  range: PartnerRange;
-  onChange: (r: PartnerRange) => void;
-  label: (r: PartnerRange) => string;
-}) {
-  return (
-    <div className="flex items-center gap-1 p-1 bg-zinc-900 border border-zinc-800 rounded-xl overflow-x-auto max-w-full">
-      {RANGE_ORDER.map((r) => (
-        <button
-          key={r}
-          type="button"
-          onClick={() => onChange(r)}
-          aria-pressed={range === r}
-          className={`px-3 py-1.5 rounded-lg text-[9px] font-black uppercase tracking-widest whitespace-nowrap transition-all ${
-            range === r ? 'bg-zinc-700 text-white' : 'text-zinc-600 hover:text-zinc-400'
-          }`}
-        >
-          {label(r)}
-        </button>
-      ))}
-    </div>
-  );
-}
-
-function SummaryCard({
-  label,
+function Segmented<T extends string>({
   value,
-  hint,
+  options,
+  onChange,
+  small,
 }: {
-  label: string;
-  value: string;
-  hint: string;
+  value: T;
+  options: Array<{ value: T; label: string }>;
+  onChange: (v: T) => void;
+  small?: boolean;
 }) {
   return (
-    <div className="bg-zinc-950 border border-zinc-900 rounded-2xl p-6">
+    <div className="inline-flex items-center gap-1 p-1 bg-zinc-900 border border-zinc-800 rounded-xl max-w-full overflow-x-auto">
+      {options.map((o) => (
+        <button
+          key={o.value}
+          type="button"
+          aria-pressed={value === o.value}
+          onClick={() => onChange(o.value)}
+          className={`rounded-lg font-black uppercase tracking-widest whitespace-nowrap transition-all ${
+            small ? 'px-3 py-1.5 text-[9px]' : 'px-4 py-2 text-[10px]'
+          } ${value === o.value ? 'bg-zinc-700 text-white' : 'text-zinc-600 hover:text-zinc-400'}`}
+        >
+          {o.label}
+        </button>
+      ))}
+    </div>
+  );
+}
+
+function Checkbox({ state, onClick, label }: { state: 'on' | 'off' | 'some'; onClick: () => void; label: string }) {
+  return (
+    <button
+      type="button"
+      role="checkbox"
+      aria-checked={state === 'some' ? 'mixed' : state === 'on'}
+      aria-label={label}
+      onClick={(e) => {
+        e.stopPropagation();
+        onClick();
+      }}
+      className={`w-4 h-4 rounded border flex items-center justify-center transition-colors ${
+        state === 'off' ? 'border-zinc-700 bg-zinc-900' : 'border-red-600 bg-red-600 text-white'
+      }`}
+    >
+      {state === 'on' && <Check size={11} strokeWidth={3} />}
+      {state === 'some' && <Minus size={11} strokeWidth={3} />}
+    </button>
+  );
+}
+
+function KpiCell({ label, value, hint }: { label: string; value: string; hint: string }) {
+  return (
+    <div className="px-6 py-5 min-w-0">
       <div className="text-[10px] font-black uppercase tracking-widest text-zinc-500">{label}</div>
-      <div className="mt-3 text-3xl font-black text-white tabular-nums">{value}</div>
-      <div className="mt-2 text-[10px] font-bold uppercase tracking-widest text-zinc-600">{hint}</div>
+      <div className="mt-2 text-3xl font-black text-white tabular-nums truncate">{value}</div>
+      <div className="mt-1 text-[10px] font-bold uppercase tracking-widest text-zinc-600">{hint}</div>
     </div>
   );
 }
@@ -284,59 +326,220 @@ export default function PartnerAnalytics() {
   const navigate = useNavigate();
   const { lang } = useLanguage();
   const dict = lang === 'en' ? COPY.en : COPY.zh;
-  const tr = (key: CopyKey): string => dict[key];
+  const tr = (k: CopyKey): string => dict[k];
 
   const [mode, setMode] = useState<PartnerMode>('marketer');
   const [range, setRange] = useState<PartnerRange>('30days');
   const [customStart, setCustomStart] = useState('');
   const [customEnd, setCustomEnd] = useState('');
-  const [selectedPartnerId, setSelectedPartnerId] = useState<string | null>(null);
 
-  // Marketer Mode lists Sponsors; Sponsor Mode lists Marketers.
+  const [metric, setMetric] = useState<Metric>('revenue');
+  const [view, setView] = useState<ChartView>('trend');
+  const [scaleMode, setScaleMode] = useState<ScaleMode>('auto');
+
+  const [selectedIds, setSelectedIds] = useState<string[]>([PREVIEW_PARTNERS.marketer[0].id]);
+  const [chartHidden, setChartHidden] = useState(false);
+  const [modalOpen, setModalOpen] = useState(false);
+
+  const partners = PREVIEW_PARTNERS[mode];
   const partnerRole: PartnerMode = mode === 'marketer' ? 'sponsor' : 'marketer';
-  const partners = PLACEHOLDER_PARTNERS[mode];
 
-  const selectedPartner = useMemo(
-    () => partners.find((p) => p.id === selectedPartnerId) ?? null,
-    [partners, selectedPartnerId],
+  const changeMode = (m: PartnerMode) => {
+    setMode(m);
+    setSelectedIds(PREVIEW_PARTNERS[m].length ? [PREVIEW_PARTNERS[m][0].id] : []);
+  };
+
+  const toggle = (id: string) =>
+    setSelectedIds((prev) => (prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]));
+
+  const allState: 'on' | 'off' | 'some' =
+    selectedIds.length === 0 ? 'off' : selectedIds.length === partners.length ? 'on' : 'some';
+
+  // Modal: Esc closes, background scroll locked.
+  useEffect(() => {
+    if (!modalOpen) return;
+    const onKey = (e: KeyboardEvent) => e.key === 'Escape' && setModalOpen(false);
+    window.addEventListener('keydown', onKey);
+    const prev = document.body.style.overflow;
+    document.body.style.overflow = 'hidden';
+    return () => {
+      window.removeEventListener('keydown', onKey);
+      document.body.style.overflow = prev;
+    };
+  }, [modalOpen]);
+
+  const timeline = useMemo(() => buildTimeline(range, customStart, customEnd), [range, customStart, customEnd]);
+
+  // Color identity = position in the partner list, so it never changes when
+  // other partners are added or removed.
+  const series: ChartSeries[] = useMemo(
+    () =>
+      partners
+        .map((p, i) => ({ p, i }))
+        .filter(({ p }) => selectedIds.includes(p.id))
+        .map(({ p, i }) => {
+          const total = metric === 'revenue' ? p.revenue : p.assetClicks;
+          return {
+            id: p.id,
+            name: p.name,
+            color: PARTNER_COLORS[i % PARTNER_COLORS.length],
+            total,
+            values: previewSeries(total, timeline.labels.length, `${p.id}:${metric}`, metric === 'clicks'),
+          };
+        }),
+    [partners, selectedIds, metric, timeline],
   );
 
-  const handleModeChange = (m: PartnerMode) => {
-    setMode(m);
-    setSelectedPartnerId(null); // partner list changes with the mode
+  const chartText: ChartText = {
+    empty: tr('chart.empty'),
+    noData: tr('chart.noData'),
+    linearBadge: tr('chart.linearBadge'),
+    logBadge: tr('chart.logBadge'),
+    autoSuffix: tr('chart.auto'),
+    logNote: tr('chart.logNote'),
+    zeroNote: tr('chart.zeroNote'),
+    hatchNote: tr('chart.hatchNote'),
+    forcedLinearHint: tr('chart.forcedLinearHint'),
+    logUnavailable: tr('chart.logUnavailable'),
+    noValue: tr('chart.noValue'),
   };
 
   const goToJourneys = (partnerId: string) =>
-    navigate(buildJourneyHref({ mode, partnerId, range, customStart, customEnd }));
+    navigate(buildJourneyHref({ mode, partnerId, range, from: customStart, to: customEnd }));
+
+  const kpi = PREVIEW_KPI[mode];
+
+  const renderChartPanel = (variant: 'inline' | 'modal') => (
+    <section className="bg-zinc-950 border border-zinc-900 rounded-2xl">
+      <div className="flex flex-wrap items-center justify-between gap-3 px-6 py-4 border-b border-zinc-900">
+        <h3 className="text-sm font-black text-white uppercase tracking-tight">{tr('trend')}</h3>
+        <div className="flex flex-wrap items-center gap-2">
+          <Segmented<Metric>
+            small
+            value={metric}
+            onChange={setMetric}
+            options={[
+              { value: 'revenue', label: tr('totalRevenue') },
+              { value: 'clicks', label: tr('assetClicks') },
+            ]}
+          />
+          <Segmented<ChartView>
+            small
+            value={view}
+            onChange={setView}
+            options={[
+              { value: 'trend', label: tr('trend') },
+              { value: 'totals', label: tr('totals') },
+            ]}
+          />
+          <Segmented<ScaleMode>
+            small
+            value={scaleMode}
+            onChange={setScaleMode}
+            options={[
+              { value: 'auto', label: tr('scale.auto') },
+              { value: 'linear', label: tr('scale.linear') },
+              { value: 'log', label: tr('scale.log') },
+            ]}
+          />
+          {variant === 'inline' ? (
+            <button
+              type="button"
+              onClick={() => setChartHidden(true)}
+              className="h-9 px-3 rounded-xl border border-zinc-800 bg-zinc-900 text-[9px] font-black uppercase tracking-widest text-zinc-400 hover:text-white flex items-center gap-1.5"
+            >
+              <EyeOff size={14} />
+              {tr('hideChart')}
+            </button>
+          ) : (
+            <>
+              <button
+                type="button"
+                onClick={() => {
+                  setChartHidden(false);
+                  setModalOpen(false);
+                }}
+                className="h-9 px-3 rounded-xl border border-zinc-800 bg-zinc-900 text-[9px] font-black uppercase tracking-widest text-zinc-400 hover:text-white"
+              >
+                {tr('pinChart')}
+              </button>
+              <button
+                type="button"
+                onClick={() => setModalOpen(false)}
+                aria-label={tr('close')}
+                className="p-2 rounded-xl border border-zinc-800 bg-zinc-900 text-zinc-400 hover:text-white"
+              >
+                <X size={16} />
+              </button>
+            </>
+          )}
+        </div>
+      </div>
+
+      {series.length > 0 && (
+        <div className="flex flex-wrap items-center gap-2 px-6 pt-4">
+          {series.map((s) => (
+            <span
+              key={s.id}
+              className="inline-flex items-center gap-2 pl-2.5 pr-1.5 py-1 rounded-lg border border-zinc-800 bg-zinc-900 text-[11px] font-bold text-zinc-300"
+            >
+              <span className="w-2 h-2 rounded-sm" style={{ background: s.color }} />
+              {s.name}
+              <button
+                type="button"
+                onClick={() => toggle(s.id)}
+                aria-label={`${tr('removePartner')} ${s.name}`}
+                className="p-0.5 rounded text-zinc-500 hover:text-white"
+              >
+                <X size={12} />
+              </button>
+            </span>
+          ))}
+        </div>
+      )}
+
+      <div className="px-6 py-5">
+        <PartnerChart
+          view={view}
+          metric={metric === 'revenue' ? 'currency' : 'count'}
+          labels={timeline.labels}
+          fullLabels={timeline.fullLabels}
+          series={series}
+          scaleMode={scaleMode}
+          height={variant === 'modal' ? 360 : 280}
+          text={chartText}
+        />
+      </div>
+    </section>
+  );
 
   return (
-    <div className="flex flex-col gap-8">
-      {/* Header + mode switch */}
+    <div className="flex flex-col gap-6">
+      {/* Header */}
       <div className="flex flex-wrap items-end justify-between gap-4">
         <div className="min-w-0">
-          <h2 className="text-2xl font-black text-white uppercase tracking-tight">
-            {tr('partnerAnalytics.title')}
-          </h2>
+          <h2 className="text-2xl font-black text-white uppercase tracking-tight">{tr('title')}</h2>
           <p className="text-[10px] text-zinc-600 font-bold uppercase tracking-widest mt-1">
-            {tr('partnerAnalytics.subtitle')}
+            {tr('subtitle')} · <span className="text-amber-500/80">{tr('preview')}</span>
           </p>
         </div>
-        <ModeSwitch
-          mode={mode}
-          onChange={handleModeChange}
-          labels={{
-            marketer: tr('partnerAnalytics.mode.marketer'),
-            sponsor: tr('partnerAnalytics.mode.sponsor'),
-          }}
+        <Segmented<PartnerMode>
+          value={mode}
+          onChange={changeMode}
+          options={[
+            { value: 'marketer', label: tr('mode.marketer') },
+            { value: 'sponsor', label: tr('mode.sponsor') },
+          ]}
         />
       </div>
 
-      {/* Date range controls the whole page */}
+      {/* Date range */}
       <div className="flex flex-col gap-3">
-        <RangePills
-          range={range}
+        <Segmented<PartnerRange>
+          small
+          value={range}
           onChange={setRange}
-          label={(r) => tr(`partnerAnalytics.range.${r}` as CopyKey)}
+          options={RANGE_ORDER.map((r) => ({ value: r, label: tr(`range.${r}` as CopyKey) }))}
         />
         {range === 'custom' && (
           <div className="flex flex-wrap items-center gap-2">
@@ -358,94 +561,102 @@ export default function PartnerAnalytics() {
         )}
       </div>
 
-      {/* Layer 1 — overview */}
-      <section className="flex flex-col gap-3">
-        <h3 className="text-[10px] font-black uppercase tracking-widest text-zinc-500">
-          {tr('partnerAnalytics.overview')}
-        </h3>
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-          <SummaryCard
-            label={tr('partnerAnalytics.totalRevenue')}
-            value={`$ ${DASH}`}
-            hint={tr(`partnerAnalytics.revenueHint.${mode}` as CopyKey)}
-          />
-          <SummaryCard
-            label={tr('partnerAnalytics.assetClicks')}
-            value={DASH}
-            hint={tr(`partnerAnalytics.clicksHint.${mode}` as CopyKey)}
-          />
-        </div>
-        <p className="text-[10px] font-bold uppercase tracking-widest text-zinc-700">
-          {tr('partnerAnalytics.notConnected')}
-        </p>
+      {/* KPI row (independent of the table) */}
+      <section className="grid grid-cols-1 sm:grid-cols-2 sm:divide-x divide-y sm:divide-y-0 divide-zinc-900 bg-zinc-950 border border-zinc-900 rounded-2xl">
+        <KpiCell label={tr('totalRevenue')} value={formatMoney(kpi.revenue)} hint={tr(`revenueHint.${mode}` as CopyKey)} />
+        <KpiCell label={tr('assetClicks')} value={formatCount(kpi.clicks)} hint={tr(`clicksHint.${mode}` as CopyKey)} />
       </section>
 
-      {/* Layer 2 — partner list */}
+      {/* Chart (inline unless hidden) */}
+      {!chartHidden && renderChartPanel('inline')}
+
+      {/* Partner table */}
       <section className="flex flex-col gap-3">
-        <div>
-          <h3 className="text-sm font-black text-white uppercase tracking-tight">
-            {tr(`partnerAnalytics.list.${mode}` as CopyKey)}
-          </h3>
-          <p className="text-[10px] text-zinc-600 font-bold uppercase tracking-widest mt-0.5">
-            {tr(`partnerAnalytics.listHint.${mode}` as CopyKey)}
-          </p>
+        <div className="flex flex-wrap items-end justify-between gap-2">
+          <div>
+            <h3 className="text-sm font-black text-white uppercase tracking-tight">{tr(`list.${mode}` as CopyKey)}</h3>
+            <p className="text-[10px] text-zinc-600 font-bold uppercase tracking-widest mt-0.5">
+              {tr(`listHint.${mode}` as CopyKey)}
+            </p>
+          </div>
+          {selectedIds.length > 0 && (
+            <button
+              type="button"
+              onClick={() => setSelectedIds([])}
+              className="text-[10px] font-black uppercase tracking-widest text-zinc-500 hover:text-white"
+            >
+              {tr('clearAll')} ({selectedIds.length})
+            </button>
+          )}
         </div>
 
         <div className="bg-zinc-950 border border-zinc-900 rounded-2xl overflow-hidden">
           {partners.length === 0 ? (
             <div className="px-6 py-10 text-center text-[10px] font-bold uppercase tracking-widest text-zinc-600">
-              {tr('partnerAnalytics.empty')}
+              {tr('empty')}
             </div>
           ) : (
             <div className="overflow-x-auto">
               <table className="min-w-full divide-y divide-zinc-900 border-collapse">
                 <thead className="bg-zinc-950">
                   <tr>
+                    <th className="w-12 pl-5 py-4 border-b border-zinc-900 text-left">
+                      <Checkbox
+                        state={allState}
+                        label={allState === 'on' ? tr('clearAll') : tr('selectAll')}
+                        onClick={() => setSelectedIds(allState === 'on' ? [] : partners.map((p) => p.id))}
+                      />
+                    </th>
                     <th className="px-4 py-4 text-left text-[10px] font-black uppercase tracking-widest text-zinc-600 border-b border-zinc-900">
-                      {tr('partnerAnalytics.col.partner')}
+                      {tr('partner')}
                     </th>
                     <th className="px-4 py-4 text-right text-[10px] font-black uppercase tracking-widest text-zinc-600 border-b border-zinc-900">
-                      {tr('partnerAnalytics.assetClicks')}
+                      {tr('assetClicks')}
                     </th>
                     <th className="px-4 py-4 text-right text-[10px] font-black uppercase tracking-widest text-zinc-600 border-b border-zinc-900">
-                      {tr('partnerAnalytics.totalRevenue')}
+                      {tr('totalRevenue')}
                     </th>
-                    <th className="w-24 border-b border-zinc-900" />
+                    <th className="w-28 border-b border-zinc-900" />
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-zinc-900">
-                  {partners.map((p) => {
-                    const active = p.id === selectedPartnerId;
+                  {partners.map((p, i) => {
+                    const on = selectedIds.includes(p.id);
                     return (
                       <tr
                         key={p.id}
-                        onClick={() => setSelectedPartnerId(active ? null : p.id)}
-                        className={`cursor-pointer transition-colors ${
-                          active ? 'bg-zinc-900' : 'hover:bg-zinc-900/50'
-                        }`}
+                        onClick={() => toggle(p.id)}
+                        className={`cursor-pointer transition-colors ${on ? 'bg-zinc-900/60' : 'hover:bg-zinc-900/40'}`}
                       >
+                        <td className="pl-5 py-4">
+                          <Checkbox state={on ? 'on' : 'off'} label={p.name} onClick={() => toggle(p.id)} />
+                        </td>
                         <td className="px-4 py-4">
                           <div className="flex items-center gap-3">
+                            <span
+                              className="w-2 h-2 rounded-sm shrink-0"
+                              style={{ background: on ? PARTNER_COLORS[i % PARTNER_COLORS.length] : 'transparent' }}
+                            />
                             <span className="text-sm font-bold text-white">{p.name}</span>
                             <span className="px-2 py-0.5 rounded-md border border-zinc-800 bg-zinc-900 text-[9px] font-black uppercase tracking-widest text-zinc-500">
-                              {tr(`partnerAnalytics.role.${partnerRole}` as CopyKey)}
+                              {tr(`role.${partnerRole}` as CopyKey)}
                             </span>
                           </div>
                         </td>
-                        <td className="px-4 py-4 text-right text-sm text-zinc-300 tabular-nums">
-                          {formatCount(p.assetClicks)}
-                        </td>
-                        <td className="px-4 py-4 text-right text-sm text-zinc-300 tabular-nums">
-                          {formatMoney(p.revenue)}
-                        </td>
+                        <td className="px-4 py-4 text-right text-sm text-zinc-300 tabular-nums">{formatCount(p.assetClicks)}</td>
+                        <td className="px-4 py-4 text-right text-sm text-zinc-300 tabular-nums">{formatMoney(p.revenue)}</td>
                         <td className="px-4 py-4 text-right">
-                          <span className="inline-flex items-center gap-1 text-[10px] font-black uppercase tracking-widest text-zinc-500">
-                            {tr('partnerAnalytics.viewDetails')}
-                            <ChevronRight
-                              size={12}
-                              className={`transition-transform ${active ? 'rotate-90' : ''}`}
-                            />
-                          </span>
+                          <button
+                            type="button"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              goToJourneys(p.id);
+                            }}
+                            className="inline-flex items-center gap-1 text-[10px] font-black uppercase tracking-widest text-zinc-500 hover:text-white"
+                          >
+                            {tr('journeys')}
+                            <ArrowUpRight size={12} />
+                          </button>
                         </td>
                       </tr>
                     );
@@ -457,87 +668,24 @@ export default function PartnerAnalytics() {
         </div>
       </section>
 
-      {/* Layer 3 — partner detail */}
-      {selectedPartner && (
-        <section className="bg-zinc-950 border border-zinc-900 rounded-2xl">
-          <div className="flex flex-wrap items-center justify-between gap-3 px-6 py-4 border-b border-zinc-900">
-            <div className="min-w-0">
-              <div className="text-[10px] font-black uppercase tracking-widest text-zinc-600">
-                {tr(`partnerAnalytics.detail.title.${mode}` as CopyKey)}
-              </div>
-              <div className="text-lg font-black text-white truncate">{selectedPartner.name}</div>
-            </div>
-            <div className="flex items-center gap-2">
-              <button
-                type="button"
-                onClick={() => goToJourneys(selectedPartner.id)}
-                className="h-9 px-4 rounded-xl border border-zinc-800 bg-zinc-900 text-[9px] font-black uppercase tracking-widest text-zinc-300 hover:text-white hover:border-zinc-600 transition-all flex items-center gap-1.5"
-              >
-                {tr('partnerAnalytics.viewJourneyDetails')}
-                <ArrowUpRight size={14} />
-              </button>
-              <button
-                type="button"
-                onClick={() => setSelectedPartnerId(null)}
-                aria-label={tr('partnerAnalytics.detail.close')}
-                className="p-2 rounded-xl border border-zinc-800 bg-zinc-900 text-zinc-400 hover:text-white"
-              >
-                <X size={16} />
-              </button>
-            </div>
-          </div>
+      {/* Hidden chart → corner button → modal */}
+      {chartHidden && !modalOpen && (
+        <button
+          type="button"
+          onClick={() => setModalOpen(true)}
+          aria-label={tr('showChart')}
+          title={tr('showChart')}
+          className="fixed bottom-20 right-4 md:bottom-6 md:right-6 z-40 w-12 h-12 rounded-full bg-red-600 text-white shadow-lg shadow-red-900/40 flex items-center justify-center hover:bg-red-500 transition-colors"
+        >
+          <BarChart3 size={20} />
+        </button>
+      )}
 
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 p-6">
-            <SummaryCard
-              label={tr('partnerAnalytics.totalRevenue')}
-              value={formatMoney(selectedPartner.revenue)}
-              hint={tr('partnerAnalytics.notConnected')}
-            />
-            <SummaryCard
-              label={tr('partnerAnalytics.assetClicks')}
-              value={formatCount(selectedPartner.assetClicks)}
-              hint={tr('partnerAnalytics.notConnected')}
-            />
-          </div>
-
-          <div className="overflow-x-auto border-t border-zinc-900">
-            <table className="min-w-full divide-y divide-zinc-900 border-collapse">
-              <thead className="bg-zinc-950">
-                <tr>
-                  <th className="px-4 py-4 text-left text-[10px] font-black uppercase tracking-widest text-zinc-600 border-b border-zinc-900">
-                    {tr('partnerAnalytics.col.campaign')}
-                  </th>
-                  <th className="px-4 py-4 text-left text-[10px] font-black uppercase tracking-widest text-zinc-600 border-b border-zinc-900">
-                    {tr('partnerAnalytics.col.promotion')}
-                  </th>
-                  <th className="px-4 py-4 text-right text-[10px] font-black uppercase tracking-widest text-zinc-600 border-b border-zinc-900">
-                    {tr('partnerAnalytics.assetClicks')}
-                  </th>
-                  <th className="px-4 py-4 text-right text-[10px] font-black uppercase tracking-widest text-zinc-600 border-b border-zinc-900">
-                    {tr('partnerAnalytics.totalRevenue')}
-                  </th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-zinc-900">
-                {PLACEHOLDER_CAMPAIGN_ROWS.map((r) => (
-                  <tr key={r.id}>
-                    <td className="px-4 py-4 text-sm text-zinc-300">{r.campaignName}</td>
-                    <td className="px-4 py-4 text-sm text-zinc-300">{r.promotionName}</td>
-                    <td className="px-4 py-4 text-right text-sm text-zinc-300 tabular-nums">
-                      {formatCount(r.assetClicks)}
-                    </td>
-                    <td className="px-4 py-4 text-right text-sm text-zinc-300 tabular-nums">
-                      {formatMoney(r.revenue)}
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-          <p className="px-6 py-4 text-[10px] font-bold uppercase tracking-widest text-zinc-700 border-t border-zinc-900">
-            {tr('partnerAnalytics.detail.empty')}
-          </p>
-        </section>
+      {modalOpen && (
+        <div className="fixed inset-0 z-[80] flex items-center justify-center p-4" role="dialog" aria-modal="true">
+          <div className="absolute inset-0 bg-black/70 backdrop-blur-sm" onClick={() => setModalOpen(false)} aria-hidden="true" />
+          <div className="relative w-full max-w-5xl max-h-[90vh] overflow-y-auto">{renderChartPanel('modal')}</div>
+        </div>
       )}
     </div>
   );
