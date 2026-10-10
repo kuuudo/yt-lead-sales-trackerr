@@ -18,7 +18,7 @@ import { useNavigate } from 'react-router-dom';
 // analytics engine. Swap SAMPLE for live data in a later pass.
 // ─────────────────────────────────────────────────────────────────────────────
 
-type HeroButtonKey = 'structure' | 'journey';
+type HeroButtonKey = 'structure' | 'journey' | 'analytics';
 
 const SAMPLE = {
   revenue: 84291,
@@ -50,14 +50,15 @@ export function Tree() {
         </div>
 
         <div style={styles.headerActions}>
-          {(['structure', 'journey'] as HeroButtonKey[]).map((key) => (
+          {(['structure', 'journey', 'analytics'] as HeroButtonKey[]).map((key) => (
 <button
   key={key}
   type="button"
-  aria-label={key === 'structure' ? 'Structure (coming soon)' : 'Journey (coming soon)'}
+  aria-label={key === 'structure' ? 'Structure' : key === 'journey' ? 'Journey' : 'Analytics'}
   onClick={() => {
     if (key === 'structure') navigate('/tree/structure');
     if (key === 'journey') navigate('/tree/journey');
+   if (key === 'analytics') navigate('/analytics/journey');
   }}
   onMouseEnter={() => setHoveredBtn(key)}
               onMouseLeave={() => setHoveredBtn((cur) => (cur === key ? null : cur))}
@@ -67,7 +68,7 @@ export function Tree() {
               }}
             >
               <span style={styles.headerButtonIcon}>▭</span>
-              <span>{key === 'structure' ? 'Structure' : 'Journey'}</span>
+              <span>{key === 'structure' ? 'Structure' : key === 'journey' ? 'Journey' : 'Analytics'}</span>
             </button>
           ))}
         </div>
