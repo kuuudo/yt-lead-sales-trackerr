@@ -39,8 +39,10 @@ export const promotionTutorial: Tutorial = {
     {
       id: 'remove-collaborator',
       title: 'Remove Collaborator',
+
       body:
-        'This removes the collaborator from THIS Promotion \u2014 not their VSTRK account.\n\nOnce removed, they can no longer promote the Assets in this Promotion, or use the Tracking Domains assigned through it.',
+        'This removes the collaborator from THIS Promotion — not their VSTRK account.\n\nOnce removed, they can no longer promote the Assets in this Promotion, or use the Tracking Domains assigned through it.\n\nYou can always restore a removed collaborator to this Promotion if you want to give them access again.',
+
       tag: 'demo',
       targetSelector: '[data-tutorial-id="promotion-collaborator-actions"]',
       fallbackNote: 'This only appears once this Promotion has a collaborator.',
