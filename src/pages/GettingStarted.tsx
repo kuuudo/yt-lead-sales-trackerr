@@ -12,7 +12,7 @@
 import React, { useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { motion } from 'motion/react';
-import { Compass, Rocket, Library, Video, Users, Globe, type LucideIcon } from 'lucide-react';
+import { Compass, Rocket, Library, Video, Users, Globe, MessageCircle, type LucideIcon } from 'lucide-react';
 import { useTutorial } from '../lib/tutorial-overlay';
 import { useViewing } from '../lib/ViewingContext';
 import { useOnboardingOverlay } from '../lib/onboarding-overlay';
@@ -101,6 +101,21 @@ export default function GettingStarted() {
           Pick a task below. Guides walk you through the real pages, and you can come back to this page any time.
         </p>
       </header>
+
+      <a
+        href="https://chat.whatsapp.com/G07wVgoAyRS3Z171uRDQ1K?s=cl&p=a&mlu=4"
+        target="_blank"
+        rel="noopener noreferrer"
+        className="flex items-center gap-3 px-4 py-3 rounded-xl border border-green-500/20 bg-green-500/5 hover:bg-green-500/10 transition-all"
+      >
+        <MessageCircle size={16} className="text-green-400 shrink-0" />
+        <p className="text-xs text-zinc-300 leading-relaxed flex-1">
+          Need help setting up? <span className="font-bold text-white">Contact me here on WhatsApp.</span>
+        </p>
+        <span className="text-[10px] font-black uppercase tracking-widest text-green-400 shrink-0">Chat</span>
+      </a>
+
+      {/* Campaign setup card
 
       {/* Campaign setup card — moved here from Installation.tsx. Same image,
           copy, and handler (openOnboarding); only the button color changed. */}
