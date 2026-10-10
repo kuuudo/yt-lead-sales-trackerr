@@ -196,6 +196,17 @@ export const startFirstCollabGuide: Tutorial = {
       fallbackNote: 'Click **Track New Content** above, then fill in the platform/URL/campaign to see this field.',
     },
 
+{
+      id: 'select-promotion',
+      title: 'Or Pick a Promotion Directly',
+      body:
+        'You can also choose a **Promotion** right here. Once you select one, VSTRK automatically loads the Assets inside that Promotion \u2014 so you don\u2019t have to select them yourself.\n\n**Creative Mode:** Assets from a Creative Mode assignment can only be selected this way. Look for it under the **Creative** group in the dropdown.',
+      tag: 'demo',
+      route: '/videos',
+      targetSelector: '[data-tutorial-id="videos-creative-promotion"]',
+      fallbackNote: 'Click **Track New Content** above to see the Promotion field.',
+    },
+
     // ── transition into Promotion Detail ──────────────────────────────
     {
       id: 'go-to-promotion-detail',
