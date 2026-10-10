@@ -290,12 +290,7 @@ export default function TutorialRunner() {
     left = Math.max(16, Math.min(left, window.innerWidth - cardWidth - 16));
     cardStyle = {
       position: 'fixed',
-      ...(rect.y + Math.min(520, window.innerHeight - 32) + 16 <= window.innerHeight
-        ? { top: Math.max(16, rect.y), maxHeight: Math.min(520, window.innerHeight - 32) }
-        : {
-            bottom: Math.max(16, window.innerHeight - (rect.y + rect.h)),
-            maxHeight: Math.max(240, Math.min(520, window.innerHeight - 32, rect.y + rect.h - 16)),
-          }),
+      top: Math.max(16, Math.min(rect.y, window.innerHeight - 260)),
       left,
       width: cardWidth,
     };
@@ -365,20 +360,13 @@ export default function TutorialRunner() {
           animate={{ opacity: 1, scale: 1 }}
           exit={{ opacity: 0, scale: 0.97 }}
           transition={{ duration: 0.18 }}
-          style={{
-            ...cardStyle,
-            display: 'flex',
-            flexDirection: 'column',
-            overflowY: 'visible',
-            ...(isMobile ? { maxHeight: '55dvh' } : {}),
-          }}
+          style={cardStyle}
           className={
             isFollowAlong
               ? 'pointer-events-auto bg-white border border-zinc-200 rounded-xl p-4 shadow-2xl'
               : 'pointer-events-auto bg-zinc-900 border border-zinc-700 rounded-xl p-4 shadow-2xl'
           }
         >
-          <div className="flex-1 min-h-0 overflow-y-auto pr-1">
           {isFollowAlong && (
             <p className="text-[9px] font-black uppercase tracking-widest text-zinc-400 mb-1 flex items-center gap-1">
               🎓 Follow Along
@@ -452,9 +440,7 @@ export default function TutorialRunner() {
             </p>
           )}
 
-          </div>
-
-          <div className="flex items-center justify-between mt-2 pt-1 shrink-0">
+          <div className="flex items-center justify-between mt-2">
             <button
               onClick={back}
               disabled={stepIndex === 0}
