@@ -15,6 +15,7 @@ import {
   Users,
   Globe,
   Wrench,
+  Compass,
   User as UserIcon,
 } from 'lucide-react';
 import { Modal } from '../components/Modal';
@@ -207,6 +208,13 @@ export default function Settings() {
 
       <section className="bento-card space-y-2">
         <h2 className="text-sm font-bold text-white mb-3">Shortcuts</h2>
+        <Link
+          to="/settings/getting-started"
+          className="flex items-center gap-3 px-3 py-2.5 rounded-md text-[11px] font-bold uppercase tracking-widest text-zinc-400 hover:text-white hover:bg-zinc-900/50 transition-all"
+        >
+          <Compass size={15} />
+          Getting Started
+        </Link>
         
           <Link
             to="/team"
