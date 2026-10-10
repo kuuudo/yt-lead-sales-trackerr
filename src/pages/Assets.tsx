@@ -728,7 +728,7 @@ const filteredRows = useMemo(() => {
                     e.stopPropagation();
                     navigate(`/assets/${row.linkId}/analytics`);
                   }}
-                  title="Analytics"
+                  title="Analytics" hidden
                   className="w-7 h-7 rounded-lg bg-zinc-950 border border-zinc-800 flex items-center justify-center text-zinc-400 hover:text-white transition-all"
                 >
                   <BarChart2 size={14} />
