@@ -34,6 +34,14 @@ type HubTask = {
 
 const TASKS: HubTask[] = [
   {
+    id: 'setup-tracking-domain',
+    icon: Globe,
+    title: 'Set Up Your Tracking Domain',
+    description: 'Connect your own domain so your tracking links use your brand.',
+    actionLabel: 'Set Up',
+    to: '/settings/tracking-domains',
+  },
+  {
     id: 'create-first-asset',
     icon: Library,
     title: 'Create Your First Asset',
@@ -57,14 +65,7 @@ const TASKS: HubTask[] = [
     actionLabel: 'Start Guide',
     guide: startFirstCollabGuide,
   },
-  {
-    id: 'setup-tracking-domain',
-    icon: Globe,
-    title: 'Set Up Your Tracking Domain',
-    description: 'Connect your own domain so your tracking links use your brand.',
-    actionLabel: 'Set Up',
-    to: '/settings/tracking-domains',
-  },
+
 ];
 
 export default function GettingStarted() {
