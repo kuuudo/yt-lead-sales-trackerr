@@ -58,6 +58,7 @@ export const videosTutorial: Tutorial = {
       fallbackNote:
         'Click **Track New Content** above to see the Campaign field.',
     },
+    /* HIDDEN — remove this opening marker and the closing marker below to restore
     {
       id: 'objectives',
       title: 'Goals / Objectives',
@@ -91,6 +92,7 @@ export const videosTutorial: Tutorial = {
       fallbackNote:
         'Click **Track New Content** above to see Tracking Type.',
     },
+    */
     {
       id: 'promoted-asset',
       title: 'Promoted Asset',
