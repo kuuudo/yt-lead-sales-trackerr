@@ -15,6 +15,7 @@ import { motion } from 'motion/react';
 import { Compass, Rocket, Library, Video, Users, Globe, type LucideIcon } from 'lucide-react';
 import { useTutorial } from '../lib/tutorial-overlay';
 import { useViewing } from '../lib/ViewingContext';
+import { useOnboardingOverlay } from '../lib/onboarding-overlay';
 import { useOnboardingHubIndicator } from '../lib/onboardingHubIndicator';
 import type { Tutorial } from '../lib/tutorialTypes';
 import { createFirstAssetGuide } from '../lib/tutorials/createFirstAssetGuide';
@@ -65,11 +66,12 @@ const TASKS: HubTask[] = [
     actionLabel: 'Start Guide',
     guide: startFirstCollabGuide,
   },
-
 ];
 
 export default function GettingStarted() {
   const { start } = useTutorial();
+  // Same hook + handler the Installation page used for "Continue Setup".
+  const { open: openOnboarding } = useOnboardingOverlay();
   const navigate = useNavigate();
   const { isReadOnly, viewingMemberName } = useViewing();
   const { markSeen } = useOnboardingHubIndicator();
@@ -99,6 +101,32 @@ export default function GettingStarted() {
           Pick a task below. Guides walk you through the real pages, and you can come back to this page any time.
         </p>
       </header>
+
+      {/* Campaign setup card — moved here from Installation.tsx. Same image,
+          copy, and handler (openOnboarding); only the button color changed. */}
+      <div className="bg-zinc-900 border border-zinc-800 rounded-2xl p-6">
+        <p className="label-caps text-zinc-500 mb-3">Getting Started</p>
+
+        <img
+          src="/onboarding/setup.jpg"
+          alt="Getting Started"
+          className="w-full max-w-2xl rounded-xl border border-zinc-800 object-cover mb-5"
+        />
+
+        <h2 className="text-lg font-bold text-white mb-2">
+          Get your first campaign ready.
+        </h2>
+        <p className="text-sm text-zinc-500 mb-5 leading-relaxed">
+          We&apos;ll get your first campaign ready together — who you&apos;re selling
+          to, how they buy, and how VSTRK tracks it back here.
+        </p>
+        <button
+          onClick={openOnboarding}
+          className="inline-flex items-center gap-2 bg-white text-zinc-950 hover:bg-zinc-200 text-xs font-black uppercase tracking-widest rounded-xl px-6 h-11 transition-colors"
+        >
+          Continue Setup
+        </button>
+      </div>
 
       {isReadOnly && (
         <div className="rounded-xl border border-amber-500/30 bg-amber-500/10 px-4 py-3 text-[11px] text-amber-300 leading-relaxed">
