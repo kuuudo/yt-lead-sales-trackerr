@@ -17,9 +17,9 @@
 import type { Tutorial } from '../tutorialTypes';
 import promotionDetailOverview from '../../assets/tutorial/promotion-detail-overview.png';
 import removeCollaboratorExample from '../../assets/tutorial/remove-collaborator-example.png';
-import allowCollaboratorDomainsExample from '../../assets/tutorial/allow-collaborator-domains-example.png';
-import allowCollaboratorDomainsEnabled from '../../assets/tutorial/allow-collaborator-domains-enabled.png';
-import allowCollaboratorDomainsDisabled from '../../assets/tutorial/allow-collaborator-domains-disabled.png';
+// import allowCollaboratorDomainsExample from '../../assets/tutorial/allow-collaborator-domains-example.png'; // restore with the allow-collaborator-domains steps
+// import allowCollaboratorDomainsEnabled from '../../assets/tutorial/allow-collaborator-domains-enabled.png'; // restore with the allow-collaborator-domains steps
+// import allowCollaboratorDomainsDisabled from '../../assets/tutorial/allow-collaborator-domains-disabled.png'; // restore with the allow-collaborator-domains steps
 import addAssetExample from '../../assets/tutorial/add-asset-example.png';
 import revokeAssetAccessExample from '../../assets/tutorial/revoke-asset-access-example.png';
 import restoreAssetAccessExample from '../../assets/tutorial/restore-asset-access-example.png';
@@ -46,6 +46,7 @@ export const promotionTutorial: Tutorial = {
       fallbackNote: 'This only appears once this Promotion has a collaborator.',
       previewImage: { src: removeCollaboratorExample, alt: 'The Remove Collaborator button' },
     },
+    /* HIDDEN — remove this opening marker and the closing marker below to restore
     {
       id: 'allow-collaborator-domains-intro',
       title: 'Allow Collaborator Domains',
@@ -72,6 +73,7 @@ export const promotionTutorial: Tutorial = {
       tag: 'demo',
       previewImage: { src: allowCollaboratorDomainsDisabled, alt: 'Allow Collaborator Domains disabled, showing only shared domains available' },
     },
+    */
     {
       id: 'add-asset',
       title: 'Add Asset',
