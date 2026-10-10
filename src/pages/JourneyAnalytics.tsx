@@ -673,7 +673,7 @@ export async function loadJourneyDataset(
   }
 
   return {
-    journeys: [...discovery.journeys, ...singletons],
+        journeys: [...groupJourneysByRoute(discovery.journeys), ...singletons],
     videoDisplay: display,
     entryVideoCount: videoIds.length,
     truncated: discovery.truncated,
