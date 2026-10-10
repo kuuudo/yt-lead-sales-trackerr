@@ -596,6 +596,11 @@ const assetCampaignById = new Map<
   // ── Phase 1: Canonical ownership (independent of activeSource) ──────────
   // Ownership is resolved once. activeSource only controls which purchases
   // are fed into metric aggregation (existing source isolation in the engine).
+  // Mutable identity list for the final join (may gain owner-only pairs).
+  const tableIdentities: AssetAnalyticsRowIdentity[] = [
+    ...(identities as AssetAnalyticsRowIdentity[]),
+  ];
+
   let stripeOwnerByPurchaseId = new Map<string, { videoId: string; assetId: string }>();
   let pixelOwnerByPurchaseId = new Map<string, { videoId: string; assetId: string }>();
   let uncountedPixelIds = new Set<string>();
@@ -667,45 +672,62 @@ const assetCampaignById = new Map<
     });
     console.timeEnd('[AssetAnalyticsRows] resolveConversionOwners');
 
-    // Layer 2 (AllAssets only): keep owner overrides whose (video, asset)
-    // identity is in the current table scope. This does NOT re-decide owner;
-    // it only decides whether the override is applicable on this page.
+    // Phase 2: canonical owners are always admitted into the engine maps.
+    // Ownership does not depend on whether the table already has a row for
+    // the owner (video, asset) pair (TRUE START is often an upstream pair).
     const identityKeys = new Set(
       (identities as AssetAnalyticsRowIdentity[]).map((i) => `${i.video_id}::${i.asset_id}`),
     );
 
-    let stripeSkippedNoIdentity = 0;
+    const ensureOwnerIdentity = (o: { videoId: string; assetId: string }) => {
+      const key = `${o.videoId}::${o.assetId}`;
+      if (identityKeys.has(key)) return 'already_present' as const;
+      // Only surface a row when the asset is already in this page's scope.
+      if (!assetTypeById.has(o.assetId)) return 'asset_out_of_scope' as const;
+      identityKeys.add(key);
+      tableIdentities.push({
+        video_id: o.videoId,
+        asset_id: o.assetId,
+        redirectLinks: [],
+        linkTypes: [],
+        campaignIds: [],
+        promotionIds: [],
+      } as AssetAnalyticsRowIdentity);
+      return 'identity_added' as const;
+    };
+
+    let stripeApplied = 0;
+    let stripeIdentityAdded = 0;
+    let stripeOwnerAssetOutOfScope = 0;
     owners.stripeOwnerByPurchaseId.forEach((o, purchaseId) => {
-      if (
-        identityKeys.has(`${o.videoId}::${o.assetId}`) &&
-        assetTypeById.has(o.assetId)
-      ) {
-        stripeOwnerByPurchaseId.set(purchaseId, o);
-      } else {
-        stripeSkippedNoIdentity += 1;
-      }
+      stripeOwnerByPurchaseId.set(purchaseId, o);
+      stripeApplied += 1;
+      const ensured = ensureOwnerIdentity(o);
+      if (ensured === 'identity_added') stripeIdentityAdded += 1;
+      if (ensured === 'asset_out_of_scope') stripeOwnerAssetOutOfScope += 1;
     });
 
-    let pixelSkippedNoIdentity = 0;
+    let pixelApplied = 0;
+    let pixelIdentityAdded = 0;
+    let pixelOwnerAssetOutOfScope = 0;
     owners.pixelOwnerByPurchaseId.forEach((o, purchaseId) => {
-      if (
-        identityKeys.has(`${o.videoId}::${o.assetId}`) &&
-        assetTypeById.has(o.assetId)
-      ) {
-        pixelOwnerByPurchaseId.set(purchaseId, o);
-      } else {
-        pixelSkippedNoIdentity += 1;
-      }
+      pixelOwnerByPurchaseId.set(purchaseId, o);
+      pixelApplied += 1;
+      const ensured = ensureOwnerIdentity(o);
+      if (ensured === 'identity_added') pixelIdentityAdded += 1;
+      if (ensured === 'asset_out_of_scope') pixelOwnerAssetOutOfScope += 1;
     });
 
     uncountedPixelIds = owners.uncountedPixelIds;
     suppressedPixelIds = owners.suppressedPixelIds;
 
     console.log('[AssetAnalyticsRows] canonical owners', {
-      stripeApplied: stripeOwnerByPurchaseId.size,
-      stripeSkippedNoIdentity,
-      pixelApplied: pixelOwnerByPurchaseId.size,
-      pixelSkippedNoIdentity,
+      stripeApplied,
+      stripeIdentityAdded,
+      stripeOwnerAssetOutOfScope,
+      pixelApplied,
+      pixelIdentityAdded,
+      pixelOwnerAssetOutOfScope,
       uncounted: uncountedPixelIds.size,
       suppressed: suppressedPixelIds.size,
     });
@@ -765,7 +787,7 @@ const assetCampaignById = new Map<
   let unmatchedIdentityCount = 0;
   const rows: AssetAnalyticsTableRow[] = [];
 
-  for (const identity of identities as AssetAnalyticsRowIdentity[]) {
+  for (const identity of tableIdentities as AssetAnalyticsRowIdentity[]) {
     const { video_id, asset_id, linkTypes, campaignIds, promotionIds } = identity;
     if (!video_id || !asset_id) continue;
 
