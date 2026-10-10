@@ -23,7 +23,7 @@ import allowCollaboratorDomainsDisabled from '../../assets/tutorial/allow-collab
 import addAssetExample from '../../assets/tutorial/add-asset-example.png';
 import revokeAssetAccessExample from '../../assets/tutorial/revoke-asset-access-example.png';
 import restoreAssetAccessExample from '../../assets/tutorial/restore-asset-access-example.png';
-import trackingDomainManagementExample from '../../assets/tutorial/tracking-domain-management-example.png';
+// import trackingDomainManagementExample from '../../assets/tutorial/tracking-domain-management-example.png'; // restore with the tracking-domain-management step
 
 export const promotionTutorial: Tutorial = {
   id: 'promotion-detail',
@@ -102,6 +102,7 @@ export const promotionTutorial: Tutorial = {
       fallbackNote: 'This appears in the same list as Revoke Access, above, once an Asset has actually been revoked.',
       previewImage: { src: restoreAssetAccessExample, alt: 'A revoked asset with a Restore Access button' },
     },
+    /* HIDDEN — remove this opening marker and the closing marker below to restore
     {
       id: 'tracking-domain-management',
       title: 'Tracking Domain access works the same way',
@@ -112,5 +113,6 @@ export const promotionTutorial: Tutorial = {
       fallbackNote: 'This section appears once this Promotion has an active collaborator. The Access Management list below it only appears after at least one domain has been assigned.',
       previewImage: { src: trackingDomainManagementExample, alt: 'Assign Tracking Domain and Access Management — Tracking Domains sections' },
     },
+    */
   ],
 };
