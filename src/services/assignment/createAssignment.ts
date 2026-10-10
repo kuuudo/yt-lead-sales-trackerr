@@ -139,7 +139,7 @@ export async function createAssignment({
   const legacyMode = legacyCreativeCreationModeFor(resolvedMode);
 
   // Asset Usage for BOTH modes
-  let resolvedAssetScope: 'promotion_only' | 'allow_additional' = 'promotion_only';
+let resolvedAssetScope: 'promotion_only' | 'allow_additional' = 'allow_additional';
   if (assetScope === 'allow_additional' || assetScope === 'promotion_only') {
     resolvedAssetScope = assetScope;
   }

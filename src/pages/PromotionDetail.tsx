@@ -220,7 +220,9 @@ export default function PromotionDetail() {
   const [creativeSettingsBusy, setCreativeSettingsBusy] = useState(false);
   const [creativeSettingsError, setCreativeSettingsError] = useState<string | null>(null);
   const [draftCreativeMode, setDraftCreativeMode] = useState<CreativeCreationMode>(null);
-  const [draftAssetScope, setDraftAssetScope] = useState<AssetScope>(null);
+const [draftAssetScope, setDraftAssetScope] = useState<AssetScope>(null);
+  // Asset Usage UI is hidden. Set to true to bring the radio block back.
+  const SHOW_ASSET_USAGE: boolean = false;
   const [creativeDraftReady, setCreativeDraftReady] = useState(false);
 
   const [promoAssetRevokeError, setPromoAssetRevokeError] = useState<string | null>(null);
@@ -491,7 +493,7 @@ export default function PromotionDetail() {
     const scope =
       a.asset_scope === 'promotion_only' || a.asset_scope === 'allow_additional'
         ? a.asset_scope
-        : 'promotion_only';
+        : 'allow_additional';
     setDraftCreativeMode(mode);
     setDraftAssetScope(scope);
     setCreativeDraftReady(true);
@@ -714,7 +716,7 @@ export default function PromotionDetail() {
   const creativeDirty =
     creativeDraftReady &&
     isSponsor &&
-    (draftAssetScope || 'promotion_only') !== (savedAssetScope || 'promotion_only');
+(draftAssetScope || 'allow_additional') !== (savedAssetScope || 'allow_additional');
 
   const saveCreativeSettings = async () => {
     if (!detail?.assignment?.id || !isSponsor || !creativeDirty) return;
@@ -724,7 +726,7 @@ export default function PromotionDetail() {
       const result = await updateAssignmentCreativeSettings({
         assignmentId: detail.assignment.id,
         // Mode is fixed at Create Assignment; only asset_scope is edited here.
-        asset_scope: draftAssetScope || 'promotion_only',
+asset_scope: draftAssetScope || 'allow_additional',
       });
       setDetail((prev: PromotionDetailData | null) => {
         if (!prev?.assignment) return prev;
@@ -1349,6 +1351,8 @@ export default function PromotionDetail() {
                           )}
                         </div>
 
+                        {/* Asset Usage hidden — set SHOW_ASSET_USAGE = true to restore */}
+                        {SHOW_ASSET_USAGE && (
                         <div className="space-y-2">
                           <p className="text-[10px] font-bold uppercase tracking-widest text-zinc-500">
                             Asset Usage
@@ -1402,6 +1406,7 @@ export default function PromotionDetail() {
                             </p>
                           )}
                         </div>
+                        )}
 
                         {creativeSettingsError && (
                           <p className="text-[11px] text-red-400">{creativeSettingsError}</p>

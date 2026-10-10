@@ -34,6 +34,9 @@ import { ConfigureCampaignLinksModal } from '../components/ConfigureCampaignLink
 
 type AssetScope = 'promotion_only' | 'allow_additional';
 
+// Asset Usage UI is hidden. Set to true to bring the radio block back.
+const SHOW_ASSET_USAGE: boolean = false;
+
 interface AssetPermissionState {
   allowMarketerDomain: boolean;
   allowSponsorDomain: boolean;
@@ -92,7 +95,7 @@ export default function CreateAssignment() {
 
   // PHASE 2: Regular | Creative (replaces none / campaign_asset_only / campaign_links_and_assets)
   const [assignmentMode, setAssignmentMode] = useState<AssignmentMode>('regular');
-  const [assetScope, setAssetScope] = useState<AssetScope>('promotion_only');
+  const [assetScope, setAssetScope] = useState<AssetScope>('allow_additional');
   const [creativeCampaignId, setCreativeCampaignId] = useState<string | null>(null);
   const [normalSponsorCampaigns, setNormalSponsorCampaigns] = useState<SponsorCampaignOption[]>(
     []
@@ -1002,7 +1005,8 @@ export default function CreateAssignment() {
           </div>
         )}
 
-        {/* Asset Usage — BOTH modes */}
+        {/* Asset Usage — BOTH modes (hidden; set SHOW_ASSET_USAGE = true to restore) */}
+        {SHOW_ASSET_USAGE && (
         <div className="mb-6 space-y-2" data-tutorial-id="create-assignment-asset-scope">
           <label className="block text-[10px] font-bold uppercase tracking-widest text-zinc-500">
             Asset Usage
@@ -1055,6 +1059,7 @@ export default function CreateAssignment() {
             </span>
           </label>
         </div>
+        )}
 
         <div data-tutorial-id="marketplace-invite-collaborators">
           <label className="block text-[10px] font-bold uppercase tracking-widest text-zinc-500 mb-2">
