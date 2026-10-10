@@ -3,10 +3,10 @@
 // Content only — copy, step order, targets. No rendering logic lives
 // here (see TutorialRunner.tsx). Mirrors assetsTutorial.ts's structure.
 //
-// PART 1: Create Assignment (steps 1-6).
+// PART 1: Create Assignment (steps 1-7).
 //
 // PART 2A: What happens for the collaborator — invitation, accept,
-// select assets, start promoting (steps 7-9). These are DEMO-only,
+// select assets, start promoting (steps 8-10). These are DEMO-only,
 // screenshot-based (previewImage) steps: the Sponsor taking this
 // tutorial cannot see the collaborator's own pending-invitation /
 // asset-picker screens from their own account, so there's nothing
@@ -57,6 +57,15 @@ export const marketplaceTutorial: Tutorial = {
       tag: 'demo',
       route: '/marketplace/assignments/new',
       targetSelector: '[data-tutorial-id="marketplace-assignment-type"]',
+    },
+    {
+      id: 'campaign-element-assets',
+      title: 'Campaign Element Assets',
+      body:
+        'Select the Campaign Element Assets your collaborator can promote \u2014 like your Consultation, Sales Call, Sales Page, or Newsletter.\n\n**Set up your Campaign first.** Campaign Element Assets come from a Campaign, so it needs to be set up before they show up here.\n\n**Select as many as you want, across Campaigns.** Use the Campaign dropdown to switch between your Campaigns and pick from any of them \u2014 there\u2019s no limit.\n\n**Not an Asset yet?** If you see \u201cNot yet an Asset\u201d, press **Publish as Asset** to turn that Campaign link into an Asset. Once it\u2019s an Asset, you can select it here and share it with other people.',
+      tag: 'demo',
+      route: '/marketplace/assignments/new',
+      targetSelector: '[data-tutorial-id="marketplace-black-box"]',
     },
     {
       id: 'select-assets',
