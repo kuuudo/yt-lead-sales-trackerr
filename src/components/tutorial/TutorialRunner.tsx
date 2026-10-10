@@ -290,7 +290,9 @@ export default function TutorialRunner() {
     left = Math.max(16, Math.min(left, window.innerWidth - cardWidth - 16));
     cardStyle = {
       position: 'fixed',
-      top: Math.max(16, Math.min(rect.y, window.innerHeight - 260)),
+      ...(step.body.length > 450 && rect.y + 440 > window.innerHeight
+        ? { bottom: 16 }
+        : { top: Math.max(16, Math.min(rect.y, window.innerHeight - 260)) }),
       left,
       width: cardWidth,
     };
