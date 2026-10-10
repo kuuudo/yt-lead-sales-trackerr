@@ -194,7 +194,16 @@ export async function discoverJourneysForVideos(
     }
   }
 
-  // 2. Cap: most recently written journeys first (recency only).
+// 2. Cap: most recently written journeys first (recency only).
+//
+// KNOWN RISK (documented, not fixed here): this cap is applied to distinct
+// journey_ids BEFORE their paths are resolved or compared. Many sessions that
+// walked the same route each consume one of the maxJourneys slots, so repeated
+// routes can push other valid journeys past the cap. Videos whose journeys are
+// crowded out look like "no journey evidence" and are shown as singleton rows
+// by JourneyAnalytics. Route de-duplication (journeyRouteGrouping.ts) runs
+// AFTER this cap and does NOT solve this; the `truncated` flag returned below
+// is the only signal and must keep being surfaced in the UI.
   const orderedIds = Array.from(newestMatchMs.entries())
     .sort((a, b) => b[1] - a[1])
     .map(([id]) => id);

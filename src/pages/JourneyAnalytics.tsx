@@ -48,6 +48,8 @@ import {
   type StructuralLink,
 } from '../services/journey/journeyDownstreamResolver';
 
+import { groupJourneysByRoute, type RouteJourney } from '../lib/journeyRouteGrouping';
+
 import JourneyStrip, {
   type JourneyStripStep,
   type AssetScopeTag,
@@ -292,11 +294,13 @@ async function discoverJourneysBatched(
 }
 
 /** Singleton row for a content video with no observed journey path. */
-function makeSingletonJourney(videoId: string): DiscoveredJourney {
+function makeSingletonJourney(videoId: string): RouteJourney {
+  const journeyId = `singleton:${videoId}`;
   return {
-    journeyId: `singleton:${videoId}`,
+    journeyId,
     path: { steps: [{ videoId }] },
-  } as DiscoveredJourney;
+    memberJourneyIds: [journeyId],
+  } as RouteJourney;
 }
 
 // ── Per-video enrichment (canonical fields reused from All Assets model) ────
@@ -602,7 +606,7 @@ export function FilterMultiPanel({
 // org content universe (Videos.tsx) + observed journeys + singleton rows.
 
 export type JourneyDataset = {
-  journeys: DiscoveredJourney[];
+  journeys: RouteJourney[];
   videoDisplay: Map<string, VideoDisplay>;
   entryVideoCount: number;
   truncated: boolean;
@@ -628,7 +632,10 @@ export async function loadJourneyDataset(
   if (isCancelled()) return null;
   if (videoIds.length === 0) return empty;
 
-  // 2) Observed journeys (enrichment) — batched, engine unchanged
+  // 2) Observed journeys (enrichment) — batched, engine unchanged.
+  // NOTE: discovery caps distinct journey_ids per batch BEFORE paths are compared
+  // (see the KNOWN RISK comment in journeyDiscovery.ts). Route grouping below runs
+  // AFTER that cap and does NOT fix it; `truncated` must keep being surfaced.
   const discovery = await discoverJourneysBatched(videoIds);
   if (isCancelled()) return null;
 
@@ -660,7 +667,7 @@ export async function loadJourneyDataset(
   }
 
   // 4) Singleton rows for org catalog videos with zero journey evidence
-  const singletons: DiscoveredJourney[] = [];
+  const singletons: RouteJourney[] = [];
   for (const vid of videoIds) {
     if (!videosInObservedPaths.has(vid)) singletons.push(makeSingletonJourney(vid));
   }
