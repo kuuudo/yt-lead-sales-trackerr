@@ -124,7 +124,7 @@ export default function GettingStarted() {
           onClick={openOnboarding}
           className="inline-flex items-center gap-2 bg-white text-zinc-950 hover:bg-zinc-200 text-xs font-black uppercase tracking-widest rounded-xl px-6 h-11 transition-colors"
         >
-          Continue Setup
+          Setup
         </button>
       </div>
 
