@@ -3,10 +3,10 @@
 // Content only — copy, step order, targets. No rendering logic lives
 // here (see TutorialRunner.tsx). Mirrors assetsTutorial.ts's structure.
 //
-// PART 1: Create Assignment (steps 1-5).
+// PART 1: Create Assignment (steps 1-6).
 //
 // PART 2A: What happens for the collaborator — invitation, accept,
-// select assets, start promoting (steps 6-8). These are DEMO-only,
+// select assets, start promoting (steps 7-9). These are DEMO-only,
 // screenshot-based (previewImage) steps: the Sponsor taking this
 // tutorial cannot see the collaborator's own pending-invitation /
 // asset-picker screens from their own account, so there's nothing
@@ -48,6 +48,15 @@ export const marketplaceTutorial: Tutorial = {
       targetSelector: '[data-tutorial-id="marketplace-create-assignment"]',
       fallbackNote:
         'You\u2019ll find this button on your Marketplace page, above your Assignments.',
+    },
+    {
+      id: 'assignment-type',
+      title: 'Choose the Assignment Type',
+      body:
+        'Choose how your collaborator will create content. Hover over the **?** next to each option for a quick explanation.\n\n**Regular Mode** \u2014 Marketer creates content under their own campaign. They pick that campaign after accepting the invitation.\n\n**Creative Mode** \u2014 Marketer creates content under the Sponsor\u2019s campaign. Content becomes an Asset the Marketer can keep promoting.\n\n**Recommendation from the Creator of VSTRK**\n**Creative Mode:** Best for in-house marketing teams who own the content.\n**Regular Mode:** Best for influencer collaborations, allowing creators to retain flexibility to reuse their content elsewhere.',
+      tag: 'demo',
+      route: '/marketplace/assignments/new',
+      targetSelector: '[data-tutorial-id="marketplace-assignment-type"]',
     },
     {
       id: 'select-assets',

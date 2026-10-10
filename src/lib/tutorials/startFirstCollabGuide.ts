@@ -60,6 +60,15 @@ export const startFirstCollabGuide: Tutorial = {
       targetSelector: '[data-tutorial-id="marketplace-select-assets"]',
     },
     {
+      id: 'assignment-type',
+      title: 'Assignment Type',
+      body:
+        '(No action required in this step) This is where you decide how your collaborator creates content. Hover over the **?** next to each option for a quick explanation.\n\n**Regular Mode** \u2014 Marketer creates content under their own campaign. They pick that campaign after accepting the invitation.\n\n**Creative Mode** \u2014 Marketer creates content under the Sponsor\u2019s campaign. Content becomes an Asset the Marketer can keep promoting.\n\n**Recommendation from the Creator of VSTRK**\n**Creative Mode:** Best for in-house marketing teams who own the content.\n**Regular Mode:** Best for influencer collaborations, allowing creators to retain flexibility to reuse their content elsewhere.',
+      tag: 'demo',
+      route: '/marketplace/assignments/new',
+      targetSelector: '[data-tutorial-id="marketplace-assignment-type"]',
+    },
+    {
       id: 'invite-yourself',
       title: 'Invite Yourself',
       body:
