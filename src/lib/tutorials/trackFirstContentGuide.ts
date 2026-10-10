@@ -69,6 +69,28 @@ export const trackFirstContentGuide: Tutorial = {
         'Click **Track New Content** above to see the Campaign field.',
     },
     {
+      id: 'configure-campaign-links',
+      title: 'Configure Campaign Links',
+      body:
+        'Here you map each link type to a tracking domain, and it\u2019s saved on your Campaign. Click **Setup** to take a look, then close the window to continue.',
+      tag: 'try-it',
+      route: '/videos',
+      targetSelector: '[data-tutorial-id="videos-configure-campaign-links"]',
+      requireAction: { eventKey: 'follow-along-config-closed' },
+      fallbackNote:
+        'Select one of your own Campaigns above \u2014 this button only appears for Campaigns you own.',
+    },
+    {
+      id: 'links-to-include',
+      title: 'Links to include',
+      body:
+        'These are the links you choose to promote in this content. You can select more than one \u2014 and you can even select across different Campaigns.',
+      route: '/videos',
+      targetSelector: '[data-tutorial-id="videos-links-to-include"]',
+      fallbackNote:
+        'Select a Campaign above to see Links to include.',
+    },
+    {
       id: 'generate',
       title: 'Click Generate',
       body:

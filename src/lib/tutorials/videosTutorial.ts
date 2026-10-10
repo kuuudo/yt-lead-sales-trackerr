@@ -58,6 +58,28 @@ export const videosTutorial: Tutorial = {
       fallbackNote:
         'Click **Track New Content** above to see the Campaign field.',
     },
+    {
+      id: 'configure-campaign-links',
+      title: 'Configure Campaign Links',
+      body:
+        'Map each link type to a tracking domain. This is saved on your Campaign, so you only need to set it up once.',
+      tag: 'demo',
+      route: '/videos',
+      targetSelector: '[data-tutorial-id="videos-configure-campaign-links"]',
+      fallbackNote:
+        'Select one of your own Campaigns above \u2014 this button only appears for Campaigns you own.',
+    },
+    {
+      id: 'links-to-include',
+      title: 'Links to include',
+      body:
+        'These are the links you choose to promote in this content. You can select more than one \u2014 and you can even select across different Campaigns.',
+      tag: 'demo',
+      route: '/videos',
+      targetSelector: '[data-tutorial-id="videos-links-to-include"]',
+      fallbackNote:
+        'Select a Campaign above to see Links to include.',
+    },
     /* HIDDEN — remove this opening marker and the closing marker below to restore
     {
       id: 'objectives',

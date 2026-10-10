@@ -696,7 +696,24 @@ const [resolvingPromotionContext, setResolvingPromotionContext] = useState(false
   const [linksModalCampaignId, setLinksModalCampaignId] = useState<string | null>(null);
   const [showCampaignLinksModal, setShowCampaignLinksModal] = useState(false);
   /** Modal A — owner only: link type → tracking domain id */
-  const [showCampaignLinkConfigModal, setShowCampaignLinkConfigModal] = useState(false);
+const [showCampaignLinkConfigModal, setShowCampaignLinkConfigModal] = useState(false);
+
+  // Follow-Along ("Track Your First Content"): fire once the user has opened
+  // AND then closed the Configure Campaign Links modal, so the next step's
+  // target (Links to include) is no longer covered by the modal.
+  const configModalWasOpenRef = useRef(false);
+  useEffect(() => {
+    if (!isTrackFirstContentGuideActive) {
+      configModalWasOpenRef.current = false;
+      return;
+    }
+    if (showCampaignLinkConfigModal) {
+      configModalWasOpenRef.current = true;
+    } else if (configModalWasOpenRef.current) {
+      configModalWasOpenRef.current = false;
+      notifyTutorial('follow-along-config-closed');
+    }
+  }, [isTrackFirstContentGuideActive, showCampaignLinkConfigModal, notifyTutorial]);
   const [campaignLinkDomainByType, setCampaignLinkDomainByType] = useState<
     Partial<Record<CampaignLinkTypeKey, string | null>>
   >({});
@@ -2972,6 +2989,7 @@ console.log(
                           <div className="mt-2 space-y-2">
                             <button
                               type="button"
+                              data-tutorial-id="videos-links-to-include"
                               onClick={() => {
                                 setLinksModalCampaignId(prev => prev || formData.campaign_id || null);
                                 setShowCampaignLinksModal(true);
@@ -3004,6 +3022,7 @@ console.log(
                               <button
                                 type="button"
                                 onClick={() => setShowCampaignLinkConfigModal(true)}
+                                data-tutorial-id="videos-configure-campaign-links"
                                 className="w-full flex items-center justify-between gap-2 bg-zinc-950 border border-zinc-800 hover:border-zinc-600 rounded-xl px-3 py-2.5 text-left"
                               >
                                 <span>
