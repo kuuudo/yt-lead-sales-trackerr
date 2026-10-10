@@ -96,5 +96,10 @@ export interface TutorialStep {
 
 export interface Tutorial {
   id: string;
+  /**
+   * Presentation/behavior mode read by TutorialRunner. Omitted = classic
+   * 'tour'. 'follow-along' = white bottom-right guide card.
+   */
+  mode?: 'tour' | 'follow-along';
   steps: TutorialStep[];
 }

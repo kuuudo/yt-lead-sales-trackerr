@@ -6,7 +6,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import Tree from './pages/Tree';
 import { BrowserRouter as Router, Routes, Route, Link, useLocation, Navigate } from 'react-router-dom';
-import { LayoutDashboard, Globe, BarChart3, Video, Library, Briefcase, Users, LogOut, Loader2, User as UserIcon, DollarSign, Settings as SettingsIcon, Menu, X, Star, MessageSquareText, ChevronDown } from 'lucide-react';
+import { LayoutDashboard, Globe, BarChart3, Video, Library, Briefcase, Users, LogOut, Loader2, User as UserIcon, DollarSign, Settings as SettingsIcon, Menu, X, Star, MessageSquareText, ChevronDown, Compass } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { useTracker, useLanguage } from './lib/hooks';
 import { AuthProvider, useAuth } from './lib/auth';
@@ -16,6 +16,7 @@ import { OnboardingOverlayProvider } from './lib/onboarding-overlay';
 import { TutorialProvider } from './lib/tutorial-overlay';
 import TutorialRunner from './components/tutorial/TutorialRunner';
 import { useEffectiveIdentity } from './lib/useEffectiveIdentity';
+import { useOnboardingHubIndicator } from './lib/onboardingHubIndicator';
 import MobileRankingsButton from './components/MobileRankingsButton';
 import AccessInactiveScreen from './components/AccessInactiveScreen';
 import OnboardingOverlay from './components/onboarding/OnboardingOverlay';
@@ -38,6 +39,7 @@ import CampaignDetail from './pages/CampaignDetail';
 import InDepthAnalytics from './pages/InDepthAnalytics';
 import Track from './pages/Track';
 import Settings from './pages/Settings';
+import GettingStarted from './pages/GettingStarted';
 import AnalyticsTest from './pages/AnalyticsTest';
 import Pricing from './pages/Pricing';
 import Workspace from './pages/Workspace';
@@ -115,6 +117,12 @@ function AppChrome() {
   );
 }
 
+const HUB_PATH = '/settings/getting-started';
+
+function HubDot() {
+  return <span aria-hidden="true" className="inline-block w-1.5 h-1.5 rounded-full bg-red-500 shadow-[0_0_6px_rgba(239,68,68,0.7)]" />;
+}
+
 function Navigation() {
   const { lang, toggleLanguage, t } = useLanguage();
   const { user, signOut } = useAuth();
@@ -124,6 +132,9 @@ function Navigation() {
 
   // Same source Marketplace.tsx already uses for its organization id.
   const { organizationId: effectiveOrgId } = useEffectiveIdentity();
+
+  // "Get Started" indicator dot (new user / 10+ days away / release-key bump).
+  const { showDot: showHubDot } = useOnboardingHubIndicator();
 
   // Approved Team Owner? Used to show the Team nav link (desktop + mobile).
   const { customer: myTeamCustomer } = useMyTeam();
@@ -177,6 +188,7 @@ function Navigation() {
     { to: '/workspace', icon: Briefcase, label: t.nav.workspace },
     { to: '/analytics', icon: BarChart3, label: t.nav.analytics },
     { to: '/pricing', icon: DollarSign, label: t.nav.pricing },
+    { to: HUB_PATH, icon: Compass, label: 'Get Started' },
   ];
 
 
@@ -237,9 +249,12 @@ function Navigation() {
             <button
               onClick={() => setMobileOpen(true)}
               aria-label="Open navigation menu"
-              className="md:hidden -ml-1 w-8 h-8 flex items-center justify-center text-zinc-400 hover:text-white transition-colors shrink-0"
+              className="relative md:hidden -ml-1 w-8 h-8 flex items-center justify-center text-zinc-400 hover:text-white transition-colors shrink-0"
             >
               <Menu size={20} />
+              {showHubDot && (
+                <span aria-hidden="true" className="absolute top-1 right-0.5 w-2 h-2 rounded-full bg-red-500" />
+              )}
             </button>
           )}
           <Link to="/website" className="text-sm font-black uppercase tracking-[0.2em] text-white flex items-center gap-2 shrink-0">
@@ -272,6 +287,7 @@ function Navigation() {
                       }`}
                     >
                       {label}
+                      {to === HUB_PATH && showHubDot && <HubDot />}
                     </Link>
                     {hasChildren && (
                       <div
@@ -412,6 +428,7 @@ function Navigation() {
                       >
                         <Icon size={15} className={isActive ? 'text-red-500' : ''} />
                         {label}
+                        {to === HUB_PATH && showHubDot && <HubDot />}
                       </Link>
                     );
                   }
@@ -608,6 +625,7 @@ function MainContent() {
         <Route path="/installation" element={<PageWrapper><Installation /></PageWrapper>} />
         <Route path="/settings" element={<PageWrapper><Settings /></PageWrapper>} />
         <Route path="/settings/tracking-domains" element={<PageWrapper><TrackingDomains /></PageWrapper>} />
+        <Route path="/settings/getting-started" element={<PageWrapper><GettingStarted /></PageWrapper>} />
         {/* Phase 1 continuation relay — infrastructure only. Must be above /:token,
             and /r/platform must be above /r/:relayToken or it never matches. */}
         <Route path="/r/platform" element={<PlatformContinuation />} />
