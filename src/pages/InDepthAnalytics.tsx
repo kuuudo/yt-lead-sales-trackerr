@@ -52,7 +52,7 @@ import {
   type MetricType,
   type CampaignMeta,
 } from '../lib/analyticsEngine';
-
+import { applyCanonicalPurchaseOwners } from '../services/attribution/applyCanonicalPurchaseOwners';
 // ── Shared platform helpers ───────────────────────────────────────────────────
 import {
   resolveThumbnail,
@@ -401,7 +401,7 @@ export default function InDepthAnalyticsTest() {
           // revenue/attribution (was stripe_purchase_type.payment_type).
           const q = supabase
             .from('stripe_purchases')
-            .select('video_id, campaign_id, amount, session_id, redirect_link_id, redirect_link_token');
+            .select('id, video_id, campaign_id, amount, session_id, redirect_link_id, redirect_link_token, token, created_at');
           if (campaignIds.length) {
             return q.or(
               `video_id.in.(${videoIds.join(',')}),campaign_id.in.(${campaignIds.join(',')})`,
@@ -413,7 +413,7 @@ export default function InDepthAnalyticsTest() {
         campaignIds.length
           ? supabase
               .from('pixel_purchases')
-              .select('video_id, campaign_id, amount, event_type, session_id, event_id')
+              .select('id, video_id, campaign_id, amount, event_type, session_id, event_id, created_at')
               .in('campaign_id', campaignIds)
           : Promise.resolve({ data: [] as any[] }),
 
@@ -460,8 +460,68 @@ export default function InDepthAnalyticsTest() {
         buildSessionLookup(pixelRaw),
       ]);
 
-      const enrichedStripe = buildStripeFromPurchases(stripeRaw, redirectLinkLookup, stripeSessLookup);
-      const enrichedPixel  = buildPixelPurchases(pixelRaw, pixelSessLookup);
+      let owned: Awaited<ReturnType<typeof applyCanonicalPurchaseOwners>> | null = null;
+      try {
+        owned = await applyCanonicalPurchaseOwners({
+          stripePurchases: (spData.data || []).map((r: any) => ({
+            id: r.id,
+            session_id: r.session_id ?? null,
+            token: r.token ?? r.redirect_link_token ?? null,
+            video_id: r.video_id ?? null,
+            campaign_id: r.campaign_id ?? null,
+            amount: r.amount,
+            created_at: r.created_at,
+            redirect_link_id: r.redirect_link_id ?? null,
+            redirect_link_token: r.redirect_link_token ?? null,
+          })),
+          pixelPurchases: (ppData.data || []).map((r: any) => ({
+            id: r.id,
+            event_id: r.event_id ?? null,
+            session_id: r.session_id ?? null,
+            video_id: r.video_id ?? null,
+            campaign_id: r.campaign_id ?? null,
+            amount: r.amount,
+            event_type: r.event_type ?? null,
+            created_at: r.created_at,
+          })),
+        });
+        console.log('[InDepthAnalytics] applyCanonicalPurchaseOwners', {
+          stripeIn: (spData.data || []).length,
+          pixelIn: (ppData.data || []).length,
+          stripeOut: owned.stripePurchases.length,
+          pixelOut: owned.pixelPurchases.length,
+        });
+      } catch (err) {
+        console.error('[InDepthAnalytics] applyCanonicalPurchaseOwners failed (legacy video_id kept)', err);
+      }
+
+      const stripeRawForEngine: StripePurchasesRawRow[] = owned
+        ? owned.stripePurchases.map((p) => ({
+            video_id: p.video_id,
+            campaign_id: p.campaign_id ?? null,
+            amount: p.amount,
+            session_id: p.session_id ?? null,
+            redirect_link_id: p.redirect_link_id ?? null,
+            redirect_link_token: p.redirect_link_token ?? null,
+          }))
+        : stripeRaw;
+
+      const pixelRawForEngine = owned
+        ? owned.pixelPurchases.map((p) => ({
+            video_id: p.video_id,
+            campaign_id: p.campaign_id ?? null,
+            amount: p.amount,
+            event_type: p.event_type,
+            session_id: p.session_id,
+          }))
+        : pixelRaw;
+
+      const enrichedStripe = buildStripeFromPurchases(
+        stripeRawForEngine,
+        redirectLinkLookup,
+        stripeSessLookup,
+      );
+      const enrichedPixel = buildPixelPurchases(pixelRawForEngine, pixelSessLookup);
 
       setRawEvents(allEvents);
       setStripePurchases(enrichedStripe);
