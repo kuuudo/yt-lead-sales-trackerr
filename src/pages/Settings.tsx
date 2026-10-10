@@ -17,6 +17,7 @@ import {
   Wrench,
   Compass,
   User as UserIcon,
+  MessageCircle,
 } from 'lucide-react';
 import { Modal } from '../components/Modal';
 import { useNavigate, Link } from 'react-router-dom';
@@ -391,6 +392,30 @@ export default function Settings() {
           </p>
         </div>
       </motion.section>
+
+      <section className="bento-card space-y-4">
+        <div className="flex items-center gap-3">
+          <div className="w-9 h-9 rounded-xl bg-green-500/10 flex items-center justify-center">
+            <MessageCircle size={16} className="text-green-400" />
+          </div>
+          <div>
+            <h2 className="text-sm font-bold text-white">Contact Me</h2>
+            <p className="text-[10px] text-zinc-500 uppercase tracking-widest font-bold">Questions? Reach out on WhatsApp</p>
+          </div>
+        </div>
+        <p className="text-[11px] text-zinc-500 leading-relaxed">
+          Got a question? Message me on WhatsApp. I'll answer as long as I'm awake.
+        </p>
+        <a
+          href="https://chat.whatsapp.com/G07wVgoAyRS3Z171uRDQ1K?s=cl&p=a&mlu=4"
+          target="_blank"
+          rel="noopener noreferrer"
+          className="w-full bg-white text-zinc-950 h-11 rounded-xl text-xs font-black uppercase tracking-widest hover:bg-zinc-200 transition-all flex items-center justify-center gap-2"
+        >
+          <MessageCircle size={14} />
+          Contact me on WhatsApp
+        </a>
+      </section>
 
       <Modal
         isOpen={modalConfig.isOpen}
