@@ -6,7 +6,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import Tree from './pages/Tree';
 import { BrowserRouter as Router, Routes, Route, Link, useLocation, Navigate } from 'react-router-dom';
-import { LayoutDashboard, Globe, BarChart3, Video, Library, Briefcase, Users, LogOut, Loader2, User as UserIcon, DollarSign, Settings as SettingsIcon, Menu, X, Star, MessageSquareText, ChevronDown, Compass } from 'lucide-react';
+import { LayoutDashboard, Globe, Video, Library, Briefcase, Users, LogOut, Loader2, User as UserIcon, Settings as SettingsIcon, Menu, X, Star, MessageSquareText, ChevronDown, Compass } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { useTracker, useLanguage } from './lib/hooks';
 import { AuthProvider, useAuth } from './lib/auth';
@@ -164,10 +164,7 @@ function Navigation() {
   const links = [
     { to: '/tree', icon: Globe, label: t.nav.tree || 'Tree' },
     { to: '/dashboard', icon: LayoutDashboard, label: t.nav.dashboard },
-    { to: '/campaigns', icon: Briefcase, label: t.nav.campaigns, children: [
-      { to: '/analytics/indepth', label: 'Campaign Analytics' },
-      { to: '/installation', label: t.nav.installation || 'Setup' },
-    ] },
+    { to: '/campaigns', icon: Briefcase, label: t.nav.campaigns },
     { to: '/videos', icon: Video, label: t.nav.videos, children: [
       { to: '/analytics/indepth', label: 'Content Analytics' },
     ] },
@@ -176,8 +173,6 @@ function Navigation() {
       { to: '/analytics/journey', label: t.nav.journeyAnalytics },
     ] },
     { to: '/marketplace', icon: Briefcase, label: t.nav.marketplace, children: [
-      { to: '/marketplace/marketer-analytics', label: 'Marketer Analytics' },
-      { to: '/marketplace/promotions-analytics', label: 'Promotions Analytics' },
       { to: '/analytics/partners', label: 'Partner Analytics' },
     ] },
     { to: '/operator', icon: Users, label: t.nav.operator },
@@ -186,8 +181,6 @@ function Navigation() {
       ? [{ to: '/team', icon: Users, label: t.nav.team || 'Team' }]
       : []),
     { to: '/workspace', icon: Briefcase, label: t.nav.workspace },
-    { to: '/analytics', icon: BarChart3, label: t.nav.analytics },
-    { to: '/pricing', icon: DollarSign, label: t.nav.pricing },
     { to: HUB_PATH, icon: Compass, label: 'Get Started' },
   ];
 
