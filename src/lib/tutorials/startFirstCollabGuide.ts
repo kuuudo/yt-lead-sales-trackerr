@@ -78,6 +78,15 @@ export const startFirstCollabGuide: Tutorial = {
       targetSelector: '[data-tutorial-id="marketplace-black-box"]',
     },
     {
+      id: 'select-assets-overview',
+      title: 'Select Assets',
+      body:
+        '(No action required in this step) Choose the Assets you want this collaborator to promote. You can select from your authorized Campaign Assets or add additional Library Assets.\n\n**Important: Campaign Domain**\nWhen a marketer promotes an Asset, its tracking links use the domain configured for that Asset\u2019s Campaign.\n\nWe strongly recommend setting up your Campaign\u2019s root domain first. Tracking still works without one, but using a VSTRK link (`vstrk.com/token`) may add unnecessary complexity as your campaigns grow.\n\nIf you haven\u2019t set up your custom domain yet, [set up your Campaign domain here](/settings/tracking-domains).\n\n**The Assets you select here determine which Assets this collaborator can promote.**',
+      tag: 'demo',
+      route: '/marketplace/assignments/new',
+      targetSelector: '[data-tutorial-id="marketplace-select-assets"]',
+    },
+    {
       id: 'invite-yourself',
       title: 'Invite Yourself',
       body:

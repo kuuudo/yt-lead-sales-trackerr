@@ -3,10 +3,10 @@
 // Content only — copy, step order, targets. No rendering logic lives
 // here (see TutorialRunner.tsx). Mirrors assetsTutorial.ts's structure.
 //
-// PART 1: Create Assignment (steps 1-7).
+// PART 1: Create Assignment (steps 1-6).
 //
 // PART 2A: What happens for the collaborator — invitation, accept,
-// select assets, start promoting (steps 8-10). These are DEMO-only,
+// select assets, start promoting (steps 7-9). These are DEMO-only,
 // screenshot-based (previewImage) steps: the Sponsor taking this
 // tutorial cannot see the collaborator's own pending-invitation /
 // asset-picker screens from their own account, so there's nothing
@@ -71,11 +71,12 @@ export const marketplaceTutorial: Tutorial = {
       id: 'select-assets',
       title: 'Select Assets',
       body:
-        'Choose the Assets you want this collaborator to promote. You can select from your authorized Campaign Assets or add additional Library Assets.\n\n**The Assets you select here become the Assets this collaborator can promote.**',
+        'Choose the Assets you want this collaborator to promote. You can select from your authorized Campaign Assets or add additional Library Assets.\n\n**Important: Campaign Domain**\nWhen a marketer promotes an Asset, its tracking links use the domain configured for that Asset\u2019s Campaign.\n\nWe strongly recommend setting up your Campaign\u2019s root domain first. Tracking still works without one, but using a VSTRK link (`vstrk.com/token`) may add unnecessary complexity as your campaigns grow.\n\nIf you haven\u2019t set up your custom domain yet, [set up your Campaign domain here](/settings/tracking-domains).\n\n**The Assets you select here determine which Assets this collaborator can promote.**',
       tag: 'demo',
       route: '/marketplace/assignments/new',
       targetSelector: '[data-tutorial-id="marketplace-select-assets"]',
     },
+    /* HIDDEN — remove this opening marker and the closing marker below to restore
     {
       id: 'tracking-domains',
       title: 'Tracking Domains',
@@ -85,6 +86,7 @@ export const marketplaceTutorial: Tutorial = {
       route: '/marketplace/assignments/new',
       targetSelector: '[data-tutorial-id="marketplace-tracking-domains"]',
     },
+    */
     {
       id: 'invite-collaborators',
       title: 'Invite Collaborators',
