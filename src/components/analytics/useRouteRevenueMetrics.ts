@@ -134,7 +134,8 @@ export function useRouteRevenueMetrics(opts: {
 
   // 1) Fetch purchases (re-runs only when org / route videos / date window change).
   useEffect(() => {
-    if (!orgId || videoIds.length === 0) {
+if (!orgId || videoIds.length === 0) {
+      console.log('[useRouteRevenueMetrics] EARLY EXIT fetch', { orgId, videoIdsLen: videoIds.length, journeysLen: journeys.length, firstJourneyKeys: Object.keys(journeys[0] ?? {}), firstSteps: (journeys[0] as any)?.path?.steps?.slice(0, 2) });
       setPurchases(null);
 setRevMap(seedEmptyRouteMetrics(journeys));
       setFetching(false);
@@ -201,6 +202,7 @@ setRevMap(seedEmptyRouteMetrics(journeys));
           ),
         ]);
         if (cancelled) return;
+console.log('[useRouteRevenueMetrics] purchases fetched', { stripe: stripe.length, pixel: pixel.length });
         setPurchases({ stripe, pixel });
       } catch (e) {
         console.error('[useRouteRevenueMetrics] purchase fetch failed', e);
@@ -229,6 +231,7 @@ setRevMap(seedEmptyRouteMetrics(journeys));
 
     (async () => {
       try {
+        console.log('[useRouteRevenueMetrics] calling revenue', { journeys: journeys.length, stripe: purchases.stripe.length, pixel: purchases.pixel.length });
         const metrics = await computeJourneyRouteRevenueMetrics({
           routes: journeys,
           stripePurchases: purchases.stripe,
