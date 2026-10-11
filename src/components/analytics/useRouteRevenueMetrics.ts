@@ -271,10 +271,43 @@ export function useRouteRevenueMetrics(opts: {
     };
   }, [orgId, journeys, dateRange, customRange]);
 
-  const routeMetrics = useMemo(
-    () => mergeRouteClicksIntoMetrics(revMap, clickMap),
-    [revMap, clickMap],
-  );
+  const routeMetrics = useMemo(() => {
+    const merged = mergeRouteClicksIntoMetrics(revMap, clickMap);
+
+    // TEMP DIAGNOSTIC (remove after checking)
+    const withClicks = Array.from(clickMap.entries()).filter(
+      ([, c]) =>
+        c.landing_page_view + c.lead_magnet_click + c.newsletter_click +
+          c.call_booking_click + c.consultation_click > 0,
+    );
+    const sampleId = withClicks[0]?.[0];
+    const sampleClicks = withClicks[0]?.[1];
+    const sampleMerged = sampleId ? merged.get(sampleId) : undefined;
+    const renderedIds = new Set(journeys.map((j) => j.journeyId));
+    let keyHits = 0;
+    merged.forEach((_, id) => {
+      if (renderedIds.has(id)) keyHits += 1;
+    });
+    console.log('[useRouteRevenueMetrics] metrics→UI bridge', {
+      clickMapSize: clickMap.size,
+      routesWithClicks: withClicks.length,
+      revMapSize: revMap.size,
+      routeMetricsSize: merged.size,
+      journeysRows: journeys.length,
+      keyHitsOnJourneys: keyHits,
+      sampleRouteIdPrefix: sampleId?.slice(0, 8),
+      sampleClicksBeforeMerge: sampleClicks ?? null,
+      sampleAfterMerge: sampleMerged
+        ? {
+            lp: sampleMerged.landing_page_view,
+            total_revenue: sampleMerged.total_revenue,
+            rpc: sampleMerged.rpc,
+          }
+        : null,
+    });
+
+    return merged;
+  }, [revMap, clickMap, journeys]);
 
   return { routeMetrics, metricsLoading: fetching || computing || clicksLoading };
 }
