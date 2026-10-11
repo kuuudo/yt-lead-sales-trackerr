@@ -779,16 +779,12 @@ export function filterJourneys(
   if (f.assetSource !== 'all') {
     list = list.filter((j) => anyStep(j, (d) => !!d?.isAsset && d.assetScope === f.assetSource));
   }
-  if (f.dateRange !== 'all') {
-    const { start, end } = getDateBounds(f.dateRange, f.customRange);
-    list = list.filter((j) =>
-      anyStep(j, (d) => {
-        if (!d?.createdAt) return false;
-        const t = new Date(d.createdAt);
-        return t >= start && t <= end;
-      }),
-    );
-  }
+  // Date range does NOT filter journey/route rows by video.created_at.
+  // Structural route list is independent of the reporting window; when Revenue
+  // metrics are added later, filter purchases/events by their own timestamps.
+  // (Step 2 — Canonical Attribution & Chart Integration plan.)
+  void f.dateRange;
+  void f.customRange;
   return list;
 }
 
