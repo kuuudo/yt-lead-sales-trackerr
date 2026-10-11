@@ -53,6 +53,10 @@ import {
   type CampaignMeta,
 } from '../lib/analyticsEngine';
 import { applyCanonicalPurchaseOwners } from '../services/attribution/applyCanonicalPurchaseOwners';
+import {
+  filterPurchasesByCreatedAt,
+  stripeRowsWithPositiveAmount,
+} from '../services/attribution/filterPurchasesByCreatedAt';
 // ── Shared platform helpers ───────────────────────────────────────────────────
 import {
   resolveThumbnail,
@@ -516,16 +520,71 @@ export default function InDepthAnalyticsTest() {
           }))
         : pixelRaw;
 
-      const enrichedStripe = buildStripeFromPurchases(
-        stripeRawForEngine,
-        redirectLinkLookup,
-        stripeSessLookup,
-      );
-      const enrichedPixel = buildPixelPurchases(pixelRawForEngine, pixelSessLookup);
+      type StripeRowWithDate = ReturnType<typeof buildStripeFromPurchases>[number] & {
+        created_at?: string | null;
+      };
+      type PixelRowWithDate = ReturnType<typeof buildPixelPurchases>[number] & {
+        created_at?: string | null;
+      };
+
+      let enrichedStripe: StripeRowWithDate[];
+      let enrichedPixel: PixelRowWithDate[];
+
+      if (owned) {
+        const stripePositive = stripeRowsWithPositiveAmount(owned.stripePurchases);
+        const stripeBuilt = buildStripeFromPurchases(
+          stripePositive.map((p) => ({
+            video_id: p.video_id,
+            campaign_id: p.campaign_id ?? null,
+            amount: p.amount,
+            session_id: p.session_id ?? null,
+            redirect_link_id: p.redirect_link_id ?? null,
+            redirect_link_token: p.redirect_link_token ?? null,
+          })),
+          redirectLinkLookup,
+          stripeSessLookup,
+        );
+        if (stripeBuilt.length !== stripePositive.length) {
+          console.warn('[Purchases] stripe enrichment length mismatch', {
+            built: stripeBuilt.length,
+            source: stripePositive.length,
+          });
+        }
+        const nStripe = Math.min(stripeBuilt.length, stripePositive.length);
+        enrichedStripe = stripeBuilt.slice(0, nStripe).map((row, i) => ({
+          ...row,
+          created_at: stripePositive[i]?.created_at ?? null,
+        }));
+
+        const pixelBuilt = buildPixelPurchases(
+          owned.pixelPurchases.map((p) => ({
+            video_id: p.video_id,
+            campaign_id: p.campaign_id ?? null,
+            amount: p.amount,
+            event_type: p.event_type,
+            session_id: p.session_id,
+          })),
+          pixelSessLookup,
+        );
+        enrichedPixel = pixelBuilt.map((row, i) => ({
+          ...row,
+          created_at: owned.pixelPurchases[i]?.created_at ?? null,
+        }));
+      } else {
+        enrichedStripe = buildStripeFromPurchases(
+          stripeRaw,
+          redirectLinkLookup,
+          stripeSessLookup,
+        ).map((row) => ({ ...row, created_at: null }));
+        enrichedPixel = buildPixelPurchases(pixelRaw, pixelSessLookup).map((row) => ({
+          ...row,
+          created_at: null,
+        }));
+      }
 
       setRawEvents(allEvents);
-      setStripePurchases(enrichedStripe);
-      setPixelPurchases(enrichedPixel);
+      setStripePurchases(enrichedStripe as typeof stripePurchases);
+      setPixelPurchases(enrichedPixel as typeof pixelPurchases);
 
       if (user?.id) {
         inDepthAnalyticsPageCache.set(user.id, {
@@ -543,21 +602,33 @@ export default function InDepthAnalyticsTest() {
 
 
   // ── Engine input (unchanged) ─────────────────────────────────────────────
-  const engineInput = useMemo((): AnalyticsEngineInput => ({
-    videos:              videos as AnalyticsEngineInput['videos'],
-    campaigns:           campaigns as CampaignMeta[],
-    rawEvents,
-    stripePurchases,
-    pixelPurchases,
-    dateRange,
-    customRange,
-    selectedCampaignId,
-    selectedGoals,
-    selectedLeadMagnets,
-    activeSource,
-    includeEV,
-    sortConfig,
-  }), [
+  const engineInput = useMemo((): AnalyticsEngineInput => {
+    const stripeForEngine = filterPurchasesByCreatedAt(
+      stripePurchases as Array<StripePurchaseRow & { created_at?: string | null }>,
+      dateRange,
+      customRange,
+    );
+    const pixelForEngine = filterPurchasesByCreatedAt(
+      pixelPurchases as Array<PixelPurchaseRow & { created_at?: string | null }>,
+      dateRange,
+      customRange,
+    );
+    return {
+      videos:              videos as AnalyticsEngineInput['videos'],
+      campaigns:           campaigns as CampaignMeta[],
+      rawEvents,
+      stripePurchases:     stripeForEngine,
+      pixelPurchases:      pixelForEngine,
+      dateRange,
+      customRange,
+      selectedCampaignId,
+      selectedGoals,
+      selectedLeadMagnets,
+      activeSource,
+      includeEV,
+      sortConfig,
+    };
+  }, [
     videos, campaigns, rawEvents, stripePurchases, pixelPurchases,
     dateRange, customRange, selectedCampaignId, selectedGoals, selectedLeadMagnets,
     activeSource, includeEV, sortConfig,
