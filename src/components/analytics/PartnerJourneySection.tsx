@@ -54,8 +54,12 @@ import {
   routeVideoStepCount,
 } from '../../pages/JourneyAnalytics';
 import { AnalyticsMobileFilterSheet } from '../../pages/analytics-lego/AnalyticsMobileFilterSheet';
-import JourneyStrip from './JourneyStrip';
-import { formatRouteMetricCell, routeRevenueDisplay, useRouteRevenueMetrics } from './useRouteRevenueMetrics';
+import {
+  formatRouteMetricCell,
+  routeClickTotal,
+  routeRevenueDisplay,
+  useRouteRevenueMetrics,
+} from './useRouteRevenueMetrics';
 
 export const JOURNEY_PAGE_SIZE = 20;
 const EMPTY_DISPLAY: JourneyDataset['videoDisplay'] = new Map();
@@ -896,11 +900,17 @@ className="relative left-1/2 -ml-[50vw] w-screen flex mt-8 min-h-[75vh] border-t
                   <span>{labels.route} · {j.journeyId.slice(0, 8)}…</span>
                   <RouteMeta j={j} labels={labels} />
                   {(() => {
-                    const rev = routeRevenueDisplay(routeMetrics.get(j.journeyId), metricsLoading);
+                    const m = routeMetrics.get(j.journeyId);
+                    const rev = routeRevenueDisplay(m, metricsLoading);
                     return (
-                      <span className={rev.hasRevenue ? 'text-emerald-500' : 'text-zinc-600'}>
-                        Revenue {rev.text}
-                      </span>
+                      <>
+                        <span className="text-zinc-600">
+                          {metricsLoading ? '…' : `${routeClickTotal(m).toLocaleString()} clicks`}
+                        </span>
+                        <span className={rev.hasRevenue ? 'text-emerald-500' : 'text-zinc-600'}>
+                          Revenue {rev.text}
+                        </span>
+                      </>
                     );
                   })()}
                 </div>

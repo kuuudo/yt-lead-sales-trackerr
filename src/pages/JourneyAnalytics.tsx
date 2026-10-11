@@ -30,7 +30,7 @@ import { useViewing } from '../lib/ViewingContext';
 import { useOrganization } from '../lib/useOrganization';
 import { resolveThumbnail } from '../lib/videoFormatters';
 import {
-  getDateBounds,
+
   TABLE_COLUMNS,
   COLUMN_LABELS,
   type DateRange,
@@ -49,9 +49,12 @@ import {
 } from '../services/journey/journeyDownstreamResolver';
 
 import { groupJourneysByRoute, type RouteJourney } from '../lib/journeyRouteGrouping';
-import type { VideoMetricsResult } from '../lib/analyticsEngine';
-import { computeJourneyRouteRevenueMetrics, type RouteLike } from '../services/attribution/journeyRouteRevenue';
-import type { StripePurchaseOwnerInput, PixelPurchaseOwnerInput } from '../services/attribution/resolveConversionOwners';
+import {
+  formatRouteMetricCell,
+  routeClickTotal,
+  routeRevenueDisplay,
+  useRouteRevenueMetrics,
+} from '../components/analytics/useRouteRevenueMetrics';
 
 import JourneyStrip, {
   type JourneyStripStep,
@@ -862,8 +865,6 @@ export default function JourneyAnalytics() {
   const [excludedJourneys, setExcludedJourneys] = useState(0);
   const [entryVideoCount, setEntryVideoCount] = useState(0);
   const [videoDisplay, setVideoDisplay] = useState<Map<string, VideoDisplay>>(new Map());
-  const [routeMetrics, setRouteMetrics] = useState<Map<string, VideoMetricsResult>>(new Map());
-  const [metricsLoading, setMetricsLoading] = useState(false);
   // Promotion options: ids already on the loaded journeys' Asset steps — the
   // same data the Promotion filter matches against (see usePromotionOptions).
   const loadedPromotionIds = useMemo(() => {
@@ -953,126 +954,13 @@ export default function JourneyAnalytics() {
     };
   }, [effectiveOrgId, organizationId]);
 
-  // Journey-linked Revenue only (TRUE START journeyId ∈ memberJourneyIds).
-  // Clicks are not joined (would double-count shared videos across routes).
-  useEffect(() => {
-    if (!effectiveOrgId || journeys.length === 0) {
-      setMetricsLoading(false);
-      setRouteMetrics(new Map());
-      return;
-    }
-    let cancelled = false;
-    setMetricsLoading(true);
-
-    (async () => {
-      try {
-        const videoIds = Array.from(
-          new Set(
-            journeys.flatMap((j) => (j.path?.steps ?? []).map((s) => s.videoId).filter(Boolean) as string[]),
-          ),
-        );
-        if (videoIds.length === 0) {
-          console.warn('[JourneyAnalytics] no path video ids; skipping revenue');
-          if (!cancelled) {
-            setRouteMetrics(new Map());
-            setMetricsLoading(false);
-          }
-          return;
-        }
-
-        // Prefer organization scope so TRUE START re-owned purchases are not
-        // dropped when stripe/pixel.video_id is not a path step video.
-        let stripeData: StripePurchaseOwnerInput[] | null = null;
-        let pixelData: PixelPurchaseOwnerInput[] | null = null;
-
-        const stripeOrg = await supabase
-          .from('stripe_purchases')
-          .select(
-            'id, session_id, token, video_id, campaign_id, amount, created_at, redirect_link_id, redirect_link_token, organization_id, conversion_id, revenue_type',
-          )
-          .eq('organization_id', effectiveOrgId);
-        if (!stripeOrg.error) {
-          stripeData = (stripeOrg.data ?? []) as StripePurchaseOwnerInput[];
-        } else {
-          console.warn(
-            '[JourneyAnalytics] stripe org fetch failed, falling back to video_id IN path',
-            stripeOrg.error.message,
-          );
-          const stripeVid = await supabase
-            .from('stripe_purchases')
-            .select(
-              'id, session_id, token, video_id, campaign_id, amount, created_at, redirect_link_id, redirect_link_token, organization_id, conversion_id, revenue_type',
-            )
-            .in('video_id', videoIds);
-          if (stripeVid.error) throw new Error(stripeVid.error.message);
-          stripeData = (stripeVid.data ?? []) as StripePurchaseOwnerInput[];
-        }
-
-        const pixelOrg = await supabase
-          .from('pixel_purchases')
-          .select(
-            'id, event_id, session_id, video_id, campaign_id, amount, event_type, created_at, asset_id, conversion_id, organization_id, promotion_id',
-          )
-          .eq('organization_id', effectiveOrgId);
-        if (!pixelOrg.error) {
-          pixelData = (pixelOrg.data ?? []) as PixelPurchaseOwnerInput[];
-        } else {
-          console.warn(
-            '[JourneyAnalytics] pixel org fetch failed, falling back to video_id IN path',
-            pixelOrg.error.message,
-          );
-          const pixelVid = await supabase
-            .from('pixel_purchases')
-            .select(
-              'id, event_id, session_id, video_id, campaign_id, amount, event_type, created_at, asset_id, conversion_id, organization_id, promotion_id',
-            )
-            .in('video_id', videoIds);
-          if (pixelVid.error) throw new Error(pixelVid.error.message);
-          pixelData = (pixelVid.data ?? []) as PixelPurchaseOwnerInput[];
-        }
-
-        const stripePurchases = stripeData ?? [];
-        const pixelPurchases = pixelData ?? [];
-
-        console.log('[JourneyAnalytics] route revenue inputs', {
-          pathVideoIds: videoIds.length,
-          stripeFetched: stripePurchases.length,
-          pixelFetched: pixelPurchases.length,
-          dateRange,
-          activeSource,
-          routeRows: journeys.length,
-        });
-
-        // Optional: filter by purchase created_at using getDateBounds when dateRange !== 'all'
-        const { start, end } = getDateBounds(dateRange, customRange);
-        const inWindow = (created_at: string | null | undefined) => {
-          if (dateRange === 'all') return true;
-          if (!created_at) return false;
-          const t = new Date(created_at);
-          return !Number.isNaN(t.getTime()) && t >= start && t <= end;
-        };
-
-        const metrics = await computeJourneyRouteRevenueMetrics({
-          routes: journeys as RouteLike[],
-          stripePurchases: stripePurchases.filter((p) => inWindow(p.created_at)),
-          pixelPurchases: pixelPurchases.filter((p) => inWindow(p.created_at)),
-          activeSource,
-          includeEV: true,
-        });
-
-        if (!cancelled) setRouteMetrics(metrics);
-      } catch (e) {
-        console.error('[JourneyAnalytics] route revenue failed', e);
-        if (!cancelled) setRouteMetrics(new Map());
-      } finally {
-        if (!cancelled) setMetricsLoading(false);
-      }
-    })();
-
-    return () => {
-      cancelled = true;
-    };
-  }, [effectiveOrgId, journeys, dateRange, customRange, activeSource]);
+  const { routeMetrics, metricsLoading } = useRouteRevenueMetrics({
+    orgId: effectiveOrgId,
+    journeys,
+    dateRange,
+    customRange,
+    activeSource,
+  });
 
 
   const presentPlatforms = useMemo(() => {
@@ -2035,24 +1923,19 @@ export default function JourneyAnalytics() {
                       {steps === 1 ? '1 video' : `${steps} videos`}
                     </span>
 
-                    {(() => {
-                      const tr = routeMetrics.get(j.journeyId)?.total_revenue;
-                      if (metricsLoading) {
-                        return <span className="text-zinc-600">Revenue …</span>;
-                      }
-                      if (typeof tr === 'number' && tr > 0) {
-                        return (
-<span className="text-emerald-500">
-  Revenue{' '}
-  {tr.toLocaleString(undefined, {
-    style: 'currency',
-    currency: 'USD',
-    maximumFractionDigits: 2,
-  })}
-</span>
-                        );
-                      }
-                      return <span className="text-zinc-600">Revenue —</span>;
+                                      {(() => {
+                      const m = routeMetrics.get(j.journeyId);
+                      const rev = routeRevenueDisplay(m, metricsLoading);
+                      return (
+                        <>
+                          <span className="text-zinc-600">
+                            {metricsLoading ? '…' : `${routeClickTotal(m).toLocaleString()} clicks`}
+                          </span>
+                          <span className={rev.hasRevenue ? 'text-emerald-500' : 'text-zinc-600'}>
+                            Revenue {rev.text}
+                          </span>
+                        </>
+                      );
                     })()}
 
 
@@ -2131,22 +2014,14 @@ export default function JourneyAnalytics() {
                         <td className="px-4 py-3 whitespace-nowrap text-sm font-bold text-zinc-600 tabular-nums">
                           —
                         </td>
-                        {TABLE_COLUMNS.map((key) => {
-                          const m = routeMetrics.get(j.journeyId);
-                          const raw = m ? (m as any)[key] : null;
-                          const isMoney =
-                            key === 'direct_offer_revenue' ||
-                            key === 'estimated_call_revenue' ||
-                            key === 'consultation_revenue' ||
-                            key === 'total_revenue' ||
-                            key === 'rpc';
-                          const clickKeys = new Set([
-                            'landing_page_view',
-                            'lead_magnet_click',
-                            'newsletter_click',
-                            'call_booking_click',
-                            'consultation_click',
-                          ]);
+                        {TABLE_COLUMNS.map((key) => (
+                          <td
+                            key={key}
+                            className="px-4 py-3 whitespace-nowrap text-sm font-bold text-zinc-600 tabular-nums"
+                          >
+                            {formatRouteMetricCell(key, routeMetrics.get(j.journeyId), metricsLoading)}
+                          </td>
+                        ))}
                           let display: string = '—';
                           if (metricsLoading && !clickKeys.has(key)) {
                             display = '…';

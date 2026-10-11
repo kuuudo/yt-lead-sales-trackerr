@@ -12,8 +12,10 @@ import {
 } from '../../lib/analyticsEngine';
 import {
   computeJourneyRouteRevenueMetrics,
+  mergeRouteClicksIntoMetrics,
   type RouteLike,
 } from '../../services/attribution/journeyRouteRevenue';
+import { computeJourneyRouteClickMetrics } from '../../services/attribution/journeyRouteClicks';
 import type {
   StripePurchaseOwnerInput,
   PixelPurchaseOwnerInput,
@@ -22,6 +24,9 @@ import type {
 const ID_CHUNK = 100;
 const PAGE_SIZE = 1000;
 const EMPTY_METRICS: Map<string, VideoMetricsResult> = new Map();
+
+type RouteClickMap = Awaited<ReturnType<typeof computeJourneyRouteClickMetrics>>;
+const EMPTY_CLICKS = new Map() as unknown as RouteClickMap;
 
 const STRIPE_COLUMNS =
   'id, session_id, token, video_id, campaign_id, amount, created_at, redirect_link_id, redirect_link_token, organization_id, conversion_id, revenue_type';
@@ -83,8 +88,8 @@ async function orgScopedWithFallback<T>(
 }
 
 /**
- * Journey-linked Revenue per route (TRUE START journeyId in memberJourneyIds).
- * Clicks are not joined (would double-count shared videos across routes).
+ * Journey-linked Revenue per route (TRUE START journeyId in memberJourneyIds)
+ * + journey-scoped clicks (events_journey.event_ids -> events), merged per route.
  */
 export function useRouteRevenueMetrics(opts: {
   orgId: string | null;
@@ -99,9 +104,11 @@ export function useRouteRevenueMetrics(opts: {
     stripe: StripePurchaseOwnerInput[];
     pixel: PixelPurchaseOwnerInput[];
   } | null>(null);
-  const [routeMetrics, setRouteMetrics] = useState<Map<string, VideoMetricsResult>>(EMPTY_METRICS);
+  const [revMap, setRevMap] = useState<Map<string, VideoMetricsResult>>(EMPTY_METRICS);
+  const [clickMap, setClickMap] = useState<RouteClickMap>(EMPTY_CLICKS);
   const [fetching, setFetching] = useState(false);
   const [computing, setComputing] = useState(false);
+  const [clicksLoading, setClicksLoading] = useState(false);
 
   const videoIds = useMemo(
     () =>
@@ -119,7 +126,7 @@ export function useRouteRevenueMetrics(opts: {
   useEffect(() => {
     if (!orgId || videoIds.length === 0) {
       setPurchases(null);
-      setRouteMetrics(EMPTY_METRICS);
+      setRevMap(EMPTY_METRICS);
       setFetching(false);
       return;
     }
@@ -189,7 +196,7 @@ export function useRouteRevenueMetrics(opts: {
         console.error('[useRouteRevenueMetrics] purchase fetch failed', e);
         if (!cancelled) {
           setPurchases(null);
-          setRouteMetrics(EMPTY_METRICS);
+          setRevMap(EMPTY_METRICS);
         }
       } finally {
         if (!cancelled) setFetching(false);
@@ -201,7 +208,7 @@ export function useRouteRevenueMetrics(opts: {
     };
   }, [orgId, videoIds, dateRange, customRange]);
 
-  // 2) Compute per-route metrics (re-runs on source toggle without refetching).
+  // 2) Revenue per route (re-runs on source toggle without refetching purchases).
   useEffect(() => {
     if (!purchases) {
       setComputing(false);
@@ -219,10 +226,10 @@ export function useRouteRevenueMetrics(opts: {
           activeSource,
           includeEV: true,
         });
-        if (!cancelled) setRouteMetrics(metrics);
+        if (!cancelled) setRevMap(metrics);
       } catch (e) {
         console.error('[useRouteRevenueMetrics] route revenue failed', e);
-        if (!cancelled) setRouteMetrics(EMPTY_METRICS);
+        if (!cancelled) setRevMap(EMPTY_METRICS);
       } finally {
         if (!cancelled) setComputing(false);
       }
@@ -233,28 +240,55 @@ export function useRouteRevenueMetrics(opts: {
     };
   }, [purchases, journeys, activeSource]);
 
-  return { routeMetrics, metricsLoading: fetching || computing };
+  // 3) Journey-scoped clicks (independent of purchases; follows the date window).
+  useEffect(() => {
+    if (!orgId || journeys.length === 0) {
+      setClickMap(EMPTY_CLICKS);
+      setClicksLoading(false);
+      return;
+    }
+    let cancelled = false;
+    setClicksLoading(true);
+
+    (async () => {
+      try {
+        const clicks = await computeJourneyRouteClickMetrics({
+          routes: journeys,
+          dateRange,
+          customRange,
+        });
+        if (!cancelled) setClickMap(clicks);
+      } catch (e) {
+        console.error('[useRouteRevenueMetrics] route clicks failed', e);
+        if (!cancelled) setClickMap(EMPTY_CLICKS);
+      } finally {
+        if (!cancelled) setClicksLoading(false);
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [orgId, journeys, dateRange, customRange]);
+
+  const routeMetrics = useMemo(
+    () => mergeRouteClicksIntoMetrics(revMap, clickMap),
+    [revMap, clickMap],
+  );
+
+  return { routeMetrics, metricsLoading: fetching || computing || clicksLoading };
 }
 
-/** Columns that cannot be computed per route (clicks are not joined; rpc = revenue / clicks). */
-const UNAVAILABLE_KEYS = new Set<MetricType>([
-  'landing_page_view',
-  'lead_magnet_click',
-  'newsletter_click',
-  'call_booking_click',
-  'consultation_click',
-  'rpc',
-]);
-
+/** Table cell text for one metric column. Counts show 0 as 0; rpc shows "—" when it is 0. */
 export function formatRouteMetricCell(
   key: MetricType,
   metrics: VideoMetricsResult | undefined,
   loading: boolean,
 ): string {
-  if (UNAVAILABLE_KEYS.has(key)) return '—';
   if (loading) return '…';
   const raw = metrics ? (metrics as unknown as Record<string, unknown>)[key] : null;
   if (typeof raw !== 'number' || !Number.isFinite(raw)) return '—';
+  if (key === 'rpc' && raw === 0) return '—'; // no reliable rpc when no clicks or no revenue
   if (isRevenueCol(key)) {
     return raw.toLocaleString(undefined, {
       style: 'currency',
@@ -263,6 +297,18 @@ export function formatRouteMetricCell(
     });
   }
   return raw.toLocaleString();
+}
+
+/** Total journey-scoped clicks across the five click columns. */
+export function routeClickTotal(metrics: VideoMetricsResult | undefined): number {
+  if (!metrics) return 0;
+  return (
+    (metrics.landing_page_view ?? 0) +
+    (metrics.lead_magnet_click ?? 0) +
+    (metrics.newsletter_click ?? 0) +
+    (metrics.call_booking_click ?? 0) +
+    (metrics.consultation_click ?? 0)
+  );
 }
 
 /** Card-row revenue chip: amount only when > 0; "—" means no journey-linked formal amount. */
