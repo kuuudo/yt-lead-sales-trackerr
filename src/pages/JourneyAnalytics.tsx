@@ -49,6 +49,14 @@ import {
 } from '../services/journey/journeyDownstreamResolver';
 
 import { groupJourneysByRoute, type RouteJourney } from '../lib/journeyRouteGrouping';
+import {
+  processVideoMetrics,
+  emptyVideoMetrics,
+  type VideoMetricsResult,
+  type MetricType,
+} from '../lib/analyticsEngine';
+import { computeJourneyRouteRevenueMetrics } from '../services/attribution/journeyRouteRevenue';
+import type { StripePurchaseOwnerInput, PixelPurchaseOwnerInput } from '../services/attribution/resolveConversionOwners';
 
 import JourneyStrip, {
   type JourneyStripStep,
@@ -859,7 +867,8 @@ export default function JourneyAnalytics() {
   const [excludedJourneys, setExcludedJourneys] = useState(0);
   const [entryVideoCount, setEntryVideoCount] = useState(0);
   const [videoDisplay, setVideoDisplay] = useState<Map<string, VideoDisplay>>(new Map());
-
+  const [routeMetrics, setRouteMetrics] = useState<Map<string, VideoMetricsResult>>(new Map());
+  const [metricsLoading, setMetricsLoading] = useState(false);
   // Promotion options: ids already on the loaded journeys' Asset steps — the
   // same data the Promotion filter matches against (see usePromotionOptions).
   const loadedPromotionIds = useMemo(() => {
@@ -948,6 +957,81 @@ export default function JourneyAnalytics() {
       cancelled = true;
     };
   }, [effectiveOrgId, organizationId]);
+
+  // Journey-linked Revenue only (TRUE START journeyId ∈ memberJourneyIds).
+  // Clicks are not joined (would double-count shared videos across routes).
+  useEffect(() => {
+    if (!effectiveOrgId || journeys.length === 0) {
+      setRouteMetrics(new Map());
+      return;
+    }
+    let cancelled = false;
+    setMetricsLoading(true);
+
+    (async () => {
+      try {
+        const videoIds = Array.from(
+          new Set(
+            journeys.flatMap((j) => (j.path?.steps ?? []).map((s) => s.videoId).filter(Boolean) as string[]),
+          ),
+        );
+        if (videoIds.length === 0) {
+          if (!cancelled) setRouteMetrics(new Map());
+          return;
+        }
+
+        // Broad fetch by promoting videos present on routes. TRUE START may
+        // re-own to another video; ownership still comes from the resolver.
+        const { data: stripeData, error: stripeErr } = await supabase
+          .from('stripe_purchases')
+          .select(
+            'id, session_id, token, video_id, campaign_id, amount, created_at, redirect_link_id, redirect_link_token, organization_id, conversion_id, revenue_type',
+          )
+          .in('video_id', videoIds);
+        if (stripeErr) throw new Error(stripeErr.message);
+
+        const { data: pixelData, error: pixelErr } = await supabase
+          .from('pixel_purchases')
+          .select(
+            'id, event_id, session_id, video_id, campaign_id, amount, event_type, created_at, asset_id, conversion_id, organization_id, promotion_id',
+          )
+          .in('video_id', videoIds);
+        if (pixelErr) throw new Error(pixelErr.message);
+
+        const stripePurchases = (stripeData ?? []) as StripePurchaseOwnerInput[];
+        const pixelPurchases = (pixelData ?? []) as PixelPurchaseOwnerInput[];
+
+        // Optional: filter by purchase created_at using getDateBounds when dateRange !== 'all'
+        const { start, end } = getDateBounds(dateRange, customRange);
+        const inWindow = (created_at: string | null | undefined) => {
+          if (dateRange === 'all') return true;
+          if (!created_at) return false;
+          const t = new Date(created_at);
+          return !Number.isNaN(t.getTime()) && t >= start && t <= end;
+        };
+
+        const metrics = await computeJourneyRouteRevenueMetrics({
+          routes: journeys as RouteLike[],
+          stripePurchases: stripePurchases.filter((p) => inWindow(p.created_at)),
+          pixelPurchases: pixelPurchases.filter((p) => inWindow(p.created_at)),
+          activeSource,
+          includeEV: true,
+        });
+
+        if (!cancelled) setRouteMetrics(metrics);
+      } catch (e) {
+        console.error('[JourneyAnalytics] route revenue failed', e);
+        if (!cancelled) setRouteMetrics(new Map());
+      } finally {
+        if (!cancelled) setMetricsLoading(false);
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [effectiveOrgId, journeys, dateRange, customRange, activeSource]);
+
 
   const presentPlatforms = useMemo(() => {
     const seen = new Set<string>();
@@ -1983,14 +2067,48 @@ export default function JourneyAnalytics() {
                         <td className="px-4 py-3 whitespace-nowrap text-sm font-bold text-zinc-600 tabular-nums">
                           —
                         </td>
-                        {TABLE_COLUMNS.map((key) => (
-                          <td
-                            key={key}
-                            className="px-4 py-3 whitespace-nowrap text-sm font-bold text-zinc-600 tabular-nums"
-                          >
-                            —
-                          </td>
-                        ))}
+                        {TABLE_COLUMNS.map((key) => {
+                          const m = routeMetrics.get(j.journeyId);
+                          const raw = m ? (m as any)[key] : null;
+                          const isMoney =
+                            key === 'direct_offer_revenue' ||
+                            key === 'estimated_call_revenue' ||
+                            key === 'consultation_revenue' ||
+                            key === 'total_revenue' ||
+                            key === 'rpc';
+                          const clickKeys = new Set([
+                            'landing_page_view',
+                            'lead_magnet_click',
+                            'newsletter_click',
+                            'call_booking_click',
+                            'consultation_click',
+                          ]);
+                          let display: string = '—';
+                          if (clickKeys.has(key)) {
+                            display = '—';
+                          } else if (typeof raw === 'number' && Number.isFinite(raw)) {
+                            display = isMoney
+                              ? raw.toLocaleString(undefined, {
+                                  style: 'currency',
+                                  currency: 'USD',
+                                  maximumFractionDigits: 2,
+                                })
+                              : String(raw);
+                          }
+                          return (
+                            <td
+                              key={key}
+                              className="px-4 py-3 whitespace-nowrap text-sm font-bold text-zinc-600 tabular-nums"
+                              title={
+                                clickKeys.has(key)
+                                  ? 'Clicks not joined to journey routes (avoids double-count)'
+                                  : undefined
+                              }
+                            >
+                              {display}
+                            </td>
+                          );
+                        })}
                       </tr>
                     );
                   })}
