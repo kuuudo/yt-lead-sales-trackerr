@@ -29,7 +29,7 @@ const EMPTY_METRICS: Map<string, VideoMetricsResult> = new Map();
 type RouteClickMap = Awaited<ReturnType<typeof computeJourneyRouteClickMetrics>>;
 const EMPTY_CLICKS = new Map() as unknown as RouteClickMap;
 
-const STRIPE_COLUMNS =
+
 
 const STRIPE_COLUMNS =
   'id, stripe_session_id, token, video_id, campaign_id, amount, created_at, redirect_link_id, redirect_link_token, organization_id, session_id';
