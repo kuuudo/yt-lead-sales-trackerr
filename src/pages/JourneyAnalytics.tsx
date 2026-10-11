@@ -2021,35 +2021,7 @@ export default function JourneyAnalytics() {
                           >
                             {formatRouteMetricCell(key, routeMetrics.get(j.journeyId), metricsLoading)}
                           </td>
-                        ))}
-                          let display: string = '—';
-                          if (metricsLoading && !clickKeys.has(key)) {
-                            display = '…';
-                          } else if (clickKeys.has(key)) {
-                            display = '—';
-                          } else if (typeof raw === 'number' && Number.isFinite(raw)) {
-                            display = isMoney
-                              ? raw.toLocaleString(undefined, {
-                                  style: 'currency',
-                                  currency: 'USD',
-                                  maximumFractionDigits: 2,
-                                })
-                              : String(raw);
-                          }
-                          return (
-                            <td
-                              key={key}
-                              className="px-4 py-3 whitespace-nowrap text-sm font-bold text-zinc-600 tabular-nums"
-                              title={
-                                clickKeys.has(key)
-                                  ? 'Clicks not joined to journey routes (avoids double-count)'
-                                  : undefined
-                              }
-                            >
-                              {display}
-                            </td>
-                          );
-                        })}
+                        ))} 
                       </tr>
                     );
                   })}
