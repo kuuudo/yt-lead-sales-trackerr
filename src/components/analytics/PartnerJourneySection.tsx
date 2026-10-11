@@ -55,7 +55,7 @@ import {
 } from '../../pages/JourneyAnalytics';
 import { AnalyticsMobileFilterSheet } from '../../pages/analytics-lego/AnalyticsMobileFilterSheet';
 import JourneyStrip from './JourneyStrip';
-
+import { formatRouteMetricCell, useRouteRevenueMetrics } from './useRouteRevenueMetrics';
 export const JOURNEY_PAGE_SIZE = 20;
 const EMPTY_DISPLAY: JourneyDataset['videoDisplay'] = new Map();
 const EMPTY_JOURNEYS: JourneyDataset['journeys'] = [];
@@ -371,6 +371,13 @@ const [sheetOpen, setSheetOpen] = useState(false);
 
   const ownerIds = useMemo(() => partnerOwnerIds(mode, selectedIds), [mode, selectedIds]);
 
+  const { routeMetrics, metricsLoading } = useRouteRevenueMetrics({
+    orgId: effectiveOrgId,
+    journeys,
+    dateRange,
+    customRange,
+    activeSource,
+  });
   const visible = useMemo(
     () =>
       filterJourneys(journeys, display, {
@@ -870,7 +877,9 @@ className="relative left-1/2 -ml-[50vw] w-screen flex mt-8 min-h-[75vh] border-t
                         <td key={c.key} className="px-4 py-3 whitespace-nowrap text-sm font-bold text-zinc-600">—</td>
                       ))}
                       {TABLE_COLUMNS.map((k) => (
-                        <td key={k} className="px-4 py-3 whitespace-nowrap text-sm font-bold text-zinc-600 tabular-nums">—</td>
+                        <td key={k} className="px-4 py-3 whitespace-nowrap text-sm font-bold text-zinc-600 tabular-nums">
+                          {formatRouteMetricCell(k, routeMetrics.get(j.journeyId), metricsLoading)}
+                        </td>
                       ))}
                     </tr>
                   ))}
