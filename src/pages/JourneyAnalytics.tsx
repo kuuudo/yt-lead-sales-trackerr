@@ -1044,17 +1044,6 @@ export default function JourneyAnalytics() {
         });
         if (stripeErr) throw new Error(stripeErr.message);
 
-        const { data: pixelData, error: pixelErr } = await supabase
-          .from('pixel_purchases')
-          .select(
-            'id, event_id, session_id, video_id, campaign_id, amount, event_type, created_at, asset_id, conversion_id, organization_id, promotion_id',
-          )
-          .in('video_id', videoIds);
-        if (pixelErr) throw new Error(pixelErr.message);
-
-        const stripePurchases = (stripeData ?? []) as StripePurchaseOwnerInput[];
-        const pixelPurchases = (pixelData ?? []) as PixelPurchaseOwnerInput[];
-
         // Optional: filter by purchase created_at using getDateBounds when dateRange !== 'all'
         const { start, end } = getDateBounds(dateRange, customRange);
         const inWindow = (created_at: string | null | undefined) => {
