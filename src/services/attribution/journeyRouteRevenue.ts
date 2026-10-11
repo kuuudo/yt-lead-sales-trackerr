@@ -153,17 +153,17 @@ const reasonCount = (arr: any[]) => {
   pixelByJourney.forEach((_v, k) => { if (memberSetDbg.has(k)) pixelKeysMatched += 1; });
 
 console.log('[journeyRouteRevenue] qualify ' + JSON.stringify({
-  stripeIn: 0,
-  pixelIn: 0,
-  trueStartJourneyKeysStripe: 0,
-  trueStartStripeRows: 0,
-  trueStartJourneyKeysPixel: 0,
-  trueStartPixelRows: 0,
-  memberJourneyIds: memberIdSetEarly.size,
-  journeyIdsMatchedToRoutes: 0,
-  trueStartStripeRowsMatched: 0,
-  trueStartPixelRowsMatched: 0,
-  routesWithRevenue: 0,
+  stripeIn: opts.stripePurchases.length,
+  pixelIn: opts.pixelPurchases.length,
+  stripeReasons: reasonCount(owned.stripePurchases as any[]),
+  pixelReasons: reasonCount(owned.pixelPurchases as any[]),
+  trueStartJourneyKeysStripe: stripeByJourney.size,
+  trueStartJourneyKeysPixel: pixelByJourney.size,
+  routes: routes.length,
+  routesWithMembers,
+  memberJourneyIds: memberSetDbg.size,
+  stripeKeysMatchedToRoutes: stripeKeysMatched,
+  pixelKeysMatchedToRoutes: pixelKeysMatched,
 }));
 
   let routesWithRevenue = 0;
