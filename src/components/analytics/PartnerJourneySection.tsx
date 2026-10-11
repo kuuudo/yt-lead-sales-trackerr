@@ -60,6 +60,7 @@ import {
   routeRevenueDisplay,
   useRouteRevenueMetrics,
 } from './useRouteRevenueMetrics';
+import JourneyStrip from './JourneyStrip';
 
 export const JOURNEY_PAGE_SIZE = 20;
 const EMPTY_DISPLAY: JourneyDataset['videoDisplay'] = new Map();
