@@ -3,6 +3,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { supabase } from '../../lib/supabase';
 import {
   getDateBounds,
+  emptyVideoMetrics,
   isRevenueCol,
   type CustomDateRange,
   type DateRange,
@@ -38,6 +39,15 @@ type RevenueRoute = RouteLike & {
 };
 
 type PageResult = { data: any; error: { message: string } | null };
+
+/** One empty metrics row per route, so click merge always has a row to attach to. */
+function seedEmptyRouteMetrics(routes: { journeyId: string }[]): Map<string, VideoMetricsResult> {
+  const m = new Map<string, VideoMetricsResult>();
+  for (const r of routes) {
+    m.set(r.journeyId, emptyVideoMetrics('hybrid') as VideoMetricsResult);
+  }
+  return m;
+}
 
 /** Page through one query until a short page comes back (Supabase caps rows per request). */
 async function fetchPaged<T>(
@@ -126,7 +136,7 @@ export function useRouteRevenueMetrics(opts: {
   useEffect(() => {
     if (!orgId || videoIds.length === 0) {
       setPurchases(null);
-      setRevMap(EMPTY_METRICS);
+setRevMap(seedEmptyRouteMetrics(journeys));
       setFetching(false);
       return;
     }
@@ -196,7 +206,7 @@ export function useRouteRevenueMetrics(opts: {
         console.error('[useRouteRevenueMetrics] purchase fetch failed', e);
         if (!cancelled) {
           setPurchases(null);
-          setRevMap(EMPTY_METRICS);
+          setRevMap(seedEmptyRouteMetrics(journeys));
         }
       } finally {
         if (!cancelled) setFetching(false);
@@ -206,7 +216,7 @@ export function useRouteRevenueMetrics(opts: {
     return () => {
       cancelled = true;
     };
-  }, [orgId, videoIds, dateRange, customRange]);
+  }, [orgId, videoIds, journeys, dateRange, customRange]);
 
   // 2) Revenue per route (re-runs on source toggle without refetching purchases).
   useEffect(() => {
@@ -229,7 +239,7 @@ export function useRouteRevenueMetrics(opts: {
         if (!cancelled) setRevMap(metrics);
       } catch (e) {
         console.error('[useRouteRevenueMetrics] route revenue failed', e);
-        if (!cancelled) setRevMap(EMPTY_METRICS);
+        if (!cancelled) setRevMap(seedEmptyRouteMetrics(journeys));
       } finally {
         if (!cancelled) setComputing(false);
       }

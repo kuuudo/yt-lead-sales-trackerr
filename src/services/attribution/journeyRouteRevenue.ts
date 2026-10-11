@@ -181,7 +181,15 @@ export function mergeRouteClicksIntoMetrics(
   >,
 ): Map<string, VideoMetricsResult> {
   const out = new Map<string, VideoMetricsResult>();
-  revenueByRoute.forEach((rev, routeId) => {
+  const ids = new Set<string>([
+    ...revenueByRoute.keys(),
+    ...clicksByRoute.keys(),
+  ]);
+
+  for (const routeId of ids) {
+    const rev =
+      revenueByRoute.get(routeId) ??
+      (emptyVideoMetrics('hybrid') as VideoMetricsResult);
     const c = clicksByRoute.get(routeId);
     const next = { ...rev };
     if (c) {
@@ -200,6 +208,6 @@ export function mergeRouteClicksIntoMetrics(
     next.rpc =
       clicks > 0 ? Number(((next.total_revenue ?? 0) / clicks).toFixed(2)) : 0;
     out.set(routeId, next);
-  });
+  }
   return out;
 }
