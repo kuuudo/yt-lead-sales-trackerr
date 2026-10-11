@@ -303,6 +303,29 @@ function makeSingletonJourney(videoId: string): RouteJourney {
   } as RouteJourney;
 }
 
+/** How many observed journeys share this route group (not video-step length). */
+function routeMemberCount(j: {
+  memberJourneyIds?: string[] | null;
+}): number {
+  if (Array.isArray(j.memberJourneyIds) && j.memberJourneyIds.length > 0) {
+    return j.memberJourneyIds.length;
+  }
+  return 1;
+}
+
+/** Number of video steps on the route path (journey length). */
+function routeVideoStepCount(j: {
+  path?: { steps?: unknown[] | null } | null;
+}): number {
+  return j.path?.steps?.length ?? 0;
+}
+
+function formatJourneyMemberLabel(n: number): string {
+  return n === 1 ? '1 journey' : `${n} journeys`;
+}
+
+type RouteSortMode = 'default' | 'longest_first';
+
 // ── Per-video enrichment (canonical fields reused from All Assets model) ────
 
 export type VideoDisplay = {
@@ -819,6 +842,8 @@ export default function JourneyAnalytics() {
   const [selectedVideoId, setSelectedVideoId] = useState<string | null>(null);
   const [showAnalytics, setShowAnalytics] = useState(false);
   const [showContentOwner, setShowContentOwner] = useState(false);
+  /** UI-only sort of filtered route rows; does not mutate grouping source data. */
+  const [routeSortMode, setRouteSortMode] = useState<RouteSortMode>('default');
 
   const [assetCampaignOpen, setAssetCampaignOpen] = useState(false);
   const [contentCampaignOpen, setContentCampaignOpen] = useState(false);
@@ -991,6 +1016,23 @@ export default function JourneyAnalytics() {
       customRange,
     ],
   );
+
+  /**
+   * Sorted view of filtered routes. Default = filter order.
+   * longest_first = by video-step count (path.steps.length), not memberJourneyIds.
+   * Equal lengths keep relative order (stable via original index).
+   */
+  const displayedJourneys = useMemo(() => {
+    if (routeSortMode === 'default') return visibleJourneys;
+    return visibleJourneys
+      .map((j, index) => ({ j, index }))
+      .sort((a, b) => {
+        const lenDiff = routeVideoStepCount(b.j) - routeVideoStepCount(a.j);
+        if (lenDiff !== 0) return lenDiff;
+        return a.index - b.index;
+      })
+      .map(({ j }) => j);
+  }, [visibleJourneys, routeSortMode]);
 
   const handleSelectVideo = useCallback((videoId: string) => {
     setSelectedVideoId((prev) => (prev === videoId ? null : videoId));
@@ -1652,7 +1694,7 @@ export default function JourneyAnalytics() {
               onClick={() => setMobileMenuOpen(false)}
               className="w-full py-3 rounded-xl bg-red-600 text-white text-[11px] font-black uppercase tracking-widest"
             >
-              Show {visibleJourneys.length} Journeys
+              Show {displayedJourneys.length} Journeys
             </button>
           </div>
         </AnalyticsMobileFilterSheet>
@@ -1686,7 +1728,7 @@ export default function JourneyAnalytics() {
                   Journey Analytics
                 </h2>
                 <p className="text-[10px] text-zinc-600 font-bold uppercase tracking-widest mt-0.5">
-                  One row = one journey
+                  One row = one route
                 </p>
               </div>
               <AnalyticsMobileFilterButton
@@ -1791,10 +1833,36 @@ export default function JourneyAnalytics() {
                 );
               })}
             </div>
-            <div className="text-[9px] font-bold text-zinc-600 uppercase tracking-widest">
-              Content {entryVideoCount} · Rows {journeys.length} ·
-              Showing {visibleJourneys.length}
-              {truncated && <span className="text-amber-600"> · Truncated</span>}
+            <div className="flex flex-wrap items-center gap-3">
+              <div className="flex items-center gap-1 p-1 bg-zinc-900 border border-zinc-800 rounded-xl">
+                <button
+                  type="button"
+                  onClick={() => setRouteSortMode('default')}
+                  className={`px-3 py-1.5 rounded-lg text-[9px] font-black uppercase tracking-widest transition-all ${
+                    routeSortMode === 'default'
+                      ? 'bg-zinc-700 text-white'
+                      : 'text-zinc-600 hover:text-zinc-400'
+                  }`}
+                >
+                  Default order
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setRouteSortMode('longest_first')}
+                  className={`px-3 py-1.5 rounded-lg text-[9px] font-black uppercase tracking-widest transition-all ${
+                    routeSortMode === 'longest_first'
+                      ? 'bg-zinc-700 text-white'
+                      : 'text-zinc-600 hover:text-zinc-400'
+                  }`}
+                >
+                  Longest first
+                </button>
+              </div>
+              <div className="text-[9px] font-bold text-zinc-600 uppercase tracking-widest">
+                Content {entryVideoCount} · Rows {journeys.length} ·
+                Showing {displayedJourneys.length}
+                {truncated && <span className="text-amber-600"> · Truncated</span>}
+              </div>
             </div>
           </div>
     </header>
@@ -1820,7 +1888,7 @@ export default function JourneyAnalytics() {
             </div>
           )}
 
-          {!loading && !error && visibleJourneys.length === 0 && (
+          {!loading && !error && displayedJourneys.length === 0 && (
             <div className="py-20 text-center">
               <div className="text-[11px] font-black uppercase tracking-widest text-zinc-600">
                 No journeys match the current filters
@@ -1828,23 +1896,31 @@ export default function JourneyAnalytics() {
             </div>
           )}
 
-          {!loading && !error && visibleJourneys.length > 0 && !showAnalytics && (
+          {!loading && !error && displayedJourneys.length > 0 && !showAnalytics && (
             <div className="px-4 lg:px-6 py-4 space-y-2">
-              {visibleJourneys.map((j) => (
+              {displayedJourneys.map((j) => {
+                const members = routeMemberCount(j as { memberJourneyIds?: string[] });
+                const steps = routeVideoStepCount(j);
+                return (
                 <div
                   key={j.journeyId}
                   className="rounded-xl border border-zinc-900 bg-zinc-950/80 px-2 py-1.5"
                 >
-                  <div className="text-[7px] font-black uppercase tracking-widest text-zinc-700 mb-0.5 px-0.5">
-                    Journey · {j.journeyId.slice(0, 8)}…
+                  <div className="text-[7px] font-black uppercase tracking-widest text-zinc-700 mb-0.5 px-0.5 flex flex-wrap items-center gap-x-2 gap-y-0.5">
+                    <span>Route · {j.journeyId.slice(0, 8)}…</span>
+                    <span className="text-zinc-500">{formatJourneyMemberLabel(members)}</span>
+                    <span className="text-zinc-600">
+                      {steps === 1 ? '1 video' : `${steps} videos`}
+                    </span>
                   </div>
                   {renderJourneyStrip(j)}
                 </div>
-              ))}
+                );
+              })}
             </div>
           )}
 
-          {!loading && !error && visibleJourneys.length > 0 && showAnalytics && (
+          {!loading && !error && displayedJourneys.length > 0 && showAnalytics && (
             <div className="inline-block min-w-full align-middle">
               <table className="min-w-full divide-y divide-zinc-900 border-collapse">
                 <thead className="bg-zinc-950 sticky top-0 z-20 shadow-xl">
@@ -1871,16 +1947,22 @@ export default function JourneyAnalytics() {
                   </tr>
                 </thead>
                 <tbody className="bg-black divide-y divide-zinc-900">
-                  {visibleJourneys.map((j) => {
+                  {displayedJourneys.map((j) => {
                     const types = journeyPromotedTypes(j, videoDisplay);
+                    const members = routeMemberCount(j as { memberJourneyIds?: string[] });
+                    const steps = routeVideoStepCount(j);
                     return (
                       <tr
                         key={j.journeyId}
                         className="hover:bg-zinc-950/80 transition-colors group"
                       >
                         <td className="px-3 py-3 sticky left-0 z-10 bg-black group-hover:bg-zinc-950 transition-colors min-w-[320px] max-w-[480px]">
-                          <div className="text-[7px] font-black uppercase tracking-widest text-zinc-700 mb-0.5">
-                            {j.journeyId.slice(0, 8)}…
+                          <div className="text-[7px] font-black uppercase tracking-widest text-zinc-700 mb-0.5 flex flex-wrap items-center gap-x-2 gap-y-0.5">
+                            <span>{j.journeyId.slice(0, 8)}…</span>
+                            <span className="text-zinc-500">{formatJourneyMemberLabel(members)}</span>
+                            <span className="text-zinc-600">
+                              {steps === 1 ? '1 video' : `${steps} videos`}
+                            </span>
                           </div>
                           {renderJourneyStrip(j)}
                         </td>
