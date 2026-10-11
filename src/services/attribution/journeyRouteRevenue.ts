@@ -60,7 +60,7 @@ export async function computeJourneyRouteRevenueMetrics(opts: {
       }
     }
 
-    console.log('[journeyRouteRevenue] qualify', {
+    console.log('[journeyRouteRevenue] qualify ' + JSON.stringify({
       stripeIn: 0,
       pixelIn: 0,
       trueStartJourneyKeysStripe: 0,
@@ -72,7 +72,7 @@ export async function computeJourneyRouteRevenueMetrics(opts: {
       trueStartStripeRowsMatched: 0,
       trueStartPixelRowsMatched: 0,
       routesWithRevenue: 0,
-    });
+    }, (_k, v) => (v instanceof Set ? Array.from(v).slice(0, 10) : v instanceof Map ? Array.from(v.entries()).slice(0, 10) : v)));
 
     return out;
   }
