@@ -126,15 +126,25 @@ export async function computeJourneyRouteRevenueMetrics(opts: {
 
     const metrics = processVideoMetrics({
       videoId: syntheticId,
+      campaignId: null,
+      activeSource,
       events: [],
       stripePurchases: activeSource === 'pixel' ? [] : stripeBag,
       pixelPurchases: activeSource === 'stripe' ? [] : pixelBag,
-      activeSource,
       includeEV,
     });
 
     out.set(route.journeyId, metrics);
   }
-
+  let routesWithRevenue = 0;
+  out.forEach((m) => {
+    if ((m.total_revenue ?? 0) > 0) routesWithRevenue += 1;
+  });
+  console.log('[journeyRouteRevenue] summary', {
+    routes: routes.length,
+    stripeByJourney: stripeByJourney.size,
+    pixelByJourney: pixelByJourney.size,
+    routesWithRevenue,
+  });
   return out;
 }

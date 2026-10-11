@@ -972,18 +972,76 @@ export default function JourneyAnalytics() {
           ),
         );
         if (videoIds.length === 0) {
-          if (!cancelled) setRouteMetrics(new Map());
+          console.warn('[JourneyAnalytics] no path video ids; skipping revenue');
+          if (!cancelled) {
+            setRouteMetrics(new Map());
+            setMetricsLoading(false);
+          }
           return;
         }
 
-        // Broad fetch by promoting videos present on routes. TRUE START may
-        // re-own to another video; ownership still comes from the resolver.
-        const { data: stripeData, error: stripeErr } = await supabase
+        // Prefer organization scope so TRUE START re-owned purchases are not
+        // dropped when stripe/pixel.video_id is not a path step video.
+        let stripeData: StripePurchaseOwnerInput[] | null = null;
+        let pixelData: PixelPurchaseOwnerInput[] | null = null;
+
+        const stripeOrg = await supabase
           .from('stripe_purchases')
           .select(
             'id, session_id, token, video_id, campaign_id, amount, created_at, redirect_link_id, redirect_link_token, organization_id, conversion_id, revenue_type',
           )
-          .in('video_id', videoIds);
+          .eq('organization_id', effectiveOrgId);
+        if (!stripeOrg.error) {
+          stripeData = (stripeOrg.data ?? []) as StripePurchaseOwnerInput[];
+        } else {
+          console.warn(
+            '[JourneyAnalytics] stripe org fetch failed, falling back to video_id IN path',
+            stripeOrg.error.message,
+          );
+          const stripeVid = await supabase
+            .from('stripe_purchases')
+            .select(
+              'id, session_id, token, video_id, campaign_id, amount, created_at, redirect_link_id, redirect_link_token, organization_id, conversion_id, revenue_type',
+            )
+            .in('video_id', videoIds);
+          if (stripeVid.error) throw new Error(stripeVid.error.message);
+          stripeData = (stripeVid.data ?? []) as StripePurchaseOwnerInput[];
+        }
+
+        const pixelOrg = await supabase
+          .from('pixel_purchases')
+          .select(
+            'id, event_id, session_id, video_id, campaign_id, amount, event_type, created_at, asset_id, conversion_id, organization_id, promotion_id',
+          )
+          .eq('organization_id', effectiveOrgId);
+        if (!pixelOrg.error) {
+          pixelData = (pixelOrg.data ?? []) as PixelPurchaseOwnerInput[];
+        } else {
+          console.warn(
+            '[JourneyAnalytics] pixel org fetch failed, falling back to video_id IN path',
+            pixelOrg.error.message,
+          );
+          const pixelVid = await supabase
+            .from('pixel_purchases')
+            .select(
+              'id, event_id, session_id, video_id, campaign_id, amount, event_type, created_at, asset_id, conversion_id, organization_id, promotion_id',
+            )
+            .in('video_id', videoIds);
+          if (pixelVid.error) throw new Error(pixelVid.error.message);
+          pixelData = (pixelVid.data ?? []) as PixelPurchaseOwnerInput[];
+        }
+
+        const stripePurchases = stripeData ?? [];
+        const pixelPurchases = pixelData ?? [];
+
+        console.log('[JourneyAnalytics] route revenue inputs', {
+          pathVideoIds: videoIds.length,
+          stripeFetched: stripePurchases.length,
+          pixelFetched: pixelPurchases.length,
+          dateRange,
+          activeSource,
+          routeRows: journeys.length,
+        });
         if (stripeErr) throw new Error(stripeErr.message);
 
         const { data: pixelData, error: pixelErr } = await supabase
@@ -1988,6 +2046,28 @@ export default function JourneyAnalytics() {
                     <span className="text-zinc-600">
                       {steps === 1 ? '1 video' : `${steps} videos`}
                     </span>
+
+                    {(() => {
+                      const tr = routeMetrics.get(j.journeyId)?.total_revenue;
+                      if (metricsLoading) {
+                        return <span className="text-zinc-600">Revenue …</span>;
+                      }
+                      if (typeof tr === 'number' && tr > 0) {
+                        return (
+<span className="text-emerald-500">
+  Revenue{' '}
+  {tr.toLocaleString(undefined, {
+    style: 'currency',
+    currency: 'USD',
+    maximumFractionDigits: 2,
+  })}
+</span>
+                        );
+                      }
+                      return <span className="text-zinc-600">Revenue —</span>;
+                    })()}
+
+
                   </div>
                   {renderJourneyStrip(j)}
                 </div>
