@@ -49,13 +49,8 @@ import {
 } from '../services/journey/journeyDownstreamResolver';
 
 import { groupJourneysByRoute, type RouteJourney } from '../lib/journeyRouteGrouping';
-import {
-  processVideoMetrics,
-  emptyVideoMetrics,
-  type VideoMetricsResult,
-  type MetricType,
-} from '../lib/analyticsEngine';
-import { computeJourneyRouteRevenueMetrics } from '../services/attribution/journeyRouteRevenue';
+import type { VideoMetricsResult } from '../lib/analyticsEngine';
+import { computeJourneyRouteRevenueMetrics, type RouteLike } from '../services/attribution/journeyRouteRevenue';
 import type { StripePurchaseOwnerInput, PixelPurchaseOwnerInput } from '../services/attribution/resolveConversionOwners';
 
 import JourneyStrip, {
@@ -962,6 +957,7 @@ export default function JourneyAnalytics() {
   // Clicks are not joined (would double-count shared videos across routes).
   useEffect(() => {
     if (!effectiveOrgId || journeys.length === 0) {
+      setMetricsLoading(false);
       setRouteMetrics(new Map());
       return;
     }
@@ -2084,7 +2080,9 @@ export default function JourneyAnalytics() {
                             'consultation_click',
                           ]);
                           let display: string = '—';
-                          if (clickKeys.has(key)) {
+                          if (metricsLoading && !clickKeys.has(key)) {
+                            display = '…';
+                          } else if (clickKeys.has(key)) {
                             display = '—';
                           } else if (typeof raw === 'number' && Number.isFinite(raw)) {
                             display = isMoney
