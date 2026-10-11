@@ -206,6 +206,13 @@ const COPY = {
     'journey.addPartner': 'Add partner…',
     'journey.range': 'Date range follows the selector above',
     'journey.truncated': 'Truncated',
+    'journey.route': 'Route',
+    'journey.sortDefault': 'Default order',
+    'journey.sortLongest': 'Longest first',
+    'journey.journeysOne': '1 journey',
+    'journey.journeysMany': '{n} journeys',
+    'journey.videosOne': '1 video',
+    'journey.videosMany': '{n} videos',
   },
   zh: {
     title: '合作夥伴分析',
@@ -285,6 +292,13 @@ const COPY = {
     'journey.addPartner': '新增夥伴…',
     'journey.range': '日期範圍與上方選擇器相同',
     'journey.truncated': '已截斷',
+    'journey.route': '路線',
+    'journey.sortDefault': '預設排序',
+    'journey.sortLongest': '最長優先',
+    'journey.journeysOne': '1 條 Journey',
+    'journey.journeysMany': '{n} 條 Journey',
+    'journey.videosOne': '1 支影片',
+    'journey.videosMany': '{n} 支影片',
   },
 } as const;
 
@@ -759,6 +773,13 @@ export default function PartnerAnalytics() {
           addPartner: tr('journey.addPartner'),
           rangeLabel: tr('journey.range'),
           truncated: tr('journey.truncated'),
+          route: tr('journey.route'),
+          sortDefault: tr('journey.sortDefault'),
+          sortLongest: tr('journey.sortLongest'),
+          journeysOne: tr('journey.journeysOne'),
+          journeysMany: tr('journey.journeysMany'),
+          videosOne: tr('journey.videosOne'),
+          videosMany: tr('journey.videosMany'),
         }}
       />
 

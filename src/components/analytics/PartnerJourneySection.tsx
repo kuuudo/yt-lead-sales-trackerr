@@ -49,6 +49,9 @@ import {
   usePromotionOptions,
   useCampaignOptions,
   type JourneyDataset,
+  type RouteSortMode,
+  routeMemberCount,
+  routeVideoStepCount,
 } from '../../pages/JourneyAnalytics';
 import { AnalyticsMobileFilterSheet } from '../../pages/analytics-lego/AnalyticsMobileFilterSheet';
 import JourneyStrip from './JourneyStrip';
@@ -56,6 +59,34 @@ import JourneyStrip from './JourneyStrip';
 export const JOURNEY_PAGE_SIZE = 20;
 const EMPTY_DISPLAY: JourneyDataset['videoDisplay'] = new Map();
 const EMPTY_JOURNEYS: JourneyDataset['journeys'] = [];
+
+
+type RouteMetaLabels = Pick<
+  Props['labels'],
+  'journeysOne' | 'journeysMany' | 'videosOne' | 'videosMany'
+>;
+
+/** Journey count (route group size) and video count (path length) for one route row. */
+function RouteMeta({
+  j,
+  labels,
+}: {
+  j: JourneyDataset['journeys'][number];
+  labels: RouteMetaLabels;
+}) {
+  const members = routeMemberCount(j as { memberJourneyIds?: string[] });
+  const steps = routeVideoStepCount(j);
+  return (
+    <>
+      <span className="text-zinc-500">
+        {(members === 1 ? labels.journeysOne : labels.journeysMany).replace('{n}', String(members))}
+      </span>
+      <span className="text-zinc-600">
+        {(steps === 1 ? labels.videosOne : labels.videosMany).replace('{n}', String(steps))}
+      </span>
+    </>
+  );
+}
 
 export type PartnerJourneyPartner = { id: string; name: string; color: string };
 export type PartnerJourneyRange = '7days' | '15days' | '30days' | '6months' | '1year' | 'all' | 'custom';
@@ -98,7 +129,14 @@ type Props = {
     partner: string;
     addPartner: string;
     rangeLabel: string;
-    truncated: string;
+        truncated: string;
+    route: string;
+    sortDefault: string;
+    sortLongest: string;
+    journeysOne: string;
+    journeysMany: string;
+    videosOne: string;
+    videosMany: string;
   };
 };
 
@@ -295,7 +333,8 @@ const [armed, setArmed] = useState(true);
 const [sheetOpen, setSheetOpen] = useState(false);
   const [activeSource, setActiveSource] = useState<RevenueView>('total');
   const [showAnalytics, setShowAnalytics] = useState(false);
-
+  /** UI-only sort of filtered routes; does not change grouping or filtering. */
+  const [routeSortMode, setRouteSortMode] = useState<RouteSortMode>('default');
   const toggle = (id: string, list: string[], set: (v: string[]) => void) =>
     set(list.includes(id) ? list.filter((x) => x !== id) : [...list, id]);
 
@@ -367,11 +406,27 @@ const [sheetOpen, setSheetOpen] = useState(false);
     ],
   );
 
+  // Sort BEFORE paging so "Longest first" orders every eligible route, not just page 1.
+  // Default = filter order, untouched. Longest first = by video-step count
+  // (path.steps.length), not memberJourneyIds. Equal lengths keep their relative
+  // order (stable via original index).
+  const displayed = useMemo(() => {
+    if (routeSortMode === 'default') return visible;
+    return visible
+      .map((j, index) => ({ j, index }))
+      .sort((a, b) => {
+        const lenDiff = routeVideoStepCount(b.j) - routeVideoStepCount(a.j);
+        if (lenDiff !== 0) return lenDiff;
+        return a.index - b.index;
+      })
+      .map(({ j }) => j);
+  }, [visible, routeSortMode]);
+
   // Paging: first PAGE_SIZE, then everything on "Show more". Reset on any change.
   const [revealAll, setRevealAll] = useState(false);
-  useEffect(() => setRevealAll(false), [visible]);
-  const shown = revealAll ? visible : visible.slice(0, JOURNEY_PAGE_SIZE);
-  const hidden = visible.length - shown.length;
+  useEffect(() => setRevealAll(false), [displayed]);
+  const shown = revealAll ? displayed : displayed.slice(0, JOURNEY_PAGE_SIZE);
+  const hidden = displayed.length - shown.length;
 
   const partnerById = useMemo(() => new Map(partners.map((p) => [p.id, p])), [partners]);
   const unselectedPartners = partners.filter((p) => !selectedIds.includes(p.id));
@@ -582,6 +637,27 @@ className="relative left-1/2 -ml-[50vw] w-screen flex mt-8 min-h-[75vh] border-t
           </button>
 
           <div className="flex items-center gap-1 p-1 bg-zinc-900 border border-zinc-800 rounded-xl">
+            <button
+              type="button"
+              onClick={() => setRouteSortMode('default')}
+              className={`px-3 py-1.5 rounded-lg text-[9px] font-black uppercase tracking-widest transition-all ${
+                routeSortMode === 'default' ? 'bg-zinc-700 text-white' : 'text-zinc-600 hover:text-zinc-400'
+              }`}
+            >
+              {labels.sortDefault}
+            </button>
+            <button
+              type="button"
+              onClick={() => setRouteSortMode('longest_first')}
+              className={`px-3 py-1.5 rounded-lg text-[9px] font-black uppercase tracking-widest transition-all ${
+                routeSortMode === 'longest_first' ? 'bg-zinc-700 text-white' : 'text-zinc-600 hover:text-zinc-400'
+              }`}
+            >
+              {labels.sortLongest}
+            </button>
+          </div>
+
+          <div className="flex items-center gap-1 p-1 bg-zinc-900 border border-zinc-800 rounded-xl">
             {(['total', 'pixel', 'stripe'] as RevenueView[]).map((v) => (
               <button
                 key={v}
@@ -776,8 +852,9 @@ className="relative left-1/2 -ml-[50vw] w-screen flex mt-8 min-h-[75vh] border-t
                   {shown.map((j) => (
                     <tr key={j.journeyId} className="hover:bg-zinc-950/80 group">
                       <td className="px-3 py-3 sticky left-0 z-[5] bg-black group-hover:bg-zinc-950 min-w-[320px] max-w-[480px]">
-                        <div className="text-[7px] font-black uppercase tracking-widest text-zinc-700 mb-0.5">
-                          {j.journeyId.slice(0, 8)}…
+                        <div className="text-[7px] font-black uppercase tracking-widest text-zinc-700 mb-0.5 flex flex-wrap items-center gap-x-2 gap-y-0.5">
+                          <span>{j.journeyId.slice(0, 8)}…</span>
+                          <RouteMeta j={j} labels={labels} />
                         </div>
                         <JourneyStrip
                           steps={stepsForJourney(j, display)}
@@ -804,8 +881,9 @@ className="relative left-1/2 -ml-[50vw] w-screen flex mt-8 min-h-[75vh] border-t
           <div className="space-y-2">
             {shown.map((j) => (
               <div key={j.journeyId} className="rounded-xl border border-zinc-900 bg-zinc-950/80 px-2 py-1.5 overflow-x-auto transition-colors hover:border-zinc-700 hover:bg-zinc-900/60">
-                <div className="text-[7px] font-black uppercase tracking-widest text-zinc-700 mb-0.5 px-0.5">
-                  Journey · {j.journeyId.slice(0, 8)}…
+                <div className="text-[7px] font-black uppercase tracking-widest text-zinc-700 mb-0.5 px-0.5 flex flex-wrap items-center gap-x-2 gap-y-0.5">
+                  <span>{labels.route} · {j.journeyId.slice(0, 8)}…</span>
+                  <RouteMeta j={j} labels={labels} />
                 </div>
                 <JourneyStrip
                   steps={stepsForJourney(j, display)}

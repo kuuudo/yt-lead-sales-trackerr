@@ -304,7 +304,7 @@ function makeSingletonJourney(videoId: string): RouteJourney {
 }
 
 /** How many observed journeys share this route group (not video-step length). */
-function routeMemberCount(j: {
+export function routeMemberCount(j: {
   memberJourneyIds?: string[] | null;
 }): number {
   if (Array.isArray(j.memberJourneyIds) && j.memberJourneyIds.length > 0) {
@@ -314,7 +314,7 @@ function routeMemberCount(j: {
 }
 
 /** Number of video steps on the route path (journey length). */
-function routeVideoStepCount(j: {
+export function routeVideoStepCount(j: {
   path?: { steps?: unknown[] | null } | null;
 }): number {
   return j.path?.steps?.length ?? 0;
@@ -324,7 +324,7 @@ function formatJourneyMemberLabel(n: number): string {
   return n === 1 ? '1 journey' : `${n} journeys`;
 }
 
-type RouteSortMode = 'default' | 'longest_first';
+export type RouteSortMode = 'default' | 'longest_first';
 
 // ── Per-video enrichment (canonical fields reused from All Assets model) ────
 
