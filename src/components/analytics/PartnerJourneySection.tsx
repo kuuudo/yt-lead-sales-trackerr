@@ -55,7 +55,8 @@ import {
 } from '../../pages/JourneyAnalytics';
 import { AnalyticsMobileFilterSheet } from '../../pages/analytics-lego/AnalyticsMobileFilterSheet';
 import JourneyStrip from './JourneyStrip';
-import { formatRouteMetricCell, useRouteRevenueMetrics } from './useRouteRevenueMetrics';
+import { formatRouteMetricCell, routeRevenueDisplay, useRouteRevenueMetrics } from './useRouteRevenueMetrics';
+
 export const JOURNEY_PAGE_SIZE = 20;
 const EMPTY_DISPLAY: JourneyDataset['videoDisplay'] = new Map();
 const EMPTY_JOURNEYS: JourneyDataset['journeys'] = [];
@@ -378,6 +379,7 @@ const [sheetOpen, setSheetOpen] = useState(false);
     customRange,
     activeSource,
   });
+
   const visible = useMemo(
     () =>
       filterJourneys(journeys, display, {
@@ -893,6 +895,14 @@ className="relative left-1/2 -ml-[50vw] w-screen flex mt-8 min-h-[75vh] border-t
                 <div className="text-[7px] font-black uppercase tracking-widest text-zinc-700 mb-0.5 px-0.5 flex flex-wrap items-center gap-x-2 gap-y-0.5">
                   <span>{labels.route} · {j.journeyId.slice(0, 8)}…</span>
                   <RouteMeta j={j} labels={labels} />
+                  {(() => {
+                    const rev = routeRevenueDisplay(routeMetrics.get(j.journeyId), metricsLoading);
+                    return (
+                      <span className={rev.hasRevenue ? 'text-emerald-500' : 'text-zinc-600'}>
+                        Revenue {rev.text}
+                      </span>
+                    );
+                  })()}
                 </div>
                 <JourneyStrip
                   steps={stepsForJourney(j, display)}

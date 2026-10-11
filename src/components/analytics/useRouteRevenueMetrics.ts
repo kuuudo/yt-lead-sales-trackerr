@@ -34,8 +34,25 @@ type RevenueRoute = RouteLike & {
 
 type PageResult = { data: any; error: { message: string } | null };
 
-/** Fetch every row for a set of video ids: chunked `.in()` + paginated `.range()`. */
-async function fetchAllChunked<T>(
+/** Page through one query until a short page comes back (Supabase caps rows per request). */
+async function fetchPaged<T>(
+  fetchPage: (from: number, to: number) => PromiseLike<PageResult>,
+  isCancelled: () => boolean,
+): Promise<T[]> {
+  const out: T[] = [];
+  for (let from = 0; ; from += PAGE_SIZE) {
+    if (isCancelled()) return out;
+    const { data, error } = await fetchPage(from, from + PAGE_SIZE - 1);
+    if (error) throw new Error(error.message);
+    const rows = (data ?? []) as T[];
+    for (const r of rows) out.push(r);
+    if (rows.length < PAGE_SIZE) break;
+  }
+  return out;
+}
+
+/** Fallback: purchases whose stored video_id is one of the route path videos. */
+async function fetchChunkedByVideo<T>(
   fetchPage: (chunk: string[], from: number, to: number) => PromiseLike<PageResult>,
   ids: string[],
   isCancelled: () => boolean,
@@ -43,16 +60,26 @@ async function fetchAllChunked<T>(
   const out: T[] = [];
   for (let i = 0; i < ids.length; i += ID_CHUNK) {
     const chunk = ids.slice(i, i + ID_CHUNK);
-    for (let from = 0; ; from += PAGE_SIZE) {
-      if (isCancelled()) return out;
-      const { data, error } = await fetchPage(chunk, from, from + PAGE_SIZE - 1);
-      if (error) throw new Error(error.message);
-      const rows = (data ?? []) as T[];
-      out.push(...rows);
-      if (rows.length < PAGE_SIZE) break;
-    }
+    const rows = await fetchPaged<T>((from, to) => fetchPage(chunk, from, to), isCancelled);
+    for (const r of rows) out.push(r);
   }
   return out;
+}
+
+/** Org-scoped fetch first; fall back to path-video fetch on error or when it returns nothing. */
+async function orgScopedWithFallback<T>(
+  label: string,
+  primary: () => Promise<T[]>,
+  fallback: () => Promise<T[]>,
+): Promise<T[]> {
+  try {
+    const rows = await primary();
+    if (rows.length > 0) return rows;
+    console.warn(`[useRouteRevenueMetrics] ${label}: org-scoped fetch returned 0 rows; falling back to path video ids`);
+  } catch (e) {
+    console.warn(`[useRouteRevenueMetrics] ${label}: org-scoped fetch failed; falling back to path video ids`, e);
+  }
+  return fallback();
 }
 
 /**
@@ -88,7 +115,7 @@ export function useRouteRevenueMetrics(opts: {
     [journeys],
   );
 
-  // 1) Fetch purchases (only re-runs when org / route videos / date window change).
+  // 1) Fetch purchases (re-runs only when org / route videos / date window change).
   useEffect(() => {
     if (!orgId || videoIds.length === 0) {
       setPurchases(null);
@@ -97,49 +124,67 @@ export function useRouteRevenueMetrics(opts: {
       return;
     }
     let cancelled = false;
+    const isCancelled = () => cancelled;
     setFetching(true);
+
+    // Purchases are filtered by their OWN timestamp (route rows are not date-filtered).
+    const bounds = dateRange === 'all' ? null : getDateBounds(dateRange, customRange);
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const windowed = (q: any) =>
+      bounds
+        ? q.gte('created_at', bounds.start.toISOString()).lte('created_at', bounds.end.toISOString())
+        : q;
 
     (async () => {
       try {
-        const [stripeRows, pixelRows] = await Promise.all([
-          fetchAllChunked<StripePurchaseOwnerInput>(
-            (chunk, from, to) =>
-              supabase
-                .from('stripe_purchases')
-                .select(STRIPE_COLUMNS)
-                .in('video_id', chunk)
-                .order('id', { ascending: true })
-                .range(from, to),
-            videoIds,
-            () => cancelled,
+        const [stripe, pixel] = await Promise.all([
+          orgScopedWithFallback<StripePurchaseOwnerInput>(
+            'stripe_purchases',
+            () =>
+              fetchPaged<StripePurchaseOwnerInput>(
+                (from, to) =>
+                  windowed(
+                    supabase.from('stripe_purchases').select(STRIPE_COLUMNS).eq('organization_id', orgId),
+                  )
+                    .order('id', { ascending: true })
+                    .range(from, to),
+                isCancelled,
+              ),
+            () =>
+              fetchChunkedByVideo<StripePurchaseOwnerInput>(
+                (chunk, from, to) =>
+                  windowed(supabase.from('stripe_purchases').select(STRIPE_COLUMNS).in('video_id', chunk))
+                    .order('id', { ascending: true })
+                    .range(from, to),
+                videoIds,
+                isCancelled,
+              ),
           ),
-          fetchAllChunked<PixelPurchaseOwnerInput>(
-            (chunk, from, to) =>
-              supabase
-                .from('pixel_purchases')
-                .select(PIXEL_COLUMNS)
-                .in('video_id', chunk)
-                .order('id', { ascending: true })
-                .range(from, to),
-            videoIds,
-            () => cancelled,
+          orgScopedWithFallback<PixelPurchaseOwnerInput>(
+            'pixel_purchases',
+            () =>
+              fetchPaged<PixelPurchaseOwnerInput>(
+                (from, to) =>
+                  windowed(
+                    supabase.from('pixel_purchases').select(PIXEL_COLUMNS).eq('organization_id', orgId),
+                  )
+                    .order('id', { ascending: true })
+                    .range(from, to),
+                isCancelled,
+              ),
+            () =>
+              fetchChunkedByVideo<PixelPurchaseOwnerInput>(
+                (chunk, from, to) =>
+                  windowed(supabase.from('pixel_purchases').select(PIXEL_COLUMNS).in('video_id', chunk))
+                    .order('id', { ascending: true })
+                    .range(from, to),
+                videoIds,
+                isCancelled,
+              ),
           ),
         ]);
         if (cancelled) return;
-
-        // Purchases are filtered by their OWN timestamp (route rows are not date-filtered).
-        const { start, end } = getDateBounds(dateRange, customRange);
-        const inWindow = (created_at: string | null | undefined) => {
-          if (dateRange === 'all') return true;
-          if (!created_at) return false;
-          const t = new Date(created_at);
-          return !Number.isNaN(t.getTime()) && t >= start && t <= end;
-        };
-
-        setPurchases({
-          stripe: stripeRows.filter((p) => inWindow(p.created_at)),
-          pixel: pixelRows.filter((p) => inWindow(p.created_at)),
-        });
+        setPurchases({ stripe, pixel });
       } catch (e) {
         console.error('[useRouteRevenueMetrics] purchase fetch failed', e);
         if (!cancelled) {
@@ -218,4 +263,20 @@ export function formatRouteMetricCell(
     });
   }
   return raw.toLocaleString();
+}
+
+/** Card-row revenue chip: amount only when > 0; "—" means no journey-linked formal amount. */
+export function routeRevenueDisplay(
+  metrics: VideoMetricsResult | undefined,
+  loading: boolean,
+): { text: string; hasRevenue: boolean } {
+  if (loading) return { text: '…', hasRevenue: false };
+  const tr = metrics?.total_revenue;
+  if (typeof tr === 'number' && Number.isFinite(tr) && tr > 0) {
+    return {
+      text: tr.toLocaleString(undefined, { style: 'currency', currency: 'USD', maximumFractionDigits: 2 }),
+      hasRevenue: true,
+    };
+  }
+  return { text: '—', hasRevenue: false };
 }

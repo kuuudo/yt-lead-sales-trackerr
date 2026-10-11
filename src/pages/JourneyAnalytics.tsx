@@ -1042,7 +1042,6 @@ export default function JourneyAnalytics() {
           activeSource,
           routeRows: journeys.length,
         });
-        if (stripeErr) throw new Error(stripeErr.message);
 
         // Optional: filter by purchase created_at using getDateBounds when dateRange !== 'all'
         const { start, end } = getDateBounds(dateRange, customRange);
