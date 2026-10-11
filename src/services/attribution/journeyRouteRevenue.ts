@@ -151,12 +151,48 @@ export async function computeJourneyRouteRevenueMetrics(opts: {
     if ((metrics.total_revenue ?? 0) > 0) routesWithRevenue += 1;
   }
 
-  console.log('[journeyRouteRevenue] summary', {
-    routes: routes.length,
+  // TEMP DIAGNOSTIC — counts only; remove after Revenue $0 diagnosis
+  const memberIdSet = new Set<string>();
+  for (const r of routes) {
+    for (const id of r.memberJourneyIds ?? []) {
+      if (isRealJourneyId(id)) memberIdSet.add(id);
+    }
+  }
+
+  let trueStartStripeRows = 0;
+  let trueStartStripeRowsMatched = 0;
+  stripeByJourney.forEach((rows, jid) => {
+    trueStartStripeRows += rows.length;
+    if (memberIdSet.has(jid)) trueStartStripeRowsMatched += rows.length;
+  });
+
+  let trueStartPixelRows = 0;
+  let trueStartPixelRowsMatched = 0;
+  pixelByJourney.forEach((rows, jid) => {
+    trueStartPixelRows += rows.length;
+    if (memberIdSet.has(jid)) trueStartPixelRowsMatched += rows.length;
+  });
+
+  const trueStartJourneyKeySet = new Set<string>([
+    ...stripeByJourney.keys(),
+    ...pixelByJourney.keys(),
+  ]);
+  let journeyIdsMatchedToRoutes = 0;
+  trueStartJourneyKeySet.forEach((jid) => {
+    if (memberIdSet.has(jid)) journeyIdsMatchedToRoutes += 1;
+  });
+
+  console.log('[journeyRouteRevenue] qualify', {
     stripeIn: opts.stripePurchases.length,
     pixelIn: opts.pixelPurchases.length,
-    stripeByJourney: stripeByJourney.size,
-    pixelByJourney: pixelByJourney.size,
+    trueStartJourneyKeysStripe: stripeByJourney.size,
+    trueStartStripeRows,
+    trueStartJourneyKeysPixel: pixelByJourney.size,
+    trueStartPixelRows,
+    memberJourneyIds: memberIdSet.size,
+    journeyIdsMatchedToRoutes,
+    trueStartStripeRowsMatched,
+    trueStartPixelRowsMatched,
     routesWithRevenue,
   });
 
