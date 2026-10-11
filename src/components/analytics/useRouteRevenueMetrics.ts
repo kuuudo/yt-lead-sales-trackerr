@@ -30,7 +30,7 @@ type RouteClickMap = Awaited<ReturnType<typeof computeJourneyRouteClickMetrics>>
 const EMPTY_CLICKS = new Map() as unknown as RouteClickMap;
 
 const STRIPE_COLUMNS =
-  'id, session_id, token, video_id, campaign_id, amount, created_at, redirect_link_id, redirect_link_token, organization_id, conversion_id, revenue_type';
+  'id, session_id, token, video_id, campaign_id, amount, created_at, redirect_link_id, redirect_link_token, organization_id, revenue_type';
 const PIXEL_COLUMNS =
   'id, event_id, session_id, video_id, campaign_id, amount, event_type, created_at, asset_id, conversion_id, organization_id, promotion_id';
 
