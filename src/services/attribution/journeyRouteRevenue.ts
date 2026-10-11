@@ -132,6 +132,38 @@ export async function computeJourneyRouteRevenueMetrics(opts: {
     pixelByJourney.set(owner.journeyId, list);
   }
 
+const reasonCount = (arr: any[]) => {
+    const o: Record<string, number> = {};
+    for (const p of arr) {
+      const k = p._canonicalOwner ? (p._canonicalOwner.attributionReason ?? 'noReason') : 'noOwner';
+      o[k] = (o[k] ?? 0) + 1;
+    }
+    return o;
+  };
+  const memberSetDbg = new Set<string>();
+  let routesWithMembers = 0;
+  for (const r of routes) {
+    const real = (r.memberJourneyIds ?? []).filter(isRealJourneyId);
+    if (real.length > 0) routesWithMembers += 1;
+    for (const id of real) memberSetDbg.add(id);
+  }
+  let stripeKeysMatched = 0;
+  stripeByJourney.forEach((_v, k) => { if (memberSetDbg.has(k)) stripeKeysMatched += 1; });
+  let pixelKeysMatched = 0;
+  pixelByJourney.forEach((_v, k) => { if (memberSetDbg.has(k)) pixelKeysMatched += 1; });
+  console.log('[journeyRouteRevenue] qualify ' + JSON.stringify({
+    stripeIn: opts.stripePurchases.length,
+    pixelIn: opts.pixelPurchases.length,
+    stripeReasons: reasonCount(owned.stripePurchases as any[]),
+    pixelReasons: reasonCount(owned.pixelPurchases as any[]),
+    trueStartJourneyKeysStripe: stripeByJourney.size,
+    trueStartJourneyKeysPixel: pixelByJourney.size,
+    routes: routes.length,
+    routesWithMembers,
+    memberJourneyIds: memberSetDbg.size,
+    stripeKeysMatchedToRoutes: stripeKeysMatched,
+    pixelKeysMatchedToRoutes: pixelKeysMatched,
+  }));
   let routesWithRevenue = 0;
 
   for (const route of routes) {
