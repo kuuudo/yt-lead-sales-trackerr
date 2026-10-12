@@ -62,7 +62,7 @@ import {
 } from './useRouteRevenueMetrics';
 import JourneyStrip from './JourneyStrip';
 
-export const JOURNEY_PAGE_SIZE = 20;
+export const JOURNEY_PAGE_SIZE = 15;
 const EMPTY_DISPLAY: JourneyDataset['videoDisplay'] = new Map();
 const EMPTY_JOURNEYS: JourneyDataset['journeys'] = [];
 
@@ -139,6 +139,9 @@ type Props = {
     route: string;
     sortDefault: string;
     sortLongest: string;
+    showRest: string;
+    rowsPlaceholder: string;
+    showRows: string;
     journeysOne: string;
     journeysMany: string;
     videosOne: string;
@@ -340,7 +343,9 @@ const [sheetOpen, setSheetOpen] = useState(false);
   const [activeSource, setActiveSource] = useState<RevenueView>('total');
   const [showAnalytics, setShowAnalytics] = useState(false);
   /** UI-only sort of filtered routes; does not change grouping or filtering. */
-  const [routeSortMode, setRouteSortMode] = useState<RouteSortMode>('default');
+  const [routeSortMode, setRouteSortMode] = useState<RouteSortMode>('longest_first');
+  /** Header-click sort on a metric column. null = off. */
+  const [colSort, setColSort] = useState<{ key: (typeof TABLE_COLUMNS)[number]; dir: 'asc' | 'desc' } | null>(null);
   const toggle = (id: string, list: string[], set: (v: string[]) => void) =>
     set(list.includes(id) ? list.filter((x) => x !== id) : [...list, id]);
 
@@ -425,22 +430,69 @@ const [sheetOpen, setSheetOpen] = useState(false);
   // (path.steps.length), not memberJourneyIds. Equal lengths keep their relative
   // order (stable via original index).
   const displayed = useMemo(() => {
+    const byLength = (a: (typeof visible)[number], b: (typeof visible)[number]) =>
+      routeSortMode === 'longest_first' ? routeVideoStepCount(b) - routeVideoStepCount(a) : 0;
+
+    // Column sort (waits for metrics so rows don't all sort as 0).
+    if (colSort && !metricsLoading) {
+      const toNum = (j: (typeof visible)[number]) => {
+        const text = formatRouteMetricCell(colSort.key, routeMetrics.get(j.journeyId), false);
+        const n = parseFloat(String(text).replace(/[^0-9.\-]/g, ''));
+        return Number.isFinite(n) ? n : 0;
+      };
+      return visible
+        .map((j, index) => ({ j, index, v: toNum(j) }))
+        .sort(
+          (a, b) =>
+            (colSort.dir === 'desc' ? b.v - a.v : a.v - b.v) ||
+            byLength(a.j, b.j) ||
+            a.index - b.index,
+        )
+        .map(({ j }) => j);
+    }
+
     if (routeSortMode === 'default') return visible;
     return visible
       .map((j, index) => ({ j, index }))
-      .sort((a, b) => {
-        const lenDiff = routeVideoStepCount(b.j) - routeVideoStepCount(a.j);
-        if (lenDiff !== 0) return lenDiff;
-        return a.index - b.index;
-      })
+      .sort((a, b) => byLength(a.j, b.j) || a.index - b.index)
       .map(({ j }) => j);
-  }, [visible, routeSortMode]);
+  }, [visible, routeSortMode, colSort, routeMetrics, metricsLoading]);
 
   // Paging: first PAGE_SIZE, then everything on "Show more". Reset on any change.
-  const [revealAll, setRevealAll] = useState(false);
-  useEffect(() => setRevealAll(false), [displayed]);
-  const shown = revealAll ? displayed : displayed.slice(0, JOURNEY_PAGE_SIZE);
-  const hidden = displayed.length - shown.length;
+  const [rowLimit, setRowLimit] = useState(JOURNEY_PAGE_SIZE);
+  const [rowLimitInput, setRowLimitInput] = useState('');
+  // Reset only when the FILTERED list changes (not on sort).
+  useEffect(() => {
+    setRowLimit(JOURNEY_PAGE_SIZE);
+    setRowLimitInput('');
+  }, [visible]);
+  const shown = displayed.slice(0, rowLimit);
+  const hidden = Math.max(0, displayed.length - shown.length);
+  const applyRowLimit = () => {
+    const n = parseInt(rowLimitInput, 10);
+    if (Number.isFinite(n) && n > 0) setRowLimit(n);
+  };
+
+  // Top scrollbar mirrors the table's horizontal scroll.
+  const topScrollRef = useRef<HTMLDivElement>(null);
+  const mainScrollRef = useRef<HTMLDivElement>(null);
+  const [tableScrollWidth, setTableScrollWidth] = useState(0);
+  useEffect(() => {
+    const el = mainScrollRef.current;
+    if (!el) return;
+    const update = () => setTableScrollWidth(el.scrollWidth);
+    update();
+    window.addEventListener('resize', update);
+    let ro: ResizeObserver | undefined;
+    if (typeof ResizeObserver !== 'undefined' && el.firstElementChild) {
+      ro = new ResizeObserver(update);
+      ro.observe(el.firstElementChild);
+    }
+    return () => {
+      window.removeEventListener('resize', update);
+      ro?.disconnect();
+    };
+  }, [showAnalytics, shown.length, armed, loading, metricsLoading, activeSource, showOwner]);
 
   const partnerById = useMemo(() => new Map(partners.map((p) => [p.id, p])), [partners]);
   const unselectedPartners = partners.filter((p) => !selectedIds.includes(p.id));
@@ -843,7 +895,26 @@ className="relative left-1/2 -ml-[50vw] w-screen flex mt-8 min-h-[75vh] border-t
       {armed && !loading && !error && visible.length > 0 && (
         <>
           {showAnalytics ? (
-            <div className="overflow-x-auto">
+            <div>
+              <div
+                ref={topScrollRef}
+                onScroll={() => {
+                  if (mainScrollRef.current && topScrollRef.current)
+                    mainScrollRef.current.scrollLeft = topScrollRef.current.scrollLeft;
+                }}
+                className="sticky top-0 z-20 overflow-x-auto overflow-y-hidden custom-scrollbar bg-black"
+                style={{ height: 14 }}
+              >
+                <div style={{ width: tableScrollWidth, height: 1 }} />
+              </div>
+              <div
+                ref={mainScrollRef}
+                onScroll={() => {
+                  if (topScrollRef.current && mainScrollRef.current)
+                    topScrollRef.current.scrollLeft = mainScrollRef.current.scrollLeft;
+                }}
+                className="overflow-x-auto"
+              >
               <table className="min-w-full divide-y divide-zinc-900 border-collapse">
                 <thead className="bg-zinc-950">
                   <tr>
@@ -857,7 +928,18 @@ className="relative left-1/2 -ml-[50vw] w-screen flex mt-8 min-h-[75vh] border-t
                     ))}
                     {TABLE_COLUMNS.map((k) => (
                       <th key={k} className="px-4 py-4 text-left text-[10px] font-black uppercase tracking-widest text-zinc-600 border-b border-zinc-900 whitespace-nowrap">
-                        {COLUMN_LABELS[k as MetricType] ?? k}
+                        <button
+                          type="button"
+                          onClick={() =>
+                            setColSort((p) =>
+                              p?.key === k ? (p.dir === 'desc' ? { key: k, dir: 'asc' } : null) : { key: k, dir: 'desc' },
+                            )
+                          }
+                          className="uppercase tracking-widest hover:text-white"
+                        >
+                          {COLUMN_LABELS[k as MetricType] ?? k}
+                          {colSort?.key === k ? (colSort.dir === 'desc' ? ' ▼' : ' ▲') : ''}
+                        </button>
                       </th>
                     ))}
                   </tr>
@@ -891,7 +973,8 @@ className="relative left-1/2 -ml-[50vw] w-screen flex mt-8 min-h-[75vh] border-t
                     </tr>
                   ))}
                 </tbody>
-              </table>
+</table>
+              </div>
             </div>
           ) : (
           <div className="space-y-2">
@@ -933,7 +1016,29 @@ className="relative left-1/2 -ml-[50vw] w-screen flex mt-8 min-h-[75vh] border-t
             {hidden > 0 && (
               <button
                 type="button"
-                onClick={() => setRevealAll(true)}
+                onClick={() => setRowLimit(displayed.length)}
+                className="h-9 px-5 rounded-xl bg-zinc-900 border border-zinc-800 text-[10px] font-black uppercase tracking-widest text-zinc-300 hover:text-white hover:border-zinc-600"
+              >
+                {labels.showRest}
+                <span className="ml-2 text-zinc-600 normal-case tracking-normal font-bold">({hidden})</span>
+              </button>
+            )}
+            <input
+              type="number"
+              min={1}
+              value={rowLimitInput}
+              onChange={(e) => setRowLimitInput(e.target.value)}
+              onKeyDown={(e) => { if (e.key === 'Enter') applyRowLimit(); }}
+              placeholder={labels.rowsPlaceholder}
+              className="w-20 h-9 bg-zinc-900 border border-zinc-800 rounded-xl px-2 text-[10px] font-bold text-white outline-none"
+            />
+            <button
+              type="button"
+              onClick={applyRowLimit}
+              className="h-9 px-4 rounded-xl bg-zinc-900 border border-zinc-800 text-[10px] font-black uppercase tracking-widest text-zinc-300 hover:text-white hover:border-zinc-600"
+            >
+              {labels.showRows}
+            </button>
                 className="h-9 px-5 rounded-xl bg-zinc-900 border border-zinc-800 text-[10px] font-black uppercase tracking-widest text-zinc-300 hover:text-white hover:border-zinc-600"
               >
                 {labels.showMore}
