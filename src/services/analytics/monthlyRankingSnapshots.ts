@@ -230,7 +230,7 @@ export async function computeMonthlySnapshotPayload(
     .map(([id]) => id);
 
   const [promoNames, marketerNames] = await Promise.all([
-    fetchNames('promotions', 'id', 'title', topPromotionIds),
+    fetchPromotionDisplayTitles(topPromotionIds),
     fetchNames('profiles', 'id', 'full_name', topMarketerIds),
   ]);
 
@@ -292,6 +292,86 @@ async function fetchNames(
     if (id) out.set(id, name && String(name).trim() ? String(name) : id);
   }
   return out;
+}
+
+/**
+ * Display name for a promotion: prefer assignments.title via promotions.assignment_id.
+ * promotions.title is often a short code (e.g. "3") and is only a fallback.
+ */
+export async function fetchPromotionDisplayTitles(
+  promotionIds: string[],
+): Promise<Map<string, string>> {
+  const out = new Map<string, string>();
+  const ids = Array.from(new Set(promotionIds.filter(Boolean)));
+  if (ids.length === 0) return out;
+
+  const { data: promos, error } = await supabase
+    .from('promotions')
+    .select('id, title, assignment_id')
+    .in('id', ids);
+  if (error) {
+    console.warn('[monthlyRankingSnapshots] promotions title fetch failed:', error.message);
+    return out;
+  }
+
+  const assignmentIds = (promos ?? [])
+    .map((p: { assignment_id?: string | null }) => p.assignment_id)
+    .filter((id): id is string => typeof id === 'string' && id.length > 0);
+
+  const assignmentTitle = new Map<string, string>();
+  if (assignmentIds.length > 0) {
+    const { data: assignments, error: aErr } = await supabase
+      .from('assignments')
+      .select('id, title')
+      .in('id', assignmentIds);
+    if (aErr) {
+      console.warn('[monthlyRankingSnapshots] assignments title fetch failed:', aErr.message);
+    } else {
+      for (const a of assignments ?? []) {
+        const row = a as { id: string; title?: string | null };
+        if (row.id && row.title && String(row.title).trim()) {
+          assignmentTitle.set(row.id, String(row.title).trim());
+        }
+      }
+    }
+  }
+
+  for (const p of promos ?? []) {
+    const row = p as { id: string; title?: string | null; assignment_id?: string | null };
+    if (!row.id) continue;
+    const fromAssignment =
+      row.assignment_id && assignmentTitle.has(row.assignment_id)
+        ? assignmentTitle.get(row.assignment_id)!
+        : null;
+    const fromPromo = row.title && String(row.title).trim() ? String(row.title).trim() : null;
+    out.set(row.id, fromAssignment || fromPromo || row.id);
+  }
+  return out;
+}
+
+/**
+ * Ensure the current UTC month has a provisional snapshot (writes rows).
+ * Safe to call from Top* loaders; surfaces errors to the console.
+ */
+export async function ensureCurrentMonthProvisional(organizationId: string): Promise<void> {
+  const period = utcMonthPeriodFromDate(new Date());
+  console.log('[monthlyRankingSnapshots] ensureCurrentMonthProvisional', {
+    organizationId,
+    period,
+  });
+  try {
+    const payload = await refreshProvisionalMonthlySnapshot(organizationId, period);
+    console.log('[monthlyRankingSnapshots] provisional saved', {
+      organizationId,
+      period,
+      totalRevenue: payload.totalRevenue,
+      topMarketers: payload.topMarketers.length,
+      topPromotions: payload.topPromotions.length,
+    });
+  } catch (e) {
+    console.error('[monthlyRankingSnapshots] ensureCurrentMonthProvisional FAILED', e);
+    throw e;
+  }
 }
 
 // ── Persist provisional (atomic replace) ────────────────────────────────────

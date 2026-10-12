@@ -1,14 +1,13 @@
 /**
  * getTopMarketersAnalytics.ts
  *
- * Top Marketers ranking for Marketplace cards.
- * Formal Revenue only via canonical conversion owners:
- *   ownerMarketerId ← promotion.assignment_collaborator_id → assignment_collaborators.user_id
- *
- * Same snapshot path as getTopPromotionsAnalytics — not legacy promotion rollups.
+ * Canonical Marketer Revenue ranking (ownerMarketerId).
+ * Promotion slice titles: assignments.title via promotions.assignment_id.
  */
 
 import {
+  ensureCurrentMonthProvisional,
+  fetchPromotionDisplayTitles,
   getMonthlySnapshot,
   refreshProvisionalMonthlySnapshot,
   utcMonthPeriod,
@@ -109,28 +108,32 @@ async function loadMonthMarketerRows(
   organizationId: string,
   period: MonthPeriod,
 ): Promise<MarketerRow[]> {
+  console.log('[getTopMarketersAnalytics] loadMonth', { organizationId, period });
   let snap = await getMonthlySnapshot(organizationId, period);
   if (!snap) {
-    await refreshProvisionalMonthlySnapshot(organizationId, period);
+    try {
+      await refreshProvisionalMonthlySnapshot(organizationId, period);
+    } catch (e) {
+      console.error('[getTopMarketersAnalytics] refreshProvisionalMonthlySnapshot failed', e);
+      throw e;
+    }
     snap = await getMonthlySnapshot(organizationId, period);
   }
   if (!snap) return [];
 
-  const marketerRows = snap.rows
+  return snap.rows
     .filter((r) => r.ranking_type === 'marketer' && r.rank != null)
-    .sort((a, b) => (a.rank ?? 0) - (b.rank ?? 0));
-
-  // Snapshot stores marketer aggregates only; expand list stays empty unless we attach promotions later
-  return marketerRows.map((r) => ({
-    marketerId: r.marketer_id ?? '',
-    marketerName: r.entity_name_snapshot ?? r.marketer_id ?? '',
-    promotions: [],
-    revenue: Number(r.revenue) || 0,
-    clicks: Number(r.clicks) || 0,
-    sessions: 0,
-    conversions: Number(r.conversions) || 0,
-    rpc: Number(r.rpc) || 0,
-  }));
+    .sort((a, b) => (a.rank ?? 0) - (b.rank ?? 0))
+    .map((r) => ({
+      marketerId: r.marketer_id ?? '',
+      marketerName: r.entity_name_snapshot ?? r.marketer_id ?? '',
+      promotions: [],
+      revenue: Number(r.revenue) || 0,
+      clicks: Number(r.clicks) || 0,
+      sessions: 0,
+      conversions: Number(r.conversions) || 0,
+      rpc: Number(r.rpc) || 0,
+    }));
 }
 
 async function computeMarketerRowsForRange(
@@ -138,8 +141,11 @@ async function computeMarketerRowsForRange(
   start: Date,
   end: Date,
 ): Promise<MarketerRow[]> {
-  const startIso = start.toISOString();
-  const endIso = end.toISOString();
+  console.log('[getTopMarketersAnalytics] live range', {
+    organizationId,
+    start: start.toISOString(),
+    end: end.toISOString(),
+  });
 
   const [stripeRes, pixelRes] = await Promise.all([
     supabase
@@ -148,20 +154,26 @@ async function computeMarketerRowsForRange(
         'id, session_id, token, video_id, campaign_id, amount, created_at, redirect_link_id, redirect_link_token, organization_id',
       )
       .eq('organization_id', organizationId)
-      .gte('created_at', startIso)
-      .lte('created_at', endIso),
+      .gte('created_at', start.toISOString())
+      .lte('created_at', end.toISOString()),
     supabase
       .from('pixel_purchases')
       .select(
         'id, event_id, session_id, video_id, campaign_id, amount, event_type, created_at, asset_id, organization_id, promotion_id',
       )
       .eq('organization_id', organizationId)
-      .gte('created_at', startIso)
-      .lte('created_at', endIso),
+      .gte('created_at', start.toISOString())
+      .lte('created_at', end.toISOString()),
   ]);
 
-  if (stripeRes.error) throw new Error(stripeRes.error.message);
-  if (pixelRes.error) throw new Error(pixelRes.error.message);
+  if (stripeRes.error) {
+    console.error('[getTopMarketersAnalytics] stripe fetch failed', stripeRes.error);
+    throw new Error(stripeRes.error.message);
+  }
+  if (pixelRes.error) {
+    console.error('[getTopMarketersAnalytics] pixel fetch failed', pixelRes.error);
+    throw new Error(pixelRes.error.message);
+  }
 
   const resolved = await resolveConversionOwners({
     stripePurchases: (stripeRes.data ?? []) as any,
@@ -212,16 +224,7 @@ async function computeMarketerRowsForRange(
     }
   }
 
-  const promoTitles = new Map<string, string>();
-  if (allPromoIds.size > 0) {
-    const { data } = await supabase
-      .from('promotions')
-      .select('id, title')
-      .in('id', Array.from(allPromoIds));
-    for (const row of data ?? []) {
-      promoTitles.set((row as any).id, (row as any).title ?? (row as any).id);
-    }
-  }
+  const promoTitles = await fetchPromotionDisplayTitles(Array.from(allPromoIds));
 
   return sorted.map(([id, b]) => ({
     marketerId: id,
@@ -246,6 +249,15 @@ export async function getTopMarketersAnalytics(
 ): Promise<MarketerRow[]> {
   const { organizationId, preset, customRange } = params;
   if (!organizationId) return [];
+
+  try {
+    await ensureCurrentMonthProvisional(organizationId);
+  } catch (e) {
+    console.error(
+      '[getTopMarketersAnalytics] current-month snapshot write failed (ranking may still work live)',
+      e,
+    );
+  }
 
   const window = periodForPreset(preset, customRange ?? null);
 
