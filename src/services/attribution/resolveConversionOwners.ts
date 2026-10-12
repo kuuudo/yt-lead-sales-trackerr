@@ -11,9 +11,10 @@
  *   resolveStripePurchaseJourneys → resolveJourneyStarts (TRUE START)
  *   resolvePixelPurchaseJourneys  → resolveJourneyStarts (TRUE START)
  *
- * Locked Video Owner rules are implemented here. Marketer / Campaign
- * ownership are deferred to later phases; this layer exposes the link IDs
- * needed to resolve them without re-deriving ownership.
+ * Locked Video Owner rules are implemented here.
+ * Promotion credit: TRUE START hop link (startRedirectLinkId) → redirect_links.promotion_id.
+ * Marketer credit: credited promotion → assignment_collaborator_id → assignment_collaborators.user_id.
+ * Campaign remains lastEntryRedirectLinkId (callers resolve campaign_id); not rewritten here.
  */
 
 import { supabase } from '../../lib/supabase';
@@ -50,9 +51,9 @@ export interface ConversionOwnerResult {
   occurredAt: string;
   ownerVideoId: string | null;
   ownerAssetId: string | null;
-  /** TRUE START redirect link — Marketer attribution source (Phase 3) */
+  /** TRUE START hop redirect link (A→B) — Promotion credit source */
   startRedirectLinkId: string | null;
-  /** Last conversion-entry redirect link — Campaign attribution source (Phase 4) */
+  /** Last conversion-entry redirect link — Campaign attribution source */
   lastEntryRedirectLinkId: string | null;
   journeyId: string | null;
   attributionReason: AttributionReason;
@@ -65,6 +66,20 @@ export interface ConversionOwnerResult {
    * Formal revenue consumers should skip rows where suppressedByStripeId is set.
    */
   suppressedByStripeId: string | null;
+  /**
+   * Promotion credit from the proven TRUE START hop link only
+   * (startRedirectLinkId → redirect_links.promotion_id).
+   * Null when no TRUE START link, link missing, or promotion_id is null.
+   * Does not use promotion_assets, checkout link, or last-entry link.
+   */
+  ownerPromotionId: string | null;
+  /**
+   * Marketer credit from the credited promotion's accepted collaborator:
+   * promotions.assignment_collaborator_id → assignment_collaborators.user_id.
+   * Never promotions.owner_user_id or videos.user_id.
+   * Null when no promotion credit or collaborator cannot be resolved.
+   */
+  ownerMarketerId: string | null;
 }
 
 export interface StripePurchaseOwnerInput {
@@ -201,6 +216,71 @@ async function fetchLinksByTokens(tokens: string[]): Promise<Map<string, LinkLit
     for (const r of (data ?? []) as LinkLite[]) {
       if (r.token) out.set(r.token, r);
     }
+  }
+  return out;
+}
+
+/**
+ * Promotion credit only from the proven TRUE START hop link id.
+ * Snapshot-first: callers must pass startRedirectLinkId from the resolver,
+ * not an arbitrary link on Video A.
+ */
+function promotionIdFromStartLink(
+  startRedirectLinkId: string | null,
+  linkById: Map<string, LinkLite>,
+): string | null {
+  if (!startRedirectLinkId) return null;
+  const link = linkById.get(startRedirectLinkId);
+  const pid = link?.promotion_id ?? null;
+  return typeof pid === 'string' && pid.length > 0 ? pid : null;
+}
+
+type PromotionCollabRow = {
+  id: string;
+  assignment_collaborator_id: string | null;
+};
+
+type AssignmentCollaboratorRow = {
+  id: string;
+  user_id: string | null;
+};
+
+/**
+ * Batch: promotion_id → assignment_collaborator_id → assignment_collaborators.user_id.
+ * One or two .in() queries total — no per-conversion sequential lookups.
+ */
+async function fetchMarketerIdByPromotionId(
+  promotionIds: string[],
+): Promise<Map<string, string>> {
+  const out = new Map<string, string>();
+  const ids = Array.from(new Set(promotionIds.filter(Boolean)));
+  if (ids.length === 0) return out;
+
+  const promos = await fetchRowsByIn<PromotionCollabRow>(
+    'promotions',
+    'id, assignment_collaborator_id',
+    'id',
+    ids,
+  );
+  const collabIds = promos
+    .map((p) => p.assignment_collaborator_id)
+    .filter((id): id is string => typeof id === 'string' && id.length > 0);
+  if (collabIds.length === 0) return out;
+
+  const collabs = await fetchRowsByIn<AssignmentCollaboratorRow>(
+    'assignment_collaborators',
+    'id, user_id',
+    'id',
+    collabIds,
+  );
+  const userByCollabId = new Map<string, string>();
+  for (const c of collabs) {
+    if (c.user_id) userByCollabId.set(c.id, c.user_id);
+  }
+  for (const p of promos) {
+    if (!p.assignment_collaborator_id) continue;
+    const uid = userByCollabId.get(p.assignment_collaborator_id);
+    if (uid) out.set(p.id, uid);
   }
   return out;
 }
@@ -362,6 +442,11 @@ export async function resolveConversionOwners(
     // checkout event ≠ pixel conversion event; registering it would create
     // false non-matches or (worse) false suppressions if IDs ever collided.
 
+    const ownerPromotionId =
+      attributionReason === 'true_start_upstream' || attributionReason === 'true_start_path_root'
+        ? promotionIdFromStartLink(startRedirectLinkId, linkById)
+        : null;
+
     const result: ConversionOwnerResult = {
       source: 'stripe',
       sourceRecordId: p.id,
@@ -378,6 +463,8 @@ export async function resolveConversionOwners(
       sessionId: p.session_id ?? null,
       eventId,
       suppressedByStripeId: null,
+      ownerPromotionId,
+      ownerMarketerId: null, // filled in batch after all rows
     };
     byKey.set(conversionOwnerKey('stripe', p.id), result);
 
@@ -421,6 +508,10 @@ export async function resolveConversionOwners(
         ownerAssetId = p.asset_id ?? null;
       }
       suppressedPixelIds.add(p.id);
+      const ownerPromotionIdSuppressed =
+        attributionReason === 'true_start_upstream' || attributionReason === 'true_start_path_root'
+          ? promotionIdFromStartLink(startRedirectLinkId, linkById)
+          : null;
       const result: ConversionOwnerResult = {
         source: 'pixel',
         sourceRecordId: p.id,
@@ -437,6 +528,8 @@ export async function resolveConversionOwners(
         sessionId: p.session_id ?? null,
         eventId,
         suppressedByStripeId,
+        ownerPromotionId: ownerPromotionIdSuppressed,
+        ownerMarketerId: null,
       };
       byKey.set(conversionOwnerKey('pixel', p.id), result);
       continue;
@@ -507,6 +600,11 @@ export async function resolveConversionOwners(
       }
     }
 
+    const ownerPromotionId =
+      attributionReason === 'true_start_upstream' || attributionReason === 'true_start_path_root'
+        ? promotionIdFromStartLink(startRedirectLinkId, linkById)
+        : null;
+
     const result: ConversionOwnerResult = {
       source: 'pixel',
       sourceRecordId: p.id,
@@ -523,6 +621,8 @@ export async function resolveConversionOwners(
       sessionId: p.session_id ?? null,
       eventId,
       suppressedByStripeId,
+      ownerPromotionId,
+      ownerMarketerId: null,
     };
     byKey.set(conversionOwnerKey('pixel', p.id), result);
 
@@ -536,6 +636,20 @@ export async function resolveConversionOwners(
       pixelOwnerByPurchaseId.set(p.id, { videoId: ownerVideoId, assetId: ownerAssetId });
     }
   }
+
+  // ── 5. Marketer credit (batch): promotion → assignment_collaborator → user_id
+  const promotionIdsForMarketer: string[] = [];
+  byKey.forEach((r) => {
+    if (r.ownerPromotionId) promotionIdsForMarketer.push(r.ownerPromotionId);
+  });
+  const marketerByPromotionId = await fetchMarketerIdByPromotionId(promotionIdsForMarketer);
+  byKey.forEach((r, key) => {
+    if (!r.ownerPromotionId) return;
+    const mid = marketerByPromotionId.get(r.ownerPromotionId) ?? null;
+    if (mid) {
+      byKey.set(key, { ...r, ownerMarketerId: mid });
+    }
+  });
 
   // Reason breakdown — required for Phase 1.5 validation.
   // stripeOwners/pixelOwners only count rows with BOTH video+asset; they do
@@ -582,6 +696,8 @@ export async function resolveConversionOwners(
       eventId: r.eventId,
       startRedirectLinkId: r.startRedirectLinkId,
       lastEntryRedirectLinkId: r.lastEntryRedirectLinkId,
+      ownerPromotionId: r.ownerPromotionId,
+      ownerMarketerId: r.ownerMarketerId,
       suppressedByStripeId: r.suppressedByStripeId,
       formalRevenue: r.attributionReason !== 'uncounted' && !r.suppressedByStripeId,
     });
