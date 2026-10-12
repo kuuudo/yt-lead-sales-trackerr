@@ -61,6 +61,11 @@ import {
   useRouteRevenueMetrics,
 } from './useRouteRevenueMetrics';
 import JourneyStrip from './JourneyStrip';
+import {
+  flowConnectorLabels,
+  useJourneyFlowCounts,
+  type FlowCount,
+} from './useJourneyFlowCounts';
 
 export const JOURNEY_PAGE_SIZE = 15;
 const EMPTY_DISPLAY: JourneyDataset['videoDisplay'] = new Map();
@@ -146,6 +151,12 @@ type Props = {
     journeysMany: string;
     videosOne: string;
     videosMany: string;
+    showFlow: string;
+    hideFlow: string;
+    flowHint: string;
+    /** Contains '{n}'. */
+    flowCount: string;
+    flowUnresolved: string;
   };
 };
 
@@ -342,6 +353,8 @@ const [armed, setArmed] = useState(true);
 const [sheetOpen, setSheetOpen] = useState(false);
   const [activeSource, setActiveSource] = useState<RevenueView>('total');
   const [showAnalytics, setShowAnalytics] = useState(false);
+  /** Independent of showAnalytics. */
+  const [showFlow, setShowFlow] = useState(false);
   /** UI-only sort of filtered routes; does not change grouping or filtering. */
   const [routeSortMode, setRouteSortMode] = useState<RouteSortMode>('longest_first');
   /** Header-click sort on a metric column. null = off. */
@@ -472,6 +485,20 @@ const [sheetOpen, setSheetOpen] = useState(false);
     const n = parseInt(rowLimitInput, 10);
     if (Number.isFinite(n) && n > 0) setRowLimit(n);
   };
+
+  // Journey Flow: only rows on screen are resolved (batched); follows the page date range.
+  // `display` is referentially stable (dataset state or module-level EMPTY_DISPLAY).
+  const { flowCounts, flowLoading } = useJourneyFlowCounts({
+    enabled: showFlow,
+    routes: shown,
+    videoAssets: display,
+    dateRange,
+    customRange,
+  });
+  const describeFlow = (c: FlowCount) =>
+    c === null ? labels.flowUnresolved : labels.flowCount.replace('{n}', c.toLocaleString());
+  const connectorsFor = (j: (typeof shown)[number]) =>
+    showFlow ? flowConnectorLabels(j, flowCounts, flowLoading, describeFlow) : undefined;
 
   // Top scrollbar mirrors the table's horizontal scroll.
   const topScrollRef = useRef<HTMLDivElement>(null);
@@ -700,6 +727,19 @@ className="relative left-1/2 -ml-[50vw] w-screen flex mt-8 min-h-[75vh] border-t
             }`}
           >
             {showOwner ? labels.hideOwner : labels.showOwner}
+          </button>
+
+          <button
+            type="button"
+            onClick={() => setShowFlow((v) => !v)}
+            title={labels.flowHint}
+            className={`h-9 px-3 rounded-xl border text-[9px] font-black uppercase tracking-widest ${
+              showFlow
+                ? 'bg-zinc-700 border-zinc-600 text-white'
+                : 'bg-zinc-900 border-zinc-800 text-zinc-400 hover:text-white'
+            }`}
+          >
+            {showFlow ? labels.hideFlow : labels.showFlow}
           </button>
 
           <div className="flex items-center gap-1 p-1 bg-zinc-900 border border-zinc-800 rounded-xl">
@@ -971,6 +1011,7 @@ className="relative left-1/2 -ml-[50vw] w-screen flex mt-8 min-h-[75vh] border-t
                           highlightVideoId={selectedVideoId}
                           onSelectVideo={(id: string) => setSelectedVideoId((p) => (p === id ? null : id))}
                           showContentOwner={showOwner}
+                          connectorLabels={connectorsFor(j)}
                         />
                       </td>
                       <td className="px-4 py-3 whitespace-nowrap">
@@ -1017,6 +1058,7 @@ className="relative left-1/2 -ml-[50vw] w-screen flex mt-8 min-h-[75vh] border-t
                   highlightVideoId={selectedVideoId}
                   onSelectVideo={(id: string) => setSelectedVideoId((p) => (p === id ? null : id))}
                   showContentOwner={showOwner}
+                  connectorLabels={connectorsFor(j)}
                 />
               </div>
             ))}

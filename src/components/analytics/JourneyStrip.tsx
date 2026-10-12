@@ -90,13 +90,42 @@ export interface JourneyStripProps {
   onSelectVideo?: (videoId: string) => void;
   /** When true, show content owner under each step title. */
   showContentOwner?: boolean;
+  /**
+   * Optional. One label per gap between adjacent steps (index i = gap between
+   * step i and step i + 1). When absent, connectors render exactly as before.
+   * text '—' = unresolved, '0' = resolved with no events, '…' = loading.
+   */
+  connectorLabels?: ReadonlyArray<JourneyConnectorLabel> | null;
 }
 
-function Arrow() {
+export type JourneyConnectorLabel = { text: string; title?: string };
+
+function Arrow({ label }: { label?: JourneyConnectorLabel }) {
+  if (!label) {
+    return (
+      <div className="flex items-center shrink-0 px-0.5 text-zinc-600" aria-hidden>
+        <div className="w-3 h-px bg-zinc-700" />
+        <ArrowRight size={11} className="-ml-0.5" />
+      </div>
+    );
+  }
+  const muted = label.text === '—' || label.text === '…';
   return (
-    <div className="flex items-center shrink-0 px-0.5 text-zinc-600" aria-hidden>
-      <div className="w-3 h-px bg-zinc-700" />
-      <ArrowRight size={11} className="-ml-0.5" />
+    <div
+      className="flex flex-col items-center justify-center shrink-0 px-1 min-w-[34px] text-zinc-600"
+      title={label.title || undefined}
+    >
+      <span
+        className={`text-[9px] font-black tabular-nums leading-none mb-0.5 ${
+          muted ? 'text-zinc-600' : 'text-orange-400'
+        }`}
+      >
+        {muted ? label.text : `×${label.text}`}
+      </span>
+      <div className="flex items-center" aria-hidden>
+        <div className="w-3 h-px bg-zinc-700" />
+        <ArrowRight size={11} className="-ml-0.5" />
+      </div>
     </div>
   );
 }
@@ -107,6 +136,7 @@ export default function JourneyStrip({
   highlightVideoId,
   onSelectVideo,
   showContentOwner = false,
+  connectorLabels,
 }: JourneyStripProps) {
   void _end;
   const highlightRef = useRef<HTMLDivElement | null>(null);
@@ -143,7 +173,7 @@ export default function JourneyStrip({
 
         return (
           <React.Fragment key={`${step.videoId}-${i}`}>
-            {i > 0 && <Arrow />}
+            {i > 0 && <Arrow label={connectorLabels?.[i - 1]} />}
             <div
               ref={assignRef ? highlightRef : undefined}
               onClick={() => onSelectVideo?.(step.videoId)}

@@ -56,6 +56,11 @@ import {
   useRouteRevenueMetrics,
 } from '../components/analytics/useRouteRevenueMetrics';
 
+import {
+  flowConnectorLabels,
+  useJourneyFlowCounts,
+} from '../components/analytics/useJourneyFlowCounts';
+
 import JourneyStrip, {
   type JourneyStripStep,
   type AssetScopeTag,
@@ -840,6 +845,8 @@ export default function JourneyAnalytics() {
   const [selectedVideoId, setSelectedVideoId] = useState<string | null>(null);
   const [showAnalytics, setShowAnalytics] = useState(false);
   const [showContentOwner, setShowContentOwner] = useState(false);
+  /** Independent of showAnalytics: counts between adjacent videos (see useJourneyFlowCounts). */
+  const [showJourneyFlow, setShowJourneyFlow] = useState(false);
   /** UI-only sort of filtered route rows; does not mutate grouping source data. */
   const [routeSortMode, setRouteSortMode] = useState<RouteSortMode>('longest_first');
 const [colSort, setColSort] = useState<{ key: (typeof TABLE_COLUMNS)[number]; dir: 'asc' | 'desc' } | null>(null);
@@ -1069,6 +1076,15 @@ console.log('[DIAG membership]', {
 
 const shownJourneys = showAnalytics ? displayedJourneys.slice(0, rowLimit) : displayedJourneys;
 const hiddenCount = Math.max(0, displayedJourneys.length - rowLimit);
+
+// Journey Flow: only the rows on screen are resolved (batched); follows the page date range.
+const { flowCounts, flowLoading } = useJourneyFlowCounts({
+  enabled: showJourneyFlow,
+  routes: shownJourneys,
+  videoAssets: videoDisplay,
+  dateRange,
+  customRange,
+});
 const applyRowLimit = () => {
   const n = parseInt(rowLimitInput, 10);
   if (Number.isFinite(n) && n > 0) setRowLimit(n);
@@ -1732,6 +1748,9 @@ const showMoreBar =
       highlightVideoId={selectedVideoId}
       onSelectVideo={handleSelectVideo}
       showContentOwner={showContentOwner}
+      connectorLabels={
+        showJourneyFlow ? flowConnectorLabels(j, flowCounts, flowLoading) : undefined
+      }
     />
   );
 
@@ -1844,6 +1863,19 @@ const showMoreBar =
                 }`}
               >
                 {showContentOwner ? 'Hide Content Owner' : 'Show Content Owner'}
+              </button>
+
+              <button
+                type="button"
+                onClick={() => setShowJourneyFlow((v) => !v)}
+                title="Event counts on the redirect link(s) between adjacent videos (follows the date range)"
+                className={`h-9 px-3 rounded-xl border text-[9px] font-black uppercase tracking-widest transition-all ${
+                  showJourneyFlow
+                    ? 'bg-zinc-700 border-zinc-600 text-white'
+                    : 'bg-zinc-900 border-zinc-800 text-zinc-400 hover:text-white'
+                }`}
+              >
+                {showJourneyFlow ? 'Hide Journey Flow' : 'Show Journey Flow'}
               </button>
 
               {selectedVideoId && (

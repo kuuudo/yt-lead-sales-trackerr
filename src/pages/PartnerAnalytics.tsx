@@ -216,6 +216,11 @@ const COPY = {
     'journey.journeysMany': '{n} journeys',
     'journey.videosOne': '1 video',
     'journey.videosMany': '{n} videos',
+    'journey.showFlow': 'Show Journey Flow',
+    'journey.hideFlow': 'Hide Journey Flow',
+    'journey.flowHint': 'Event counts on the redirect link(s) between adjacent videos. Follows the date range above.',
+    'journey.flowCount': '{n} landing_page events on the redirect link(s) for this step (not verified as redirect clicks)',
+    'journey.flowUnresolved': 'Not measurable: destination asset or matching redirect link not found',
   },
   zh: {
     title: '合作夥伴分析',
@@ -305,6 +310,11 @@ const COPY = {
     'journey.journeysMany': '{n} 條 Journey',
     'journey.videosOne': '1 支影片',
     'journey.videosMany': '{n} 支影片',
+    'journey.showFlow': '顯示 Journey 流量',
+    'journey.hideFlow': '隱藏 Journey 流量',
+    'journey.flowHint': '相鄰影片之間 redirect 連結上的事件數,依上方日期範圍計算。',
+    'journey.flowCount': '此步驟的 redirect 連結上有 {n} 筆 landing_page 事件(尚未驗證為 redirect 點擊)',
+    'journey.flowUnresolved': '無法計算:找不到目標 Asset 或對應的 redirect 連結',
   },
 } as const;
 
@@ -789,6 +799,11 @@ export default function PartnerAnalytics() {
           journeysMany: tr('journey.journeysMany'),
           videosOne: tr('journey.videosOne'),
           videosMany: tr('journey.videosMany'),
+          showFlow: tr('journey.showFlow'),
+          hideFlow: tr('journey.hideFlow'),
+          flowHint: tr('journey.flowHint'),
+          flowCount: tr('journey.flowCount'),
+          flowUnresolved: tr('journey.flowUnresolved'),
         }}
       />
 
