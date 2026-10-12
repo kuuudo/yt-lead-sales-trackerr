@@ -67,6 +67,7 @@ import { discoverJourneysForVideos, resolveVideoIdsForAssets, type DiscoveredJou
 import { buildJourneyGraph, type JourneyGraph } from '../lib/journeyGraph'
 import { resolveDownstreamNodes, resolveStructuralLinksForVideos, type StructuralLink } from '../services/journey/journeyDownstreamResolver'
 import { resolveThumbnail } from '../lib/videoFormatters'
+import { getVideoAnalyticsForVideos, type VideoMapAnalytics } from '../services/analytics/getVideoAnalyticsForVideos'
 // ─── Real-data hook (header name + switcher only) ───────────────────────
 // Identical to the copy in CampaignStructureMap.tsx / AllAssetsAnalytics.tsx
 // — same query, same viewer-id resolution. Not imported because it isn't
@@ -2193,6 +2194,53 @@ export function MonthPartLayer({
   )
 }
 
+// ─── Phase 1: video-level analytics on cards ──────────────────────────────
+// Metrics come from services/analytics/getVideoAnalyticsForVideos (canonical
+// owners + the unchanged analyticsEngine). Nothing is computed here except
+// display formatting.
+interface VideoAnalyticsState {
+  status: 'idle' | 'loading' | 'ready' | 'error'
+  byVideoId: Map<string, VideoMapAnalytics>
+  unresolvedStripe: number
+  unresolvedPixel: number
+  error: string | null
+}
+const EMPTY_VIDEO_ANALYTICS: VideoAnalyticsState = {
+  status: 'idle',
+  byVideoId: new Map(),
+  unresolvedStripe: 0,
+  unresolvedPixel: 0,
+  error: null,
+}
+const MAP_USD = new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD', maximumFractionDigits: 0 })
+
+/** One compact line + a full tooltip for a card. null = nothing to show (idle). */
+function videoAnalyticsLine(
+  state: VideoAnalyticsState | undefined,
+  videoId: string | null | undefined,
+): { text: string; title: string } | null {
+  if (!state || !videoId || state.status === 'idle') return null
+  if (state.status === 'loading') return { text: 'Loading metrics…', title: 'Loading analytics' }
+  if (state.status === 'error') return { text: 'Metrics unavailable', title: state.error ?? 'Analytics failed to load' }
+  const row = state.byVideoId.get(videoId)
+  if (!row) return { text: 'No analytics', title: 'This video was not returned by the analytics query' }
+  const m = row.metrics
+  const conv = m.purchase_thankyou + m.consultation_thankyou + m.call_booking_thankyou + m.newsletter_thankyou
+  const title = [
+    'All-time metrics (same engine as In-Depth Analytics, canonical revenue owners)',
+    `LP views ${m.landing_page_view} · Lead magnet ${m.lead_magnet_click} · Newsletter ${m.newsletter_click}`,
+    `Call booking ${m.call_booking_click} · Consultation ${m.consultation_click}`,
+    `Thank-yous: purchase ${m.purchase_thankyou}, consultation ${m.consultation_thankyou}, call ${m.call_booking_thankyou}, newsletter ${m.newsletter_thankyou}`,
+    `Revenue ${MAP_USD.format(m.total_revenue)} (Stripe ${MAP_USD.format(m.stripe_revenue)}, Pixel ${MAP_USD.format(m.pixel_revenue)})`,
+    state.unresolvedStripe + state.unresolvedPixel > 0
+      ? `${state.unresolvedStripe + state.unresolvedPixel} purchase(s) could not be attributed and are excluded`
+      : '',
+  ]
+    .filter(Boolean)
+    .join('\n')
+  return { text: `${MAP_USD.format(m.total_revenue)} · ${conv} conv · ${m.landing_page_view} views`, title }
+}
+
 /** Draws journeyContext.graph + the journey -> outcome connectors in canvas
  *  coordinates. Not draggable, not part of `positions` (it only READS them). Simple
  *  styling on purpose — Slice C adds category / highlight treatment. */
@@ -2208,6 +2256,7 @@ function JourneyGraphLayer({
   onClear,
   highlights,
   outcomeAnchor,
+  analytics,
 }: {
   presentation: 'campaign' | 'tree'
   context: JourneyContext
@@ -2223,6 +2272,8 @@ function JourneyGraphLayer({
   highlights: Map<string, NodeHighlight>
   /** Month/Part: per-video outcome instance. undefined result = use positions[outcomeId] as before. */
   outcomeAnchor?: (videoId: string, outcomeId: string) => Pt | undefined
+  /** Phase 1 video-level analytics (display only). */
+  analytics?: VideoAnalyticsState
 }) {
   if (context.status === 'idle' && !context.graph) return null
 
@@ -2477,6 +2528,24 @@ function JourneyGraphLayer({
                   >
                     {isEntry ? 'Entry' : 'In journey'}
                   </span>
+                  {(() => {
+                    const line = videoAnalyticsLine(analytics, n.videoId)
+                    return line ? (
+                      <span
+                        title={line.title}
+                        style={{
+                          fontSize: 10,
+                          fontWeight: 600,
+                          whiteSpace: 'nowrap',
+                          overflow: 'hidden',
+                          textOverflow: 'ellipsis',
+                          color: dark ? TREE_DARK.textSecondary : '#6b7280',
+                        }}
+                      >
+                        {line.text}
+                      </span>
+                    ) : null
+                  })()}
                 </div>
               </div>
             )
@@ -2497,6 +2566,7 @@ function SelectedItemsLayer({
   showThumbnails,
   top,
   connectedCount,
+  analytics,
 }: {
   presentation: 'campaign' | 'tree'
   label: string | null
@@ -2506,6 +2576,8 @@ function SelectedItemsLayer({
   top: number
   /** selected items already drawn as nodes in the journey above */
   connectedCount: number
+  /** Phase 1 video-level analytics (display only; Content video items only). */
+  analytics?: VideoAnalyticsState
 }) {
   if (!label) return null
   const dark = presentation === 'tree'
@@ -2579,6 +2651,27 @@ function SelectedItemsLayer({
             <span style={{ fontSize: 9.5, fontWeight: 700, letterSpacing: '0.05em', textTransform: 'uppercase', color: it.color }}>
               {ITEM_KIND_LABEL[it.kind] ?? it.kind}
             </span>
+            {(() => {
+              // Only Content video items map 1:1 to a video id here; asset / marketer /
+              // promotion items stay out of scope (later phase).
+              const vid = it.id.startsWith('content_video_') ? it.id.slice('content_video_'.length) : null
+              const line = videoAnalyticsLine(analytics, vid)
+              return line ? (
+                <span
+                  title={line.title}
+                  style={{
+                    fontSize: 10,
+                    fontWeight: 600,
+                    whiteSpace: 'nowrap',
+                    overflow: 'hidden',
+                    textOverflow: 'ellipsis',
+                    color: dark ? TREE_DARK.textSecondary : '#6b7280',
+                  }}
+                >
+                  {line.text}
+                </span>
+              ) : null
+            })()}
           </div>
         </div>
       ))}
@@ -3019,6 +3112,48 @@ useEffect(() => {
 // ── Slice B: display titles + thumbnails for graph nodes (metadata lookup only) ───────
 const [journeyTitles, setJourneyTitles] = useState<Record<string, string>>({})
 const [journeyThumbnails, setJourneyThumbnails] = useState<Record<string, string>>({})
+
+// ── Phase 1: video-level analytics for every video card shown on the map ──
+// Ids = sticky entry videos (the selected videos) + canonical graph nodes. Keyed by a
+// sorted id string so the fetch only re-runs when the SET changes. The map's month
+// selection still picks WHICH videos (creation date, unchanged); metrics are all-time.
+const [videoAnalytics, setVideoAnalytics] = useState<VideoAnalyticsState>(EMPTY_VIDEO_ANALYTICS)
+const analyticsVideoIdsKey = useMemo(() => {
+  const ids = new Set<string>(journeyEntryVideoIds)
+  for (const n of journeyContext.graph?.nodes ?? []) ids.add(n.videoId)
+  return Array.from(ids).sort().join(',')
+}, [journeyEntryVideoIds, journeyContext.graph])
+useEffect(() => {
+  if (!analyticsVideoIdsKey) {
+    setVideoAnalytics(EMPTY_VIDEO_ANALYTICS)
+    return
+  }
+  let cancelled = false
+  setVideoAnalytics((prev) => ({ ...prev, status: 'loading', error: null }))
+  getVideoAnalyticsForVideos(analyticsVideoIdsKey.split(','))
+    .then((res) => {
+      if (cancelled) return
+      setVideoAnalytics({
+        status: 'ready',
+        byVideoId: res.byVideoId,
+        unresolvedStripe: res.unresolvedStripe,
+        unresolvedPixel: res.unresolvedPixel,
+        error: null,
+      })
+      if (res.missingVideoIds.length > 0) console.warn('[CJM analytics] videos not returned:', res.missingVideoIds)
+      if (res.unresolvedStripe + res.unresolvedPixel > 0) {
+        console.warn('[CJM analytics] unattributed purchases excluded:', res.unresolvedStripe, 'stripe,', res.unresolvedPixel, 'pixel')
+      }
+    })
+    .catch((e) => {
+      if (cancelled) return
+      console.error('[CJM analytics] failed', e)
+      setVideoAnalytics({ ...EMPTY_VIDEO_ANALYTICS, status: 'error', error: e?.message ?? String(e) })
+    })
+  return () => {
+    cancelled = true
+  }
+}, [analyticsVideoIdsKey])
 
 useEffect(() => {
   const g = journeyContext.graph
@@ -3779,6 +3914,7 @@ const [panelLarge, setPanelLarge] = useState(false)
             onClear={clearJourneyContext}
             highlights={nodeHighlights}
             outcomeAnchor={outcomeAnchor}
+            analytics={videoAnalytics}
           />
 
           <SelectedItemsLayer
@@ -3788,6 +3924,7 @@ const [panelLarge, setPanelLarge] = useState(false)
             showThumbnails={showThumbnails}
             top={itemsTop}
             connectedCount={connectedItemCount}
+            analytics={videoAnalytics}
           />
 
           {/* Hub node */}
