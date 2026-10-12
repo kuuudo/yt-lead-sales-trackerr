@@ -1,477 +1,249 @@
 /**
- * src/services/promotion/getTopPromotionsAnalytics.ts
+ * getTopPromotionsAnalytics.ts
  *
- * Batch/ranking layer for the Marketplace "Top Promotions" card.
+ * Top Promotions ranking for Marketplace cards.
+ * Formal Revenue only via canonical conversion owners:
+ *   ownerPromotionId ← TRUE START A→B redirect_links.promotion_id
  *
- * getPromotionAnalytics.ts is one-promotion-in, one-result-out. This file
- * does NOT call it in a loop (that would be N+1 — one round trip per
- * promotion). Instead it:
+ * Data path:
+ *   1) Prefer monthly_ranking_snapshots for calendar-month windows
+ *   2) If no provisional/finalized snapshot for the resolved month → compute
+ *      via monthlyRankingSnapshots (resolveConversionOwners) and save provisional
+ *   3) Non-month presets (last_7_days, etc.) compute live for that window
+ *      without inventing a second attribution formula
  *
- *   1. Fetches this organization's promotions ONCE.
- *   2. Fetches assignment_assets, redirect_links, events, stripe_purchases
- *      and pixel_purchases ONCE EACH, batched with `.in(...)` across every
- *      promotion in the org (not per-promotion), using the exact same
- *      asset-pool resolution path documented in getPromotionAnalytics.ts:
- *
- *        promotion → assignment_id → assignment_assets → asset pool
- *          → redirect_links (asset_id IN pool, org-bounded)
- *            → token[]    → stripe_purchases.redirect_link_token
- *            → video_id[] → events.video_id → session_id[]
- *                              → pixel_purchases.session_id
- *                              → stripe_purchases.session_id (checkout bridge)
- *
- *   3. Slices those already-in-memory arrays per promotion (no additional
- *      queries) and calls computePromotionAnalytics() from
- *      promotionAnalyticsEngine.ts once per promotion — so every number a
- *      promotion gets here is produced by the exact same attribution logic
- *      (clicks, sessions bridging, revenue_type classification, Stripe
- *      checkout-link bridge, defensive scopeToPromotion re-narrowing) that
- *      Individual Promotion Analytics uses. Nothing about revenue/click/
- *      conversion attribution is reimplemented in this file.
- *
- * journeyContext is intentionally omitted per promotion (computeJourneyInsights
- * short-circuits to an empty result when it's undefined) — Top Promotions
- * doesn't render journeys, so there's no reason to pay for
- * buildPurchaseJourney() across every conversion for every promotion in the
- * org.
- *
- * campaignElementAssets is passed as [] per promotion for the same reason:
- * Top Promotions never reads topAssets, so there's no reason to fetch/pass
- * display-name resolution data.
- *
- * "sessions" (distinct session_ids touching this promotion) isn't part of
- * PromotionAnalyticsResult's public kpis, so it's derived locally with the
- * same tiny, non-revenue video/session scoping rule scopeToPromotion() uses
- * internally (redirect_links kept if promotion_id matches or is NULL, then
- * events narrowed to those redirect_links' video_ids). This does not touch
- * revenue/conversion logic in any way.
- *
- * ORG ISOLATION: the only query that can return cross-org rows is the
- * initial `promotions` fetch, and it is filtered by
- * `.eq('organization_id', organizationId)`. Every downstream table is
- * reached only through that org's promotions → assignments → assets, and
- * redirect_links are additionally filtered to `organization_id ===
- * organizationId` exactly as getPromotionAnalytics.ts does. No new
- * organization-resolution mechanism is introduced.
- *
- * TITLE NOTE: `promotions` itself has no title column (see
- * getPromotionAnalytics.ts's PROMOTIONS_COLUMNS). Marketplace.tsx already
- * displays promotion titles as `p.assignment?.title ?? p.campaign?.campaign_name
- * ?? 'Promotion'` (see Marketplace.tsx), so `assignments.title` and
- * `campaigns.campaign_name` are resolved here the same way, batched by id.
- * If your `assignments`/`campaigns` tables use different column names than
- * assumed here, adjust ASSIGNMENTS_COLUMNS / CAMPAIGNS_COLUMNS below.
- *
- * MARKETER NOTE: the marketer is the accepted assignment_collaborator, NOT
- * promotions.owner_user_id (the assignment creator). Confirmed chain:
- *   promotions.assignment_collaborator_id
- *     → assignment_collaborators.id → assignment_collaborators.user_id
- *       → profiles.id → profiles.full_name ?? profiles.email
- *
- * getPromotionLevelMetricsForOrg() below is the shared internal batch layer
- * — it resolves this chain once per org and is reused by
- * getTopMarketersAnalytics.ts so the marketer resolution isn't duplicated.
+ * Does NOT use legacy promotion-level metric rollups.
  */
 
-import { supabase } from '../../lib/supabase';
-import { getDateBounds, type DateRange, type CustomDateRange } from '../../lib/analyticsEngine';
 import {
-  computePromotionAnalytics,
-  type PromotionAnalyticsEngineInput,
-  type PromotionEventRow,
-  type PromotionRedirectLinkRow,
-  type PromotionStripePurchaseRow,
-  type PromotionPixelPurchaseRow,
-} from '../../lib/promotionAnalyticsEngine';
-
-// ── Public API expected by TopPromotions.tsx ───────────────────────────────
+  computeMonthlySnapshotPayload,
+  getMonthlySnapshot,
+  refreshProvisionalMonthlySnapshot,
+  utcMonthPeriod,
+  utcMonthPeriodFromDate,
+  type MonthPeriod,
+  type RankingEntityRow,
+} from '../analytics/monthlyRankingSnapshots';
+import { resolveConversionOwners } from '../attribution/resolveConversionOwners';
+import { supabase } from '../../lib/supabase';
 
 export type TopPromotionsMetric = 'revenue' | 'clicks' | 'sessions' | 'conversions' | 'rpc';
-
-/** Same preset vocabulary as the existing analytics date-range picker. */
-export type TopPromotionsPreset = DateRange;
+export type TopPromotionsPreset =
+  | 'last_7_days'
+  | 'last_30_days'
+  | 'this_month'
+  | 'last_12_months'
+  | 'all_time'
+  | 'custom';
 
 export interface TopPromotionRow {
   promotionId: string;
   title: string;
   marketer: string | null;
+  revenue: number;
   clicks: number;
   sessions: number;
   conversions: number;
-  revenue: number;
   rpc: number;
 }
 
-export interface GetTopPromotionsAnalyticsParams {
+export interface TopPromotionsParams {
   organizationId: string;
   preset: TopPromotionsPreset;
-  customRange?: CustomDateRange | null;
+  customRange?: { start: Date; end: Date } | null;
 }
 
-/**
- * Internal shared shape — one row per promotion, with the resolved marketer
- * identity attached. TopPromotions.tsx never sees this directly (it gets
- * TopPromotionRow, below); getTopMarketersAnalytics.ts groups these by
- * marketerId.
- */
-export interface PromotionLevelMetrics {
-  promotionId: string;
-  title: string;
-  marketerId: string | null;
-  marketerName: string | null;
-  clicks: number;
-  sessions: number;
-  conversions: number;
-  revenue: number;
-  rpc: number;
-}
-
-// ── Column sets (mirrors getPromotionAnalytics.ts exactly where shared) ────
-
-const PROMOTIONS_COLUMNS = 'id, assignment_id, organization_id, campaign_id, assignment_collaborator_id';
-const ASSIGNMENT_ASSETS_COLUMNS = 'assignment_id, asset_id';
-const ASSIGNMENT_COLLABORATORS_COLUMNS = 'id, user_id';
-const PROFILES_COLUMNS = 'id, email, full_name';
-const REDIRECT_LINKS_COLUMNS =
-  'id, token, video_id, campaign_id, link_type, destination_url, organization_id, promotion_id, asset_id, tracking_hostname';
-const EVENTS_COLUMNS =
-  'id, session_id, video_id, campaign_id, event_type, created_at, organization_id, promotion_id, asset_id, redirect_link_id, tracking_hostname, link_type';
-const STRIPE_PURCHASES_COLUMNS =
-  'id, promotion_id, session_id, video_id, campaign_id, amount, created_at, redirect_link_id, redirect_link_token, organization_id';
-const PIXEL_PURCHASES_COLUMNS =
-  'id, promotion_id, session_id, video_id, campaign_id, amount, created_at, event_type, organization_id, event_id';
-
-// Inferred from Marketplace.tsx's display fallback — see file header note.
-const ASSIGNMENTS_COLUMNS = 'id, title';
-const CAMPAIGNS_COLUMNS = 'id, campaign_name';
-
-const IN_CHUNK_SIZE = 150;
-
-function chunk<T>(items: T[], size: number): T[][] {
-  const out: T[][] = [];
-  for (let i = 0; i < items.length; i += size) out.push(items.slice(i, i + size));
-  return out;
-}
-
-async function fetchByIn<T>(
-  table: string,
-  columns: string,
-  column: string,
-  values: string[],
-): Promise<T[]> {
-  const distinct = Array.from(new Set(values.filter(Boolean)));
-  if (distinct.length === 0) return [];
-
-  const results: T[] = [];
-  for (const batch of chunk(distinct, IN_CHUNK_SIZE)) {
-    const { data, error } = await supabase.from(table).select(columns).in(column, batch);
-    if (error) throw new Error(`Failed to fetch ${table} by ${column}: ${error.message}`);
-    results.push(...((data ?? []) as T[]));
-  }
-  return results;
-}
-
-/**
- * getPromotionLevelMetricsForOrg
- *
- * The shared batch layer: one round of org-wide queries, then one in-memory
- * computePromotionAnalytics() call per promotion (no query issued per
- * promotion). Both getTopPromotionsAnalytics() (below) and
- * getTopMarketersAnalytics.ts build on this — the fetch pipeline and the
- * attribution logic live in exactly one place.
- */
-export async function getPromotionLevelMetricsForOrg(
-  params: GetTopPromotionsAnalyticsParams,
-): Promise<PromotionLevelMetrics[]> {
-  const { organizationId, preset, customRange = null } = params;
-  if (!organizationId) return [];
-
-  const { start, end } = getDateBounds(preset, customRange);
-
-  // ── 1. Promotions for this org, once. Org isolation starts here. ────────
-  const { data: promotionRows, error: promotionsError } = await supabase
-    .from('promotions')
-    .select(PROMOTIONS_COLUMNS)
-    .eq('organization_id', organizationId);
-
-  if (promotionsError) {
-    throw new Error(`Failed to fetch promotions: ${promotionsError.message}`);
-  }
-
-  type PromotionRow = {
-    id: string;
-    assignment_id: string | null;
-    organization_id: string | null;
-    campaign_id: string | null;
-    assignment_collaborator_id: string | null;
-  };
-  const promotions = ((promotionRows ?? []) as PromotionRow[]).filter(
-    p => !!p.assignment_id && p.organization_id === organizationId,
-  );
-  if (promotions.length === 0) return [];
-
-  const assignmentIds = promotions.map(p => p.assignment_id!).filter(Boolean);
-  const campaignIds = promotions.map(p => p.campaign_id).filter((id): id is string => !!id);
-  const collaboratorIds = promotions
-    .map(p => p.assignment_collaborator_id)
-    .filter((id): id is string => !!id);
-
-  // ── 2. Titles — batched, best-effort (see file header note). ────────────
-  const [assignmentRows, campaignRows] = await Promise.all([
-    fetchByIn<{ id: string; title: string | null }>(
-      'assignments',
-      ASSIGNMENTS_COLUMNS,
-      'id',
-      assignmentIds,
-    ).catch(() => []),
-    fetchByIn<{ id: string; campaign_name: string | null }>(
-      'campaigns',
-      CAMPAIGNS_COLUMNS,
-      'id',
-      campaignIds,
-    ).catch(() => []),
-  ]);
-  const titleByAssignmentId = new Map(assignmentRows.map(a => [a.id, a.title]));
-  const nameByCampaignId = new Map(campaignRows.map(c => [c.id, c.campaign_name]));
-
-  // ── 2b. Marketer identity — assignment_collaborators.id → user_id →
-  // profiles. This is the accepted collaborator (Webmood), never
-  // promotions.owner_user_id (Ali, the assignment creator). ───────────────
-  const collaboratorRows = await fetchByIn<{ id: string; user_id: string | null }>(
-    'assignment_collaborators',
-    ASSIGNMENT_COLLABORATORS_COLUMNS,
-    'id',
-    collaboratorIds,
-  );
-  const userIdByCollaboratorId = new Map(collaboratorRows.map(c => [c.id, c.user_id]));
-
-  const marketerUserIds = collaboratorRows
-    .map(c => c.user_id)
-    .filter((id): id is string => !!id);
-  const profileRows = await fetchByIn<{ id: string; email: string | null; full_name: string | null }>(
-    'profiles',
-    PROFILES_COLUMNS,
-    'id',
-    marketerUserIds,
-  );
-  const profileByUserId = new Map(profileRows.map(p => [p.id, p]));
-
-  // ── 3. assignment_assets → asset pool per promotion, batched once. ──────
-  const assignmentAssetsRows = await fetchByIn<{ assignment_id: string; asset_id: string | null }>(
-    'assignment_assets',
-    ASSIGNMENT_ASSETS_COLUMNS,
-    'assignment_id',
-    assignmentIds,
-  );
-  const assetIdsByAssignmentId = new Map<string, string[]>();
-  for (const row of assignmentAssetsRows) {
-    if (!row.asset_id) continue;
-    const list = assetIdsByAssignmentId.get(row.assignment_id) ?? [];
-    list.push(row.asset_id);
-    assetIdsByAssignmentId.set(row.assignment_id, list);
-  }
-  const allAssetIds = assignmentAssetsRows.map(r => r.asset_id).filter((id): id is string => !!id);
-
-  // ── 4. redirect_links for the whole org's asset pool, batched once. ─────
-  const allRedirectLinks = (
-    await fetchByIn<PromotionRedirectLinkRow>('redirect_links', REDIRECT_LINKS_COLUMNS, 'asset_id', allAssetIds)
-  ).filter(r => r.organization_id === organizationId);
-  const redirectLinksByAssetId = new Map<string, PromotionRedirectLinkRow[]>();
-  for (const link of allRedirectLinks) {
-    if (!link.asset_id) continue;
-    const list = redirectLinksByAssetId.get(link.asset_id) ?? [];
-    list.push(link);
-    redirectLinksByAssetId.set(link.asset_id, list);
-  }
-
-  const allTokens = allRedirectLinks.map(r => r.token).filter((t): t is string => !!t);
-  const allVideoIds = allRedirectLinks.map(r => r.video_id).filter((id): id is string => !!id);
-
-  // ── 5. events by video_id pool, date-bounded, batched once. ─────────────
-  const allEvents = (
-    await fetchByIn<PromotionEventRow>('events', EVENTS_COLUMNS, 'video_id', allVideoIds)
-  ).filter(e => {
-    const t = new Date(e.created_at);
-    return t >= start && t <= end;
-  });
-  const eventsByVideoId = new Map<string, PromotionEventRow[]>();
-  for (const e of allEvents) {
-    if (!e.video_id) continue;
-    const list = eventsByVideoId.get(e.video_id) ?? [];
-    list.push(e);
-    eventsByVideoId.set(e.video_id, list);
-  }
-
-  const allSessionIds = allEvents.map(e => e.session_id).filter((s): s is string => !!s);
-
-  const inDateWindow = <T extends { created_at: string }>(rows: T[]): T[] =>
-    rows.filter(p => {
-      const t = new Date(p.created_at);
-      return t >= start && t <= end;
-    });
-
-  // ── 6. stripe/pixel purchases, batched once (token match + session bridge,
-  // same union-not-replacement rule as getPromotionAnalytics.ts). ─────────
-  const [stripeByToken, stripeBySession, allPixelPurchases] = await Promise.all([
-    fetchByIn<PromotionStripePurchaseRow>(
-      'stripe_purchases',
-      STRIPE_PURCHASES_COLUMNS,
-      'redirect_link_token',
-      allTokens,
-    ).then(inDateWindow),
-    fetchByIn<PromotionStripePurchaseRow>(
-      'stripe_purchases',
-      STRIPE_PURCHASES_COLUMNS,
-      'session_id',
-      allSessionIds,
-    ).then(inDateWindow),
-    fetchByIn<PromotionPixelPurchaseRow>(
-      'pixel_purchases',
-      PIXEL_PURCHASES_COLUMNS,
-      'session_id',
-      allSessionIds,
-    ).then(inDateWindow),
-  ]);
-  const allStripePurchases = Array.from(
-    new Map([...stripeByToken, ...stripeBySession].map(p => [p.id, p])).values(),
-  );
-
-  const stripeByTokenMap = new Map<string, PromotionStripePurchaseRow[]>();
-  const stripeBySessionMap = new Map<string, PromotionStripePurchaseRow[]>();
-  for (const p of allStripePurchases) {
-    if (p.redirect_link_token) {
-      const l = stripeByTokenMap.get(p.redirect_link_token) ?? [];
-      l.push(p);
-      stripeByTokenMap.set(p.redirect_link_token, l);
-    }
-    if (p.session_id) {
-      const l = stripeBySessionMap.get(p.session_id) ?? [];
-      l.push(p);
-      stripeBySessionMap.set(p.session_id, l);
-    }
-  }
-  const pixelBySessionMap = new Map<string, PromotionPixelPurchaseRow[]>();
-  for (const p of allPixelPurchases) {
-    if (!p.session_id) continue;
-    const l = pixelBySessionMap.get(p.session_id) ?? [];
-    l.push(p);
-    pixelBySessionMap.set(p.session_id, l);
-  }
-
-  // ── 7. Slice in-memory per promotion and reuse the real engine. No
-  // queries happen below this line. ────────────────────────────────────────
-  const rows: PromotionLevelMetrics[] = [];
-
-  for (const promotion of promotions) {
-    const assetIds = assetIdsByAssignmentId.get(promotion.assignment_id!) ?? [];
-    const redirectLinks = assetIds.flatMap(id => redirectLinksByAssetId.get(id) ?? []);
-
-    const tokens = redirectLinks.map(r => r.token).filter((t): t is string => !!t);
-    const videoIds = redirectLinks.map(r => r.video_id).filter((id): id is string => !!id);
-    const events = videoIds.flatMap(id => eventsByVideoId.get(id) ?? []);
-    const sessionIds = events.map(e => e.session_id).filter((s): s is string => !!s);
-
-    const stripePurchases = Array.from(
-      new Map(
-        [
-          ...tokens.flatMap(t => stripeByTokenMap.get(t) ?? []),
-          ...sessionIds.flatMap(s => stripeBySessionMap.get(s) ?? []),
-        ].map(p => [p.id, p]),
-      ).values(),
-    );
-    const pixelPurchases = Array.from(
-      new Map(sessionIds.flatMap(s => pixelBySessionMap.get(s) ?? []).map(p => [p.id, p])).values(),
-    );
-
-    const input: PromotionAnalyticsEngineInput = {
-      promotionId: promotion.id,
-      dateRange: preset,
-      customRange,
-      activeSource: 'total',
-      includeEV: true,
-      events,
-      stripePurchases,
-      pixelPurchases,
-      redirectLinks,
-      campaignElementAssets: [], // Top Promotions never reads topAssets
-      journeyContext: undefined, // Top Promotions never reads journeyInsights
-    };
-
-    const result = computePromotionAnalytics(input);
-
-    // "sessions" isn't in PromotionKPIs — derive it with the same (non-
-    // revenue) video/session scoping rule scopeToPromotion() uses, so it
-    // lines up with the events the engine actually counted.
-    const scopedRedirectLinks = redirectLinks.filter(
-      r => r.promotion_id === promotion.id || r.promotion_id == null,
-    );
-    const scopedVideoIds = new Set(scopedRedirectLinks.map(r => r.video_id).filter((id): id is string => !!id));
-    const scopedSessions = new Set(
-      events.filter(e => e.video_id != null && scopedVideoIds.has(e.video_id)).map(e => e.session_id),
-    );
-
-    const title =
-      titleByAssignmentId.get(promotion.assignment_id!) ??
-      (promotion.campaign_id ? nameByCampaignId.get(promotion.campaign_id) : null) ??
-      'Promotion';
-
-    const marketerId = promotion.assignment_collaborator_id
-      ? userIdByCollaboratorId.get(promotion.assignment_collaborator_id) ?? null
-      : null;
-    const marketerProfile = marketerId ? profileByUserId.get(marketerId) : null;
-    const marketerName = marketerProfile?.full_name?.trim() || marketerProfile?.email || null;
-
-    rows.push({
-      promotionId: promotion.id,
-      title,
-      marketerId,
-      marketerName,
-      clicks: result.kpis.clicks,
-      sessions: scopedSessions.size,
-      conversions: result.kpis.conversions,
-      revenue: result.kpis.revenue,
-      rpc: result.kpis.epc, // same revenue/clicks formula the engine calls "epc"
-    });
-  }
-
-  return rows;
-}
-
-/**
- * getTopPromotionsAnalytics — public API for TopPromotions.tsx. Thin
- * projection over getPromotionLevelMetricsForOrg(); no separate queries.
- */
-export async function getTopPromotionsAnalytics(
-  params: GetTopPromotionsAnalyticsParams,
-): Promise<TopPromotionRow[]> {
-  const rows = await getPromotionLevelMetricsForOrg(params);
-  return rows.map(r => ({
-    promotionId: r.promotionId,
-    title: r.title,
-    marketer: r.marketerName,
-    clicks: r.clicks,
-    sessions: r.sessions,
-    conversions: r.conversions,
-    revenue: r.revenue,
-    rpc: r.rpc,
-  }));
-}
-
-/**
- * rankTopPromotions — pure, non-mutating descending sort by metric.
- * Ties break by revenue, then promotionId, for a stable/deterministic order.
- */
 export function rankTopPromotions(
   rows: TopPromotionRow[],
   metric: TopPromotionsMetric,
 ): TopPromotionRow[] {
   return [...rows].sort((a, b) => {
-    const diff = b[metric] - a[metric];
-    if (diff !== 0) return diff;
-    if (metric !== 'revenue') {
-      const revDiff = b.revenue - a.revenue;
-      if (revDiff !== 0) return revDiff;
-    }
-    return a.promotionId.localeCompare(b.promotionId);
+    const dv = (b[metric] ?? 0) - (a[metric] ?? 0);
+    if (dv !== 0) return dv;
+    return a.title.localeCompare(b.title);
   });
+}
+
+function periodForPreset(
+  preset: TopPromotionsPreset,
+  customRange?: { start: Date; end: Date } | null,
+): { mode: 'month'; period: MonthPeriod } | { mode: 'range'; start: Date; end: Date } {
+  const now = new Date();
+  if (preset === 'this_month') {
+    return { mode: 'month', period: utcMonthPeriodFromDate(now) };
+  }
+  if (preset === 'custom' && customRange?.start && customRange?.end) {
+    const s = customRange.start;
+    const e = customRange.end;
+    // Single UTC calendar month → snapshot path
+    if (
+      s.getUTCFullYear() === e.getUTCFullYear() &&
+      s.getUTCMonth() === e.getUTCMonth() &&
+      s.getUTCDate() === 1 &&
+      e.getUTCDate() === new Date(Date.UTC(e.getUTCFullYear(), e.getUTCMonth() + 1, 0)).getUTCDate()
+    ) {
+      return { mode: 'month', period: utcMonthPeriod(s.getUTCFullYear(), s.getUTCMonth()) };
+    }
+    return { mode: 'range', start: s, end: e };
+  }
+  if (preset === 'last_7_days') {
+    const end = now;
+    const start = new Date(now);
+    start.setUTCDate(start.getUTCDate() - 6);
+    return { mode: 'range', start, end };
+  }
+  if (preset === 'last_30_days') {
+    const end = now;
+    const start = new Date(now);
+    start.setUTCDate(start.getUTCDate() - 29);
+    return { mode: 'range', start, end };
+  }
+  if (preset === 'last_12_months') {
+    const end = now;
+    const start = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() - 11, 1));
+    return { mode: 'range', start, end };
+  }
+  // all_time — wide range; live compute
+  return {
+    mode: 'range',
+    start: new Date('2020-01-01T00:00:00.000Z'),
+    end: now,
+  };
+}
+
+function rowsFromSnapshotEntities(entities: RankingEntityRow[]): TopPromotionRow[] {
+  return entities.map((e) => ({
+    promotionId: e.promotionId ?? '',
+    title: e.entityName,
+    marketer: null,
+    revenue: e.revenue,
+    clicks: e.clicks,
+    sessions: 0,
+    conversions: e.conversions,
+    rpc: e.rpc,
+  }));
+}
+
+async function loadMonthPromotionRows(
+  organizationId: string,
+  period: MonthPeriod,
+): Promise<TopPromotionRow[]> {
+  let snap = await getMonthlySnapshot(organizationId, period);
+  const isCurrentMonth =
+    period.periodStart === utcMonthPeriodFromDate(new Date()).periodStart;
+
+  if (!snap && isCurrentMonth) {
+    await refreshProvisionalMonthlySnapshot(organizationId, period);
+    snap = await getMonthlySnapshot(organizationId, period);
+  }
+
+  // Historical month with no snapshot: compute once as provisional (does not touch finalized)
+  if (!snap) {
+    await refreshProvisionalMonthlySnapshot(organizationId, period);
+    snap = await getMonthlySnapshot(organizationId, period);
+  }
+
+  if (!snap) return [];
+
+  const promoRows = snap.rows
+    .filter((r) => r.ranking_type === 'promotion' && r.rank != null)
+    .sort((a, b) => (a.rank ?? 0) - (b.rank ?? 0));
+
+  return promoRows.map((r) => ({
+    promotionId: r.promotion_id ?? '',
+    title: r.entity_name_snapshot ?? r.promotion_id ?? '',
+    marketer: null,
+    revenue: Number(r.revenue) || 0,
+    clicks: Number(r.clicks) || 0,
+    sessions: 0,
+    conversions: Number(r.conversions) || 0,
+    rpc: Number(r.rpc) || 0,
+  }));
+}
+
+/** Live range: same canonical owners, no second formula. */
+async function computePromotionRowsForRange(
+  organizationId: string,
+  start: Date,
+  end: Date,
+): Promise<TopPromotionRow[]> {
+  const startIso = start.toISOString();
+  const endIso = end.toISOString();
+
+  const [stripeRes, pixelRes] = await Promise.all([
+    supabase
+      .from('stripe_purchases')
+      .select(
+        'id, session_id, token, video_id, campaign_id, amount, created_at, redirect_link_id, redirect_link_token, organization_id',
+      )
+      .eq('organization_id', organizationId)
+      .gte('created_at', startIso)
+      .lte('created_at', endIso),
+    supabase
+      .from('pixel_purchases')
+      .select(
+        'id, event_id, session_id, video_id, campaign_id, amount, event_type, created_at, asset_id, organization_id, promotion_id',
+      )
+      .eq('organization_id', organizationId)
+      .gte('created_at', startIso)
+      .lte('created_at', endIso),
+  ]);
+
+  if (stripeRes.error) throw new Error(stripeRes.error.message);
+  if (pixelRes.error) throw new Error(pixelRes.error.message);
+
+  const resolved = await resolveConversionOwners({
+    stripePurchases: (stripeRes.data ?? []) as any,
+    pixelPurchases: (pixelRes.data ?? []) as any,
+  });
+
+  const byPromo = new Map<string, { revenue: number; conversions: number }>();
+  resolved.byKey.forEach((r) => {
+    if (r.attributionReason === 'uncounted' || r.suppressedByStripeId) return;
+    const amount = typeof r.amount === 'number' ? r.amount : parseFloat(String(r.amount ?? 0));
+    if (!(amount > 0) || !r.ownerPromotionId) return;
+    const a = byPromo.get(r.ownerPromotionId) ?? { revenue: 0, conversions: 0 };
+    a.revenue += amount;
+    a.conversions += 1;
+    byPromo.set(r.ownerPromotionId, a);
+  });
+
+  const sorted = [...byPromo.entries()]
+    .sort((a, b) => b[1].revenue - a[1].revenue)
+    .slice(0, 10);
+
+  const ids = sorted.map(([id]) => id);
+  const names = new Map<string, string>();
+  if (ids.length > 0) {
+    const { data } = await supabase.from('promotions').select('id, title').in('id', ids);
+    for (const row of data ?? []) {
+      names.set((row as any).id, (row as any).title ?? (row as any).id);
+    }
+  }
+
+  return sorted.map(([id, a]) => ({
+    promotionId: id,
+    title: names.get(id) ?? id,
+    marketer: null,
+    revenue: a.revenue,
+    clicks: 0,
+    sessions: 0,
+    conversions: a.conversions,
+    rpc: 0,
+  }));
+}
+
+export async function getTopPromotionsAnalytics(
+  params: TopPromotionsParams,
+): Promise<TopPromotionRow[]> {
+  const { organizationId, preset, customRange } = params;
+  if (!organizationId) return [];
+
+  const window = periodForPreset(preset, customRange ?? null);
+
+  if (window.mode === 'month') {
+    return loadMonthPromotionRows(organizationId, window.period);
+  }
+
+  return computePromotionRowsForRange(organizationId, window.start, window.end);
 }
