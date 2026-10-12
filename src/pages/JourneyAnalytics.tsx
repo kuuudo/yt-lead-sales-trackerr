@@ -845,7 +845,7 @@ export default function JourneyAnalytics() {
   const [showAnalytics, setShowAnalytics] = useState(false);
   const [showContentOwner, setShowContentOwner] = useState(false);
   /** UI-only sort of filtered route rows; does not mutate grouping source data. */
-  const [routeSortMode, setRouteSortMode] = useState<RouteSortMode>('default');
+  const [routeSortMode, setRouteSortMode] = useState<RouteSortMode>('longest_first');
 const [colSort, setColSort] = useState<{ key: (typeof TABLE_COLUMNS)[number]; dir: 'asc' | 'desc' } | null>(null);
 const [rowLimit, setRowLimit] = useState(15);
 const [rowLimitInput, setRowLimitInput] = useState('');
@@ -1054,7 +1054,10 @@ console.log('[DIAG membership]', {
     };
     return visibleJourneys
       .map((j, index) => ({ j, index, v: toNum(j) }))
-      .sort((a, b) => (colSort.dir === 'desc' ? b.v - a.v : a.v - b.v) || a.index - b.index)
+      .sort((a, b) =>
+  (colSort.dir === 'desc' ? b.v - a.v : a.v - b.v) ||
+  (routeSortMode === 'longest_first' ? routeVideoStepCount(b.j) - routeVideoStepCount(a.j) : 0) ||
+  a.index - b.index)
       .map(({ j }) => j);
   }
   if (routeSortMode === 'default') return visibleJourneys;

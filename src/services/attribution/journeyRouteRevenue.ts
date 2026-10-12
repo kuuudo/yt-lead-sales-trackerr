@@ -22,9 +22,13 @@ import {
   type ApplyCanonicalOwnersInput,
 } from './applyCanonicalPurchaseOwners';
 
+/** Legacy fallback: only purchases created BEFORE this instant may use Video D → longest route. */
+const LEGACY_FALLBACK_BEFORE_MS = Date.parse('2026-09-06T00:00:00+00:00');
+
 export type RouteLike = {
   journeyId: string;
   memberJourneyIds?: string[] | null;
+  path?: { steps?: Array<{ videoId?: string | null }> | null } | null;
 };
 
 function isRealJourneyId(id: string): boolean {
@@ -34,6 +38,33 @@ function isRealJourneyId(id: string): boolean {
 function parseAmount(v: number | string | null | undefined): number {
   const n = typeof v === 'number' ? v : parseFloat(String(v ?? '0'));
   return Number.isFinite(n) ? n : 0;
+}
+
+function routeLastVideoId(r: RouteLike): string | null {
+  const steps = r.path?.steps ?? [];
+  return steps.length > 0 ? steps[steps.length - 1]?.videoId ?? null : null;
+}
+function routeStepCount(r: RouteLike): number {
+  return r.path?.steps?.length ?? 0;
+}
+function routeSignature(r: RouteLike): string {
+  return (r.path?.steps ?? []).map((s) => s?.videoId ?? '').join('>');
+}
+/** Longest route; ties → smaller route signature (stable, independent of discovery order). */
+function pickLongestRoute(cands: RouteLike[]): RouteLike {
+  return [...cands].sort((a, b) => {
+    const d = routeStepCount(b) - routeStepCount(a);
+    if (d !== 0) return d;
+    const sa = routeSignature(a);
+    const sb = routeSignature(b);
+    if (sa !== sb) return sa < sb ? -1 : 1;
+    return a.journeyId < b.journeyId ? -1 : a.journeyId > b.journeyId ? 1 : 0;
+  })[0];
+}
+function isLegacyEligible(createdAt: string | null | undefined): boolean {
+  if (!createdAt) return false;
+  const t = Date.parse(createdAt);
+  return Number.isFinite(t) && t < LEGACY_FALLBACK_BEFORE_MS;
 }
 
 export async function computeJourneyRouteRevenueMetrics(opts: {
@@ -132,11 +163,115 @@ export async function computeJourneyRouteRevenueMetrics(opts: {
     pixelByJourney.set(owner.journeyId, list);
   }
 
+  // ── LEGACY FALLBACK START (display-only; Video D → longest route) ──────────
+  const routesByLastVideo = new Map<string, RouteLike[]>();
+  for (const r of routes) {
+    const last = routeLastVideoId(r);
+    if (!last) continue;
+    const list = routesByLastVideo.get(last) ?? [];
+    list.push(r);
+    routesByLastVideo.set(last, list);
+  }
+  const fbStripeByRoute = new Map<string, StripePurchaseRow[]>();
+  const fbPixelByRoute = new Map<string, PixelPurchaseRow[]>();
+  const fbSessionRoute = new Map<string, string>();
+  const fb = {
+    eligible: 0, noCreatedAt: 0, afterCutoff: 0, noVideoD: 0, noRoute: 0,
+    assigned: 0, multiCandidate: 0, ties: 0, crossRouteTwins: 0,
+    revenueEligible: 0, revenueAssigned: 0,
+  };
+  const fbExplain: unknown[] = [];
+
+  const pickRoute = (videoD: string, purchaseId: string, amount: number) => {
+    const cands = routesByLastVideo.get(videoD) ?? [];
+    if (cands.length === 0) return null;
+    const best = pickLongestRoute(cands);
+    if (cands.length > 1) fb.multiCandidate += 1;
+    if (cands.filter((c) => routeStepCount(c) === routeStepCount(best)).length > 1) fb.ties += 1;
+    if (fbExplain.length < 5) {
+      fbExplain.push({
+        purchase: purchaseId.slice(0, 8),
+        videoD: videoD.slice(0, 8),
+        candidates: cands.map((c) => `${c.journeyId.slice(0, 8)}:${routeStepCount(c)}`),
+        selected: best.journeyId.slice(0, 8),
+        amount,
+      });
+    }
+    return best;
+  };
+
+  for (const p of owned.stripePurchases) {
+    const owner = p._canonicalOwner;
+    if (!owner) continue;
+    if (owner.attributionReason === 'true_start_upstream' || owner.attributionReason === 'true_start_path_root') continue;
+    if (owner.attributionReason !== 'direct' && owner.attributionReason !== 'unresolved') continue;
+    const amount = parseAmount(p.amount);
+    if (!(amount > 0)) continue;
+    if (!p.created_at || !Number.isFinite(Date.parse(p.created_at))) { fb.noCreatedAt += 1; continue; }
+    if (!isLegacyEligible(p.created_at)) { fb.afterCutoff += 1; continue; }
+    fb.eligible += 1;
+    fb.revenueEligible += amount;
+    if (owner.attributionReason !== 'direct' || !owner.ownerVideoId) { fb.noVideoD += 1; continue; }
+    const route = pickRoute(owner.ownerVideoId, p.id, amount);
+    if (!route) { fb.noRoute += 1; continue; }
+    const row: StripePurchaseRow = {
+      video_id: owner.ownerVideoId,
+      campaign_id: p.campaign_id ?? '',
+      amount,
+      revenue_type: (p.revenue_type as StripePurchaseRow['revenue_type']) ?? 'offer',
+      session_id: p.session_id ?? null,
+      redirect_link_id: p.redirect_link_id ?? null,
+      redirect_link_token: p.redirect_link_token ?? p.token ?? null,
+    };
+    const list = fbStripeByRoute.get(route.journeyId) ?? [];
+    list.push(row);
+    fbStripeByRoute.set(route.journeyId, list);
+    if (p.session_id) fbSessionRoute.set(p.session_id, route.journeyId);
+    fb.assigned += 1;
+    fb.revenueAssigned += amount;
+  }
+
+  for (const p of owned.pixelPurchases) {
+    const owner = p._canonicalOwner;
+    if (!owner) continue;
+    if (owner.attributionReason === 'true_start_upstream' || owner.attributionReason === 'true_start_path_root') continue;
+    if (owner.attributionReason !== 'direct' && owner.attributionReason !== 'unresolved') continue;
+    const amount = parseAmount(p.amount);
+    if (!p.created_at || !Number.isFinite(Date.parse(p.created_at))) { fb.noCreatedAt += 1; continue; }
+    if (!isLegacyEligible(p.created_at)) { fb.afterCutoff += 1; continue; }
+    fb.eligible += 1;
+    fb.revenueEligible += amount;
+    if (owner.attributionReason !== 'direct' || !owner.ownerVideoId) { fb.noVideoD += 1; continue; }
+    const route = pickRoute(owner.ownerVideoId, p.id, amount);
+    if (!route) { fb.noRoute += 1; continue; }
+    const row: PixelPurchaseRow = {
+      video_id: owner.ownerVideoId,
+      campaign_id: p.campaign_id ?? null,
+      amount,
+      event_type: p.event_type ?? null,
+      session_id: p.session_id ?? null,
+    };
+    const list = fbPixelByRoute.get(route.journeyId) ?? [];
+    list.push(row);
+    fbPixelByRoute.set(route.journeyId, list);
+    if (p.session_id && fbSessionRoute.has(p.session_id) && fbSessionRoute.get(p.session_id) !== route.journeyId) {
+      fb.crossRouteTwins += 1;
+    }
+    fb.assigned += 1;
+    fb.revenueAssigned += amount;
+  }
+  // ── LEGACY FALLBACK END ───────────────────────────────────────────────────
+
+  let routeRevenueSum = 0;
   let routesWithRevenue = 0;
 
   for (const route of routes) {
     const members = (route.memberJourneyIds ?? []).filter(isRealJourneyId);
-    if (members.length === 0) continue;
+    if (
+      members.length === 0 &&
+      !fbStripeByRoute.has(route.journeyId) &&
+      !fbPixelByRoute.has(route.journeyId)
+    ) continue;
 
     const syntheticId = `route:${route.journeyId}`;
     const stripeBag: StripePurchaseRow[] = [];
@@ -149,6 +284,13 @@ export async function computeJourneyRouteRevenueMetrics(opts: {
       for (const p of pixelByJourney.get(jid) ?? []) {
         pixelBag.push({ ...p, video_id: syntheticId });
       }
+    }
+
+    for (const s of fbStripeByRoute.get(route.journeyId) ?? []) {
+      stripeBag.push({ ...s, video_id: syntheticId });
+    }
+    for (const p of fbPixelByRoute.get(route.journeyId) ?? []) {
+      pixelBag.push({ ...p, video_id: syntheticId });
     }
 
     if (stripeBag.length === 0 && pixelBag.length === 0) continue;
@@ -164,6 +306,7 @@ export async function computeJourneyRouteRevenueMetrics(opts: {
     });
 
     out.set(route.journeyId, metrics);
+    routeRevenueSum += metrics.total_revenue ?? 0;
     if ((metrics.total_revenue ?? 0) > 0) routesWithRevenue += 1;
   }
 console.log('[DIAG owner]', {
@@ -171,6 +314,18 @@ console.log('[DIAG owner]', {
   pixelKeys: Array.from(pixelByJourney.keys()),
   hasTarget: stripeByJourney.has('3fac8ee5-32de-484c-a219-010eb36d304a'),
 });
+  // TEMP DIAG legacy-fallback START
+  console.log('[legacy-fallback]', {
+    stripe: owned.stripePurchases.length,
+    pixel: owned.pixelPurchases.length,
+    trueStartRows:
+      Array.from(stripeByJourney.values()).reduce((n, l) => n + l.length, 0) +
+      Array.from(pixelByJourney.values()).reduce((n, l) => n + l.length, 0),
+    ...fb,
+    routeRevenueSum,
+  });
+  console.log('[legacy-fallback] explain', fbExplain);
+  // TEMP DIAG legacy-fallback END
   console.log('[journeyRouteRevenue] summary', {
     routes: routes.length,
     stripeIn: opts.stripePurchases.length,
