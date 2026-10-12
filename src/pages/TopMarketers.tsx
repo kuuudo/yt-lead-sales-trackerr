@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Users, Loader2, ChevronRight, ChevronDown, X } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
@@ -69,45 +69,64 @@ export default function TopMarketers({ organizationId }: TopMarketersProps) {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [showAll, setShowAll] = useState(false);
-  const [expanded, setExpanded] = useState<Set<string>>(new Set());
+const [expanded, setExpanded] = useState<Set<string>>(new Set());
+const [refreshing, setRefreshing] = useState(false);
+
+  const requestIdRef = useRef(0);
+
+  const load = useCallback(
+    (forceRefresh = false) => {
+      if (!organizationId) {
+        setLoading(false);
+        setRefreshing(false);
+        return;
+      }
+      if (preset === 'custom') {
+        const start = new Date(customStart);
+        const end = new Date(customEnd);
+        if (Number.isNaN(start.getTime()) || Number.isNaN(end.getTime()) || start > end) {
+          setRefreshing(false);
+          return;
+        }
+      }
+
+      const requestId = ++requestIdRef.current;
+      setLoading(true);
+      setError(null);
+
+      getTopMarketersAnalytics({
+        organizationId,
+        preset,
+        customRange:
+          preset === 'custom'
+            ? { start: new Date(customStart), end: new Date(customEnd) }
+            : null,
+        forceRefresh,
+      })
+        .then(result => {
+          if (requestId === requestIdRef.current) setRows(result);
+        })
+        .catch((e: any) => {
+          if (requestId === requestIdRef.current) {
+            setError(e?.message ?? 'Failed to load Top Marketers');
+          }
+        })
+        .finally(() => {
+          if (requestId === requestIdRef.current) {
+            setLoading(false);
+            setRefreshing(false);
+          }
+        });
+    },
+    [organizationId, preset, customStart, customEnd],
+  );
 
   useEffect(() => {
-    if (!organizationId) {
-      setLoading(false);
-      return;
-    }
-    if (preset === 'custom') {
-      const start = new Date(customStart);
-      const end = new Date(customEnd);
-      if (Number.isNaN(start.getTime()) || Number.isNaN(end.getTime()) || start > end) return;
-    }
-
-    let cancelled = false;
-    setLoading(true);
-    setError(null);
-
-    getTopMarketersAnalytics({
-      organizationId,
-      preset,
-      customRange:
-        preset === 'custom'
-          ? { start: new Date(customStart), end: new Date(customEnd) }
-          : null,
-    })
-      .then(result => {
-        if (!cancelled) setRows(result);
-      })
-      .catch((e: any) => {
-        if (!cancelled) setError(e?.message ?? 'Failed to load Top Marketers');
-      })
-      .finally(() => {
-        if (!cancelled) setLoading(false);
-      });
-
+    load(false);
     return () => {
-      cancelled = true;
+      requestIdRef.current++;
     };
-  }, [organizationId, preset, customStart, customEnd]);
+  }, [load]);
 
   const ranked = useMemo(() => rankTopMarketers(rows, metric), [rows, metric]);
   const visible = ranked.slice(0, INITIAL_VISIBLE);
@@ -156,6 +175,18 @@ export default function TopMarketers({ organizationId }: TopMarketersProps) {
               </option>
             ))}
           </select>
+                    <button
+            type="button"
+            disabled={loading || refreshing || !organizationId}
+            onClick={() => {
+              setRefreshing(true);
+              load(true);
+            }}
+            className="bg-zinc-950 border border-zinc-800 text-zinc-300 text-[11px] font-bold uppercase tracking-wide rounded-lg px-2 py-1.5 hover:border-zinc-600 disabled:opacity-50"
+            title="Recompute from canonical conversions"
+          >
+            {refreshing ? 'Updating…' : 'Update'}
+          </button>
         </div>
       </div>
 
