@@ -1,30 +1,33 @@
 /**
  * services/analytics/getVideoAnalyticsForVideos.ts
  *
- * Video-level analytics for an explicit set of video ids (CampaignJourneyMap
- * Phase 1). This is an ORCHESTRATION wrapper only — it mirrors the fetch +
- * canonical-owner + engine pipeline InDepthAnalytics.fetchData() uses, because
- * that pipeline lives inline in the page component and is not exported.
+ * Video-level analytics for an explicit set of video ids (CampaignJourneyMap).
+ * ORCHESTRATION wrapper only — it mirrors the fetch + canonical-owner + engine
+ * pipeline InDepthAnalytics.fetchData() uses, because that pipeline lives inline
+ * in the page component and is not exported.
  *
- * Reuses, unchanged:
- *   - applyCanonicalPurchaseOwners  (services/attribution) — revenue ownership
- *   - buildStripeFromPurchases / buildPixelPurchases / buildRedirectLinkLookup /
- *     flattenSessionEvents / mergeEventSources / getAnalyticsEngine
- *     (lib/analyticsEngine) — click / impression / revenue math
- *   - stripeRowsWithPositiveAmount (services/attribution/filterPurchasesByCreatedAt)
+ * Two steps so the analytics date range can change WITHOUT refetching:
+ *   1. loadVideoAnalyticsInputs(videoIds)  — fetch all-time rows, apply canonical
+ *      purchase owners, enrich. No date filtering here.
+ *   2. computeVideoAnalytics(inputs, dateRange, customRange) — pure; applies the
+ *      engine's own date convention exactly as InDepthAnalytics does
+ *      (filterPurchasesByCreatedAt for purchases + getAnalyticsEngine, which
+ *      date-filters events) and returns one engine row per video.
+ *
+ * Reuses, unchanged: applyCanonicalPurchaseOwners, buildStripeFromPurchases,
+ * buildPixelPurchases, buildRedirectLinkLookup, flattenSessionEvents,
+ * mergeEventSources, getAnalyticsEngine, filterPurchasesByCreatedAt,
+ * stripeRowsWithPositiveAmount.
  *
  * Does NOT: implement attribution, dedupe Pixel vs Stripe, or touch the
  * click/impression engine.
  *
- * Deliberate differences from InDepthAnalytics (see report):
- *   1. If applyCanonicalPurchaseOwners THROWS, this returns an error and NO
- *      revenue — it does not fall back to the legacy purchase.video_id.
+ * Deliberate differences from InDepthAnalytics:
+ *   1. If applyCanonicalPurchaseOwners THROWS, loadVideoAnalyticsInputs rejects —
+ *      there is NO fallback to the legacy purchase.video_id.
  *   2. Purchases the resolver left 'unresolved' are EXCLUDED from per-video
- *      revenue and only counted (unresolvedStripe / unresolvedPixel), so
- *      revenue is never silently owned by a legacy/wrong video.
+ *      revenue and only counted, so revenue is never owned by a legacy video_id.
  *   3. No session-lookup fallback for purchases without a video_id.
- *   4. Metrics window is all-time ('all'): the map's month selection picks
- *      WHICH videos (creation date); it does not window the metrics.
  */
 
 import { supabase } from '../../lib/supabase';
@@ -37,6 +40,8 @@ import {
   mergeEventSources,
   type AnalyticsEngineInput,
   type CampaignMeta,
+  type CustomDateRange,
+  type DateRange,
   type ProcessedVideoRow,
   type PixelPurchaseRow,
   type RawEvent,
@@ -44,19 +49,31 @@ import {
   type StripePurchasesRawRow,
 } from '../../lib/analyticsEngine';
 import { applyCanonicalPurchaseOwners } from '../attribution/applyCanonicalPurchaseOwners';
-import { stripeRowsWithPositiveAmount } from '../attribution/filterPurchasesByCreatedAt';
+import {
+  filterPurchasesByCreatedAt,
+  stripeRowsWithPositiveAmount,
+} from '../attribution/filterPurchasesByCreatedAt';
 
-export interface VideoMapAnalytics {
-  videoId: string;
-  /** Engine metrics exactly as InDepthAnalytics would show them (all-time, 'total' source). */
-  metrics: ProcessedVideoRow;
+type WithDate<T> = T & { created_at?: string | null };
+
+/** All-time, canonically-owned, enriched inputs — date filtering happens later. */
+export interface VideoAnalyticsInputs {
+  videos: any[];
+  campaigns: any[];
+  rawEvents: RawEvent[];
+  stripePurchases: Array<WithDate<StripePurchaseRow>>;
+  pixelPurchases: Array<WithDate<PixelPurchaseRow>>;
+  /** Requested ids not returned by the videos query (not visible / not found). */
+  missingVideoIds: string[];
+  /** created_at of purchases the canonical resolver could not own (excluded from revenue). */
+  unresolvedStripe: Array<{ created_at: string }>;
+  unresolvedPixel: Array<{ created_at: string }>;
 }
 
-export interface VideoMapAnalyticsResult {
-  byVideoId: Map<string, VideoMapAnalytics>;
-  /** Requested ids that were not returned by the videos query (not visible / not found). */
-  missingVideoIds: string[];
-  /** Purchases the canonical resolver could not own — excluded from revenue. */
+export interface VideoAnalyticsComputed {
+  /** One engine row per found video, for the given date range. */
+  byVideoId: Map<string, ProcessedVideoRow>;
+  /** Unattributed purchases inside the same date range (excluded from revenue). */
   unresolvedStripe: number;
   unresolvedPixel: number;
 }
@@ -95,13 +112,17 @@ function dedupeById<T extends { id?: string }>(rows: T[]): T[] {
   });
 }
 
-export async function getVideoAnalyticsForVideos(videoIdsIn: string[]): Promise<VideoMapAnalyticsResult> {
+export async function loadVideoAnalyticsInputs(videoIdsIn: string[]): Promise<VideoAnalyticsInputs> {
   const videoIds = Array.from(new Set(videoIdsIn.filter(Boolean)));
-  const empty: VideoMapAnalyticsResult = {
-    byVideoId: new Map(),
+  const empty: VideoAnalyticsInputs = {
+    videos: [],
+    campaigns: [],
+    rawEvents: [],
+    stripePurchases: [],
+    pixelPurchases: [],
     missingVideoIds: [],
-    unresolvedStripe: 0,
-    unresolvedPixel: 0,
+    unresolvedStripe: [],
+    unresolvedPixel: [],
   };
   if (videoIds.length === 0) return empty;
 
@@ -246,9 +267,10 @@ export async function getVideoAnalyticsForVideos(videoIdsIn: string[]): Promise<
   const stripeOwnedAll = owned.stripePurchases;
   const stripeOwned = stripeOwnedAll.filter(isOwned);
   const pixelOwned = owned.pixelPurchases.filter(isOwned);
-  const unresolvedStripe = stripeOwnedAll.length - stripeOwned.length;
-  const unresolvedPixel = owned.pixelPurchases.length - pixelOwned.length;
+  const unresolvedStripe = stripeOwnedAll.filter((p) => !isOwned(p)).map((p) => ({ created_at: p.created_at }));
+  const unresolvedPixel = owned.pixelPurchases.filter((p) => !isOwned(p)).map((p) => ({ created_at: p.created_at }));
 
+  // Same enrichment + created_at re-attachment as InDepthAnalytics (index-aligned).
   const stripePositive = stripeRowsWithPositiveAmount(stripeOwned);
   const stripeBuilt: StripePurchaseRow[] = buildStripeFromPurchases(
     stripePositive.map(
@@ -264,6 +286,14 @@ export async function getVideoAnalyticsForVideos(videoIdsIn: string[]): Promise<
     redirectLinkLookup,
     {}, // no session-lookup fallback: ownership comes only from the canonical resolver
   );
+  const nStripe = Math.min(stripeBuilt.length, stripePositive.length);
+  if (stripeBuilt.length !== stripePositive.length) {
+    console.warn('[VideoAnalytics] stripe enrichment length mismatch', stripeBuilt.length, stripePositive.length);
+  }
+  const stripePurchases = stripeBuilt
+    .slice(0, nStripe)
+    .map((row, i) => ({ ...row, created_at: stripePositive[i]?.created_at ?? null }));
+
   const pixelBuilt: PixelPurchaseRow[] = buildPixelPurchases(
     pixelOwned.map((p) => ({
       video_id: p.video_id,
@@ -274,16 +304,31 @@ export async function getVideoAnalyticsForVideos(videoIdsIn: string[]): Promise<
     })),
     {},
   );
+  const pixelPurchases = pixelBuilt.map((row, i) => ({ ...row, created_at: pixelOwned[i]?.created_at ?? null }));
 
-  // ── Engine (unchanged). all-time window; 'total' source = InDepth default ─
+  return { videos, campaigns, rawEvents, stripePurchases, pixelPurchases, missingVideoIds, unresolvedStripe, unresolvedPixel };
+}
+
+/**
+ * Pure. Same date convention as InDepthAnalytics: purchases are filtered by
+ * created_at with filterPurchasesByCreatedAt; the engine date-filters events with
+ * the same range. activeSource 'total' / includeEV true = InDepth defaults.
+ */
+export function computeVideoAnalytics(
+  inputs: VideoAnalyticsInputs,
+  dateRange: DateRange,
+  customRange: CustomDateRange | null,
+): VideoAnalyticsComputed {
+  if (inputs.videos.length === 0) return { byVideoId: new Map(), unresolvedStripe: 0, unresolvedPixel: 0 };
+
   const engineInput: AnalyticsEngineInput = {
-    videos: videos as AnalyticsEngineInput['videos'],
-    campaigns: campaigns as CampaignMeta[],
-    rawEvents,
-    stripePurchases: stripeBuilt,
-    pixelPurchases: pixelBuilt,
-    dateRange: 'all',
-    customRange: null,
+    videos: inputs.videos as AnalyticsEngineInput['videos'],
+    campaigns: inputs.campaigns as CampaignMeta[],
+    rawEvents: inputs.rawEvents,
+    stripePurchases: filterPurchasesByCreatedAt(inputs.stripePurchases, dateRange, customRange),
+    pixelPurchases: filterPurchasesByCreatedAt(inputs.pixelPurchases, dateRange, customRange),
+    dateRange,
+    customRange,
     selectedCampaignId: 'all',
     selectedGoals: [],
     selectedLeadMagnets: [],
@@ -293,9 +338,12 @@ export async function getVideoAnalyticsForVideos(videoIdsIn: string[]): Promise<
   };
   const result = getAnalyticsEngine(engineInput);
 
-  const byVideoId = new Map<string, VideoMapAnalytics>();
-  for (const row of result.sortedVideos) {
-    byVideoId.set(row.video.id, { videoId: row.video.id, metrics: row });
-  }
-  return { byVideoId, missingVideoIds, unresolvedStripe, unresolvedPixel };
+  const byVideoId = new Map<string, ProcessedVideoRow>();
+  for (const row of result.sortedVideos) byVideoId.set(row.video.id, row);
+
+  return {
+    byVideoId,
+    unresolvedStripe: filterPurchasesByCreatedAt(inputs.unresolvedStripe, dateRange, customRange).length,
+    unresolvedPixel: filterPurchasesByCreatedAt(inputs.unresolvedPixel, dateRange, customRange).length,
+  };
 }
