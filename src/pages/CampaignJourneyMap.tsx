@@ -73,7 +73,14 @@ import {
   computeVideoAnalytics,
   type VideoAnalyticsInputs,
 } from '../services/analytics/getVideoAnalyticsForVideos'
-import CampaignMapVideoAnalytics, { type AnalyticsViewStatus } from '../components/analytics/CampaignMapVideoAnalytics'
+import {
+  AnalyticsRangeBar,
+  VideoAnalyticsCardsLayer,
+  VideoAnalyticsModal,
+  ANALYTICS_CARD_ROW_EXTRA,
+  describeRange,
+  type AnalyticsCardStatus,
+} from '../components/analytics/CampaignMapVideoAnalytics'
 // ─── Real-data hook (header name + switcher only) ───────────────────────
 // Identical to the copy in CampaignStructureMap.tsx / AllAssetsAnalytics.tsx
 // — same query, same viewer-id resolution. Not imported because it isn't
@@ -369,6 +376,8 @@ interface SelectionChip {
   countInGraph: number
   /** distinct videos behind this selection (assets resolved via videos.asset_id) */
   totalCount: number
+  /** Content / Own Assets month node (gets a Show Analytics button) */
+  isMonth: boolean
 }
 
 /** Fallback branch lookup by id prefix (used only if the node is not in panelTree). */
@@ -408,6 +417,9 @@ function JourneyChipBar({
   onToggleChip,
   narrow = false,
   narrowTop = 16,
+  analyticsOn,
+  onToggleAnalytics,
+  rangeControl,
 }: {
   presentation: 'campaign' | 'tree'
   chips: SelectionChip[]
@@ -416,6 +428,11 @@ function JourneyChipBar({
   /** phone layout: vertical stack under the legend instead of a wrapped row */
   narrow?: boolean
   narrowTop?: number
+  /** month chip ids whose analytics cards are on */
+  analyticsOn: Set<string>
+  onToggleAnalytics: (id: string) => void
+  /** period picker, shown once any month has analytics on */
+  rangeControl?: React.ReactNode
 }) {
   if (chips.length === 0) return null
   const dark = presentation === 'tree'
@@ -455,8 +472,8 @@ function JourneyChipBar({
       {chips.map((chip) => {
         const off = chipOff.has(chip.id)
         return (
+          <React.Fragment key={chip.id}>
           <button
-            key={chip.id}
             type="button"
             aria-pressed={!off}
             title={`${chip.countInGraph} of ${chip.totalCount} video${chip.totalCount === 1 ? '' : 's'} appear in the journey graph${off ? ' (highlight off)' : ''}`}
@@ -497,8 +514,33 @@ function JourneyChipBar({
               {chip.countInGraph}/{chip.totalCount}
             </span>
           </button>
+          {chip.isMonth && (
+            <button
+              type="button"
+              aria-pressed={analyticsOn.has(chip.id)}
+              title={`Show video analytics cards for ${chip.label}`}
+              onPointerDown={(e) => e.stopPropagation()}
+              onClick={() => onToggleAnalytics(chip.id)}
+              style={{
+                pointerEvents: 'auto',
+                fontSize: 11,
+                fontWeight: 700,
+                padding: '5px 10px',
+                borderRadius: 999,
+                cursor: 'pointer',
+                whiteSpace: 'nowrap',
+                border: `1px solid ${chip.color}`,
+                background: analyticsOn.has(chip.id) ? chip.color : dark ? TREE_DARK.cardBg : '#ffffff',
+                color: analyticsOn.has(chip.id) ? '#ffffff' : dark ? TREE_DARK.textPrimary : '#374151',
+              }}
+            >
+              {analyticsOn.has(chip.id) ? 'Hide Analytics' : 'Show Analytics'}
+            </button>
+          )}
+          </React.Fragment>
         )
       })}
+      {rangeControl}
     </div>
   )
 }
@@ -719,8 +761,7 @@ interface MiniStructureMapProps {
   expanded: Record<string, boolean>
   selectedIds: string[]
   onNodeClick: (id: string, kind: TreeNode['kind']) => void
-  /** Phase 1 analytics: month node's own "Show Analytics" button (Content / Own Assets months only). */
-  onShowMonthAnalytics: (monthId: string, label: string, branch: 'content' | 'own_assets') => void
+
   error: string | null
 }
 
@@ -737,7 +778,6 @@ function MiniStructureMap({
   expanded,
   selectedIds,
   onNodeClick,
-  onShowMonthAnalytics,
   error,
 }: MiniStructureMapProps) {
   const dark = presentation === 'tree'
@@ -773,14 +813,7 @@ function MiniStructureMap({
     return m
   }, [root])
   const nodeById = useMemo(() => new Map(layout.nodes.map((n) => [n.id, n])), [layout])
-  // Month nodes that get a "Show Analytics" button: the Content and Own Assets branches only
-  // (marketer months hold marketers, not videos — later phase).
-  const monthBranchById = useMemo(() => {
-    const m = new Map<string, 'content' | 'own_assets'>()
-    for (const n of tree.content ?? []) if (n.kind === 'month') m.set(n.id, 'content')
-    for (const n of tree.own_assets ?? []) if (n.kind === 'month') m.set(n.id, 'own_assets')
-    return m
-  }, [tree])
+
   const isLoading = tree.content === null || tree.own_assets === null || tree.marketers === null
 
   const viewportRef = useRef<HTMLDivElement>(null)
@@ -940,7 +973,7 @@ function MiniStructureMap({
     }
     if (n.kind === 'month' || n.kind === 'marketer' || n.kind === 'promotion') {
       const isOpen = !!expanded[n.id]
-      const circle = (
+      return (
         <div
           key={n.id}
           role="button"
@@ -967,42 +1000,6 @@ function MiniStructureMap({
           <span style={{ fontSize: 9.5, fontWeight: 700, color: n.color }}>{subtitleById.get(n.id) ?? ''}</span>
           <span style={{ fontSize: 9, color: n.color }}>{isOpen ? '▲' : '▼'}</span>
         </div>
-      )
-      const monthBranch = n.kind === 'month' ? monthBranchById.get(n.id) : undefined
-      if (!monthBranch) return circle
-      return (
-        <React.Fragment key={n.id}>
-          {circle}
-          <button
-            type="button"
-            title={`Show video analytics for ${n.label}`}
-            onPointerDown={(e) => e.stopPropagation()}
-            onClick={(e) => {
-              e.stopPropagation()
-              onShowMonthAnalytics(n.id, n.label, monthBranch)
-            }}
-            style={{
-              position: 'absolute',
-              left: n.center.x - 40,
-              top: n.center.y + n.h / 2 - 6,
-              width: 80,
-              height: 16,
-              boxSizing: 'border-box',
-              padding: 0,
-              borderRadius: 8,
-              border: `1px solid ${c.border}`,
-              background: c.bg,
-              color: c.sub,
-              fontSize: 9,
-              fontWeight: 700,
-              lineHeight: 1,
-              cursor: 'pointer',
-              whiteSpace: 'nowrap',
-            }}
-          >
-            Show Analytics
-          </button>
-        </React.Fragment>
       )
     }
     if (n.kind === 'branch') {
@@ -1688,6 +1685,7 @@ export function layoutMonthPartScene(
   graph: JourneyGraph,
   ends: JourneyEnd[],
   assignment: MonthPartResult,
+  rowExtra = 0, // extra vertical space per video row (analytics cards under each card)
 ): MonthPartScene {
   const base = buildLayout(CAMPAIGN_PATHS)
   const nodes: JgNode[] = []
@@ -1716,11 +1714,11 @@ export function layoutMonthPartScene(
             videoId,
             layer: 0,
             x: gridLeft + col * cellW + (FLAT_CARD_W - JG_NODE_W) / 2, // 190 card centered in its cell
-            y: videosTop + row * FLAT_ROW_PITCH,
+            y: videosTop + row * (FLAT_ROW_PITCH + rowExtra),
           })
         })
         const rows = Math.ceil(part.videoIds.length / FLAT_COLUMNS)
-        partBottom = videosTop + (rows - 1) * FLAT_ROW_PITCH + JG_NODE_H
+        partBottom = videosTop + (rows - 1) * (FLAT_ROW_PITCH + rowExtra) + JG_NODE_H + rowExtra
       } else {
         // Chain: reuse the existing layout on this Part's own sub-graph, then translate.
         const idSet = new Set(part.videoIds)
@@ -1737,7 +1735,7 @@ export function layoutMonthPartScene(
         const sdy = videosTop - JG_TOP
         for (const n of subScene.nodes) nodes.push({ ...n, x: n.x + sdx, y: n.y + sdy })
         subScene.backEdges.forEach((key) => backEdges.add(key))
-        partBottom = Math.max(videosTop, subScene.bottom + sdy)
+        partBottom = Math.max(videosTop, subScene.bottom + sdy) + rowExtra
       }
 
       const shifted = base.nodes.map((n) => ({ ...n, center: { x: n.center.x + dx, y: n.center.y + dy } }))
@@ -3031,143 +3029,22 @@ useEffect(() => {
   }
 }, [journeyEntryVideoIds])
 
-// ── Phase 1: month "Show Analytics" view ───────────────────────────────────
-// The clicked MONTH NODE decides WHICH videos (existing Structure rules: the same tree
-// builders + collectLeafRefs the selection uses; Own Asset leaves resolve asset -> video
-// through the same cache/helper). The analytics date range below decides WHICH PERIOD OF
-// ACTIVITY the metrics cover. They are independent.
-interface MonthAnalyticsTarget {
-  monthId: string
-  label: string
-  branch: 'content' | 'own_assets'
-}
-const [analyticsTarget, setAnalyticsTarget] = useState<MonthAnalyticsTarget | null>(null)
+// ── Phase 1: month analytics cards (state here; logic sits below the chips) ──
+const [analyticsMonthIds, setAnalyticsMonthIds] = useState<Set<string>>(new Set())
 const [analyticsRange, setAnalyticsRange] = useState<DateRange>('all')
 const [analyticsCustomStart, setAnalyticsCustomStart] = useState('')
 const [analyticsCustomEnd, setAnalyticsCustomEnd] = useState('')
 const [analyticsReload, setAnalyticsReload] = useState(0)
-const [monthVideos, setMonthVideos] = useState<{
-  status: 'resolving' | 'ready' | 'error'
-  videoIds: string[]
-  assetsWithoutVideo: number
-  truncated: boolean
-  error: string | null
-}>({ status: 'resolving', videoIds: [], assetsWithoutVideo: 0, truncated: false, error: null })
+const [openAnalyticsVideoId, setOpenAnalyticsVideoId] = useState<string | null>(null)
 const [analyticsInputs, setAnalyticsInputs] = useState<{
   status: 'idle' | 'loading' | 'ready' | 'error'
   data: VideoAnalyticsInputs | null
   error: string | null
 }>({ status: 'idle', data: null, error: null })
-
 useEffect(() => {
-  setAnalyticsTarget(null)
+  setAnalyticsMonthIds(new Set())
+  setOpenAnalyticsVideoId(null)
 }, [campaignId])
-
-// 1) month node -> eligible video ids
-useEffect(() => {
-  if (!analyticsTarget) return
-  const { monthId, branch } = analyticsTarget
-  const branchLoaded = branch === 'content' ? contentData.contentVideos !== null : structureData.ownAssetNodes !== null
-  if (!branchLoaded) {
-    setMonthVideos({ status: 'resolving', videoIds: [], assetsWithoutVideo: 0, truncated: false, error: null })
-    return
-  }
-  let cancelled = false
-  setMonthVideos({ status: 'resolving', videoIds: [], assetsWithoutVideo: 0, truncated: false, error: null })
-  ;(async () => {
-    try {
-      // Same builder as the panel, with ONLY this month expanded so its children exist.
-      const tree = buildPanelTree(contentData.contentVideos, structureData.ownAssetNodes, structureData.marketerNodes, {
-        [monthId]: true,
-      })
-      const node = findTreeNode(tree[branch], monthId)
-      const refs = node ? collectLeafRefs(node) : []
-      const truncated = !!node?.children?.some((c) => c.isShowMore)
-      const directVideoIds = refs.filter((r) => r.type === 'video').map((r) => r.id)
-      const assetIds = Array.from(new Set(refs.filter((r) => r.type !== 'video').map((r) => r.id)))
-
-      const cache = assetVideoCacheRef.current
-      const uncached = assetIds.filter((id) => !cache.has(id))
-      if (uncached.length > 0) {
-        const found = await resolveVideoIdsForAssets(uncached)
-        for (const id of uncached) cache.set(id, found.get(id) ?? [])
-        if (!cancelled) setAssetCacheVersion((v) => v + 1)
-      }
-      if (cancelled) return
-
-      const fromAssets = assetIds.flatMap((id) => cache.get(id) ?? [])
-      const assetsWithoutVideo = assetIds.filter((id) => (cache.get(id) ?? []).length === 0).length
-      const videoIds = Array.from(new Set([...directVideoIds, ...fromAssets]))
-      setMonthVideos({ status: 'ready', videoIds, assetsWithoutVideo, truncated, error: null })
-    } catch (e) {
-      if (!cancelled) {
-        setMonthVideos({
-          status: 'error',
-          videoIds: [],
-          assetsWithoutVideo: 0,
-          truncated: false,
-          error: e instanceof Error ? e.message : String(e),
-        })
-      }
-    }
-  })()
-  return () => {
-    cancelled = true
-  }
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-}, [analyticsTarget, contentData.contentVideos, structureData.ownAssetNodes, structureData.marketerNodes, analyticsReload])
-
-// 2) video ids -> all-time canonical inputs (fetched once; the date range never refetches)
-const monthVideoIdsKey = monthVideos.status === 'ready' ? monthVideos.videoIds.join(',') : ''
-useEffect(() => {
-  if (!analyticsTarget || !monthVideoIdsKey) {
-    setAnalyticsInputs({ status: 'idle', data: null, error: null })
-    return
-  }
-  let cancelled = false
-  setAnalyticsInputs({ status: 'loading', data: null, error: null })
-  loadVideoAnalyticsInputs(monthVideoIdsKey.split(','))
-    .then((data) => {
-      if (cancelled) return
-      setAnalyticsInputs({ status: 'ready', data, error: null })
-      if (data.missingVideoIds.length > 0) console.warn('[CJM analytics] videos not returned:', data.missingVideoIds)
-    })
-    .catch((e) => {
-      if (cancelled) return
-      console.error('[CJM analytics] load failed', e)
-      setAnalyticsInputs({ status: 'error', data: null, error: e?.message ?? String(e) })
-    })
-  return () => {
-    cancelled = true
-  }
-}, [analyticsTarget, monthVideoIdsKey, analyticsReload])
-
-// 3) inputs + analytics period -> engine rows (pure, no refetch)
-const analyticsCustomApplied = useMemo<CustomDateRange | null>(
-  () =>
-    analyticsRange === 'custom' && analyticsCustomStart && analyticsCustomEnd && analyticsCustomStart <= analyticsCustomEnd
-      ? { start: analyticsCustomStart, end: analyticsCustomEnd }
-      : null,
-  [analyticsRange, analyticsCustomStart, analyticsCustomEnd],
-)
-const analyticsComputed = useMemo(() => {
-  if (!analyticsInputs.data) return null
-  if (analyticsRange === 'custom' && !analyticsCustomApplied) return null
-  try {
-    return { result: computeVideoAnalytics(analyticsInputs.data, analyticsRange, analyticsCustomApplied), error: null as string | null }
-  } catch (e) {
-    return { result: null, error: e instanceof Error ? e.message : String(e) }
-  }
-}, [analyticsInputs.data, analyticsRange, analyticsCustomApplied])
-
-const analyticsViewStatus: AnalyticsViewStatus =
-  monthVideos.status === 'resolving'
-    ? 'resolving'
-    : monthVideos.status === 'error' || analyticsInputs.status === 'error' || !!analyticsComputed?.error
-    ? 'error'
-    : monthVideos.videoIds.length > 0 && analyticsInputs.status !== 'ready'
-    ? 'loading'
-    : 'ready'
 
 // ── TEMPORARY DEBUG (Slice A only — remove when Slice B renders the graph) ──
 useEffect(() => {
@@ -3347,9 +3224,14 @@ useEffect(() => {
   const monthPartScene = useMemo(
     () =>
       USE_MONTH_PART_LAYOUT && journeyContext.graph
-        ? layoutMonthPartScene(journeyContext.graph, allEnds, assignMonthParts(journeyContext.graph, monthInfoByVideoId))
+        ? layoutMonthPartScene(
+            journeyContext.graph,
+            allEnds,
+            assignMonthParts(journeyContext.graph, monthInfoByVideoId),
+            analyticsMonthIds.size > 0 ? ANALYTICS_CARD_ROW_EXTRA : 0,
+          )
         : null,
-    [journeyContext.graph, allEnds, monthInfoByVideoId],
+    [journeyContext.graph, allEnds, monthInfoByVideoId, analyticsMonthIds.size],
   )
   const journeyScene = useMemo(
     () => monthPartScene ?? (journeyContext.graph ? layoutJourneyScene(journeyContext.graph, allEnds, ctx.outcomeX) : null),
@@ -3476,7 +3358,15 @@ useEffect(() => {
         members.forEach((v) => {
           if (graphVideoIds.has(v)) inGraph += 1
         })
-        return { id: n.id, label: n.label, branch: branch.id, color: branch.color, countInGraph: inGraph, totalCount: members.size }
+        return {
+          id: n.id,
+          label: n.label,
+          branch: branch.id,
+          color: branch.color,
+          countInGraph: inGraph,
+          totalCount: members.size,
+          isMonth: n.kind === 'month' && branch.id !== 'marketers',
+        }
       }),
     [selectedNodes, panelTree, chipMembers, graphVideoIds],
   )
@@ -3496,6 +3386,107 @@ useEffect(() => {
     }
     return map
   }, [selectionChips, chipOff, chipMembers, graphVideoIds])
+
+  // ── Phase 1: month analytics cards ──
+  // Month chip decides WHICH videos (chipMembers); the period control decides WHICH activity.
+  const analyticsVideoIds = useMemo(() => {
+    const s = new Set<string>()
+    analyticsMonthIds.forEach((id) => chipMembers.get(id)?.forEach((v) => s.add(v)))
+    return s
+  }, [analyticsMonthIds, chipMembers])
+  const cardVideoIdsKey = useMemo(() => Array.from(analyticsVideoIds).sort().join(','), [analyticsVideoIds])
+
+  useEffect(() => {
+    setAnalyticsMonthIds((prev) => {
+      if (prev.size === 0) return prev
+      const live = new Set(selectionChips.map((c) => c.id))
+      const next = new Set(Array.from(prev).filter((id) => live.has(id)))
+      return next.size === prev.size ? prev : next
+    })
+  }, [selectionChips])
+
+  // all-time canonical inputs: fetched when the video SET changes; the period never refetches
+  useEffect(() => {
+    if (!cardVideoIdsKey) {
+      setAnalyticsInputs({ status: 'idle', data: null, error: null })
+      return
+    }
+    let cancelled = false
+    setAnalyticsInputs({ status: 'loading', data: null, error: null })
+    loadVideoAnalyticsInputs(cardVideoIdsKey.split(','))
+      .then((data) => {
+        if (cancelled) return
+        setAnalyticsInputs({ status: 'ready', data, error: null })
+        if (data.missingVideoIds.length > 0) console.warn('[CJM analytics] videos not returned:', data.missingVideoIds)
+      })
+      .catch((e) => {
+        if (cancelled) return
+        console.error('[CJM analytics] load failed', e)
+        setAnalyticsInputs({ status: 'error', data: null, error: e?.message ?? String(e) })
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [cardVideoIdsKey, analyticsReload])
+
+  const analyticsCustomApplied = useMemo<CustomDateRange | null>(
+    () =>
+      analyticsRange === 'custom' && analyticsCustomStart && analyticsCustomEnd && analyticsCustomStart <= analyticsCustomEnd
+        ? { start: analyticsCustomStart, end: analyticsCustomEnd }
+        : null,
+    [analyticsRange, analyticsCustomStart, analyticsCustomEnd],
+  )
+  const analyticsComputed = useMemo(() => {
+    if (!analyticsInputs.data) return null
+    if (analyticsRange === 'custom' && !analyticsCustomApplied) return null
+    try {
+      return { result: computeVideoAnalytics(analyticsInputs.data, analyticsRange, analyticsCustomApplied), error: null as string | null }
+    } catch (e) {
+      return { result: null, error: e instanceof Error ? e.message : String(e) }
+    }
+  }, [analyticsInputs.data, analyticsRange, analyticsCustomApplied])
+
+  const analyticsCardStatus: AnalyticsCardStatus =
+    analyticsInputs.status === 'error' || !!analyticsComputed?.error
+      ? 'error'
+      : analyticsRange === 'custom' && !analyticsCustomApplied
+      ? 'incomplete'
+      : analyticsInputs.status === 'ready' && analyticsComputed?.result
+      ? 'ready'
+      : 'loading'
+
+  const analyticsNotes = useMemo(() => {
+    const out: string[] = []
+    if (analyticsInputs.status === 'error') out.push(`Couldn't load analytics: ${analyticsInputs.error ?? 'unknown error'}`)
+    if (analyticsComputed?.error) out.push(`Analytics calculation failed: ${analyticsComputed.error}`)
+    if (analyticsInputs.data?.sessionEventsUnavailable) {
+      out.push('Some events are unavailable (session-linked events could not be loaded), so click counts may be understated.')
+    }
+    const unresolved = (analyticsComputed?.result?.unresolvedStripe ?? 0) + (analyticsComputed?.result?.unresolvedPixel ?? 0)
+    if (unresolved > 0) {
+      out.push(`${unresolved} purchase${unresolved === 1 ? '' : 's'} in this period could not be attributed to a video and are excluded from revenue.`)
+    }
+    return out
+  }, [analyticsInputs, analyticsComputed])
+
+  // Cards sit directly under each video card, in canvas coordinates (zoom/pan with the map).
+  const analyticsCardNodes = useMemo(
+    () =>
+      (journeyScene?.nodes ?? [])
+        .filter((n) => analyticsVideoIds.has(n.videoId))
+        .map((n) => ({ videoId: n.videoId, x: n.x, y: n.y + JG_NODE_H + 8, w: JG_NODE_W })),
+    [journeyScene, analyticsVideoIds],
+  )
+  const openAnalyticsRow = openAnalyticsVideoId ? analyticsComputed?.result?.byVideoId.get(openAnalyticsVideoId) ?? null : null
+
+  const handleToggleAnalytics = useCallback((id: string) => {
+    setAnalyticsMonthIds((prev) => {
+      const next = new Set(prev)
+      if (next.has(id)) next.delete(id)
+      else next.add(id)
+      return next
+    })
+  }, [])
 
   const handleToggleChip = useCallback((id: string) => {
     setChipOff((prev) => {
@@ -3973,6 +3964,14 @@ const [panelLarge, setPanelLarge] = useState(false)
             outcomeAnchor={outcomeAnchor}
           />
 
+          <VideoAnalyticsCardsLayer
+            presentation={presentation}
+            nodes={analyticsCardNodes}
+            rows={analyticsComputed?.result?.byVideoId ?? null}
+            status={analyticsCardStatus}
+            onOpen={setOpenAnalyticsVideoId}
+          />
+
           <SelectedItemsLayer
             presentation={presentation}
             label={selectionLabel}
@@ -4087,35 +4086,15 @@ const [panelLarge, setPanelLarge] = useState(false)
           expanded={panelExpanded}
           selectedIds={selectedNodeIds}
           onNodeClick={handlePanelNodeClick}
-          onShowMonthAnalytics={(monthId, label, branch) => setAnalyticsTarget({ monthId, label, branch })}
           error={structureData.error ?? contentData.error}
         />
 
-        {/* Phase 1: month video analytics (screen-space portal; does not touch canvas layout) */}
-        {analyticsTarget && (
-          <CampaignMapVideoAnalytics
+        {openAnalyticsRow && (
+          <VideoAnalyticsModal
             presentation={presentation}
-            monthLabel={analyticsTarget.label}
-            status={analyticsViewStatus}
-            error={monthVideos.error ?? analyticsInputs.error ?? analyticsComputed?.error ?? null}
-            videoIds={monthVideos.videoIds}
-            assetsWithoutVideo={monthVideos.assetsWithoutVideo}
-            listTruncated={monthVideos.truncated}
-            rows={analyticsComputed?.result?.byVideoId ?? null}
-            missingVideoIds={analyticsInputs.data?.missingVideoIds ?? []}
-            unresolvedStripe={analyticsComputed?.result?.unresolvedStripe ?? 0}
-            unresolvedPixel={analyticsComputed?.result?.unresolvedPixel ?? 0}
-            range={analyticsRange}
-            customStart={analyticsCustomStart}
-            customEnd={analyticsCustomEnd}
-            appliedCustomRange={analyticsCustomApplied}
-            onRangeChange={setAnalyticsRange}
-            onCustomChange={(start, end) => {
-              setAnalyticsCustomStart(start)
-              setAnalyticsCustomEnd(end)
-            }}
-            onClose={() => setAnalyticsTarget(null)}
-            onRetry={() => setAnalyticsReload((v) => v + 1)}
+            row={openAnalyticsRow}
+            periodLabel={describeRange(analyticsRange, analyticsCustomApplied)}
+            onClose={() => setOpenAnalyticsVideoId(null)}
           />
         )}
 
@@ -4125,6 +4104,26 @@ const [panelLarge, setPanelLarge] = useState(false)
           chips={selectionChips}
           chipOff={chipOff}
           onToggleChip={handleToggleChip}
+          analyticsOn={analyticsMonthIds}
+          onToggleAnalytics={handleToggleAnalytics}
+          rangeControl={
+            analyticsMonthIds.size > 0 ? (
+              <AnalyticsRangeBar
+                presentation={presentation}
+                range={analyticsRange}
+                customStart={analyticsCustomStart}
+                customEnd={analyticsCustomEnd}
+                notes={analyticsNotes}
+                showRetry={analyticsInputs.status === 'error'}
+                onRangeChange={setAnalyticsRange}
+                onCustomChange={(start, end) => {
+                  setAnalyticsCustomStart(start)
+                  setAnalyticsCustomEnd(end)
+                }}
+                onRetry={() => setAnalyticsReload((v) => v + 1)}
+              />
+            ) : undefined
+          }
           narrow={isNarrow}
           narrowTop={legendBottom + 8}
         />

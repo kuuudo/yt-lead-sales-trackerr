@@ -68,6 +68,8 @@ export interface VideoAnalyticsInputs {
   /** created_at of purchases the canonical resolver could not own (excluded from revenue). */
   unresolvedStripe: Array<{ created_at: string }>;
   unresolvedPixel: Array<{ created_at: string }>;
+  /** true = the events->sessions query failed; only direct events are counted. */
+  sessionEventsUnavailable: boolean;
 }
 
 export interface VideoAnalyticsComputed {
@@ -123,6 +125,7 @@ export async function loadVideoAnalyticsInputs(videoIdsIn: string[]): Promise<Vi
     missingVideoIds: [],
     unresolvedStripe: [],
     unresolvedPixel: [],
+    sessionEventsUnavailable: false,
   };
   if (videoIds.length === 0) return empty;
 
@@ -148,6 +151,7 @@ export async function loadVideoAnalyticsInputs(videoIdsIn: string[]): Promise<Vi
   // ── Events (same two sources as InDepthAnalytics) ────────────────────────
   const eventsDirect: any[] = [];
   const eventsViaSession: any[] = [];
+  let sessionEventsUnavailable = false;
   for (const ids of chunk(videoIds)) {
     eventsDirect.push(
       ...(await fetchAll((from, to) =>
@@ -159,17 +163,22 @@ export async function loadVideoAnalyticsInputs(videoIdsIn: string[]): Promise<Vi
           .range(from, to),
       )),
     );
-    eventsViaSession.push(
-      ...(await fetchAll((from, to) =>
-        supabase
-          .from('events')
-          .select('event_type, created_at, sessions!inner(video_id, campaign_id)')
-          .is('video_id', null)
-          .in('sessions.video_id', ids)
-          .order('created_at', { ascending: true })
-          .range(from, to),
-      )),
-    );
+    try {
+      eventsViaSession.push(
+        ...(await fetchAll((from, to) =>
+          supabase
+            .from('events')
+            .select('event_type, created_at, sessions!inner(video_id, campaign_id)')
+            .is('video_id', null)
+            .in('sessions.video_id', ids)
+            .order('created_at', { ascending: true })
+            .range(from, to),
+        )),
+      );
+    } catch (e) {
+      sessionEventsUnavailable = true;
+      console.warn('[VideoAnalytics] events via sessions unavailable:', e);
+    }
   }
   const rawEvents: RawEvent[] = mergeEventSources(eventsDirect as RawEvent[], flattenSessionEvents(eventsViaSession));
 
@@ -306,7 +315,7 @@ export async function loadVideoAnalyticsInputs(videoIdsIn: string[]): Promise<Vi
   );
   const pixelPurchases = pixelBuilt.map((row, i) => ({ ...row, created_at: pixelOwned[i]?.created_at ?? null }));
 
-  return { videos, campaigns, rawEvents, stripePurchases, pixelPurchases, missingVideoIds, unresolvedStripe, unresolvedPixel };
+  return { videos, campaigns, rawEvents, stripePurchases, pixelPurchases, missingVideoIds, unresolvedStripe, unresolvedPixel, sessionEventsUnavailable };
 }
 
 /**
