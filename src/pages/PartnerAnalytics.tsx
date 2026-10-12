@@ -403,7 +403,7 @@ export default function PartnerAnalytics() {
   const tr = (k: CopyKey): string => dict[k];
 
   const [mode, setMode] = useState<PartnerMode>('marketer');
-  const [range, setRange] = useState<PartnerRange>('30days');
+  const [range, setRange] = useState<PartnerRange>('all');
   const [customStart, setCustomStart] = useState('');
   const [customEnd, setCustomEnd] = useState('');
 
