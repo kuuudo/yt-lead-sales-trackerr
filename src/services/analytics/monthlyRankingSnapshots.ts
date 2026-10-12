@@ -305,6 +305,39 @@ export async function fetchPromotionDisplayTitles(
   const ids = Array.from(new Set(promotionIds.filter(Boolean)));
   if (ids.length === 0) return out;
 
+  // Prefer nested assignment title when FK is exposed to PostgREST.
+  const { data: nested, error: nestedErr } = await supabase
+    .from('promotions')
+    .select('id, title, assignment_id, assignments:assignment_id ( id, title, name )')
+    .in('id', ids);
+
+  if (!nestedErr && nested && nested.length > 0) {
+    for (const p of nested as any[]) {
+      if (!p?.id) continue;
+      const asg = Array.isArray(p.assignments) ? p.assignments[0] : p.assignments;
+      const fromAsg =
+        (asg?.title && String(asg.title).trim()) ||
+        (asg?.name && String(asg.name).trim()) ||
+        null;
+      const fromPromo = p.title && String(p.title).trim() ? String(p.title).trim() : null;
+      // Prefer assignment name; ignore trivial promo titles like "3"
+      const trivial = fromPromo && /^[0-9]+$/.test(fromPromo);
+      out.set(p.id, fromAsg || (!trivial ? fromPromo : null) || p.id);
+    }
+    console.log('[monthlyRankingSnapshots] promotion titles (nested)', {
+      count: out.size,
+      sample: [...out.entries()].slice(0, 3),
+    });
+    return out;
+  }
+
+  if (nestedErr) {
+    console.warn(
+      '[monthlyRankingSnapshots] nested assignment title failed, falling back:',
+      nestedErr.message,
+    );
+  }
+
   const { data: promos, error } = await supabase
     .from('promotions')
     .select('id, title, assignment_id')
@@ -320,19 +353,22 @@ export async function fetchPromotionDisplayTitles(
 
   const assignmentTitle = new Map<string, string>();
   if (assignmentIds.length > 0) {
-    const { data: assignments, error: aErr } = await supabase
-      .from('assignments')
-      .select('id, title')
-      .in('id', assignmentIds);
-    if (aErr) {
-      console.warn('[monthlyRankingSnapshots] assignments title fetch failed:', aErr.message);
+    // Try title then name column variants
+    let assignments: { id: string; title?: string | null; name?: string | null }[] = [];
+    const try1 = await supabase.from('assignments').select('id, title').in('id', assignmentIds);
+    if (!try1.error && try1.data) {
+      assignments = try1.data as any[];
     } else {
-      for (const a of assignments ?? []) {
-        const row = a as { id: string; title?: string | null };
-        if (row.id && row.title && String(row.title).trim()) {
-          assignmentTitle.set(row.id, String(row.title).trim());
-        }
+      const try2 = await supabase.from('assignments').select('id, name').in('id', assignmentIds);
+      if (!try2.error && try2.data) assignments = try2.data as any[];
+      else if (try1.error) {
+        console.warn('[monthlyRankingSnapshots] assignments fetch failed:', try1.error.message);
       }
+    }
+    for (const a of assignments) {
+      const label =
+        (a.title && String(a.title).trim()) || (a.name && String(a.name).trim()) || null;
+      if (a.id && label) assignmentTitle.set(a.id, label);
     }
   }
 
@@ -344,8 +380,15 @@ export async function fetchPromotionDisplayTitles(
         ? assignmentTitle.get(row.assignment_id)!
         : null;
     const fromPromo = row.title && String(row.title).trim() ? String(row.title).trim() : null;
-    out.set(row.id, fromAssignment || fromPromo || row.id);
+    const trivial = fromPromo && /^[0-9]+$/.test(fromPromo);
+    out.set(row.id, fromAssignment || (!trivial ? fromPromo : null) || row.id);
   }
+
+  console.log('[monthlyRankingSnapshots] promotion titles (fallback)', {
+    count: out.size,
+    assignmentHits: assignmentTitle.size,
+    sample: [...out.entries()].slice(0, 3),
+  });
   return out;
 }
 

@@ -1,13 +1,14 @@
 /**
  * getTopPromotionsAnalytics.ts
  *
- * Canonical Promotion Revenue ranking (TRUE START hop → promotion_id).
- * Calendar-month windows read/write monthly_ranking_snapshots.
- * Display title: assignments.title via promotions.assignment_id (not bare promotions.title).
+ * Fast path: read monthly_ranking_snapshots when present.
+ * Slow path (canonical resolve + write): only when no snapshot rows exist,
+ * or when forceRefresh=true (Update button).
+ *
+ * Display title: assignments.title via promotions.assignment_id (live overlay).
  */
 
 import {
-  ensureCurrentMonthProvisional,
   fetchPromotionDisplayTitles,
   getMonthlySnapshot,
   refreshProvisionalMonthlySnapshot,
@@ -42,6 +43,8 @@ export interface TopPromotionsParams {
   organizationId: string;
   preset: TopPromotionsPreset;
   customRange?: { start: Date; end: Date } | null;
+  /** When true, recompute and replace provisional snapshot for the target month. */
+  forceRefresh?: boolean;
 }
 
 export function rankTopPromotions(
@@ -55,38 +58,26 @@ export function rankTopPromotions(
   });
 }
 
+/**
+ * Prefer calendar-month snapshot reads for common presets so Marketplace stays fast.
+ * last_7_days / last_30_days map to the current UTC month snapshot (not a live 20s resolve).
+ */
 function periodForPreset(
   preset: TopPromotionsPreset,
   customRange?: { start: Date; end: Date } | null,
 ): { mode: 'month'; period: MonthPeriod } | { mode: 'range'; start: Date; end: Date } {
   const now = new Date();
-  if (preset === 'this_month') {
+  if (preset === 'this_month' || preset === 'last_7_days' || preset === 'last_30_days') {
     return { mode: 'month', period: utcMonthPeriodFromDate(now) };
   }
   if (preset === 'custom' && customRange?.start && customRange?.end) {
     const s = customRange.start;
     const e = customRange.end;
-    if (
-      s.getUTCFullYear() === e.getUTCFullYear() &&
-      s.getUTCMonth() === e.getUTCMonth() &&
-      s.getUTCDate() === 1 &&
-      e.getUTCDate() === new Date(Date.UTC(e.getUTCFullYear(), e.getUTCMonth() + 1, 0)).getUTCDate()
-    ) {
+    // Any range within one UTC month → that month's snapshot
+    if (s.getUTCFullYear() === e.getUTCFullYear() && s.getUTCMonth() === e.getUTCMonth()) {
       return { mode: 'month', period: utcMonthPeriod(s.getUTCFullYear(), s.getUTCMonth()) };
     }
     return { mode: 'range', start: s, end: e };
-  }
-  if (preset === 'last_7_days') {
-    const end = now;
-    const start = new Date(now);
-    start.setUTCDate(start.getUTCDate() - 6);
-    return { mode: 'range', start, end };
-  }
-  if (preset === 'last_30_days') {
-    const end = now;
-    const start = new Date(now);
-    start.setUTCDate(start.getUTCDate() - 29);
-    return { mode: 'range', start, end };
   }
   if (preset === 'last_12_months') {
     return {
@@ -104,33 +95,35 @@ function periodForPreset(
 
 async function withLivePromotionTitles(rows: TopPromotionRow[]): Promise<TopPromotionRow[]> {
   const ids = rows.map((r) => r.promotionId).filter(Boolean);
+  if (ids.length === 0) return rows;
   const titles = await fetchPromotionDisplayTitles(ids);
   return rows.map((r) => ({
     ...r,
-    title: titles.get(r.promotionId) ?? r.title ?? r.promotionId,
+    title: titles.get(r.promotionId) || r.title || r.promotionId,
   }));
 }
 
 async function loadMonthPromotionRows(
   organizationId: string,
   period: MonthPeriod,
+  forceRefresh: boolean,
 ): Promise<TopPromotionRow[]> {
-  console.log('[getTopPromotionsAnalytics] loadMonth', { organizationId, period });
+  console.log('[getTopPromotionsAnalytics] loadMonth', { organizationId, period, forceRefresh });
+
+  if (forceRefresh) {
+    await refreshProvisionalMonthlySnapshot(organizationId, period);
+  }
+
   let snap = await getMonthlySnapshot(organizationId, period);
+
+  // Only compute when there is truly no snapshot (first visit / empty month).
   if (!snap) {
-    console.log('[getTopPromotionsAnalytics] no snapshot — refreshing provisional');
-    try {
-      await refreshProvisionalMonthlySnapshot(organizationId, period);
-    } catch (e) {
-      console.error('[getTopPromotionsAnalytics] refreshProvisionalMonthlySnapshot failed', e);
-      throw e;
-    }
+    console.log('[getTopPromotionsAnalytics] no snapshot rows — computing once');
+    await refreshProvisionalMonthlySnapshot(organizationId, period);
     snap = await getMonthlySnapshot(organizationId, period);
   }
-  if (!snap) {
-    console.warn('[getTopPromotionsAnalytics] still no snapshot after refresh');
-    return [];
-  }
+
+  if (!snap) return [];
 
   const promoRows = snap.rows
     .filter((r) => r.ranking_type === 'promotion' && r.rank != null)
@@ -147,6 +140,7 @@ async function loadMonthPromotionRows(
     rpc: Number(r.rpc) || 0,
   }));
 
+  // Overlay assignment titles so UUID / stale entity_name_snapshot never shows in UI.
   return withLivePromotionTitles(mapped);
 }
 
@@ -155,7 +149,7 @@ async function computePromotionRowsForRange(
   start: Date,
   end: Date,
 ): Promise<TopPromotionRow[]> {
-  console.log('[getTopPromotionsAnalytics] live range', {
+  console.log('[getTopPromotionsAnalytics] live range (no snapshot write)', {
     organizationId,
     start: start.toISOString(),
     end: end.toISOString(),
@@ -180,14 +174,8 @@ async function computePromotionRowsForRange(
       .lte('created_at', end.toISOString()),
   ]);
 
-  if (stripeRes.error) {
-    console.error('[getTopPromotionsAnalytics] stripe fetch failed', stripeRes.error);
-    throw new Error(stripeRes.error.message);
-  }
-  if (pixelRes.error) {
-    console.error('[getTopPromotionsAnalytics] pixel fetch failed', pixelRes.error);
-    throw new Error(pixelRes.error.message);
-  }
+  if (stripeRes.error) throw new Error(stripeRes.error.message);
+  if (pixelRes.error) throw new Error(pixelRes.error.message);
 
   const resolved = await resolveConversionOwners({
     stripePurchases: (stripeRes.data ?? []) as any,
@@ -226,23 +214,15 @@ async function computePromotionRowsForRange(
 export async function getTopPromotionsAnalytics(
   params: TopPromotionsParams,
 ): Promise<TopPromotionRow[]> {
-  const { organizationId, preset, customRange } = params;
+  const { organizationId, preset, customRange, forceRefresh = false } = params;
   if (!organizationId) return [];
-
-  try {
-    await ensureCurrentMonthProvisional(organizationId);
-  } catch (e) {
-    console.error(
-      '[getTopPromotionsAnalytics] current-month snapshot write failed (ranking may still work live)',
-      e,
-    );
-  }
 
   const window = periodForPreset(preset, customRange ?? null);
 
   if (window.mode === 'month') {
-    return loadMonthPromotionRows(organizationId, window.period);
+    return loadMonthPromotionRows(organizationId, window.period, forceRefresh);
   }
 
+  // Multi-month range: live only (does not rewrite monthly snapshots).
   return computePromotionRowsForRange(organizationId, window.start, window.end);
 }

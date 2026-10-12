@@ -1,12 +1,11 @@
 /**
  * getTopMarketersAnalytics.ts
  *
- * Canonical Marketer Revenue ranking (ownerMarketerId).
- * Promotion slice titles: assignments.title via promotions.assignment_id.
+ * Fast path: read monthly_ranking_snapshots when present.
+ * Slow path only when no rows or forceRefresh=true (Update button).
  */
 
 import {
-  ensureCurrentMonthProvisional,
   fetchPromotionDisplayTitles,
   getMonthlySnapshot,
   refreshProvisionalMonthlySnapshot,
@@ -47,6 +46,7 @@ export interface TopMarketersParams {
   organizationId: string;
   preset: TopMarketersPreset;
   customRange?: { start: Date; end: Date } | null;
+  forceRefresh?: boolean;
 }
 
 export function rankTopMarketers(rows: MarketerRow[], metric: TopMarketersMetric): MarketerRow[] {
@@ -62,33 +62,16 @@ function periodForPreset(
   customRange?: { start: Date; end: Date } | null,
 ): { mode: 'month'; period: MonthPeriod } | { mode: 'range'; start: Date; end: Date } {
   const now = new Date();
-  if (preset === 'this_month') {
+  if (preset === 'this_month' || preset === 'last_7_days' || preset === 'last_30_days') {
     return { mode: 'month', period: utcMonthPeriodFromDate(now) };
   }
   if (preset === 'custom' && customRange?.start && customRange?.end) {
     const s = customRange.start;
     const e = customRange.end;
-    if (
-      s.getUTCFullYear() === e.getUTCFullYear() &&
-      s.getUTCMonth() === e.getUTCMonth() &&
-      s.getUTCDate() === 1 &&
-      e.getUTCDate() === new Date(Date.UTC(e.getUTCFullYear(), e.getUTCMonth() + 1, 0)).getUTCDate()
-    ) {
+    if (s.getUTCFullYear() === e.getUTCFullYear() && s.getUTCMonth() === e.getUTCMonth()) {
       return { mode: 'month', period: utcMonthPeriod(s.getUTCFullYear(), s.getUTCMonth()) };
     }
     return { mode: 'range', start: s, end: e };
-  }
-  if (preset === 'last_7_days') {
-    const end = now;
-    const start = new Date(now);
-    start.setUTCDate(start.getUTCDate() - 6);
-    return { mode: 'range', start, end };
-  }
-  if (preset === 'last_30_days') {
-    const end = now;
-    const start = new Date(now);
-    start.setUTCDate(start.getUTCDate() - 29);
-    return { mode: 'range', start, end };
   }
   if (preset === 'last_12_months') {
     return {
@@ -107,16 +90,18 @@ function periodForPreset(
 async function loadMonthMarketerRows(
   organizationId: string,
   period: MonthPeriod,
+  forceRefresh: boolean,
 ): Promise<MarketerRow[]> {
-  console.log('[getTopMarketersAnalytics] loadMonth', { organizationId, period });
+  console.log('[getTopMarketersAnalytics] loadMonth', { organizationId, period, forceRefresh });
+
+  if (forceRefresh) {
+    await refreshProvisionalMonthlySnapshot(organizationId, period);
+  }
+
   let snap = await getMonthlySnapshot(organizationId, period);
   if (!snap) {
-    try {
-      await refreshProvisionalMonthlySnapshot(organizationId, period);
-    } catch (e) {
-      console.error('[getTopMarketersAnalytics] refreshProvisionalMonthlySnapshot failed', e);
-      throw e;
-    }
+    console.log('[getTopMarketersAnalytics] no snapshot rows — computing once');
+    await refreshProvisionalMonthlySnapshot(organizationId, period);
     snap = await getMonthlySnapshot(organizationId, period);
   }
   if (!snap) return [];
@@ -141,12 +126,6 @@ async function computeMarketerRowsForRange(
   start: Date,
   end: Date,
 ): Promise<MarketerRow[]> {
-  console.log('[getTopMarketersAnalytics] live range', {
-    organizationId,
-    start: start.toISOString(),
-    end: end.toISOString(),
-  });
-
   const [stripeRes, pixelRes] = await Promise.all([
     supabase
       .from('stripe_purchases')
@@ -166,14 +145,8 @@ async function computeMarketerRowsForRange(
       .lte('created_at', end.toISOString()),
   ]);
 
-  if (stripeRes.error) {
-    console.error('[getTopMarketersAnalytics] stripe fetch failed', stripeRes.error);
-    throw new Error(stripeRes.error.message);
-  }
-  if (pixelRes.error) {
-    console.error('[getTopMarketersAnalytics] pixel fetch failed', pixelRes.error);
-    throw new Error(pixelRes.error.message);
-  }
+  if (stripeRes.error) throw new Error(stripeRes.error.message);
+  if (pixelRes.error) throw new Error(pixelRes.error.message);
 
   const resolved = await resolveConversionOwners({
     stripePurchases: (stripeRes.data ?? []) as any,
@@ -247,22 +220,13 @@ async function computeMarketerRowsForRange(
 export async function getTopMarketersAnalytics(
   params: TopMarketersParams,
 ): Promise<MarketerRow[]> {
-  const { organizationId, preset, customRange } = params;
+  const { organizationId, preset, customRange, forceRefresh = false } = params;
   if (!organizationId) return [];
-
-  try {
-    await ensureCurrentMonthProvisional(organizationId);
-  } catch (e) {
-    console.error(
-      '[getTopMarketersAnalytics] current-month snapshot write failed (ranking may still work live)',
-      e,
-    );
-  }
 
   const window = periodForPreset(preset, customRange ?? null);
 
   if (window.mode === 'month') {
-    return loadMonthMarketerRows(organizationId, window.period);
+    return loadMonthMarketerRows(organizationId, window.period, forceRefresh);
   }
 
   return computeMarketerRowsForRange(organizationId, window.start, window.end);
