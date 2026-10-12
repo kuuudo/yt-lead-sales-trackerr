@@ -208,7 +208,12 @@ export async function discoverJourneysForVideos(
     .sort((a, b) => b[1] - a[1])
     .map(([id]) => id);
   const truncated = rowLimitHit || orderedIds.length > maxJourneys;
-  const keptIds = orderedIds.slice(0, maxJourneys);
+const keptIds = orderedIds.slice(0, maxJourneys);
+console.log('[DIAG cap]', {
+  rank: orderedIds.indexOf('3fac8ee5-32de-484c-a219-010eb36d304a'),
+  total: orderedIds.length,
+  max: maxJourneys,
+});
 
   // 3. Canonical (latest-row) path per journey_id — existing journey.ts rule.
   const resolved = await mapLimit(keptIds, VIDEO_DISCOVERY_CONCURRENCY, (id) => getJourneyById(id));

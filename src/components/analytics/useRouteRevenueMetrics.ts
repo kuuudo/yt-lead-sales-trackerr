@@ -304,6 +304,9 @@ console.log('[useRouteRevenueMetrics] purchases fetched', { stripe: stripe.lengt
     merged.forEach((_, id) => {
       if (renderedIds.has(id)) keyHits += 1;
     });
+    console.log('[DIAG rev routes]', Array.from(revMap.entries())
+  .filter(([, m]) => (m.total_revenue ?? 0) > 0)
+  .map(([k, m]) => ({ k, rev: m.total_revenue })));
     console.log('[useRouteRevenueMetrics] metrics→UI bridge', {
       clickMapSize: clickMap.size,
       routesWithClicks: withClicks.length,
