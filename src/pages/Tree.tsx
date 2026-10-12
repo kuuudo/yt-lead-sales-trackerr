@@ -22,8 +22,8 @@ const BUTTONS: { key: HeroButtonKey; label: string; path: string }[] = [
 
 const MODEL = {
   title: 'Ryppypaju',
-  embedUrl:
-    'https://sketchfab.com/models/da5b7216ddf34ef1a7103a7ebd26ca20/embed?camera=0&transparent=1',
+embedUrl:
+  'https://sketchfab.com/models/da5b7216ddf34ef1a7103a7ebd26ca20/embed?autostart=1&camera=0&transparent=1',
   modelUrl: 'https://sketchfab.com/3d-models/ryppypaju-da5b7216ddf34ef1a7103a7ebd26ca20',
   author: 'carelessantics',
   authorUrl: 'https://sketchfab.com/carelessantics',
