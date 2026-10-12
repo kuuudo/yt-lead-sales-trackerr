@@ -76,11 +76,7 @@ const DISCOVERY_BATCH = 50;
 
 export const JOURNEY_ANALYTICS_EXTRA = [
   { key: 'type', label: 'Type' },
-  { key: 'promotion', label: 'Promotion' },
-  { key: 'asset_campaign', label: 'Asset Campaign' },
-  { key: 'content_campaign', label: 'Content Campaign' },
   { key: 'asset_clicks', label: 'Asset Clicks' },
-  { key: 'downstream', label: 'Downstream' },
   { key: 'total_revenue_front', label: 'Total Revenue ($)' },
 ] as const;
 
@@ -2114,24 +2110,14 @@ const showMoreBar =
                         <td className="px-4 py-3 whitespace-nowrap">
                           <TypeCell types={types} />
                         </td>
-                        <td className="px-4 py-3 whitespace-nowrap text-sm font-bold text-zinc-600">
-                          —
-                        </td>
-                        <td className="px-4 py-3 whitespace-nowrap text-sm font-bold text-zinc-600">
-                          —
-                        </td>
-                        <td className="px-4 py-3 whitespace-nowrap text-sm font-bold text-zinc-600">
-                          —
-                        </td>
-                        <td className="px-4 py-3 whitespace-nowrap text-sm font-bold text-zinc-600 tabular-nums">
-                          —
-                        </td>
-                        <td className="px-4 py-3 whitespace-nowrap text-sm font-bold text-zinc-600">
-                          —
-                        </td>
-                        <td className="px-4 py-3 whitespace-nowrap text-sm font-bold text-zinc-600 tabular-nums">
-                          —
-                        </td>
+                        {JOURNEY_ANALYTICS_EXTRA.slice(1).map((c) => (
+                          <td
+                            key={c.key}
+                            className="px-4 py-3 whitespace-nowrap text-sm font-bold text-zinc-600 tabular-nums"
+                          >
+                            —
+                          </td>
+                        ))}
                         {TABLE_COLUMNS.map((key) => (
                           <td
                             key={key}
