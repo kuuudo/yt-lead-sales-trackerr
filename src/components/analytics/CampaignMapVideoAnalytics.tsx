@@ -76,14 +76,22 @@ function palette(dark: boolean) {
 export type AnalyticsCardStatus = 'loading' | 'error' | 'ready' | 'incomplete'
 
 /** Canvas-space cards (render inside the zoomed canvas div, so they scale with the map). */
+export interface AnalyticsCardNode {
+  partKey: string
+  videoId: string
+  x: number
+  y: number
+  w: number
+  status: AnalyticsCardStatus
+  row: ProcessedVideoRow | null
+}
+
 export function VideoAnalyticsCardsLayer({
-  presentation, nodes, rows, status, onOpen,
+  presentation, nodes, onOpen,
 }: {
   presentation: 'campaign' | 'tree'
-  nodes: Array<{ videoId: string; x: number; y: number; w: number }>
-  rows: Map<string, ProcessedVideoRow> | null
-  status: AnalyticsCardStatus
-  onOpen: (videoId: string) => void
+  nodes: AnalyticsCardNode[]
+  onOpen: (partKey: string, videoId: string) => void
 }) {
   const p = palette(presentation === 'tree')
   const line = (label: string, value: string, money?: boolean) => (
@@ -95,21 +103,21 @@ export function VideoAnalyticsCardsLayer({
   return (
     <>
       {nodes.map((n) => {
-        const row = rows?.get(n.videoId)
-        const ready = status === 'ready' && !!row
+        const row = n.row
+        const ready = n.status === 'ready' && !!row
         const msg =
-          status === 'loading' ? 'Loading analytics…'
-          : status === 'error' ? 'Analytics unavailable'
-          : status === 'incomplete' ? 'Pick a start and end date'
+          n.status === 'loading' ? 'Loading analytics…'
+          : n.status === 'error' ? 'Analytics unavailable'
+          : n.status === 'incomplete' ? 'Pick a start and end date'
           : 'No analytics for this video'
         return (
           <div
-            key={`vacard:${n.videoId}`}
+            key={`vacard:${n.partKey}:${n.videoId}`}
             role="button"
             tabIndex={0}
             title={ready ? 'Open full analytics' : undefined}
             onPointerDown={(e) => e.stopPropagation()}
-            onClick={() => { if (ready) onOpen(n.videoId) }}
+            onClick={() => { if (ready) onOpen(n.partKey, n.videoId) }}
             style={{
               position: 'absolute', left: n.x, top: n.y, width: n.w, height: CARD_H, boxSizing: 'border-box',
               padding: '7px 12px', display: 'flex', flexDirection: 'column', justifyContent: 'center', gap: 2,
@@ -134,18 +142,30 @@ export function VideoAnalyticsCardsLayer({
   )
 }
 
-/** Screen-space period picker + warnings, rendered inside the chip bar. */
-export function AnalyticsRangeBar({
-  presentation, range, customStart, customEnd, notes, showRetry, onRangeChange, onCustomChange, onRetry,
+export interface PartRange {
+  range: DateRange
+  start: string
+  end: string
+}
+export const DEFAULT_PART_RANGE: PartRange = { range: 'all', start: '', end: '' }
+export interface PartControl {
+  key: string
+  x: number
+  y: number
+}
+
+/** Canvas-space: one button / period panel per month circle (Part), beside the circle. */
+export function PartAnalyticsControls({
+  presentation, parts, openKeys, ranges, notes, showRetry, onToggle, onRangeChange, onRetry,
 }: {
   presentation: 'campaign' | 'tree'
-  range: DateRange
-  customStart: string
-  customEnd: string
-  notes: string[]
+  parts: PartControl[]
+  openKeys: Set<string>
+  ranges: Record<string, PartRange>
+  notes: Record<string, string[]>
   showRetry: boolean
-  onRangeChange: (r: DateRange) => void
-  onCustomChange: (start: string, end: string) => void
+  onToggle: (key: string) => void
+  onRangeChange: (key: string, patch: Partial<PartRange>) => void
   onRetry: () => void
 }) {
   const dark = presentation === 'tree'
@@ -155,31 +175,77 @@ export function AnalyticsRangeBar({
     fontSize: 12, padding: '5px 8px', colorScheme: dark ? 'dark' : 'light',
   }
   return (
-    <div
-      onPointerDown={(e) => e.stopPropagation()}
-      style={{
-        pointerEvents: 'auto', flexBasis: '100%', display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 8,
-        padding: '6px 10px', borderRadius: 10, border: `1px solid ${p.border}`, background: p.raised, maxWidth: 560,
-      }}
-    >
-      <span style={{ fontSize: 10, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.06em', color: p.label }}>Metrics period</span>
-      <select value={range} onChange={(e) => onRangeChange(e.target.value as DateRange)} style={field} aria-label="Analytics period">
-        {ANALYTICS_RANGE_OPTIONS.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
-      </select>
-      {range === 'custom' && (
-        <>
-          <input type="date" value={customStart} max={customEnd || undefined} onChange={(e) => onCustomChange(e.target.value, customEnd)} style={field} aria-label="Start date" />
-          <input type="date" value={customEnd} min={customStart || undefined} onChange={(e) => onCustomChange(customStart, e.target.value)} style={field} aria-label="End date" />
-        </>
-      )}
-      {showRetry && <button type="button" onClick={onRetry} style={{ ...field, cursor: 'pointer', fontWeight: 700 }}>Retry</button>}
-      {notes.map((t) => (
-        <div key={t} style={{ flexBasis: '100%', fontSize: 11, color: p.warn }}>{t}</div>
-      ))}
-      <div style={{ flexBasis: '100%', fontSize: 10.5, color: p.faint }}>
-        Videos come from the month; figures cover activity in the selected period only.
-      </div>
-    </div>
+    <>
+      {parts.map((part) => {
+        const open = openKeys.has(part.key)
+        const pr = ranges[part.key] ?? DEFAULT_PART_RANGE
+        return (
+          <div
+            key={`pactl:${part.key}`}
+            onPointerDown={(e) => e.stopPropagation()}
+            style={{ position: 'absolute', left: part.x, top: part.y, zIndex: 3 }}
+          >
+            {!open ? (
+              <button
+                type="button"
+                onClick={() => onToggle(part.key)}
+                style={{
+                  fontSize: 12, fontWeight: 700, padding: '7px 14px', borderRadius: 999, cursor: 'pointer',
+                  whiteSpace: 'nowrap', border: '1px solid #3b82f6', background: '#2563eb', color: '#ffffff',
+                  boxShadow: '0 2px 8px rgba(0,0,0,0.35)',
+                }}
+              >
+                Show Analytics
+              </button>
+            ) : (
+              <div
+                style={{
+                  width: 290, boxSizing: 'border-box', display: 'flex', flexDirection: 'column', gap: 6,
+                  padding: '8px 10px', borderRadius: 10, border: `1px solid ${p.border}`, background: p.raised,
+                  boxShadow: '0 4px 14px rgba(0,0,0,0.35)',
+                }}
+              >
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                  <span style={{ fontSize: 10, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.06em', color: p.label }}>Metrics period</span>
+                  <select
+                    value={pr.range}
+                    onChange={(e) => onRangeChange(part.key, { range: e.target.value as DateRange })}
+                    style={{ ...field, flex: 1, minWidth: 0 }}
+                    aria-label="Analytics period"
+                  >
+                    {ANALYTICS_RANGE_OPTIONS.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
+                  </select>
+                  <button
+                    type="button"
+                    onClick={() => onToggle(part.key)}
+                    aria-label="Close analytics"
+                    title="Close analytics"
+                    style={{ ...field, cursor: 'pointer', fontSize: 13, lineHeight: 1, padding: '5px 8px' }}
+                  >
+                    ✕
+                  </button>
+                </div>
+                {pr.range === 'custom' && (
+                  <div style={{ display: 'flex', gap: 6 }}>
+                    <input type="date" value={pr.start} max={pr.end || undefined} onChange={(e) => onRangeChange(part.key, { start: e.target.value })} style={{ ...field, flex: 1, minWidth: 0 }} aria-label="Start date" />
+                    <input type="date" value={pr.end} min={pr.start || undefined} onChange={(e) => onRangeChange(part.key, { end: e.target.value })} style={{ ...field, flex: 1, minWidth: 0 }} aria-label="End date" />
+                  </div>
+                )}
+                {showRetry && (
+                  <button type="button" onClick={onRetry} style={{ ...field, cursor: 'pointer', fontWeight: 700 }}>Retry</button>
+                )}
+                {(notes[part.key] ?? []).map((t) => (
+                  <div key={t} style={{ fontSize: 11, color: p.warn, lineHeight: 1.35 }}>{t}</div>
+                ))}
+                <div style={{ fontSize: 10.5, color: p.faint, lineHeight: 1.35 }}>
+                  Figures cover activity in this period only.
+                </div>
+              </div>
+            )}
+          </div>
+        )
+      })}
+    </>
   )
 }
 
