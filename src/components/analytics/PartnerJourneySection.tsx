@@ -1009,10 +1009,12 @@ className="relative left-1/2 -ml-[50vw] w-screen flex mt-8 min-h-[75vh] border-t
           </div>
           )}
 
+
           <div className="flex flex-wrap items-center justify-center gap-3 py-2">
             <span className="text-[9px] font-bold uppercase tracking-widest text-zinc-600">
               {labels.showing} {shown.length} {labels.of} {visible.length}
             </span>
+
             {hidden > 0 && (
               <button
                 type="button"
@@ -1020,18 +1022,24 @@ className="relative left-1/2 -ml-[50vw] w-screen flex mt-8 min-h-[75vh] border-t
                 className="h-9 px-5 rounded-xl bg-zinc-900 border border-zinc-800 text-[10px] font-black uppercase tracking-widest text-zinc-300 hover:text-white hover:border-zinc-600"
               >
                 {labels.showRest}
-                <span className="ml-2 text-zinc-600 normal-case tracking-normal font-bold">({hidden})</span>
+                <span className="ml-2 text-zinc-600 normal-case tracking-normal font-bold">
+                  ({hidden})
+                </span>
               </button>
             )}
+
             <input
               type="number"
               min={1}
               value={rowLimitInput}
               onChange={(e) => setRowLimitInput(e.target.value)}
-              onKeyDown={(e) => { if (e.key === 'Enter') applyRowLimit(); }}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') applyRowLimit();
+              }}
               placeholder={labels.rowsPlaceholder}
               className="w-20 h-9 bg-zinc-900 border border-zinc-800 rounded-xl px-2 text-[10px] font-bold text-white outline-none"
             />
+
             <button
               type="button"
               onClick={applyRowLimit}
@@ -1039,13 +1047,21 @@ className="relative left-1/2 -ml-[50vw] w-screen flex mt-8 min-h-[75vh] border-t
             >
               {labels.showRows}
             </button>
+
+            {hidden > 0 && (
+              <button
+                type="button"
+                onClick={() => setRowLimit(displayed.length)}
                 className="h-9 px-5 rounded-xl bg-zinc-900 border border-zinc-800 text-[10px] font-black uppercase tracking-widest text-zinc-300 hover:text-white hover:border-zinc-600"
               >
                 {labels.showMore}
-                <span className="ml-2 text-zinc-600 normal-case tracking-normal font-bold">({hidden})</span>
+                <span className="ml-2 text-zinc-600 normal-case tracking-normal font-bold">
+                  ({hidden})
+                </span>
               </button>
             )}
           </div>
+
         </>
       )}
             </div>
