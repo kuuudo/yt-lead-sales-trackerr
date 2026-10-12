@@ -813,7 +813,7 @@ export default function JourneyAnalytics() {
 
 
   // Filters
-  const [dateRange, setDateRange] = useState<DateRange>('30days');
+  const [dateRange, setDateRange] = useState<DateRange>('all');
   const [customRange, setCustomRange] = useState<CustomDateRange | null>(null);
   const [activeSource, setActiveSource] = useState<RevenueView>('total');
   const [selectedCampaignId, setSelectedCampaignId] = useState<string>(
@@ -846,7 +846,12 @@ export default function JourneyAnalytics() {
   const [showContentOwner, setShowContentOwner] = useState(false);
   /** UI-only sort of filtered route rows; does not mutate grouping source data. */
   const [routeSortMode, setRouteSortMode] = useState<RouteSortMode>('default');
-
+const [colSort, setColSort] = useState<{ key: (typeof TABLE_COLUMNS)[number]; dir: 'asc' | 'desc' } | null>(null);
+const [rowLimit, setRowLimit] = useState(15);
+const [rowLimitInput, setRowLimitInput] = useState('');
+const topScrollRef = useRef<HTMLDivElement>(null);
+const mainScrollRef = useRef<HTMLDivElement>(null);
+const [tableScrollWidth, setTableScrollWidth] = useState(0);
   const [assetCampaignOpen, setAssetCampaignOpen] = useState(false);
   const [contentCampaignOpen, setContentCampaignOpen] = useState(false);
   const [promotionOpen, setPromotionOpen] = useState(false);
@@ -1040,17 +1045,74 @@ console.log('[DIAG membership]', {
    * longest_first = by video-step count (path.steps.length), not memberJourneyIds.
    * Equal lengths keep relative order (stable via original index).
    */
-  const displayedJourneys = useMemo(() => {
-    if (routeSortMode === 'default') return visibleJourneys;
+ const displayedJourneys = useMemo(() => {
+  if (colSort) {
+    const toNum = (j: (typeof visibleJourneys)[number]) => {
+      const text = formatRouteMetricCell(colSort.key, routeMetrics.get(j.journeyId), false);
+      const n = parseFloat(String(text).replace(/[^0-9.\-]/g, ''));
+      return Number.isFinite(n) ? n : 0;
+    };
     return visibleJourneys
-      .map((j, index) => ({ j, index }))
-      .sort((a, b) => {
-        const lenDiff = routeVideoStepCount(b.j) - routeVideoStepCount(a.j);
-        if (lenDiff !== 0) return lenDiff;
-        return a.index - b.index;
-      })
+      .map((j, index) => ({ j, index, v: toNum(j) }))
+      .sort((a, b) => (colSort.dir === 'desc' ? b.v - a.v : a.v - b.v) || a.index - b.index)
       .map(({ j }) => j);
-  }, [visibleJourneys, routeSortMode]);
+  }
+  if (routeSortMode === 'default') return visibleJourneys;
+  return visibleJourneys
+    .map((j, index) => ({ j, index }))
+    .sort((a, b) => {
+      const lenDiff = routeVideoStepCount(b.j) - routeVideoStepCount(a.j);
+      if (lenDiff !== 0) return lenDiff;
+      return a.index - b.index;
+    })
+    .map(({ j }) => j);
+}, [visibleJourneys, routeSortMode, colSort, routeMetrics]);
+
+const shownJourneys = showAnalytics ? displayedJourneys.slice(0, rowLimit) : displayedJourneys;
+const hiddenCount = Math.max(0, displayedJourneys.length - rowLimit);
+const applyRowLimit = () => {
+  const n = parseInt(rowLimitInput, 10);
+  if (Number.isFinite(n) && n > 0) setRowLimit(n);
+};
+
+useEffect(() => {
+  const el = mainScrollRef.current;
+  if (!el) return;
+  const update = () => setTableScrollWidth(el.scrollWidth);
+  update();
+  window.addEventListener('resize', update);
+  return () => window.removeEventListener('resize', update);
+}, [rowLimit, displayedJourneys.length, showAnalytics, loading, activeSource]);
+
+const showMoreBar =
+  showAnalytics && displayedJourneys.length > 0 ? (
+    <div className="sticky left-0 flex flex-wrap items-center gap-3 px-6 py-4 text-[10px] font-bold uppercase tracking-widest text-zinc-500">
+      <span>
+        Showing {Math.min(rowLimit, displayedJourneys.length)} of {displayedJourneys.length}
+      </span>
+      {hiddenCount > 0 && (
+        <button
+          type="button"
+          onClick={() => setRowLimit(displayedJourneys.length)}
+          className="px-3 py-1.5 rounded-lg bg-zinc-800 text-white"
+        >
+          Show rest ({hiddenCount})
+        </button>
+      )}
+      <input
+        type="number"
+        min={1}
+        value={rowLimitInput}
+        onChange={(e) => setRowLimitInput(e.target.value)}
+        onKeyDown={(e) => { if (e.key === 'Enter') applyRowLimit(); }}
+        placeholder="rows"
+        className="w-20 bg-zinc-900 border border-zinc-800 rounded-lg px-2 py-1.5 text-white outline-none"
+      />
+      <button type="button" onClick={applyRowLimit} className="px-3 py-1.5 rounded-lg bg-zinc-800 text-white">
+        Show
+      </button>
+    </div>
+  ) : null;
 
   const handleSelectVideo = useCallback((videoId: string) => {
     setSelectedVideoId((prev) => (prev === videoId ? null : videoId));
@@ -1886,7 +1948,27 @@ console.log('[DIAG membership]', {
     </header>
     )}
 
-    <div className="flex-1 overflow-auto custom-scrollbar">
+    {showAnalytics && displayedJourneys.length > 0 && (
+  <div
+    ref={topScrollRef}
+    onScroll={() => {
+      if (mainScrollRef.current && topScrollRef.current)
+        mainScrollRef.current.scrollLeft = topScrollRef.current.scrollLeft;
+    }}
+    className="overflow-x-auto overflow-y-hidden custom-scrollbar"
+    style={{ height: 14 }}
+  >
+    <div style={{ width: tableScrollWidth, height: 1 }} />
+  </div>
+)}
+<div
+  ref={mainScrollRef}
+  onScroll={() => {
+    if (topScrollRef.current && mainScrollRef.current)
+      topScrollRef.current.scrollLeft = mainScrollRef.current.scrollLeft;
+  }}
+  className="flex-1 overflow-auto custom-scrollbar"
+>
 
           {loading && (
             <div className="py-20 text-center">
@@ -1916,7 +1998,7 @@ console.log('[DIAG membership]', {
 
           {!loading && !error && displayedJourneys.length > 0 && !showAnalytics && (
             <div className="px-4 lg:px-6 py-4 space-y-2">
-              {displayedJourneys.map((j) => {
+              {shownJourneys.map((j) => {
                 const members = routeMemberCount(j as { memberJourneyIds?: string[] });
                 const steps = routeVideoStepCount(j);
                 return (
@@ -1976,13 +2058,24 @@ console.log('[DIAG membership]', {
                         key={key}
                         className="px-4 py-4 text-left text-[10px] font-black uppercase tracking-widest text-zinc-600 border-b border-zinc-900 bg-zinc-950 whitespace-nowrap"
                       >
-                        {COLUMN_LABELS[key as MetricType] ?? key}
+                        <button
+  type="button"
+  onClick={() =>
+    setColSort((p) =>
+      p?.key === key ? (p.dir === 'desc' ? { key, dir: 'asc' } : null) : { key, dir: 'desc' },
+    )
+  }
+  className="uppercase tracking-widest hover:text-white"
+>
+  {COLUMN_LABELS[key as MetricType] ?? key}
+  {colSort?.key === key ? (colSort.dir === 'desc' ? ' ▼' : ' ▲') : ''}
+</button>
                       </th>
                     ))}
                   </tr>
                 </thead>
                 <tbody className="bg-black divide-y divide-zinc-900">
-                  {displayedJourneys.map((j) => {
+                  {shownJourneys.map((j) => {
                     const types = journeyPromotedTypes(j, videoDisplay);
                     const members = routeMemberCount(j as { memberJourneyIds?: string[] });
                     const steps = routeVideoStepCount(j);
@@ -2035,6 +2128,7 @@ console.log('[DIAG membership]', {
                   })}
                 </tbody>
               </table>
+{showMoreBar}
             </div>
           )}
         </div>
