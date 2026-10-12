@@ -166,7 +166,11 @@ export async function computeJourneyRouteRevenueMetrics(opts: {
     out.set(route.journeyId, metrics);
     if ((metrics.total_revenue ?? 0) > 0) routesWithRevenue += 1;
   }
-
+console.log('[DIAG owner]', {
+  stripeKeys: Array.from(stripeByJourney.keys()),
+  pixelKeys: Array.from(pixelByJourney.keys()),
+  hasTarget: stripeByJourney.has('3fac8ee5-32de-484c-a219-010eb36d304a'),
+});
   console.log('[journeyRouteRevenue] summary', {
     routes: routes.length,
     stripeIn: opts.stripePurchases.length,

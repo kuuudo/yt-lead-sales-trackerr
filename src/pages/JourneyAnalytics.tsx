@@ -937,6 +937,14 @@ export default function JourneyAnalytics() {
         setEntryVideoCount(ds.entryVideoCount);
         setJourneys(ds.journeys);
         setTruncated(ds.truncated);
+console.log('[DIAG membership]', {
+  routes: ds.journeys.length,
+  hit: ds.journeys
+    .filter((r: any) => (r.memberJourneyIds ?? []).includes('3fac8ee5-32de-484c-a219-010eb36d304a'))
+    .map((r: any) => ({ id: r.journeyId, members: r.memberJourneyIds })),
+  distinctMembers: new Set(ds.journeys.flatMap((r: any) => r.memberJourneyIds ?? [])).size,
+  truncated: ds.truncated,
+});
         setExcludedJourneys(ds.excludedJourneys);
         setVideoDisplay(ds.videoDisplay);
       } catch (e: any) {
