@@ -896,6 +896,20 @@ className="relative left-1/2 -ml-[50vw] w-screen flex mt-8 min-h-[75vh] border-t
         <>
           {showAnalytics ? (
             <div>
+              {metricsLoading && (
+                <div
+                  role="progressbar"
+                  aria-busy="true"
+                  aria-label="Loading stats"
+                  className="relative h-[3px] w-full overflow-hidden bg-zinc-900"
+                >
+                  <div
+                    className="absolute inset-y-0 w-1/3 bg-red-600"
+                    style={{ animation: 'vs-stats-bar 1.1s ease-in-out infinite' }}
+                  />
+                  <style>{`@keyframes vs-stats-bar{0%{left:-35%}100%{left:100%}}`}</style>
+                </div>
+              )}
               <div
                 ref={topScrollRef}
                 onScroll={() => {
