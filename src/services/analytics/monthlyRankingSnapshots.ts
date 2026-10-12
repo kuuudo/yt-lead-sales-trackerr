@@ -26,14 +26,24 @@ import {
 
 export type RankingType = 'total_revenue' | 'marketer' | 'promotion';
 export type SnapshotStatus = 'provisional' | 'finalized';
+/** Preset key stored on each snapshot row (supports multiple windows per org). */
+export type RankingWindow =
+  | 'last_7_days'
+  | 'last_30_days'
+  | 'this_month'
+  | 'last_12_months'
+  | 'all_time'
+  | 'custom';
 
 export const TOP_N = 10;
 
 export interface MonthPeriod {
-  /** Inclusive first day of month (UTC date). */
-  periodStart: string; // YYYY-MM-DD
-  /** Inclusive last day of month (UTC date). */
-  periodEnd: string; // YYYY-MM-DD
+  /** Inclusive start date (UTC YYYY-MM-DD). */
+  periodStart: string;
+  /** Inclusive end date (UTC YYYY-MM-DD). */
+  periodEnd: string;
+  /** Which UI preset this window belongs to. */
+  rankingWindow?: RankingWindow;
 }
 
 export interface RankingEntityRow {
@@ -50,6 +60,7 @@ export interface RankingEntityRow {
 export interface MonthlySnapshotPayload {
   organizationId: string;
   period: MonthPeriod;
+  rankingWindow: RankingWindow;
   totalRevenue: number;
   totalConversions: number;
   totalClicks: number;
@@ -65,6 +76,7 @@ export interface SnapshotRow {
   period_start: string;
   period_end: string;
   ranking_type: RankingType;
+  ranking_window?: string | null;
   rank: number | null;
   marketer_id: string | null;
   promotion_id: string | null;
@@ -263,6 +275,7 @@ export async function computeMonthlySnapshotPayload(
   return {
     organizationId,
     period,
+    rankingWindow: period.rankingWindow ?? 'this_month',
     totalRevenue: total.revenue,
     totalConversions: total.conversions,
     totalClicks: total.clicks,
@@ -320,9 +333,8 @@ export async function fetchPromotionDisplayTitles(
         (asg?.name && String(asg.name).trim()) ||
         null;
       const fromPromo = p.title && String(p.title).trim() ? String(p.title).trim() : null;
-      // Prefer assignment name; ignore trivial promo titles like "3"
-      const trivial = fromPromo && /^[0-9]+$/.test(fromPromo);
-      out.set(p.id, fromAsg || (!trivial ? fromPromo : null) || p.id);
+      // Assignment title wins even when numeric (e.g. "53535").
+      out.set(p.id, fromAsg || fromPromo || p.id);
     }
     console.log('[monthlyRankingSnapshots] promotion titles (nested)', {
       count: out.size,
@@ -380,8 +392,8 @@ export async function fetchPromotionDisplayTitles(
         ? assignmentTitle.get(row.assignment_id)!
         : null;
     const fromPromo = row.title && String(row.title).trim() ? String(row.title).trim() : null;
-    const trivial = fromPromo && /^[0-9]+$/.test(fromPromo);
-    out.set(row.id, fromAssignment || (!trivial ? fromPromo : null) || row.id);
+    // Assignment title wins (including numeric titles like "53535").
+    out.set(row.id, fromAssignment || fromPromo || row.id);
   }
 
   console.log('[monthlyRankingSnapshots] promotion titles (fallback)', {
@@ -434,15 +446,20 @@ export async function refreshProvisionalMonthlySnapshot(
 
 export async function saveProvisionalSnapshot(payload: MonthlySnapshotPayload): Promise<void> {
   const { organizationId, period } = payload;
+  const rankingWindow = payload.rankingWindow ?? period.rankingWindow ?? 'this_month';
   const snapshotAt = payload.computedAt;
 
-  // Delete existing provisional set for this org/month, then insert full set.
-  const { error: delErr } = await supabase
+  // Delete existing provisional set for this org + window + period_start only.
+  let del = supabase
     .from('monthly_ranking_snapshots')
     .delete()
     .eq('organization_id', organizationId)
     .eq('period_start', period.periodStart)
     .eq('status', 'provisional');
+  // ranking_window filter when column exists (migration applied)
+  del = del.eq('ranking_window', rankingWindow);
+
+  const { error: delErr } = await del;
 
   if (delErr) {
     throw new Error(`monthlyRankingSnapshots: delete provisional failed — ${delErr.message}`);
@@ -455,6 +472,7 @@ export async function saveProvisionalSnapshot(payload: MonthlySnapshotPayload): 
     period_start: period.periodStart,
     period_end: period.periodEnd,
     ranking_type: 'total_revenue',
+    ranking_window: rankingWindow,
     rank: null,
     marketer_id: null,
     promotion_id: null,
@@ -474,6 +492,7 @@ export async function saveProvisionalSnapshot(payload: MonthlySnapshotPayload): 
       period_start: period.periodStart,
       period_end: period.periodEnd,
       ranking_type: 'marketer',
+      ranking_window: rankingWindow,
       rank: m.rank,
       marketer_id: m.marketerId ?? null,
       promotion_id: null,
@@ -494,6 +513,7 @@ export async function saveProvisionalSnapshot(payload: MonthlySnapshotPayload): 
       period_start: period.periodStart,
       period_end: period.periodEnd,
       ranking_type: 'promotion',
+      ranking_window: rankingWindow,
       rank: p.rank,
       marketer_id: null,
       promotion_id: p.promotionId ?? null,
@@ -645,13 +665,18 @@ export async function getMonthlySnapshot(
   organizationId: string,
   period: MonthPeriod,
 ): Promise<{ status: SnapshotStatus; version: number; rows: SnapshotRow[] } | null> {
-  const { data: finalized, error: fErr } = await supabase
+  const rankingWindow = period.rankingWindow ?? 'this_month';
+
+  let finQ = supabase
     .from('monthly_ranking_snapshots')
     .select('*')
     .eq('organization_id', organizationId)
     .eq('period_start', period.periodStart)
     .eq('status', 'finalized')
+    .eq('ranking_window', rankingWindow)
     .order('snapshot_version', { ascending: false });
+
+  const { data: finalized, error: fErr } = await finQ;
 
   if (fErr) throw new Error(fErr.message);
 
@@ -666,6 +691,7 @@ export async function getMonthlySnapshot(
     .select('*')
     .eq('organization_id', organizationId)
     .eq('period_start', period.periodStart)
+    .eq('ranking_window', rankingWindow)
     .eq('status', 'provisional');
 
   if (pErr) throw new Error(pErr.message);
