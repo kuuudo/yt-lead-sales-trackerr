@@ -230,3 +230,96 @@ CREATE UNIQUE INDEX IF NOT EXISTS monthly_ranking_snapshots_finalized_asset_rank
   WHERE status = 'finalized' AND ranking_type = 'asset';
 
 COMMIT;
+
+-- Campaign monthly snapshots for Tree.tsx (and shared Campaign metrics).
+-- Separate from monthly_ranking_snapshots (rankings cannot hold five per-campaign metrics).
+-- Lifecycle mirrors ranking snapshots: provisional replaceable; finalized not silently overwritten.
+--
+-- THIS FILE IS GENERATED SQL. It has NOT been executed against your database.
+
+BEGIN;
+
+CREATE TABLE IF NOT EXISTS public.campaign_monthly_snapshots (
+  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  organization_id uuid NOT NULL,
+  campaign_id uuid NOT NULL,
+  period_start date NOT NULL,
+  period_end date NOT NULL,
+  -- Five metrics (All Assets / InDepth semantics)
+  purchases integer NOT NULL DEFAULT 0,
+  sales_calls integer NOT NULL DEFAULT 0,
+  newsletter_optins integer NOT NULL DEFAULT 0,
+  consultations integer NOT NULL DEFAULT 0,
+  revenue numeric(18, 4) NOT NULL DEFAULT 0,
+  -- Optional rollup of conversion rows that contributed to revenue (not a 6th UI metric)
+  revenue_conversions integer NOT NULL DEFAULT 0,
+  status text NOT NULL DEFAULT 'provisional'
+    CHECK (status IN ('provisional', 'finalized')),
+  snapshot_version integer NOT NULL DEFAULT 1,
+  snapshot_at timestamptz NOT NULL DEFAULT now(),
+  created_at timestamptz NOT NULL DEFAULT now(),
+  updated_at timestamptz NOT NULL DEFAULT now()
+);
+
+-- One provisional row per org + campaign + month
+CREATE UNIQUE INDEX IF NOT EXISTS campaign_monthly_snapshots_provisional_uidx
+  ON public.campaign_monthly_snapshots (organization_id, campaign_id, period_start)
+  WHERE status = 'provisional';
+
+-- Finalized versions may coexist by snapshot_version
+CREATE UNIQUE INDEX IF NOT EXISTS campaign_monthly_snapshots_finalized_uidx
+  ON public.campaign_monthly_snapshots (organization_id, campaign_id, period_start, snapshot_version)
+  WHERE status = 'finalized';
+
+CREATE INDEX IF NOT EXISTS campaign_monthly_snapshots_org_period_idx
+  ON public.campaign_monthly_snapshots (organization_id, period_start);
+
+ALTER TABLE public.campaign_monthly_snapshots ENABLE ROW LEVEL SECURITY;
+
+-- Align with org-scoped read/write patterns used elsewhere.
+-- Adjust policy names if your project already defines equivalent helpers.
+DO $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_policies
+    WHERE tablename = 'campaign_monthly_snapshots' AND policyname = 'campaign_monthly_snapshots_select_org'
+  ) THEN
+    CREATE POLICY campaign_monthly_snapshots_select_org
+      ON public.campaign_monthly_snapshots
+      FOR SELECT
+      USING (
+        organization_id IN (
+          SELECT organization_id FROM public.organization_members
+          WHERE user_id = auth.uid()
+        )
+      );
+  END IF;
+
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_policies
+    WHERE tablename = 'campaign_monthly_snapshots' AND policyname = 'campaign_monthly_snapshots_write_org'
+  ) THEN
+    CREATE POLICY campaign_monthly_snapshots_write_org
+      ON public.campaign_monthly_snapshots
+      FOR ALL
+      USING (
+        organization_id IN (
+          SELECT organization_id FROM public.organization_members
+          WHERE user_id = auth.uid()
+        )
+      )
+      WITH CHECK (
+        organization_id IN (
+          SELECT organization_id FROM public.organization_members
+          WHERE user_id = auth.uid()
+        )
+      );
+  END IF;
+EXCEPTION
+  WHEN undefined_table THEN
+    -- organization_members may differ by project; table still created for manual policy attach
+    RAISE NOTICE 'organization_members missing — attach RLS policies manually';
+END $$;
+
+COMMIT;
+
