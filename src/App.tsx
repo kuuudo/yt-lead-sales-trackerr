@@ -163,10 +163,10 @@ function Navigation() {
 
   const links = [
     { to: '/tree', icon: Globe, label: t.nav.tree || 'Tree' },
-    { to: '/dashboard', icon: LayoutDashboard, label: t.nav.dashboard },
     { to: '/campaigns', icon: Briefcase, label: t.nav.campaigns },
     { to: '/videos', icon: Video, label: t.nav.videos, children: [
-      { to: '/analytics/indepth', label: 'Content Analytics' },
+    { to: '/analytics/indepth', label: 'Content Analytics' },
+      { to: '/dashboard', label: t.nav.dashboard },
     ] },
     { to: '/assets', icon: Library, label: t.nav.assets, children: [
       { to: '/assets/analytics', label: 'Asset Analytics' },
