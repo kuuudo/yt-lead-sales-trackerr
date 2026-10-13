@@ -29,18 +29,20 @@
 import React, { useEffect, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { motion, AnimatePresence } from 'motion/react';
-import { Castle, TrendingUp, Users, Library, X, Loader2 } from 'lucide-react';
+import { Castle, TrendingUp, Users, Library, Building2, X, Loader2 } from 'lucide-react';
 import TopPromotions from '../pages/TopPromotions';
 import TopMarketers from '../pages/TopMarketers';
+import TopSponsors from '../pages/TopSponsors';
 import TopAssetsRanking from './assets/TopAssetsRanking';
 import { listAssetsByOrganization } from '../services/asset/listAssetsByOrganization';
 import type { AssetLibraryRow } from '../services/asset/listAssetsByOrganization';
 
-type RankingKey = 'promotions' | 'marketers' | 'assets';
+type RankingKey = 'promotions' | 'marketers' | 'sponsors' | 'assets';
 
 const TABS: { key: RankingKey; label: string; icon: typeof TrendingUp }[] = [
   { key: 'promotions', label: 'Top Promotions', icon: TrendingUp },
   { key: 'marketers', label: 'Top Marketers', icon: Users },
+  { key: 'sponsors', label: 'Top Sponsors', icon: Building2 },
   { key: 'assets', label: 'Top Assets', icon: Library },
 ];
 
@@ -205,6 +207,7 @@ export default function MobileRankingsButton({
               <div className="flex-1 overflow-y-auto -mx-1 px-1">
                 {activeTab === 'promotions' && <TopPromotions organizationId={organizationId} />}
                 {activeTab === 'marketers' && <TopMarketers organizationId={organizationId} />}
+                {activeTab === 'sponsors' && <TopSponsors />}
                 {activeTab === 'assets' && (
                   <>
                     {assetRowsLoading && (
