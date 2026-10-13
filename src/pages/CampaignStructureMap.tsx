@@ -42,6 +42,7 @@ import type { CanvasTransform } from '../components/analytics/store/useWorkspace
 import { Campaign, supabase } from '../lib/supabase'
 import { useAuth } from '../lib/auth'
 import { useViewing } from '../lib/ViewingContext'
+import { campaignStructureCache, campaignContentCache } from '../lib/campaignStructureMapPageCache'
 // Phase 1B-a: same asset↔campaign resolver AllAssetsAnalytics.tsx uses.
 // Reusing the function directly (not re-deriving its join) so this page
 // can never define campaign-membership differently from AllAssetsAnalytics.
@@ -184,8 +185,14 @@ export function useCampaignStructureData(
   viewingMemberId: string | null,
   viewingOrgId: string | null,
 ): CampaignStructureData {
-  const [marketerNodes, setMarketerNodes] = useState<TreeNode[] | null>(null)
-  const [ownAssetNodes, setOwnAssetNodes] = useState<TreeNode[] | null>(null)
+  const cacheKey =
+    campaignId && viewerId ? `${viewerId}|${isReadOnly ? viewingOrgId ?? '' : ''}|${campaignId}` : null
+  const [marketerNodes, setMarketerNodes] = useState<TreeNode[] | null>(
+    () => (cacheKey ? campaignStructureCache.get(cacheKey)?.data.marketerNodes ?? null : null),
+  )
+  const [ownAssetNodes, setOwnAssetNodes] = useState<TreeNode[] | null>(
+    () => (cacheKey ? campaignStructureCache.get(cacheKey)?.data.ownAssetNodes ?? null : null),
+  )
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
@@ -193,6 +200,15 @@ export function useCampaignStructureData(
     if (!campaignId || !viewerId) {
       setMarketerNodes(null)
       setOwnAssetNodes(null)
+      return
+    }
+    // Cache hit: restore, no queries.
+    const cachedStructure = cacheKey ? campaignStructureCache.get(cacheKey) : null
+    if (cachedStructure) {
+      setMarketerNodes(cachedStructure.data.marketerNodes)
+      setOwnAssetNodes(cachedStructure.data.ownAssetNodes)
+      setError(null)
+      setLoading(false)
       return
     }
     let cancelled = false
@@ -216,6 +232,7 @@ export function useCampaignStructureData(
           (r) => r.assetCampaign?.campaignId === campaignId,
         )
         if (campaignRows.length === 0) {
+          if (cacheKey) campaignStructureCache.set(cacheKey, { marketerNodes: [], ownAssetNodes: [] })
           if (!cancelled) {
             setMarketerNodes([])
             setOwnAssetNodes([])
@@ -412,6 +429,7 @@ export function useCampaignStructureData(
           }),
         )
 
+        if (cacheKey) campaignStructureCache.set(cacheKey, { marketerNodes: marketers, ownAssetNodes: ownAssets })
         if (!cancelled) {
           setMarketerNodes(marketers)
           setOwnAssetNodes(ownAssets)
@@ -441,7 +459,7 @@ const MONTH_LABELS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'S
 /** One row from `videos`, trimmed to exactly what the Content month-circle
  *  UI needs: enough to bucket by month, filter by title, and (once a month
  *  circle is expanded) render an individual video node. */
-interface ContentVideo {
+export interface ContentVideo {
   id: string
   title: string
   createdAt: string
@@ -468,7 +486,10 @@ export function useCampaignContentBuckets(
   campaignId: string | undefined,
   viewerId: string | null,
 ): { contentVideos: ContentVideo[] | null; loading: boolean; error: string | null } {
-  const [contentVideos, setContentVideos] = useState<ContentVideo[] | null>(null)
+  const cacheKey = campaignId && viewerId ? `${viewerId}|${campaignId}` : null
+  const [contentVideos, setContentVideos] = useState<ContentVideo[] | null>(
+    () => (cacheKey ? campaignContentCache.get(cacheKey)?.data.contentVideos ?? null : null),
+  )
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
@@ -477,16 +498,26 @@ export function useCampaignContentBuckets(
       setContentVideos(null)
       return
     }
+    // Cache hit: restore, no query.
+    const cachedContent = cacheKey ? campaignContentCache.get(cacheKey) : null
+    if (cachedContent) {
+      setContentVideos(cachedContent.data.contentVideos)
+      setError(null)
+      setLoading(false)
+      return
+    }
     let cancelled = false
     setLoading(true)
     setError(null)
 
     ;(async () => {
       try {
-        const { data: videoRows } = await supabase
+        const { data: videoRows, error: videoRowsErr } = await supabase
           .from('videos')
           .select('id, created_at, video_title, thumbnail_url, platform')
           .eq('campaign_id', campaignId)
+        // A silent query failure must not be cached as "no content".
+        if (videoRowsErr) throw videoRowsErr
 
         const videos: ContentVideo[] = (videoRows ?? [])
           .filter((v: any) => !!v.created_at)
@@ -498,6 +529,7 @@ export function useCampaignContentBuckets(
             platform: (v.platform as string | null) ?? null,
           }))
 
+        if (cacheKey) campaignContentCache.set(cacheKey, { contentVideos: videos })
         if (!cancelled) setContentVideos(videos)
       } catch (err) {
         console.error('[CampaignStructureMap] useCampaignContentBuckets failed:', err)
@@ -1104,10 +1136,13 @@ export default function CampaignStructureMap({ embedded = false, presentation = 
   // the same time — never a mix of some-real/some-mock. While not ready,
   // the tree stays pure MOCK_CAMPAIGN; canvasContainer below covers it with
   // an opaque loading state so nothing partially-built is ever visible.
-  const isRealDataReady =
-    structureData.marketerNodes !== null &&
-    structureData.ownAssetNodes !== null &&
-    contentData.contentVideos !== null
+  // Two-stage reveal: the tree (root + Content month circles, one fast
+  // query) shows as soon as Content is ready. Marketers / Own Assets come
+  // from the slow query chain and fill in afterwards; until then those two
+  // branches are childless (never mock children).
+  const isRealDataReady = contentData.contentVideos !== null
+  const isStructureReady =
+    structureData.marketerNodes !== null && structureData.ownAssetNodes !== null
   const isRealDataError = !!(structureData.error || contentData.error)
 
   // Phase 1: collapse / "Show More" state. Keyed by node id so each
@@ -1142,6 +1177,7 @@ export default function CampaignStructureMap({ embedded = false, presentation = 
       label: currentCampaignName ?? MOCK_CAMPAIGN.label,
       children: MOCK_CAMPAIGN.children!.map((branch) => {
         if (branch.id === 'marketers') {
+          if (!isStructureReady) return { ...branch, children: [] }
           return {
             ...branch,
             children: buildMonthClusterNodes(
@@ -1158,6 +1194,7 @@ export default function CampaignStructureMap({ embedded = false, presentation = 
           }
         }
         if (branch.id === 'own_assets') {
+          if (!isStructureReady) return { ...branch, children: [] }
           return {
             ...branch,
             children: buildMonthClusterNodes(
@@ -1189,6 +1226,7 @@ export default function CampaignStructureMap({ embedded = false, presentation = 
     }
   }, [
     isRealDataReady,
+    isStructureReady,
     currentCampaignName,
     structureData.marketerNodes,
     structureData.ownAssetNodes,
@@ -1215,7 +1253,7 @@ export default function CampaignStructureMap({ embedded = false, presentation = 
   // Center the tree in the viewport on first mount, once we know the
   // container's actual size (tree width varies with mock-data shape).
   useLayoutEffect(() => {
-    if (hasCentered) return
+    if (hasCentered || !isRealDataReady) return
     const rect = containerRef.current?.getBoundingClientRect()
     if (!rect) return
     // Campaign presentation keeps the original fixed 0.85 behavior exactly
@@ -1232,7 +1270,7 @@ export default function CampaignStructureMap({ embedded = false, presentation = 
     const x = rect.width / 2 - (canvasW / 2) * scale
     setTransform({ x, y, scale })
     setHasCentered(true)
-  }, [canvasW, canvasH, hasCentered, presentation])
+  }, [canvasW, canvasH, hasCentered, presentation, isRealDataReady])
 
   const pan = useCallback((dx: number, dy: number) => {
     setTransform((t) => ({ ...t, x: t.x + dx, y: t.y + dy }))
@@ -1510,7 +1548,7 @@ return (
         onPointerLeave={handlePointerUp}
         onWheel={handleWheel}
       >
-        {!isRealDataReady && (
+        {(!isRealDataReady || isRealDataError) && (
           <div style={{ ...styles.fullMapLoading, ...(presentation === 'tree' ? { background: TREE_DARK.page } : {}) }}>
             {isRealDataError ? (
               <span style={{ ...styles.fullMapLoadingText, ...(presentation === 'tree' ? { color: TREE_DARK.textSecondary } : {}) }}>
@@ -1522,6 +1560,19 @@ return (
                 <span style={{ ...styles.fullMapLoadingText, ...(presentation === 'tree' ? { color: TREE_DARK.textSecondary } : {}) }}>Loading campaign structure…</span>
               </>
             )}
+          </div>
+        )}
+
+        {isRealDataReady && !isStructureReady && !isRealDataError && (
+          <div
+            style={{
+              position: 'absolute', top: 12, right: 12, zIndex: 5, pointerEvents: 'none',
+              display: 'flex', alignItems: 'center', gap: 6, fontSize: 12,
+              color: presentation === 'tree' ? TREE_DARK.textSecondary : '#6b7280',
+            }}
+          >
+            <Loader2 size={14} className="animate-spin" color="#6366f1" />
+            <span>Loading marketers &amp; assets…</span>
           </div>
         )}
 
