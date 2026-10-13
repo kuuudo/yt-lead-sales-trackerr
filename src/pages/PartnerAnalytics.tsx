@@ -1,152 +1,80 @@
 // ─────────────────────────────────────────────────────────────────────────────
 // PartnerAnalytics.tsx
-// Route: /analytics/partners   (rendered inside <PageWrapper> in App.tsx)
+// Route: /analytics/partners
 //
-// PHASE 1, UI ONLY. Nothing here is wired to real analytics.
-//   KPI overview → comparison chart → partner table (checkbox multi-select)
+// MVP: Revenue-only partner table wired to existing ranking services.
+//   Marketers mode → getTopMarketersAnalytics (via loadPartnerTableStage1/More)
+//   Sponsors mode  → getTopSponsorsAnalytics  (via loadPartnerTableStage1/More)
 //
-// • Checking a partner ADDS it to the chart; earlier selections are kept until
-//   the user unchecks them. Colors are fixed per partner (list position).
-// • "Hide Chart" removes the chart from the page and leaves a corner button
-//   that opens the same chart in a modal.
-// • Phase 2 (not built): journey table below, filtered by selected partner(s).
+// Stage 1: monthly_ranking_snapshots (fast).
+// Stage 2: "More" loads remaining relationships with the same formal revenue
+//          path used when a marketer is outside Top-N snapshots.
 //
-// RULES FOR WHEN DATA IS CONNECTED LATER
-//  • KPI cards are their own query; never derive them by summing the table
-//    (a journey may be attributed to more than one partner → double counting).
-//  • "Assigned" is not proof of revenue attribution.
-//  • Partner source is unverified; PREVIEW_PARTNERS below is sample data.
-//  • Scaling lives in lib/chartScale.ts and only changes presentation.
+// Journey section is UNCHANGED (still receives partners list).
+// Trend disabled until real series exist. No Asset Clicks / RPC / Sessions.
 // ─────────────────────────────────────────────────────────────────────────────
 
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { ArrowUpRight, BarChart3, Calendar, Check, EyeOff, Minus, X } from 'lucide-react';
+import { ArrowUpRight, BarChart3, Calendar, Check, EyeOff, Loader2, Minus, X } from 'lucide-react';
 
 import { useLanguage } from '../lib/hooks';
+import { useAuth } from '../lib/auth';
+import { useViewing } from '../lib/ViewingContext';
+import { useOrganization } from '../lib/useOrganization';
 import { type ScaleMode } from '../lib/chartScale';
 import PartnerChart, { type ChartSeries, type ChartText } from '../components/analytics/PartnerChart';
 import PartnerJourneySection from '../components/analytics/PartnerJourneySection';
+import {
+  loadPartnerTableStage1,
+  loadPartnerTableMore,
+  type PartnerMode,
+  type PartnerPreset,
+  type PartnerTableRow,
+} from '../services/promotion/getPartnerAnalytics';
 
-// ── Types ───────────────────────────────────────────────────────────────────
-
-type PartnerMode = 'marketer' | 'sponsor';
-type PartnerRange = '7days' | '15days' | '30days' | '6months' | '1year' | 'all' | 'custom';
-type Metric = 'revenue' | 'clicks';
+type PartnerRange = PartnerPreset;
 type ChartView = 'trend' | 'totals';
 
-type PartnerRow = {
-  id: string;
-  name: string;
-  assetClicks: number | null;
-  revenue: number | null;
-};
+const PARTNER_COLORS = [
+  '#ef4444',
+  '#38bdf8',
+  '#a78bfa',
+  '#34d399',
+  '#fbbf24',
+  '#f472b6',
+  '#fb923c',
+  '#2dd4bf',
+];
 
-// ── PREVIEW DATA (remove when the real source is connected) ─────────────────
-// Magnitudes deliberately span $100 → $100,000,000 to exercise the chart
-// scaling. Partner names beyond Ali / 178 / Webmood are invented labels.
+const PRESETS: { key: PartnerPreset; labelKey: string }[] = [
+  { key: 'last_7_days', labelKey: 'range.last_7_days' },
+  { key: 'last_30_days', labelKey: 'range.last_30_days' },
+  { key: 'this_month', labelKey: 'range.this_month' },
+  { key: 'last_12_months', labelKey: 'range.last_12_months' },
+  { key: 'all_time', labelKey: 'range.all_time' },
+  { key: 'custom', labelKey: 'range.custom' },
+];
 
-const PREVIEW_PARTNERS: Record<PartnerMode, PartnerRow[]> = {
-  marketer: [
-    { id: 'preview-ali', name: 'Ali', assetClicks: 42, revenue: 100 },
-    { id: 'preview-178', name: '178', assetClicks: 1_200_000, revenue: 100_000_000 },
-    { id: 'preview-sponsor-c', name: 'Sponsor C', assetClicks: 9_800, revenue: 25_000 },
-  ],
-  sponsor: [
-    { id: 'preview-webmood', name: 'Webmood', assetClicks: 9_800, revenue: 25_000 },
-    { id: 'preview-marketer-b', name: 'Marketer B', assetClicks: 1_200_000, revenue: 100_000_000 },
-    { id: 'preview-marketer-c', name: 'Marketer C', assetClicks: 42, revenue: 100 },
-  ],
-};
-
-// KPI cards are independent of the table. Preview values only.
-const PREVIEW_KPI: Record<PartnerMode, { revenue: number; clicks: number }> = {
-  marketer: { revenue: 100_025_100, clicks: 1_209_842 },
-  sponsor: { revenue: 100_025_100, clicks: 1_209_842 },
-};
-
-const PARTNER_COLORS = ['#ef4444', '#38bdf8', '#a78bfa', '#34d399', '#fbbf24', '#f472b6', '#fb923c', '#2dd4bf'];
-
-function hash(str: string): number {
-  let h = 2166136261;
-  for (let i = 0; i < str.length; i++) {
-    h ^= str.charCodeAt(i);
-    h = Math.imul(h, 16777619);
-  }
-  return h >>> 0;
+function toDateInputValue(d: Date): string {
+  return d.toISOString().slice(0, 10);
 }
-
-function previewSeries(total: number | null, points: number, seed: string, integer: boolean): (number | null)[] {
-  if (total === null) return Array.from({ length: points }, () => null);
-  let s = hash(seed) || 1;
-  const rnd = () => {
-    s = (Math.imul(s, 1664525) + 1013904223) >>> 0;
-    return s / 4294967296;
-  };
-  const raw = Array.from({ length: points }, () => (rnd() < 0.1 ? 0 : 0.4 + 1.2 * rnd()));
-  const sum = raw.reduce((a, b) => a + b, 0) || 1;
-  return raw.map((r) => (integer ? Math.round((r / sum) * total) : Math.round((r / sum) * total * 100) / 100));
-}
-
-function buildTimeline(range: PartnerRange, customStart: string, customEnd: string) {
-  const day = 86_400_000;
-  const today = new Date();
-  today.setHours(0, 0, 0, 0);
-  const fmtDay = (d: Date) => d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
-  const fmtFull = (d: Date) => d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
-  const fmtMonth = (d: Date) => d.toLocaleDateString('en-US', { month: 'short', year: '2-digit' });
-
-  let dates: Date[] = [];
-  let mode: 'day' | 'week' | 'month' = 'day';
-
-  if (range === '6months') {
-    mode = 'week';
-    dates = Array.from({ length: 26 }, (_, i) => new Date(today.getTime() - (25 - i) * 7 * day));
-  } else if (range === '1year' || range === 'all') {
-    mode = 'month';
-    dates = Array.from({ length: 12 }, (_, i) => new Date(today.getFullYear(), today.getMonth() - (11 - i), 1));
-  } else {
-    let n = range === '7days' ? 7 : range === '15days' ? 15 : 30;
-    let start = new Date(today.getTime() - (n - 1) * day);
-    if (range === 'custom' && customStart && customEnd) {
-      const a = new Date(customStart);
-      const b = new Date(customEnd);
-      const span = Math.round((b.getTime() - a.getTime()) / day) + 1;
-      if (Number.isFinite(span) && span >= 1) {
-        n = Math.min(90, span);
-        start = a;
-      }
-    }
-    dates = Array.from({ length: n }, (_, i) => new Date(start.getTime() + i * day));
-  }
-  return {
-    labels: dates.map((d) => (mode === 'month' ? fmtMonth(d) : fmtDay(d))),
-    fullLabels: dates.map((d) => (mode === 'month' ? fmtMonth(d) : fmtFull(d))),
-  };
-}
-
-// ── Copy (EN / 繁體中文) ────────────────────────────────────────────────────
 
 const COPY = {
   en: {
     title: 'Partner Analytics',
     subtitle: 'Performance by partner',
-    preview: 'Preview data · analytics not connected',
-    'mode.marketer': 'Marketer Mode',
-    'mode.sponsor': 'Sponsor Mode',
-    'range.7days': 'Last 7 Days',
-    'range.15days': 'Last 15 Days',
-    'range.30days': 'Last 30 Days',
-    'range.6months': 'Last 6 Months',
-    'range.1year': 'Last Year',
-    'range.all': 'Lifetime',
+    'mode.marketers': 'Marketers',
+    'mode.sponsors': 'Sponsors',
+    'range.last_7_days': 'Last 7 Days',
+    'range.last_30_days': 'Last 30 Days',
+    'range.this_month': 'This Month',
+    'range.last_12_months': 'Last 12 Months',
+    'range.all_time': 'All Time',
     'range.custom': 'Custom Range',
     totalRevenue: 'Total Revenue',
-    assetClicks: 'Asset Clicks',
-    'revenueHint.marketer': 'Revenue associated with my promotion',
-    'revenueHint.sponsor': 'Revenue associated with my campaigns',
-    'clicksHint.marketer': 'My promotion activity',
-    'clicksHint.sponsor': 'Activity on my campaigns',
+    'revenueHint.marketers': 'Revenue attributed to marketers in this organization',
+    'revenueHint.sponsors': 'Revenue I generated for each sponsor',
     trend: 'Trend',
     totals: 'Totals',
     scale: 'Scale',
@@ -157,10 +85,10 @@ const COPY = {
     showChart: 'Show chart',
     pinChart: 'Show on page',
     close: 'Close',
-    'list.marketer': 'My Sponsor Performance',
-    'list.sponsor': 'My Marketer Performance',
-    'listHint.marketer': 'Which sponsors am I helping? Check several to compare.',
-    'listHint.sponsor': 'Which marketers help promote my campaigns? Check several to compare.',
+    'list.marketers': 'My Marketer Performance',
+    'list.sponsors': 'My Sponsor Performance',
+    'listHint.marketers': 'Which marketers help promote my campaigns? Check several to compare.',
+    'listHint.sponsors': 'Which sponsors am I helping? Check several to compare.',
     'role.sponsor': 'Sponsor',
     'role.marketer': 'Marketer',
     partner: 'Partner',
@@ -169,19 +97,24 @@ const COPY = {
     clearAll: 'Clear selection',
     removePartner: 'Remove',
     empty: 'No partners to show yet.',
+    more: 'More',
+    loadingMore: 'Loading more…',
     'chart.empty': 'Check a partner in the table to see it here.',
     'chart.noData': 'No data for the selected range.',
+    'chart.trendDisabled': 'Trend not available yet — use Totals.',
     'chart.linearBadge': 'Linear scale',
     'chart.logBadge': 'Log scale',
     'chart.auto': 'auto',
     'chart.logNote': 'Each gridline is 10× the one below. Compare ratios, not differences.',
     'chart.zeroNote': 'Zero values sit on the axis floor.',
     'chart.hatchNote': 'Hatched bars are drawn at a minimum width; exact values are shown at right.',
-    'chart.forcedLinearHint': '{name} is far larger than the rest, so smaller partners are hard to see. Try Auto or Log.',
+    'chart.forcedLinearHint':
+      '{name} is far larger than the rest, so smaller partners are hard to see. Try Auto or Log.',
     'chart.logUnavailable': 'Log scale needs non-negative values, so Linear is shown.',
     'chart.noValue': '—',
     'journey.title': 'Journeys',
-    'journey.hint': 'Full journey paths for the selected partners. Uncheck a partner above to widen the list.',
+    'journey.hint':
+      'Full journey paths for the selected partners. Uncheck a partner above to widen the list.',
     'journey.allPartners': 'All partners (none selected)',
     'journey.scopedTo': 'Showing journeys for',
     'journey.filters': 'Filters',
@@ -218,29 +151,26 @@ const COPY = {
     'journey.videosMany': '{n} videos',
     'journey.showFlow': 'Show Journey Flow',
     'journey.hideFlow': 'Hide Journey Flow',
-    'journey.flowHint': 'Event counts on the redirect link(s) between adjacent videos. Follows the date range above.',
-    'journey.flowCount': '{n} landing_page events on the redirect link(s) for this step (not verified as redirect clicks)',
+    'journey.flowHint':
+      'Event counts on the redirect link(s) between adjacent videos. Follows the date range above.',
+    'journey.flowCount':
+      '{n} landing_page events on the redirect link(s) for this step (not verified as redirect clicks)',
     'journey.flowUnresolved': 'Not measurable: destination asset or matching redirect link not found',
   },
   zh: {
     title: '合作夥伴分析',
     subtitle: '依合作夥伴檢視成效',
-    preview: '預覽資料 · 尚未連接 Analytics',
-    'mode.marketer': 'Marketer 模式',
-    'mode.sponsor': 'Sponsor 模式',
-    'range.7days': '最近 7 天',
-    'range.15days': '最近 15 天',
-    'range.30days': '最近 30 天',
-    'range.6months': '最近 6 個月',
-    'range.1year': '最近一年',
-    'range.all': '全部時間',
+    'mode.marketers': 'Marketers',
+    'mode.sponsors': 'Sponsors',
+    'range.last_7_days': '最近 7 天',
+    'range.last_30_days': '最近 30 天',
+    'range.this_month': '本月',
+    'range.last_12_months': '最近 12 個月',
+    'range.all_time': '全部時間',
     'range.custom': '自訂範圍',
     totalRevenue: '總收入',
-    assetClicks: 'Asset 點擊數',
-    'revenueHint.marketer': '與我的推廣相關的收入',
-    'revenueHint.sponsor': '與我的 Campaign 相關的收入',
-    'clicksHint.marketer': '我的推廣活動量',
-    'clicksHint.sponsor': '我的 Campaign 的活動量',
+    'revenueHint.marketers': '本組織內歸屬於 Marketer 的收入',
+    'revenueHint.sponsors': '我為各 Sponsor 產生的收入',
     trend: '趨勢',
     totals: '總計',
     scale: '刻度',
@@ -251,10 +181,10 @@ const COPY = {
     showChart: '顯示圖表',
     pinChart: '放回頁面',
     close: '關閉',
-    'list.marketer': '我的 Sponsor 成效',
-    'list.sponsor': '我的 Marketer 成效',
-    'listHint.marketer': '我正在幫哪些 Sponsor 推廣?勾選多個即可比較。',
-    'listHint.sponsor': '哪些 Marketer 在幫我推廣 Campaign?勾選多個即可比較。',
+    'list.marketers': '我的 Marketer 成效',
+    'list.sponsors': '我的 Sponsor 成效',
+    'listHint.marketers': '哪些 Marketer 在幫我推廣 Campaign？勾選多個即可比較。',
+    'listHint.sponsors': '我正在幫哪些 Sponsor 推廣？勾選多個即可比較。',
     'role.sponsor': 'Sponsor',
     'role.marketer': 'Marketer',
     partner: '合作夥伴',
@@ -263,16 +193,20 @@ const COPY = {
     clearAll: '清除選取',
     removePartner: '移除',
     empty: '目前沒有可顯示的合作夥伴。',
-    'chart.empty': '在下方表格勾選合作夥伴,就會顯示在這裡。',
+    more: '載入更多',
+    loadingMore: '載入中…',
+    'chart.empty': '在下方表格勾選合作夥伴，就會顯示在這裡。',
     'chart.noData': '所選範圍內沒有資料。',
+    'chart.trendDisabled': '趨勢尚未開放 — 請使用總計。',
     'chart.linearBadge': '線性刻度',
     'chart.logBadge': '對數刻度',
     'chart.auto': '自動',
-    'chart.logNote': '每一條格線是下一條的 10 倍,請比較倍數而非差距。',
+    'chart.logNote': '每一條格線是下一條的 10 倍，適合比較倍數而非差距。',
     'chart.zeroNote': '數值為 0 的點會落在座標軸底部。',
-    'chart.hatchNote': '斜線長條為最小寬度的示意,精確數值顯示在右側。',
-    'chart.forcedLinearHint': '{name} 遠大於其他夥伴,較小的夥伴不易看見。可改用「自動」或「對數」。',
-    'chart.logUnavailable': '對數刻度需要非負數值,因此改以線性顯示。',
+    'chart.hatchNote': '斜線長條為最小寬度的示意，精確數值顯示在右側。',
+    'chart.forcedLinearHint':
+      '{name} 遠大於其他夥伴，較小的夥伴不易看見。可改用「自動」或「對數」。',
+    'chart.logUnavailable': '對數刻度需要非負數值，因此改以線性顯示。',
     'chart.noValue': '—',
     'journey.title': 'Journey',
     'journey.hint': '所選合作夥伴的完整 Journey 路徑。取消勾選上方夥伴即可擴大範圍。',
@@ -312,35 +246,40 @@ const COPY = {
     'journey.videosMany': '{n} 支影片',
     'journey.showFlow': '顯示 Journey 流量',
     'journey.hideFlow': '隱藏 Journey 流量',
-    'journey.flowHint': '相鄰影片之間 redirect 連結上的事件數,依上方日期範圍計算。',
-    'journey.flowCount': '此步驟的 redirect 連結上有 {n} 筆 landing_page 事件(尚未驗證為 redirect 點擊)',
+    'journey.flowHint': '相鄰影片之間 redirect 連結上的事件數，依上方日期範圍計算。',
+    'journey.flowCount':
+      '此步驟的 redirect 連結上有 {n} 筆 landing_page 事件(尚未驗證為 redirect 點擊)',
     'journey.flowUnresolved': '無法計算:找不到目標 Asset 或對應的 redirect 連結',
   },
 } as const;
 
 type CopyKey = keyof (typeof COPY)['en'];
 
-const RANGE_ORDER: PartnerRange[] = ['7days', '15days', '30days', '6months', '1year', 'all', 'custom'];
 const DASH = '—';
-
-const formatCount = (n: number | null) => (n === null ? DASH : n.toLocaleString());
 const formatMoney = (n: number | null) =>
-  n === null ? DASH : `$${n.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+  n === null
+    ? DASH
+    : `$${n.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 
-/**
- * Link into the existing Journey Analytics page. TODAY JourneyAnalytics reads
- * no query params, so these are ignored until it is taught to read them.
- */
-function buildJourneyHref(a: { mode: PartnerMode; partnerId: string; range: PartnerRange; from: string; to: string }) {
-  const p = new URLSearchParams({ partnerMode: a.mode, partnerId: a.partnerId, range: a.range });
-  if (a.range === 'custom') {
-    if (a.from) p.set('from', a.from);
-    if (a.to) p.set('to', a.to);
+/** JourneyAnalytics still uses the old range names; map presets for the section only. */
+function journeyRangeFromPreset(
+  preset: PartnerPreset,
+): '7days' | '15days' | '30days' | '6months' | '1year' | 'all' | 'custom' {
+  switch (preset) {
+    case 'last_7_days':
+      return '7days';
+    case 'last_30_days':
+      return '30days';
+    case 'last_12_months':
+      return '1year';
+    case 'all_time':
+      return 'all';
+    case 'custom':
+      return 'custom';
+    default:
+      return '30days';
   }
-  return `/analytics/journey?${p.toString()}`;
 }
-
-// ── Small pieces ────────────────────────────────────────────────────────────
 
 function Segmented<T extends string>({
   value,
@@ -372,7 +311,15 @@ function Segmented<T extends string>({
   );
 }
 
-function Checkbox({ state, onClick, label }: { state: 'on' | 'off' | 'some'; onClick: () => void; label: string }) {
+function Checkbox({
+  state,
+  onClick,
+  label,
+}: {
+  state: 'on' | 'off' | 'some';
+  onClick: () => void;
+  label: string;
+}) {
   return (
     <button
       type="button"
@@ -395,16 +342,16 @@ function Checkbox({ state, onClick, label }: { state: 'on' | 'off' | 'some'; onC
 
 function KpiCell({ label, value, hint }: { label: string; value: string; hint: string }) {
   return (
-<div className="relative px-6 py-5 min-w-0">
+    <div className="relative px-6 py-5 min-w-0">
       <div className="absolute inset-x-0 top-0 h-px bg-gradient-to-r from-red-600/70 via-red-600/10 to-transparent" />
       <div className="text-[10px] font-black uppercase tracking-widest text-zinc-500">{label}</div>
-      <div className="mt-2 text-3xl font-black tabular-nums truncate bg-gradient-to-b from-white to-zinc-400 bg-clip-text text-transparent">{value}</div>
+      <div className="mt-2 text-3xl font-black tabular-nums truncate bg-gradient-to-b from-white to-zinc-400 bg-clip-text text-transparent">
+        {value}
+      </div>
       <div className="mt-1 text-[10px] font-bold uppercase tracking-widest text-zinc-600">{hint}</div>
     </div>
   );
 }
-
-// ── Page ────────────────────────────────────────────────────────────────────
 
 export default function PartnerAnalytics() {
   const navigate = useNavigate();
@@ -412,25 +359,121 @@ export default function PartnerAnalytics() {
   const dict = lang === 'en' ? COPY.en : COPY.zh;
   const tr = (k: CopyKey): string => dict[k];
 
-  const [mode, setMode] = useState<PartnerMode>('marketer');
-  const [range, setRange] = useState<PartnerRange>('all');
-  const [customStart, setCustomStart] = useState('');
-  const [customEnd, setCustomEnd] = useState('');
+  const { user } = useAuth();
+  const { viewingMemberId, viewingOrgId, isReadOnly } = useViewing();
+  const { organizationId: hookOrgId } = useOrganization();
+  const organizationId = isReadOnly ? (viewingOrgId ?? null) : (hookOrgId ?? null);
+  const marketerUserId = isReadOnly ? viewingMemberId : (user?.id ?? null);
 
-  const [metric, setMetric] = useState<Metric>('revenue');
-  const [view, setView] = useState<ChartView>('trend');
+  const [mode, setMode] = useState<PartnerMode>('marketers');
+  const [preset, setPreset] = useState<PartnerPreset>('last_30_days');
+  const [customStart, setCustomStart] = useState(() => {
+    const d = new Date();
+    d.setDate(d.getDate() - 30);
+    return toDateInputValue(d);
+  });
+  const [customEnd, setCustomEnd] = useState(() => toDateInputValue(new Date()));
+
+  const [view, setView] = useState<ChartView>('totals');
   const [scaleMode, setScaleMode] = useState<ScaleMode>('auto');
 
-  const [selectedIds, setSelectedIds] = useState<string[]>([PREVIEW_PARTNERS.marketer[0].id]);
+  const [partners, setPartners] = useState<PartnerTableRow[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [loadingMore, setLoadingMore] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [hasMoreAvailable, setHasMoreAvailable] = useState(true);
+
+  const [selectedIds, setSelectedIds] = useState<string[]>([]);
   const [chartHidden, setChartHidden] = useState(false);
   const [modalOpen, setModalOpen] = useState(false);
 
-  const partners = PREVIEW_PARTNERS[mode];
-  const partnerRole: PartnerMode = mode === 'marketer' ? 'sponsor' : 'marketer';
+  const requestIdRef = useRef(0);
+
+  const customRange =
+    preset === 'custom' && customStart && customEnd
+      ? { start: new Date(customStart), end: new Date(customEnd) }
+      : null;
+
+  const loadParams = useMemo(
+    () => ({
+      mode,
+      organizationId,
+      marketerUserId,
+      preset,
+      customRange,
+    }),
+    [mode, organizationId, marketerUserId, preset, customStart, customEnd],
+  );
+
+  // Stage 1: snapshot-only
+  useEffect(() => {
+    const requestId = ++requestIdRef.current;
+    setLoading(true);
+    setError(null);
+    setHasMoreAvailable(true);
+
+    if (preset === 'custom') {
+      const a = new Date(customStart);
+      const b = new Date(customEnd);
+      if (Number.isNaN(a.getTime()) || Number.isNaN(b.getTime()) || a > b) {
+        setLoading(false);
+        return;
+      }
+    }
+
+    loadPartnerTableStage1(loadParams)
+      .then((rows) => {
+        if (requestId !== requestIdRef.current) return;
+        setPartners(rows);
+        setSelectedIds(rows.length ? [rows[0].id] : []);
+      })
+      .catch((e: unknown) => {
+        if (requestId !== requestIdRef.current) return;
+        setError(e instanceof Error ? e.message : 'Failed to load partners');
+        setPartners([]);
+        setSelectedIds([]);
+      })
+      .finally(() => {
+        if (requestId === requestIdRef.current) setLoading(false);
+      });
+  }, [loadParams]);
+
+  const loadMore = useCallback(() => {
+    if (loadingMore || loading) return;
+    setLoadingMore(true);
+    const requestId = requestIdRef.current;
+    loadPartnerTableMore({
+      ...loadParams,
+      alreadyLoadedIds: partners.map((p) => p.id),
+    })
+      .then((extra) => {
+        if (requestId !== requestIdRef.current) return;
+        if (extra.length === 0) {
+          setHasMoreAvailable(false);
+          return;
+        }
+        setPartners((prev) => {
+          const ids = new Set(prev.map((p) => p.id));
+          const merged = [...prev];
+          for (const r of extra) {
+            if (!ids.has(r.id)) merged.push(r);
+          }
+          return merged.sort((a, b) => b.revenue - a.revenue || a.name.localeCompare(b.name));
+        });
+        setHasMoreAvailable(false);
+      })
+      .catch((e: unknown) => {
+        if (requestId !== requestIdRef.current) return;
+        setError(e instanceof Error ? e.message : 'Failed to load more partners');
+      })
+      .finally(() => {
+        if (requestId === requestIdRef.current) setLoadingMore(false);
+      });
+  }, [loadParams, partners, loadingMore, loading]);
 
   const changeMode = (m: PartnerMode) => {
     setMode(m);
-    setSelectedIds(PREVIEW_PARTNERS[m].length ? [PREVIEW_PARTNERS[m][0].id] : []);
+    setSelectedIds([]);
   };
 
   const toggle = (id: string) =>
@@ -439,7 +482,14 @@ export default function PartnerAnalytics() {
   const allState: 'on' | 'off' | 'some' =
     selectedIds.length === 0 ? 'off' : selectedIds.length === partners.length ? 'on' : 'some';
 
-  // Modal: Esc closes, background scroll locked.
+  const partnerRole: 'sponsor' | 'marketer' = mode === 'marketers' ? 'marketer' : 'sponsor';
+
+  // KPI: sum of currently loaded table (MVP). Not a second attribution path.
+  const kpiRevenue = useMemo(() => {
+    if (partners.length === 0) return null;
+    return partners.reduce((s, p) => s + (p.revenue || 0), 0);
+  }, [partners]);
+
   useEffect(() => {
     if (!modalOpen) return;
     const onKey = (e: KeyboardEvent) => e.key === 'Escape' && setModalOpen(false);
@@ -452,31 +502,25 @@ export default function PartnerAnalytics() {
     };
   }, [modalOpen]);
 
-  const timeline = useMemo(() => buildTimeline(range, customStart, customEnd), [range, customStart, customEnd]);
-
-  // Color identity = position in the partner list, so it never changes when
-  // other partners are added or removed.
+  // Totals chart only (Trend disabled)
   const series: ChartSeries[] = useMemo(
     () =>
       partners
         .map((p, i) => ({ p, i }))
         .filter(({ p }) => selectedIds.includes(p.id))
-        .map(({ p, i }) => {
-          const total = metric === 'revenue' ? p.revenue : p.assetClicks;
-          return {
-            id: p.id,
-            name: p.name,
-            color: PARTNER_COLORS[i % PARTNER_COLORS.length],
-            total,
-            values: previewSeries(total, timeline.labels.length, `${p.id}:${metric}`, metric === 'clicks'),
-          };
-        }),
-    [partners, selectedIds, metric, timeline],
+        .map(({ p, i }) => ({
+          id: p.id,
+          name: p.name,
+          color: PARTNER_COLORS[i % PARTNER_COLORS.length],
+          total: p.revenue,
+          values: [p.revenue],
+        })),
+    [partners, selectedIds],
   );
 
   const chartText: ChartText = {
     empty: tr('chart.empty'),
-    noData: tr('chart.noData'),
+    noData: view === 'trend' ? tr('chart.trendDisabled') : tr('chart.noData'),
     linearBadge: tr('chart.linearBadge'),
     logBadge: tr('chart.logBadge'),
     autoSuffix: tr('chart.auto'),
@@ -488,32 +532,23 @@ export default function PartnerAnalytics() {
     noValue: tr('chart.noValue'),
   };
 
-  const goToJourneys = (partnerId: string) =>
-    navigate(buildJourneyHref({ mode, partnerId, range, from: customStart, to: customEnd }));
-
-  const kpi = PREVIEW_KPI[mode];
+  const jRange = journeyRangeFromPreset(preset);
 
   const renderChartPanel = (variant: 'inline' | 'modal') => (
     <section className="bg-gradient-to-b from-zinc-900/50 to-zinc-950 border border-zinc-800/80 rounded-2xl shadow-[0_0_40px_-24px_rgba(220,38,38,0.4)]">
       <div className="flex flex-wrap items-center justify-between gap-3 px-6 py-4 border-b border-zinc-900">
-        <h3 className="text-sm font-black text-white uppercase tracking-tight flex items-center gap-2"><span className="w-1 h-4 rounded-full bg-red-600" />{tr('trend')}</h3>
+        <h3 className="text-sm font-black text-white uppercase tracking-tight flex items-center gap-2">
+          <span className="w-1 h-4 rounded-full bg-red-600" />
+          {tr('totals')}
+        </h3>
         <div className="flex flex-wrap items-center gap-2">
-          <Segmented<Metric>
-            small
-            value={metric}
-            onChange={setMetric}
-            options={[
-              { value: 'revenue', label: tr('totalRevenue') },
-              { value: 'clicks', label: tr('assetClicks') },
-            ]}
-          />
           <Segmented<ChartView>
             small
             value={view}
-            onChange={setView}
+            onChange={(v) => setView(v === 'trend' ? 'totals' : v)}
             options={[
-              { value: 'trend', label: tr('trend') },
               { value: 'totals', label: tr('totals') },
+              { value: 'trend', label: `${tr('trend')} · soon` },
             ]}
           />
           <Segmented<ScaleMode>
@@ -583,49 +618,53 @@ export default function PartnerAnalytics() {
       )}
 
       <div className="px-6 py-5">
-        <PartnerChart
-          view={view}
-          metric={metric === 'revenue' ? 'currency' : 'count'}
-          labels={timeline.labels}
-          fullLabels={timeline.fullLabels}
-          series={series}
-          scaleMode={scaleMode}
-          height={variant === 'modal' ? 360 : 280}
-          text={chartText}
-        />
+        {view === 'trend' ? (
+          <p className="text-center text-[11px] font-bold uppercase tracking-widest text-zinc-600 py-10">
+            {tr('chart.trendDisabled')}
+          </p>
+        ) : (
+          <PartnerChart
+            view="totals"
+            metric="currency"
+            labels={['Total']}
+            fullLabels={['Total']}
+            series={series}
+            scaleMode={scaleMode}
+            height={variant === 'modal' ? 360 : 280}
+            text={chartText}
+          />
+        )}
       </div>
     </section>
   );
 
   return (
-<div className="flex flex-col gap-6">
-      {/* Header */}
+    <div className="flex flex-col gap-6">
       <div className="flex flex-wrap items-end justify-between gap-4">
         <div className="min-w-0">
           <h2 className="text-2xl font-black text-white uppercase tracking-tight">{tr('title')}</h2>
           <p className="text-[10px] text-zinc-600 font-bold uppercase tracking-widest mt-1">
-            {tr('subtitle')} · <span className="text-amber-500/80">{tr('preview')}</span>
+            {tr('subtitle')}
           </p>
         </div>
         <Segmented<PartnerMode>
           value={mode}
           onChange={changeMode}
           options={[
-            { value: 'marketer', label: tr('mode.marketer') },
-            { value: 'sponsor', label: tr('mode.sponsor') },
+            { value: 'marketers', label: tr('mode.marketers') },
+            { value: 'sponsors', label: tr('mode.sponsors') },
           ]}
         />
       </div>
 
-      {/* Date range */}
       <div className="flex flex-col gap-3">
-        <Segmented<PartnerRange>
+        <Segmented<PartnerPreset>
           small
-          value={range}
-          onChange={setRange}
-          options={RANGE_ORDER.map((r) => ({ value: r, label: tr(`range.${r}` as CopyKey) }))}
+          value={preset}
+          onChange={setPreset}
+          options={PRESETS.map((p) => ({ value: p.key, label: tr(p.labelKey as CopyKey) }))}
         />
-        {range === 'custom' && (
+        {preset === 'custom' && (
           <div className="flex flex-wrap items-center gap-2">
             <Calendar size={12} className="text-zinc-600" />
             <input
@@ -645,20 +684,23 @@ export default function PartnerAnalytics() {
         )}
       </div>
 
-      {/* KPI row (independent of the table) */}
-      <section className="grid grid-cols-1 sm:grid-cols-2 sm:divide-x divide-y sm:divide-y-0 divide-zinc-900 bg-gradient-to-br from-zinc-900/60 to-zinc-950 border border-zinc-800/80 rounded-2xl overflow-hidden shadow-[0_0_40px_-20px_rgba(220,38,38,0.45)]">
-        <KpiCell label={tr('totalRevenue')} value={formatMoney(kpi.revenue)} hint={tr(`revenueHint.${mode}` as CopyKey)} />
-        <KpiCell label={tr('assetClicks')} value={formatCount(kpi.clicks)} hint={tr(`clicksHint.${mode}` as CopyKey)} />
+      <section className="grid grid-cols-1 bg-gradient-to-br from-zinc-900/60 to-zinc-950 border border-zinc-800/80 rounded-2xl overflow-hidden shadow-[0_0_40px_-20px_rgba(220,38,38,0.45)]">
+        <KpiCell
+          label={tr('totalRevenue')}
+          value={loading ? '…' : formatMoney(kpiRevenue)}
+          hint={tr(`revenueHint.${mode}` as CopyKey)}
+        />
       </section>
 
-      {/* Chart (inline unless hidden) */}
       {!chartHidden && renderChartPanel('inline')}
 
-      {/* Partner table */}
       <section className="flex flex-col gap-3">
         <div className="flex flex-wrap items-end justify-between gap-2">
           <div>
-            <h3 className="text-sm font-black text-white uppercase tracking-tight flex items-center gap-2"><span className="w-1 h-4 rounded-full bg-red-600" />{tr(`list.${mode}` as CopyKey)}</h3>
+            <h3 className="text-sm font-black text-white uppercase tracking-tight flex items-center gap-2">
+              <span className="w-1 h-4 rounded-full bg-red-600" />
+              {tr(`list.${mode}` as CopyKey)}
+            </h3>
             <p className="text-[10px] text-zinc-600 font-bold uppercase tracking-widest mt-0.5">
               {tr(`listHint.${mode}` as CopyKey)}
             </p>
@@ -675,11 +717,20 @@ export default function PartnerAnalytics() {
         </div>
 
         <div className="bg-zinc-950 border border-zinc-900 rounded-2xl overflow-hidden">
-          {partners.length === 0 ? (
+          {loading && (
+            <div className="flex items-center justify-center gap-2 px-6 py-10 text-[10px] font-bold uppercase tracking-widest text-zinc-500">
+              <Loader2 className="animate-spin" size={14} /> Loading…
+            </div>
+          )}
+          {!loading && error && (
+            <div className="px-6 py-6 text-center text-[11px] font-bold text-red-500">{error}</div>
+          )}
+          {!loading && !error && partners.length === 0 && (
             <div className="px-6 py-10 text-center text-[10px] font-bold uppercase tracking-widest text-zinc-600">
               {tr('empty')}
             </div>
-          ) : (
+          )}
+          {!loading && !error && partners.length > 0 && (
             <div className="overflow-x-auto">
               <table className="min-w-full divide-y divide-zinc-900 border-collapse">
                 <thead className="bg-zinc-950">
@@ -688,14 +739,13 @@ export default function PartnerAnalytics() {
                       <Checkbox
                         state={allState}
                         label={allState === 'on' ? tr('clearAll') : tr('selectAll')}
-                        onClick={() => setSelectedIds(allState === 'on' ? [] : partners.map((p) => p.id))}
+                        onClick={() =>
+                          setSelectedIds(allState === 'on' ? [] : partners.map((p) => p.id))
+                        }
                       />
                     </th>
                     <th className="px-4 py-4 text-left text-[10px] font-black uppercase tracking-widest text-zinc-600 border-b border-zinc-900">
                       {tr('partner')}
-                    </th>
-                    <th className="px-4 py-4 text-right text-[10px] font-black uppercase tracking-widest text-zinc-600 border-b border-zinc-900">
-                      {tr('assetClicks')}
                     </th>
                     <th className="px-4 py-4 text-right text-[10px] font-black uppercase tracking-widest text-zinc-600 border-b border-zinc-900">
                       {tr('totalRevenue')}
@@ -710,16 +760,31 @@ export default function PartnerAnalytics() {
                       <tr
                         key={p.id}
                         onClick={() => toggle(p.id)}
-                        className={`cursor-pointer transition-colors ${on ? 'bg-gradient-to-r from-zinc-800/60 to-transparent' : 'hover:bg-zinc-900/40'}`}
+                        className={`cursor-pointer transition-colors ${
+                          on
+                            ? 'bg-gradient-to-r from-zinc-800/60 to-transparent'
+                            : 'hover:bg-zinc-900/40'
+                        }`}
                       >
-                        <td className="pl-5 py-4" style={{ boxShadow: on ? `inset 3px 0 0 ${PARTNER_COLORS[i % PARTNER_COLORS.length]}` : undefined }}>
+                        <td
+                          className="pl-5 py-4"
+                          style={{
+                            boxShadow: on
+                              ? `inset 3px 0 0 ${PARTNER_COLORS[i % PARTNER_COLORS.length]}`
+                              : undefined,
+                          }}
+                        >
                           <Checkbox state={on ? 'on' : 'off'} label={p.name} onClick={() => toggle(p.id)} />
                         </td>
                         <td className="px-4 py-4">
                           <div className="flex items-center gap-3">
                             <span
                               className="w-2 h-2 rounded-sm shrink-0"
-                              style={{ background: on ? PARTNER_COLORS[i % PARTNER_COLORS.length] : 'transparent' }}
+                              style={{
+                                background: on
+                                  ? PARTNER_COLORS[i % PARTNER_COLORS.length]
+                                  : 'transparent',
+                              }}
                             />
                             <span className="text-sm font-bold text-white">{p.name}</span>
                             <span className="px-2 py-0.5 rounded-md border border-zinc-800 bg-zinc-900 text-[9px] font-black uppercase tracking-widest text-zinc-500">
@@ -727,14 +792,17 @@ export default function PartnerAnalytics() {
                             </span>
                           </div>
                         </td>
-                        <td className="px-4 py-4 text-right text-sm text-zinc-300 tabular-nums">{formatCount(p.assetClicks)}</td>
-                        <td className="px-4 py-4 text-right text-sm text-zinc-300 tabular-nums">{formatMoney(p.revenue)}</td>
+                        <td className="px-4 py-4 text-right text-sm text-zinc-300 tabular-nums">
+                          {formatMoney(p.revenue)}
+                        </td>
                         <td className="px-4 py-4 text-right">
                           <button
                             type="button"
                             onClick={(e) => {
                               e.stopPropagation();
-                              goToJourneys(p.id);
+                              navigate(
+                                `/analytics/journey?partnerMode=${mode === 'marketers' ? 'sponsor' : 'marketer'}&partnerId=${encodeURIComponent(p.id)}`,
+                              );
                             }}
                             className="inline-flex items-center gap-1 text-[10px] font-black uppercase tracking-widest text-zinc-500 hover:text-white"
                           >
@@ -750,15 +818,34 @@ export default function PartnerAnalytics() {
             </div>
           )}
         </div>
+
+        {!loading && !error && hasMoreAvailable && partners.length > 0 && (
+          <div className="flex justify-center">
+            <button
+              type="button"
+              disabled={loadingMore}
+              onClick={loadMore}
+              className="h-9 px-5 rounded-xl border border-zinc-800 bg-zinc-900 text-[10px] font-black uppercase tracking-widest text-zinc-300 hover:text-white hover:border-zinc-600 disabled:opacity-50 flex items-center gap-2"
+            >
+              {loadingMore && <Loader2 className="animate-spin" size={12} />}
+              {loadingMore ? tr('loadingMore') : tr('more')}
+            </button>
+          </div>
+        )}
       </section>
-{/* Journeys for the checked partners (selection state shared) */}
+
+      {/* Journey section UNCHANGED — still uses partner list for chips only */}
       <PartnerJourneySection
-        mode={mode}
-        partners={partners.map((p, i) => ({ id: p.id, name: p.name, color: PARTNER_COLORS[i % PARTNER_COLORS.length] }))}
+        mode={mode === 'marketers' ? 'sponsor' : 'marketer'}
+        partners={partners.map((p, i) => ({
+          id: p.id,
+          name: p.name,
+          color: PARTNER_COLORS[i % PARTNER_COLORS.length],
+        }))}
         selectedIds={selectedIds}
         onTogglePartner={toggle}
         onClearPartners={() => setSelectedIds([])}
-        range={range}
+        range={jRange}
         customStart={customStart}
         customEnd={customEnd}
         labels={{
@@ -807,7 +894,6 @@ export default function PartnerAnalytics() {
         }}
       />
 
-      {/* Hidden chart → corner button → modal */}
       {chartHidden && !modalOpen && (
         <button
           type="button"
@@ -821,9 +907,19 @@ export default function PartnerAnalytics() {
       )}
 
       {modalOpen && (
-        <div className="fixed inset-0 z-[80] flex items-center justify-center p-4" role="dialog" aria-modal="true">
-          <div className="absolute inset-0 bg-black/70 backdrop-blur-sm" onClick={() => setModalOpen(false)} aria-hidden="true" />
-          <div className="relative w-full max-w-5xl max-h-[90vh] overflow-y-auto">{renderChartPanel('modal')}</div>
+        <div
+          className="fixed inset-0 z-[80] flex items-center justify-center p-4"
+          role="dialog"
+          aria-modal="true"
+        >
+          <div
+            className="absolute inset-0 bg-black/70 backdrop-blur-sm"
+            onClick={() => setModalOpen(false)}
+            aria-hidden="true"
+          />
+          <div className="relative w-full max-w-5xl max-h-[90vh] overflow-y-auto">
+            {renderChartPanel('modal')}
+          </div>
         </div>
       )}
     </div>
