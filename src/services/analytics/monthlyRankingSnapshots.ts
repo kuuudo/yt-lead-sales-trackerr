@@ -798,6 +798,27 @@ async function resolveAssignedAssetIds(organizationId: string): Promise<Set<stri
   return out;
 }
 
+/**
+ * Campaign-element static thumbs (Vite public/). Matches existing
+ * resolveElementThumbnail usage in AllAssetsAnalytics / CampaignStructureMap.
+ * Unknown types → null (UI shows package icon), never invent files.
+ */
+function elementThumbnailPath(elementType: string | null | undefined): string | null {
+  const t = (elementType ?? 'landing_page').toLowerCase().trim();
+  const map: Record<string, string> = {
+    landing_page: '/element-thumbnails/landing_page.jpg',
+    lead_magnet: '/element-thumbnails/lead_magnet.jpg',
+    newsletter: '/element-thumbnails/newsletter.jpg',
+    sales_call: '/element-thumbnails/sales_call.jpg',
+    sales: '/element-thumbnails/sales_call.jpg',
+    consultation: '/element-thumbnails/consultation.jpg',
+    consult: '/element-thumbnails/consultation.jpg',
+    custom_domain: '/element-thumbnails/custom_domain.jpg',
+    custom_domain2: '/element-thumbnails/custom_domain2.jpg',
+  };
+  return map[t] ?? null;
+}
+
 export async function fetchAssetDisplayMeta(
   assetIds: string[],
 ): Promise<Map<string, { title: string; thumbnailUrl: string | null; assetType: string | null }>> {
@@ -808,7 +829,7 @@ export async function fetchAssetDisplayMeta(
   const { data, error } = await supabase
     .from('assets')
     .select(
-      'id, asset_type, videos(video_title, thumbnail_url), asset_resources(title, thumbnail_url), campaign_element_assets(display_name)',
+      'id, asset_type, videos(video_title, thumbnail_url, platform), asset_resources(title, thumbnail_url, resource_type, platform), campaign_element_assets(display_name, element_type)',
     )
     .in('id', ids);
 
@@ -829,11 +850,14 @@ export async function fetchAssetDisplayMeta(
     let title: string | null = null;
     let thumbnailUrl: string | null = null;
     if (r.asset_type === 'campaign_element') {
+      // Same discriminator as AllAssetsAnalytics assetDisplay map.
       title = el?.display_name ?? null;
+      thumbnailUrl = elementThumbnailPath(el?.element_type ?? 'landing_page');
     } else if (r.asset_type === 'resource') {
       title = res?.title ?? null;
       thumbnailUrl = res?.thumbnail_url ?? null;
     } else {
+      // Video assets: real YouTube thumb only (no generic fallback).
       title = v?.video_title ?? null;
       thumbnailUrl = v?.thumbnail_url ?? null;
     }
