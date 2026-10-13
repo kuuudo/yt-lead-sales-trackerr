@@ -142,28 +142,48 @@ export async function listSponsorOrganizationsForMarketer(
   if (orgIds.size === 0) return [];
 
   const ids = Array.from(orgIds);
+
+  // 1) organizations → name + owner_id
   const { data: orgs, error: oErr } = await supabase
     .from('organizations')
-    .select('id, name')
+    .select('id, name, owner_id')
     .in('id', ids);
-  if (oErr) {
-    // Fallback if name column differs
-    const { data: o2, error: e2 } = await supabase.from('organizations').select('id').in('id', ids);
-    if (e2) throw new Error(`listSponsorOrgs: organizations — ${e2.message}`);
-    return (o2 ?? []).map((o: { id: string }) => ({
-      organizationId: o.id,
-      name: o.id,
-    }));
-  }
+  if (oErr) console.warn('[listSponsorOrgs] organizations lookup failed:', oErr.message);
 
-  const nameById = new Map<string, string>();
+  const orgById = new Map<string, { name: string; ownerId: string | null }>();
   for (const o of orgs ?? []) {
-    const row = o as { id: string; name?: string | null };
-    nameById.set(row.id, (row.name ?? '').trim() || row.id);
+    const row = o as { id: string; name?: string | null; owner_id?: string | null };
+    orgById.set(row.id, { name: (row.name ?? '').trim(), ownerId: row.owner_id ?? null });
   }
 
+  // 2) profiles of the owners → sponsor display name
+  const ownerIds = Array.from(
+    new Set([...orgById.values()].map((o) => o.ownerId).filter((id): id is string => !!id)),
+  );
+  const profileNameByOwner = new Map<string, string>();
+  if (ownerIds.length > 0) {
+    const { data: profs, error: pErr } = await supabase
+      .from('profiles')
+      .select('id, full_name, email')
+      .in('id', ownerIds);
+    if (pErr) console.warn('[listSponsorOrgs] profiles lookup failed:', pErr.message);
+    for (const p of profs ?? []) {
+      const row = p as { id: string; full_name?: string | null; email?: string | null };
+      const label = (row.full_name ?? '').trim() || (row.email ?? '').trim();
+      if (label) profileNameByOwner.set(row.id, label);
+    }
+  }
+
+  // 3) Priority: profile name → workspace name → id
   return ids
-    .map((id) => ({ organizationId: id, name: nameById.get(id) ?? id }))
+    .map((id) => {
+      const org = orgById.get(id);
+      const profileName = org?.ownerId ? profileNameByOwner.get(org.ownerId) : undefined;
+      return {
+        organizationId: id,
+        name: profileName || org?.name || id,
+      };
+    })
     .sort((a, b) => a.name.localeCompare(b.name));
 }
 
