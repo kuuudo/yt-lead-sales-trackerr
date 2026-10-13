@@ -192,10 +192,6 @@ export function Tree() {
     void loadMetrics(false);
   }, [loadMetrics]);
 
-  // Mark stale immediately when selection changes (before fetch completes)
-  useEffect(() => {
-    setMetricsStale(true);
-  }, [selectedCampaignId, period.periodStart, period.periodEnd]);
 
   const display = useMemo(() => {
     if (selectedCampaignId === 'all') {
