@@ -28,6 +28,7 @@ import { Campaign, supabase } from '../lib/supabase';
 import { useAuth } from '../lib/auth';
 import { useViewing } from '../lib/ViewingContext';
 import { useOrganization } from '../lib/useOrganization';
+import { journeyAnalyticsPageCache } from '../lib/journeyAnalyticsPageCache';
 import { resolveThumbnail } from '../lib/videoFormatters';
 import {
 
@@ -76,6 +77,8 @@ import {
   AnalyticsMobileFilterButton,
   AnalyticsMobileFilterSheet,
 } from './analytics-lego/AnalyticsMobileFilterSheet';
+/** Monotonic count of silently-degraded sub-queries inside the dataset loader. Used only to refuse caching. */
+let journeyDatasetSoftFailures = 0;
 /** Batch size for discoverJourneysForVideos — not a membership gate. */
 const DISCOVERY_BATCH = 50;
 
@@ -399,6 +402,7 @@ async function loadVideoDisplayMap(
         .in('id', slice);
       if (error) {
         console.warn('[JourneyAnalytics] assets load', error.message);
+        journeyDatasetSoftFailures += 1;
       } else {
         rows = data ?? [];
       }
@@ -426,6 +430,7 @@ async function loadVideoDisplayMap(
         .not('promotion_id', 'is', null);
       if (error) {
         console.warn('[JourneyAnalytics] redirect_links promotions', error.message);
+        journeyDatasetSoftFailures += 1;
         continue;
       }
       for (const row of (data ?? []) as any[]) {
@@ -446,7 +451,10 @@ async function loadVideoDisplayMap(
       .select('video_id, promotion_id, asset_id')
       .in('video_id', slice)
       .not('promotion_id', 'is', null);
-    if (error) continue;
+    if (error) {
+      journeyDatasetSoftFailures += 1;
+      continue;
+    }
     for (const row of (data ?? []) as any[]) {
       if (!row.video_id || !row.promotion_id) continue;
       const list = promotionIdsByVideo.get(row.video_id) ?? [];
@@ -639,6 +647,8 @@ export type JourneyDataset = {
   journeys: RouteJourney[];
   videoDisplay: Map<string, VideoDisplay>;
   entryVideoCount: number;
+  /** true when a silent sub-query failure degraded the data; such a result is never cached */
+  incomplete?: boolean;
   truncated: boolean;
   excludedJourneys: number;
 };
@@ -655,6 +665,7 @@ export async function loadJourneyDataset(
     truncated: false,
     excludedJourneys: 0,
   };
+  const __failStart = journeyDatasetSoftFailures;
   if (!effectiveOrgId) return empty;
 
   // 1) Full org content universe (Videos.tsx membership)
@@ -678,6 +689,7 @@ export async function loadJourneyDataset(
     const slice = allVideoIdsForLinks.slice(i, i + DISCOVERY_BATCH);
     const links = await resolveStructuralLinksForVideos(slice).catch((e) => {
       console.warn('[JourneyAnalytics] structural resolution failed', e);
+      journeyDatasetSoftFailures += 1;
       return [] as StructuralLink[];
     });
     allLinks = [...allLinks, ...links];
@@ -708,6 +720,7 @@ export async function loadJourneyDataset(
     entryVideoCount: videoIds.length,
     truncated: discovery.truncated,
     excludedJourneys: discovery.excludedJourneys,
+    incomplete: journeyDatasetSoftFailures > __failStart,
   };
 }
 
@@ -810,6 +823,7 @@ export default function JourneyAnalytics() {
   const campaignOptions = useCampaignOptions(effectiveViewerId);
   // organizationId used for Asset scope + promotion options (may equal effectiveOrgId)
   const organizationId = effectiveOrgId;
+  const cacheKey = effectiveOrgId && user?.id ? `${user.id}|${effectiveOrgId}` : null;
 
 
 
@@ -940,8 +954,14 @@ const [tableScrollWidth, setTableScrollWidth] = useState(0);
 
     (async () => {
       try {
-        const ds = await loadJourneyDataset(effectiveOrgId, organizationId, () => cancelled);
+        const hit = cacheKey ? journeyAnalyticsPageCache.get(cacheKey) : null;
+        if (hit) console.log('[JourneyAnalytics] Cache hit — no refetch');
+        const ds = hit ? hit.data : await loadJourneyDataset(effectiveOrgId, organizationId, () => cancelled);
         if (cancelled || !ds) return;
+        if (!hit && cacheKey) {
+          if (ds.incomplete) console.warn('[JourneyAnalytics] Result not cached (a sub-query failed silently)');
+          else journeyAnalyticsPageCache.set(cacheKey, ds);
+        }
         setEntryVideoCount(ds.entryVideoCount);
         setJourneys(ds.journeys);
         setTruncated(ds.truncated);
@@ -968,7 +988,7 @@ console.log('[DIAG membership]', {
     return () => {
       cancelled = true;
     };
-  }, [effectiveOrgId, organizationId]);
+  }, [effectiveOrgId, organizationId, cacheKey]);
 
   const { routeMetrics, metricsLoading } = useRouteRevenueMetrics({
     orgId: effectiveOrgId,
