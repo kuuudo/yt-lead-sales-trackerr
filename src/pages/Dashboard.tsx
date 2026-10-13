@@ -287,6 +287,10 @@ export default function Dashboard() {
   const { organizationId } = useOrganization();
   const { viewingOrgId, isReadOnly } = useViewing();
   const effectiveOrgId = isReadOnly ? viewingOrgId : organizationId;
+  // Always points at the org currently being viewed; lets an in-flight fetch
+  // detect that the user switched org and discard its result.
+  const effectiveOrgIdRef = useRef(effectiveOrgId);
+  effectiveOrgIdRef.current = effectiveOrgId;
   const navigate           = useNavigate();
 
   // ── Raw data state ──────────────────────────────────────────────────────────
@@ -350,6 +354,7 @@ export default function Dashboard() {
 
   // ── Data fetching ───────────────────────────────────────────────────────────
   const fetchData = async () => {
+    const orgAtStart = effectiveOrgId;
     setLoading(true);
     try {
       const [vRes, cRes] = await Promise.all([
@@ -360,6 +365,7 @@ export default function Dashboard() {
       if (vRes.error) throw vRes.error;
       if (cRes.error) throw cRes.error;
       if (!vRes.data || !cRes.data) return;
+      if (orgAtStart !== effectiveOrgIdRef.current) return; // org switched mid-fetch
 
       setVideos(vRes.data);
       setCampaigns(cRes.data);
@@ -411,6 +417,11 @@ export default function Dashboard() {
               .in('campaign_id', campaignIds)
           : Promise.resolve({ data: [] as any[] }),
       ]);
+
+      // A failed query here yields empty data without throwing; never cache that.
+      const hadQueryError = !!(
+        eDirectData.error || eViaSessionData.error || spData.error || (ppData as any).error
+      );
 
       const sessionResolvedEvents = flattenSessionEvents(eViaSessionData.data as any[] || []);
       const allEvents = mergeEventSources(eDirectData.data || [], sessionResolvedEvents);
@@ -560,22 +571,30 @@ export default function Dashboard() {
         }));
       }
 
+      if (orgAtStart !== effectiveOrgIdRef.current) return; // org switched mid-fetch
+
       setRawEvents(allEvents);
       setStripePurchases(enrichedStripe as typeof stripePurchases);
       setPixelPurchases(enrichedPixel as typeof pixelPurchases);
 
-      if (effectiveOrgId) {
+      // Cache only a complete, non-degraded result (owner processing succeeded,
+      // no silent query errors). Otherwise the next visit refetches.
+      if (effectiveOrgId && owned && !hadQueryError) {
         dashboardPageCache.set(effectiveOrgId, {
           videos: vRes.data, campaigns: cRes.data,
           rawEvents: allEvents, stripePurchases: enrichedStripe, pixelPurchases: enrichedPixel,
         });
         console.log('[Dashboard] Cache updated');
+      } else {
+        console.warn('[Dashboard] Result not cached', { ownerProcessed: !!owned, hadQueryError });
       }
     } catch (err: any) {
       console.error('[Dashboard] Fetch Error:', err);
-      showAlert('Dashboard Error', `Failed to load dashboard data: ${err.message}`, 'danger');
+      if (orgAtStart === effectiveOrgIdRef.current) {
+        showAlert('Dashboard Error', `Failed to load dashboard data: ${err.message}`, 'danger');
+      }
     } finally {
-      setLoading(false);
+      if (orgAtStart === effectiveOrgIdRef.current) setLoading(false);
     }
   };
 
