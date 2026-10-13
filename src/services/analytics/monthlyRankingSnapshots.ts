@@ -24,7 +24,7 @@ import {
   type PixelPurchaseOwnerInput,
 } from '../attribution/resolveConversionOwners';
 
-export type RankingType = 'total_revenue' | 'marketer' | 'promotion';
+export type RankingType = 'total_revenue' | 'marketer' | 'promotion' | 'asset';
 export type SnapshotStatus = 'provisional' | 'finalized';
 /** Preset key stored on each snapshot row (supports multiple windows per org). */
 export type RankingWindow =
@@ -35,12 +35,12 @@ export type RankingWindow =
   | 'all_time'
   | 'custom';
 
-export const TOP_N = 10;
+/** Asset ranking list scope (only on ranking_type = 'asset' rows). */
+export type RankingScope = 'my' | 'assigned';
 
 /**
- * Rolling windows keep exactly ONE provisional batch per org + window.
- * Reads ignore period_start (it moves every day); writes replace the batch.
- * this_month (calendar month history) and custom (exact range) are NOT rolling.
+ * Rolling windows keep exactly ONE provisional batch per org + window
+ * (and per ranking_scope for assets). Reads ignore period_start drift.
  */
 export const ROLLING_WINDOWS: RankingWindow[] = [
   'last_7_days',
@@ -48,6 +48,8 @@ export const ROLLING_WINDOWS: RankingWindow[] = [
   'last_12_months',
   'all_time',
 ];
+
+export const TOP_N = 10;
 
 export interface MonthPeriod {
   /** Inclusive start date (UTC YYYY-MM-DD). */
@@ -89,9 +91,11 @@ export interface SnapshotRow {
   period_end: string;
   ranking_type: RankingType;
   ranking_window?: string | null;
+  ranking_scope?: string | null;
   rank: number | null;
   marketer_id: string | null;
   promotion_id: string | null;
+  asset_id?: string | null;
   entity_name_snapshot: string | null;
   revenue: number;
   conversions: number;
@@ -100,6 +104,27 @@ export interface SnapshotRow {
   snapshot_at: string;
   status: SnapshotStatus;
   snapshot_version: number;
+}
+
+export interface AssetRankingEntityRow {
+  rank: number;
+  assetId: string;
+  entityName: string;
+  revenue: number;
+  conversions: number;
+  clicks: number;
+  rpc: number;
+  thumbnailUrl?: string | null;
+  assetType?: string | null;
+}
+
+export interface AssetSnapshotPayload {
+  organizationId: string;
+  period: MonthPeriod;
+  rankingWindow: RankingWindow;
+  rankingScope: RankingScope;
+  topAssets: AssetRankingEntityRow[];
+  computedAt: string;
 }
 
 // ── Period helpers (UTC calendar month) ─────────────────────────────────────
@@ -333,16 +358,20 @@ export async function fetchPromotionDisplayTitles(
   // Prefer nested assignment title when FK is exposed to PostgREST.
   const { data: nested, error: nestedErr } = await supabase
     .from('promotions')
-    .select('id, assignment_id, assignments:assignment_id ( id, title )')
+    .select('id, title, assignment_id, assignments:assignment_id ( id, title, name )')
     .in('id', ids);
 
   if (!nestedErr && nested && nested.length > 0) {
     for (const p of nested as any[]) {
       if (!p?.id) continue;
       const asg = Array.isArray(p.assignments) ? p.assignments[0] : p.assignments;
-      // assignments.title is the display name (numeric titles such as "53535" are valid).
-      const fromAsg = asg?.title != null && String(asg.title).trim() ? String(asg.title).trim() : null;
-      out.set(p.id, fromAsg || p.id);
+      const fromAsg =
+        (asg?.title && String(asg.title).trim()) ||
+        (asg?.name && String(asg.name).trim()) ||
+        null;
+      const fromPromo = p.title && String(p.title).trim() ? String(p.title).trim() : null;
+      // Assignment title wins even when numeric (e.g. "53535").
+      out.set(p.id, fromAsg || fromPromo || p.id);
     }
     console.log('[monthlyRankingSnapshots] promotion titles (nested)', {
       count: out.size,
@@ -360,7 +389,7 @@ export async function fetchPromotionDisplayTitles(
 
   const { data: promos, error } = await supabase
     .from('promotions')
-    .select('id, assignment_id')
+    .select('id, title, assignment_id')
     .in('id', ids);
   if (error) {
     console.warn('[monthlyRankingSnapshots] promotions title fetch failed:', error.message);
@@ -399,7 +428,9 @@ export async function fetchPromotionDisplayTitles(
       row.assignment_id && assignmentTitle.has(row.assignment_id)
         ? assignmentTitle.get(row.assignment_id)!
         : null;
-    out.set(row.id, fromAssignment || row.id);
+    const fromPromo = row.title && String(row.title).trim() ? String(row.title).trim() : null;
+    // Assignment title wins (including numeric titles like "53535").
+    out.set(row.id, fromAssignment || fromPromo || row.id);
   }
 
   console.log('[monthlyRankingSnapshots] promotion titles (fallback)', {
@@ -455,19 +486,16 @@ export async function saveProvisionalSnapshot(payload: MonthlySnapshotPayload): 
   const rankingWindow = payload.rankingWindow ?? period.rankingWindow ?? 'this_month';
   const snapshotAt = payload.computedAt;
 
-  // Same-key delete BEFORE insert is required: the provisional unique indexes are
-  // (org, ranking_window, period_start[, ranking_type, rank]).
-  // Custom keeps one provisional set per org, because a second range with the same
-  // period_start but a different period_end would collide on that index.
+  // Delete only Total / Marketer / Promotion provisional rows for this window.
+  // Never touch ranking_type = 'asset' (isolated asset ranking batches).
   let del = supabase
     .from('monthly_ranking_snapshots')
     .delete()
     .eq('organization_id', organizationId)
+    .eq('period_start', period.periodStart)
     .eq('status', 'provisional')
-    .eq('ranking_window', rankingWindow);
-  if (rankingWindow !== 'custom') {
-    del = del.eq('period_start', period.periodStart);
-  }
+    .eq('ranking_window', rankingWindow)
+    .neq('ranking_type', 'asset');
 
   const { error: delErr } = await del;
 
@@ -544,23 +572,6 @@ export async function saveProvisionalSnapshot(payload: MonthlySnapshotPayload): 
   if (insErr) {
     throw new Error(`monthlyRankingSnapshots: insert provisional failed — ${insErr.message}`);
   }
-
-  // Rolling windows: drop older provisional batches only AFTER the new batch is saved, so a
-  // reader always has a usable snapshot. Never touches finalized rows, this_month history or custom.
-  if (ROLLING_WINDOWS.includes(rankingWindow)) {
-    const { error: cleanErr } = await supabase
-      .from('monthly_ranking_snapshots')
-      .delete()
-      .eq('organization_id', organizationId)
-      .eq('ranking_window', rankingWindow)
-      .eq('status', 'provisional')
-      .neq('snapshot_at', snapshotAt);
-    if (cleanErr) {
-      // Non-fatal: readers always pick the newest batch by snapshot_at.
-      console.warn('[monthlyRankingSnapshots] old provisional cleanup failed:', cleanErr.message);
-    }
-  }
-
 }
 
 /**
@@ -685,20 +696,14 @@ export async function restateFinalizedMonth(
 }
 
 /**
- * Read a snapshot for a ranking window.
- *  - finalized (exact period_start [+ period_end for custom]) always wins, as before.
- *  - rolling windows: newest provisional batch for org + ranking_window (period_start ignored).
- *  - this_month / custom: provisional batch for the exact period (custom also matches period_end).
- * A "batch" = all rows sharing one snapshot_at (one insert), so rows from different
- * refreshes are never mixed.
+ * Read snapshot for a month.
+ * Prefer latest finalized; if none, return provisional (current open month).
  */
 export async function getMonthlySnapshot(
   organizationId: string,
   period: MonthPeriod,
 ): Promise<{ status: SnapshotStatus; version: number; rows: SnapshotRow[] } | null> {
   const rankingWindow = period.rankingWindow ?? 'this_month';
-  const isRolling = ROLLING_WINDOWS.includes(rankingWindow);
-  const isCustom = rankingWindow === 'custom';
 
   let finQ = supabase
     .from('monthly_ranking_snapshots')
@@ -708,6 +713,317 @@ export async function getMonthlySnapshot(
     .eq('status', 'finalized')
     .eq('ranking_window', rankingWindow)
     .order('snapshot_version', { ascending: false });
+
+  const { data: finalized, error: fErr } = await finQ;
+
+  if (fErr) throw new Error(fErr.message);
+
+  if (finalized && finalized.length > 0) {
+    const version = (finalized[0] as SnapshotRow).snapshot_version;
+    const rows = (finalized as SnapshotRow[]).filter((r) => r.snapshot_version === version);
+    return { status: 'finalized', version, rows };
+  }
+
+  const { data: provisional, error: pErr } = await supabase
+    .from('monthly_ranking_snapshots')
+    .select('*')
+    .eq('organization_id', organizationId)
+    .eq('period_start', period.periodStart)
+    .eq('ranking_window', rankingWindow)
+    .eq('status', 'provisional');
+
+  if (pErr) throw new Error(pErr.message);
+  if (!provisional || provisional.length === 0) return null;
+
+  return {
+    status: 'provisional',
+    version: 1,
+    rows: provisional as SnapshotRow[],
+  };
+}
+
+// ── Asset ranking (isolated from Total / Marketer / Promotion) ───────────────
+
+async function resolveMyAssetIds(organizationId: string): Promise<Set<string>> {
+  const { data, error } = await supabase
+    .from('assets')
+    .select('id')
+    .eq('organization_id', organizationId);
+  if (error) {
+    console.warn('[monthlyRankingSnapshots] my assets query failed:', error.message);
+    return new Set();
+  }
+  return new Set((data ?? []).map((r: { id: string }) => r.id).filter(Boolean));
+}
+
+/**
+ * Assigned assets: assets linked via assignment_assets for promotions that
+ * belong to this organization (assignment_collaborator path / org promotions).
+ */
+async function resolveAssignedAssetIds(organizationId: string): Promise<Set<string>> {
+  const { data: promos, error: pErr } = await supabase
+    .from('promotions')
+    .select('id, assignment_id')
+    .eq('organization_id', organizationId);
+  if (pErr) {
+    console.warn('[monthlyRankingSnapshots] assigned promotions query failed:', pErr.message);
+    return new Set();
+  }
+
+  const assignmentIds = Array.from(
+    new Set(
+      (promos ?? [])
+        .map((p: { assignment_id?: string | null }) => p.assignment_id)
+        .filter((id): id is string => typeof id === 'string' && id.length > 0),
+    ),
+  );
+  if (assignmentIds.length === 0) return new Set();
+
+  const out = new Set<string>();
+  for (let i = 0; i < assignmentIds.length; i += 100) {
+    const slice = assignmentIds.slice(i, i + 100);
+    const { data, error } = await supabase
+      .from('assignment_assets')
+      .select('asset_id')
+      .in('assignment_id', slice);
+    if (error) {
+      console.warn('[monthlyRankingSnapshots] assignment_assets query failed:', error.message);
+      continue;
+    }
+    for (const row of data ?? []) {
+      const id = (row as { asset_id?: string | null }).asset_id;
+      if (id) out.add(id);
+    }
+  }
+  return out;
+}
+
+export async function fetchAssetDisplayMeta(
+  assetIds: string[],
+): Promise<Map<string, { title: string; thumbnailUrl: string | null; assetType: string | null }>> {
+  const out = new Map<string, { title: string; thumbnailUrl: string | null; assetType: string | null }>();
+  const ids = Array.from(new Set(assetIds.filter(Boolean)));
+  if (ids.length === 0) return out;
+
+  const { data, error } = await supabase
+    .from('assets')
+    .select(
+      'id, asset_type, videos(video_title, thumbnail_url), asset_resources(title, thumbnail_url), campaign_element_assets(display_name)',
+    )
+    .in('id', ids);
+
+  if (error) {
+    console.warn('[monthlyRankingSnapshots] asset display meta failed:', error.message);
+    for (const id of ids) out.set(id, { title: id, thumbnailUrl: null, assetType: null });
+    return out;
+  }
+
+  for (const row of data ?? []) {
+    const r = row as any;
+    const v = Array.isArray(r.videos) ? r.videos[0] : r.videos;
+    const res = Array.isArray(r.asset_resources) ? r.asset_resources[0] : r.asset_resources;
+    const el = Array.isArray(r.campaign_element_assets)
+      ? r.campaign_element_assets[0]
+      : r.campaign_element_assets;
+
+    let title: string | null = null;
+    let thumbnailUrl: string | null = null;
+    if (r.asset_type === 'campaign_element') {
+      title = el?.display_name ?? null;
+    } else if (r.asset_type === 'resource') {
+      title = res?.title ?? null;
+      thumbnailUrl = res?.thumbnail_url ?? null;
+    } else {
+      title = v?.video_title ?? null;
+      thumbnailUrl = v?.thumbnail_url ?? null;
+    }
+
+    out.set(r.id, {
+      title: (title && String(title).trim()) || r.id,
+      thumbnailUrl,
+      assetType: r.asset_type ?? null,
+    });
+  }
+
+  for (const id of ids) {
+    if (!out.has(id)) out.set(id, { title: id, thumbnailUrl: null, assetType: null });
+  }
+  return out;
+}
+
+/**
+ * Canonical Asset ranking payload: group formal conversions by ownerAssetId,
+ * then keep only assets in the requested scope (my | assigned).
+ */
+export async function computeAssetRankingPayload(
+  organizationId: string,
+  period: MonthPeriod,
+  rankingScope: RankingScope,
+): Promise<AssetSnapshotPayload> {
+  const { stripe, pixel } = await fetchOrgPurchasesForPeriod(organizationId, period);
+  const resolved = await resolveConversionOwners({
+    stripePurchases: stripe,
+    pixelPurchases: pixel,
+  });
+
+  const byAsset = new Map<string, Agg>();
+  resolved.byKey.forEach((r) => {
+    if (!isFormal(r)) return;
+    const amount = parseAmount(r.amount);
+    if (!(amount > 0) || !r.ownerAssetId) return;
+    const a = byAsset.get(r.ownerAssetId) ?? { revenue: 0, conversions: 0, clicks: 0 };
+    a.revenue += amount;
+    a.conversions += 1;
+    byAsset.set(r.ownerAssetId, a);
+  });
+
+  const scopeIds =
+    rankingScope === 'assigned'
+      ? await resolveAssignedAssetIds(organizationId)
+      : await resolveMyAssetIds(organizationId);
+
+  const eligible = [...byAsset.entries()].filter(([assetId]) => scopeIds.has(assetId));
+  eligible.sort((a, b) => b[1].revenue - a[1].revenue || a[0].localeCompare(b[0]));
+  const top = eligible.slice(0, TOP_N);
+
+  const meta = await fetchAssetDisplayMeta(top.map(([id]) => id));
+
+  const topAssets: AssetRankingEntityRow[] = top.map(([id, a], i) => {
+    const m = meta.get(id);
+    return {
+      rank: i + 1,
+      assetId: id,
+      entityName: m?.title ?? id,
+      revenue: a.revenue,
+      conversions: a.conversions,
+      clicks: a.clicks,
+      rpc: rpcOf(a),
+      thumbnailUrl: m?.thumbnailUrl ?? null,
+      assetType: m?.assetType ?? null,
+    };
+  });
+
+  return {
+    organizationId,
+    period,
+    rankingWindow: period.rankingWindow ?? 'this_month',
+    rankingScope,
+    topAssets,
+    computedAt: new Date().toISOString(),
+  };
+}
+
+/**
+ * Replace provisional asset rows for ONE scope + window only.
+ * Does not delete Total / Marketer / Promotion rows.
+ */
+export async function saveProvisionalAssetSnapshot(payload: AssetSnapshotPayload): Promise<void> {
+  const { organizationId, period, rankingScope } = payload;
+  const rankingWindow = payload.rankingWindow ?? period.rankingWindow ?? 'this_month';
+  const snapshotAt = payload.computedAt;
+  const isRolling = ROLLING_WINDOWS.includes(rankingWindow);
+
+  let del = supabase
+    .from('monthly_ranking_snapshots')
+    .delete()
+    .eq('organization_id', organizationId)
+    .eq('status', 'provisional')
+    .eq('ranking_type', 'asset')
+    .eq('ranking_window', rankingWindow)
+    .eq('ranking_scope', rankingScope);
+
+  if (!isRolling) {
+    del = del.eq('period_start', period.periodStart);
+  }
+  if (rankingWindow === 'custom') {
+    del = del.eq('period_end', period.periodEnd);
+  }
+
+  const { error: delErr } = await del;
+  if (delErr) {
+    throw new Error(`monthlyRankingSnapshots: delete asset provisional failed — ${delErr.message}`);
+  }
+
+  if (payload.topAssets.length === 0) {
+    // Still write nothing — empty ranking is valid (no formal asset revenue in scope).
+    return;
+  }
+
+  const rows = payload.topAssets.map((a) => ({
+    organization_id: organizationId,
+    period_start: period.periodStart,
+    period_end: period.periodEnd,
+    ranking_type: 'asset' as const,
+    ranking_window: rankingWindow,
+    ranking_scope: rankingScope,
+    rank: a.rank,
+    marketer_id: null,
+    promotion_id: null,
+    asset_id: a.assetId,
+    entity_name_snapshot: a.entityName,
+    revenue: a.revenue,
+    conversions: a.conversions,
+    clicks: a.clicks,
+    rpc: a.rpc,
+    snapshot_at: snapshotAt,
+    status: 'provisional' as const,
+    snapshot_version: 1,
+  }));
+
+  const { error: insErr } = await supabase.from('monthly_ranking_snapshots').insert(rows);
+  if (insErr) {
+    throw new Error(`monthlyRankingSnapshots: insert asset provisional failed — ${insErr.message}`);
+  }
+
+  if (isRolling) {
+    const { error: cleanErr } = await supabase
+      .from('monthly_ranking_snapshots')
+      .delete()
+      .eq('organization_id', organizationId)
+      .eq('ranking_window', rankingWindow)
+      .eq('ranking_scope', rankingScope)
+      .eq('status', 'provisional')
+      .eq('ranking_type', 'asset')
+      .neq('snapshot_at', snapshotAt);
+    if (cleanErr) {
+      console.warn('[monthlyRankingSnapshots] asset old provisional cleanup failed:', cleanErr.message);
+    }
+  }
+}
+
+export async function refreshProvisionalAssetSnapshot(
+  organizationId: string,
+  period: MonthPeriod,
+  rankingScope: RankingScope,
+): Promise<AssetSnapshotPayload> {
+  const payload = await computeAssetRankingPayload(organizationId, period, rankingScope);
+  await saveProvisionalAssetSnapshot(payload);
+  return payload;
+}
+
+/**
+ * Read asset ranking snapshot for one scope + window.
+ * Prefer finalized; else newest provisional batch (by snapshot_at).
+ */
+export async function getAssetRankingSnapshot(
+  organizationId: string,
+  period: MonthPeriod,
+  rankingScope: RankingScope,
+): Promise<{ status: SnapshotStatus; version: number; rows: SnapshotRow[] } | null> {
+  const rankingWindow = period.rankingWindow ?? 'this_month';
+  const isRolling = ROLLING_WINDOWS.includes(rankingWindow);
+  const isCustom = rankingWindow === 'custom';
+
+  let finQ = supabase
+    .from('monthly_ranking_snapshots')
+    .select('*')
+    .eq('organization_id', organizationId)
+    .eq('ranking_window', rankingWindow)
+    .eq('ranking_scope', rankingScope)
+    .eq('ranking_type', 'asset')
+    .eq('status', 'finalized')
+    .order('snapshot_version', { ascending: false });
+  if (!isRolling) finQ = finQ.eq('period_start', period.periodStart);
   if (isCustom) finQ = finQ.eq('period_end', period.periodEnd);
 
   const { data: finalized, error: fErr } = await finQ;
@@ -719,13 +1035,14 @@ export async function getMonthlySnapshot(
     return { status: 'finalized', version, rows };
   }
 
-  // Two attempts: if a concurrent refresh deletes the batch between the two queries, retry once.
   for (let attempt = 0; attempt < 2; attempt++) {
     let latestQ = supabase
       .from('monthly_ranking_snapshots')
       .select('snapshot_at')
       .eq('organization_id', organizationId)
       .eq('ranking_window', rankingWindow)
+      .eq('ranking_scope', rankingScope)
+      .eq('ranking_type', 'asset')
       .eq('status', 'provisional');
     if (!isRolling) latestQ = latestQ.eq('period_start', period.periodStart);
     if (isCustom) latestQ = latestQ.eq('period_end', period.periodEnd);
@@ -743,6 +1060,8 @@ export async function getMonthlySnapshot(
       .select('*')
       .eq('organization_id', organizationId)
       .eq('ranking_window', rankingWindow)
+      .eq('ranking_scope', rankingScope)
+      .eq('ranking_type', 'asset')
       .eq('status', 'provisional')
       .eq('snapshot_at', batchAt);
     if (!isRolling) rowsQ = rowsQ.eq('period_start', period.periodStart);

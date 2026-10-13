@@ -132,3 +132,101 @@ CREATE POLICY monthly_ranking_snapshots_delete_org
         AND om.user_id = auth.uid()
     )
   );
+
+-- Support multiple ranking windows (last_7_days, last_30_days, this_month, …)
+-- in addition to calendar-month snapshots.
+
+ALTER TABLE public.monthly_ranking_snapshots
+  ADD COLUMN IF NOT EXISTS ranking_window text NOT NULL DEFAULT 'this_month';
+
+COMMENT ON COLUMN public.monthly_ranking_snapshots.ranking_window IS
+  'Preset window key: last_7_days | last_30_days | this_month | last_12_months | all_time | custom';
+
+-- Drop old provisional uniqueness (month-only) and recreate including ranking_window
+DROP INDEX IF EXISTS monthly_ranking_snapshots_provisional_total_uidx;
+DROP INDEX IF EXISTS monthly_ranking_snapshots_provisional_rank_uidx;
+DROP INDEX IF EXISTS monthly_ranking_snapshots_finalized_total_uidx;
+DROP INDEX IF EXISTS monthly_ranking_snapshots_finalized_rank_uidx;
+
+CREATE UNIQUE INDEX monthly_ranking_snapshots_provisional_total_uidx
+  ON public.monthly_ranking_snapshots (organization_id, ranking_window, period_start)
+  WHERE status = 'provisional' AND ranking_type = 'total_revenue';
+
+CREATE UNIQUE INDEX monthly_ranking_snapshots_provisional_rank_uidx
+  ON public.monthly_ranking_snapshots (organization_id, ranking_window, period_start, ranking_type, rank)
+  WHERE status = 'provisional' AND ranking_type IN ('marketer', 'promotion');
+
+CREATE UNIQUE INDEX monthly_ranking_snapshots_finalized_total_uidx
+  ON public.monthly_ranking_snapshots (organization_id, ranking_window, period_start, snapshot_version)
+  WHERE status = 'finalized' AND ranking_type = 'total_revenue';
+
+CREATE UNIQUE INDEX monthly_ranking_snapshots_finalized_rank_uidx
+  ON public.monthly_ranking_snapshots (organization_id, ranking_window, period_start, ranking_type, snapshot_version, rank)
+  WHERE status = 'finalized' AND ranking_type IN ('marketer', 'promotion');
+
+CREATE INDEX IF NOT EXISTS monthly_ranking_snapshots_org_window_idx
+  ON public.monthly_ranking_snapshots (organization_id, ranking_window, status, period_start DESC);
+
+
+  BEGIN;
+
+-- 1) New columns (nullable → no table rewrite, existing rows stay valid)
+ALTER TABLE public.monthly_ranking_snapshots
+  ADD COLUMN IF NOT EXISTS asset_id uuid NULL,
+  ADD COLUMN IF NOT EXISTS ranking_scope text NULL;
+
+COMMENT ON COLUMN public.monthly_ranking_snapshots.asset_id IS
+  'Set only when ranking_type = ''asset''. No FK on purpose (history, and Shared assets can belong to another org).';
+COMMENT ON COLUMN public.monthly_ranking_snapshots.ranking_scope IS
+  'Set only when ranking_type = ''asset''. Which asset list this row belongs to, e.g. campaign_element | all | my | shared | assigned. NULL for total_revenue / marketer / promotion.';
+
+-- 2) Allow ranking_type = 'asset'.
+--    The original CHECK was inline (auto-named); drop whichever CHECK only restricts ranking_type.
+DO $$
+DECLARE c record;
+BEGIN
+  FOR c IN
+    SELECT conname
+    FROM pg_constraint
+    WHERE conrelid = 'public.monthly_ranking_snapshots'::regclass
+      AND contype = 'c'
+      AND pg_get_constraintdef(oid) LIKE '%ranking_type%'
+      AND pg_get_constraintdef(oid) NOT LIKE '%marketer_id%'
+      AND conname <> 'monthly_ranking_type_ok'
+  LOOP
+    RAISE NOTICE 'dropping ranking_type check: %', c.conname;
+    EXECUTE format('ALTER TABLE public.monthly_ranking_snapshots DROP CONSTRAINT %I', c.conname);
+  END LOOP;
+END $$;
+
+ALTER TABLE public.monthly_ranking_snapshots DROP CONSTRAINT IF EXISTS monthly_ranking_type_ok;
+ALTER TABLE public.monthly_ranking_snapshots
+  ADD CONSTRAINT monthly_ranking_type_ok
+  CHECK (ranking_type IN ('total_revenue', 'marketer', 'promotion', 'asset'));
+
+-- 3) Shape rule per type (original three branches kept, plus asset)
+ALTER TABLE public.monthly_ranking_snapshots DROP CONSTRAINT IF EXISTS monthly_ranking_type_ids_ok;
+ALTER TABLE public.monthly_ranking_snapshots
+  ADD CONSTRAINT monthly_ranking_type_ids_ok CHECK (
+    (ranking_type = 'total_revenue' AND rank IS NULL AND marketer_id IS NULL AND promotion_id IS NULL
+       AND asset_id IS NULL AND ranking_scope IS NULL)
+    OR (ranking_type = 'marketer' AND rank IS NOT NULL AND marketer_id IS NOT NULL
+       AND asset_id IS NULL AND ranking_scope IS NULL)
+    OR (ranking_type = 'promotion' AND rank IS NOT NULL AND promotion_id IS NOT NULL
+       AND asset_id IS NULL AND ranking_scope IS NULL)
+    OR (ranking_type = 'asset' AND rank IS NOT NULL AND asset_id IS NOT NULL AND ranking_scope IS NOT NULL)
+  );
+
+-- 4) Asset-only unique indexes. Existing indexes are NOT touched: their predicates
+--    (total_revenue / marketer,promotion) already exclude asset rows.
+CREATE UNIQUE INDEX IF NOT EXISTS monthly_ranking_snapshots_provisional_asset_rank_uidx
+  ON public.monthly_ranking_snapshots
+  (organization_id, ranking_window, period_start, ranking_scope, rank)
+  WHERE status = 'provisional' AND ranking_type = 'asset';
+
+CREATE UNIQUE INDEX IF NOT EXISTS monthly_ranking_snapshots_finalized_asset_rank_uidx
+  ON public.monthly_ranking_snapshots
+  (organization_id, ranking_window, period_start, ranking_scope, snapshot_version, rank)
+  WHERE status = 'finalized' AND ranking_type = 'asset';
+
+COMMIT;
