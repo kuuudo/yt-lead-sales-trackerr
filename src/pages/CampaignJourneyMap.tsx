@@ -54,6 +54,7 @@ import type { CanvasTransform } from '../components/analytics/store/useWorkspace
 import { Campaign, supabase } from '../lib/supabase'
 import { useAuth } from '../lib/auth'
 import { useViewing } from '../lib/ViewingContext'
+import { campaignJourneyMapCache } from '../lib/campaignJourneyMapPageCache'
 import {
   useCampaignStructureData,
   useCampaignContentBuckets,
@@ -613,7 +614,7 @@ const OUTCOME_BY_ELEMENT_TYPE: Record<string, string> = {
   newsletter: 'newsletter',
 }
 
-interface JourneyContext {
+export interface JourneyContext {
   status: 'idle' | 'loading' | 'ready' | 'error'
   graph: JourneyGraph | null
   journeyCount: number
@@ -1964,7 +1965,7 @@ function ContextCampaignLayer({
 // + no videos.asset_id row. Campaign elements never join this hub.
 // ═══════════════════════════════════════════════════════════════════════════
 
-type ImportAssetItem = {
+export type ImportAssetItem = {
   assetId: string
   label: string
   thumbnailUrl?: string | null
@@ -2660,6 +2661,15 @@ export default function CampaignJourneyMap({ embedded = false, presentation = 'c
   const { viewingMemberId, viewingOrgId, isReadOnly } = useViewing()
   const effectiveViewerId = isReadOnly ? viewingMemberId : (user?.id ?? null)
   const campaignOptions = useCampaignOptions(effectiveViewerId)
+  // ── Page cache (key + guards) ──
+  const cacheKey =
+    campaignId && effectiveViewerId ? `${effectiveViewerId}|${isReadOnly ? viewingOrgId ?? '' : ''}|${campaignId}` : null
+  const cacheKeyRef = useRef<string | null>(cacheKey)
+  cacheKeyRef.current = cacheKey
+  const journeyOwnerKeyRef = useRef<string | null>(null) // which cacheKey the in-state journey belongs to
+  const journeyRestoredKeyRef = useRef<string | null>(null) // entry-id set that was restored (skip refetch)
+  const journeyIncompleteRef = useRef(false) // a silent degrade happened: do not cache
+  const journeyLookedUpRef = useRef<Set<string>>(new Set()) // videos whose title/thumb lookup succeeded
   const currentCampaignName = useMemo(
     () => campaignOptions.find((c) => c.id === campaignId)?.campaign_name ?? null,
     [campaignOptions, campaignId]
@@ -2779,6 +2789,7 @@ const [importAssets, setImportAssets] = useState<ImportAssetItem[]>([])
 const assetTypeCacheRef = useRef<Map<string, string>>(new Map())
 
 const clearJourneyContext = useCallback(() => {
+  journeyRestoredKeyRef.current = null
   setJourneyEntryVideoIds((prev) => (prev.length ? [] : prev))
   setJourneyContext(EMPTY_JOURNEY_CONTEXT)
   setImportAssets([])
@@ -2789,6 +2800,7 @@ useEffect(() => {
   assetVideoCacheRef.current = new Map()
   assetTypeCacheRef.current = new Map()
   setAssetCacheVersion((v) => v + 1)
+  journeyOwnerKeyRef.current = null
 }, [campaignId, clearJourneyContext])
 
 // selectedNodes -> entry video ids (grow-only). Uses collectLeafRefs so a
@@ -2959,7 +2971,11 @@ useEffect(() => {
 
 // entry video ids -> real journeys -> graph (existing buildJourneyGraph)
 useEffect(() => {
-  if (journeyEntryVideoIds.length === 0) return
+if (journeyEntryVideoIds.length === 0) return
+  // restored from page cache for exactly this entry set: state is already complete
+  if (journeyRestoredKeyRef.current === journeyEntryVideoIds.slice().sort().join(',')) return
+  journeyOwnerKeyRef.current = cacheKeyRef.current
+  journeyIncompleteRef.current = false
 
   let cancelled = false
 
@@ -2977,6 +2993,7 @@ useEffect(() => {
         discoverJourneysForVideos(journeyEntryVideoIds),
         resolveStructuralLinksForVideos(journeyEntryVideoIds).catch((e) => {
           console.warn('[CJM journey] structural link resolution failed', e)
+          if (!cancelled) journeyIncompleteRef.current = true
           return [] as StructuralLink[]
         }),
       ])
@@ -3095,7 +3112,8 @@ useEffect(() => {
   const g = journeyContext.graph
   if (!g || g.nodes.length === 0) return
 
-  const ids = g.nodes.map((n) => n.videoId)
+  const ids = g.nodes.map((n) => n.videoId).filter((id) => !journeyLookedUpRef.current.has(id))
+  if (ids.length === 0) return
   let cancelled = false
 
   ;(async () => {
@@ -3136,6 +3154,9 @@ useEffect(() => {
     }
 
     if (!cancelled) {
+      ids.forEach((id) => {
+        if (id in foundTitles || id in foundThumbs) journeyLookedUpRef.current.add(id)
+      })
       setJourneyTitles((prev) => ({
         ...prev,
         ...foundTitles,
@@ -3151,6 +3172,51 @@ useEffect(() => {
     cancelled = true
   }
 }, [journeyContext.graph])
+
+  // ── Page cache: restore (runs after the campaign-change resets above) ──
+  useEffect(() => {
+    if (!cacheKey) return
+    const hit = campaignJourneyMapCache.get(cacheKey)
+    if (!hit) return
+    const d = hit.data
+    console.log('[CJM cache] hit — restoring journey, no refetch')
+    assetVideoCacheRef.current = new Map(d.assetVideoEntries)
+    assetTypeCacheRef.current = new Map(d.assetTypeEntries)
+    setAssetCacheVersion((v) => v + 1)
+    Object.keys(d.titles).forEach((id) => journeyLookedUpRef.current.add(id))
+    Object.keys(d.thumbnails).forEach((id) => journeyLookedUpRef.current.add(id))
+    setJourneyTitles((prev) => ({ ...prev, ...d.titles }))
+    setJourneyThumbnails((prev) => ({ ...prev, ...d.thumbnails }))
+    journeyOwnerKeyRef.current = cacheKey
+    journeyRestoredKeyRef.current = d.journeyEntryVideoIds.slice().sort().join(',')
+    setJourneyEntryVideoIds(d.journeyEntryVideoIds)
+    setJourneyContext(d.journeyContext)
+    setImportAssets(d.importAssets)
+    setPanelExpanded(d.panelExpanded)
+    setSelectedNodeIds(d.selectedNodeIds)
+    if (d.selectedNodeIds.length > 0) setStructureRequested(true) // so the Structure hooks (cached) rebuild selectedNodes
+  }, [cacheKey])
+
+  // ── Page cache: save (only a complete journey) ──
+  useEffect(() => {
+    if (!cacheKey || journeyOwnerKeyRef.current !== cacheKey) return
+    if (journeyIncompleteRef.current) return
+    if (journeyContext.status !== 'ready' || journeyContext.endsStatus !== 'ready' || !journeyContext.graph) return
+    const ids = journeyContext.graph.nodes.map((n) => n.videoId)
+    const pick = (m: Record<string, string>) =>
+      Object.fromEntries(ids.filter((id) => id in m).map((id) => [id, m[id]]))
+    campaignJourneyMapCache.set(cacheKey, {
+      selectedNodeIds,
+      panelExpanded,
+      journeyEntryVideoIds,
+      journeyContext,
+      titles: pick(journeyTitles),
+      thumbnails: pick(journeyThumbnails),
+      importAssets,
+      assetVideoEntries: Array.from(assetVideoCacheRef.current).filter(([, v]) => v.length > 0),
+      assetTypeEntries: Array.from(assetTypeCacheRef.current),
+    })
+  }, [cacheKey, journeyContext, journeyEntryVideoIds, selectedNodeIds, panelExpanded, journeyTitles, journeyThumbnails, importAssets, assetCacheVersion])
 
   // ── Month/Part Patch 2: videoId -> visual month (layout INPUT only, nothing is drawn yet) ──
   // Visual month = Content `videos.created_at` first; only when the video is not a
@@ -4033,7 +4099,10 @@ const [panelLarge, setPanelLarge] = useState(false)
             showThumbnails={showThumbnails}
             entryIds={journeyEntryVideoIds}
             positions={layerPositions}
-            onClear={clearJourneyContext}
+            onClear={() => {
+              if (cacheKey) campaignJourneyMapCache.clear()
+              clearJourneyContext()
+            }}
             highlights={nodeHighlights}
             outcomeAnchor={outcomeAnchor}
           />
