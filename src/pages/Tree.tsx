@@ -6,18 +6,16 @@ import { supabase } from '../lib/supabase';
 import {
   getOrRefreshCampaignMonthMetrics,
   listOrgCampaigns,
+  periodFromCampaignTreePreset,
   utcMonthPeriod,
   type CampaignMonthMetrics,
+  type CampaignTreePreset,
   type MonthPeriod,
 } from '../services/analytics/campaignMonthlySnapshots';
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Tree.tsx — Follow-the-Money hero with real Campaign month metrics
-//
-// Metrics (All Assets / InDepth classification, not a new attribution engine):
-//   Purchases, Sales Calls, Newsletter Opt-ins, Consultations, Revenue
-// Campaign membership = purchase.campaign_id (same as InDepth scope).
-// Snapshot-first via campaign_monthly_snapshots; Update forces recompute.
+// Tree.tsx — Campaign metrics (All Assets / InDepth rules). Snapshot-first.
+// Default: first real Campaign + All Time. No mid-page spinner.
 // ─────────────────────────────────────────────────────────────────────────────
 
 type HeroButtonKey = 'structure' | 'journey' | 'analytics';
@@ -38,19 +36,34 @@ function formatRevenue(n: number): string {
   });
 }
 
-function shiftMonth(period: MonthPeriod, delta: number): MonthPeriod {
-  const [y, m] = period.periodStart.split('-').map(Number);
-  const d = new Date(Date.UTC(y, m - 1 + delta, 1));
-  return utcMonthPeriod(d.getUTCFullYear(), d.getUTCMonth());
-}
+const MONTH_NAMES = [
+  'January', 'February', 'March', 'April', 'May', 'June',
+  'July', 'August', 'September', 'October', 'November', 'December',
+];
 
-function periodLabel(period: MonthPeriod): string {
-  const [y, m] = period.periodStart.split('-').map(Number);
-  const names = [
-    'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
-    'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec',
-  ];
-  return `${names[(m - 1 + 12) % 12]} ${y}`;
+const PRESET_OPTIONS: { key: CampaignTreePreset | 'pick_month'; label: string }[] = [
+  { key: 'all_time', label: 'All Time' },
+  { key: 'last_7_days', label: 'Last 7 days' },
+  { key: 'last_30_days', label: 'Last 30 days' },
+  { key: 'this_month', label: 'This month' },
+  { key: 'pick_month', label: 'Choose month…' },
+];
+
+function buildMonthChoices(yearsBack = 2): { value: string; label: string; period: MonthPeriod }[] {
+  const now = new Date();
+  const out: { value: string; label: string; period: MonthPeriod }[] = [];
+  for (let y = now.getUTCFullYear(); y >= now.getUTCFullYear() - yearsBack; y--) {
+    const maxM = y === now.getUTCFullYear() ? now.getUTCMonth() : 11;
+    for (let m = maxM; m >= 0; m--) {
+      const period = utcMonthPeriod(y, m);
+      out.push({
+        value: period.periodStart,
+        label: `${MONTH_NAMES[m]} ${y}`,
+        period: { ...period, rankingWindow: 'custom' },
+      });
+    }
+  }
+  return out;
 }
 
 const EMPTY: CampaignMonthMetrics = {
@@ -69,16 +82,32 @@ export function Tree() {
 
   const [organizationId, setOrganizationId] = useState<string | null>(null);
   const [campaigns, setCampaigns] = useState<{ id: string; name: string }[]>([]);
-  const [selectedCampaignId, setSelectedCampaignId] = useState<string>('all');
-  const [period, setPeriod] = useState<MonthPeriod>(() =>
-    utcMonthPeriod(new Date().getUTCFullYear(), new Date().getUTCMonth()),
-  );
+  const [selectedCampaignId, setSelectedCampaignId] = useState<string | null>(null);
+  const [campaignsLoaded, setCampaignsLoaded] = useState(false);
+
+  // Default time: All Time (not current month)
+  const [timePreset, setTimePreset] = useState<CampaignTreePreset | 'pick_month'>('all_time');
+  const [pickedMonthStart, setPickedMonthStart] = useState<string | null>(null);
+  const monthChoices = useMemo(() => buildMonthChoices(3), []);
+
+  const period: MonthPeriod = useMemo(() => {
+    if (timePreset === 'pick_month' && pickedMonthStart) {
+      const found = monthChoices.find((c) => c.value === pickedMonthStart);
+      if (found) return found.period;
+    }
+    if (timePreset === 'pick_month') {
+      return periodFromCampaignTreePreset('this_month');
+    }
+    return periodFromCampaignTreePreset(timePreset);
+  }, [timePreset, pickedMonthStart, monthChoices]);
+
   const [rows, setRows] = useState<CampaignMonthMetrics[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  /** Bumps when campaign/period changes so we never flash the previous selection's numbers. */
+  const [metricsStale, setMetricsStale] = useState(false);
 
-  // Resolve org (same pattern as other analytics pages)
   useEffect(() => {
     let cancelled = false;
     (async () => {
@@ -114,9 +143,20 @@ export function Tree() {
     (async () => {
       try {
         const list = await listOrgCampaigns(organizationId);
-        if (!cancelled) setCampaigns(list);
+        if (cancelled) return;
+        setCampaigns(list);
+        setCampaignsLoaded(true);
+        // Default = first real campaign (deterministic list order), not All Campaigns
+        setSelectedCampaignId((prev) => {
+          if (prev && prev !== 'all' && list.some((c) => c.id === prev)) return prev;
+          if (list.length > 0) return list[0].id;
+          return null;
+        });
       } catch (e) {
-        if (!cancelled) setError(e instanceof Error ? e.message : String(e));
+        if (!cancelled) {
+          setError(e instanceof Error ? e.message : String(e));
+          setCampaignsLoaded(true);
+        }
       }
     })();
     return () => {
@@ -130,6 +170,7 @@ export function Tree() {
       setError(null);
       if (forceRefresh) setRefreshing(true);
       else setLoading(true);
+      setMetricsStale(true);
       try {
         const metrics = await getOrRefreshCampaignMonthMetrics(organizationId, period, {
           forceRefresh,
@@ -141,6 +182,7 @@ export function Tree() {
       } finally {
         setLoading(false);
         setRefreshing(false);
+        setMetricsStale(false);
       }
     },
     [organizationId, period],
@@ -149,6 +191,11 @@ export function Tree() {
   useEffect(() => {
     void loadMetrics(false);
   }, [loadMetrics]);
+
+  // Mark stale immediately when selection changes (before fetch completes)
+  useEffect(() => {
+    setMetricsStale(true);
+  }, [selectedCampaignId, period.periodStart, period.periodEnd]);
 
   const display = useMemo(() => {
     if (selectedCampaignId === 'all') {
@@ -165,15 +212,30 @@ export function Tree() {
         { ...EMPTY },
       );
     }
-    return rows.find((r) => r.campaignId === selectedCampaignId) ?? { ...EMPTY, campaignId: selectedCampaignId };
+    if (!selectedCampaignId) return { ...EMPTY };
+    return (
+      rows.find((r) => r.campaignId === selectedCampaignId) ?? {
+        ...EMPTY,
+        campaignId: selectedCampaignId,
+      }
+    );
   }, [rows, selectedCampaignId]);
 
+  const showPlaceholder = loading || metricsStale;
   const metricCards = [
     { label: 'Purchases', value: display.purchases, color: '#4ade80' },
     { label: 'Sales Calls', value: display.salesCalls, color: '#ef4444' },
     { label: 'Newsletter Opt-ins', value: display.newsletterOptins, color: '#f97316' },
     { label: 'Consultations', value: display.consultations, color: '#a78bfa' },
   ];
+
+  const statusLine = (() => {
+    if (error) return error;
+    if (refreshing) return 'Updating campaign analytics…';
+    if (loading || metricsStale) return 'Loading campaign analytics…';
+    if (campaignsLoaded && campaigns.length === 0) return 'No campaigns in this organization';
+    return null;
+  })();
 
   return (
     <div style={styles.outerCanvas}>
@@ -214,43 +276,70 @@ export function Tree() {
         </div>
       </div>
 
-      {/* Campaign + month controls */}
       <div style={styles.controlsBar}>
         <label style={styles.controlLabel}>
           Campaign
           <select
-            value={selectedCampaignId}
-            onChange={(e) => setSelectedCampaignId(e.target.value)}
+            value={selectedCampaignId ?? ''}
+            onChange={(e) => {
+              const v = e.target.value;
+              setSelectedCampaignId(v === '' ? null : v);
+            }}
+            style={styles.select}
+            disabled={!campaignsLoaded}
+          >
+            {campaigns.length === 0 ? (
+              <option value="">No campaigns</option>
+            ) : (
+              <>
+                {campaigns.map((c) => (
+                  <option key={c.id} value={c.id}>
+                    {c.name}
+                  </option>
+                ))}
+                <option value="all">All Campaigns</option>
+              </>
+            )}
+          </select>
+        </label>
+
+        <label style={styles.controlLabel}>
+          Time range
+          <select
+            value={timePreset === 'pick_month' ? 'pick_month' : timePreset}
+            onChange={(e) => {
+              const v = e.target.value as CampaignTreePreset | 'pick_month';
+              setTimePreset(v);
+              if (v === 'pick_month' && !pickedMonthStart && monthChoices[0]) {
+                setPickedMonthStart(monthChoices[0].value);
+              }
+            }}
             style={styles.select}
           >
-            <option value="all">All Campaigns</option>
-            {campaigns.map((c) => (
-              <option key={c.id} value={c.id}>
-                {c.name}
+            {PRESET_OPTIONS.map((o) => (
+              <option key={o.key} value={o.key}>
+                {o.label}
               </option>
             ))}
           </select>
         </label>
 
-        <div style={styles.monthNav}>
-          <button
-            type="button"
-            style={styles.monthBtn}
-            onClick={() => setPeriod((p) => shiftMonth(p, -1))}
-            aria-label="Previous month"
-          >
-            ‹
-          </button>
-          <span style={styles.monthLabel}>{periodLabel(period)}</span>
-          <button
-            type="button"
-            style={styles.monthBtn}
-            onClick={() => setPeriod((p) => shiftMonth(p, 1))}
-            aria-label="Next month"
-          >
-            ›
-          </button>
-        </div>
+        {timePreset === 'pick_month' && (
+          <label style={styles.controlLabel}>
+            Month
+            <select
+              value={pickedMonthStart ?? ''}
+              onChange={(e) => setPickedMonthStart(e.target.value)}
+              style={styles.select}
+            >
+              {monthChoices.map((c) => (
+                <option key={c.value} value={c.value}>
+                  {c.label}
+                </option>
+              ))}
+            </select>
+          </label>
+        )}
 
         <button
           type="button"
@@ -286,10 +375,14 @@ export function Tree() {
             />
           </Canvas>
 
-          {/* Revenue overlay on stage */}
           <div style={styles.revenueOverlay}>
-            <span style={styles.revenueValue}>
-              {loading ? '…' : formatRevenue(display.revenue)}
+            <span
+              style={{
+                ...styles.revenueValue,
+                opacity: showPlaceholder ? 0.35 : 1,
+              }}
+            >
+              {formatRevenue(showPlaceholder ? 0 : display.revenue)}
             </span>
             <span style={styles.revenueLabel}>Revenue</span>
           </div>
@@ -299,16 +392,32 @@ export function Tree() {
           {metricCards.map((m) => (
             <div key={m.label} style={styles.metricCard}>
               <span style={styles.metricLabel}>{m.label}</span>
-              <span style={{ ...styles.metricValue, color: m.color }}>
-                {loading ? '…' : m.value}
+              <span
+                style={{
+                  ...styles.metricValue,
+                  color: m.color,
+                  opacity: showPlaceholder ? 0.35 : 1,
+                }}
+              >
+                {showPlaceholder ? '—' : m.value}
               </span>
             </div>
           ))}
         </div>
 
-        <div style={styles.footer}>
-          {periodLabel(period)}
-          {error ? ` · ${error}` : null}
+        {/* Subtle status under metrics — no centered spinner */}
+        <div style={styles.statusBar} aria-live="polite">
+          {statusLine ? (
+            <span style={error ? styles.statusError : styles.statusMuted}>{statusLine}</span>
+          ) : (
+            <span style={styles.statusMuted}>
+              {timePreset === 'all_time'
+                ? 'All Time'
+                : timePreset === 'pick_month' && pickedMonthStart
+                  ? monthChoices.find((c) => c.value === pickedMonthStart)?.label
+                  : PRESET_OPTIONS.find((o) => o.key === timePreset)?.label}
+            </span>
+          )}
         </div>
       </div>
     </div>
@@ -331,12 +440,6 @@ const RESPONSIVE_CSS = `
 }
 @media (max-width: 680px) {
   .vstrk-metrics-strip { flex-wrap: wrap; }
-}
-@media (prefers-reduced-motion: reduce) {
-  .vstrk-connector-dot, .vstrk-vertical-dot {
-    animation: none !important;
-    opacity: 0.9;
-  }
 }
 `;
 
@@ -411,7 +514,7 @@ const styles: Record<string, React.CSSProperties> = {
   controlsBar: {
     display: 'flex',
     flexWrap: 'wrap',
-    alignItems: 'center',
+    alignItems: 'flex-end',
     gap: '12px',
     padding: '12px 24px 0 24px',
     zIndex: 10,
@@ -427,36 +530,13 @@ const styles: Record<string, React.CSSProperties> = {
     letterSpacing: '0.06em',
   },
   select: {
-    minWidth: '180px',
+    minWidth: '160px',
     padding: '8px 10px',
     borderRadius: '8px',
     border: '1px solid #262626',
     backgroundColor: '#141414',
     color: '#e5e5e5',
     fontSize: '12px',
-  },
-  monthNav: {
-    display: 'flex',
-    alignItems: 'center',
-    gap: '8px',
-  },
-  monthBtn: {
-    width: '28px',
-    height: '28px',
-    borderRadius: '6px',
-    border: '1px solid #262626',
-    backgroundColor: '#141414',
-    color: '#a3a3a3',
-    cursor: 'pointer',
-    fontSize: '16px',
-    lineHeight: 1,
-  },
-  monthLabel: {
-    fontSize: '12px',
-    fontWeight: 600,
-    color: '#e5e5e5',
-    minWidth: '72px',
-    textAlign: 'center' as const,
   },
   updateBtn: {
     marginLeft: 'auto',
@@ -477,8 +557,8 @@ const styles: Record<string, React.CSSProperties> = {
     display: 'flex',
     flexDirection: 'column',
     justifyContent: 'center',
-    gap: '32px',
-    padding: '16px 12px 56px 12px',
+    gap: '24px',
+    padding: '16px 12px 40px 12px',
   },
   revenueOverlay: {
     position: 'absolute',
@@ -496,6 +576,7 @@ const styles: Record<string, React.CSSProperties> = {
     color: '#4ade80',
     lineHeight: 1.1,
     whiteSpace: 'nowrap' as const,
+    transition: 'opacity 0.15s ease',
   },
   revenueLabel: {
     fontSize: '12px',
@@ -520,12 +601,19 @@ const styles: Record<string, React.CSSProperties> = {
   metricValue: {
     fontSize: '20px',
     fontWeight: 600,
+    transition: 'opacity 0.15s ease',
   },
-  footer: {
+  statusBar: {
     textAlign: 'center' as const,
     fontSize: '11px',
-    color: '#4d4d4d',
+    minHeight: '18px',
     flexShrink: 0,
+  },
+  statusMuted: {
+    color: '#4d4d4d',
+  },
+  statusError: {
+    color: '#f87171',
   },
 };
 

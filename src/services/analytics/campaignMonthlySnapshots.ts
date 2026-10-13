@@ -416,38 +416,84 @@ export async function getOrRefreshCampaignMonthMetrics(
   return refreshProvisionalCampaignSnapshots(organizationId, period);
 }
 
+/**
+ * Same columns as AllAssetsAnalytics / CampaignStructureMap:
+ *   campaigns.id, campaigns.campaign_name, organization_id
+ * Selecting non-existent columns (name, title) causes PostgREST to fail the
+ * whole query — that was why Tree only showed "All Campaigns".
+ */
 export async function listOrgCampaigns(
   organizationId: string,
 ): Promise<{ id: string; name: string }[]> {
   const { data, error } = await supabase
     .from('campaigns')
-    .select('id, name, title, campaign_name')
+    .select('id, campaign_name, created_at')
     .eq('organization_id', organizationId)
     .order('created_at', { ascending: false });
 
-  if (error) {
-    // Fallback: some schemas only have name or title
-    const { data: d2, error: e2 } = await supabase
-      .from('campaigns')
-      .select('id, name')
-      .eq('organization_id', organizationId)
-      .order('created_at', { ascending: false });
-    if (e2) throw new Error(e2.message);
-    return (d2 ?? []).map((c: { id: string; name?: string | null }) => ({
-      id: c.id,
-      name: c.name?.trim() || c.id,
-    }));
-  }
+  if (error) throw new Error(`listOrgCampaigns: ${error.message}`);
 
-  return (data ?? []).map(
-    (c: {
-      id: string;
-      name?: string | null;
-      title?: string | null;
-      campaign_name?: string | null;
-    }) => ({
-      id: c.id,
-      name: (c.name || c.title || c.campaign_name || c.id).toString().trim() || c.id,
-    }),
-  );
+  return (data ?? []).map((c: { id: string; campaign_name?: string | null }) => ({
+    id: c.id,
+    name: (c.campaign_name ?? '').toString().trim() || c.id,
+  }));
+}
+
+/** UI time presets for Tree (aligned with Top Marketers windows). */
+export type CampaignTreePreset =
+  | 'all_time'
+  | 'last_7_days'
+  | 'last_30_days'
+  | 'this_month'
+  | 'month'; // explicit calendar month (periodStart/End set by caller)
+
+function ymdUTC(d: Date): string {
+  return d.toISOString().slice(0, 10);
+}
+
+/**
+ * Build period bounds for a preset. All Time uses the same floor as ranking
+ * snapshots (2020-01-01 → today UTC) so one snapshot key does not fragment.
+ * Rolling windows recompute bounds on each call (no double-count: single
+ * query over [start,end], not sum of monthly snapshots).
+ */
+export function periodFromCampaignTreePreset(
+  preset: CampaignTreePreset,
+  anchor?: Date,
+  explicitMonth?: MonthPeriod,
+): MonthPeriod {
+  const now = anchor ?? new Date();
+  if (preset === 'month' && explicitMonth) {
+    return { ...explicitMonth, rankingWindow: 'custom' };
+  }
+  if (preset === 'all_time') {
+    return {
+      periodStart: '2020-01-01',
+      periodEnd: ymdUTC(now),
+      rankingWindow: 'all_time',
+    };
+  }
+  if (preset === 'last_7_days') {
+    const end = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()));
+    const start = new Date(end);
+    start.setUTCDate(start.getUTCDate() - 6);
+    return {
+      periodStart: ymdUTC(start),
+      periodEnd: ymdUTC(end),
+      rankingWindow: 'last_7_days',
+    };
+  }
+  if (preset === 'last_30_days') {
+    const end = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()));
+    const start = new Date(end);
+    start.setUTCDate(start.getUTCDate() - 29);
+    return {
+      periodStart: ymdUTC(start),
+      periodEnd: ymdUTC(end),
+      rankingWindow: 'last_30_days',
+    };
+  }
+  // this_month
+  const month = utcMonthPeriod(now.getUTCFullYear(), now.getUTCMonth());
+  return { ...month, rankingWindow: 'this_month' };
 }
