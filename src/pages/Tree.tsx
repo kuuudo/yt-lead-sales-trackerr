@@ -199,7 +199,10 @@ export function Tree() {
 
   const display = useMemo(() => {
     if (selectedCampaignId === 'all') {
-      return rows.reduce(
+      const visibleIds = new Set(campaigns.map((c) => c.id));
+      return rows
+        .filter((r) => visibleIds.has(r.campaignId))
+        .reduce(
         (acc, r) => ({
           campaignId: 'all',
           purchases: acc.purchases + r.purchases,
@@ -219,7 +222,7 @@ export function Tree() {
         campaignId: selectedCampaignId,
       }
     );
-  }, [rows, selectedCampaignId]);
+  }, [rows, selectedCampaignId, campaigns]);
 
   const showPlaceholder = loading || metricsStale;
   const metricCards = [

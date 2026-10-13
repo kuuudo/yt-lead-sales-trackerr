@@ -422,21 +422,30 @@ export async function getOrRefreshCampaignMonthMetrics(
  * Selecting non-existent columns (name, title) causes PostgREST to fail the
  * whole query — that was why Tree only showed "All Campaigns".
  */
+/** Legacy system campaign auto-created at signup. Never shown in Tree. */
+const HIDDEN_CAMPAIGN_NAME = 'ONLY PROMOTE ASSET';
+
 export async function listOrgCampaigns(
   organizationId: string,
 ): Promise<{ id: string; name: string }[]> {
   const { data, error } = await supabase
     .from('campaigns')
-    .select('id, campaign_name, created_at')
+    .select('id, campaign_name, created_at, archived_at, is_system')
     .eq('organization_id', organizationId)
+    .is('archived_at', null) // archived campaigns never appear in Tree
     .order('created_at', { ascending: false });
 
   if (error) throw new Error(`listOrgCampaigns: ${error.message}`);
 
-  return (data ?? []).map((c: { id: string; campaign_name?: string | null }) => ({
-    id: c.id,
-    name: (c.campaign_name ?? '').toString().trim() || c.id,
-  }));
+  return (data ?? [])
+    .filter((c: { campaign_name?: string | null; is_system?: boolean | null }) => {
+      const name = (c.campaign_name ?? '').toString().trim();
+      return name !== HIDDEN_CAMPAIGN_NAME && !c.is_system;
+    })
+    .map((c: { id: string; campaign_name?: string | null }) => ({
+      id: c.id,
+      name: (c.campaign_name ?? '').toString().trim() || c.id,
+    }));
 }
 
 /** UI time presets for Tree (aligned with Top Marketers windows). */
