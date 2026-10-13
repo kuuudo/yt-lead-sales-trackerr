@@ -66,6 +66,10 @@ import {
   useJourneyFlowCounts,
   type FlowCount,
 } from './useJourneyFlowCounts';
+import {
+  resolvePartnerRelationshipPromotions,
+  type PartnerJourneyMode,
+} from '../../services/promotion/resolvePartnerRelationshipPromotions';
 
 export const JOURNEY_PAGE_SIZE = 15;
 const EMPTY_DISPLAY: JourneyDataset['videoDisplay'] = new Map();
@@ -104,6 +108,12 @@ export type PartnerJourneyRange = '7days' | '15days' | '30days' | '6months' | '1
 
 type Props = {
   mode: 'marketer' | 'sponsor';
+  /**
+   * Partner Analytics table mode (product law):
+   *   marketers → viewer is Sponsor, partner ids are marketer user ids
+   *   sponsors  → viewer is Marketer, partner ids are sponsor org ids
+   */
+  partnerTableMode?: PartnerJourneyMode;
   /** Every partner in the table (for names / colours). */
   partners: PartnerJourneyPartner[];
   /** Checked partners — owned by PartnerAnalytics. */
@@ -276,6 +286,7 @@ function MultiPick({
 
 export default function PartnerJourneySection({
   mode,
+  partnerTableMode = 'marketers',
   partners,
   selectedIds,
   onTogglePartner,
@@ -395,6 +406,35 @@ const [sheetOpen, setSheetOpen] = useState(false);
 
   const ownerIds = useMemo(() => partnerOwnerIds(mode, selectedIds), [mode, selectedIds]);
 
+  // When Partner table selection changes: resolve relationship promotions and
+  // default-select ALL of them. Clear when no partner is selected.
+  // Does not use videos.user_id — uses assignment_collaborator chain only.
+  useEffect(() => {
+    let cancelled = false;
+    if (selectedIds.length === 0) {
+      setPromotionIds([]);
+      return;
+    }
+    resolvePartnerRelationshipPromotions({
+      mode: partnerTableMode,
+      partnerIds: selectedIds,
+      viewerUserId: effectiveViewerId,
+      viewerOrganizationId: effectiveOrgId,
+    })
+      .then((list) => {
+        if (cancelled) return;
+        const ids = list.map((p) => p.promotionId);
+        setPromotionIds(ids);
+      })
+      .catch((e) => {
+        console.warn('[PartnerJourneySection] relationship promotions failed', e?.message ?? e);
+        if (!cancelled) setPromotionIds([]);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [selectedIds, partnerTableMode, effectiveViewerId, effectiveOrgId]);
+
   const { routeMetrics, metricsLoading } = useRouteRevenueMetrics({
     orgId: effectiveOrgId,
     journeys,
@@ -403,12 +443,16 @@ const [sheetOpen, setSheetOpen] = useState(false);
     activeSource,
   });
 
+  // Prefer promotion-scope from the selected Sponsor↔Marketer relationship.
+  // Do not also filter by videos.user_id (partner ids may be org ids).
+  const contentOwnerIdsForFilter = promotionIds.length > 0 ? [] : ownerIds;
+
   const visible = useMemo(
     () =>
       filterJourneys(journeys, display, {
         selectedVideoId,
         platforms,
-        contentOwnerIds: ownerIds,
+        contentOwnerIds: contentOwnerIdsForFilter,
         campaignId,
         contentCampaignIds,
         assetCampaignIds,
@@ -425,7 +469,7 @@ const [sheetOpen, setSheetOpen] = useState(false);
       display,
       selectedVideoId,
       platforms,
-      ownerIds,
+      contentOwnerIdsForFilter,
       campaignId,
       contentCampaignIds,
       assetCampaignIds,

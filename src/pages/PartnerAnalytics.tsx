@@ -97,8 +97,11 @@ const COPY = {
     clearAll: 'Clear selection',
     removePartner: 'Remove',
     empty: 'No partners to show yet.',
-    more: 'More',
-    loadingMore: 'Loading more…',
+    moreMarketers: 'Show All Marketers',
+    moreSponsors: 'Show All Sponsors',
+    lessMarketers: 'Show Revenue Ranking',
+    lessSponsors: 'Show Revenue Ranking',
+    loadingMore: 'Loading…',
     'chart.empty': 'Check a partner in the table to see it here.',
     'chart.noData': 'No data for the selected range.',
     'chart.trendDisabled': 'Trend not available yet — use Totals.',
@@ -193,7 +196,10 @@ const COPY = {
     clearAll: '清除選取',
     removePartner: '移除',
     empty: '目前沒有可顯示的合作夥伴。',
-    more: '載入更多',
+    moreMarketers: '顯示全部 Marketer',
+    moreSponsors: '顯示全部 Sponsor',
+    lessMarketers: '顯示營收排名',
+    lessSponsors: '顯示營收排名',
     loadingMore: '載入中…',
     'chart.empty': '在下方表格勾選合作夥伴，就會顯示在這裡。',
     'chart.noData': '所選範圍內沒有資料。',
@@ -382,6 +388,8 @@ export default function PartnerAnalytics() {
   const [loadingMore, setLoadingMore] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [hasMoreAvailable, setHasMoreAvailable] = useState(true);
+  /** false = revenue ranking (stage 1); true = full relationship list including $0 */
+  const [showingAllPartners, setShowingAllPartners] = useState(false);
 
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
   const [chartHidden, setChartHidden] = useState(false);
@@ -411,6 +419,7 @@ export default function PartnerAnalytics() {
     setLoading(true);
     setError(null);
     setHasMoreAvailable(true);
+    setShowingAllPartners(false);
 
     if (preset === 'custom') {
       const a = new Date(customStart);
@@ -450,6 +459,7 @@ export default function PartnerAnalytics() {
         if (requestId !== requestIdRef.current) return;
         if (extra.length === 0) {
           setHasMoreAvailable(false);
+          setShowingAllPartners(true);
           return;
         }
         setPartners((prev) => {
@@ -461,6 +471,7 @@ export default function PartnerAnalytics() {
           return merged.sort((a, b) => b.revenue - a.revenue || a.name.localeCompare(b.name));
         });
         setHasMoreAvailable(false);
+        setShowingAllPartners(true);
       })
       .catch((e: unknown) => {
         if (requestId !== requestIdRef.current) return;
@@ -819,16 +830,39 @@ export default function PartnerAnalytics() {
           )}
         </div>
 
-        {!loading && !error && hasMoreAvailable && partners.length > 0 && (
+        {!loading && !error && partners.length > 0 && (hasMoreAvailable || showingAllPartners) && (
           <div className="flex justify-center">
             <button
               type="button"
-              disabled={loadingMore}
-              onClick={loadMore}
+              disabled={loadingMore || loading}
+              onClick={() => {
+                if (showingAllPartners) {
+                  // Collapse back to stage-1 revenue ranking
+                  setShowingAllPartners(false);
+                  setHasMoreAvailable(true);
+                  requestIdRef.current++;
+                  setLoading(true);
+                  loadPartnerTableStage1(loadParams)
+                    .then((rows) => {
+                      setPartners(rows);
+                      setSelectedIds((prev) => prev.filter((id) => rows.some((r) => r.id === id)));
+                    })
+                    .catch((e: unknown) =>
+                      setError(e instanceof Error ? e.message : 'Failed to reload'),
+                    )
+                    .finally(() => setLoading(false));
+                  return;
+                }
+                loadMore();
+              }}
               className="h-9 px-5 rounded-xl border border-zinc-800 bg-zinc-900 text-[10px] font-black uppercase tracking-widest text-zinc-300 hover:text-white hover:border-zinc-600 disabled:opacity-50 flex items-center gap-2"
             >
               {loadingMore && <Loader2 className="animate-spin" size={12} />}
-              {loadingMore ? tr('loadingMore') : tr('more')}
+              {loadingMore
+                ? tr('loadingMore')
+                : showingAllPartners
+                  ? tr(mode === 'marketers' ? 'lessMarketers' : 'lessSponsors')
+                  : tr(mode === 'marketers' ? 'moreMarketers' : 'moreSponsors')}
             </button>
           </div>
         )}
@@ -837,6 +871,7 @@ export default function PartnerAnalytics() {
       {/* Journey section UNCHANGED — still uses partner list for chips only */}
       <PartnerJourneySection
         mode={mode === 'marketers' ? 'sponsor' : 'marketer'}
+        partnerTableMode={mode}
         partners={partners.map((p, i) => ({
           id: p.id,
           name: p.name,
