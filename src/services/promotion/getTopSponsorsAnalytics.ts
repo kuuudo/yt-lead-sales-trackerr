@@ -142,7 +142,15 @@ export async function listSponsorOrganizationsForMarketer(
   if (orgIds.size === 0) return [];
 
   const ids = Array.from(orgIds);
-
+  const { data: rpcNames, error: rpcErr } = await supabase.rpc('get_sponsor_display_names', {
+    org_ids: ids,
+  });
+  if (rpcErr) console.warn('[listSponsorOrgs] rpc failed:', rpcErr.message);
+  if (!rpcErr && rpcNames?.length) {
+    return (rpcNames as { organization_id: string; display_name: string | null }[])
+      .map((r) => ({ organizationId: r.organization_id, name: r.display_name || r.organization_id }))
+      .sort((a, b) => a.name.localeCompare(b.name));
+  }
   // 1) organizations → name + owner_id
   const { data: orgs, error: oErr } = await supabase
     .from('organizations')

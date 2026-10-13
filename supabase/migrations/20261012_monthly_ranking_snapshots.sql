@@ -323,3 +323,19 @@ END $$;
 
 COMMIT;
 
+
+create or replace function public.get_sponsor_display_names(org_ids uuid[])
+returns table (organization_id uuid, display_name text)
+language sql
+security definer
+set search_path = public
+as $$
+  select o.id,
+         coalesce(nullif(trim(p.full_name), ''), nullif(trim(p.email), ''), o.name)
+  from organizations o
+  left join profiles p on p.id = o.owner_id
+  where o.id = any(org_ids);
+$$;
+
+grant execute on function public.get_sponsor_display_names(uuid[]) to authenticated;
+
