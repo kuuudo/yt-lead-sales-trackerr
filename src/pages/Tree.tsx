@@ -248,7 +248,7 @@ export function Tree() {
             className="vstrk-tab"
             style={
               hoveredBtn === key
-                ? { color: '#f97316', borderBottomColor: '#f97316' }
+                ? { color: '#f97316', borderColor: '#f97316' }
                 : undefined
             }
             onClick={() => {
@@ -348,80 +348,7 @@ export function Tree() {
         )}
       </div>
 
-      <div style={styles.controlsBar}>
-        <label style={styles.controlLabel}>
-          Campaign
-          <select
-            value={selectedCampaignId ?? ''}
-            onChange={(e) => {
-              const v = e.target.value;
-              setSelectedCampaignId(v === '' ? null : v);
-            }}
-            style={styles.select}
-            disabled={!campaignsLoaded}
-          >
-            {campaigns.length === 0 ? (
-              <option value="">No campaigns</option>
-            ) : (
-              <>
-                {campaigns.map((c) => (
-                  <option key={c.id} value={c.id}>
-                    {c.name}
-                  </option>
-                ))}
-                <option value="all">All Campaigns</option>
-              </>
-            )}
-          </select>
-        </label>
-
-        <label style={styles.controlLabel}>
-          Time range
-          <select
-            value={timePreset === 'pick_month' ? 'pick_month' : timePreset}
-            onChange={(e) => {
-              const v = e.target.value as CampaignTreePreset | 'pick_month';
-              setTimePreset(v);
-              if (v === 'pick_month' && !pickedMonthStart && monthChoices[0]) {
-                setPickedMonthStart(monthChoices[0].value);
-              }
-            }}
-            style={styles.select}
-          >
-            {PRESET_OPTIONS.map((o) => (
-              <option key={o.key} value={o.key}>
-                {o.label}
-              </option>
-            ))}
-          </select>
-        </label>
-
-        {timePreset === 'pick_month' && (
-          <label style={styles.controlLabel}>
-            Month
-            <select
-              value={pickedMonthStart ?? ''}
-              onChange={(e) => setPickedMonthStart(e.target.value)}
-              style={styles.select}
-            >
-              {monthChoices.map((c) => (
-                <option key={c.value} value={c.value}>
-                  {c.label}
-                </option>
-              ))}
-            </select>
-          </label>
-        )}
-
-        <button
-          type="button"
-          style={styles.updateBtn}
-          disabled={!organizationId || refreshing || loading}
-          onClick={() => void loadMetrics(true)}
-        >
-          {refreshing ? 'Updating…' : 'Update'}
-        </button>
-      </div>
+     
 
       <div style={styles.heroFrame}>
         <div className="vstrk-hero">
@@ -502,17 +429,21 @@ export function Tree() {
 const RESPONSIVE_CSS = `
 .vstrk-tabs {
   display: flex;
-  width: calc(100% - 32px);
-  max-width: 948px;
-  margin: 12px auto 0;
-  border-bottom: 1px solid #262626;
+  justify-content: center;
+  gap: 8px;
+  width: 100%;
+  max-width: 980px;
+  margin: 0 auto;
+  padding: 0 16px;
+  box-sizing: border-box;
 }
 .vstrk-tab {
-  flex: 1;
+  flex: 1 1 0;
+  max-width: 200px;
   min-height: 44px;
-  background: transparent;
-  border: 0;
-  border-bottom: 2px solid transparent;
+  background: #141414;
+  border: 1px solid #262626;
+  border-radius: 10px;
   color: #a3a3a3;
   font-size: 14px;
   cursor: pointer;
