@@ -95,6 +95,7 @@ import {
 } from '../lib/platformParser';
 
 import { getAssetAnalyticsRows } from '../services/asset/getAssetAnalyticsRows';
+import { allAssetsAnalyticsPageCache } from '../lib/allAssetsAnalyticsPageCache';
 import DownstreamPreview from '../components/analytics/DownstreamPreview';
 import { getVideoArchiveContextsForViewer } from '../services/video/getVideoArchiveContext';
 import { getCampaignArchiveContextsForViewer } from '../services/campaign/getCampaignArchiveContext';
@@ -268,16 +269,28 @@ function useAssetAnalyticsRows(opts: {
   viewingOrgId?: string | null;
   isReadOnly?: boolean;
 }): { rows: AssetAnalyticsRow[]; loading: boolean; error: string | null; organizationId: string | null } {
-  const [rows, setRows] = useState<AssetAnalyticsRow[]>([]);
-  const [fetching, setFetching] = useState(true);
-  const [loadedKey, setLoadedKey] = useState<string | null>(null);
-  const [error, setError] = useState<string | null>(null);
-  const [organizationId, setOrganizationId] = useState<string | null>(null);
+  const { user: __cacheUser } = useAuth();
   const requestKey = assetAnalyticsRequestKey(opts);
+  const cacheKey = `${__cacheUser?.id ?? ''}|${requestKey}`;
+  const __initialCache = allAssetsAnalyticsPageCache.get(cacheKey);
+  const [rows, setRows] = useState<AssetAnalyticsRow[]>(__initialCache?.data.rows ?? []);
+  const [fetching, setFetching] = useState(!__initialCache);
+  const [loadedKey, setLoadedKey] = useState<string | null>(__initialCache ? requestKey : null);
+  const [error, setError] = useState<string | null>(null);
+  const [organizationId, setOrganizationId] = useState<string | null>(__initialCache?.data.organizationId ?? null);
   const loading = fetching || loadedKey !== requestKey;
 
   useEffect(() => {
     let cancelled = false;
+    const __hit = allAssetsAnalyticsPageCache.get(cacheKey);
+    if (__hit) {
+      setRows(__hit.data.rows);
+      setOrganizationId(__hit.data.organizationId);
+      setError(null);
+      setFetching(false);
+      setLoadedKey(requestKey);
+      return;
+    }
     const __runId = ++__assetAnalyticsLoadCounter;
     console.log(`[AllAssetsAnalytics] LOAD #${__runId} START`);
     console.time(`[AllAssetsAnalytics] LOAD #${__runId} TOTAL`);
@@ -789,6 +802,7 @@ console.log('🔍 VIDEOS QUERY RESULT', {
         });
         console.timeEnd(`[AllAssetsAnalytics] LOAD #${__runId} transform`);
         console.log(`[AllAssetsAnalytics] LOAD #${__runId} counts`, { finalRows: mapped.length });
+        allAssetsAnalyticsPageCache.set(cacheKey, { rows: mapped, organizationId });
         setRows(mapped);
 
       } catch (e: any) {
@@ -810,7 +824,7 @@ console.log('🔍 VIDEOS QUERY RESULT', {
     return () => {
       cancelled = true;
     };
-  }, [requestKey, opts.dateRange, opts.customRange, opts.activeSource, opts.isReadOnly, opts.viewingMemberId, opts.viewingOrgId]);
+  }, [cacheKey, requestKey, opts.dateRange, opts.customRange, opts.activeSource, opts.isReadOnly, opts.viewingMemberId, opts.viewingOrgId]);
 
   return { rows, loading, error, organizationId };
 }
