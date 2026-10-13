@@ -1,7 +1,7 @@
 /**
  * TopAssetsRanking — clean rebuild.
  * Snapshot-backed Asset Revenue ranking (same UX patterns as TopRankings).
- * Scope: My | Assigned. Shared omitted until conversion→shared asset path is proven.
+ * Scope: My | Shared | Assigned — same org-boundary rules as All Assets / JourneyAnalytics.
  */
 
 import React, { useEffect, useMemo, useRef, useState } from 'react';
@@ -26,6 +26,7 @@ const PRESETS: { key: TopAssetsPreset; label: string }[] = [
 
 const SCOPES: { key: TopAssetsScope; label: string }[] = [
   { key: 'my', label: 'My' },
+  { key: 'shared', label: 'Shared' },
   { key: 'assigned', label: 'Assigned' },
 ];
 

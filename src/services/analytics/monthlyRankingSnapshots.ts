@@ -36,7 +36,11 @@ export type RankingWindow =
   | 'custom';
 
 /** Asset ranking list scope (only on ranking_type = 'asset' rows). */
-export type RankingScope = 'my' | 'assigned';
+/**
+ * Matches All Assets / JourneyAnalytics classification:
+ *   my | assigned | shared (org-boundary: asset.organization_id !== viewer org)
+ */
+export type RankingScope = 'my' | 'assigned' | 'shared';
 
 /**
  * Rolling windows keep exactly ONE provisional batch per org + window
@@ -757,8 +761,9 @@ async function resolveMyAssetIds(organizationId: string): Promise<Set<string>> {
 }
 
 /**
- * Assigned assets: assets linked via assignment_assets for promotions that
- * belong to this organization (assignment_collaborator path / org promotions).
+ * Assigned assets: same signals JourneyAnalytics / All Assets use for isAssigned —
+ * promotion-linked assets for this org (assignment_assets) plus assets that appear
+ * on creative promotion links. Scope is still restricted to assets the org can read.
  */
 async function resolveAssignedAssetIds(organizationId: string): Promise<Set<string>> {
   const { data: promos, error: pErr } = await supabase
@@ -777,7 +782,7 @@ async function resolveAssignedAssetIds(organizationId: string): Promise<Set<stri
         .filter((id): id is string => typeof id === 'string' && id.length > 0),
     ),
   );
-  if (assignmentIds.length === 0) return new Set();
+  const promoIds = (promos ?? []).map((p: { id: string }) => p.id).filter(Boolean);
 
   const out = new Set<string>();
   for (let i = 0; i < assignmentIds.length; i += 100) {
@@ -793,6 +798,69 @@ async function resolveAssignedAssetIds(organizationId: string): Promise<Set<stri
     for (const row of data ?? []) {
       const id = (row as { asset_id?: string | null }).asset_id;
       if (id) out.add(id);
+    }
+  }
+
+  // Also count assets referenced by this org's promotion redirect links
+  // (covers created_via_creative / promotion-linked assignment without a separate table).
+  for (let i = 0; i < promoIds.length; i += 100) {
+    const slice = promoIds.slice(i, i + 100);
+    const { data, error } = await supabase
+      .from('redirect_links')
+      .select('asset_id')
+      .in('promotion_id', slice)
+      .not('asset_id', 'is', null);
+    if (error) {
+      console.warn('[monthlyRankingSnapshots] assigned redirect_links query failed:', error.message);
+      continue;
+    }
+    for (const row of data ?? []) {
+      const id = (row as { asset_id?: string | null }).asset_id;
+      if (id) out.add(id);
+    }
+  }
+
+  // Assigned is an annotation on My (All Assets): keep only org-owned assets.
+  const my = await resolveMyAssetIds(organizationId);
+  for (const id of [...out]) {
+    if (!my.has(id)) out.delete(id);
+  }
+  return out;
+}
+
+/**
+ * Shared assets among formal-revenue candidates:
+ * asset.organization_id is set and !== viewer org
+ * (JourneyAnalytics: else assetScope = 'shared').
+ *
+ * Only considers asset ids that already have formal ownerAssetId revenue —
+ * does not invent rows. Relies on the same assets read path All Assets uses
+ * (select by id); if RLS hides an asset, it simply won't classify as shared here.
+ */
+async function resolveSharedAssetIds(
+  organizationId: string,
+  candidateAssetIds: string[],
+): Promise<Set<string>> {
+  const ids = Array.from(new Set(candidateAssetIds.filter(Boolean)));
+  const out = new Set<string>();
+  if (ids.length === 0) return out;
+
+  for (let i = 0; i < ids.length; i += 100) {
+    const slice = ids.slice(i, i + 100);
+    const { data, error } = await supabase
+      .from('assets')
+      .select('id, organization_id')
+      .in('id', slice);
+    if (error) {
+      console.warn('[monthlyRankingSnapshots] shared assets query failed:', error.message);
+      continue;
+    }
+    for (const row of data ?? []) {
+      const r = row as { id: string; organization_id?: string | null };
+      if (!r.id) continue;
+      if (r.organization_id && r.organization_id !== organizationId) {
+        out.add(r.id);
+      }
     }
   }
   return out;
@@ -901,10 +969,15 @@ export async function computeAssetRankingPayload(
     byAsset.set(r.ownerAssetId, a);
   });
 
-  const scopeIds =
-    rankingScope === 'assigned'
-      ? await resolveAssignedAssetIds(organizationId)
-      : await resolveMyAssetIds(organizationId);
+  // Scope filter only — does not change ownerAssetId or double-count purchases.
+  let scopeIds: Set<string>;
+  if (rankingScope === 'assigned') {
+    scopeIds = await resolveAssignedAssetIds(organizationId);
+  } else if (rankingScope === 'shared') {
+    scopeIds = await resolveSharedAssetIds(organizationId, [...byAsset.keys()]);
+  } else {
+    scopeIds = await resolveMyAssetIds(organizationId);
+  }
 
   const eligible = [...byAsset.entries()].filter(([assetId]) => scopeIds.has(assetId));
   eligible.sort((a, b) => b[1].revenue - a[1].revenue || a[0].localeCompare(b[0]));

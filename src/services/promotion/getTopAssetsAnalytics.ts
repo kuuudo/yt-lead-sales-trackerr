@@ -5,9 +5,10 @@
  * Canonical owner: ConversionOwnerResult.ownerAssetId from resolveConversionOwners
  * (same path as AllAssets / formal Revenue).
  *
- * ranking_scope:
+ * ranking_scope (same org-boundary rules as All Assets / JourneyAnalytics):
  *   my       — assets.organization_id = org
- *   assigned — assignment_assets for this org's promotions
+ *   shared   — formal ownerAssetId whose asset.organization_id !== org
+ *   assigned — org-owned assets linked via assignment / promotion links
  *
  * Does not write or delete Total / Marketer / Promotion snapshot rows.
  */
@@ -29,7 +30,7 @@ export type TopAssetsPreset =
   | 'all_time'
   | 'custom';
 
-export type TopAssetsScope = RankingScope; // 'my' | 'assigned'
+export type TopAssetsScope = RankingScope; // 'my' | 'shared' | 'assigned'
 
 export interface TopAssetRow {
   assetId: string;
@@ -149,7 +150,7 @@ async function loadWindowAssetRows(
 export async function getTopAssetsAnalytics(params: TopAssetsParams): Promise<TopAssetRow[]> {
   const { organizationId, preset, scope, customRange, forceRefresh = false } = params;
   if (!organizationId) return [];
-  if (scope !== 'my' && scope !== 'assigned') return [];
+  if (scope !== 'my' && scope !== 'assigned' && scope !== 'shared') return [];
 
   const period = windowForPreset(preset, customRange ?? null);
   return loadWindowAssetRows(organizationId, period, scope, forceRefresh);
