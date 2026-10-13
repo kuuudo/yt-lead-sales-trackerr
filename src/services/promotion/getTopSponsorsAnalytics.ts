@@ -55,6 +55,13 @@ export interface TopSponsorsParams {
   preset: TopSponsorsPreset;
   customRange?: { start: Date; end: Date } | null;
   forceRefresh?: boolean;
+  /**
+   * When true: only use monthly_ranking_snapshots marketer rows (no live
+   * computeMarketerFormalRevenueInOrg, no auto-refresh). Partner Analytics
+   * stage-1 fast load. Missing from Top-N is NOT zero revenue — stage-2
+   * must call computeMarketerFormalRevenueInOrg for the rest.
+   */
+  snapshotOnly?: boolean;
 }
 
 function ymd(d: Date): string {
@@ -99,6 +106,14 @@ function windowForPreset(
   }
   const p = utcMonthPeriodFromDate(now);
   return { ...p, rankingWindow: 'this_month' };
+}
+
+/** Same period helper as Top Marketers (shared window keys for Partner Analytics). */
+export function periodForTopSponsorsPreset(
+  preset: TopSponsorsPreset,
+  customRange?: { start: Date; end: Date } | null,
+): MonthPeriod {
+  return windowForPreset(preset, customRange ?? null);
 }
 
 function parseAmount(v: number | string | null | undefined): number {
@@ -202,7 +217,10 @@ const PIXEL_COLUMNS =
 const PAGE = 1000;
 
 async function fetchPaged<T>(
-  run: (from: number, to: number) => PromiseLike<{ data: T[] | null; error: { message: string } | null }>,
+  run: (
+    from: number,
+    to: number,
+  ) => PromiseLike<{ data: T[] | null; error: { message: string } | null }>,
 ): Promise<T[]> {
   const out: T[] = [];
   for (let from = 0; ; from += PAGE) {
@@ -249,8 +267,9 @@ async function fetchOrgPurchasesForPeriod(
 /**
  * Same formal aggregation as monthly ranking for ONE marketer inside a sponsor org.
  * Used when the marketer is outside the stored Top-10 snapshot rows.
+ * Exported for Partner Analytics stage-2 ("More").
  */
-async function computeMarketerSliceInOrg(
+export async function computeMarketerFormalRevenueInOrg(
   organizationId: string,
   period: MonthPeriod,
   marketerUserId: string,
@@ -288,7 +307,6 @@ async function computeMarketerSliceInOrg(
   const promoIds = [...byPromo.keys()];
   const titles = new Map<string, string>();
   if (promoIds.length > 0) {
-    // Prefer assignment title via promotions.assignment_id when available
     const { data } = await supabase
       .from('promotions')
       .select('id, assignment_id')
@@ -331,8 +349,9 @@ async function loadSponsorRowForOrg(
   marketerUserId: string,
   period: MonthPeriod,
   forceRefresh: boolean,
-): Promise<SponsorRow> {
-  if (forceRefresh) {
+  snapshotOnly: boolean,
+): Promise<SponsorRow | null> {
+  if (forceRefresh && !snapshotOnly) {
     try {
       await refreshProvisionalMonthlySnapshot(sponsorOrganizationId, period);
     } catch (e) {
@@ -345,7 +364,7 @@ async function loadSponsorRowForOrg(
   }
 
   let snap = await getMonthlySnapshot(sponsorOrganizationId, period);
-  if (!snap && !forceRefresh) {
+  if (!snap && !forceRefresh && !snapshotOnly) {
     try {
       await refreshProvisionalMonthlySnapshot(sponsorOrganizationId, period);
       snap = await getMonthlySnapshot(sponsorOrganizationId, period);
@@ -365,7 +384,6 @@ async function loadSponsorRowForOrg(
     const promoSnap = (snap?.rows ?? []).filter(
       (r) => r.ranking_type === 'promotion' && r.promotion_id && r.rank != null,
     );
-    // Attach promotions credited to this marketer via assignment_collaborator
     const promoIds = promoSnap.map((r) => r.promotion_id!).filter(Boolean);
     const promotions: SponsorPromotionSlice[] = [];
     if (promoIds.length > 0) {
@@ -422,8 +440,11 @@ async function loadSponsorRowForOrg(
     };
   }
 
+  // Stage-1 / snapshotOnly: no live compute — Partner stage-2 loads the rest.
+  if (snapshotOnly) return null;
+
   // Marketer not in Top-10 snapshot → same canonical formal sum for this user only
-  const slice = await computeMarketerSliceInOrg(
+  const slice = await computeMarketerFormalRevenueInOrg(
     sponsorOrganizationId,
     period,
     marketerUserId,
@@ -446,7 +467,13 @@ async function loadSponsorRowForOrg(
 export async function getTopSponsorsAnalytics(
   params: TopSponsorsParams,
 ): Promise<SponsorRow[]> {
-  const { marketerUserId, preset, customRange, forceRefresh = false } = params;
+  const {
+    marketerUserId,
+    preset,
+    customRange,
+    forceRefresh = false,
+    snapshotOnly = false,
+  } = params;
   if (!marketerUserId) return [];
 
   const period = windowForPreset(preset, customRange ?? null);
@@ -461,8 +488,9 @@ export async function getTopSponsorsAnalytics(
       marketerUserId,
       period,
       forceRefresh,
+      snapshotOnly,
     );
-    rows.push(row);
+    if (row) rows.push(row);
   }
 
   // Rank by revenue; keep zero-revenue sponsors visible (relationship exists)
