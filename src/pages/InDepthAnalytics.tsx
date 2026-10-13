@@ -449,10 +449,18 @@ export default function InDepthAnalyticsTest() {
       );
       setCampaignLinkGrid(linkGrid);
 
+      // eViaSessionData is an auxiliary query (recovers legacy events with
+      // video_id = NULL via sessions). Its failure alone must not block caching;
+      // the cached result simply omits those recovered events. All required
+      // queries below (events direct, stripe, pixel, redirect_links) still block.
+      const auxEventQueryFailed = !!eViaSessionData.error;
       const hadQueryError = earlyQueryError || !!(
-        eDirectData.error || eViaSessionData.error || spData.error ||
+        eDirectData.error || spData.error ||
         (ppData as any).error || rlGridData.error
       );
+      if (auxEventQueryFailed) {
+        console.warn('[InDepthAnalytics] Auxiliary events-via-sessions query failed; its events are omitted (cache still allowed)', eViaSessionData.error?.message);
+      }
 
       console.log('[InDepthAnalytics] DIAG query errors', {
         campaigns: cErr?.message, videos: myVideosErr?.message, leadMagnets: lmErr?.message,
