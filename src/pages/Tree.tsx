@@ -237,7 +237,7 @@ export function Tree() {
   })();
 
   return (
-    <div style={styles.outerCanvas}>
+    <div className="vstrk-outer" style={styles.outerCanvas}>
       <style>{RESPONSIVE_CSS}</style>
 
       <div className="vstrk-topbar" style={styles.topBar}>
@@ -544,7 +544,42 @@ const RESPONSIVE_CSS = `
     padding: 0 !important;
   }
   .vstrk-metrics-strip > div { min-width: 0 !important; }
-  .vstrk-metrics-strip > div > span:last-child { font-size: 28px !important; }
+  .vstrk-metrics-strip > div > span:last-child { font-size: 22px !important; }
+
+  /* ---- fit-to-screen overrides ---- */
+  /* use the real visible height (dvh excludes the mobile URL bar) and hide the scrollbar */
+  .vstrk-outer {
+    height: calc(100vh - 56px) !important;
+    height: calc(100dvh - 56px) !important;
+    overflow: hidden !important;
+    scrollbar-width: none;
+  }
+  .vstrk-outer::-webkit-scrollbar { display: none; }
+
+  /* tree now flexes to fill whatever space is left */
+  .vstrk-hero {
+    flex: 1 1 0 !important;
+    min-height: 0;
+    gap: 10px !important;
+    padding: 4px 16px 12px 16px !important;
+  }
+  .vstrk-tree-stage {
+    flex: 1 1 0 !important;
+    height: auto !important;
+    min-height: 140px !important;
+  }
+
+  /* slimmer revenue card + metric cards */
+  .vstrk-rev-mobile { padding: 12px 16px !important; }
+  .vstrk-rev-value { font-size: 30px !important; }
+  .vstrk-metrics-strip { gap: 8px !important; }
+  .vstrk-metrics-strip > div {
+    padding: 10px 14px !important;
+    gap: 2px !important;
+  }
+
+  /* hide the "All Time" status line on mobile */
+  .vstrk-hero > div:last-child { display: none; }
 }
 `;
 
