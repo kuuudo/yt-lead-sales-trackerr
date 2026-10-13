@@ -26,7 +26,6 @@ const METRICS: { key: TopMarketersMetric; label: string }[] = [
 const PRESETS: { key: TopMarketersPreset; label: string }[] = [
   { key: 'last_7_days', label: 'Last 7 days' },
   { key: 'last_30_days', label: 'Last 30 days' },
-  { key: 'this_month', label: 'This month' },
   { key: 'last_12_months', label: 'Last 12 months' },
   { key: 'all_time', label: 'All time' },
   { key: 'custom', label: 'Custom' },
@@ -154,7 +153,8 @@ const [refreshing, setRefreshing] = useState(false);
         </div>
         <div className="flex items-center gap-2">
           <select
-            value={metric}
+value={metric}
+            hidden
             onChange={e => setMetric(e.target.value as TopMarketersMetric)}
             className="bg-zinc-950 border border-zinc-800 text-zinc-300 text-[11px] font-bold uppercase tracking-wide rounded-lg px-2 py-1.5 focus:outline-none focus:border-zinc-600"
           >

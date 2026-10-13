@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { TrendingUp, Users, Loader2, ChevronRight, ChevronDown, X } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
@@ -33,7 +33,6 @@ const METRICS: { key: Metric; label: string }[] = [
 const PRESETS: { key: Preset; label: string }[] = [
   { key: 'last_7_days', label: 'Last 7 days' },
   { key: 'last_30_days', label: 'Last 30 days' },
-  { key: 'this_month', label: 'This month' },
   { key: 'last_12_months', label: 'Last 12 months' },
   { key: 'all_time', label: 'All time' },
   { key: 'custom', label: 'Custom' },
@@ -80,15 +79,29 @@ export default function TopRankings({ organizationId }: TopRankingsProps) {
   const [showAll, setShowAll] = useState(false);
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
 
+  const [refreshing, setRefreshing] = useState(false);
+  const [refreshKey, setRefreshKey] = useState(0);
+  // One-shot flag set by the Update button and consumed by the load effect below,
+  // so tab / preset / date changes never force a recompute.
+  const forceRefreshRef = useRef(false);
+
   useEffect(() => {
+    // Consume the one-shot flag first so an early return can never leave it set.
+    const forceRefresh = forceRefreshRef.current;
+    forceRefreshRef.current = false;
+
     if (!organizationId) {
       setLoading(false);
+      setRefreshing(false);
       return;
     }
     if (preset === 'custom') {
       const start = new Date(customStart);
       const end = new Date(customEnd);
-      if (Number.isNaN(start.getTime()) || Number.isNaN(end.getTime()) || start > end) return;
+      if (Number.isNaN(start.getTime()) || Number.isNaN(end.getTime()) || start > end) {
+        setRefreshing(false);
+        return;
+      }
     }
 
     let cancelled = false;
@@ -100,10 +113,10 @@ export default function TopRankings({ organizationId }: TopRankingsProps) {
 
     const request =
       tab === 'promotions'
-        ? getTopPromotionsAnalytics({ organizationId, preset, customRange }).then(r => {
+        ? getTopPromotionsAnalytics({ organizationId, preset, customRange, forceRefresh }).then(r => {
             if (!cancelled) setPromotionRows(r);
           })
-        : getTopMarketersAnalytics({ organizationId, preset, customRange }).then(r => {
+        : getTopMarketersAnalytics({ organizationId, preset, customRange, forceRefresh }).then(r => {
             if (!cancelled) setMarketerRows(r);
           });
 
@@ -113,12 +126,13 @@ export default function TopRankings({ organizationId }: TopRankingsProps) {
       })
       .finally(() => {
         if (!cancelled) setLoading(false);
+        setRefreshing(false);
       });
 
     return () => {
       cancelled = true;
     };
-  }, [organizationId, tab, preset, customStart, customEnd]);
+  }, [organizationId, tab, preset, customStart, customEnd, refreshKey]);
 
   const rankedPromotions = useMemo(
     () => rankTopPromotions(promotionRows, metric),
@@ -177,6 +191,7 @@ export default function TopRankings({ organizationId }: TopRankingsProps) {
         <div className="flex items-center gap-2">
           <select
             value={metric}
+            hidden
             onChange={e => setMetric(e.target.value as Metric)}
             className="bg-zinc-950 border border-zinc-800 text-zinc-300 text-[11px] font-bold uppercase tracking-wide rounded-lg px-2 py-1.5 focus:outline-none focus:border-zinc-600"
           >
@@ -197,6 +212,19 @@ export default function TopRankings({ organizationId }: TopRankingsProps) {
               </option>
             ))}
           </select>
+                    <button
+            type="button"
+            disabled={loading || refreshing || !organizationId}
+            onClick={() => {
+              forceRefreshRef.current = true;
+              setRefreshing(true);
+              setRefreshKey(k => k + 1);
+            }}
+            className="bg-zinc-950 border border-zinc-800 text-zinc-300 text-[11px] font-bold uppercase tracking-wide rounded-lg px-2 py-1.5 hover:border-zinc-600 disabled:opacity-50"
+            title="Recompute from canonical conversions"
+          >
+            {refreshing ? 'Updating…' : 'Update'}
+          </button>
         </div>
       </div>
 

@@ -37,6 +37,18 @@ export type RankingWindow =
 
 export const TOP_N = 10;
 
+/**
+ * Rolling windows keep exactly ONE provisional batch per org + window.
+ * Reads ignore period_start (it moves every day); writes replace the batch.
+ * this_month (calendar month history) and custom (exact range) are NOT rolling.
+ */
+export const ROLLING_WINDOWS: RankingWindow[] = [
+  'last_7_days',
+  'last_30_days',
+  'last_12_months',
+  'all_time',
+];
+
 export interface MonthPeriod {
   /** Inclusive start date (UTC YYYY-MM-DD). */
   periodStart: string;
@@ -321,20 +333,16 @@ export async function fetchPromotionDisplayTitles(
   // Prefer nested assignment title when FK is exposed to PostgREST.
   const { data: nested, error: nestedErr } = await supabase
     .from('promotions')
-    .select('id, title, assignment_id, assignments:assignment_id ( id, title, name )')
+    .select('id, assignment_id, assignments:assignment_id ( id, title )')
     .in('id', ids);
 
   if (!nestedErr && nested && nested.length > 0) {
     for (const p of nested as any[]) {
       if (!p?.id) continue;
       const asg = Array.isArray(p.assignments) ? p.assignments[0] : p.assignments;
-      const fromAsg =
-        (asg?.title && String(asg.title).trim()) ||
-        (asg?.name && String(asg.name).trim()) ||
-        null;
-      const fromPromo = p.title && String(p.title).trim() ? String(p.title).trim() : null;
-      // Assignment title wins even when numeric (e.g. "53535").
-      out.set(p.id, fromAsg || fromPromo || p.id);
+      // assignments.title is the display name (numeric titles such as "53535" are valid).
+      const fromAsg = asg?.title != null && String(asg.title).trim() ? String(asg.title).trim() : null;
+      out.set(p.id, fromAsg || p.id);
     }
     console.log('[monthlyRankingSnapshots] promotion titles (nested)', {
       count: out.size,
@@ -352,7 +360,7 @@ export async function fetchPromotionDisplayTitles(
 
   const { data: promos, error } = await supabase
     .from('promotions')
-    .select('id, title, assignment_id')
+    .select('id, assignment_id')
     .in('id', ids);
   if (error) {
     console.warn('[monthlyRankingSnapshots] promotions title fetch failed:', error.message);
@@ -391,9 +399,7 @@ export async function fetchPromotionDisplayTitles(
       row.assignment_id && assignmentTitle.has(row.assignment_id)
         ? assignmentTitle.get(row.assignment_id)!
         : null;
-    const fromPromo = row.title && String(row.title).trim() ? String(row.title).trim() : null;
-    // Assignment title wins (including numeric titles like "53535").
-    out.set(row.id, fromAssignment || fromPromo || row.id);
+    out.set(row.id, fromAssignment || row.id);
   }
 
   console.log('[monthlyRankingSnapshots] promotion titles (fallback)', {
@@ -449,15 +455,19 @@ export async function saveProvisionalSnapshot(payload: MonthlySnapshotPayload): 
   const rankingWindow = payload.rankingWindow ?? period.rankingWindow ?? 'this_month';
   const snapshotAt = payload.computedAt;
 
-  // Delete existing provisional set for this org + window + period_start only.
+  // Same-key delete BEFORE insert is required: the provisional unique indexes are
+  // (org, ranking_window, period_start[, ranking_type, rank]).
+  // Custom keeps one provisional set per org, because a second range with the same
+  // period_start but a different period_end would collide on that index.
   let del = supabase
     .from('monthly_ranking_snapshots')
     .delete()
     .eq('organization_id', organizationId)
-    .eq('period_start', period.periodStart)
-    .eq('status', 'provisional');
-  // ranking_window filter when column exists (migration applied)
-  del = del.eq('ranking_window', rankingWindow);
+    .eq('status', 'provisional')
+    .eq('ranking_window', rankingWindow);
+  if (rankingWindow !== 'custom') {
+    del = del.eq('period_start', period.periodStart);
+  }
 
   const { error: delErr } = await del;
 
@@ -534,6 +544,23 @@ export async function saveProvisionalSnapshot(payload: MonthlySnapshotPayload): 
   if (insErr) {
     throw new Error(`monthlyRankingSnapshots: insert provisional failed — ${insErr.message}`);
   }
+
+  // Rolling windows: drop older provisional batches only AFTER the new batch is saved, so a
+  // reader always has a usable snapshot. Never touches finalized rows, this_month history or custom.
+  if (ROLLING_WINDOWS.includes(rankingWindow)) {
+    const { error: cleanErr } = await supabase
+      .from('monthly_ranking_snapshots')
+      .delete()
+      .eq('organization_id', organizationId)
+      .eq('ranking_window', rankingWindow)
+      .eq('status', 'provisional')
+      .neq('snapshot_at', snapshotAt);
+    if (cleanErr) {
+      // Non-fatal: readers always pick the newest batch by snapshot_at.
+      console.warn('[monthlyRankingSnapshots] old provisional cleanup failed:', cleanErr.message);
+    }
+  }
+
 }
 
 /**
@@ -658,14 +685,20 @@ export async function restateFinalizedMonth(
 }
 
 /**
- * Read snapshot for a month.
- * Prefer latest finalized; if none, return provisional (current open month).
+ * Read a snapshot for a ranking window.
+ *  - finalized (exact period_start [+ period_end for custom]) always wins, as before.
+ *  - rolling windows: newest provisional batch for org + ranking_window (period_start ignored).
+ *  - this_month / custom: provisional batch for the exact period (custom also matches period_end).
+ * A "batch" = all rows sharing one snapshot_at (one insert), so rows from different
+ * refreshes are never mixed.
  */
 export async function getMonthlySnapshot(
   organizationId: string,
   period: MonthPeriod,
 ): Promise<{ status: SnapshotStatus; version: number; rows: SnapshotRow[] } | null> {
   const rankingWindow = period.rankingWindow ?? 'this_month';
+  const isRolling = ROLLING_WINDOWS.includes(rankingWindow);
+  const isCustom = rankingWindow === 'custom';
 
   let finQ = supabase
     .from('monthly_ranking_snapshots')
@@ -675,9 +708,9 @@ export async function getMonthlySnapshot(
     .eq('status', 'finalized')
     .eq('ranking_window', rankingWindow)
     .order('snapshot_version', { ascending: false });
+  if (isCustom) finQ = finQ.eq('period_end', period.periodEnd);
 
   const { data: finalized, error: fErr } = await finQ;
-
   if (fErr) throw new Error(fErr.message);
 
   if (finalized && finalized.length > 0) {
@@ -686,20 +719,40 @@ export async function getMonthlySnapshot(
     return { status: 'finalized', version, rows };
   }
 
-  const { data: provisional, error: pErr } = await supabase
-    .from('monthly_ranking_snapshots')
-    .select('*')
-    .eq('organization_id', organizationId)
-    .eq('period_start', period.periodStart)
-    .eq('ranking_window', rankingWindow)
-    .eq('status', 'provisional');
+  // Two attempts: if a concurrent refresh deletes the batch between the two queries, retry once.
+  for (let attempt = 0; attempt < 2; attempt++) {
+    let latestQ = supabase
+      .from('monthly_ranking_snapshots')
+      .select('snapshot_at')
+      .eq('organization_id', organizationId)
+      .eq('ranking_window', rankingWindow)
+      .eq('status', 'provisional');
+    if (!isRolling) latestQ = latestQ.eq('period_start', period.periodStart);
+    if (isCustom) latestQ = latestQ.eq('period_end', period.periodEnd);
 
-  if (pErr) throw new Error(pErr.message);
-  if (!provisional || provisional.length === 0) return null;
+    const { data: latest, error: lErr } = await latestQ
+      .order('snapshot_at', { ascending: false })
+      .limit(1);
+    if (lErr) throw new Error(lErr.message);
+    if (!latest || latest.length === 0) return null;
 
-  return {
-    status: 'provisional',
-    version: 1,
-    rows: provisional as SnapshotRow[],
-  };
+    const batchAt = (latest[0] as { snapshot_at: string }).snapshot_at;
+
+    let rowsQ = supabase
+      .from('monthly_ranking_snapshots')
+      .select('*')
+      .eq('organization_id', organizationId)
+      .eq('ranking_window', rankingWindow)
+      .eq('status', 'provisional')
+      .eq('snapshot_at', batchAt);
+    if (!isRolling) rowsQ = rowsQ.eq('period_start', period.periodStart);
+    if (isCustom) rowsQ = rowsQ.eq('period_end', period.periodEnd);
+
+    const { data: rows, error: rErr } = await rowsQ;
+    if (rErr) throw new Error(rErr.message);
+    if (rows && rows.length > 0) {
+      return { status: 'provisional', version: 1, rows: rows as SnapshotRow[] };
+    }
+  }
+  return null;
 }
