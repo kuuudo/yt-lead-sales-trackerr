@@ -29,7 +29,7 @@ function TreeModel() {
 useGLTF.preload(TREE_MODEL_URL);
 
 function formatRevenue(n: number): string {
-  return n.toLocaleString(undefined, {
+    return n.toLocaleString('en-US', {
     style: 'currency',
     currency: 'USD',
     maximumFractionDigits: 0,
@@ -240,39 +240,112 @@ export function Tree() {
     <div style={styles.outerCanvas}>
       <style>{RESPONSIVE_CSS}</style>
 
-      <div style={styles.topBar}>
-        <div style={styles.brand}>
-          <div style={styles.brandDot} />
-          <span style={styles.brandLabel}>VS-TRK</span>
-        </div>
+      <nav className="vstrk-tabs" aria-label="Tree views">
+        {(['structure', 'journey', 'analytics'] as HeroButtonKey[]).map((key) => (
+          <button
+            key={key}
+            type="button"
+            className="vstrk-tab"
+            style={
+              hoveredBtn === key
+                ? { color: '#f97316', borderBottomColor: '#f97316' }
+                : undefined
+            }
+            onClick={() => {
+              if (key === 'structure') navigate('/tree/structure');
+              if (key === 'journey') navigate('/tree/journey');
+              if (key === 'analytics') navigate('/analytics/journey');
+            }}
+            onMouseEnter={() => setHoveredBtn(key)}
+            onMouseLeave={() => setHoveredBtn((cur) => (cur === key ? null : cur))}
+          >
+            {key === 'structure' ? 'Structure' : key === 'journey' ? 'Journey' : 'Analytics'}
+          </button>
+        ))}
+      </nav>
 
-        <div style={styles.headerActions}>
-          {(['structure', 'journey', 'analytics'] as HeroButtonKey[]).map((key) => (
-            <button
-              key={key}
-              type="button"
-              aria-label={
-                key === 'structure' ? 'Structure' : key === 'journey' ? 'Journey' : 'Analytics'
-              }
-              onClick={() => {
-                if (key === 'structure') navigate('/tree/structure');
-                if (key === 'journey') navigate('/tree/journey');
-                if (key === 'analytics') navigate('/analytics/journey');
-              }}
-              onMouseEnter={() => setHoveredBtn(key)}
-              onMouseLeave={() => setHoveredBtn((cur) => (cur === key ? null : cur))}
-              style={{
-                ...styles.headerButton,
-                ...(hoveredBtn === key ? styles.headerButtonHover : {}),
-              }}
-            >
-              <span style={styles.headerButtonIcon}>▭</span>
-              <span>
-                {key === 'structure' ? 'Structure' : key === 'journey' ? 'Journey' : 'Analytics'}
-              </span>
-            </button>
+      <div className="vstrk-controls">
+        <select
+          className="vstrk-sel-campaign"
+          aria-label="Campaign"
+          value={selectedCampaignId ?? ''}
+          onChange={(e) => {
+            const v = e.target.value;
+            setSelectedCampaignId(v === '' ? null : v);
+          }}
+          disabled={!campaignsLoaded}
+        >
+          {campaigns.length === 0 ? (
+            <option value="">No campaigns</option>
+          ) : (
+            <>
+              {campaigns.map((c) => (
+                <option key={c.id} value={c.id}>
+                  {c.name}
+                </option>
+              ))}
+              <option value="all">All Campaigns</option>
+            </>
+          )}
+        </select>
+
+        <select
+          className="vstrk-sel-time"
+          aria-label="Time range"
+          value={timePreset === 'pick_month' ? 'pick_month' : timePreset}
+          onChange={(e) => {
+            const v = e.target.value as CampaignTreePreset | 'pick_month';
+            setTimePreset(v);
+            if (v === 'pick_month' && !pickedMonthStart && monthChoices[0]) {
+              setPickedMonthStart(monthChoices[0].value);
+            }
+          }}
+        >
+          {PRESET_OPTIONS.map((o) => (
+            <option key={o.key} value={o.key}>
+              {o.label}
+            </option>
           ))}
-        </div>
+        </select>
+
+        <button
+          type="button"
+          className="vstrk-refresh"
+          aria-label="Refresh analytics"
+          title="Refresh"
+          disabled={!organizationId || refreshing || loading}
+          onClick={() => void loadMetrics(true)}
+        >
+          <svg
+            width="20"
+            height="20"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="#e5e5e5"
+            strokeWidth="2"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            aria-hidden="true"
+          >
+            <path d="M21 12a9 9 0 1 1-3-6.7" />
+            <path d="M21 4v5h-5" />
+          </svg>
+        </button>
+
+        {timePreset === 'pick_month' && (
+          <select
+            className="vstrk-sel-month"
+            aria-label="Month"
+            value={pickedMonthStart ?? ''}
+            onChange={(e) => setPickedMonthStart(e.target.value)}
+          >
+            {monthChoices.map((c) => (
+              <option key={c.value} value={c.value}>
+                {c.label}
+              </option>
+            ))}
+          </select>
+        )}
       </div>
 
       <div style={styles.controlsBar}>
@@ -351,6 +424,7 @@ export function Tree() {
       </div>
 
       <div style={styles.heroFrame}>
+        <div className="vstrk-hero">
         <div className="vstrk-tree-stage">
           <Canvas camera={{ position: [0, 12, 70], fov: 35 }} dpr={[1, 2]} gl={{ alpha: true }}>
             <ambientLight intensity={0.9} />
@@ -374,7 +448,9 @@ export function Tree() {
             />
           </Canvas>
 
-          <div style={styles.revenueOverlay}>
+        </div>
+
+          <div className="vstrk-revenue">
             <span
               style={{
                 ...styles.revenueValue,
@@ -424,21 +500,102 @@ export function Tree() {
 }
 
 const RESPONSIVE_CSS = `
-.vstrk-tree-stage {
-  position: relative;
-  flex: 1;
-  min-height: 320px;
-  width: 100%;
-}
-.vstrk-metrics-strip {
+.vstrk-tabs {
   display: flex;
-  gap: 12px;
+  width: calc(100% - 32px);
+  max-width: 948px;
+  margin: 12px auto 0;
+  border-bottom: 1px solid #262626;
+}
+.vstrk-tab {
+  flex: 1;
+  min-height: 44px;
+  background: transparent;
+  border: 0;
+  border-bottom: 2px solid transparent;
+  color: #a3a3a3;
+  font-size: 14px;
+  cursor: pointer;
+}
+.vstrk-controls {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
   max-width: 980px;
   margin: 0 auto;
-  padding: 0 12px;
+  padding: 16px 16px 0;
+  box-sizing: border-box;
 }
-@media (max-width: 680px) {
-  .vstrk-metrics-strip { flex-wrap: wrap; }
+.vstrk-controls select {
+  min-height: 48px;
+  padding: 0 12px;
+  border-radius: 12px;
+  border: 1px solid #262626;
+  background: #141414;
+  color: #e5e5e5;
+  font-size: 14px;
+}
+.vstrk-sel-campaign { flex: 1 1 0; min-width: 0; }
+.vstrk-sel-time { flex: 0 0 128px; }
+.vstrk-sel-month { flex: 1 1 100%; }
+.vstrk-refresh {
+  flex: none;
+  width: 48px;
+  height: 48px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: #141414;
+  border: 1px solid #262626;
+  border-radius: 12px;
+  cursor: pointer;
+}
+.vstrk-refresh:disabled { opacity: 0.5; cursor: default; }
+
+.vstrk-hero {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  width: 100%;
+  max-width: 980px;
+  margin: 0 auto;
+}
+.vstrk-tree-stage {
+  position: relative;
+  flex: 0 0 52%;
+  height: 240px;
+  min-width: 0;
+  touch-action: pan-y;
+}
+.vstrk-tree-stage canvas { touch-action: pan-y !important; }
+.vstrk-revenue {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 4px;
+  min-width: 0;
+}
+.vstrk-metrics-strip {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+  width: 100%;
+  max-width: 980px;
+  margin: 0 auto;
+  padding: 0 16px;
+  box-sizing: border-box;
+}
+@media (min-width: 768px) {
+  .vstrk-sel-campaign { flex: 0 1 340px; }
+  .vstrk-sel-time { flex: 0 0 160px; }
+  .vstrk-sel-month { flex: 0 0 160px; }
+  .vstrk-refresh { order: 1; }
+  .vstrk-hero { gap: 48px; }
+  .vstrk-tree-stage { flex: 0 0 420px; height: 420px; }
+  .vstrk-metrics-strip { grid-template-columns: repeat(4, 1fr); }
 }
 `;
 
@@ -570,7 +727,7 @@ const styles: Record<string, React.CSSProperties> = {
     zIndex: 2,
   },
   revenueValue: {
-    fontSize: '28px',
+    fontSize: 'clamp(28px, 8vw, 52px)',
     fontWeight: 600,
     color: '#4ade80',
     lineHeight: 1.1,
@@ -598,7 +755,7 @@ const styles: Record<string, React.CSSProperties> = {
     color: '#737373',
   },
   metricValue: {
-    fontSize: '20px',
+    fontSize: '26px',
     fontWeight: 600,
     transition: 'opacity 0.15s ease',
   },
