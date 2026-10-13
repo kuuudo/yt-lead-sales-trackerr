@@ -224,7 +224,7 @@ export function Tree() {
   const metricCards = [
     { label: 'Purchases', value: display.purchases, color: '#4ade80' },
     { label: 'Sales Calls', value: display.salesCalls, color: '#ef4444' },
-    { label: 'Newsletter Opt-ins', value: display.newsletterOptins, color: '#f97316' },
+    { label: 'Newsletter', value: display.newsletterOptins, color: '#f97316' },
     { label: 'Consultations', value: display.consultations, color: '#a78bfa' },
   ];
 
