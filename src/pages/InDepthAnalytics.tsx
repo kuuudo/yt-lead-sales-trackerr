@@ -23,7 +23,7 @@
 // was added or modified. Engine inputs/outputs are identical.
 // ─────────────────────────────────────────────────────────────────────────────
 
-import { inDepthAnalyticsPageCache } from '../lib/inDepthAnalyticsPageCache';
+import { inDepthAnalyticsPageCache, type InDepthAnalyticsPageCacheData } from '../lib/inDepthAnalyticsPageCache';
 import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { supabase, Campaign, Video, LeadMagnet } from '../lib/supabase';
@@ -230,6 +230,11 @@ async function buildSessionLookup(
 // Component
 // ─────────────────────────────────────────────────────────────────────────────
 
+// Module-level: lets a remounted page join a fetch that is still running.
+// The cache is only written when a fetch finishes, so without this a revisit
+// during a slow first load started a second full fetch on top of the first.
+let inDepthFetchInFlight: { userId: string; promise: Promise<void> } | null = null;
+
 export default function InDepthAnalyticsTest() {
   const { user } = useAuth();
   const navigate = useNavigate();
@@ -305,38 +310,46 @@ export default function InDepthAnalyticsTest() {
   }, []);
 
   useEffect(() => {
-    if (user) {
-      const cached = inDepthAnalyticsPageCache.get(user.id);
-      if (cached) {
-        console.log('[InDepthAnalytics] Cache hit', new Date(cached.cachedAt).toLocaleTimeString());
-        setCampaigns(cached.data.campaigns);
-        setVideos(cached.data.videos);
-        setLeadMagnets(cached.data.leadMagnets);
-        setRawEvents(cached.data.rawEvents);
-        setStripePurchases(cached.data.stripePurchases);
-        setPixelPurchases(cached.data.pixelPurchases);
-        // WebMood grid is not in page cache — light refresh from redirect_links
-        const vids = (cached.data.videos || []).map((v: any) => v.id).filter(Boolean);
-        if (vids.length) {
-          supabase
-            .from('redirect_links')
-            .select('video_id, campaign_id, link_type, asset_id')
-            .in('video_id', vids)
-            .then(({ data }) => {
-              setCampaignLinkGrid(
-                buildCampaignLinkGridMap(((data as any[]) || []).filter(r => !r.asset_id))
-              );
-            })
-            .catch(() => setCampaignLinkGrid(new Map()));
-        } else {
-          setCampaignLinkGrid(new Map());
-        }
-        setLoading(false);
-        return;
-      }
-      console.log('[InDepthAnalytics] Cache miss — fetching from Supabase');
-      fetchData();
+    if (!user) return;
+    const userId = user.id;
+
+    const restore = (d: InDepthAnalyticsPageCacheData) => {
+      setCampaigns(d.campaigns);
+      setVideos(d.videos);
+      setLeadMagnets(d.leadMagnets);
+      setRawEvents(d.rawEvents);
+      setStripePurchases(d.stripePurchases);
+      setPixelPurchases(d.pixelPurchases);
+      setCampaignLinkGrid(d.campaignLinkGrid);
+      setLoading(false);
+    };
+
+    // 1) Cache hit: restore everything, no Supabase queries.
+    const cached = inDepthAnalyticsPageCache.get(userId);
+    if (cached) {
+      console.log('[InDepthAnalytics] Cache hit', new Date(cached.cachedAt).toLocaleTimeString());
+      restore(cached.data);
+      return;
     }
+
+    // 2) Miss, but a fetch for this user is still running (user left and came
+    //    back before it finished): wait for it instead of starting a second one.
+    if (inDepthFetchInFlight && inDepthFetchInFlight.userId === userId) {
+      console.log('[InDepthAnalytics] Cache miss — joining in-flight fetch');
+      setLoading(true);
+      let cancelled = false;
+      inDepthFetchInFlight.promise.then(() => {
+        if (cancelled) return;
+        const c = inDepthAnalyticsPageCache.get(userId);
+        if (c) restore(c.data);
+        else startFetch(userId); // in-flight run was degraded and not cached
+      });
+      return () => { cancelled = true; };
+    }
+
+    // 3) Plain miss: fetch.
+    console.log('[InDepthAnalytics] Cache miss — fetching from Supabase');
+    startFetch(userId);
   }, [user?.id]);
 
 
@@ -344,7 +357,7 @@ export default function InDepthAnalyticsTest() {
   const fetchData = async () => {
     setLoading(true);
     try {
-      const { data: cData } = await supabase.from('campaigns').select('*').eq('user_id', user?.id);
+      const { data: cData, error: cErr } = await supabase.from('campaigns').select('*').eq('user_id', user?.id);
       const { data: membership } = await supabase
         .from('organization_members')
         .select('organization_id')
@@ -353,7 +366,7 @@ export default function InDepthAnalyticsTest() {
         .maybeSingle();
       const orgId = membership?.organization_id as string | undefined;
 
-      const [{ data: myVideos }, { data: orgCreativeVideos }] = await Promise.all([
+      const [{ data: myVideos, error: myVideosErr }, { data: orgCreativeVideos }] = await Promise.all([
         supabase.from('videos').select('*').eq('user_id', user!.id),
         orgId
           ? supabase
@@ -368,17 +381,20 @@ export default function InDepthAnalyticsTest() {
         if (v?.id) byId.set(v.id, v);
       }
       const vData = Array.from(byId.values());
-      const { data: lmData } = await supabase.from('lead_magnets').select('*');
+      const { data: lmData, error: lmErr } = await supabase.from('lead_magnets').select('*');
+      // Silent query failures yield empty data without throwing; never cache those.
+      const earlyQueryError = !!(cErr || myVideosErr || lmErr);
 
       setCampaigns(cData || []);
       setVideos(vData || []);
       setLeadMagnets(lmData || []);
 
       if (!vData || vData.length === 0) {
-        if (user?.id) {
+        if (user?.id && !earlyQueryError) {
           inDepthAnalyticsPageCache.set(user.id, {
             campaigns: cData || [], videos: vData || [], leadMagnets: lmData || [],
             rawEvents: [], stripePurchases: [], pixelPurchases: [],
+            campaignLinkGrid: new Map(),
           });
           console.log('[InDepthAnalytics] Cache updated (no videos)');
         }
@@ -428,10 +444,14 @@ export default function InDepthAnalyticsTest() {
           .in('video_id', videoIds),
       ]);
 
-      setCampaignLinkGrid(
-        buildCampaignLinkGridMap(
-          ((rlGridData.data as any[]) || []).filter(r => !r.asset_id)
-        )
+      const linkGrid = buildCampaignLinkGridMap(
+        ((rlGridData.data as any[]) || []).filter(r => !r.asset_id)
+      );
+      setCampaignLinkGrid(linkGrid);
+
+      const hadQueryError = earlyQueryError || !!(
+        eDirectData.error || eViaSessionData.error || spData.error ||
+        (ppData as any).error || rlGridData.error
       );
 
       const sessionResolvedEvents = flattenSessionEvents(eViaSessionData.data as any[] || []);
@@ -586,12 +606,16 @@ export default function InDepthAnalyticsTest() {
       setStripePurchases(enrichedStripe as typeof stripePurchases);
       setPixelPurchases(enrichedPixel as typeof pixelPurchases);
 
-      if (user?.id) {
+      // Cache only a complete, non-degraded result.
+      if (user?.id && owned && !hadQueryError) {
         inDepthAnalyticsPageCache.set(user.id, {
           campaigns: cData || [], videos: vData || [], leadMagnets: lmData || [],
           rawEvents: allEvents, stripePurchases: enrichedStripe, pixelPurchases: enrichedPixel,
+          campaignLinkGrid: linkGrid,
         });
         console.log('[InDepthAnalytics] Cache updated');
+      } else {
+        console.warn('[InDepthAnalytics] Result not cached', { ownerProcessed: !!owned, hadQueryError });
       }
     } catch (err) {
       console.error('[InDepthAnalytics] fetchData error:', err);
@@ -600,6 +624,13 @@ export default function InDepthAnalyticsTest() {
     }
   };
 
+  // Runs fetchData and records it as in-flight so a remount can join it.
+  const startFetch = (userId: string) => {
+    const p: Promise<void> = fetchData().finally(() => {
+      if (inDepthFetchInFlight?.promise === p) inDepthFetchInFlight = null;
+    });
+    inDepthFetchInFlight = { userId, promise: p };
+  };
 
   // ── Engine input (unchanged) ─────────────────────────────────────────────
   const engineInput = useMemo((): AnalyticsEngineInput => {

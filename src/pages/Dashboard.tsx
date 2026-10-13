@@ -69,7 +69,7 @@ import {
 import {
   Target, Users, DollarSign,
   Activity, AlertCircle, CheckCircle2, ArrowRight,
-  ShoppingCart, ChevronDown, Settings2,
+  ShoppingCart, ChevronDown, Settings2, Loader2,
 } from 'lucide-react';
 import { PLATFORM_CONFIG } from '../lib/platformParser';
 
@@ -764,6 +764,21 @@ export default function Dashboard() {
   // ─────────────────────────────────────────────────────────────────────────────
   // Render
   // ─────────────────────────────────────────────────────────────────────────────
+
+  // ── Loading screen (all hooks are above this line) ──────────────────────────
+  if (loading) {
+    return (
+      <div className="max-w-[1200px] mx-auto px-6 flex flex-col items-center justify-center min-h-[60vh] gap-4">
+        <Loader2 className="animate-spin text-red-600" size={32} />
+        <p className="text-[10px] font-bold uppercase tracking-[0.2em] text-zinc-500">
+          Loading dashboard…
+        </p>
+        <p className="text-[10px] text-zinc-600">
+          The first load can take a while. Later visits are instant.
+        </p>
+      </div>
+    );
+  }
 
   return (
     <div className="max-w-[1200px] mx-auto px-6 space-y-6">
