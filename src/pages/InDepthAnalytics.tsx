@@ -454,6 +454,11 @@ export default function InDepthAnalyticsTest() {
         (ppData as any).error || rlGridData.error
       );
 
+      console.log('[InDepthAnalytics] DIAG query errors', {
+        campaigns: cErr?.message, videos: myVideosErr?.message, leadMagnets: lmErr?.message,
+        eDirect: eDirectData.error?.message, eSession: eViaSessionData.error?.message,
+        stripe: spData.error?.message, pixel: (ppData as any).error?.message, links: rlGridData.error?.message,
+      });
       const sessionResolvedEvents = flattenSessionEvents(eViaSessionData.data as any[] || []);
       const allEvents = mergeEventSources(eDirectData.data || [], sessionResolvedEvents);
 
@@ -606,6 +611,7 @@ export default function InDepthAnalyticsTest() {
       setStripePurchases(enrichedStripe as typeof stripePurchases);
       setPixelPurchases(enrichedPixel as typeof pixelPurchases);
 
+      console.log('[InDepthAnalytics] REACHED CACHE STEP', { hasUser: !!user?.id, owned: !!owned, hadQueryError });
       // Cache only a complete, non-degraded result.
       if (user?.id && owned && !hadQueryError) {
         inDepthAnalyticsPageCache.set(user.id, {
