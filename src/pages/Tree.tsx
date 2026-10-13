@@ -29,7 +29,7 @@ function TreeModel() {
 useGLTF.preload(TREE_MODEL_URL);
 
 function formatRevenue(n: number): string {
-    return n.toLocaleString('en-US', {
+  return n.toLocaleString(undefined, {
     style: 'currency',
     currency: 'USD',
     maximumFractionDigits: 0,
@@ -240,118 +240,119 @@ export function Tree() {
     <div style={styles.outerCanvas}>
       <style>{RESPONSIVE_CSS}</style>
 
-      <nav className="vstrk-tabs" aria-label="Tree views">
-        {(['structure', 'journey', 'analytics'] as HeroButtonKey[]).map((key) => (
-          <button
-            key={key}
-            type="button"
-            className="vstrk-tab"
-            style={
-              hoveredBtn === key
-                ? { color: '#f97316', borderColor: '#f97316' }
-                : undefined
-            }
-            onClick={() => {
-              if (key === 'structure') navigate('/tree/structure');
-              if (key === 'journey') navigate('/tree/journey');
-              if (key === 'analytics') navigate('/analytics/journey');
-            }}
-            onMouseEnter={() => setHoveredBtn(key)}
-            onMouseLeave={() => setHoveredBtn((cur) => (cur === key ? null : cur))}
-          >
-            {key === 'structure' ? 'Structure' : key === 'journey' ? 'Journey' : 'Analytics'}
-          </button>
-        ))}
-      </nav>
+      <div className="vstrk-topbar" style={styles.topBar}>
+        <div className="vstrk-brand" style={styles.brand}>
+          <div style={styles.brandDot} />
+          <span style={styles.brandLabel}>VS-TRK</span>
+        </div>
 
-      <div className="vstrk-controls">
-        <select
-          className="vstrk-sel-campaign"
-          aria-label="Campaign"
-          value={selectedCampaignId ?? ''}
-          onChange={(e) => {
-            const v = e.target.value;
-            setSelectedCampaignId(v === '' ? null : v);
-          }}
-          disabled={!campaignsLoaded}
-        >
-          {campaigns.length === 0 ? (
-            <option value="">No campaigns</option>
-          ) : (
-            <>
-              {campaigns.map((c) => (
-                <option key={c.id} value={c.id}>
-                  {c.name}
-                </option>
-              ))}
-              <option value="all">All Campaigns</option>
-            </>
-          )}
-        </select>
-
-        <select
-          className="vstrk-sel-time"
-          aria-label="Time range"
-          value={timePreset === 'pick_month' ? 'pick_month' : timePreset}
-          onChange={(e) => {
-            const v = e.target.value as CampaignTreePreset | 'pick_month';
-            setTimePreset(v);
-            if (v === 'pick_month' && !pickedMonthStart && monthChoices[0]) {
-              setPickedMonthStart(monthChoices[0].value);
-            }
-          }}
-        >
-          {PRESET_OPTIONS.map((o) => (
-            <option key={o.key} value={o.key}>
-              {o.label}
-            </option>
+        <div className="vstrk-tabs" style={styles.headerActions}>
+          {(['structure', 'journey', 'analytics'] as HeroButtonKey[]).map((key) => (
+            <button
+              key={key}
+              className="vstrk-tab"
+              type="button"
+              aria-label={
+                key === 'structure' ? 'Structure' : key === 'journey' ? 'Journey' : 'Analytics'
+              }
+              onClick={() => {
+                if (key === 'structure') navigate('/tree/structure');
+                if (key === 'journey') navigate('/tree/journey');
+                if (key === 'analytics') navigate('/analytics/journey');
+              }}
+              onMouseEnter={() => setHoveredBtn(key)}
+              onMouseLeave={() => setHoveredBtn((cur) => (cur === key ? null : cur))}
+              style={{
+                ...styles.headerButton,
+                ...(hoveredBtn === key ? styles.headerButtonHover : {}),
+              }}
+            >
+              <span className="vstrk-tab-icon" style={styles.headerButtonIcon}>▭</span>
+              <span>
+                {key === 'structure' ? 'Structure' : key === 'journey' ? 'Journey' : 'Analytics'}
+              </span>
+            </button>
           ))}
-        </select>
+        </div>
+      </div>
 
-        <button
-          type="button"
-          className="vstrk-refresh"
-          aria-label="Refresh analytics"
-          title="Refresh"
-          disabled={!organizationId || refreshing || loading}
-          onClick={() => void loadMetrics(true)}
-        >
-          <svg
-            width="20"
-            height="20"
-            viewBox="0 0 24 24"
-            fill="none"
-            stroke="#e5e5e5"
-            strokeWidth="2"
-            strokeLinecap="round"
-            strokeLinejoin="round"
-            aria-hidden="true"
-          >
-            <path d="M21 12a9 9 0 1 1-3-6.7" />
-            <path d="M21 4v5h-5" />
-          </svg>
-        </button>
-
-        {timePreset === 'pick_month' && (
+      <div className="vstrk-controls" style={styles.controlsBar}>
+        <label style={styles.controlLabel}>
+          Campaign
           <select
-            className="vstrk-sel-month"
-            aria-label="Month"
-            value={pickedMonthStart ?? ''}
-            onChange={(e) => setPickedMonthStart(e.target.value)}
+            value={selectedCampaignId ?? ''}
+            onChange={(e) => {
+              const v = e.target.value;
+              setSelectedCampaignId(v === '' ? null : v);
+            }}
+            style={styles.select}
+            disabled={!campaignsLoaded}
           >
-            {monthChoices.map((c) => (
-              <option key={c.value} value={c.value}>
-                {c.label}
+            {campaigns.length === 0 ? (
+              <option value="">No campaigns</option>
+            ) : (
+              <>
+                {campaigns.map((c) => (
+                  <option key={c.id} value={c.id}>
+                    {c.name}
+                  </option>
+                ))}
+                <option value="all">All Campaigns</option>
+              </>
+            )}
+          </select>
+        </label>
+
+        <label style={styles.controlLabel}>
+          Time range
+          <select
+            value={timePreset === 'pick_month' ? 'pick_month' : timePreset}
+            onChange={(e) => {
+              const v = e.target.value as CampaignTreePreset | 'pick_month';
+              setTimePreset(v);
+              if (v === 'pick_month' && !pickedMonthStart && monthChoices[0]) {
+                setPickedMonthStart(monthChoices[0].value);
+              }
+            }}
+            style={styles.select}
+          >
+            {PRESET_OPTIONS.map((o) => (
+              <option key={o.key} value={o.key}>
+                {o.label}
               </option>
             ))}
           </select>
+        </label>
+
+        {timePreset === 'pick_month' && (
+          <label style={styles.controlLabel}>
+            Month
+            <select
+              value={pickedMonthStart ?? ''}
+              onChange={(e) => setPickedMonthStart(e.target.value)}
+              style={styles.select}
+            >
+              {monthChoices.map((c) => (
+                <option key={c.value} value={c.value}>
+                  {c.label}
+                </option>
+              ))}
+            </select>
+          </label>
         )}
+
+        <button
+          type="button"
+          style={styles.updateBtn}
+          disabled={!organizationId || refreshing || loading}
+          onClick={() => void loadMetrics(true)}
+        >
+          <span className="vstrk-upd-text">{refreshing ? 'Updating…' : 'Update'}</span>
+          <span className="vstrk-upd-icon" aria-hidden>↻</span>
+        </button>
       </div>
 
-     
-
-      <div style={styles.heroFrame}>
-        <div className="vstrk-hero">
+      <div className="vstrk-hero" style={styles.heroFrame}>
         <div className="vstrk-tree-stage">
           <Canvas camera={{ position: [0, 12, 70], fov: 35 }} dpr={[1, 2]} gl={{ alpha: true }}>
             <ambientLight intensity={0.9} />
@@ -375,9 +376,7 @@ export function Tree() {
             />
           </Canvas>
 
-        </div>
-
-          <div className="vstrk-revenue">
+          <div className="vstrk-rev-desktop" style={styles.revenueOverlay}>
             <span
               style={{
                 ...styles.revenueValue,
@@ -388,6 +387,13 @@ export function Tree() {
             </span>
             <span style={styles.revenueLabel}>Revenue</span>
           </div>
+        </div>
+
+        <div className="vstrk-rev-mobile">
+          <span className="vstrk-rev-label">Revenue</span>
+          <span className="vstrk-rev-value" style={{ opacity: showPlaceholder ? 0.35 : 1 }}>
+            {formatRevenue(showPlaceholder ? 0 : display.revenue)}
+          </span>
         </div>
 
         <div className="vstrk-metrics-strip">
@@ -427,106 +433,118 @@ export function Tree() {
 }
 
 const RESPONSIVE_CSS = `
-.vstrk-tabs {
-  display: flex;
-  justify-content: center;
-  gap: 8px;
-  width: 100%;
-  max-width: 980px;
-  margin: 0 auto;
-  padding: 0 16px;
-  box-sizing: border-box;
-}
-.vstrk-tab {
-  flex: 1 1 0;
-  max-width: 200px;
-  min-height: 44px;
-  background: #141414;
-  border: 1px solid #262626;
-  border-radius: 10px;
-  color: #a3a3a3;
-  font-size: 14px;
-  cursor: pointer;
-}
-.vstrk-controls {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 8px;
-  width: 100%;
-  max-width: 980px;
-  margin: 0 auto;
-  padding: 16px 16px 0;
-  box-sizing: border-box;
-}
-.vstrk-controls select {
-  min-height: 48px;
-  padding: 0 12px;
-  border-radius: 12px;
-  border: 1px solid #262626;
-  background: #141414;
-  color: #e5e5e5;
-  font-size: 14px;
-}
-.vstrk-sel-campaign { flex: 1 1 0; min-width: 0; }
-.vstrk-sel-time { flex: 0 0 128px; }
-.vstrk-sel-month { flex: 1 1 100%; }
-.vstrk-refresh {
-  flex: none;
-  width: 48px;
-  height: 48px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  background: #141414;
-  border: 1px solid #262626;
-  border-radius: 12px;
-  cursor: pointer;
-}
-.vstrk-refresh:disabled { opacity: 0.5; cursor: default; }
-
-.vstrk-hero {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  gap: 8px;
-  width: 100%;
-  max-width: 980px;
-  margin: 0 auto;
-}
 .vstrk-tree-stage {
   position: relative;
-  flex: 0 0 52%;
-  height: 240px;
-  min-width: 0;
-  touch-action: pan-y;
-}
-.vstrk-tree-stage canvas { touch-action: pan-y !important; }
-.vstrk-revenue {
-  display: flex;
-  flex-direction: column;
-  align-items: flex-start;
-  gap: 4px;
-  min-width: 0;
+  flex: 1;
+  min-height: 320px;
+  width: 100%;
 }
 .vstrk-metrics-strip {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
+  display: flex;
   gap: 12px;
-  width: 100%;
   max-width: 980px;
   margin: 0 auto;
-  padding: 0 16px;
-  box-sizing: border-box;
+  padding: 0 12px;
 }
-@media (min-width: 768px) {
-  .vstrk-sel-campaign { flex: 0 1 340px; }
-  .vstrk-sel-time { flex: 0 0 160px; }
-  .vstrk-sel-month { flex: 0 0 160px; }
-  .vstrk-refresh { order: 1; }
-  .vstrk-hero { gap: 48px; }
-  .vstrk-tree-stage { flex: 0 0 420px; height: 420px; }
-  .vstrk-metrics-strip { grid-template-columns: repeat(4, 1fr); }
+.vstrk-rev-mobile { display: none; }
+.vstrk-upd-icon { display: none; }
+
+@media (max-width: 680px) {
+  /* tabs: full-width segmented bar, brand hidden */
+  .vstrk-brand { display: none !important; }
+  .vstrk-topbar { padding: 16px 16px 0 16px !important; }
+  .vstrk-tabs {
+    width: 100%;
+    gap: 0 !important;
+    padding: 4px;
+    border: 1px solid #262626;
+    border-radius: 12px;
+    background: #111;
+  }
+  .vstrk-tab {
+    flex: 1;
+    justify-content: center;
+    padding: 10px 0 !important;
+    border-radius: 9px !important;
+    font-size: 12px !important;
+  }
+  .vstrk-tab-icon { display: none !important; }
+
+  /* selectors: one compact row, labels hidden */
+  .vstrk-controls {
+    flex-wrap: wrap !important;
+    align-items: center !important;
+    gap: 8px !important;
+    padding: 12px 16px 0 16px !important;
+  }
+  .vstrk-controls label {
+    font-size: 0 !important;
+    gap: 0 !important;
+    min-width: 0;
+  }
+  .vstrk-controls label:nth-of-type(1) { flex: 1 1 0; }
+  .vstrk-controls label:nth-of-type(2) { flex: 0 0 112px; }
+  .vstrk-controls label:nth-of-type(3) { flex: 1 1 100%; }
+  .vstrk-controls select {
+    width: 100%;
+    min-width: 0 !important;
+    height: 40px;
+    font-size: 12px !important;
+  }
+  .vstrk-controls button {
+    margin-left: 0 !important;
+    width: 40px;
+    height: 40px;
+    padding: 0 !important;
+    flex: none;
+  }
+  .vstrk-upd-text { display: none; }
+  .vstrk-upd-icon { display: inline; font-size: 18px; }
+
+  /* tree on top, then revenue card, then 2x2 grid */
+  .vstrk-hero {
+    justify-content: flex-start !important;
+    gap: 12px !important;
+    padding: 8px 16px 24px 16px !important;
+  }
+  .vstrk-tree-stage {
+    flex: none !important;
+    height: 300px;
+    min-height: 0;
+  }
+  .vstrk-rev-desktop { display: none !important; }
+  .vstrk-rev-mobile {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    background: #111;
+    border: 1px solid #222;
+    border-radius: 14px;
+    padding: 18px 20px;
+  }
+  .vstrk-rev-label {
+    font-size: 11px;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    color: #737373;
+  }
+  .vstrk-rev-value {
+    font-size: 38px;
+    font-weight: 700;
+    color: #fff;
+    line-height: 1;
+    transition: opacity 0.15s ease;
+  }
+  .vstrk-metrics-strip {
+    display: grid !important;
+    grid-template-columns: 1fr 1fr;
+    gap: 10px;
+    width: 100%;
+    max-width: none;
+    padding: 0 !important;
+  }
+  .vstrk-metrics-strip > div { min-width: 0 !important; }
+  .vstrk-metrics-strip > div > span:last-child { font-size: 28px !important; }
 }
 `;
 
@@ -658,7 +676,7 @@ const styles: Record<string, React.CSSProperties> = {
     zIndex: 2,
   },
   revenueValue: {
-    fontSize: 'clamp(28px, 8vw, 52px)',
+    fontSize: '28px',
     fontWeight: 600,
     color: '#4ade80',
     lineHeight: 1.1,
@@ -686,7 +704,7 @@ const styles: Record<string, React.CSSProperties> = {
     color: '#737373',
   },
   metricValue: {
-    fontSize: '26px',
+    fontSize: '20px',
     fontWeight: 600,
     transition: 'opacity 0.15s ease',
   },
