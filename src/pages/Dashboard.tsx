@@ -420,7 +420,7 @@ export default function Dashboard() {
 
       // A failed query here yields empty data without throwing; never cache that.
       const hadQueryError = !!(
-        eDirectData.error || eViaSessionData.error || spData.error || (ppData as any).error
+        eDirectData.error || spData.error || (ppData as any).error
       );
 
       const sessionResolvedEvents = flattenSessionEvents(eViaSessionData.data as any[] || []);
