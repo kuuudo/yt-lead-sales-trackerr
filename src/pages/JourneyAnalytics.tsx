@@ -814,7 +814,7 @@ export default function JourneyAnalytics() {
   const navigate = useNavigate();
   const { campaignId: paramCampaignId } = useParams<{ campaignId?: string }>();
   const { user } = useAuth();
-  const { viewingMemberId, viewingOrgId, isReadOnly } = useViewing();
+  const { viewingMemberId, viewingMemberName, viewingOrgId, isReadOnly, exitViewing } = useViewing();
   const { organizationId: hookOrgId } = useOrganization();
   // Same effective org as Videos.tsx — membership key for content universe
   const effectiveOrgId = isReadOnly ? (viewingOrgId ?? null) : (hookOrgId ?? null);
@@ -916,18 +916,24 @@ const [tableScrollWidth, setTableScrollWidth] = useState(0);
       (!promotionOpen && !mobileMenuOpen) ||
       assignmentGroups ||
       assignmentGroupsLoading ||
-      !user?.id
+      !effectiveViewerId
     )
       return;
     setAssignmentGroupsLoading(true);
-    getPromotionAssignmentGroups(user.id)
+    getPromotionAssignmentGroups(effectiveViewerId)
       .then(setAssignmentGroups)
       .catch((e) => {
         console.warn('[JourneyAnalytics] promotion assignment groups failed', e?.message ?? e);
         setAssignmentGroups({ assignedToMe: [], assignedByMe: [] });
       })
       .finally(() => setAssignmentGroupsLoading(false));
-  }, [promotionOpen, mobileMenuOpen, assignmentGroups, assignmentGroupsLoading, user?.id]);
+  }, [promotionOpen, mobileMenuOpen, assignmentGroups, assignmentGroupsLoading, effectiveViewerId]);
+
+  // Operator Mode: drop assignment groups loaded for a different viewer.
+  useEffect(() => {
+    setAssignmentGroups(null);
+    setSelectedPersonId(null);
+  }, [effectiveViewerId]);
 
   const activeGroupList: AssignmentGroup[] =
     promotionTab === 'toMe'
@@ -1039,7 +1045,7 @@ console.log('[DIAG membership]', {
         promotionIds: selectedPromotionIds,
         assetTypes: selectedAssetTypes,
         creativeScope: creativeScopeFilter,
-        viewerId: user?.id ?? null,
+        viewerId: effectiveViewerId,
         assetSource: selectedAssetSource,
         dateRange,
         customRange,
@@ -1055,7 +1061,7 @@ console.log('[DIAG membership]', {
       selectedPromotionIds,
       selectedAssetTypes,
       creativeScopeFilter,
-      user?.id,
+      effectiveViewerId,
       selectedAssetSource,
       videoDisplay,
       dateRange,
@@ -1775,7 +1781,18 @@ const showMoreBar =
   );
 
   return (
-    <div className="flex h-screen bg-black text-zinc-300 overflow-hidden fixed inset-0 z-[100]">
+    <div
+      className="flex h-screen bg-black text-zinc-300 overflow-hidden fixed inset-0 z-[100]"
+      style={isReadOnly ? { paddingTop: 28 } : undefined}
+    >
+      {isReadOnly && (
+        <div className="absolute top-0 left-0 right-0 z-[9400] h-7 flex items-center justify-center bg-amber-950 border-b border-amber-500/30 text-amber-300 text-[10px] font-black uppercase tracking-widest px-4">
+          Viewing {viewingMemberName ?? 'member'} · Read-only ·{' '}
+          <button onClick={exitViewing} className="underline hover:text-amber-100 transition-colors ml-1">
+            Exit
+          </button>
+        </div>
+      )}
       <aside
         className={`${
           sidebarOpen ? 'hidden lg:flex' : 'hidden'
