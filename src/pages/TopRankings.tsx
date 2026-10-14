@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { TrendingUp, Users, Building2, Loader2, ChevronRight, ChevronDown, X } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { supabase } from '../lib/supabase';
+import { useViewing } from '../lib/ViewingContext';
 import {
   getTopPromotionsAnalytics,
   rankTopPromotions,

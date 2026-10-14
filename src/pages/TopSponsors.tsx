@@ -131,7 +131,7 @@ export default function TopSponsors() {
         setRefreshing(false);
       }
     },
-    [marketerUserId, preset, customStart, customEnd],
+    [marketerUserId, preset, customStart, customEnd, isReadOnly],
   );
 
   useEffect(() => {
