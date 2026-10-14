@@ -131,7 +131,10 @@ function Navigation() {
   const [testimonialModalOpen, setTestimonialModalOpen] = useState(false);
 
   // Same source Marketplace.tsx already uses for its organization id.
-  const { organizationId: effectiveOrgId } = useEffectiveIdentity();
+  const { organizationId: ownOrgId } = useEffectiveIdentity();
+  const { viewingOrgId, isReadOnly: isViewingReadOnly } = useViewing();
+  // Operator Mode: rankings must follow the viewed member's org, not the operator's own.
+  const effectiveOrgId = isViewingReadOnly ? viewingOrgId : ownOrgId;
 
   // "Get Started" indicator dot (new user / 10+ days away / release-key bump).
   const { showDot: showHubDot } = useOnboardingHubIndicator();
