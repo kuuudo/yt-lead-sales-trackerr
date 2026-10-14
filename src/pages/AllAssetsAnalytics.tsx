@@ -266,7 +266,7 @@ function AssetAnalyticsLoadingBlock({ detail }: { detail?: string }) {
   );
 }
 
-function useAssetAnalyticsRows(opts: {
+export function useAssetAnalyticsRows(opts: {
   dateRange: DateRange;
   customRange: CustomDateRange | null;
   activeSource: RevenueView;
