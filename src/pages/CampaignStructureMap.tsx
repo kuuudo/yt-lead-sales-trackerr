@@ -70,8 +70,9 @@ import {
 function useCampaignOptions(viewerId: string | null): Campaign[] {
   const [campaigns, setCampaigns] = useState<Campaign[]>([])
   useEffect(() => {
-    if (!viewerId) return
+    if (!viewerId) { setCampaigns([]); return }
     let cancelled = false
+    setCampaigns([])
     supabase
       .from('campaigns')
       .select('*')
@@ -97,6 +98,11 @@ async function resolveOrgAndViewer(viewing?: {
   if (viewing?.viewingMemberId && viewing?.viewingOrgId) {
     return { organizationId: viewing.viewingOrgId, viewerId: viewing.viewingMemberId }
   }
+
+  if (viewing) {
+    // Read-only requested but viewed member/org unresolved: fail closed, never use the operator's own org.
+    throw new Error('Viewed account unavailable')
+  }
   const { data: auth, error: authError } = await supabase.auth.getUser()
   if (authError || !auth.user) {
     throw new Error('Not authenticated')
@@ -119,6 +125,7 @@ async function resolveOrgAndViewer(viewing?: {
   if (!asset?.organization_id) {
     throw new Error('Could not resolve organizationId')
   }
+
   return { organizationId: asset.organization_id as string, viewerId }
 }
 
@@ -1523,7 +1530,7 @@ export default function CampaignStructureMap({ embedded = false, presentation = 
   }
 
 return ( 
-  <div style={{ ...styles.page, ...(presentation === 'tree' ? { background: TREE_DARK.page } : {}) }}>
+  <div style={{ ...styles.page, ...(isReadOnly && !embedded ? { top: 84 } : {}), ...(presentation === 'tree' ? { background: TREE_DARK.page } : {}) }}>
     {presentation === 'campaign' && (
       <div style={styles.header} > 
         <Link to={`/campaigns/${campaignId ?? ''}`} style={styles.backLink} > 

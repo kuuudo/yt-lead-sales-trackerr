@@ -237,7 +237,7 @@ let inDepthFetchInFlight: { userId: string; promise: Promise<void> } | null = nu
 
 export default function InDepthAnalyticsTest() {
   const { user: authUser } = useAuth();
-  const { viewingMemberId, viewingMemberEmail, viewingOrgId, isReadOnly } = useViewing();
+    const { viewingMemberId, viewingMemberEmail, viewingMemberName, viewingOrgId, isReadOnly, exitViewing } = useViewing();
   // Operator Mode: `user` resolves to the viewed member. Fails closed (null) if the member id is missing.
   // New object each render in read-only, so hook deps must use user?.id (they already do).
   const user = isReadOnly
@@ -804,7 +804,18 @@ export default function InDepthAnalyticsTest() {
   }
 
   return (
-    <div className="flex h-screen bg-black text-zinc-300 overflow-hidden fixed inset-0 z-[100]">
+        <div
+      className="flex h-screen bg-black text-zinc-300 overflow-hidden fixed inset-0 z-[100]"
+      style={isReadOnly ? { paddingTop: 28 } : undefined}
+    >
+      {isReadOnly && (
+        <div className="absolute top-0 left-0 right-0 z-[9400] h-7 flex items-center justify-center bg-amber-950 border-b border-amber-500/30 text-amber-300 text-[10px] font-black uppercase tracking-widest px-4">
+          Viewing {viewingMemberName ?? 'member'} · Read-only ·{' '}
+          <button onClick={exitViewing} className="underline hover:text-amber-100 transition-colors ml-1">
+            Exit
+          </button>
+        </div>
+      )}
 
       {/* ── Sidebar (unchanged) ─────────────────────────────────────────── */}
       <aside
