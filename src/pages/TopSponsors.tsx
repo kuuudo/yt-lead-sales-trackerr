@@ -9,6 +9,7 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { Building2, ChevronDown, ChevronRight } from 'lucide-react';
 import { supabase } from '../lib/supabase';
+import { useViewing } from '../lib/ViewingContext';
 import {
   getTopSponsorsAnalytics,
   rankTopSponsors,
@@ -69,7 +70,17 @@ export default function TopSponsors() {
   /** Selected sponsor for focused view — never defaults to "all". */
   const [selectedSponsorId, setSelectedSponsorId] = useState<string | null>(null);
 
+  const { viewingMemberId, isReadOnly } = useViewing();
+
   useEffect(() => {
+    // Clear anything loaded for a previous identity.
+    setRows([]);
+    setSelectedSponsorId(null);
+    if (isReadOnly) {
+      // Operator Mode: the viewed member's sponsors, never the operator's own. Null = fail closed.
+      setMarketerUserId(viewingMemberId ?? null);
+      return;
+    }
     let cancelled = false;
     (async () => {
       const { data } = await supabase.auth.getUser();
@@ -78,7 +89,7 @@ export default function TopSponsors() {
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [isReadOnly, viewingMemberId]);
 
   const load = useCallback(
     async (forceRefresh: boolean) => {
@@ -86,6 +97,7 @@ export default function TopSponsors() {
         setLoading(false);
         return;
       }
+      if (forceRefresh && isReadOnly) return;
       if (preset === 'custom') {
         const start = new Date(customStart);
         const end = new Date(customEnd);

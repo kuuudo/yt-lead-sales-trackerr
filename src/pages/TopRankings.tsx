@@ -63,8 +63,11 @@ interface TopRankingsProps {
   organizationId: string | null;
 }
 
+
 export default function TopRankings({ organizationId }: TopRankingsProps) {
+  const { viewingMemberId, isReadOnly } = useViewing();
   const navigate = useNavigate();
+
 
   const [tab, setTab] = useState<RankingTab>('promotions');
   const [metric, setMetric] = useState<Metric>('revenue');
@@ -137,8 +140,14 @@ export default function TopRankings({ organizationId }: TopRankingsProps) {
         return;
       }
       // sponsors
-      const { data: auth } = await supabase.auth.getUser();
-      const marketerUserId = auth.user?.id;
+      let marketerUserId: string | null | undefined;
+      if (isReadOnly) {
+        // Operator Mode: the viewed member's sponsors, never the operator's own.
+        marketerUserId = viewingMemberId;
+      } else {
+        const { data: auth } = await supabase.auth.getUser();
+        marketerUserId = auth.user?.id;
+      }
       if (!marketerUserId) {
         if (!cancelled) {
           setSponsorRows([]);
@@ -167,7 +176,7 @@ export default function TopRankings({ organizationId }: TopRankingsProps) {
     return () => {
       cancelled = true;
     };
-  }, [organizationId, tab, preset, customStart, customEnd, refreshKey]);
+  }, [organizationId, tab, preset, customStart, customEnd, refreshKey, isReadOnly, viewingMemberId]);
 
   const rankedPromotions = useMemo(
     () => rankTopPromotions(promotionRows, metric),

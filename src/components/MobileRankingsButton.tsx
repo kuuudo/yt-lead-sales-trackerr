@@ -87,6 +87,12 @@ export default function MobileRankingsButton({
     if (open) setActiveTab(defaultRanking);
   }, [open, defaultRanking]);
 
+  // Operator Mode: drop asset rows fetched for a different org.
+  useEffect(() => {
+    setFetchedAssetRows(null);
+    setAssetRowsError(null);
+  }, [organizationId]);
+
   // Lazy, one-time fetch of asset rows — only if needed and not already provided.
   useEffect(() => {
     if (!open || activeTab !== 'assets') return;
