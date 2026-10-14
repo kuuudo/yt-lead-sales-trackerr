@@ -40,7 +40,7 @@ const SHAPE_TYPES = ['rectangle', 'circle', 'arrow']
 const DOMAIN_WIDGET_TYPES: Record<string, string[]> = {
   campaigns: ['kpi', 'chart', 'line_chart'],
   content:   ['dashboard', 'indepth_analytics'],
-  assets:    [],
+  assets:    ['top_assets'],
   collab:    [],
   operator:  [],
 }
