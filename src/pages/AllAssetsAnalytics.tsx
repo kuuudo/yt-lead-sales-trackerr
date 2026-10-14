@@ -194,6 +194,11 @@ async function resolveOrgAndViewer(viewing?: {
   if (viewing?.viewingMemberId && viewing?.viewingOrgId) {
     return { organizationId: viewing.viewingOrgId, viewerId: viewing.viewingMemberId };
   }
+  if (viewing) {
+    // Read-only mode was requested but the viewed member/org isn't resolved yet.
+    // Fail closed: never fall through to the operator's own org below.
+    throw new Error('Viewed account unavailable');
+  }
 
   const { data: auth, error: authError } = await supabase.auth.getUser();
   if (authError || !auth.user) {
@@ -810,6 +815,7 @@ console.log('🔍 VIDEOS QUERY RESULT', {
         if (!cancelled) {
           setError(e?.message ?? String(e));
           setRows([]);
+          if (opts.isReadOnly) setOrganizationId(null);
         }
       } finally {
         if (!cancelled) {
@@ -838,8 +844,9 @@ function useCampaignOptions(viewerId: string | null): Campaign[] {
   const [campaigns, setCampaigns] = useState<Campaign[]>([]);
 
   useEffect(() => {
-    if (!viewerId) return;
+    if (!viewerId) { setCampaigns([]); return; }
     let cancelled = false;
+    setCampaigns([]);
     supabase
       .from('campaigns')
       .select('*')
