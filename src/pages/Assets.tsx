@@ -67,6 +67,7 @@ import { motion, AnimatePresence } from 'motion/react';
 import { Modal } from '../components/Modal';
 import { useAuth } from '../lib/auth';
 import { useOrganization } from '../lib/useOrganization';
+import { useViewing } from '../lib/ViewingContext';
 import { listAssetsByOrganization } from '../services/asset/listAssetsByOrganization';
 import type { AssetLibraryRow } from '../services/asset/listAssetsByOrganization';
 import {
@@ -151,8 +152,13 @@ interface UnifiedAssetRow {
 
 export default function Assets() {
   const navigate = useNavigate();
-  const { user } = useAuth();
-  const { organizationId } = useOrganization();
+  const { user: authUser } = useAuth();
+  const { organizationId: ownOrgId } = useOrganization();
+  const { viewingOrgId, viewingMemberId, isReadOnly } = useViewing();
+  const organizationId = isReadOnly ? viewingOrgId : ownOrgId;
+  const effectiveUserId = isReadOnly ? viewingMemberId : (authUser?.id ?? null);
+  // Shim: every existing `user.id` / `!user` below now resolves to the viewed member in Operator Mode.
+  const user = effectiveUserId ? { id: effectiveUserId } : null;
   const [rows, setRows] = useState<AssetLibraryRow[]>([]);
   const [sharedRows, setSharedRows] = useState<SharedAssetLibraryRow[]>([]);
   const [assignedSummary, setAssignedSummary] =
@@ -417,7 +423,7 @@ const filteredRows = useMemo(() => {
   // constructed directly here rather than re-running the full resolver
   // for one row.
   const handleArchiveAsset = (row: UnifiedAssetRow) => {
-    if (!user) return;
+    if (!user || isReadOnly) return;
     showConfirm(
       'Archive Asset?',
       'Archived assets will move to your Archive Tab. You can restore them anytime.',
@@ -459,7 +465,7 @@ const filteredRows = useMemo(() => {
   // restored from CampaignDetail/VideoDetail, not here — per LOCKED
   // design, this page navigates to those, it doesn't restore them).
   const handleRestorePersonalReason = async (row: UnifiedAssetRow) => {
-    if (!user) return;
+    if (!user || isReadOnly) return;
     try {
       await restoreAssetForUser(row.key, user.id);
       const updater = (prev: Map<string, AssetArchiveContext>) => {
@@ -487,7 +493,7 @@ const filteredRows = useMemo(() => {
   // Level 1 -> Hide (writes ONLY archive_ui_visibility; never touches
   // asset_user_states / videos.archived_at / campaigns.archived_at).
   const handleHideAsset = async (row: UnifiedAssetRow) => {
-    if (!user) return;
+    if (!user || isReadOnly) return;
     setHidingAssetId(row.key);
     try {
       await hideAssetForUser(row.key, user.id);
@@ -525,7 +531,7 @@ const filteredRows = useMemo(() => {
   // An Unhidden Asset with reasons still active drops back to Level 1,
   // not to the active list — this is deliberate per LOCKED design.
   const handleUnhideSelectedAssets = async () => {
-    if (!user || selectedHiddenAssetIds.length === 0) return;
+    if (!user || isReadOnly || selectedHiddenAssetIds.length === 0) return;
     setUnhidingAssets(true);
     try {
       await Promise.all(
@@ -872,7 +878,7 @@ const filteredRows = useMemo(() => {
 
       
 
-      {showImportModal && (
+      {showImportModal && !isReadOnly && (
         <ImportAssetModal
           onClose={() => setShowImportModal(false)}
           onImported={(_assetResource: AssetResource) => {
@@ -947,7 +953,7 @@ const filteredRows = useMemo(() => {
               </div>
 
               <button
-                disabled={selectedHiddenAssetIds.length === 0 || unhidingAssets}
+                disabled={isReadOnly || selectedHiddenAssetIds.length === 0 || unhidingAssets}
                 onClick={handleUnhideSelectedAssets}
                 className="mt-4 w-full flex items-center justify-center gap-2 bg-white hover:bg-zinc-200 disabled:opacity-40 disabled:cursor-not-allowed text-zinc-950 px-5 py-3 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all"
               >
