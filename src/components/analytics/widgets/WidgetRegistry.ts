@@ -24,6 +24,7 @@ import TextWidget       from './TextWidget'
 import LineChartWidget  from './LineChartWidget'
 import DashboardWidget  from './DashboardWidget'   
 import InDepthAnalyticsWidget from './InDepthAnalyticsWidget'
+import AllAssetsAnalyticsWidget from './AllAssetsAnalyticsWidget'
 import type { Widget } from '../store/useWorkspaceStore'
 import type { AnalyticsResult } from '../types/analytics'
 
@@ -52,6 +53,7 @@ export const WIDGET_REGISTRY: Record<
   line_chart: LineChartWidget,
   dashboard:  DashboardWidget,  
   indepth_analytics: InDepthAnalyticsWidget,
+  top_assets: AllAssetsAnalyticsWidget,
   // ─── Future widget types ───────────────────────────────────────────────
   // revenue_trend:     RevenueTrendWidget,
   // funnel:            FunnelWidget,
@@ -73,7 +75,8 @@ export const TYPE_LABELS: Record<string, string> = {
   text:       'Text',
   line_chart: 'Line Chart',
   dashboard:  'Top Content',  
-    indepth_analytics: 'In-Depth Analytics',
+  indepth_analytics: 'In-Depth Analytics',
+  top_assets: 'Top Assets',
 }
 
 // ─── Default Dimensions & Config ──────────────────────────────────────────────
@@ -233,6 +236,19 @@ export const WIDGET_DEFAULTS: Record<string, WidgetDefaults> = {
     },
     data: {},
   },
+    top_assets: {
+    width: 560,
+    height: 380,
+    category: 'assets',
+    title: null,
+    config: {
+      dateRange: '30days',
+      activeSource: 'total',
+      sortKey: 'total_revenue',
+      selectedPlatform: 'all',
+    },
+    data: {},
+  },
     indepth_analytics: {
     width: 700,
     height: 420,
@@ -268,5 +284,6 @@ export const TOOLBAR_ITEMS: ToolbarItem[] = [
   { type: 'text',      label: 'Text',        icon: 'T'  },
   { type: 'line_chart',label: 'Line Chart',  icon: '📉' },
   { type: 'dashboard', label: 'Top Content', icon: '🏆' },  
-    { type: 'indepth_analytics', label: 'In-Depth', icon: '📋' },// ← new
+  { type: 'indepth_analytics', label: 'In-Depth', icon: '📋' },//
+  { type: 'top_assets', label: 'Top Assets', icon: '📦' }, ← new
 ]
