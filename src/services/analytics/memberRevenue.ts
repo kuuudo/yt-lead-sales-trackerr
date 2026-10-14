@@ -96,20 +96,24 @@ function countsFromMetrics(metrics: unknown[]): MemberCounts {
 // owner row this returns null and getMemberRevenue throws a clear error.
 const orgCache = new Map<string, string>();
 
+// Module-level caches must not survive a user switch in the same tab.
+supabase.auth.onAuthStateChange(() => {
+  orgCache.clear();
+  resultCache.clear();
+});
+
 async function resolveMemberOrganizationId(memberUserId: string): Promise<string | null> {
   const cached = orgCache.get(memberUserId);
   if (cached) return cached;
 
-  const { data, error } = await supabase
-    .from('organization_members')
-    .select('organization_id')
-    .eq('user_id', memberUserId)
-    .eq('role', 'owner')
-    .limit(1)
-    .maybeSingle();
+  // SECURITY DEFINER RPC (already deployed): returns the member's org only if
+  // auth.uid() is an authorized Operator for that member, otherwise null.
+  const { data, error } = await supabase.rpc('resolve_member_organization', {
+    member_user_id: memberUserId,
+  });
 
   if (error) throw new Error(`resolve member org: ${error.message}`);
-  const orgId = (data as { organization_id?: string } | null)?.organization_id ?? null;
+  const orgId = (data as string | null) ?? null;
   if (orgId) orgCache.set(memberUserId, orgId);
   return orgId;
 }
@@ -151,7 +155,9 @@ export async function getMemberRevenue(
   const period = periodFromCampaignTreePreset(OPERATOR_REVENUE_PRESET);
 
   const organizationId = await resolveMemberOrganizationId(memberUserId);
-  if (!organizationId) throw new Error('Member organization not found');
+  if (!organizationId) {
+    throw new Error('Member organization not found, or you are not authorized to view it');
+  }
 
   const cacheKey = `${organizationId}|${period.rankingWindow}|${period.periodStart}`;
   if (!forceRefresh) {
@@ -166,6 +172,16 @@ export async function getMemberRevenue(
 
   if (forceRefresh) {
     const metrics = await computeCampaignMonthMetrics(organizationId, period);
+    if (metrics.length === 0) {
+      // Recompute reads raw data. If that is blocked it returns nothing WITHOUT an
+      // error, which would show a fake $0. Compare with the existing snapshot.
+      const prior = await getCampaignMonthlySnapshots(organizationId, period);
+      if (prior.length > 0) {
+        throw new Error(
+          'Recompute returned no data although snapshots exist. Raw data for this member is probably not readable by Operator. The last snapshot is kept.',
+        );
+      }
+    }
     const eligible = metrics.filter((m) => visible.has(m.campaignId));
     result = {
       memberUserId,
@@ -228,7 +244,7 @@ export interface MemberRevenueState {
 
 export function formatMemberCount(s: MemberRevenueState | undefined, key: keyof MemberCounts): string {
   if (!s || s.loading) return '…';
-  if (s.error || !s.result || s.result.source === 'none') return '—';
+    if (!s.result || s.result.source === 'none') return s.error ? 'Error' : '—';
   return s.result.counts[key].toLocaleString();
 }
 
@@ -248,8 +264,8 @@ export function sumUniqueOrgCounts(
 
 export function formatMemberRevenue(s: MemberRevenueState | undefined): string {
   if (!s || s.loading) return '…';
-  if (s.error || !s.result || s.result.totalRevenue == null) return '—';
-  return `$${s.result.totalRevenue.toLocaleString()}`;
+  if (s.result && s.result.totalRevenue != null) return `$${s.result.totalRevenue.toLocaleString()}`;
+  return s.error ? 'Error' : '—';
 }
 
 export function useMemberRevenues(memberIds: string[]) {

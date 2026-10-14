@@ -163,7 +163,8 @@ export default function Overview() {
   }
 
   const memberCount = members.length;
-  const anyRevenueLoading = members.some(m => byMember[m.id]?.loading);
+    const anyRevenueLoading = members.some(m => byMember[m.id]?.loading);
+  const revenueFailures = members.filter(m => byMember[m.id]?.error && !byMember[m.id]?.result).length;
   const totalRevenue = sumUniqueOrgRevenue(members.map(m => byMember[m.id]?.result));
   const results = members.map(m => byMember[m.id]?.result);
   const totalPurchases = sumUniqueOrgCounts(results, 'purchases');
@@ -224,10 +225,15 @@ export default function Overview() {
       </div>
 
       {/* ── Team KPI cards — wired ──────────────────────────────────────── */}
+      {revenueFailures > 0 && (
+        <p className="text-[9px] font-bold text-amber-500">
+          * Revenue total excludes {revenueFailures} member{revenueFailures > 1 ? 's' : ''} that failed to load. Hover the refresh button on that row for the reason.
+        </p>
+      )}
       <section className="grid grid-cols-4 gap-3">
         {[
           { label: 'Members',     value: memberCount,             icon: Users,       color: 'text-zinc-500' },
-          { label: 'Revenue',     value: anyRevenueLoading ? '…' : `$${totalRevenue.toLocaleString()}`, icon: DollarSign, color: 'text-emerald-400' },
+          { label: 'Revenue',     value: anyRevenueLoading ? '…' : `$${totalRevenue.toLocaleString()}${revenueFailures ? '*' : ''}`, icon: DollarSign, color: 'text-emerald-400' },
           { label: 'Direct Purchases',   value: anyRevenueLoading ? '…' : totalPurchases.toLocaleString(),  icon: ShoppingCart, color: 'text-zinc-500' },
           { label: 'Sales Calls Booked', value: anyRevenueLoading ? '…' : totalSalesCalls.toLocaleString(), icon: PhoneCall,    color: 'text-zinc-500' },
         ].map(card => (
