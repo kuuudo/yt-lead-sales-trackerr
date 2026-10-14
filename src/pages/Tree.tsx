@@ -261,6 +261,7 @@ if (forceRefresh && isReadOnly) return;
           <span style={{ position: 'relative', display: 'inline-flex', marginLeft: 4 }}>
             <button
               type="button"
+              className="vstrk-help-btn-desktop"
               aria-label="About Tree Revenue"
               aria-expanded={treeHelpOpen}
               onClick={() => setTreeHelpOpen((o) => !o)}
@@ -297,20 +298,19 @@ if (forceRefresh && isReadOnly) return;
                 <div
                   role="dialog"
                   aria-label="About Tree Revenue"
-                  style={{
-                    position: 'absolute',
-                    left: 0,
-                    top: '100%',
-                    marginTop: 8,
-                    zIndex: 50,
-                    width: 288,
-                    maxWidth: 'min(18rem, calc(100vw - 2rem))',
-                    borderRadius: 12,
-                    border: '1px solid #27272a',
-                    background: '#18181b',
-                    padding: 12,
-                    boxShadow: '0 25px 50px -12px rgba(0,0,0,0.5)',
-                  }}
+style={{
+  position: 'fixed',
+  left: 16,
+  top: 72,
+  zIndex: 200,
+  width: 288,
+  maxWidth: 'min(18rem, calc(100vw - 2rem))',
+  borderRadius: 12,
+  border: '1px solid #27272a',
+  background: '#18181b',
+  padding: 12,
+  boxShadow: '0 25px 50px -12px rgba(0,0,0,0.5)',
+}}
                 >
                   <p
                     style={{
@@ -488,7 +488,35 @@ if (forceRefresh && isReadOnly) return;
         </div>
 
         <div className="vstrk-rev-mobile">
-          <span className="vstrk-rev-label">Revenue</span>
+          <span className="vstrk-rev-label" style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+            Revenue
+            <button
+              type="button"
+              className="vstrk-help-btn-mobile"
+              aria-label="About Tree Revenue"
+              aria-expanded={treeHelpOpen}
+              onClick={() => setTreeHelpOpen((o) => !o)}
+              style={{
+                width: 18,
+                height: 18,
+                borderRadius: 999,
+                border: '1px solid #333',
+                background: 'transparent',
+                color: '#737373',
+                fontSize: 11,
+                fontWeight: 700,
+                lineHeight: 1,
+                cursor: 'pointer',
+                display: 'inline-flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                padding: 0,
+                flexShrink: 0,
+              }}
+            >
+              ?
+            </button>
+          </span>
           <span className="vstrk-rev-value" style={{ opacity: showPlaceholder ? 0.35 : 1 }}>
             {formatRevenue(showPlaceholder ? 0 : display.revenue)}
           </span>
@@ -695,7 +723,7 @@ const styles: Record<string, React.CSSProperties> = {
   },
   topBar: {
     position: 'relative',
-    zIndex: 10,
+    zIndex: 30,
     display: 'flex',
     alignItems: 'center',
     justifyContent: 'space-between',
