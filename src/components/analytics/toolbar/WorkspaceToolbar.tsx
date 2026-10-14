@@ -26,7 +26,7 @@ interface Props {
 }
 
 const DOMAINS = [
-  { id: 'campaigns', label: 'Campaigns' },
+  { id: 'campaigns', label: 'Tree' },
   { id: 'content',   label: 'Content' },
   { id: 'assets',    label: 'Assets' },
   { id: 'collab',    label: 'Collab' },
@@ -38,7 +38,7 @@ const SHAPE_TYPES = ['rectangle', 'circle', 'arrow']
 // Temporary domain → widget-type mapping, kept local to the toolbar until
 // `domain` becomes a real field on WidgetRegistry entries.
 const DOMAIN_WIDGET_TYPES: Record<string, string[]> = {
-  campaigns: ['kpi', 'chart', 'line_chart'],
+  campaigns: ['kpi', 'chart', 'line_chart', 'journey_analytics'],
   content:   ['dashboard', 'indepth_analytics'],
   assets:    ['top_assets'],
   collab:    [],

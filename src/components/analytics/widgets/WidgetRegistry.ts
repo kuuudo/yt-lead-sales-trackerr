@@ -25,6 +25,7 @@ import LineChartWidget  from './LineChartWidget'
 import DashboardWidget  from './DashboardWidget'   
 import InDepthAnalyticsWidget from './InDepthAnalyticsWidget'
 import AllAssetsAnalyticsWidget from './AllAssetsAnalyticsWidget'
+import JourneyAnalyticsWidget from './JourneyAnalyticsWidget'
 import type { Widget } from '../store/useWorkspaceStore'
 import type { AnalyticsResult } from '../types/analytics'
 
@@ -54,6 +55,7 @@ export const WIDGET_REGISTRY: Record<
   dashboard:  DashboardWidget,  
   indepth_analytics: InDepthAnalyticsWidget,
   top_assets: AllAssetsAnalyticsWidget,
+  journey_analytics: JourneyAnalyticsWidget,
   // ─── Future widget types ───────────────────────────────────────────────
   // revenue_trend:     RevenueTrendWidget,
   // funnel:            FunnelWidget,
@@ -77,6 +79,7 @@ export const TYPE_LABELS: Record<string, string> = {
   dashboard:  'Top Content',  
   indepth_analytics: 'In-Depth Analytics',
   top_assets: 'Top Assets',
+  journey_analytics: 'Analytic',
 }
 
 // ─── Default Dimensions & Config ──────────────────────────────────────────────
@@ -249,6 +252,20 @@ export const WIDGET_DEFAULTS: Record<string, WidgetDefaults> = {
     },
     data: {},
   },
+    journey_analytics: {
+    width: 620,
+    height: 420,
+    category: 'analytics',
+    title: null,
+    config: {
+      dateRange: 'all',
+      activeSource: 'total',
+      sortKey: 'longest',
+      selectedPlatform: 'all',
+      selectedCampaignId: 'all',
+    },
+    data: {},
+  },
     indepth_analytics: {
     width: 700,
     height: 420,
@@ -286,4 +303,6 @@ export const TOOLBAR_ITEMS: ToolbarItem[] = [
   { type: 'dashboard', label: 'Top Content', icon: '🏆' },  
   { type: 'indepth_analytics', label: 'In-Depth', icon: '📋' },//
   { type: 'top_assets', label: 'Top Assets', icon: '📦' }, 
+  { type: 'top_assets', label: 'Top Assets', icon: '📦' },
+  { type: 'journey_analytics', label: 'Analytic', icon: '📶' },
 ]
