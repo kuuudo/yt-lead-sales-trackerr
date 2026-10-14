@@ -114,6 +114,8 @@ export type PartnerJourneyPartner = { id: string; name: string; color: string };
 export type PartnerJourneyRange = '7days' | '15days' | '30days' | '6months' | '1year' | 'all' | 'custom';
 
 type Props = {
+  /** Workspace widget mode: no full-bleed width, no viewport-based sidebar/sheet. */
+  embedded?: boolean;
   mode: 'marketer' | 'sponsor';
   /**
    * Partner Analytics table mode (product law):
@@ -293,6 +295,7 @@ function MultiPick({
 
 export default function PartnerJourneySection({
   mode,
+  embedded = false,
   partnerTableMode = 'marketers',
   partners,
   selectedIds,
@@ -309,7 +312,8 @@ export default function PartnerJourneySection({
   const effectiveOrgId = isReadOnly ? (viewingOrgId ?? null) : (hookOrgId ?? null);
   const effectiveViewerId = isReadOnly ? viewingMemberId : (user?.id ?? null);
   const campaignOptions = useCampaignOptions(effectiveViewerId);
-  const isDesktop = useIsDesktop();
+  const viewportDesktop = useIsDesktop();
+  const isDesktop = embedded ? true : viewportDesktop;
 
   // ── Load lazily: only once the section is near the viewport ──────────────
   const rootRef = useRef<HTMLElement>(null);
@@ -1015,7 +1019,7 @@ const [sheetOpen, setSheetOpen] = useState(false);
     <section
       ref={rootRef}
       aria-label={labels.title}
-className="relative left-1/2 -ml-[50vw] w-screen flex mt-8 min-h-[75vh] border-t border-red-600/40 bg-gradient-to-b from-zinc-950 via-black to-black"
+className={`${embedded ? 'relative w-full flex mt-4 min-h-[480px]' : 'relative left-1/2 -ml-[50vw] w-screen flex mt-8 min-h-[75vh]'} border-t border-red-600/40 bg-gradient-to-b from-zinc-950 via-black to-black`}
     >
       {/* Filters sidebar: sits beside the content, so it pushes it */}
       {isDesktop && panelOpen && (

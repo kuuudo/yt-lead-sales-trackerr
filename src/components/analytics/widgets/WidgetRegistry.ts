@@ -26,6 +26,7 @@ import DashboardWidget  from './DashboardWidget'
 import InDepthAnalyticsWidget from './InDepthAnalyticsWidget'
 import AllAssetsAnalyticsWidget from './AllAssetsAnalyticsWidget'
 import JourneyAnalyticsWidget from './JourneyAnalyticsWidget'
+import PartnerAnalyticsWidget from './PartnerAnalyticsWidget'
 import type { Widget } from '../store/useWorkspaceStore'
 import type { AnalyticsResult } from '../types/analytics'
 
@@ -56,6 +57,7 @@ export const WIDGET_REGISTRY: Record<
   indepth_analytics: InDepthAnalyticsWidget,
   top_assets: AllAssetsAnalyticsWidget,
   journey_analytics: JourneyAnalyticsWidget,
+  partner_analytics: PartnerAnalyticsWidget,
   // ─── Future widget types ───────────────────────────────────────────────
   // revenue_trend:     RevenueTrendWidget,
   // funnel:            FunnelWidget,
@@ -80,6 +82,7 @@ export const TYPE_LABELS: Record<string, string> = {
   indepth_analytics: 'In-Depth Analytics',
   top_assets: 'Top Assets',
   journey_analytics: 'Analytic',
+  partner_analytics: 'Partner Analytics',
 }
 
 // ─── Default Dimensions & Config ──────────────────────────────────────────────
@@ -266,7 +269,24 @@ export const WIDGET_DEFAULTS: Record<string, WidgetDefaults> = {
     },
     data: {},
   },
-    indepth_analytics: {
+    partner_analytics: {
+    width: 760,
+    height: 720,
+    category: 'collab',
+    title: null,
+    config: {
+      mode: 'marketers',
+      preset: 'last_30_days',
+      customStart: null,
+      customEnd: null,
+      selectedIds: null,
+      view: 'totals',
+      scaleMode: 'auto',
+      chartHidden: false,
+    },
+    data: {},
+  },
+  indepth_analytics: {
     width: 700,
     height: 420,
     category: 'analytics',
@@ -304,4 +324,5 @@ export const TOOLBAR_ITEMS: ToolbarItem[] = [
   { type: 'indepth_analytics', label: 'In-Depth', icon: '📋' },//
   { type: 'top_assets', label: 'Top Assets', icon: '📦' }, 
   { type: 'journey_analytics', label: 'Analytic', icon: '📶' },
+  { type: 'partner_analytics', label: 'Partner', icon: '🤝' },
 ]

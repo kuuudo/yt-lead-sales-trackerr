@@ -41,7 +41,7 @@ const DOMAIN_WIDGET_TYPES: Record<string, string[]> = {
   campaigns: ['kpi', 'chart', 'line_chart', 'journey_analytics'],
   content:   ['dashboard', 'indepth_analytics'],
   assets:    ['top_assets'],
-  collab:    [],
+  collab:    ['partner_analytics'],
   operator:  [],
 }
 

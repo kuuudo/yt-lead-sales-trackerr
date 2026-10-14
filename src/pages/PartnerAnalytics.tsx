@@ -37,7 +37,7 @@ import { partnerAnalyticsCaches } from '../lib/partnerAnalyticsPageCache';
 type PartnerRange = PartnerPreset;
 type ChartView = 'trend' | 'totals';
 
-const PARTNER_COLORS = [
+export const PARTNER_COLORS = [
   '#ef4444',
   '#38bdf8',
   '#a78bfa',
@@ -61,7 +61,7 @@ function toDateInputValue(d: Date): string {
   return d.toISOString().slice(0, 10);
 }
 
-const COPY = {
+export const COPY = {
   en: {
     title: 'Partner Analytics',
     subtitle: 'Performance by partner',
@@ -260,7 +260,7 @@ const COPY = {
   },
 } as const;
 
-type CopyKey = keyof (typeof COPY)['en'];
+export type CopyKey = keyof (typeof COPY)['en'];
 
 const DASH = '—';
 const formatMoney = (n: number | null) =>
@@ -269,7 +269,7 @@ const formatMoney = (n: number | null) =>
     : `$${n.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 
 /** JourneyAnalytics still uses the old range names; map presets for the section only. */
-function journeyRangeFromPreset(
+export function journeyRangeFromPreset(
   preset: PartnerPreset,
 ): '7days' | '15days' | '30days' | '6months' | '1year' | 'all' | 'custom' {
   switch (preset) {
