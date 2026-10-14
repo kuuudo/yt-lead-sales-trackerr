@@ -292,17 +292,18 @@ if (forceRefresh && isReadOnly) return;
                   style={{
                     position: 'fixed',
                     inset: 0,
-                    zIndex: 40,
+                    zIndex: 25,
                   }}
                 />
                 <div
                   role="dialog"
                   aria-label="About Tree Revenue"
 style={{
-  position: 'fixed',
-  left: 16,
-  top: 72,
-  zIndex: 200,
+  position: 'absolute',
+  left: 0,
+  top: '100%',
+  marginTop: 8,
+  zIndex: 2,
   width: 288,
   maxWidth: 'min(18rem, calc(100vw - 2rem))',
   borderRadius: 12,
