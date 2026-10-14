@@ -612,7 +612,7 @@ function MainContent() {
         <Route path="/campaigns/analytics" element={<PageWrapper><AllCampaignAnalytics /></PageWrapper>} />
         <Route path="/campaigns/:id" element={<PageWrapper><CampaignDetail /></PageWrapper>} />
         <Route path="/campaigns/:id/analytics" element={<PageWrapper><CampaignAnalytics /></PageWrapper>} />
-        <Route path="/campaigns/:id/campaignjourneymap" element={<PageWrapper><CampaignJourneyMap /></PageWrapper>} />
+        <Route path="/campaigns/:campaignId/campaignjourneymap" element={<PageWrapper><CampaignJourneyMap /></PageWrapper>} />
         <Route path="/analytics" element={<PageWrapper><Analytics /></PageWrapper>} />
         <Route path="/analytics/journey" element={<JourneyAnalytics />} />
         <Route path="/analytics/partners" element={<PageWrapper><PartnerAnalytics /></PageWrapper>} />

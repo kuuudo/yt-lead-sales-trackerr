@@ -682,7 +682,7 @@ export default function Campaigns() {
               {/* Journey button */}
               <button
                 onClick={e => { e.stopPropagation(); navigate(`/campaigns/${c.id}/campaignjourneymap`); }}
-                className="absolute top-4 right-[3.25rem] w-7 h-7 rounded-lg bg-zinc-900 border border-zinc-800 flex items-center justify-center text-zinc-600 hover:text-white hover:border-zinc-600 transition-all opacity-0 group-hover:opacity-100"
+                className="absolute top-4 right-[3.25rem] w-7 h-7 rounded-lg bg-zinc-900 border border-zinc-800 flex items-center justify-center text-zinc-600 hover:text-white hover:border-zinc-600 transition-all opacity-100 [@media(hover:hover)]:opacity-0 [@media(hover:hover)]:group-hover:opacity-100"
                 title="Campaign Journey Map"
               >
                 <Waypoints size={12} />
@@ -691,7 +691,7 @@ export default function Campaigns() {
               {/* Structure Map button */}
               <button
                 onClick={e => { e.stopPropagation(); navigate(`/marketplace/campaigns/${c.id}/structure`); }}
-                className="absolute top-4 right-[5.5rem] w-7 h-7 rounded-lg bg-zinc-900 border border-zinc-800 flex items-center justify-center text-zinc-600 hover:text-white hover:border-zinc-600 transition-all opacity-0 group-hover:opacity-100"
+                className="absolute top-4 right-[5.5rem] w-7 h-7 rounded-lg bg-zinc-900 border border-zinc-800 flex items-center justify-center text-zinc-600 hover:text-white hover:border-zinc-600 transition-all opacity-100 [@media(hover:hover)]:opacity-0 [@media(hover:hover)]:group-hover:opacity-100"
                 title="Campaign Structure Map"
               >
                 <Network size={12} />
@@ -700,14 +700,15 @@ export default function Campaigns() {
               {/* Archive button */}
               {!isReadOnly && (
               <button
-                onClick={e => { e.stopPropagation(); handleArchive(c); }}
-                className="absolute top-4 right-4 w-7 h-7 rounded-lg bg-zinc-900 border border-zinc-800 flex items-center justify-center text-zinc-600 hover:text-white hover:border-zinc-600 transition-all opacity-0 group-hover:opacity-100"
+                onClick={e => { e.stopPropagation(); handleArchive(c); }}          
+className="absolute top-4 right-4 w-7 h-7 rounded-lg bg-zinc-900 border border-zinc-800 flex items-center justify-center text-zinc-600 hover:text-white hover:border-zinc-600 transition-all opacity-100 [@media(hover:hover)]:opacity-0 [@media(hover:hover)]:group-hover:opacity-100"
               >
                 {archivingId === c.id ? <Loader2 size={12} className="animate-spin" /> : <Archive size={12} />}
               </button>
               )}
 
-              <div className="flex justify-between items-start mb-4 pr-8">
+              
+              <div className="flex justify-between items-start mb-4 pr-28">
                 <h3 className="text-lg font-bold text-white leading-tight">{c.campaign_name}</h3>
                 <span className="text-[10px] font-mono text-zinc-600 bg-zinc-900 px-2 py-0.5 rounded-md shrink-0">
                   {c.id.slice(0, 4)}

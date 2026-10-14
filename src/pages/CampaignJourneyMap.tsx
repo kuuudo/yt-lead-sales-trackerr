@@ -3977,7 +3977,7 @@ const [panelLarge, setPanelLarge] = useState(false)
           if (presentation === 'tree') {
             setSelectedCampaignId(e.target.value)
           } else {
-            navigate(`/marketplace/campaigns/${e.target.value}/journey`)
+            navigate(`/campaigns/${e.target.value}/campaignjourneymap`)
           }
         }}
         style={{ ...styles.campaignSwitcher, ...(presentation === 'tree' ? { background: TREE_DARK.cardBg, borderColor: TREE_DARK.border, color: TREE_DARK.textPrimary } : {}) }}
