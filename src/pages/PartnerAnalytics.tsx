@@ -424,6 +424,17 @@ export default function PartnerAnalytics() {
   useEffect(() => {
     const requestId = ++requestIdRef.current;
 
+    if (isReadOnly && (!viewingMemberId || !viewingOrgId)) {
+      // Operator Mode: viewed account not resolved yet. Fail closed; never query with the operator's identity.
+      dataKeyRef.current = null;
+      setPartners([]);
+      setSelectedIds([]);
+      setHasMoreAvailable(false);
+      setError('Viewed account unavailable');
+      setLoading(false);
+      return;
+    }
+
     const hit = cacheKey ? partnerAnalyticsCaches[mode].get(cacheKey) : null;
     if (hit) {
       console.log('[PartnerAnalytics] Cache hit — no refetch');

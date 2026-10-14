@@ -529,7 +529,7 @@ const [sheetOpen, setSheetOpen] = useState(false);
         promotionIds,
         assetTypes,
         creativeScope: creativeScopeFilter,
-        viewerId: user?.id ?? null,
+        viewerId: effectiveViewerId,
         assetSource,
         dateRange,
         customRange,
@@ -549,7 +549,7 @@ const [sheetOpen, setSheetOpen] = useState(false);
       assetSource,
       dateRange,
       customRange,
-      user?.id,
+      effectiveViewerId,
     ],
   );
 
