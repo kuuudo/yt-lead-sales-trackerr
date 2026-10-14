@@ -362,7 +362,7 @@ export async function fetchPromotionDisplayTitles(
   // Prefer nested assignment title when FK is exposed to PostgREST.
   const { data: nested, error: nestedErr } = await supabase
     .from('promotions')
-    .select('id, title, assignment_id, assignments:assignment_id ( id, title, name )')
+    .select('id, assignment_id, assignments:assignment_id ( id, title )')
     .in('id', ids);
 
   if (!nestedErr && nested && nested.length > 0) {
@@ -393,7 +393,7 @@ export async function fetchPromotionDisplayTitles(
 
   const { data: promos, error } = await supabase
     .from('promotions')
-    .select('id, title, assignment_id')
+    .select('id, assignment_id')
     .in('id', ids);
   if (error) {
     console.warn('[monthlyRankingSnapshots] promotions title fetch failed:', error.message);
