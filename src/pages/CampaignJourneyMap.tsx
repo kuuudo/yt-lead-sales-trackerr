@@ -92,8 +92,9 @@ import {
 function useCampaignOptions(viewerId: string | null): Campaign[] {
   const [campaigns, setCampaigns] = useState<Campaign[]>([])
   useEffect(() => {
-    if (!viewerId) return
+    if (!viewerId) { setCampaigns([]); return }
     let cancelled = false
+    setCampaigns([])
     supabase
       .from('campaigns')
       .select('*')
@@ -3995,7 +3996,7 @@ const [panelLarge, setPanelLarge] = useState(false)
   )
 
   return (
-    <div style={{ ...styles.page, ...(presentation === 'tree' ? { background: TREE_DARK.page } : {}) }}>
+    <div style={{ ...styles.page, ...(isReadOnly && !embedded ? { top: 84 } : {}), ...(presentation === 'tree' ? { background: TREE_DARK.page } : {}) }}>
       {presentation === 'campaign' && (
         <div style={styles.header}>
           <Link to="/dashboard" style={styles.backLink}>

@@ -1312,7 +1312,7 @@ function usePromotionOptions(rows: AssetAnalyticsRow[]): PromotionOption[] {
 export default function AllAssetsAnalytics() {
   const navigate = useNavigate();
   const { user } = useAuth();
-  const { viewingMemberId, viewingOrgId, isReadOnly } = useViewing();
+  const { viewingMemberId, viewingMemberName, viewingOrgId, isReadOnly, exitViewing } = useViewing();
   const effectiveViewerId = isReadOnly ? viewingMemberId : (user?.id ?? null);
   // ── Filter state (before data hook so date/source drive fetch) ───────────
   const [dateRange, setDateRange]         = useState<DateRange>('30days');
@@ -1638,7 +1638,18 @@ export default function AllAssetsAnalytics() {
   const colSpan = 8 + TABLE_COLUMNS.length + 1 + (visibleColumns.has('promotion') ? 1 : 0) + (visibleColumns.has('downstream') ? 1 : 0); // Asset + Type + Content + Content Owner + Asset Campaign + Content Campaign + Asset Clicks + Total Revenue (dup) + metrics + trailing spacer + optional Promotion + optional Downstream
 
   return (
-    <div className="flex h-screen bg-black text-zinc-300 overflow-hidden fixed inset-0 z-[100]">
+    <div
+      className="flex h-screen bg-black text-zinc-300 overflow-hidden fixed inset-0 z-[100]"
+      style={isReadOnly ? { paddingTop: 28 } : undefined}
+    >
+      {isReadOnly && (
+        <div className="absolute top-0 left-0 right-0 z-[9400] h-7 flex items-center justify-center bg-amber-950 border-b border-amber-500/30 text-amber-300 text-[10px] font-black uppercase tracking-widest px-4">
+          Viewing {viewingMemberName ?? 'member'} · Read-only ·{' '}
+          <button onClick={exitViewing} className="underline hover:text-amber-100 transition-colors ml-1">
+            Exit
+          </button>
+        </div>
+      )}
 
       {/* ── Sidebar ────────────────────────────────────────────────────── */}
       <aside
