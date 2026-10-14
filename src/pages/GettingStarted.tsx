@@ -8,11 +8,11 @@
 //
 // Hub state (the nav dot) is separate from guide progress: visiting this
 // page clears the dot only; it does not start, complete, or reset any guide.
-
+import { workWithYourTeamGuide } from '../lib/tutorials/workWithYourTeamGuide';
 import React, { useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { motion } from 'motion/react';
-import { Compass, Rocket, Library, Video, Users, Globe, MessageCircle, type LucideIcon } from 'lucide-react';
+import { Compass, Rocket, Library, Video, Users, Globe, MessageCircle, Eye, type LucideIcon } from 'lucide-react';
 import { useTutorial } from '../lib/tutorial-overlay';
 import { useViewing } from '../lib/ViewingContext';
 import { useOnboardingOverlay } from '../lib/onboarding-overlay';
@@ -180,6 +180,28 @@ export default function GettingStarted() {
           );
         })}
       </section>
+
+      <div className="bg-zinc-900 border border-zinc-800 rounded-2xl p-6">
+        <div className="flex items-center gap-2 label-caps text-zinc-500 mb-3">
+          <Eye size={12} />
+          Get to Know VSTRK
+        </div>
+        <h2 className="text-lg font-bold text-white mb-2">Get to Know VSTRK</h2>
+        <p className="text-sm text-zinc-500 mb-5 leading-relaxed">
+          View the founder&apos;s account without switching your own. Discover the vision behind
+          VSTRK and see how it tracks complex, cross-platform marketing campaigns—from every
+          click and customer journey to the final conversion.
+        </p>
+        <button
+          type="button"
+          onClick={() => start(workWithYourTeamGuide)}
+          className="inline-flex items-center gap-2 bg-white text-zinc-950 hover:bg-zinc-200 text-xs font-black uppercase tracking-widest rounded-xl px-6 h-11 transition-colors"
+        >
+          <Rocket size={12} />
+          Explore VSTRK
+        </button>
+      </div>
+
     </div>
   );
 }
