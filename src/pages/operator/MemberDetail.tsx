@@ -25,12 +25,12 @@
 
 import React, { useState, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import { ChevronLeft, DollarSign, Eye, Target, Percent, Loader2, RefreshCw } from 'lucide-react';
+import { ChevronLeft, DollarSign, Eye, ShoppingCart, PhoneCall, Mail, CalendarCheck, Loader2, RefreshCw } from 'lucide-react';
 import { supabase } from '../../lib/supabase';
 import { useOrganization } from '../../lib/useOrganization';
 import { useViewing } from '../../lib/ViewingContext';
 import { useAuth } from '../../lib/auth';
-import { useMemberRevenues, formatMemberRevenue } from '../../services/analytics/memberRevenue';
+import { useMemberRevenues, formatMemberRevenue, formatMemberCount } from '../../services/analytics/memberRevenue';
 
 // POC: single hardcoded target user, see is_operator_for_user() SQL bypass.
 const ALIN_POC_ID = 'cd180432-44c5-4a20-b778-66b7753191f0';
@@ -254,12 +254,13 @@ export default function MemberDetail() {
       </div>
 
       {/* ── Stats (placeholders — see file header) ─────────────────────── */}
-      <section className="grid grid-cols-4 gap-3">
+      <section className="grid grid-cols-5 gap-3">
         {[
-          { label: 'Revenue',     value: formatMemberRevenue(byMember[member.id]), icon: DollarSign, color: 'text-emerald-400' },
-          { label: 'Views',       value: member.views.toLocaleString(),         icon: Eye,         color: 'text-white' },
-          { label: 'Conversions', value: member.conversions,                    icon: Target,      color: 'text-white' },
-          { label: 'CTR',         value: `${member.ctr}%`,                       icon: Percent,     color: 'text-white' },
+          { label: 'Revenue',       value: formatMemberRevenue(byMember[member.id]),                      icon: DollarSign,    color: 'text-emerald-400' },
+          { label: 'Purchases',     value: formatMemberCount(byMember[member.id], 'purchases'),           icon: ShoppingCart,  color: 'text-white' },
+          { label: 'Sales Calls',   value: formatMemberCount(byMember[member.id], 'salesCalls'),          icon: PhoneCall,     color: 'text-white' },
+          { label: 'Newsletter',    value: formatMemberCount(byMember[member.id], 'newsletterOptins'),    icon: Mail,          color: 'text-white' },
+          { label: 'Consultations', value: formatMemberCount(byMember[member.id], 'consultations'),       icon: CalendarCheck, color: 'text-white' },
         ].map(card => (
           <div key={card.label} className="bento-card py-6 px-4 flex flex-col justify-between min-h-[100px]">
             <span className="label-caps !text-zinc-600">{card.label}</span>

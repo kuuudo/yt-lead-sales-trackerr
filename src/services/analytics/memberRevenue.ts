@@ -52,6 +52,43 @@ export interface MemberRevenueResult {
   source: 'snapshot' | 'computed' | 'none';
   /** ISO timestamp of the snapshot / computation. */
   asOf: string | null;
+  counts: MemberCounts;
+}
+
+export interface MemberCounts {
+  purchases: number;
+  salesCalls: number;
+  newsletterOptins: number;
+  consultations: number;
+}
+
+const ZERO_COUNTS: MemberCounts = { purchases: 0, salesCalls: 0, newsletterOptins: 0, consultations: 0 };
+const num = (v: unknown) => Number(v) || 0;
+
+function countsFromSnapshots(rows: CampaignMonthlySnapshotRow[]): MemberCounts {
+  return rows.reduce<MemberCounts>((a, row) => {
+    const r = row as unknown as Record<string, unknown>;
+    return {
+      purchases: a.purchases + num(r.purchases),
+      salesCalls: a.salesCalls + num(r.sales_calls),
+      newsletterOptins: a.newsletterOptins + num(r.newsletter_optins),
+      consultations: a.consultations + num(r.consultations),
+    };
+  }, { ...ZERO_COUNTS });
+}
+
+// Update path. I can't see computeCampaignMonthMetrics' return type, so this
+// accepts camelCase or snake_case. If your field names differ, fix them here.
+function countsFromMetrics(metrics: unknown[]): MemberCounts {
+  return metrics.reduce<MemberCounts>((a, m) => {
+    const r = m as Record<string, unknown>;
+    return {
+      purchases: a.purchases + num(r.purchases),
+      salesCalls: a.salesCalls + num(r.salesCalls ?? r.sales_calls),
+      newsletterOptins: a.newsletterOptins + num(r.newsletterOptins ?? r.newsletter_optins),
+      consultations: a.consultations + num(r.consultations),
+    };
+  }, { ...ZERO_COUNTS });
 }
 
 // ── member user_id → that member's own organization_id ──────────────────────
@@ -136,6 +173,7 @@ export async function getMemberRevenue(
       totalRevenue: eligible.reduce((s, m) => s + m.revenue, 0),
       campaignCount: eligible.length,
       source: 'computed',
+      counts: countsFromMetrics(eligible),
       asOf: new Date().toISOString(),
     };
   } else {
@@ -147,6 +185,7 @@ export async function getMemberRevenue(
         totalRevenue: null,
         campaignCount: 0,
         source: 'none',
+        counts: { ...ZERO_COUNTS },
         asOf: null,
       };
     } else {
@@ -157,6 +196,7 @@ export async function getMemberRevenue(
         totalRevenue: eligible.reduce((s, r) => s + (Number(r.revenue) || 0), 0),
         campaignCount: eligible.length,
         source: 'snapshot',
+        counts: countsFromSnapshots(eligible),
         asOf: rows.map((r) => r.snapshot_at).sort().slice(-1)[0] ?? null,
       };
     }
@@ -184,6 +224,26 @@ export interface MemberRevenueState {
   updating: boolean;
   error: string | null;
   result?: MemberRevenueResult;
+}
+
+export function formatMemberCount(s: MemberRevenueState | undefined, key: keyof MemberCounts): string {
+  if (!s || s.loading) return '…';
+  if (s.error || !s.result || s.result.source === 'none') return '—';
+  return s.result.counts[key].toLocaleString();
+}
+
+export function sumUniqueOrgCounts(
+  results: (MemberRevenueResult | undefined)[],
+  key: keyof MemberCounts,
+): number {
+  const seen = new Set<string>();
+  let total = 0;
+  for (const r of results) {
+    if (!r || r.source === 'none' || seen.has(r.organizationId)) continue;
+    seen.add(r.organizationId);
+    total += r.counts[key];
+  }
+  return total;
 }
 
 export function formatMemberRevenue(s: MemberRevenueState | undefined): string {

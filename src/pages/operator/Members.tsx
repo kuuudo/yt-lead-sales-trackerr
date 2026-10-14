@@ -222,7 +222,6 @@ export default function Members() {
         ) : (
           <div className="divide-y divide-zinc-900/50">
             {filtered.map(m => {
-              const status = statusLabel(m.status);
               return (
                 <div
                   key={m.id}
@@ -240,9 +239,7 @@ export default function Members() {
                   </div>
 
                   <div className="flex items-center gap-6" onClick={e => e.stopPropagation()}>
-                    <span className={`text-[9px] font-black uppercase tracking-widest ${status.color}`}>
-                      {status.text}
-                    </span>
+
                     <span className="text-sm font-black text-emerald-400 tabular-nums w-20 text-right">
                       {formatMemberRevenue(byMember[m.id])}
                     </span>

@@ -20,7 +20,7 @@
 // ─────────────────────────────────────────────────────────────────────────────
 
 import React, { useState, useEffect } from 'react';
-import { Users, DollarSign, Target, Activity, Search, Plus, BarChart3, X, Eye, Loader2, RefreshCw } from 'lucide-react';
+import { Users, DollarSign, ShoppingCart, PhoneCall, Search, Plus, BarChart3, X, Eye, Loader2, RefreshCw } from 'lucide-react';
 import { Link, useNavigate } from 'react-router-dom';
 import { supabase } from '../../lib/supabase';
 import { useOrganization } from '../../lib/useOrganization';
@@ -29,7 +29,7 @@ import { useAuth } from '../../lib/auth';
 import { useTutorial } from '../../lib/tutorial-overlay';
 import OnboardingVideoSection04 from '../../components/onboarding/OnboardingVideo/OnboardingVideoSection04';
 import { workWithYourTeamGuide } from '../../lib/tutorials/workWithYourTeamGuide';
-import { useMemberRevenues, formatMemberRevenue, sumUniqueOrgRevenue } from '../../services/analytics/memberRevenue';
+import { useMemberRevenues, formatMemberRevenue, formatMemberCount, sumUniqueOrgRevenue, sumUniqueOrgCounts } from '../../services/analytics/memberRevenue';
 // POC: single hardcoded target user, same as Members.tsx.
 // Kaksi's privileged operator identity — server-side enforcement lives in
 // is_operator_for_user() and the RLS on kaksi_operator_access. This
@@ -165,10 +165,9 @@ export default function Overview() {
   const memberCount = members.length;
   const anyRevenueLoading = members.some(m => byMember[m.id]?.loading);
   const totalRevenue = sumUniqueOrgRevenue(members.map(m => byMember[m.id]?.result));
-  const totalConversions = members.reduce((sum, m) => sum + m.conversions, 0);
-  const avgCvr = members.length
-    ? (members.reduce((sum, m) => sum + m.cvr, 0) / members.length).toFixed(1)
-    : '0.0';
+  const results = members.map(m => byMember[m.id]?.result);
+  const totalPurchases = sumUniqueOrgCounts(results, 'purchases');
+  const totalSalesCalls = sumUniqueOrgCounts(results, 'salesCalls');
 
   const revenueOf = (id: string) => byMember[id]?.result?.totalRevenue ?? 0;
   const topPerformers = [...members].sort((a, b) => revenueOf(b.id) - revenueOf(a.id)).slice(0, 3);
@@ -229,8 +228,8 @@ export default function Overview() {
         {[
           { label: 'Members',     value: memberCount,             icon: Users,       color: 'text-zinc-500' },
           { label: 'Revenue',     value: anyRevenueLoading ? '…' : `$${totalRevenue.toLocaleString()}`, icon: DollarSign, color: 'text-emerald-400' },
-          { label: 'Conversions', value: totalConversions,        icon: Target,      color: 'text-zinc-500' },
-          { label: 'Avg CVR',     value: `${avgCvr}%`,             icon: Activity,    color: 'text-zinc-500' },
+          { label: 'Direct Purchases',   value: anyRevenueLoading ? '…' : totalPurchases.toLocaleString(),  icon: ShoppingCart, color: 'text-zinc-500' },
+          { label: 'Sales Calls Booked', value: anyRevenueLoading ? '…' : totalSalesCalls.toLocaleString(), icon: PhoneCall,    color: 'text-zinc-500' },
         ].map(card => (
           <div key={card.label} className="bento-card py-6 px-4 flex flex-col justify-between min-h-[100px]">
             <span className="label-caps !text-zinc-600">{card.label}</span>
@@ -363,7 +362,8 @@ export default function Overview() {
                 </div>
                 <div className="flex items-center gap-6">
                   <span className="text-[9px] font-black uppercase tracking-widest text-zinc-600">
-                    CVR <span className="text-zinc-300">{m.cvr}%</span>
+                    Purchases <span className="text-zinc-300">{formatMemberCount(byMember[m.id], 'purchases')}</span>
+                    {' · '}Calls <span className="text-zinc-300">{formatMemberCount(byMember[m.id], 'salesCalls')}</span>
                   </span>
                   <span className="text-sm font-black text-emerald-400 tabular-nums">
                     {formatMemberRevenue(byMember[m.id])}
