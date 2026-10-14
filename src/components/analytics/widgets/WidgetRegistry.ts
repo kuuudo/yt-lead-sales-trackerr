@@ -22,11 +22,13 @@ import CircleWidget     from './CircleWidget'
 import ArrowWidget      from './ArrowWidget'
 import TextWidget       from './TextWidget'
 import LineChartWidget  from './LineChartWidget'
-import DashboardWidget  from './DashboardWidget'   
+import DashboardWidget  from './DashboardWidget'
 import InDepthAnalyticsWidget from './InDepthAnalyticsWidget'
 import AllAssetsAnalyticsWidget from './AllAssetsAnalyticsWidget'
 import JourneyAnalyticsWidget from './JourneyAnalyticsWidget'
 import PartnerAnalyticsWidget from './PartnerAnalyticsWidget'
+import CampaignStructureMapWidget from './CampaignStructureMapWidget'
+import CampaignJourneyMapWidget from './CampaignJourneyMapWidget'
 import type { Widget } from '../store/useWorkspaceStore'
 import type { AnalyticsResult } from '../types/analytics'
 
@@ -53,14 +55,13 @@ export const WIDGET_REGISTRY: Record<
   arrow:      ArrowWidget,
   text:       TextWidget,
   line_chart: LineChartWidget,
-  dashboard:  DashboardWidget,  
+  dashboard:  DashboardWidget,
   indepth_analytics: InDepthAnalyticsWidget,
   top_assets: AllAssetsAnalyticsWidget,
   journey_analytics: JourneyAnalyticsWidget,
   partner_analytics: PartnerAnalyticsWidget,
-  // ─── Future widget types ───────────────────────────────────────────────
-  // revenue_trend:     RevenueTrendWidget,
-  // funnel:            FunnelWidget,
+  campaign_structure_map: CampaignStructureMapWidget,
+  campaign_journey_map: CampaignJourneyMapWidget,
 }
 
 // ─── Display Labels ───────────────────────────────────────────────────────────
@@ -78,11 +79,13 @@ export const TYPE_LABELS: Record<string, string> = {
   arrow:      'Arrow',
   text:       'Text',
   line_chart: 'Line Chart',
-  dashboard:  'Top Content',  
+  dashboard:  'Top Content',
   indepth_analytics: 'In-Depth Analytics',
   top_assets: 'Top Assets',
   journey_analytics: 'Analytic',
   partner_analytics: 'Partner Analytics',
+  campaign_structure_map: 'Structure Map',
+  campaign_journey_map: 'Journey Map',
 }
 
 // ─── Default Dimensions & Config ──────────────────────────────────────────────
@@ -231,18 +234,18 @@ export const WIDGET_DEFAULTS: Record<string, WidgetDefaults> = {
 
   // ── Analytics widgets ──────────────────────────────────────────────────────
 
-  dashboard: {                        
+  dashboard: {
     width:    500,
     height:   320,
     category: 'analytics',
-    title:    null,                   // TYPE_LABELS fallback → 'Top Content'
+    title:    null,
     config: {
-      dateRange:          '30days',   // matches DateRange type in analyticsEngine
+      dateRange:          '30days',
       selectedCampaignId: 'all',
     },
     data: {},
   },
-    top_assets: {
+  top_assets: {
     width: 560,
     height: 380,
     category: 'assets',
@@ -255,7 +258,7 @@ export const WIDGET_DEFAULTS: Record<string, WidgetDefaults> = {
     },
     data: {},
   },
-    journey_analytics: {
+  journey_analytics: {
     width: 620,
     height: 420,
     category: 'analytics',
@@ -269,7 +272,7 @@ export const WIDGET_DEFAULTS: Record<string, WidgetDefaults> = {
     },
     data: {},
   },
-    partner_analytics: {
+  partner_analytics: {
     width: 760,
     height: 720,
     category: 'collab',
@@ -297,6 +300,31 @@ export const WIDGET_DEFAULTS: Record<string, WidgetDefaults> = {
     },
     data: {},
   },
+
+  // Full map UIs — generous defaults so legend, zoom, filters, and nodes remain usable.
+  // Slightly different sizes so consecutive spawns are easier to tell apart.
+  campaign_structure_map: {
+    width: 720,
+    height: 520,
+    category: 'analytics',
+    title: null,
+    config: {
+      // Reserved for a future prop-driven campaign id; tree mode currently
+      // selects the first available campaign internally.
+      selectedCampaignId: null,
+    },
+    data: {},
+  },
+  campaign_journey_map: {
+    width: 780,
+    height: 560,
+    category: 'analytics',
+    title: null,
+    config: {
+      selectedCampaignId: null,
+    },
+    data: {},
+  },
 }
 
 // ─── Toolbar Item Definitions ─────────────────────────────────────────────────
@@ -320,9 +348,11 @@ export const TOOLBAR_ITEMS: ToolbarItem[] = [
   { type: 'arrow',     label: 'Arrow',       icon: '→'  },
   { type: 'text',      label: 'Text',        icon: 'T'  },
   { type: 'line_chart',label: 'Line Chart',  icon: '📉' },
-  { type: 'dashboard', label: 'Top Content', icon: '🏆' },  
-  { type: 'indepth_analytics', label: 'In-Depth', icon: '📋' },//
-  { type: 'top_assets', label: 'Top Assets', icon: '📦' }, 
+  { type: 'dashboard', label: 'Top Content', icon: '🏆' },
+  { type: 'indepth_analytics', label: 'In-Depth', icon: '📋' },
+  { type: 'top_assets', label: 'Top Assets', icon: '📦' },
   { type: 'journey_analytics', label: 'Analytic', icon: '📶' },
   { type: 'partner_analytics', label: 'Partner', icon: '🤝' },
+  { type: 'campaign_structure_map', label: 'Structure Map', icon: '🗂' },
+  { type: 'campaign_journey_map', label: 'Journey Map', icon: '🕸' },
 ]

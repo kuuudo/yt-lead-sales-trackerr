@@ -38,12 +38,24 @@ const SHAPE_TYPES = ['rectangle', 'circle', 'arrow']
 // Temporary domain → widget-type mapping, kept local to the toolbar until
 // `domain` becomes a real field on WidgetRegistry entries.
 const DOMAIN_WIDGET_TYPES: Record<string, string[]> = {
-  campaigns: ['kpi', 'chart', 'line_chart', 'journey_analytics'],
+  campaigns: [
+    'kpi',
+    'chart',
+    'line_chart',
+    'journey_analytics',
+    'campaign_structure_map',
+    'campaign_journey_map',
+  ],
   content:   ['dashboard', 'indepth_analytics'],
   assets:    ['top_assets'],
   collab:    ['partner_analytics'],
   operator:  [],
 }
+
+/** Large map widgets get a staggered spawn offset so they do not land
+ *  exactly on top of other center-spawned widgets. Full free-space search
+ *  would need the board's widget list from the store (not exposed here). */
+const MAP_SPAWN_TYPES = new Set(['campaign_structure_map', 'campaign_journey_map'])
 
 export default function WorkspaceToolbar({ userId }: Props) {
   const activeBoardId = useWorkspaceStore((s) => s.activeBoardId)
@@ -121,6 +133,13 @@ export default function WorkspaceToolbar({ userId }: Props) {
       // Convert to canvas space
       const canvasCenter = toCanvasPoint(vpCx, vpCy)
 
+      // Map widgets: nudge spawn origin so they are less likely to cover
+      // other widgets that were also placed at true viewport centre.
+      // Does not change z-index or bring-to-front behaviour.
+      const spawnNudge = MAP_SPAWN_TYPES.has(type)
+        ? { x: type === 'campaign_journey_map' ? 80 : -80, y: type === 'campaign_journey_map' ? 60 : -40 }
+        : { x: 0, y: 0 }
+
       const now = new Date().toISOString()
       const widget = {
         id: crypto.randomUUID(),
@@ -128,8 +147,8 @@ export default function WorkspaceToolbar({ userId }: Props) {
         user_id: userId ?? 'guest',
         title: null,
         type,
-        x: canvasCenter.x - defaults.width / 2,
-        y: canvasCenter.y - defaults.height / 2,
+        x: canvasCenter.x - defaults.width / 2 + spawnNudge.x,
+        y: canvasCenter.y - defaults.height / 2 + spawnNudge.y,
         width: defaults.width,
         height: defaults.height,
         category: defaults.category,

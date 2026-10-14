@@ -1529,8 +1529,19 @@ export default function CampaignStructureMap({ embedded = false, presentation = 
     )
   }
 
+// When embedded or tree presentation, fill the parent (widget) instead of
+// locking to the viewport. Preserves full map chrome; only changes positioning.
+const pageStyle: React.CSSProperties = {
+  ...styles.page,
+  ...(isReadOnly && !embedded ? { top: 84 } : {}),
+  ...(presentation === 'tree' ? { background: TREE_DARK.page } : {}),
+  ...(embedded || presentation === 'tree'
+    ? { position: 'absolute', inset: 0, top: 0 }
+    : {}),
+}
+
 return ( 
-  <div style={{ ...styles.page, ...(isReadOnly && !embedded ? { top: 84 } : {}), ...(presentation === 'tree' ? { background: TREE_DARK.page } : {}) }}>
+  <div style={pageStyle}>
     {presentation === 'campaign' && (
       <div style={styles.header} > 
         <Link to={`/campaigns/${campaignId ?? ''}`} style={styles.backLink} > 
