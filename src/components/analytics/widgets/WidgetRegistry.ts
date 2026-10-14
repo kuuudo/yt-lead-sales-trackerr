@@ -285,5 +285,5 @@ export const TOOLBAR_ITEMS: ToolbarItem[] = [
   { type: 'line_chart',label: 'Line Chart',  icon: '📉' },
   { type: 'dashboard', label: 'Top Content', icon: '🏆' },  
   { type: 'indepth_analytics', label: 'In-Depth', icon: '📋' },//
-  { type: 'top_assets', label: 'Top Assets', icon: '📦' }, ← new
+  { type: 'top_assets', label: 'Top Assets', icon: '📦' }, 
 ]
