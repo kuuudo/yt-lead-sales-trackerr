@@ -39,6 +39,7 @@ const SHAPE_TYPES = ['rectangle', 'circle', 'arrow']
 // `domain` becomes a real field on WidgetRegistry entries.
 const DOMAIN_WIDGET_TYPES: Record<string, string[]> = {
   campaigns: [
+    'tree',
     'kpi',
     'chart',
     'line_chart',
@@ -55,7 +56,7 @@ const DOMAIN_WIDGET_TYPES: Record<string, string[]> = {
 /** Large map widgets get a staggered spawn offset so they do not land
  *  exactly on top of other center-spawned widgets. Full free-space search
  *  would need the board's widget list from the store (not exposed here). */
-const MAP_SPAWN_TYPES = new Set(['campaign_structure_map', 'campaign_journey_map'])
+const MAP_SPAWN_TYPES = new Set(['campaign_structure_map', 'campaign_journey_map', 'tree'])
 
 export default function WorkspaceToolbar({ userId }: Props) {
   const activeBoardId = useWorkspaceStore((s) => s.activeBoardId)
@@ -137,7 +138,11 @@ export default function WorkspaceToolbar({ userId }: Props) {
       // other widgets that were also placed at true viewport centre.
       // Does not change z-index or bring-to-front behaviour.
       const spawnNudge = MAP_SPAWN_TYPES.has(type)
-        ? { x: type === 'campaign_journey_map' ? 80 : -80, y: type === 'campaign_journey_map' ? 60 : -40 }
+        ? type === 'campaign_journey_map'
+          ? { x: 80, y: 60 }
+          : type === 'tree'
+            ? { x: 0, y: -80 }
+            : { x: -80, y: -40 }
         : { x: 0, y: 0 }
 
       const now = new Date().toISOString()

@@ -77,7 +77,12 @@ const EMPTY: CampaignMonthMetrics = {
   revenueConversions: 0,
 };
 
-export function Tree() {
+export interface TreeProps {
+  /** When true, fill the parent container (Workspace widget) instead of the page viewport. */
+  embedded?: boolean;
+}
+
+export function Tree({ embedded = false }: TreeProps = {}) {
   const [hoveredBtn, setHoveredBtn] = useState<HeroButtonKey | null>(null);
   const [treeHelpOpen, setTreeHelpOpen] = useState(false);
   const navigate = useNavigate();
@@ -250,9 +255,36 @@ if (forceRefresh && isReadOnly) return;
     return null;
   })();
 
+  const outerStyle: React.CSSProperties = {
+    ...styles.outerCanvas,
+    ...(embedded
+      ? {
+          height: '100%',
+          minHeight: 0,
+          overflow: 'hidden',
+        }
+      : {}),
+  };
+
   return (
-    <div className="vstrk-outer" style={styles.outerCanvas}>
+    <div className={`vstrk-outer${embedded ? ' vstrk-outer--embedded' : ''}`} style={outerStyle}>
       <style>{RESPONSIVE_CSS}</style>
+      {embedded && (
+        <style>{`
+          .vstrk-outer--embedded {
+            height: 100% !important;
+            min-height: 0 !important;
+            overflow: hidden !important;
+          }
+          .vstrk-outer--embedded .vstrk-hero {
+            min-height: 0;
+            padding-bottom: 12px !important;
+          }
+          .vstrk-outer--embedded .vstrk-tree-stage {
+            min-height: 160px;
+          }
+        `}</style>
+      )}
 
       <div className="vstrk-topbar" style={styles.topBar}>
         <div className="vstrk-brand" style={styles.brand}>

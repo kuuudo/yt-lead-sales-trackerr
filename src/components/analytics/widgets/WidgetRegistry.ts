@@ -29,6 +29,7 @@ import JourneyAnalyticsWidget from './JourneyAnalyticsWidget'
 import PartnerAnalyticsWidget from './PartnerAnalyticsWidget'
 import CampaignStructureMapWidget from './CampaignStructureMapWidget'
 import CampaignJourneyMapWidget from './CampaignJourneyMapWidget'
+import TreeWidget from './TreeWidget'
 import type { Widget } from '../store/useWorkspaceStore'
 import type { AnalyticsResult } from '../types/analytics'
 
@@ -62,6 +63,7 @@ export const WIDGET_REGISTRY: Record<
   partner_analytics: PartnerAnalyticsWidget,
   campaign_structure_map: CampaignStructureMapWidget,
   campaign_journey_map: CampaignJourneyMapWidget,
+  tree: TreeWidget,
 }
 
 // ─── Display Labels ───────────────────────────────────────────────────────────
@@ -86,6 +88,7 @@ export const TYPE_LABELS: Record<string, string> = {
   partner_analytics: 'Partner Analytics',
   campaign_structure_map: 'Structure Map',
   campaign_journey_map: 'Journey Map',
+  tree: 'Tree',
 }
 
 // ─── Default Dimensions & Config ──────────────────────────────────────────────
@@ -325,6 +328,18 @@ export const WIDGET_DEFAULTS: Record<string, WidgetDefaults> = {
     },
     data: {},
   },
+  tree: {
+    width: 520,
+    height: 640,
+    category: 'analytics',
+    title: null,
+    config: {
+      // Reserved — Tree currently keeps campaign/time state internally.
+      selectedCampaignId: null,
+      timePreset: 'all_time',
+    },
+    data: {},
+  },
 }
 
 // ─── Toolbar Item Definitions ─────────────────────────────────────────────────
@@ -355,4 +370,5 @@ export const TOOLBAR_ITEMS: ToolbarItem[] = [
   { type: 'partner_analytics', label: 'Partner', icon: '🤝' },
   { type: 'campaign_structure_map', label: 'Structure Map', icon: '🗂' },
   { type: 'campaign_journey_map', label: 'Journey Map', icon: '🕸' },
+  { type: 'tree', label: 'Tree', icon: '🌳' },
 ]
