@@ -490,32 +490,7 @@ style={{
         <div className="vstrk-rev-mobile">
           <span className="vstrk-rev-label" style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
             Revenue
-            <button
-              type="button"
-              className="vstrk-help-btn-mobile"
-              aria-label="About Tree Revenue"
-              aria-expanded={treeHelpOpen}
-              onClick={() => setTreeHelpOpen((o) => !o)}
-              style={{
-                width: 18,
-                height: 18,
-                borderRadius: 999,
-                border: '1px solid #333',
-                background: 'transparent',
-                color: '#737373',
-                fontSize: 11,
-                fontWeight: 700,
-                lineHeight: 1,
-                cursor: 'pointer',
-                display: 'inline-flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                padding: 0,
-                flexShrink: 0,
-              }}
-            >
-              ?
-            </button>
+           
           </span>
           <span className="vstrk-rev-value" style={{ opacity: showPlaceholder ? 0.35 : 1 }}>
             {formatRevenue(showPlaceholder ? 0 : display.revenue)}
