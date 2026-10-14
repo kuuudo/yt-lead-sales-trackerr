@@ -303,6 +303,5 @@ export const TOOLBAR_ITEMS: ToolbarItem[] = [
   { type: 'dashboard', label: 'Top Content', icon: '🏆' },  
   { type: 'indepth_analytics', label: 'In-Depth', icon: '📋' },//
   { type: 'top_assets', label: 'Top Assets', icon: '📦' }, 
-  { type: 'top_assets', label: 'Top Assets', icon: '📦' },
   { type: 'journey_analytics', label: 'Analytic', icon: '📶' },
 ]

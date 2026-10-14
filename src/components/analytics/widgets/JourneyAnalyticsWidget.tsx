@@ -31,6 +31,7 @@ import { journeyAnalyticsPageCache } from '../../../lib/journeyAnalyticsPageCach
 import type { DiscoveredJourney } from '../../../lib/journeyDiscovery'
 import {
   TABLE_COLUMNS,
+  COLUMN_LABELS,
   type DateRange,
   type RevenueView,
   type MetricType,
@@ -41,6 +42,9 @@ import {
   stepsForJourney,
   routeVideoStepCount,
   useCampaignOptions,
+  journeyPromotedTypes,
+  TypeCell,
+  JOURNEY_ANALYTICS_EXTRA,
   type VideoDisplay,
 } from '../../../pages/JourneyAnalytics'
 import {
@@ -384,6 +388,63 @@ export default function JourneyAnalyticsWidget({ widget, onUpdate }: Props) {
           ))
         ) : error ? (
           <div style={styles.empty}>{error}</div>
+        ) : showAnalytics && topJourneys.length > 0 ? (
+          <table style={styles.table}>
+            <thead>
+              <tr>
+                <th style={{ ...styles.th, ...styles.stickyCol, zIndex: 3, background: '#09090b' }}>
+                  Journey Map
+                </th>
+                {JOURNEY_ANALYTICS_EXTRA.map(col => (
+                  <th key={col.key} style={styles.th}>{col.label}</th>
+                ))}
+                {TABLE_COLUMNS.map(key => (
+                  <th key={key} style={styles.th}>
+                    <button
+                      style={styles.thBtn}
+                      onClick={() => patchConfig({ sortKey: sortKey === key ? 'longest' : key })}
+                    >
+                      {COLUMN_LABELS[key as MetricType] ?? key}
+                      {sortKey === key ? ' ▼' : ''}
+                    </button>
+                  </th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {topJourneys.map(j => {
+                const steps = routeVideoStepCount(j)
+                return (
+                  <tr key={j.journeyId}>
+                    <td style={{ ...styles.td, ...styles.stickyCol, minWidth: 320, maxWidth: 480 }}>
+                      <div style={styles.routeHeader}>
+                        <span>{j.journeyId.slice(0, 8)}…</span>
+                        <span>{steps === 1 ? '1 video' : `${steps} videos`}</span>
+                      </div>
+                      <JourneyStrip
+                        steps={stepsForJourney(j, videoDisplay)}
+                        highlightVideoId={null}
+                        onSelectVideo={() => {}}
+                        showContentOwner={showContentOwner}
+                        connectorLabels={showJourneyFlow ? flowConnectorLabels(j, flowCounts, flowLoading) : undefined}
+                      />
+                    </td>
+                    <td style={styles.td}>
+                      <TypeCell types={journeyPromotedTypes(j, videoDisplay)} />
+                    </td>
+                    {JOURNEY_ANALYTICS_EXTRA.slice(1).map(c => (
+                      <td key={c.key} style={{ ...styles.td, ...styles.tdNum, color: '#52525b' }}>—</td>
+                    ))}
+                    {TABLE_COLUMNS.map(key => (
+                      <td key={key} style={{ ...styles.td, ...styles.tdNum }}>
+                        {formatRouteMetricCell(key as ColKey, routeMetrics.get(j.journeyId), metricsLoading)}
+                      </td>
+                    ))}
+                  </tr>
+                )
+              })}
+            </tbody>
+          </table>
         ) : topJourneys.length === 0 ? (
           <div style={styles.empty}>No routes match filters</div>
         ) : (
@@ -464,6 +525,20 @@ const styles: Record<string, React.CSSProperties> = {
   },
   toggleBtnActive: { background: '#3f3f46', color: '#ffffff' },
   toggleBtnHot:    { background: '#dc2626', borderColor: '#dc2626', color: '#ffffff' },
+  table: { borderCollapse: 'collapse', minWidth: '100%', width: 'max-content' },
+  th: {
+    position: 'sticky', top: 0, zIndex: 2, background: '#09090b',
+    padding: '8px 10px', textAlign: 'left', fontSize: 8, fontWeight: 800,
+    textTransform: 'uppercase', letterSpacing: '0.08em', color: '#52525b',
+    borderBottom: '1px solid #18181b', whiteSpace: 'nowrap',
+  },
+  thBtn: {
+    background: 'transparent', border: 'none', padding: 0, font: 'inherit',
+    color: 'inherit', textTransform: 'inherit', letterSpacing: 'inherit', cursor: 'pointer',
+  },
+  td: { padding: '6px 10px', borderBottom: '1px solid #18181b', whiteSpace: 'nowrap', verticalAlign: 'middle' },
+  tdNum: { fontSize: 11, fontWeight: 700, color: '#a1a1aa', fontVariantNumeric: 'tabular-nums' },
+  stickyCol: { position: 'sticky', left: 0, background: '#000', zIndex: 1 },
   sortContext: { padding: '4px 12px', flexShrink: 0 },
   sortContextText: {
     fontSize: 8, fontWeight: 800, textTransform: 'uppercase',
