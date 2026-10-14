@@ -50,6 +50,7 @@ import {
   useRouteRevenueMetrics,
 } from '../useRouteRevenueMetrics'
 import JourneyStrip from '../JourneyStrip'
+import { flowConnectorLabels, useJourneyFlowCounts } from '../useJourneyFlowCounts'
 import type { Widget } from '../store/useWorkspaceStore'
 
 // ─── Props ────────────────────────────────────────────────────────────────────
@@ -63,6 +64,7 @@ interface Props {
 // ─── Constants — values taken from JourneyAnalytics.tsx ──────────────────────
 
 type SortKey = 'longest' | MetricType
+type RouteOrder = 'default' | 'longest_first'
 
 const DATE_OPTIONS: { value: DateRange; label: string }[] = [
   { value: '7days',   label: '7d'  },
@@ -80,7 +82,7 @@ const SOURCE_OPTIONS: { value: RevenueView; label: string }[] = [
 ]
 
 const SORT_OPTIONS: { value: SortKey; label: string; shortLabel: string }[] = [
-  { value: 'longest',               label: 'Longest route', shortLabel: 'Len'    },
+  
   { value: 'total_revenue',         label: 'Revenue',       shortLabel: 'Rev'    },
   { value: 'consultation_thankyou', label: 'Consultations', shortLabel: 'Cons'   },
   { value: 'purchase_thankyou',     label: 'Purchases',     shortLabel: 'Purch'  },
@@ -105,6 +107,10 @@ export default function JourneyAnalyticsWidget({ widget, onUpdate }: Props) {
   const sortKey:            SortKey     = (widget.config?.sortKey            as SortKey)     ?? 'longest'
   const selectedPlatform:   string      = (widget.config?.selectedPlatform   as string)      ?? 'all'
   const selectedCampaignId: string      = (widget.config?.selectedCampaignId as string)      ?? 'all'
+  const routeOrder:         RouteOrder  = (widget.config?.routeOrder         as RouteOrder)  ?? 'longest_first'
+  const showAnalytics:      boolean     = (widget.config?.showAnalytics      as boolean)     ?? false
+  const showContentOwner:   boolean     = (widget.config?.showContentOwner   as boolean)     ?? false
+  const showJourneyFlow:    boolean     = (widget.config?.showJourneyFlow    as boolean)     ?? false
 
   // One atomic config patch helper — merges into existing config.
   const patchConfig = (patch: Record<string, unknown>) =>
@@ -196,7 +202,8 @@ export default function JourneyAnalyticsWidget({ widget, onUpdate }: Props) {
   // ── Sort — same rules as the page's displayedJourneys ───────────────────────
   const topJourneys = useMemo(() => {
     const indexed = visibleJourneys.map((j, index) => ({ j, index }))
-    if (sortKey === 'longest') {
+    if (!showAnalytics || sortKey === 'longest') {
+      if (routeOrder === 'default') return visibleJourneys.slice(0, TOP_N)
       return indexed
         .sort((a, b) =>
           routeVideoStepCount(b.j) - routeVideoStepCount(a.j) || a.index - b.index)
@@ -216,7 +223,15 @@ export default function JourneyAnalyticsWidget({ widget, onUpdate }: Props) {
         a.index - b.index)
       .map(({ j }) => j)
       .slice(0, TOP_N)
-  }, [visibleJourneys, sortKey, routeMetrics])
+  }, [visibleJourneys, sortKey, routeMetrics, showAnalytics, routeOrder])
+
+  const { flowCounts, flowLoading } = useJourneyFlowCounts({
+    enabled: showJourneyFlow,
+    routes: topJourneys,
+    videoAssets: videoDisplay,
+    dateRange,
+    customRange: null,
+  })
 
   const sortOption = SORT_OPTIONS.find(o => o.value === sortKey)
 
@@ -224,6 +239,28 @@ export default function JourneyAnalyticsWidget({ widget, onUpdate }: Props) {
 
   return (
     <div style={styles.root}>
+
+      {/* Row 0: Toggles */}
+      <div style={styles.toolbarRow}>
+        <button
+          style={{ ...styles.toggleBtn, ...(showContentOwner ? styles.toggleBtnActive : {}) }}
+          onClick={() => patchConfig({ showContentOwner: !showContentOwner })}
+        >
+          {showContentOwner ? 'Hide Content Owner' : 'Show Content Owner'}
+        </button>
+        <button
+          style={{ ...styles.toggleBtn, ...(showJourneyFlow ? styles.toggleBtnActive : {}) }}
+          onClick={() => patchConfig({ showJourneyFlow: !showJourneyFlow })}
+        >
+          {showJourneyFlow ? 'Hide Journey Flow' : 'Show Journey Flow'}
+        </button>
+        <button
+          style={{ ...styles.toggleBtn, ...(showAnalytics ? styles.toggleBtnHot : {}) }}
+          onClick={() => patchConfig({ showAnalytics: !showAnalytics })}
+        >
+          {showAnalytics ? 'Hide Analytics' : 'Show Analytics'}
+        </button>
+      </div>
 
       {/* Row 1: Period + Source */}
       <div style={styles.toolbarRow}>
@@ -256,7 +293,27 @@ export default function JourneyAnalyticsWidget({ widget, onUpdate }: Props) {
         </div>
       </div>
 
-      {/* Row 2: Sort */}
+      {/* Row 2a: Order */}
+      <div style={{ ...styles.toolbarRow, borderTopWidth: 0 }}>
+        <span style={styles.toolbarLabel}>Order</span>
+        <div style={styles.pillGroup}>
+          <button
+            style={{ ...styles.pill, ...(routeOrder === 'default' ? styles.pillActive : {}) }}
+            onClick={() => patchConfig({ routeOrder: 'default' })}
+          >
+            Default order
+          </button>
+          <button
+            style={{ ...styles.pill, ...(routeOrder === 'longest_first' ? styles.pillActive : {}) }}
+            onClick={() => patchConfig({ routeOrder: 'longest_first' })}
+          >
+            Longest first
+          </button>
+        </div>
+      </div>
+
+      {/* Row 2b: Sort (Analytics only) */}
+      {showAnalytics && (
       <div style={{ ...styles.toolbarRow, borderTopWidth: 0 }}>
         <span style={styles.toolbarLabel}>Sort</span>
         <div style={styles.pillGroup}>
@@ -264,7 +321,7 @@ export default function JourneyAnalyticsWidget({ widget, onUpdate }: Props) {
             <button
               key={opt.value}
               style={{ ...styles.pill, ...(sortKey === opt.value ? styles.pillActive : {}) }}
-              onClick={() => patchConfig({ sortKey: opt.value })}
+              onClick={() => patchConfig({ sortKey: sortKey === opt.value ? 'longest' : opt.value })}
               title={opt.label}
             >
               {opt.shortLabel}
@@ -272,6 +329,8 @@ export default function JourneyAnalyticsWidget({ widget, onUpdate }: Props) {
           ))}
         </div>
       </div>
+
+      )}
 
       {/* Row 3: Campaign + Platform */}
       <div style={{ ...styles.toolbarRow, borderTopWidth: 0 }}>
@@ -306,7 +365,9 @@ export default function JourneyAnalyticsWidget({ widget, onUpdate }: Props) {
       {/* Context label */}
       <div style={styles.sortContext}>
         <span style={styles.sortContextText}>
-          {sortKey === 'longest' ? 'Longest routes first' : `Ranked by ${sortOption?.label ?? sortKey}`}
+          {showAnalytics && sortKey !== 'longest'
+            ? `Ranked by ${sortOption?.label ?? sortKey}`
+            : routeOrder === 'longest_first' ? 'Longest routes first' : 'Default order'}
           {!loading && ` · ${visibleJourneys.length} routes`}
           {truncated && ' · partial (discovery truncated)'}
         </span>
@@ -332,7 +393,7 @@ export default function JourneyAnalyticsWidget({ widget, onUpdate }: Props) {
             const steps = routeVideoStepCount(j)
             return (
               <div key={j.journeyId} style={styles.routeCard}>
-                <div style={styles.routeHeader}>
+                <div style={{ ...styles.routeHeader, display: showAnalytics ? 'flex' : 'none' }}>
                   <span>{steps === 1 ? '1 video' : `${steps} videos`}</span>
                   <span>{metricsLoading ? '…' : `${routeClickTotal(m).toLocaleString()} clicks`}</span>
                   <span style={{ color: rev.hasRevenue ? '#34d399' : '#52525b' }}>
@@ -351,7 +412,8 @@ export default function JourneyAnalyticsWidget({ widget, onUpdate }: Props) {
                     steps={stepsForJourney(j, videoDisplay)}
                     highlightVideoId={null}
                     onSelectVideo={() => {}}
-                    showContentOwner={false}
+                    showContentOwner={showContentOwner}
+                    connectorLabels={showJourneyFlow ? flowConnectorLabels(j, flowCounts, flowLoading) : undefined}
                   />
                 </div>
               </div>
@@ -395,6 +457,13 @@ const styles: Record<string, React.CSSProperties> = {
     borderRadius: 6, fontSize: 10, padding: '3px 6px', maxWidth: 160,
     colorScheme: 'dark',
   },
+    toggleBtn: {
+    background: '#0f0f0f', border: '1px solid #27272a', borderRadius: 8,
+    padding: '4px 8px', fontSize: 9, fontWeight: 800, color: '#a1a1aa',
+    cursor: 'pointer', textTransform: 'uppercase', letterSpacing: '0.08em',
+  },
+  toggleBtnActive: { background: '#3f3f46', color: '#ffffff' },
+  toggleBtnHot:    { background: '#dc2626', borderColor: '#dc2626', color: '#ffffff' },
   sortContext: { padding: '4px 12px', flexShrink: 0 },
   sortContextText: {
     fontSize: 8, fontWeight: 800, textTransform: 'uppercase',
