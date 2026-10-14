@@ -25,6 +25,11 @@ import { useAuth }         from '../../../lib/auth'
 import { useOrganization } from '../../../lib/useOrganization'
 import { supabase }        from '../../../lib/supabase'
 import { dashboardWidgetPageCache } from '../../../lib/dashboardWidgetPageCache'
+import { applyCanonicalPurchaseOwners } from '../../../services/attribution/applyCanonicalPurchaseOwners'
+import {
+  filterPurchasesByCreatedAt,
+  stripeRowsWithPositiveAmount,
+} from '../../../services/attribution/filterPurchasesByCreatedAt'
 import {
   getAnalyticsEngine,
   buildStripeFromPurchases,
@@ -244,7 +249,7 @@ export default function DashboardWidget({ widget, onUpdate }: Props) {
             // revenue/attribution (was stripe_purchase_type.payment_type).
             const q = supabase
               .from('stripe_purchases')
-              .select('video_id, campaign_id, amount, session_id, redirect_link_id, redirect_link_token')
+              .select('id, video_id, campaign_id, amount, session_id, redirect_link_id, redirect_link_token, token, created_at')
             if (campaignIds.length) {
               return q.or(
                 `video_id.in.(${videoIds.join(',')}),campaign_id.in.(${campaignIds.join(',')})`,
@@ -256,7 +261,7 @@ export default function DashboardWidget({ widget, onUpdate }: Props) {
           campaignIds.length
             ? supabase
                 .from('pixel_purchases')
-                .select('video_id, campaign_id, amount, event_type, session_id, event_id')
+                .select('id, video_id, campaign_id, amount, event_type, session_id, event_id, created_at')
                 .in('campaign_id', campaignIds)
             : Promise.resolve({ data: [] as any[] }),
         ])
@@ -295,19 +300,103 @@ export default function DashboardWidget({ widget, onUpdate }: Props) {
           buildSessionLookup(pixelRaw),
         ])
 
-        const enrichedStripe = buildStripeFromPurchases(stripeRaw, redirectLinkLookup, stripeSessLookup)
-        const enrichedPixel  = buildPixelPurchases(pixelRaw, pixelSessLookup)
+        // Canonical owner resolution — same step as InDepthAnalytics.tsx.
+        // Fails soft: on error the legacy video_id attribution is kept and
+        // the result is not cached.
+        let owned: Awaited<ReturnType<typeof applyCanonicalPurchaseOwners>> | null = null
+        try {
+          owned = await applyCanonicalPurchaseOwners({
+            stripePurchases: ((spData.data as any[]) || []).map((r: any) => ({
+              id: r.id,
+              session_id: r.session_id ?? null,
+              token: r.token ?? r.redirect_link_token ?? null,
+              video_id: r.video_id ?? null,
+              campaign_id: r.campaign_id ?? null,
+              amount: r.amount,
+              created_at: r.created_at,
+              redirect_link_id: r.redirect_link_id ?? null,
+              redirect_link_token: r.redirect_link_token ?? null,
+            })),
+            pixelPurchases: ((ppData.data as any[]) || []).map((r: any) => ({
+              id: r.id,
+              event_id: r.event_id ?? null,
+              session_id: r.session_id ?? null,
+              video_id: r.video_id ?? null,
+              campaign_id: r.campaign_id ?? null,
+              amount: r.amount,
+              event_type: r.event_type ?? null,
+              created_at: r.created_at,
+            })),
+          })
+        } catch (err) {
+          console.error('[InDepthAnalyticsWidget] applyCanonicalPurchaseOwners failed (legacy video_id kept)', err)
+        }
+
+        let enrichedStripe: any[]
+        let enrichedPixel: any[]
+
+        if (owned) {
+          const stripePositive = stripeRowsWithPositiveAmount(owned.stripePurchases)
+          const stripeBuilt = buildStripeFromPurchases(
+            stripePositive.map((p) => ({
+              video_id: p.video_id,
+              campaign_id: p.campaign_id ?? null,
+              amount: p.amount,
+              session_id: p.session_id ?? null,
+              redirect_link_id: p.redirect_link_id ?? null,
+              redirect_link_token: p.redirect_link_token ?? null,
+            })),
+            redirectLinkLookup,
+            stripeSessLookup,
+          )
+          const nStripe = Math.min(stripeBuilt.length, stripePositive.length)
+          enrichedStripe = stripeBuilt.slice(0, nStripe).map((row, i) => ({
+            ...row,
+            created_at: stripePositive[i]?.created_at ?? null,
+          }))
+
+          const pixelBuilt = buildPixelPurchases(
+            owned.pixelPurchases.map((p) => ({
+              video_id: p.video_id,
+              campaign_id: p.campaign_id ?? null,
+              amount: p.amount,
+              event_type: p.event_type,
+              session_id: p.session_id,
+            })),
+            pixelSessLookup,
+          )
+          enrichedPixel = pixelBuilt.map((row, i) => ({
+            ...row,
+            created_at: owned!.pixelPurchases[i]?.created_at ?? null,
+          }))
+        } else {
+          enrichedStripe = buildStripeFromPurchases(stripeRaw, redirectLinkLookup, stripeSessLookup)
+            .map((row) => ({ ...row, created_at: null }))
+          enrichedPixel = buildPixelPurchases(pixelRaw, pixelSessLookup)
+            .map((row) => ({ ...row, created_at: null }))
+        }
 
         if (cancelled) return
         setRawEvents(allEvents)
         setStripePurchases(enrichedStripe)
         setPixelPurchases(enrichedPixel)
 
-        dashboardWidgetPageCache.set(organizationId, {
-          videos: vRes.data, campaigns: cRes.data,
-          rawEvents: allEvents, stripePurchases: enrichedStripe, pixelPurchases: enrichedPixel,
-        })
-        console.log('[DashboardWidget] Cache updated')
+
+        if (owned && !hadQueryError) {
+          dashboardWidgetPageCache.set(organizationId, {
+            videos: vRes.data,
+            campaigns: cRes.data,
+            rawEvents: allEvents,
+            stripePurchases: enrichedStripe,
+            pixelPurchases: enrichedPixel,
+          })
+          console.log('[DashboardWidget] Cache updated')
+        } else {
+          console.warn('[DashboardWidget] Result not cached', {
+            ownerProcessed: !!owned,
+            hadQueryError,
+          })
+        }
       } catch (err: any) {
         if (!cancelled) setError(err?.message ?? 'Failed to load data')
         console.error('[DashboardWidget] Fetch error:', err)
@@ -326,8 +415,16 @@ export default function DashboardWidget({ widget, onUpdate }: Props) {
     videos:              videos as any,
     campaigns:           campaigns as CampaignMeta[],
     rawEvents,
-    stripePurchases,
-    pixelPurchases,
+    stripePurchases: filterPurchasesByCreatedAt(
+      stripePurchases as Array<StripePurchaseRow & { created_at?: string | null }>,
+      dateRange,
+      customRange,
+    ),
+    pixelPurchases: filterPurchasesByCreatedAt(
+      pixelPurchases as Array<PixelPurchaseRow & { created_at?: string | null }>,
+      dateRange,
+      customRange,
+    ),
     dateRange,
     customRange,
     selectedCampaignId,
@@ -408,8 +505,7 @@ export default function DashboardWidget({ widget, onUpdate }: Props) {
               onChange={e => {
                 const start = e.target.value
                 const next = { start, end: (typeof customRange?.end === 'string' && customRange.end) || start }
-                setCustomRange(next)
-                if (start && next.end) setDateRange('custom')
+                patchConfig({ customRange: next, ...(start && next.end ? { dateRange: 'custom' } : {}) })
               }}
               style={styles.dateInput}
             />
@@ -421,8 +517,7 @@ export default function DashboardWidget({ widget, onUpdate }: Props) {
               onChange={e => {
                 const end = e.target.value
                 const next = { start: (typeof customRange?.start === 'string' && customRange.start) || end, end }
-                setCustomRange(next)
-                if (next.start && end) setDateRange('custom')
+                patchConfig({ customRange: next, ...(next.start && end ? { dateRange: 'custom' } : {}) })
               }}
               style={styles.dateInput}
             />
