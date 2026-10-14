@@ -29,10 +29,11 @@
 
 import React, { useState, useEffect } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
-import { Search, Plus, BarChart3, X } from 'lucide-react';
+import { Search, Plus, BarChart3, X, RefreshCw } from 'lucide-react';
 import { supabase } from '../../lib/supabase';
 import { useAuth } from '../../lib/auth';
 import { useOrganization } from '../../lib/useOrganization';
+import { useMemberRevenues, formatMemberRevenue } from '../../services/analytics/memberRevenue';
 
 // Kaksi's privileged operator identity — server-side enforcement lives in
 // is_operator_for_user() and the RLS on kaksi_operator_access. This
@@ -44,7 +45,6 @@ interface OperatorMember {
   id: string;       // = organization_members.user_id
   name: string;
   email: string;
-  revenue: number;                                        // placeholder — not wired yet
   status: 'connected' | 'no_analytics' | 'no_campaign';    // placeholder — not decided yet
 }
 
@@ -68,6 +68,7 @@ export default function Members() {
   const [members, setMembers] = useState<OperatorMember[]>([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState('');
+  const { byMember, update: updateRevenue } = useMemberRevenues(members.map(m => m.id));
 
   useEffect(() => {
     if (!organizationId) return;
@@ -109,7 +110,6 @@ export default function Members() {
               id: row.user_id,
               name: profile?.full_name || profile?.email || 'Unnamed member',
               email: profile?.email || '',
-              revenue: 0,                 // placeholder — not wired yet
               status: 'no_analytics' as const, // placeholder — not decided yet
             };
           });
@@ -123,7 +123,6 @@ export default function Members() {
           id: 'cd180432-44c5-4a20-b778-66b7753191f0',
           name: 'Alin (POC)',
           email: 'alinospam2020@gmail.com',
-          revenue: 0,
           status: 'no_analytics',
         };
 
@@ -156,7 +155,6 @@ export default function Members() {
                   id: row.target_user_id,
                   name: profile?.full_name || profile?.email || 'Unnamed member',
                   email: profile?.email || '',
-                  revenue: 0,                       // placeholder — not wired yet
                   status: 'no_analytics' as const,  // placeholder — not decided yet
                 };
               });
@@ -246,8 +244,17 @@ export default function Members() {
                       {status.text}
                     </span>
                     <span className="text-sm font-black text-emerald-400 tabular-nums w-20 text-right">
-                      ${m.revenue.toLocaleString()}
+                      {formatMemberRevenue(byMember[m.id])}
                     </span>
+                    <button
+                      onClick={() => updateRevenue(m.id)}
+                      disabled={byMember[m.id]?.updating || byMember[m.id]?.loading}
+                      title={byMember[m.id]?.error ?? 'Update revenue'}
+                      aria-label={`Update ${m.name}'s revenue`}
+                      className="p-2 border border-zinc-800 rounded-lg text-zinc-500 hover:text-white hover:border-zinc-700 transition-all disabled:opacity-50"
+                    >
+                      <RefreshCw size={13} className={byMember[m.id]?.updating ? 'animate-spin' : ''} />
+                    </button>
                     <div className="flex gap-1.5">
                       <button
                         onClick={() => navigate(`/operator/members/${m.id}`)}

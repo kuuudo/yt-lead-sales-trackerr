@@ -10,7 +10,7 @@
 // assignment_collaborators/promotions queries, which is a separate step.
 // Flagging this explicitly rather than silently leaving it mock.
 //
-// Same placeholder caveat as Members.tsx: revenue/conversions/cvr are 0
+// Revenue: wired via services/analytics/memberRevenue.ts. conversions/cvr are still 0
 // for every member until analytics wiring happens later. KPIs and Top
 // Performers will render, but with real member count and $0 numbers —
 // that's correct, not broken.
@@ -20,7 +20,7 @@
 // ─────────────────────────────────────────────────────────────────────────────
 
 import React, { useState, useEffect } from 'react';
-import { Users, DollarSign, Target, Activity, Search, Plus, BarChart3, X, Eye, Loader2 } from 'lucide-react';
+import { Users, DollarSign, Target, Activity, Search, Plus, BarChart3, X, Eye, Loader2, RefreshCw } from 'lucide-react';
 import { Link, useNavigate } from 'react-router-dom';
 import { supabase } from '../../lib/supabase';
 import { useOrganization } from '../../lib/useOrganization';
@@ -29,6 +29,7 @@ import { useAuth } from '../../lib/auth';
 import { useTutorial } from '../../lib/tutorial-overlay';
 import OnboardingVideoSection04 from '../../components/onboarding/OnboardingVideo/OnboardingVideoSection04';
 import { workWithYourTeamGuide } from '../../lib/tutorials/workWithYourTeamGuide';
+import { useMemberRevenues, formatMemberRevenue, sumUniqueOrgRevenue } from '../../services/analytics/memberRevenue';
 // POC: single hardcoded target user, same as Members.tsx.
 // Kaksi's privileged operator identity — server-side enforcement lives in
 // is_operator_for_user() and the RLS on kaksi_operator_access. This
@@ -45,24 +46,9 @@ interface OperatorMember {
   id: string;
   name: string;
   email: string;
-  revenue: number;      // placeholder — not wired yet
   conversions: number;  // placeholder — not wired yet
   cvr: number;           // placeholder — not wired yet
 }
-
-// Recent Activity stays mock — see file header note.
-interface ActivityItem {
-  id: string;
-  memberName: string;
-  action: string;
-  timestamp: string;
-}
-
-const mockActivity: ActivityItem[] = [
-  { id: 'a1', memberName: 'John', action: 'imported 2 assets',       timestamp: '5m ago' },
-  { id: 'a2', memberName: 'Mary', action: 'accepted an assignment',  timestamp: '1d ago' },
-  { id: 'a3', memberName: 'Alex', action: 'published 3 promotions',  timestamp: '2d ago' },
-];
 
 function initials(name: string): string {
   return name.split(' ').map(p => p[0]).join('').slice(0, 2).toUpperCase();
@@ -80,6 +66,7 @@ export default function Overview() {
   const [memberSearch, setMemberSearch] = useState('');
   const [enteringAccountId, setEnteringAccountId] = useState<string | null>(null);
   const [viewingError, setViewingError] = useState<string | null>(null);
+  const { byMember, update: updateRevenue } = useMemberRevenues(members.map(m => m.id));
   useEffect(() => {
     if (!organizationId) return;
 
@@ -107,7 +94,6 @@ export default function Overview() {
               id: row.user_id,
               name: profile?.full_name || 'Unnamed member',
               email: profile?.email || '',
-              revenue: 0,       // placeholder — not wired yet
               conversions: 0,   // placeholder — not wired yet
               cvr: 0,            // placeholder — not wired yet
             };
@@ -119,7 +105,6 @@ export default function Overview() {
         // is clicked (enterViewing() -> resolve_member_organization()).
         const alinPoc: OperatorMember = {
           ...ALIN_POC,
-          revenue: 0,
           conversions: 0,
           cvr: 0,
         };
@@ -153,7 +138,6 @@ export default function Overview() {
                   id: row.target_user_id,
                   name: profile?.full_name || profile?.email || 'Unnamed member',
                   email: profile?.email || '',
-                  revenue: 0,       // placeholder — not wired yet
                   conversions: 0,   // placeholder — not wired yet
                   cvr: 0,            // placeholder — not wired yet
                 };
@@ -179,13 +163,15 @@ export default function Overview() {
   }
 
   const memberCount = members.length;
-  const totalRevenue = members.reduce((sum, m) => sum + m.revenue, 0);
+  const anyRevenueLoading = members.some(m => byMember[m.id]?.loading);
+  const totalRevenue = sumUniqueOrgRevenue(members.map(m => byMember[m.id]?.result));
   const totalConversions = members.reduce((sum, m) => sum + m.conversions, 0);
   const avgCvr = members.length
     ? (members.reduce((sum, m) => sum + m.cvr, 0) / members.length).toFixed(1)
     : '0.0';
 
-  const topPerformers = [...members].sort((a, b) => b.revenue - a.revenue).slice(0, 3);
+  const revenueOf = (id: string) => byMember[id]?.result?.totalRevenue ?? 0;
+  const topPerformers = [...members].sort((a, b) => revenueOf(b.id) - revenueOf(a.id)).slice(0, 3);
 
   const filteredMembers = members.filter(m =>
     m.name.toLowerCase().includes(memberSearch.toLowerCase()) ||
@@ -242,7 +228,7 @@ export default function Overview() {
       <section className="grid grid-cols-4 gap-3">
         {[
           { label: 'Members',     value: memberCount,             icon: Users,       color: 'text-zinc-500' },
-          { label: 'Revenue',     value: `$${totalRevenue.toLocaleString()}`, icon: DollarSign, color: 'text-emerald-400' },
+          { label: 'Revenue',     value: anyRevenueLoading ? '…' : `$${totalRevenue.toLocaleString()}`, icon: DollarSign, color: 'text-emerald-400' },
           { label: 'Conversions', value: totalConversions,        icon: Target,      color: 'text-zinc-500' },
           { label: 'Avg CVR',     value: `${avgCvr}%`,             icon: Activity,    color: 'text-zinc-500' },
         ].map(card => (
@@ -305,8 +291,17 @@ export default function Overview() {
 
                 <div className="flex items-center gap-6">
                   <span className="text-sm font-black text-emerald-400 tabular-nums w-20 text-right">
-                    ${m.revenue.toLocaleString()}
+                    {formatMemberRevenue(byMember[m.id])}
                   </span>
+                  <button
+                    onClick={() => updateRevenue(m.id)}
+                    disabled={byMember[m.id]?.updating || byMember[m.id]?.loading}
+                    title={byMember[m.id]?.error ?? 'Update revenue'}
+                    aria-label={`Update ${m.name}'s revenue`}
+                    className="p-2 border border-zinc-800 rounded-lg text-zinc-500 hover:text-white hover:border-zinc-700 transition-all disabled:opacity-50"
+                  >
+                    <RefreshCw size={13} className={byMember[m.id]?.updating ? 'animate-spin' : ''} />
+                  </button>
                   <button
                     onClick={() => handleViewAccount(m)}
                     disabled={enteringAccountId === m.id}
@@ -371,7 +366,7 @@ export default function Overview() {
                     CVR <span className="text-zinc-300">{m.cvr}%</span>
                   </span>
                   <span className="text-sm font-black text-emerald-400 tabular-nums">
-                    ${m.revenue.toLocaleString()}
+                    {formatMemberRevenue(byMember[m.id])}
                   </span>
                 </div>
               </div>
@@ -380,27 +375,6 @@ export default function Overview() {
         )}
       </section>
 
-      {/* ── Recent Activity — STILL MOCK, see file header note ───────────── */}
-      <section className="bento-card p-0 overflow-hidden">
-        <div className="px-6 py-4 border-b border-zinc-900 bg-zinc-900/10">
-          <h2 className="label-caps !text-white">Recent Activity</h2>
-        </div>
-        <div className="divide-y divide-zinc-900/50">
-          {mockActivity.map(item => (
-            <div key={item.id} className="flex items-center gap-3 px-6 py-3">
-              <div className="w-6 h-6 rounded-md bg-zinc-900 border border-zinc-700 flex items-center justify-center text-[8px] font-black text-zinc-400 flex-shrink-0">
-                {initials(item.memberName)}
-              </div>
-              <span className="text-[10px] text-zinc-400 font-bold">
-                {item.memberName} {item.action}
-              </span>
-              <span className="text-[8px] text-zinc-700 font-bold ml-auto whitespace-nowrap">
-                {item.timestamp}
-              </span>
-            </div>
-          ))}
-        </div>
-      </section>
       {showOnboarding && (
   <div className="fixed inset-0 z-[20000] bg-white overflow-auto">
     {/* 

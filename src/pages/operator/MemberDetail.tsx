@@ -25,11 +25,12 @@
 
 import React, { useState, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import { ChevronLeft, DollarSign, Eye, Target, Percent, Loader2 } from 'lucide-react';
+import { ChevronLeft, DollarSign, Eye, Target, Percent, Loader2, RefreshCw } from 'lucide-react';
 import { supabase } from '../../lib/supabase';
 import { useOrganization } from '../../lib/useOrganization';
 import { useViewing } from '../../lib/ViewingContext';
 import { useAuth } from '../../lib/auth';
+import { useMemberRevenues, formatMemberRevenue } from '../../services/analytics/memberRevenue';
 
 // POC: single hardcoded target user, see is_operator_for_user() SQL bypass.
 const ALIN_POC_ID = 'cd180432-44c5-4a20-b778-66b7753191f0';
@@ -44,7 +45,6 @@ interface MemberDetailData {
   id: string;
   name: string;
   email: string;
-  revenue: number;      // placeholder — not wired yet
   views: number;        // placeholder — not wired yet
   conversions: number;  // placeholder — not wired yet
   ctr: number;           // placeholder — not wired yet
@@ -66,6 +66,7 @@ export default function MemberDetail() {
   const [notFound, setNotFound] = useState(false);
   const [enteringViewing, setEnteringViewing] = useState(false);
   const [viewingError, setViewingError] = useState<string | null>(null);
+  const { byMember, update: updateRevenue } = useMemberRevenues(member ? [member.id] : []);
 
   useEffect(() => {
     if (!organizationId || !id) return;
@@ -92,7 +93,6 @@ export default function MemberDetail() {
             id: data.id,
             name: data.full_name || 'Unnamed member',
             email: data.email || '',
-            revenue: 0,
             views: 0,
             conversions: 0,
             ctr: 0,
@@ -140,7 +140,6 @@ export default function MemberDetail() {
                 id: data.id,
                 name: data.full_name || 'Unnamed member',
                 email: data.email || '',
-                revenue: 0,
                 views: 0,
                 conversions: 0,
                 ctr: 0,
@@ -180,7 +179,6 @@ export default function MemberDetail() {
           id: data.user_id,
           name: profile?.full_name || 'Unnamed member',
           email: profile?.email || '',
-          revenue: 0,       // placeholder — not wired yet
           views: 0,         // placeholder — not wired yet
           conversions: 0,   // placeholder — not wired yet
           ctr: 0,            // placeholder — not wired yet
@@ -258,7 +256,7 @@ export default function MemberDetail() {
       {/* ── Stats (placeholders — see file header) ─────────────────────── */}
       <section className="grid grid-cols-4 gap-3">
         {[
-          { label: 'Revenue',     value: `$${member.revenue.toLocaleString()}`, icon: DollarSign, color: 'text-emerald-400' },
+          { label: 'Revenue',     value: formatMemberRevenue(byMember[member.id]), icon: DollarSign, color: 'text-emerald-400' },
           { label: 'Views',       value: member.views.toLocaleString(),         icon: Eye,         color: 'text-white' },
           { label: 'Conversions', value: member.conversions,                    icon: Target,      color: 'text-white' },
           { label: 'CTR',         value: `${member.ctr}%`,                       icon: Percent,     color: 'text-white' },
@@ -272,6 +270,25 @@ export default function MemberDetail() {
           </div>
         ))}
       </section>
+
+      <div className="flex items-center justify-end gap-3 -mt-3">
+        {byMember[member.id]?.result?.asOf && (
+          <span className="text-[9px] font-bold text-zinc-600">
+            Revenue as of {new Date(byMember[member.id]!.result!.asOf!).toLocaleString()}
+          </span>
+        )}
+        {byMember[member.id]?.error && (
+          <span className="text-[9px] font-bold text-red-500">{byMember[member.id]!.error}</span>
+        )}
+        <button
+          onClick={() => updateRevenue(member.id)}
+          disabled={byMember[member.id]?.updating || byMember[member.id]?.loading}
+          className="flex items-center gap-2 px-3 py-2 border border-zinc-800 rounded-lg text-[10px] font-black uppercase tracking-widest text-zinc-300 hover:text-white hover:border-zinc-600 transition-all disabled:opacity-50"
+        >
+          <RefreshCw size={13} className={byMember[member.id]?.updating ? 'animate-spin' : ''} />
+          {byMember[member.id]?.updating ? 'Updating…' : 'Update revenue'}
+        </button>
+      </div>
 
       {/* ── Quick actions ────────────────────────────────────────────────── */}
       <section className="bento-card p-0 overflow-hidden">
