@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { Canvas } from '@react-three/fiber';
 import { Bounds, Center, OrbitControls, useGLTF } from '@react-three/drei';
 import { supabase } from '../lib/supabase';
+import { useViewing } from '../lib/ViewingContext';
 import {
   getOrRefreshCampaignMonthMetrics,
   listOrgCampaigns,
@@ -79,7 +80,7 @@ const EMPTY: CampaignMonthMetrics = {
 export function Tree() {
   const [hoveredBtn, setHoveredBtn] = useState<HeroButtonKey | null>(null);
   const navigate = useNavigate();
-
+  const { viewingOrgId, isReadOnly } = useViewing();
   const [organizationId, setOrganizationId] = useState<string | null>(null);
   const [campaigns, setCampaigns] = useState<{ id: string; name: string }[]>([]);
   const [selectedCampaignId, setSelectedCampaignId] = useState<string | null>(null);
@@ -108,8 +109,19 @@ export function Tree() {
   /** Bumps when campaign/period changes so we never flash the previous selection's numbers. */
   const [metricsStale, setMetricsStale] = useState(false);
 
-  useEffect(() => {
-    let cancelled = false;
+useEffect(() => {
+  if (isReadOnly) {
+    // Operator Mode: use the viewed member's org only. Never fall back to the operator's own.
+    setCampaigns([]);
+    setSelectedCampaignId(null);
+    setCampaignsLoaded(false);
+    setRows([]);
+    setError(viewingOrgId ? null : 'Viewed account unavailable');
+    setOrganizationId(viewingOrgId ?? null);
+    return;
+  }
+
+  let cancelled = false;
     (async () => {
       try {
         const { data: auth } = await supabase.auth.getUser();
@@ -135,7 +147,7 @@ export function Tree() {
     return () => {
       cancelled = true;
     };
-  }, []);
+}, [isReadOnly, viewingOrgId]);
 
   useEffect(() => {
     if (!organizationId) return;
@@ -167,6 +179,7 @@ export function Tree() {
   const loadMetrics = useCallback(
     async (forceRefresh: boolean) => {
       if (!organizationId) return;
+if (forceRefresh && isReadOnly) return;
       setError(null);
       if (forceRefresh) setRefreshing(true);
       else setLoading(true);
@@ -185,7 +198,7 @@ export function Tree() {
         setMetricsStale(false);
       }
     },
-    [organizationId, period],
+    [organizationId, period, isReadOnly],
   );
 
   useEffect(() => {
@@ -344,7 +357,7 @@ export function Tree() {
         <button
           type="button"
           style={styles.updateBtn}
-          disabled={!organizationId || refreshing || loading}
+          disabled={!organizationId || refreshing || loading || isReadOnly}
           onClick={() => void loadMetrics(true)}
         >
           <span className="vstrk-upd-text">{refreshing ? 'Updating…' : 'Update'}</span>
