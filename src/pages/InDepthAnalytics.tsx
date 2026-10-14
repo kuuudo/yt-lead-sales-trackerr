@@ -28,7 +28,7 @@ import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { supabase, Campaign, Video, LeadMagnet } from '../lib/supabase';
 import { useAuth } from '../lib/auth';
-
+import { useViewing } from '../lib/ViewingContext';
 import {
   getAnalyticsEngine,
   buildStripeFromPurchases,
@@ -236,7 +236,15 @@ async function buildSessionLookup(
 let inDepthFetchInFlight: { userId: string; promise: Promise<void> } | null = null;
 
 export default function InDepthAnalyticsTest() {
-  const { user } = useAuth();
+  const { user: authUser } = useAuth();
+  const { viewingMemberId, viewingMemberEmail, viewingOrgId, isReadOnly } = useViewing();
+  // Operator Mode: `user` resolves to the viewed member. Fails closed (null) if the member id is missing.
+  // New object each render in read-only, so hook deps must use user?.id (they already do).
+  const user = isReadOnly
+    ? (viewingMemberId
+        ? ({ id: viewingMemberId, email: viewingMemberEmail ?? undefined } as NonNullable<typeof authUser>)
+        : null)
+    : authUser;
   const navigate = useNavigate();
 
   // ── Raw data state (unchanged) ───────────────────────────────────────────
@@ -310,7 +318,7 @@ export default function InDepthAnalyticsTest() {
   }, []);
 
   useEffect(() => {
-    if (!user) return;
+    if (!user || (isReadOnly && !viewingOrgId)) return;
     const userId = user.id;
 
     const restore = (d: InDepthAnalyticsPageCacheData) => {
@@ -350,7 +358,7 @@ export default function InDepthAnalyticsTest() {
     // 3) Plain miss: fetch.
     console.log('[InDepthAnalytics] Cache miss — fetching from Supabase');
     startFetch(userId);
-  }, [user?.id]);
+  }, [user?.id, isReadOnly, viewingOrgId]);
 
 
   // ── Data fetching (unchanged) ────────────────────────────────────────────
@@ -364,7 +372,9 @@ export default function InDepthAnalyticsTest() {
         .eq('user_id', user!.id)
         .limit(1)
         .maybeSingle();
-      const orgId = membership?.organization_id as string | undefined;
+      const orgId = isReadOnly
+        ? (viewingOrgId ?? undefined)
+        : (membership?.organization_id as string | undefined);
 
       const [{ data: myVideos, error: myVideosErr }, { data: orgCreativeVideos }] = await Promise.all([
         supabase.from('videos').select('*').eq('user_id', user!.id),
