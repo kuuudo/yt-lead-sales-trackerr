@@ -32,6 +32,7 @@ import {
   type PartnerPreset,
   type PartnerTableRow,
 } from '../services/promotion/getPartnerAnalytics';
+import { partnerAnalyticsCaches } from '../lib/partnerAnalyticsPageCache';
 
 type PartnerRange = PartnerPreset;
 type ChartView = 'trend' | 'totals';
@@ -396,11 +397,17 @@ export default function PartnerAnalytics() {
   const [modalOpen, setModalOpen] = useState(false);
 
   const requestIdRef = useRef(0);
+  // Which cacheKey the partners currently in state were loaded/restored for (guards saves after a key change).
+  const dataKeyRef = useRef<string | null>(null);
 
   const customRange =
     preset === 'custom' && customStart && customEnd
       ? { start: new Date(customStart), end: new Date(customEnd) }
       : null;
+
+  const cacheKey = marketerUserId
+    ? `${marketerUserId}|${organizationId ?? ''}|${mode}|${preset}|${preset === 'custom' ? `${customStart}~${customEnd}` : ''}`
+    : null;
 
   const loadParams = useMemo(
     () => ({
@@ -416,6 +423,19 @@ export default function PartnerAnalytics() {
   // Stage 1: snapshot-only
   useEffect(() => {
     const requestId = ++requestIdRef.current;
+
+    const hit = cacheKey ? partnerAnalyticsCaches[mode].get(cacheKey) : null;
+    if (hit) {
+      console.log('[PartnerAnalytics] Cache hit — no refetch');
+      dataKeyRef.current = cacheKey;
+      setPartners(hit.data.partners);
+      setSelectedIds(hit.data.selectedIds);
+      setHasMoreAvailable(hit.data.hasMoreAvailable);
+      setShowingAllPartners(hit.data.showingAllPartners);
+      setError(null);
+      setLoading(false);
+      return;
+    }
     setLoading(true);
     setError(null);
     setHasMoreAvailable(true);
@@ -435,6 +455,7 @@ export default function PartnerAnalytics() {
         if (requestId !== requestIdRef.current) return;
         setPartners(rows);
         setSelectedIds(rows.length ? [rows[0].id] : []);
+        dataKeyRef.current = cacheKey;
       })
       .catch((e: unknown) => {
         if (requestId !== requestIdRef.current) return;
@@ -481,6 +502,20 @@ export default function PartnerAnalytics() {
         if (requestId === requestIdRef.current) setLoadingMore(false);
       });
   }, [loadParams, partners, loadingMore, loading]);
+
+  // Save only a settled, error-free result that belongs to the current key.
+  // Also covers "Show All" (loadMore) and the collapse reload, since it follows state.
+  useEffect(() => {
+    if (!cacheKey || dataKeyRef.current !== cacheKey) return;
+    if (loading || loadingMore || error) return;
+    if (partners.length === 0) return;
+    partnerAnalyticsCaches[mode].set(cacheKey, {
+      partners,
+      selectedIds,
+      hasMoreAvailable,
+      showingAllPartners,
+    });
+  }, [cacheKey, mode, partners, selectedIds, hasMoreAvailable, showingAllPartners, loading, loadingMore, error]);
 
   const changeMode = (m: PartnerMode) => {
     setMode(m);

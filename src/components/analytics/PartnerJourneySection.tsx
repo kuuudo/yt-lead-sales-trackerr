@@ -28,6 +28,7 @@ import { BarChart3, ChevronDown, ChevronLeft, Check, Filter, Loader2, Megaphone,
 import { useAuth } from '../../lib/auth';
 import { useViewing } from '../../lib/ViewingContext';
 import { useOrganization } from '../../lib/useOrganization';
+import { journeyAnalyticsPageCache } from '../../lib/journeyAnalyticsPageCache';
 import { PLATFORM_CONFIG, type Platform } from '../../lib/platformParser';
 import {
   TABLE_COLUMNS,
@@ -343,7 +344,15 @@ const [armed, setArmed] = useState(true);
     setError(null);
     (async () => {
       try {
-        const ds = await loadJourneyDataset(effectiveOrgId, effectiveOrgId, () => cancelled);
+        // Same key as JourneyAnalytics (same dataset, so the two pages share one entry)
+        const key = user?.id && effectiveOrgId ? `${user.id}|${effectiveOrgId}` : null;
+        const hit = key ? journeyAnalyticsPageCache.get(key) : null;
+        if (hit) console.log('[PartnerJourneySection] Cache hit — no refetch');
+        const ds = hit ? hit.data : await loadJourneyDataset(effectiveOrgId, effectiveOrgId, () => cancelled);
+        if (!hit && key && ds && !cancelled) {
+          if (ds.incomplete) console.warn('[PartnerJourneySection] Result not cached (a sub-query failed silently)');
+          else journeyAnalyticsPageCache.set(key, ds);
+        }
         if (!cancelled && ds) setDataset(ds);
       } catch (e: any) {
         if (!cancelled) setError(e?.message ?? String(e));
@@ -354,7 +363,7 @@ const [armed, setArmed] = useState(true);
     return () => {
       cancelled = true;
     };
-  }, [armed, effectiveOrgId]);
+  }, [armed, effectiveOrgId, user?.id]);
 
   // ── Local (non-partner) filters ──────────────────────────────────────────
   const [platforms, setPlatforms] = useState<string[]>([]);
