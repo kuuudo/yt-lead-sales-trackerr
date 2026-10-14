@@ -69,7 +69,7 @@ import {
 import {
   Target, Users, DollarSign,
   Activity, AlertCircle, CheckCircle2, ArrowRight,
-  ShoppingCart, ChevronDown, Settings2, Loader2,
+  ShoppingCart, ChevronDown, Settings2, Loader2, HelpCircle,
 } from 'lucide-react';
 import { PLATFORM_CONFIG } from '../lib/platformParser';
 
@@ -320,7 +320,7 @@ export default function Dashboard() {
     () => new Set(['consultations', 'purchases', 'calls']), // sane bootstrap; recalculated below
   );
   const [columnPanelOpen, setColumnPanelOpen] = useState(false);
-
+  const [revenueHelpOpen, setRevenueHelpOpen] = useState(false);
   // ── Modal state ─────────────────────────────────────────────────────────────
   const [modalConfig, setModalConfig] = useState<{
     isOpen: boolean;
@@ -788,11 +788,42 @@ export default function Dashboard() {
         <div>
           <h1 className="text-3xl font-bold text-white flex items-center gap-3">
             <div className="w-2.5 h-2.5 bg-red-600 rounded-sm shadow-[0_0_15px_rgba(220,38,38,0.5)]" />
-            Revenue Intelligence
+            <span>Revenue Intelligence</span>
+            <span className="relative inline-flex">
+              <button
+                type="button"
+                aria-label="About Revenue Intelligence"
+                aria-expanded={revenueHelpOpen}
+                onClick={() => setRevenueHelpOpen((o) => !o)}
+                className="inline-flex items-center justify-center w-5 h-5 rounded-full border border-zinc-700 text-zinc-500 hover:text-zinc-300 hover:border-zinc-500 transition-colors"
+              >
+                <HelpCircle size={12} />
+              </button>
+              {revenueHelpOpen && (
+                <>
+                  <div
+                    className="fixed inset-0 z-40"
+                    aria-hidden
+                    onClick={() => setRevenueHelpOpen(false)}
+                  />
+                  <div
+                    role="dialog"
+                    aria-label="About Revenue Intelligence"
+                    className="absolute left-0 top-full mt-2 z-50 w-72 max-w-[min(18rem,calc(100vw-2rem))] rounded-xl border border-zinc-800 bg-zinc-900 p-3 shadow-2xl"
+                  >
+                    <p className="text-[10px] font-black uppercase tracking-widest text-zinc-500 mb-1.5">
+                      Content Performance
+                    </p>
+                    <p className="text-[11px] leading-relaxed text-zinc-300 font-medium">
+                      See how content across your organization performs. Selecting a
+                      campaign filters the metrics to videos in that campaign. Revenue
+                      may include estimated values, so it may differ from Tree.
+                    </p>
+                  </div>
+                </>
+              )}
+            </span>
           </h1>
-          <p className="text-zinc-500 text-[10px] uppercase font-bold tracking-[0.2em] mt-1">
-            Operational Revenue View
-          </p>
         </div>
         <Link
           to="/analytics/indepth"

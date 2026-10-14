@@ -79,6 +79,7 @@ const EMPTY: CampaignMonthMetrics = {
 
 export function Tree() {
   const [hoveredBtn, setHoveredBtn] = useState<HeroButtonKey | null>(null);
+  const [treeHelpOpen, setTreeHelpOpen] = useState(false);
   const navigate = useNavigate();
   const { viewingOrgId, isReadOnly } = useViewing();
   const [organizationId, setOrganizationId] = useState<string | null>(null);
@@ -256,7 +257,91 @@ if (forceRefresh && isReadOnly) return;
       <div className="vstrk-topbar" style={styles.topBar}>
         <div className="vstrk-brand" style={styles.brand}>
           <div style={styles.brandDot} />
-          <span style={styles.brandLabel}>VS-TRK</span>
+          <span style={styles.brandLabel}>Tree</span>
+          <span style={{ position: 'relative', display: 'inline-flex', marginLeft: 4 }}>
+            <button
+              type="button"
+              aria-label="About Tree Revenue"
+              aria-expanded={treeHelpOpen}
+              onClick={() => setTreeHelpOpen((o) => !o)}
+              style={{
+                width: 18,
+                height: 18,
+                borderRadius: 999,
+                border: '1px solid #333',
+                background: 'transparent',
+                color: '#737373',
+                fontSize: 11,
+                fontWeight: 700,
+                lineHeight: 1,
+                cursor: 'pointer',
+                display: 'inline-flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                padding: 0,
+              }}
+            >
+              ?
+            </button>
+            {treeHelpOpen && (
+              <>
+                <div
+                  aria-hidden
+                  onClick={() => setTreeHelpOpen(false)}
+                  style={{
+                    position: 'fixed',
+                    inset: 0,
+                    zIndex: 40,
+                  }}
+                />
+                <div
+                  role="dialog"
+                  aria-label="About Tree Revenue"
+                  style={{
+                    position: 'absolute',
+                    left: 0,
+                    top: '100%',
+                    marginTop: 8,
+                    zIndex: 50,
+                    width: 288,
+                    maxWidth: 'min(18rem, calc(100vw - 2rem))',
+                    borderRadius: 12,
+                    border: '1px solid #27272a',
+                    background: '#18181b',
+                    padding: 12,
+                    boxShadow: '0 25px 50px -12px rgba(0,0,0,0.5)',
+                  }}
+                >
+                  <p
+                    style={{
+                      margin: '0 0 6px 0',
+                      fontSize: 10,
+                      fontWeight: 800,
+                      letterSpacing: '0.12em',
+                      textTransform: 'uppercase',
+                      color: '#71717a',
+                    }}
+                  >
+                    Campaign Revenue
+                  </p>
+                  <p
+                    style={{
+                      margin: 0,
+                      fontSize: 11,
+                      lineHeight: 1.5,
+                      color: '#d4d4d8',
+                      fontWeight: 500,
+                    }}
+                  >
+                    See paid revenue from conversions recorded under this campaign.
+                    Conversions without a campaign assignment and estimated call
+                    revenue are excluded. Tree and Dashboard may differ because they
+                    use different attribution and reporting rules.
+                  </p>
+                </div>
+              </>
+            )}
+          </span>
         </div>
 
         <div className="vstrk-tabs" style={styles.headerActions}>
