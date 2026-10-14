@@ -381,7 +381,7 @@ export default function DashboardWidget({ widget, onUpdate }: Props) {
         setStripePurchases(enrichedStripe)
         setPixelPurchases(enrichedPixel)
 
-
+const hadQueryError = !!(eDirectData.error || spData.error || (ppData as any).error)
         if (owned && !hadQueryError) {
           dashboardWidgetPageCache.set(organizationId, {
             videos: vRes.data,
