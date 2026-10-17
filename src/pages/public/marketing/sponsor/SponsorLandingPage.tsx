@@ -33,10 +33,16 @@ const mono = (color = C.mut, size = 11): React.CSSProperties => ({
 /* ───────────────────────────── CONTENT ───────────────────────────── */
 
 const HERO = {
-  eyebrow: 'For sponsors, brands & businesses working with creators',
-  headline: 'Which YouTube videos and creators actually generate sales for your business?',
-  sub: 'Imagine working with ten different creators and being able to see which videos bring in clicks, which lead to conversions, and which generate actual revenue — without creating and manually distributing a brand-new sponsor link every time someone publishes.',
-  closer: 'That’s what VSTRK is designed to help you do.',
+  eyebrow: 'To Sponsors & Brands',
+  headline: "You Know Which Marketers Make You Money. But Do You Know What Their Content Is Actually Doing?",
+  paragraphs: [
+    "You're investing in creators, marketers, and campaigns. You can see how much revenue they generate — but can you see which videos capture attention, which content educates potential customers, which builds interest and trust, and which ultimately drives sales?",
+    "Without that visibility, you risk overlooking winning content, repeating ineffective strategies, and spending money without understanding what's actually working.",
+  ],
+  emphasis:
+    'VSTRK helps you connect content performance to business results — so you can identify what works, understand what drives sales, and make smarter marketing decisions.',
+  statement:
+    'We help sponsors and brands working with multiple creators and marketers understand what drives their marketing results by connecting and comparing performance, conversion events, revenue, and customer journeys across individual content, campaigns, and supported platforms over time — so they can identify what works, uncover opportunities, reduce wasted spend, and make smarter decisions about what to scale, improve, or stop.',
 };
 
 const SCENARIOS = [
@@ -269,10 +275,22 @@ export default function SponsorLandingPage({ embedded = false }: { embedded?: bo
         <h1 style={{ fontSize: 'clamp(30px, 6vw, 52px)', fontWeight: 700, lineHeight: 1.08, margin: 0, maxWidth: 800 }}>
           {HERO.headline}
         </h1>
-        <p style={{ fontSize: 'clamp(16px, 2.2vw, 19px)', color: C.mut, lineHeight: 1.65, margin: '20px 0 0', maxWidth: 680 }}>
-          {HERO.sub}
+        {HERO.paragraphs.map((t) => (
+          <p key={t} style={{ fontSize: 'clamp(16px, 2.2vw, 19px)', color: C.mut, lineHeight: 1.65, margin: '20px 0 0', maxWidth: 700 }}>
+            {t}
+          </p>
+        ))}
+        <p style={{ fontSize: 'clamp(16px, 2.2vw, 19px)', fontWeight: 600, lineHeight: 1.6, margin: '20px 0 0', maxWidth: 700 }}>
+          {HERO.emphasis}
         </p>
-        <p style={{ fontSize: 17, fontWeight: 600, margin: '16px 0 26px' }}>{HERO.closer}</p>
+        <p
+          style={{
+            margin: '24px 0 28px', padding: '16px 18px', borderLeft: `3px solid ${C.purple}`, background: C.panel,
+            borderRadius: '0 10px 10px 0', fontSize: 14.5, color: C.mut, lineHeight: 1.7, maxWidth: 760,
+          }}
+        >
+          {HERO.statement}
+        </p>
         <div style={{ display: 'flex', flexWrap: 'wrap', gap: 10 }}>
           <Cta href={SPONSOR_DEMO_WHATSAPP_URL} external>{waLabel} →</Cta>
           {!embedded && <Cta solid={false} href={DEMO_HREF}>See the interactive demo</Cta>}
