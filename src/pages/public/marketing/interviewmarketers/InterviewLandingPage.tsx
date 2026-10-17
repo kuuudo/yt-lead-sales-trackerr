@@ -82,6 +82,74 @@ const AUDIENCE = [
   'You’d like evidence to weigh alongside your own judgment and your sense of team fit.',
 ];
 
+
+const SCENARIOS = [
+  { t: 'The great interview', b: 'A candidate answers every question perfectly and has a strong résumé. Once hired, the campaigns they run don’t move the needle.' },
+  { t: 'The overlooked one', b: 'Another candidate interviews quietly and has a thinner résumé. With a real product in hand, they would have found an angle nobody else tried.' },
+  { t: 'Last year’s playbook', b: 'A third candidate’s best results came from tactics that suited last year’s platforms and audiences. You can’t tell whether those tactics work now.' },
+];
+
+const COSTS = [
+  { t: 'Salary and time', b: 'Months of pay and onboarding go to someone who turns out not to be the right fit.' },
+  { t: 'Lost momentum', b: 'Campaigns, budget and attention are spent learning what you could have seen before you hired.' },
+  { t: 'Starting over', b: 'You reopen the role and sift through another pile of applications from scratch.' },
+];
+
+const THOUGHTS = [
+  'Which of these hundred applicants is actually good?',
+  'I’m not a marketer myself. How do I judge the work?',
+  'Their last company’s results may not carry over to our product.',
+  'If I get this hire wrong, we lose months.',
+  'Everyone says they use AI now. What does that actually mean?',
+  'I don’t want to overlook the person who would have been great.',
+];
+
+const SCORECARD = [
+  { d: 'Creativity', w: 'The ideas and angles they chose for your product', s: 'Their content' },
+  { d: 'Execution', w: 'How well and how consistently they published', s: 'Their content' },
+  { d: 'Reach and engagement', w: 'Traffic and engagement signals the platforms make available', s: 'Platform data' },
+  { d: 'Conversions', w: 'Conversion events attributable to their promotion', s: 'VSTRK tracking' },
+  { d: 'Revenue', w: 'Attributable revenue, where it is available', s: 'VSTRK tracking' },
+  { d: 'Momentum over time', w: 'Whether results build, hold or fade', s: 'VSTRK tracking' },
+  { d: 'Team fit', w: 'How they communicate, take direction and collaborate', s: 'Your judgment' },
+];
+
+const RUN_PHASES = [
+  { t: 'Before you start', items: [
+    'Pick the product, offer or website you want promoted.',
+    'Decide what a good result looks like for your business.',
+    'Write one short brief that every candidate receives.',
+    'Set the timeframe and rules, and tell candidates what you’ll evaluate.',
+  ] },
+  { t: 'While it runs', items: [
+    'Share the same asset with every participating candidate.',
+    'Let them choose their own approach and platforms.',
+    'Answer questions, but don’t steer their strategy.',
+    'Watch activity and results build up in VSTRK.',
+  ] },
+  { t: 'When it ends', items: [
+    'Compare activity and results side by side.',
+    'Look at the ideas behind the numbers.',
+    'Talk to your top candidates about what they did and why.',
+    'Decide using the evidence together with your own judgment.',
+  ] },
+];
+
+const FORMATS = [
+  { t: 'A shortlist challenge', b: 'Run it with a handful of finalists after your first screening.' },
+  { t: 'An open competition', b: 'Invite a wider group to surface talent a résumé screen might have filtered out.' },
+  { t: 'A final-round challenge', b: 'Use it as the last step between two or three finalists.' },
+];
+
+const FAQ = [
+  { q: 'Will strong candidates take part in something like this?', a: 'Some will and some won’t. It tends to go better when the task is clearly scoped, the timeframe is reasonable, the rules are explained up front, and candidates understand what they get from taking part. Think about whether and how to compensate participants.' },
+  { q: 'Is it fine to have candidates promote a real product?', a: 'Rules about trial work, unpaid work and promotions differ by country and by how a challenge is run. Check with a legal or HR adviser before you start. VSTRK can’t give legal advice.' },
+  { q: 'Does the candidate with the most revenue win?', a: 'No. Revenue is one signal among several. Use it alongside the quality of the ideas, the consistency of the work, and how well the person fits your team.' },
+  { q: 'What if a platform doesn’t provide some of the data?', a: 'VSTRK shows what connected platforms and tracking make available. If a metric isn’t available, it isn’t shown, and you judge on the rest.' },
+  { q: 'Do I need to be a marketer to judge the results?', a: 'It helps to have someone who can review the ideas. The tracked results give you a shared, concrete starting point for that conversation.' },
+  { q: 'Can I see the product before I talk to anyone?', a: 'Yes. The interactive demo walks through the product step by step, and you can open it any time.' },
+];
+
 /* ───────────────────────────── PIECES ───────────────────────────── */
 
 type CtaProps = { solid?: boolean; href: string; external?: boolean; children: React.ReactNode };
@@ -181,6 +249,45 @@ function withHighlights(text: string, phrases: string[]): React.ReactNode[] {
   }
   if (rest) out.push(<React.Fragment key={k++}>{rest}</React.Fragment>);
   return out;
+}
+
+function Faq({ items }: { items: { q: string; a: string }[] }) {
+  return (
+    <div style={{ display: 'grid', gap: 10 }}>
+      {items.map((f) => (
+        <details key={f.q} style={{ background: C.card, border: `0.5px solid ${C.line}`, borderRadius: 12, padding: '14px 18px' }}>
+          <summary style={{ cursor: 'pointer', fontWeight: 600, fontSize: 15.5, lineHeight: 1.45 }}>{f.q}</summary>
+          <p style={{ color: C.mut, fontSize: 14.5, lineHeight: 1.65, margin: '10px 0 0', maxWidth: 680 }}>{f.a}</p>
+        </details>
+      ))}
+    </div>
+  );
+}
+
+function Scorecard() {
+  const cell: React.CSSProperties = { padding: '11px 14px', borderBottom: `0.5px solid ${C.line}`, fontSize: 14, lineHeight: 1.5, textAlign: 'left', verticalAlign: 'top' };
+  return (
+    <div style={{ overflowX: 'auto', background: C.panel, border: `0.5px solid ${C.line}`, borderRadius: 12 }}>
+      <table style={{ width: '100%', minWidth: 560, borderCollapse: 'collapse' }}>
+        <thead>
+          <tr>
+            {['What to compare', 'What you look at', 'Where it comes from'].map((h) => (
+              <th key={h} scope="col" style={{ ...cell, ...mono(C.lp, 10.5), fontWeight: 700 }}>{h}</th>
+            ))}
+          </tr>
+        </thead>
+        <tbody>
+          {SCORECARD.map((r) => (
+            <tr key={r.d}>
+              <th scope="row" style={{ ...cell, fontWeight: 600 }}>{r.d}</th>
+              <td style={{ ...cell, color: C.mut }}>{r.w}</td>
+              <td style={{ ...cell, color: r.s === 'Your judgment' ? C.amber : C.lp }}>{r.s}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  );
 }
 
 /** Hiring on paper vs. hiring with a live challenge. Illustrative — labelled as such. */
@@ -286,7 +393,7 @@ export default function InterviewLandingPage({ embedded = false }: { embedded?: 
 
         <PaperVsChallenge />
 
-        {/* 2 · PROBLEM */}
+        {/* 2 · PAIN: why paper isn't enough */}
         <Section
           label="Why paper isn’t enough"
           title="Résumés show claims. A real challenge shows execution."
@@ -297,10 +404,51 @@ export default function InterviewLandingPage({ embedded = false }: { embedded?: 
               <Card key={s.t} title={s.t}>{s.b}</Card>
             ))}
           </div>
+        </Section>
+
+        {/* 2b · PAIN: story */}
+        <Section
+          label="The problem"
+          title="Three candidates. One shortlist. Very different outcomes."
+          sub="Imagine three people who all look strong on paper:"
+        >
+          <div style={grid(250)}>
+            {SCENARIOS.map((s, i) => (
+              <Card key={s.t} title={s.t} num={`Imagine · 0${i + 1}`}>{s.b}</Card>
+            ))}
+          </div>
+          <p style={{ color: C.mut, fontSize: 15.5, lineHeight: 1.65, margin: '20px 0 0', maxWidth: 680 }}>
+            With only paper and conversation to go on, all three can look equally convincing. You may not find out which one can
+            deliver until months after the decision is made.
+          </p>
+          <div style={{ ...grid(250), marginTop: 20 }}>
+            {COSTS.map((c) => (
+              <Card key={c.t} title={c.t}>{c.b}</Card>
+            ))}
+          </div>
           <Callout>Stop guessing which candidates understand modern marketing. Watch them do it.</Callout>
         </Section>
 
-        {/* 3 · THE IDEA */}
+        {/* 3 · FEELINGS */}
+        <Section
+          label="What hiring a marketer feels like right now"
+          title="You’re being asked to judge work you can’t see yet"
+          sub="If you’re the founder, hiring manager or marketing lead making this call, some of these questions probably sound familiar:"
+        >
+          <div style={grid(300)}>
+            {THOUGHTS.map((q) => (
+              <div key={q} style={{ background: C.card, border: `0.5px solid ${C.line}`, borderRadius: 10, padding: '14px 16px', fontSize: 15, lineHeight: 1.45 }}>
+                {q}
+              </div>
+            ))}
+          </div>
+          <p style={{ color: C.mut, fontSize: 15.5, lineHeight: 1.65, margin: '20px 0 0', maxWidth: 700 }}>
+            None of that is a sign you’re hiring badly. It’s what happens when the market changes faster than the tools we use to
+            evaluate people. A challenge built on your own product gives you something concrete to look at instead.
+          </p>
+        </Section>
+
+        {/* 4 · THE IDEA */}
         <Section
           label="A different way to hire"
           title="Turn the hiring process into a real-world marketing competition"
@@ -313,7 +461,7 @@ export default function InterviewLandingPage({ embedded = false }: { embedded?: 
           </div>
         </Section>
 
-        {/* 4 · WHAT YOU CAN DISCOVER */}
+        {/* 5 · WHAT YOU CAN LEARN + COMPARE */}
         <Section
           label="What you can learn"
           title="See how each candidate actually approaches your product"
@@ -327,13 +475,20 @@ export default function InterviewLandingPage({ embedded = false }: { embedded?: 
               </li>
             ))}
           </ul>
+          <div style={{ marginTop: 28 }}>
+            <Scorecard />
+          </div>
+          <p style={{ color: C.mut, fontSize: 14, lineHeight: 1.6, margin: '12px 0 0', maxWidth: 700 }}>
+            Some of what matters most, like creativity and team fit, doesn’t show up as a number. That’s why VSTRK gives you
+            evidence to weigh, not a verdict.
+          </p>
           <Callout>
             Revenue alone doesn’t decide who the best marketer is. The goal is more useful evidence to combine with your own
             judgment, your interviews, and your read on team fit.
           </Callout>
         </Section>
 
-        {/* 5 · MECHANISM */}
+        {/* 6 · MECHANISM */}
         <Section
           label="How VSTRK makes it trackable"
           title="One destination, many candidates, results that stay attached to each person"
@@ -348,6 +503,46 @@ export default function InterviewLandingPage({ embedded = false }: { embedded?: 
             VSTRK reports the activity and performance data that connected platforms make available. It doesn’t guarantee a
             successful hire, predict future performance, or show metrics a platform doesn’t provide.
           </p>
+        </Section>
+
+        {/* 7 · RUN IT */}
+        <Section
+          label="Running a challenge"
+          title="What it looks like from start to finish"
+          sub="These are suggestions for how a company might run one. You decide the scope, the timeframe and the rules."
+        >
+          <div style={grid(260)}>
+            {RUN_PHASES.map((ph, i) => (
+              <div key={ph.t} style={{ background: C.card, border: `0.5px solid ${i === 1 ? C.purple : C.line}`, borderRadius: 12, padding: '16px 18px' }}>
+                <div style={{ fontWeight: 600, fontSize: 15.5, marginBottom: 10 }}>{ph.t}</div>
+                <ul style={{ listStyle: 'none', margin: 0, padding: 0, display: 'grid', gap: 8 }}>
+                  {ph.items.map((it) => (
+                    <li key={it} style={{ display: 'flex', gap: 10, color: C.mut, fontSize: 14, lineHeight: 1.55 }}>
+                      <span aria-hidden="true" style={{ color: C.lp, flex: 'none' }}>•</span>
+                      <span>{it}</span>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            ))}
+          </div>
+        </Section>
+
+        {/* 7b · FORMATS */}
+        <Section
+          label="Ways to use it"
+          title="Fit the challenge to the role you’re hiring for"
+          sub="There isn’t one right format. Companies might choose to run it:"
+        >
+          <div style={grid(250)}>
+            {FORMATS.map((f) => (
+              <Card key={f.t} title={f.t}>{f.b}</Card>
+            ))}
+          </div>
+          <div style={{ marginTop: 20, display: 'flex', flexWrap: 'wrap', gap: 10 }}>
+            <Cta href={INTERVIEW_DEMO_WHATSAPP_URL} external>{waLabel} →</Cta>
+            {!embedded && <Cta solid={false} href={DEMO_HREF}>See the interactive demo</Cta>}
+          </div>
         </Section>
 
         {/* 6 · DEMO */}
@@ -388,7 +583,12 @@ export default function InterviewLandingPage({ embedded = false }: { embedded?: 
           </ul>
         </Section>
 
-        {/* 8 · NEXT STEPS */}
+        {/* 8 · OBJECTIONS */}
+        <Section label="Questions you may have" title="Honest answers before you decide">
+          <Faq items={FAQ} />
+        </Section>
+
+        {/* 9 · NEXT STEPS */}
         <section
           style={{
             marginTop: 96, background: C.panel, border: `1px solid ${C.purple}`, borderRadius: 16,
