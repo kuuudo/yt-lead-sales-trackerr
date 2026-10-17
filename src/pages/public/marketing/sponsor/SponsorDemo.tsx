@@ -11,12 +11,9 @@
 // ─────────────────────────────────────────────────────────────────────────
 
 import React, { useCallback, useMemo, useState } from 'react';
-import {
-  FOUNDER_VIDEO_URL,
-  SPONSOR_DEMO_WHATSAPP_URL,
-  SPONSOR_LANDING_CONTENT,
-} from './sponsorDemoConfig';
+import { FOUNDER_VIDEO_URL, SPONSOR_DEMO_WHATSAPP_URL } from './sponsorDemoConfig';
 import { SPONSOR_DEMO_VIDEOS } from './sponsorDemoVideos';
+import SponsorLandingPage from './SponsorLandingPage';
 
 const ACCENT = '#5b3df0';
 const INK = '#15151f';
@@ -111,49 +108,6 @@ function StartHere() {
   );
 }
 
-function LandingPage() {
-  const c = SPONSOR_LANDING_CONTENT;
-  const empty = !c.headline && !c.subheadline && c.points.length === 0;
-  return (
-    <div style={{ width: '100%', maxWidth: 820, margin: '0 auto', padding: '40px 20px', fontFamily: '-apple-system, BlinkMacSystemFont, "Helvetica Neue", sans-serif' }}>
-      {empty ? (
-        <Placeholder title="Sponsor landing page — content not provided yet">
-          Add the headline, sub-headline and benefit points in <code>sponsorDemoConfig.ts</code>.
-        </Placeholder>
-      ) : (
-        <>
-          {c.eyebrow && (
-            <div style={{ fontFamily: MONO, fontSize: 11, fontWeight: 700, letterSpacing: 0.8, textTransform: 'uppercase', color: ACCENT, marginBottom: 12 }}>
-              {c.eyebrow}
-            </div>
-          )}
-          {c.headline && <h1 style={{ fontSize: 'clamp(26px, 5vw, 40px)', fontWeight: 800, color: INK, margin: '0 0 14px', lineHeight: 1.15 }}>{c.headline}</h1>}
-          {c.subheadline && <p style={{ fontSize: 17, color: MUTED, margin: '0 0 28px', lineHeight: 1.55 }}>{c.subheadline}</p>}
-          {c.points.length > 0 && (
-            <div style={{ display: 'grid', gap: 12, marginBottom: 28 }}>
-              {c.points.map((p, i) => (
-                <div key={i} style={{ border: `1px solid ${LINE}`, borderRadius: 12, padding: '14px 16px' }}>
-                  <div style={{ fontWeight: 800, color: INK, fontSize: 15 }}>{p.title}</div>
-                  {p.body && <div style={{ color: MUTED, fontSize: 13.5, marginTop: 4, lineHeight: 1.5 }}>{p.body}</div>}
-                </div>
-              ))}
-            </div>
-          )}
-        </>
-      )}
-      <WhatsAppLink
-        style={{
-          display: 'inline-block', marginTop: empty ? 20 : 0, background: ACCENT, color: '#fff', borderRadius: 8,
-          padding: '12px 20px', fontSize: 13, fontWeight: 700, textDecoration: 'none',
-          boxShadow: '0 6px 16px rgba(91,61,240,0.3)',
-        }}
-      >
-        {c.ctaLabel || 'Contact VSTRK on WhatsApp'} →
-      </WhatsAppLink>
-    </div>
-  );
-}
-
 export default function SponsorDemo() {
   const [index, setIndex] = useState(0);
   const step = STEPS[index];
@@ -171,7 +125,7 @@ export default function SponsorDemo() {
 
   let body: React.ReactNode;
   if (step.key === 'start') body = <StartHere />;
-  else if (step.key === 'landing') body = <LandingPage />;
+  else if (step.key === 'landing') body = <SponsorLandingPage embedded />;
   else {
     const Video = SPONSOR_DEMO_VIDEOS[step.key];
     body = Video ? (
@@ -204,7 +158,7 @@ export default function SponsorDemo() {
       </div>
 
       {/* Body */}
-      <div style={{ flex: 1, minHeight: 0, overflowY: 'auto', display: 'flex', flexDirection: 'column', justifyContent: 'center' }}>
+      <div style={{ flex: 1, minHeight: 0, overflowY: 'auto', display: 'flex', flexDirection: 'column', justifyContent: step.key === 'landing' ? 'flex-start' : 'center' }}>
         {body}
       </div>
 

@@ -74,6 +74,7 @@ import AssetAnalyticsMock from './pages/AssetAnalyticsMock';
 import AdminCustomers from './pages/AdminCustomers';
 import Team from './pages/Team';
 import SponsorDemo from './pages/public/marketing/sponsor/SponsorDemo';
+import SponsorLandingPage from './pages/public/marketing/sponsor/SponsorLandingPage';
 import { useMyTeam } from './lib/useMyTeam';
 // Top-level path segments that are "real" app pages (i.e. matched by an
 // explicit <Route> before the catch-all "/:token" route). If a single-segment
@@ -112,11 +113,21 @@ function isSponsorDemoRoute(pathname: string): boolean {
   return SPONSOR_DEMO_PATHS.includes(pathname.replace(/\/+$/, ''));
 }
 
+// Standalone public sponsor landing page (shareable link: vstrk.com/1y).
+// Same rules as the demo: registered in BOTH route tables, chrome hidden.
+// NOTE: do NOT add '1y' to KNOWN_APP_PATHS. As a bare single-segment path it
+// is treated by isRelayRoute() as chrome-less + exempt from the access gate,
+// which is exactly what a public marketing page needs.
+const SPONSOR_LANDING_PATHS = ['/1y'];
+function isSponsorLandingRoute(pathname: string): boolean {
+  return SPONSOR_LANDING_PATHS.includes(pathname.replace(/\/+$/, ''));
+}
+
 // Renders the top nav + viewing banner everywhere EXCEPT the relay/token
 // redirect routes, without touching in-app navigation at all.
 function AppChrome() {
   const location = useLocation();
-  if (isRelayRoute(location.pathname) || isSponsorDemoRoute(location.pathname)) return null;
+  if (isRelayRoute(location.pathname) || isSponsorDemoRoute(location.pathname) || isSponsorLandingRoute(location.pathname)) return null;
 
   return (
     <>
@@ -590,6 +601,9 @@ function MainContent() {
         {SPONSOR_DEMO_PATHS.map(path => (
           <Route key={path} path={path} element={<SponsorDemo />} />
         ))}
+        {SPONSOR_LANDING_PATHS.map(path => (
+          <Route key={path} path={path} element={<SponsorLandingPage />} />
+        ))}
         {/* Phase 1 continuation relay — infrastructure only. Must be above /:token,
             and /r/platform must be above /r/:relayToken or it never matches. */}
         <Route path="/r/platform" element={<PlatformContinuation />} />
@@ -609,6 +623,9 @@ function MainContent() {
         <Route path="/login" element={<Navigate to="/tree" replace />} />
         {SPONSOR_DEMO_PATHS.map(path => (
           <Route key={path} path={path} element={<SponsorDemo />} />
+        ))}
+        {SPONSOR_LANDING_PATHS.map(path => (
+          <Route key={path} path={path} element={<SponsorLandingPage />} />
         ))}
         <Route path="/" element={<Navigate to="/tree" replace />} />
         <Route path="/dashboard" element={<PageWrapper><Dashboard /></PageWrapper>} />
