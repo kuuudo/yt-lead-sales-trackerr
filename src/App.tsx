@@ -75,6 +75,8 @@ import AdminCustomers from './pages/AdminCustomers';
 import Team from './pages/Team';
 import SponsorDemo from './pages/public/marketing/sponsor/SponsorDemo';
 import SponsorLandingPage from './pages/public/marketing/sponsor/SponsorLandingPage';
+import InterviewDemo from './pages/public/marketing/interviewmarketers/InterviewDemo';
+import InterviewLandingPage from './pages/public/marketing/interviewmarketers/InterviewLandingPage';
 import { useMyTeam } from './lib/useMyTeam';
 // Top-level path segments that are "real" app pages (i.e. matched by an
 // explicit <Route> before the catch-all "/:token" route). If a single-segment
@@ -123,11 +125,22 @@ function isSponsorLandingRoute(pathname: string): boolean {
   return SPONSOR_LANDING_PATHS.includes(pathname.replace(/\/+$/, ''));
 }
 
+// Public "companies hiring marketing talent" pages (separate copy of the sponsor set).
+//   landing: vstrk.com/2x           demo: vstrk.com/insights/2u
+// Same rules as the sponsor pages: registered in BOTH route tables, chrome hidden.
+// NOTE: do NOT add '2x' to KNOWN_APP_PATHS (same reason as '1y' above).
+const INTERVIEW_DEMO_PATHS = ['/insights/2u'];
+const INTERVIEW_LANDING_PATHS = ['/2x'];
+function isInterviewRoute(pathname: string): boolean {
+  const p = pathname.replace(/\/+$/, '');
+  return INTERVIEW_DEMO_PATHS.includes(p) || INTERVIEW_LANDING_PATHS.includes(p);
+}
+
 // Renders the top nav + viewing banner everywhere EXCEPT the relay/token
 // redirect routes, without touching in-app navigation at all.
 function AppChrome() {
   const location = useLocation();
-  if (isRelayRoute(location.pathname) || isSponsorDemoRoute(location.pathname) || isSponsorLandingRoute(location.pathname)) return null;
+  if (isRelayRoute(location.pathname) || isSponsorDemoRoute(location.pathname) || isSponsorLandingRoute(location.pathname) || isInterviewRoute(location.pathname)) return null;
 
   return (
     <>
@@ -604,6 +617,12 @@ function MainContent() {
         {SPONSOR_LANDING_PATHS.map(path => (
           <Route key={path} path={path} element={<SponsorLandingPage />} />
         ))}
+        {INTERVIEW_DEMO_PATHS.map(path => (
+          <Route key={path} path={path} element={<InterviewDemo />} />
+        ))}
+        {INTERVIEW_LANDING_PATHS.map(path => (
+          <Route key={path} path={path} element={<InterviewLandingPage />} />
+        ))}
         {/* Phase 1 continuation relay — infrastructure only. Must be above /:token,
             and /r/platform must be above /r/:relayToken or it never matches. */}
         <Route path="/r/platform" element={<PlatformContinuation />} />
@@ -626,6 +645,12 @@ function MainContent() {
         ))}
         {SPONSOR_LANDING_PATHS.map(path => (
           <Route key={path} path={path} element={<SponsorLandingPage />} />
+        ))}
+        {INTERVIEW_DEMO_PATHS.map(path => (
+          <Route key={path} path={path} element={<InterviewDemo />} />
+        ))}
+        {INTERVIEW_LANDING_PATHS.map(path => (
+          <Route key={path} path={path} element={<InterviewLandingPage />} />
         ))}
         <Route path="/" element={<Navigate to="/tree" replace />} />
         <Route path="/dashboard" element={<PageWrapper><Dashboard /></PageWrapper>} />
