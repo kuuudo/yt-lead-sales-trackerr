@@ -73,6 +73,7 @@ import CampaignStructureMap from './pages/CampaignStructureMap';
 import AssetAnalyticsMock from './pages/AssetAnalyticsMock';
 import AdminCustomers from './pages/AdminCustomers';
 import Team from './pages/Team';
+import SponsorDemo from './pages/public/marketing/sponsor/SponsorDemo';
 import { useMyTeam } from './lib/useMyTeam';
 // Top-level path segments that are "real" app pages (i.e. matched by an
 // explicit <Route> before the catch-all "/:token" route). If a single-segment
@@ -103,11 +104,19 @@ function isRelayRoute(pathname: string): boolean {
   return segments.length === 1 && !KNOWN_APP_PATHS.has(segments[0]);
 }
 
+// Public, login-free sponsor demo (shareable link). Full-screen, so the app
+// nav bar is hidden here. Registered in BOTH the logged-out and logged-in
+// route tables below; it renders only static presentation content.
+const SPONSOR_DEMO_PATHS = ['/insights/1e'];
+function isSponsorDemoRoute(pathname: string): boolean {
+  return SPONSOR_DEMO_PATHS.includes(pathname.replace(/\/+$/, ''));
+}
+
 // Renders the top nav + viewing banner everywhere EXCEPT the relay/token
 // redirect routes, without touching in-app navigation at all.
 function AppChrome() {
   const location = useLocation();
-  if (isRelayRoute(location.pathname)) return null;
+  if (isRelayRoute(location.pathname) || isSponsorDemoRoute(location.pathname)) return null;
 
   return (
     <>
@@ -578,6 +587,9 @@ function MainContent() {
     <Routes>
         <Route path="/testimonials" element={<PageWrapper><Testimonials /></PageWrapper>} />
         <Route path="/website" element={<PageWrapper><Website /></PageWrapper>} />
+        {SPONSOR_DEMO_PATHS.map(path => (
+          <Route key={path} path={path} element={<SponsorDemo />} />
+        ))}
         {/* Phase 1 continuation relay — infrastructure only. Must be above /:token,
             and /r/platform must be above /r/:relayToken or it never matches. */}
         <Route path="/r/platform" element={<PlatformContinuation />} />
@@ -595,6 +607,9 @@ function MainContent() {
     <AnimatePresence mode="wait">
       <Routes>
         <Route path="/login" element={<Navigate to="/tree" replace />} />
+        {SPONSOR_DEMO_PATHS.map(path => (
+          <Route key={path} path={path} element={<SponsorDemo />} />
+        ))}
         <Route path="/" element={<Navigate to="/tree" replace />} />
         <Route path="/dashboard" element={<PageWrapper><Dashboard /></PageWrapper>} />
         <Route path="/tree" element={<PageWrapper><Tree /></PageWrapper>} />
