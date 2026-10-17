@@ -20,7 +20,7 @@
 // ─────────────────────────────────────────────────────────────────────────────
 
 import React, { useState, useEffect } from 'react';
-import { Users, DollarSign, ShoppingCart, PhoneCall, Search, Plus, BarChart3, X, Eye, Loader2, RefreshCw } from 'lucide-react';
+import { Users, DollarSign, ShoppingCart, PhoneCall, Search, Plus, BarChart3, X, Eye, Loader2, RefreshCw, MoreVertical } from 'lucide-react';
 import { Link, useNavigate } from 'react-router-dom';
 import { supabase } from '../../lib/supabase';
 import { useOrganization } from '../../lib/useOrganization';
@@ -66,6 +66,7 @@ export default function Overview() {
   const [memberSearch, setMemberSearch] = useState('');
   const [enteringAccountId, setEnteringAccountId] = useState<string | null>(null);
   const [viewingError, setViewingError] = useState<string | null>(null);
+  const [menuOpenId, setMenuOpenId] = useState<string | null>(null); // mobile ⋯ menu
   const { byMember, update: updateRevenue } = useMemberRevenues(members.map(m => m.id));
   useEffect(() => {
     if (!organizationId) return;
@@ -209,7 +210,7 @@ export default function Overview() {
   };
 
   return (
-    <div className="max-w-6xl mx-auto px-6 py-8 space-y-6">
+    <div className="max-w-6xl mx-auto px-4 sm:px-6 py-8 space-y-6">
       <div className="flex items-center justify-between mb-2">
   <div className="flex items-center gap-3">
     <h1 className="label-caps !text-white text-lg">Operator Overview</h1>
@@ -230,17 +231,17 @@ export default function Overview() {
           * Revenue total excludes {revenueFailures} member{revenueFailures > 1 ? 's' : ''} that failed to load. Hover the refresh button on that row for the reason.
         </p>
       )}
-      <section className="grid grid-cols-4 gap-3">
+      <section className="grid grid-cols-2 md:grid-cols-4 gap-3">
         {[
           { label: 'Members',     value: memberCount,             icon: Users,       color: 'text-zinc-500' },
           { label: 'Revenue',     value: anyRevenueLoading ? '…' : `$${totalRevenue.toLocaleString()}${revenueFailures ? '*' : ''}`, icon: DollarSign, color: 'text-emerald-400' },
           { label: 'Direct Purchases',   value: anyRevenueLoading ? '…' : totalPurchases.toLocaleString(),  icon: ShoppingCart, color: 'text-zinc-500' },
           { label: 'Sales Calls Booked', value: anyRevenueLoading ? '…' : totalSalesCalls.toLocaleString(), icon: PhoneCall,    color: 'text-zinc-500' },
         ].map(card => (
-          <div key={card.label} className="bento-card py-6 px-4 flex flex-col justify-between min-h-[100px]">
+          <div key={card.label} className="bento-card py-5 sm:py-6 px-4 flex flex-col justify-between min-h-[100px]">
             <span className="label-caps !text-zinc-600">{card.label}</span>
             <div className="flex items-center justify-between mt-auto">
-              <span className={`text-xl font-black ${card.color === 'text-emerald-400' ? 'text-emerald-400' : 'text-white'}`}>
+              <span className={`text-xl font-black truncate ${card.color === 'text-emerald-400' ? 'text-emerald-400' : 'text-white'}`}>
                 {card.value}
               </span>
               <card.icon size={16} className={`${card.color} opacity-40`} />
@@ -250,20 +251,20 @@ export default function Overview() {
       </section>
 
       {/* ── All Members — moved here from Members.tsx ─────────────────────── */}
-      <section className="bento-card p-0 overflow-hidden">
-        <div className="px-6 py-4 border-b border-zinc-900 bg-zinc-900/10 flex items-center justify-between">
+      <section className="bento-card p-0">
+        <div className="px-4 sm:px-6 py-4 border-b border-zinc-900 bg-zinc-900/10 flex items-center justify-between gap-3 rounded-t-[inherit]">
           <h2 className="label-caps !text-white">All Members</h2>
           <Link
             to="/operator/members/invite"
             data-tutorial-id="operator-invite-member"
-            className="flex items-center gap-2 bg-zinc-900 border border-zinc-700 text-zinc-200 text-[10px] font-black uppercase tracking-widest px-4 py-2.5 rounded-xl hover:border-zinc-500 hover:text-white transition-all"
+            className="flex items-center gap-2 shrink-0 whitespace-nowrap bg-zinc-900 border border-zinc-700 text-zinc-200 text-[10px] font-black uppercase tracking-widest px-3 sm:px-4 py-2.5 rounded-xl hover:border-zinc-500 hover:text-white transition-all"
           >
-            <Plus size={13} /> Invite member
+            <Plus size={13} /> <span className="sm:hidden">Invite</span><span className="hidden sm:inline">Invite member</span>
           </Link>
         </div>
 
-        <div className="px-6 pt-4">
-          <div className="relative max-w-xs">
+        <div className="px-4 sm:px-6 pt-4">
+          <div className="relative sm:max-w-xs">
             <Search size={13} className="absolute left-3 top-1/2 -translate-y-1/2 text-zinc-600" />
             <input
               value={memberSearch}
@@ -283,19 +284,60 @@ export default function Overview() {
         ) : (
           <div className="divide-y divide-zinc-900/50 mt-4">
             {filteredMembers.map(m => (
-              <div key={m.id} className="flex items-center justify-between px-6 py-3">
-                <div className="flex items-center gap-3">
-                  <div className="w-8 h-8 rounded-lg bg-zinc-900 border border-zinc-700 flex items-center justify-center text-[10px] font-black text-zinc-400">
+              <div key={m.id} className="flex flex-col gap-3 px-4 sm:px-6 py-3 sm:flex-row sm:items-center sm:justify-between">
+                {/* Identity (+ revenue and ⋯ menu on mobile) */}
+                <div className="flex items-center gap-3 min-w-0">
+                  <div className="w-8 h-8 shrink-0 rounded-lg bg-zinc-900 border border-zinc-700 flex items-center justify-center text-[10px] font-black text-zinc-400">
                     {initials(m.name)}
                   </div>
-                  <div>
-                    <p className="text-[11px] font-bold text-zinc-200">{m.name}</p>
-                    <p className="text-[9px] font-bold text-zinc-600">{m.email}</p>
+                  <div className="min-w-0 flex-1">
+                    <p className="text-[11px] font-bold text-zinc-200 truncate">{m.name}</p>
+                    <p className="text-[10px] sm:text-[9px] font-bold text-zinc-600 truncate">{m.email}</p>
+                  </div>
+
+                  <span className="sm:hidden text-sm font-black text-emerald-400 tabular-nums">
+                    {formatMemberRevenue(byMember[m.id])}
+                  </span>
+
+                  {/* Mobile-only ⋯ menu: Update revenue + Remove member */}
+                  <div className="relative sm:hidden">
+                    <button
+                      onClick={() => setMenuOpenId(menuOpenId === m.id ? null : m.id)}
+                      className="p-2 rounded-lg text-zinc-500 hover:text-white transition-colors"
+                      aria-label={`More actions for ${m.name}`}
+                      aria-expanded={menuOpenId === m.id}
+                    >
+                      <MoreVertical size={16} />
+                    </button>
+                    {menuOpenId === m.id && (
+                      <>
+                        <div className="fixed inset-0 z-10" onClick={() => setMenuOpenId(null)} />
+                        <div className="absolute right-0 top-full mt-1 z-20 w-48 bg-zinc-950 border border-zinc-800 rounded-xl py-1 shadow-xl">
+                          <button
+                            onClick={() => { updateRevenue(m.id); setMenuOpenId(null); }}
+                            disabled={byMember[m.id]?.updating || byMember[m.id]?.loading}
+                            title={byMember[m.id]?.error ?? undefined}
+                            className="w-full flex items-center gap-2 px-4 py-3 text-[11px] font-bold text-zinc-300 hover:bg-zinc-900 disabled:opacity-50 text-left"
+                          >
+                            <RefreshCw size={13} className={byMember[m.id]?.updating ? 'animate-spin' : ''} />
+                            Update revenue
+                          </button>
+                          <button
+                            onClick={() => { /* TODO: remove confirmation via existing <Modal /> */ setMenuOpenId(null); }}
+                            className="w-full flex items-center gap-2 px-4 py-3 text-[11px] font-bold text-red-400 hover:bg-zinc-900 text-left"
+                          >
+                            <X size={13} />
+                            Remove member
+                          </button>
+                        </div>
+                      </>
+                    )}
                   </div>
                 </div>
 
-                <div className="flex items-center gap-6">
-                  <span className="text-sm font-black text-emerald-400 tabular-nums w-20 text-right">
+                {/* Actions: two labeled buttons on mobile, original inline controls on desktop */}
+                <div className="flex items-center gap-2 sm:gap-6">
+                  <span className="hidden sm:block text-sm font-black text-emerald-400 tabular-nums w-20 text-right">
                     {formatMemberRevenue(byMember[m.id])}
                   </span>
                   <button
@@ -303,7 +345,7 @@ export default function Overview() {
                     disabled={byMember[m.id]?.updating || byMember[m.id]?.loading}
                     title={byMember[m.id]?.error ?? 'Update revenue'}
                     aria-label={`Update ${m.name}'s revenue`}
-                    className="p-2 border border-zinc-800 rounded-lg text-zinc-500 hover:text-white hover:border-zinc-700 transition-all disabled:opacity-50"
+                    className="hidden sm:inline-flex p-2 border border-zinc-800 rounded-lg text-zinc-500 hover:text-white hover:border-zinc-700 transition-all disabled:opacity-50"
                   >
                     <RefreshCw size={13} className={byMember[m.id]?.updating ? 'animate-spin' : ''} />
                   </button>
@@ -311,21 +353,22 @@ export default function Overview() {
                     onClick={() => handleViewAccount(m)}
                     disabled={enteringAccountId === m.id}
                     data-tutorial-id={m.id === ALIN_POC.id ? 'operator-view-account-alin' : undefined}
-                    className="flex items-center gap-2 px-3 py-2 border border-zinc-800 rounded-lg text-[10px] font-black uppercase tracking-widest text-zinc-300 hover:text-white hover:border-zinc-600 transition-all disabled:opacity-50"
+                    className="flex-1 sm:flex-none justify-center flex items-center gap-2 px-3 py-2.5 sm:py-2 border border-zinc-800 rounded-lg text-[10px] font-black uppercase tracking-widest text-zinc-300 hover:text-white hover:border-zinc-600 transition-all disabled:opacity-50"
                   >
                     {enteringAccountId === m.id ? <Loader2 size={13} className="animate-spin" /> : <Eye size={13} />}
                     View account
                   </button>
                   <button
                     onClick={() => navigate(`/operator/members/${m.id}`)}
-                    className="p-2 border border-zinc-800 rounded-lg text-zinc-500 hover:text-white hover:border-zinc-700 transition-all"
+                    className="flex-1 sm:flex-none justify-center flex items-center gap-2 px-3 py-2.5 sm:p-2 border border-zinc-800 rounded-lg text-[10px] font-black uppercase tracking-widest text-zinc-300 sm:text-zinc-500 hover:text-white hover:border-zinc-700 transition-all"
                     aria-label={`View ${m.name}'s analytics`}
                   >
                     <BarChart3 size={13} />
+                    <span className="sm:hidden">Analytics</span>
                   </button>
                   <button
                     onClick={() => { /* TODO: remove confirmation via existing <Modal /> */ }}
-                    className="p-2 border border-zinc-800 rounded-lg text-zinc-600 hover:text-red-400 hover:border-red-900 transition-all"
+                    className="hidden sm:inline-flex p-2 border border-zinc-800 rounded-lg text-zinc-600 hover:text-red-400 hover:border-red-900 transition-all"
                     aria-label={`Remove ${m.name}`}
                   >
                     <X size={13} />
@@ -342,11 +385,11 @@ export default function Overview() {
 
       {/* ── Top Performers — wired ──────────────────────────────────────── */}
       <section className="bento-card p-0 overflow-hidden">
-        <div className="px-6 py-4 border-b border-zinc-900 bg-zinc-900/10 flex items-center justify-between">
+        <div className="px-4 sm:px-6 py-4 border-b border-zinc-900 bg-zinc-900/10 flex items-center justify-between gap-3">
           <h2 className="label-caps !text-white">Top Performers</h2>
           <Link
             to="/operator/members"
-            className="text-[9px] font-black uppercase tracking-widest text-zinc-600 hover:text-zinc-300 transition-colors"
+            className="text-[9px] font-black uppercase tracking-widest text-zinc-600 hover:text-zinc-300 transition-colors whitespace-nowrap"
           >
             View all members →
           </Link>
@@ -358,20 +401,25 @@ export default function Overview() {
         ) : (
           <div className="divide-y divide-zinc-900/50">
             {topPerformers.map((m, idx) => (
-              <div key={m.id} className="flex items-center justify-between px-6 py-3">
-                <div className="flex items-center gap-3">
-                  <span className="text-[10px] font-black tabular-nums text-zinc-600 w-4">#{idx + 1}</span>
-                  <div className="w-8 h-8 rounded-lg bg-zinc-900 border border-zinc-700 flex items-center justify-center text-[10px] font-black text-zinc-400">
+              <div key={m.id} className="flex flex-col gap-1.5 px-4 sm:px-6 py-3 sm:flex-row sm:items-center sm:justify-between">
+                <div className="flex items-center gap-3 min-w-0">
+                  <span className="text-[10px] font-black tabular-nums text-zinc-600 w-4 shrink-0">#{idx + 1}</span>
+                  <div className="w-8 h-8 shrink-0 rounded-lg bg-zinc-900 border border-zinc-700 flex items-center justify-center text-[10px] font-black text-zinc-400">
                     {initials(m.name)}
                   </div>
-                  <span className="text-[11px] font-bold text-zinc-200">{m.name}</span>
+                  <span className="text-[11px] font-bold text-zinc-200 truncate">{m.name}</span>
+                  {/* Mobile: revenue sits on the name line */}
+                  <span className="ml-auto text-sm font-black text-emerald-400 tabular-nums sm:hidden">
+                    {formatMemberRevenue(byMember[m.id])}
+                  </span>
                 </div>
-                <div className="flex items-center gap-6">
-                  <span className="text-[9px] font-black uppercase tracking-widest text-zinc-600">
+                {/* Mobile: stats drop to a second line, aligned under the name */}
+                <div className="flex items-center gap-6 pl-[72px] sm:pl-0">
+                  <span className="text-[10px] sm:text-[9px] font-black uppercase tracking-widest text-zinc-600">
                     Purchases <span className="text-zinc-300">{formatMemberCount(byMember[m.id], 'purchases')}</span>
                     {' · '}Calls <span className="text-zinc-300">{formatMemberCount(byMember[m.id], 'salesCalls')}</span>
                   </span>
-                  <span className="text-sm font-black text-emerald-400 tabular-nums">
+                  <span className="hidden sm:inline text-sm font-black text-emerald-400 tabular-nums">
                     {formatMemberRevenue(byMember[m.id])}
                   </span>
                 </div>
