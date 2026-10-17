@@ -41,8 +41,21 @@ const HERO = {
   ],
   emphasis:
     'VSTRK helps you connect content performance to business results — so you can identify what works, understand what drives sales, and make smarter marketing decisions.',
-  statement:
-    'We help sponsors and brands working with multiple creators and marketers understand what drives their marketing results by connecting and comparing performance, conversion events, revenue, and customer journeys across individual content, campaigns, and supported platforms over time — so they can identify what works, uncover opportunities, reduce wasted spend, and make smarter decisions about what to scale, improve, or stop.',
+  // Exact copy, split into segments only so key phrases can be highlighted (hl: true).
+  statement: [
+    [
+      { t: 'We help sponsors and brands working with multiple creators and marketers ' },
+      { t: 'understand what drives their marketing results', hl: true },
+      { t: ' by connecting and comparing content performance, conversion events, revenue, and customer journeys across ' },
+      { t: 'nine social and content platforms, including YouTube, TikTok, Instagram, X, and LinkedIn', hl: true },
+      { t: ' — across individual content, campaigns, and over time.' },
+    ],
+    [
+      { t: 'This helps them ' },
+      { t: 'identify what works, uncover opportunities, reduce wasted spend', hl: true },
+      { t: ', and make smarter decisions about what to scale, improve, or stop.' },
+    ],
+  ] as { t: string; hl?: boolean }[][],
 };
 
 const SCENARIOS = [
@@ -283,14 +296,36 @@ export default function SponsorLandingPage({ embedded = false }: { embedded?: bo
         <p style={{ fontSize: 'clamp(16px, 2.2vw, 19px)', fontWeight: 600, lineHeight: 1.6, margin: '20px 0 0', maxWidth: 700 }}>
           {HERO.emphasis}
         </p>
-        <p
+        <div
           style={{
-            margin: '24px 0 28px', padding: '16px 18px', borderLeft: `3px solid ${C.purple}`, background: C.panel,
-            borderRadius: '0 10px 10px 0', fontSize: 14.5, color: C.mut, lineHeight: 1.7, maxWidth: 760,
+            margin: '36px 0 32px', padding: 'clamp(22px, 4.5vw, 44px)', borderRadius: 18,
+            border: `1.5px solid ${C.purple}`, borderLeftWidth: 6,
+            background: 'linear-gradient(135deg, #241a52 0%, #14102e 55%, #0d0d0d 100%)',
+            boxShadow: '0 0 0 1px rgba(124,92,255,0.15), 0 16px 60px rgba(124,92,255,0.28)',
           }}
         >
-          {HERO.statement}
-        </p>
+          {HERO.statement.map((para, i) => (
+            <p
+              key={i}
+              style={{
+                margin: i === 0 ? 0 : 'clamp(16px, 2.5vw, 24px) 0 0',
+                fontSize: i === 0 ? 'clamp(21px, 3.6vw, 32px)' : 'clamp(18px, 2.7vw, 24px)',
+                fontWeight: i === 0 ? 700 : 600, lineHeight: 1.38, letterSpacing: '-0.01em',
+                color: i === 0 ? '#fff' : '#e4dcff',
+              }}
+            >
+              {para.map((seg, j) =>
+                seg.hl ? (
+                  <span key={j} style={{ color: C.lp, background: 'rgba(124,92,255,0.22)', borderRadius: 4, padding: '0 4px', boxDecorationBreak: 'clone', WebkitBoxDecorationBreak: 'clone' }}>
+                    {seg.t}
+                  </span>
+                ) : (
+                  <React.Fragment key={j}>{seg.t}</React.Fragment>
+                ),
+              )}
+            </p>
+          ))}
+        </div>
         <div style={{ display: 'flex', flexWrap: 'wrap', gap: 10 }}>
           <Cta href={SPONSOR_DEMO_WHATSAPP_URL} external>{waLabel} →</Cta>
           {!embedded && <Cta solid={false} href={DEMO_HREF}>See the interactive demo</Cta>}
