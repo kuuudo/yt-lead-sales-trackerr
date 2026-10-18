@@ -322,7 +322,7 @@ export default function AgencyLandingPage({ embedded = false }: { embedded?: boo
           {HERO.headline}
         </h1>
         {HERO.paragraphs.map((t) => (
-          <p key={t} style={body()}>{t}</p>
+          <p key={t} style={body({ color: '#c9c5da' })}>{t}</p>
         ))}
         {HERO.emphasis.map((t) => (
           <p key={t} style={body({ color: C.text, fontWeight: 600, lineHeight: 1.6 })}>{t}</p>
