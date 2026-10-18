@@ -40,7 +40,7 @@ const mono = (color = C.mut, size = 11): React.CSSProperties => ({
 // FOUNDER COPY — hero. Exact copy supplied by the founder. Do not reword.
 const HERO = {
   eyebrow:
-    'To Business Owners Consistently Generating 3,000+ Views per Piece of Content (Across YouTube, TikTok, Instagram, X, and Other Platforms) and $1,500+ in Monthly Revenue Through Content',
+    'To Business Owners Consistently Generating 3,000+ Views per Piece of Content  (On YouTube, TikTok, Instagram, X, or Other Platforms) and $1,500+ in Monthly Revenue Through Content',
   headline: 'You can see your views. You can see your revenue. What you can’t see is everything in between.',
   paragraphs: [
     'You’re already attracting attention and generating revenue through content. But do you know which videos capture attention, which content educates potential customers, which builds interest and trust, and which ultimately drives conversions and sales?',
