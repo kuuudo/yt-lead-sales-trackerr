@@ -77,6 +77,10 @@ import SponsorDemo from './pages/public/marketing/sponsor/SponsorDemo';
 import SponsorLandingPage from './pages/public/marketing/sponsor/SponsorLandingPage';
 import InterviewDemo from './pages/public/marketing/interviewmarketers/InterviewDemo';
 import InterviewLandingPage from './pages/public/marketing/interviewmarketers/InterviewLandingPage';
+import AgencyDemo from './pages/public/marketing/agency/AgencyDemo';
+import AgencyLandingPage from './pages/public/marketing/agency/AgencyLandingPage';
+import BusinessOwnerDemo from './pages/public/marketing/businessOwner/BusinessOwnerDemo';
+import BusinessOwnerLandingPage from './pages/public/marketing/businessOwner/BusinessOwnerLandingPage';
 import { useMyTeam } from './lib/useMyTeam';
 // Top-level path segments that are "real" app pages (i.e. matched by an
 // explicit <Route> before the catch-all "/:token" route). If a single-segment
@@ -136,11 +140,33 @@ function isInterviewRoute(pathname: string): boolean {
   return INTERVIEW_DEMO_PATHS.includes(p) || INTERVIEW_LANDING_PATHS.includes(p);
 }
 
+// Public "agencies and multi-client operators" pages (copy of the interview set).
+//   landing: vstrk.com/4n           demo: vstrk.com/insights/4c
+// Same rules as above: registered in BOTH route tables, chrome hidden.
+// NOTE: do NOT add '4n' to KNOWN_APP_PATHS (same reason as '1y' above).
+const AGENCY_DEMO_PATHS = ['/insights/4c'];
+const AGENCY_LANDING_PATHS = ['/4n'];
+function isAgencyRoute(pathname: string): boolean {
+  const p = pathname.replace(/\/+$/, '');
+  return AGENCY_DEMO_PATHS.includes(p) || AGENCY_LANDING_PATHS.includes(p);
+}
+
+// Public "business owners promoting online" pages (copy of the interview set).
+//   landing: vstrk.com/3b           demo: vstrk.com/insights/3o
+// Same rules as above: registered in BOTH route tables, chrome hidden.
+// NOTE: do NOT add '3b' to KNOWN_APP_PATHS (same reason as '1y' above).
+const BUSINESS_OWNER_DEMO_PATHS = ['/insights/3o'];
+const BUSINESS_OWNER_LANDING_PATHS = ['/3b'];
+function isBusinessOwnerRoute(pathname: string): boolean {
+  const p = pathname.replace(/\/+$/, '');
+  return BUSINESS_OWNER_DEMO_PATHS.includes(p) || BUSINESS_OWNER_LANDING_PATHS.includes(p);
+}
+
 // Renders the top nav + viewing banner everywhere EXCEPT the relay/token
 // redirect routes, without touching in-app navigation at all.
 function AppChrome() {
   const location = useLocation();
-  if (isRelayRoute(location.pathname) || isSponsorDemoRoute(location.pathname) || isSponsorLandingRoute(location.pathname) || isInterviewRoute(location.pathname)) return null;
+  if (isRelayRoute(location.pathname) || isSponsorDemoRoute(location.pathname) || isSponsorLandingRoute(location.pathname) || isInterviewRoute(location.pathname) || isAgencyRoute(location.pathname) || isBusinessOwnerRoute(location.pathname)) return null;
 
   return (
     <>
@@ -623,6 +649,18 @@ function MainContent() {
         {INTERVIEW_LANDING_PATHS.map(path => (
           <Route key={path} path={path} element={<InterviewLandingPage />} />
         ))}
+        {AGENCY_DEMO_PATHS.map(path => (
+          <Route key={path} path={path} element={<AgencyDemo />} />
+        ))}
+        {AGENCY_LANDING_PATHS.map(path => (
+          <Route key={path} path={path} element={<AgencyLandingPage />} />
+        ))}
+        {BUSINESS_OWNER_DEMO_PATHS.map(path => (
+          <Route key={path} path={path} element={<BusinessOwnerDemo />} />
+        ))}
+        {BUSINESS_OWNER_LANDING_PATHS.map(path => (
+          <Route key={path} path={path} element={<BusinessOwnerLandingPage />} />
+        ))}
         {/* Phase 1 continuation relay — infrastructure only. Must be above /:token,
             and /r/platform must be above /r/:relayToken or it never matches. */}
         <Route path="/r/platform" element={<PlatformContinuation />} />
@@ -651,6 +689,18 @@ function MainContent() {
         ))}
         {INTERVIEW_LANDING_PATHS.map(path => (
           <Route key={path} path={path} element={<InterviewLandingPage />} />
+        ))}
+        {AGENCY_DEMO_PATHS.map(path => (
+          <Route key={path} path={path} element={<AgencyDemo />} />
+        ))}
+        {AGENCY_LANDING_PATHS.map(path => (
+          <Route key={path} path={path} element={<AgencyLandingPage />} />
+        ))}
+        {BUSINESS_OWNER_DEMO_PATHS.map(path => (
+          <Route key={path} path={path} element={<BusinessOwnerDemo />} />
+        ))}
+        {BUSINESS_OWNER_LANDING_PATHS.map(path => (
+          <Route key={path} path={path} element={<BusinessOwnerLandingPage />} />
         ))}
         <Route path="/" element={<Navigate to="/tree" replace />} />
         <Route path="/dashboard" element={<PageWrapper><Dashboard /></PageWrapper>} />
