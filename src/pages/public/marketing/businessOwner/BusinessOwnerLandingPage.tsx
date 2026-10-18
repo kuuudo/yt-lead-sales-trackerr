@@ -57,7 +57,7 @@ const HERO = {
     [
       { t: 'See how people move from discovering your content to taking action. Identify ' },
       { t: 'what works at different stages of the customer journey', hl: true },
-      { t: ', replicate winning strategies, and uncover opportunities you might otherwise miss.' },
+      { t: ', so you can replicate winning strategies, and uncover opportunities you might otherwise miss.' },
     ],
   ] as { t: string; hl?: boolean }[][],
   closing:
