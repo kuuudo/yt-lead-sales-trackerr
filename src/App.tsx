@@ -81,6 +81,8 @@ import AgencyDemo from './pages/public/marketing/agency/AgencyDemo';
 import AgencyLandingPage from './pages/public/marketing/agency/AgencyLandingPage';
 import BusinessOwnerDemo from './pages/public/marketing/businessOwner/BusinessOwnerDemo';
 import BusinessOwnerLandingPage from './pages/public/marketing/businessOwner/BusinessOwnerLandingPage';
+import BusinessHireAgencyDemo from './pages/public/marketing/businessHireAgency/BusinessHireAgencyDemo';
+import BusinessHireAgencyLandingPage from './pages/public/marketing/businessHireAgency/BusinessHireAgencyLandingPage';
 import { useMyTeam } from './lib/useMyTeam';
 // Top-level path segments that are "real" app pages (i.e. matched by an
 // explicit <Route> before the catch-all "/:token" route). If a single-segment
@@ -162,11 +164,22 @@ function isBusinessOwnerRoute(pathname: string): boolean {
   return BUSINESS_OWNER_DEMO_PATHS.includes(p) || BUSINESS_OWNER_LANDING_PATHS.includes(p);
 }
 
+// Public "business hire agency" pages (copy of the interview set).
+//   landing: vstrk.com/5q           demo: vstrk.com/insights/5x
+// Same rules as above: registered in BOTH route tables, chrome hidden.
+// NOTE: do NOT add '5q' to KNOWN_APP_PATHS (same reason as '1y' above).
+const BUSINESS_HIRE_AGENCY_DEMO_PATHS = ['/insights/5x'];
+const BUSINESS_HIRE_AGENCY_LANDING_PATHS = ['/5q'];
+function isBusinessHireAgencyRoute(pathname: string): boolean {
+  const p = pathname.replace(/\/+$/, '');
+  return BUSINESS_HIRE_AGENCY_DEMO_PATHS.includes(p) || BUSINESS_HIRE_AGENCY_LANDING_PATHS.includes(p);
+}
+
 // Renders the top nav + viewing banner everywhere EXCEPT the relay/token
 // redirect routes, without touching in-app navigation at all.
 function AppChrome() {
   const location = useLocation();
-  if (isRelayRoute(location.pathname) || isSponsorDemoRoute(location.pathname) || isSponsorLandingRoute(location.pathname) || isInterviewRoute(location.pathname) || isAgencyRoute(location.pathname) || isBusinessOwnerRoute(location.pathname)) return null;
+  if (isRelayRoute(location.pathname) || isSponsorDemoRoute(location.pathname) || isSponsorLandingRoute(location.pathname) || isInterviewRoute(location.pathname) || isAgencyRoute(location.pathname) || isBusinessOwnerRoute(location.pathname) || isBusinessHireAgencyRoute(location.pathname)) return null;
 
   return (
     <>
@@ -661,6 +674,12 @@ function MainContent() {
         {BUSINESS_OWNER_LANDING_PATHS.map(path => (
           <Route key={path} path={path} element={<BusinessOwnerLandingPage />} />
         ))}
+        {BUSINESS_HIRE_AGENCY_DEMO_PATHS.map(path => (
+          <Route key={path} path={path} element={<BusinessHireAgencyDemo />} />
+        ))}
+        {BUSINESS_HIRE_AGENCY_LANDING_PATHS.map(path => (
+          <Route key={path} path={path} element={<BusinessHireAgencyLandingPage />} />
+        ))}
         {/* Phase 1 continuation relay — infrastructure only. Must be above /:token,
             and /r/platform must be above /r/:relayToken or it never matches. */}
         <Route path="/r/platform" element={<PlatformContinuation />} />
@@ -701,6 +720,12 @@ function MainContent() {
         ))}
         {BUSINESS_OWNER_LANDING_PATHS.map(path => (
           <Route key={path} path={path} element={<BusinessOwnerLandingPage />} />
+        ))}
+        {BUSINESS_HIRE_AGENCY_DEMO_PATHS.map(path => (
+          <Route key={path} path={path} element={<BusinessHireAgencyDemo />} />
+        ))}
+        {BUSINESS_HIRE_AGENCY_LANDING_PATHS.map(path => (
+          <Route key={path} path={path} element={<BusinessHireAgencyLandingPage />} />
         ))}
         <Route path="/" element={<Navigate to="/tree" replace />} />
         <Route path="/dashboard" element={<PageWrapper><Dashboard /></PageWrapper>} />
