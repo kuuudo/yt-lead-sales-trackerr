@@ -313,7 +313,7 @@ export default function BusinessOwnerLandingPage({ embedded = false }: { embedde
 
       <div style={{ maxWidth: 940, margin: '0 auto', padding: embedded ? '40px 20px 56px' : '56px 20px 72px' }}>
         {/* 1 · HERO (founder copy) */}
-        <div style={{ ...mono(C.red), marginBottom: 14 }}>{HERO.eyebrow}</div>
+        <div style={{ ...mono(C.red), fontSize: 'clamp(14px, 2.6vw, 18px)', fontWeight: 700, lineHeight: 1.5, marginBottom: 18 }}>{HERO.eyebrow}</div>
         <h1 style={{ fontSize: 'clamp(30px, 6vw, 52px)', fontWeight: 700, lineHeight: 1.08, margin: 0, maxWidth: 820 }}>{HERO.headline}</h1>
         {HERO.paragraphs.map((t) => (
           <p key={t} style={body()}>{t}</p>
