@@ -10,10 +10,10 @@
 // safe for logged-out visitors. Visual language mirrors the sponsor and
 // agency landing pages.
 //
-// FIRST DRAFT. The HERO block (eyebrow, headline, paragraphs, formula) is
-// PROVISIONAL, to be rewritten by the founder. The headline is the founder's
-// preferred hook, used as a placeholder only. Everything below the hero is
-// free copy and can be edited section by section without touching layout code.
+// The HERO block (eyebrow, headline, paragraphs, formula, closing line) is
+// exact copy supplied by the founder. Do not reword it. Everything below the
+// hero is first-draft copy and can be edited section by section without
+// touching layout code.
 // No testimonials, statistics or case studies are used. Illustrations are
 // labelled as such.
 // ─────────────────────────────────────────────────────────────────────────
@@ -37,29 +37,31 @@ const mono = (color = C.mut, size = 11): React.CSSProperties => ({
 
 /* ───────────────────────────── CONTENT ───────────────────────────── */
 
-// PROVISIONAL — HOOK TO BE REWRITTEN BY THE FOUNDER.
+// FOUNDER COPY — hero. Exact copy supplied by the founder. Do not reword.
 const HERO = {
-  eyebrow: 'To business owners who create content to grow their business',
+  eyebrow:
+    'To Business Owners Consistently Generating 3,000+ Views per Piece of Content (Across YouTube, TikTok, Instagram, X, and Other Platforms) and $1,500+ in Monthly Revenue Through Content',
   headline: 'You can see your views. You can see your revenue. What you can’t see is everything in between.',
   paragraphs: [
-    'You’ve put in the hours: videos, posts, newsletters, a sales page, maybe a marketer or two. Some weeks a post gets three likes and you wonder why you bother. Some weeks a sale comes in and you have no idea what led to it.',
-    'The views tell you who watched. The revenue tells you what came in. But which content brought someone to your newsletter, your sales page, your booking page, or your checkout? That’s the part most owners are left guessing.',
+    'You’re already attracting attention and generating revenue through content. But do you know which videos capture attention, which content educates potential customers, which builds interest and trust, and which ultimately drives conversions and sales?',
+    'Without tracking customer journeys, you’re missing a significant part of the picture. You may know how much revenue your business generates, but not which content brings potential customers closer to buying, what leads them to book a consultation or make a purchase, or what works at each stage of their journey.',
+    'That means you could be overlooking winning content, repeating ineffective strategies, and spending valuable time and money creating content without knowing whether it’s contributing to your business goals.',
   ],
-  emphasis: 'VSTRK connects the two ends, so you can judge your marketing by what happened in your own business, not by likes alone.',
+  // Formula, split into segments only so key phrases can be highlighted (hl: true).
   statement: [
     [
-      { t: 'We help business owners who invest time and money in content and online marketing ' },
-      { t: 'see what happens between a view and a sale', hl: true },
-      { t: ' by connecting content performance, conversion events, revenue, and customer journeys across ' },
-      { t: 'nine social and content platforms, including YouTube, TikTok, Instagram, X, and LinkedIn', hl: true },
-      { t: ' — across individual content, campaigns, and over time.' },
+      { t: 'VSTRK connects and compares content performance, conversion events, revenue, and customer journeys across ' },
+      { t: 'nine social and content platforms', hl: true },
+      { t: ' — across individual pieces of content, campaigns, and over time.' },
     ],
     [
-      { t: 'This helps them ' },
-      { t: 'see what is contributing, spot where results fall short, and stop guessing', hl: true },
-      { t: ', so they can decide what to continue, change, improve, or stop.' },
+      { t: 'See how people move from discovering your content to taking action. Identify ' },
+      { t: 'what works at different stages of the customer journey', hl: true },
+      { t: ', replicate winning strategies, and uncover opportunities you might otherwise miss.' },
     ],
   ] as { t: string; hl?: boolean }[][],
+  closing:
+    'Stop guessing which content deserves your time. Make more informed decisions about what to keep creating, what to improve, and what to stop — based on the marketing results you can actually track.',
 };
 
 const SITUATIONS = [
@@ -310,13 +312,12 @@ export default function BusinessOwnerLandingPage({ embedded = false }: { embedde
       )}
 
       <div style={{ maxWidth: 940, margin: '0 auto', padding: embedded ? '40px 20px 56px' : '56px 20px 72px' }}>
-        {/* 1 · HERO — PROVISIONAL, HOOK TO BE REWRITTEN BY THE FOUNDER */}
+        {/* 1 · HERO (founder copy) */}
         <div style={{ ...mono(C.red), marginBottom: 14 }}>{HERO.eyebrow}</div>
         <h1 style={{ fontSize: 'clamp(30px, 6vw, 52px)', fontWeight: 700, lineHeight: 1.08, margin: 0, maxWidth: 820 }}>{HERO.headline}</h1>
         {HERO.paragraphs.map((t) => (
           <p key={t} style={body()}>{t}</p>
         ))}
-        <p style={body({ color: C.text, fontWeight: 600 })}>{HERO.emphasis}</p>
 
         <div
           style={{
@@ -347,6 +348,7 @@ export default function BusinessOwnerLandingPage({ embedded = false }: { embedde
             </p>
           ))}
         </div>
+        <p style={body({ color: C.text, fontWeight: 600, margin: '0 0 28px' })}>{HERO.closing}</p>
         <div style={{ display: 'flex', flexWrap: 'wrap', gap: 10 }}>
           <Cta href={BUSINESS_OWNER_DEMO_WHATSAPP_URL} external>{waLabel} →</Cta>
           {!embedded && <Cta solid={false} href={DEMO_HREF}>See the interactive demo</Cta>}
