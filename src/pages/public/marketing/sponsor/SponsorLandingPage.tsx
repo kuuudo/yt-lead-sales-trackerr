@@ -40,7 +40,7 @@ const HERO = {
     "Without that visibility, you risk overlooking winning content, repeating ineffective strategies, and spending money without understanding what's actually working.",
   ],
   emphasis:
-    'VSTRK helps you connect content performance to business results — so you can identify what works, understand what drives sales, and make smarter marketing decisions.',
+    'VSTRK helps you connect content performance to business results — so you can identify what builds brand awareness, educates and nurtures your audience, drives conversions and sales, and make smarter marketing decisions.',
   // Exact copy, split into segments only so key phrases can be highlighted (hl: true).
   statement: [
     [
