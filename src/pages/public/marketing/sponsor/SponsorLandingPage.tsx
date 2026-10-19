@@ -34,7 +34,7 @@ const mono = (color = C.mut, size = 11): React.CSSProperties => ({
 
 const HERO = {
   eyebrow: 'To Sponsors & Brands',
-  headline: "You Know Which Marketers Make You Money. But Do You Know What Their Content Is Actually Doing?",
+  headline: "You Know Which Marketers Make You Money. But Do You Know What Their Content Is Actually Doing? What you can’t see is everything in between. ",
   paragraphs: [
     "You're investing in creators, marketers, and campaigns. You can see how much revenue they generate — but can you see which videos capture attention, which content educates potential customers, which builds interest and trust, and which ultimately drives sales?",
     "Without that visibility, you risk overlooking winning content, repeating ineffective strategies, and spending money without understanding what's actually working.",
