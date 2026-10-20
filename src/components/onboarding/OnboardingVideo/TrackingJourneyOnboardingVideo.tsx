@@ -101,6 +101,9 @@ const ACCENT2 = "#0f9d8f"; // fitnessbrand.com / Journey 2
 const WARN = "#d3555c";
 const MONO = "ui-monospace, SFMono-Regular, Menlo, monospace";
 const MUTED = "#9a9aa8";
+const OWN = "#f08a24"; // legend: your content (orange)
+const OTHER = "#7c4dcc"; // legend: another marketer's content (purple)
+const CONV = "#2e9e5b"; // legend: conversion event (green)
 
 /* ---------------------------------------------------------------
    Timing — 9 top-level fading beats. Beat 2 internally contains the
@@ -434,6 +437,37 @@ function ScreenFrame({ x, y, w, h, t, arriveStart, arriveEnd, url }:
   );
 }
 
+/** generic flow node (page / conversion event / revenue) used by the Scene 1 campaign map */
+function FlowNode({ x, y, t, arriveStart, arriveEnd, label, tone, icon = "●", w = 140, h = 36, fade = 1 }:
+  { x: number; y: number; t: number; arriveStart: number; arriveEnd: number; label: string; tone: string; icon?: string; w?: number; h?: number; fade?: number }) {
+  const p = prog(t, arriveStart, arriveEnd);
+  if (p <= 0.001) return null;
+  return (
+    <g opacity={p * fade} style={{ transformOrigin: `${x}px ${y}px`, transform: `scale(${lerp(0.88, 1, p)})` }}>
+      <rect x={x - w / 2} y={y - h / 2} width={w} height={h} rx={9} fill="#ffffff" stroke={tone} strokeWidth={1.3}
+        style={{ filter: "drop-shadow(0 3px 8px rgba(21,21,31,0.08))" }} />
+      <text x={x - w / 2 + 14} y={y + 4} textAnchor="middle" fontFamily={MONO} fontWeight={800} fontSize={icon === "$" ? 12 : 10} fill={tone}>{icon}</text>
+      <text x={x - w / 2 + 28} y={y + 3.8} textAnchor="start" fontFamily={MONO} fontWeight={700} fontSize={10} letterSpacing={0.2} fill={INK}>{label}</text>
+    </g>
+  );
+}
+
+/** multi-segment arrow (elbows allowed): draws the polyline, then the head on the last segment */
+function PathArrow({ pts, t, start, end, color = ACCENT, width = 1.3 }:
+  { pts: [number, number][]; t: number; start: number; end: number; color?: string; width?: number }) {
+  const p = prog(t, start, end);
+  const [x1, y1] = pts[pts.length - 2];
+  const [x2, y2] = pts[pts.length - 1];
+  const angle = (Math.atan2(y2 - y1, x2 - x1) * 180) / Math.PI;
+  const d = pts.map(([x, y], i) => `${i === 0 ? "M" : "L"}${x},${y}`).join(" ");
+  return (
+    <g>
+      <DrawLine d={d} t={t} start={start} end={end} color={color} width={width} />
+      <ArrowHead x={x2} y={y2} angle={angle} color={color} opacity={p > 0.72 ? clamp((p - 0.72) / 0.28) : 0} />
+    </g>
+  );
+}
+
 /* =================================================================
    COMPONENT
 ================================================================= */
@@ -480,11 +514,40 @@ export default function TrackingJourneyOnboardingVideo({ onSkip, onComplete }: T
   const CHAIN_LABEL = ["Video A", "Video B", "Video C", "Video D", "Video E", "Video F"];
   const CHAIN_Y = 300;
 
-  // Nodes fade in one-by-one across caption 1 ("multiple videos work
-  // together"); arrows connect them across caption 2 ("one complete
-  // journey, A to F"); the backward signal lands with caption 3.
-  const s1NodeIn = CHAIN_X.map((_, i) => at("SC1", 300 + i * 1300, 420));
-  const s1ArrowIn = CHAIN_X.slice(0, -1).map((_, i) => at("SC1", 7900 + i * 780, 380));
+  // Campaign map (replaces the plain A→F chain). Reveal order follows the
+  // narration: legend + top chain + feeder videos (caption 1), then the
+  // branches to conversion pages/events (caption 2). The backward signal
+  // lands with caption 3 and dims the map.
+  const S1 = {
+    // top row (y=110)
+    A: { x: 70, y: 110 }, B: { x: 200, y: 110 }, C: { x: 330, y: 110 }, D: { x: 460, y: 110 },
+    // feeder row (y=200)
+    G: { x: 70, y: 200 }, N: { x: 200, y: 200 },
+    // hub
+    H: { x: 330, y: 290 },
+    // newsletter branch (top right)
+    NL: { x: 640, y: 110 }, NLS: { x: 845, y: 110 },
+    // conversion rows
+    SP: { x: 530, y: 290 }, SB: { x: 715, y: 290 },
+    CP: { x: 530, y: 390 }, CB: { x: 715, y: 390 },
+    PP: { x: 530, y: 490 }, PC: { x: 715, y: 490 }, REV: { x: 895, y: 490 },
+  };
+  const s1In = {
+    legend: at("SC1", 200, 500),
+    A: at("SC1", 600, 380), AB: at("SC1", 900, 320),
+    B: at("SC1", 1200, 380), BC: at("SC1", 1500, 320),
+    C: at("SC1", 1800, 380), CD: at("SC1", 2100, 320),
+    D: at("SC1", 2400, 380),
+    G: at("SC1", 3300, 380), GN: at("SC1", 3600, 320),
+    N: at("SC1", 3900, 380), NC: at("SC1", 4200, 480),
+    CH: at("SC1", 5200, 480), H: at("SC1", 5600, 380),
+    DNL: at("SC1", 6400, 420), NL: at("SC1", 6800, 380),
+    NLNLS: at("SC1", 7000, 360), NLS: at("SC1", 7300, 380),
+    HSP: at("SC1", 7900, 420), SP: at("SC1", 8200, 380), SPSB: at("SC1", 8500, 320), SB: at("SC1", 8800, 380),
+    HCP: at("SC1", 9100, 420), CP: at("SC1", 9400, 380), CPCB: at("SC1", 9700, 320), CB: at("SC1", 10000, 380),
+    HPP: at("SC1", 10300, 420), PP: at("SC1", 10600, 380), PPPC: at("SC1", 10900, 320), PC: at("SC1", 11200, 380),
+    PCREV: at("SC1", 11500, 320), REV: at("SC1", 11800, 380),
+  };
   const s1BackwardIn = at("SC1", 12700, 600);
   const s1DimAmt = fadeWindow(t, s1BackwardIn.start, s1BackwardIn.end, Infinity, Infinity) * 0.5;
 
@@ -635,15 +698,66 @@ export default function TrackingJourneyOnboardingVideo({ onSkip, onComplete }: T
 
           {/* ================= SCENE 1 ================= */}
           <g opacity={sc1Opacity}>
-            {s1ArrowIn.map((w, i) => (
-              <Arrow key={`s1-arrow-${i}`} x1={CHAIN_X[i] + 54} y1={CHAIN_Y} x2={CHAIN_X[i + 1] - 54} y2={CHAIN_Y}
-                t={t} start={w.start} end={w.end} color={ACCENT} />
-            ))}
-            {CHAIN_X.map((x, i) => (
-              <VideoNode key={`s1-node-${i}`} x={x} y={CHAIN_Y} t={t} arriveStart={s1NodeIn[i].start} arriveEnd={s1NodeIn[i].end}
-                label={CHAIN_LABEL[i]} fade={1 - s1DimAmt} />
-            ))}
-            <Label x={500} y={200} t={t} start={s1BackwardIn.start} end={s1BackwardIn.end} size={11} color={ACCENT} weight={800}>
+            <g opacity={1 - s1DimAmt}>
+              {/* Legend */}
+              {(() => {
+                const lp = prog(t, s1In.legend.start, s1In.legend.end);
+                if (lp <= 0.001) return null;
+                const items: [string, string][] = [[OWN, "Your content"], [OTHER, "Another marketer's content"], [CONV, "Conversion event"]];
+                const xs = [40, 190, 440];
+                return (
+                  <g opacity={lp}>
+                    {items.map(([c, txt], i) => (
+                      <g key={`s1-leg-${i}`}>
+                        <circle cx={xs[i]} cy={34} r={6} fill={c} />
+                        <text x={xs[i] + 14} y={38} fontFamily={MONO} fontWeight={700} fontSize={11} fill={INK}>{txt}</text>
+                      </g>
+                    ))}
+                  </g>
+                );
+              })()}
+
+              {/* Arrows */}
+              <PathArrow pts={[[S1.A.x + 52, 110], [S1.B.x - 52, 110]]} t={t} start={s1In.AB.start} end={s1In.AB.end} color={OWN} />
+              <PathArrow pts={[[S1.B.x + 52, 110], [S1.C.x - 52, 110]]} t={t} start={s1In.BC.start} end={s1In.BC.end} color={OWN} />
+              <PathArrow pts={[[S1.C.x + 52, 110], [S1.D.x - 52, 110]]} t={t} start={s1In.CD.start} end={s1In.CD.end} color={OWN} />
+              <PathArrow pts={[[S1.G.x + 52, 200], [S1.N.x - 52, 200]]} t={t} start={s1In.GN.start} end={s1In.GN.end} color={OTHER} />
+              <PathArrow pts={[[S1.N.x + 52, 200], [312, 200], [312, 134]]} t={t} start={s1In.NC.start} end={s1In.NC.end} color={OTHER} />
+              <PathArrow pts={[[350, 134], [350, 266]]} t={t} start={s1In.CH.start} end={s1In.CH.end} color={OWN} />
+              <PathArrow pts={[[S1.D.x + 52, 110], [S1.NL.x - 72, 110]]} t={t} start={s1In.DNL.start} end={s1In.DNL.end} color={OWN} />
+              <PathArrow pts={[[S1.NL.x + 72, 110], [S1.NLS.x - 72, 110]]} t={t} start={s1In.NLNLS.start} end={s1In.NLNLS.end} color={CONV} />
+              {/* H → three conversion paths (shared trunk down from H) */}
+              <PathArrow pts={[[S1.H.x + 52, 290], [S1.SP.x - 72, 290]]} t={t} start={s1In.HSP.start} end={s1In.HSP.end} color={OWN} />
+              <PathArrow pts={[[S1.H.x, 308], [S1.H.x, 390], [S1.CP.x - 72, 390]]} t={t} start={s1In.HCP.start} end={s1In.HCP.end} color={OWN} />
+              <PathArrow pts={[[S1.H.x, 390], [S1.H.x, 490], [S1.PP.x - 72, 490]]} t={t} start={s1In.HPP.start} end={s1In.HPP.end} color={OWN} />
+              <PathArrow pts={[[S1.SP.x + 72, 290], [S1.SB.x - 72, 290]]} t={t} start={s1In.SPSB.start} end={s1In.SPSB.end} color={CONV} />
+              <PathArrow pts={[[S1.CP.x + 72, 390], [S1.CB.x - 72, 390]]} t={t} start={s1In.CPCB.start} end={s1In.CPCB.end} color={CONV} />
+              <PathArrow pts={[[S1.PP.x + 72, 490], [S1.PC.x - 72, 490]]} t={t} start={s1In.PPPC.start} end={s1In.PPPC.end} color={CONV} />
+              <PathArrow pts={[[S1.PC.x + 72, 490], [S1.REV.x - 72, 490]]} t={t} start={s1In.PCREV.start} end={s1In.PCREV.end} color={CONV} />
+
+              {/* Video nodes */}
+              <VideoNode x={S1.A.x} y={S1.A.y} t={t} arriveStart={s1In.A.start} arriveEnd={s1In.A.end} label="Video A" scale={0.88} tone={OWN} />
+              <VideoNode x={S1.B.x} y={S1.B.y} t={t} arriveStart={s1In.B.start} arriveEnd={s1In.B.end} label="Video B" scale={0.88} tone={OWN} />
+              <VideoNode x={S1.C.x} y={S1.C.y} t={t} arriveStart={s1In.C.start} arriveEnd={s1In.C.end} label="Video C" scale={0.88} tone={OWN} />
+              <VideoNode x={S1.D.x} y={S1.D.y} t={t} arriveStart={s1In.D.start} arriveEnd={s1In.D.end} label="Video D" scale={0.88} tone={OWN} />
+              <VideoNode x={S1.G.x} y={S1.G.y} t={t} arriveStart={s1In.G.start} arriveEnd={s1In.G.end} label="Video G" scale={0.88} tone={OTHER} />
+              <VideoNode x={S1.N.x} y={S1.N.y} t={t} arriveStart={s1In.N.start} arriveEnd={s1In.N.end} label="Video N" scale={0.88} tone={OTHER} />
+              <VideoNode x={S1.H.x} y={S1.H.y} t={t} arriveStart={s1In.H.start} arriveEnd={s1In.H.end} label="Video H" scale={0.88} tone={OWN} />
+
+              {/* Newsletter branch */}
+              <FlowNode x={S1.NL.x} y={S1.NL.y} t={t} arriveStart={s1In.NL.start} arriveEnd={s1In.NL.end} label="Newsletter" tone={OWN} />
+              <FlowNode x={S1.NLS.x} y={S1.NLS.y} t={t} arriveStart={s1In.NLS.start} arriveEnd={s1In.NLS.end} label="Newsletter Sign-up" tone={CONV} />
+
+              {/* Sales call / consultation / purchase branches */}
+              <FlowNode x={S1.SP.x} y={S1.SP.y} t={t} arriveStart={s1In.SP.start} arriveEnd={s1In.SP.end} label="Sales Call Page" tone={OWN} />
+              <FlowNode x={S1.SB.x} y={S1.SB.y} t={t} arriveStart={s1In.SB.start} arriveEnd={s1In.SB.end} label="Sales Call Booked" tone={CONV} />
+              <FlowNode x={S1.CP.x} y={S1.CP.y} t={t} arriveStart={s1In.CP.start} arriveEnd={s1In.CP.end} label="Consultation Page" tone={OWN} />
+              <FlowNode x={S1.CB.x} y={S1.CB.y} t={t} arriveStart={s1In.CB.start} arriveEnd={s1In.CB.end} label="Consultation Booked" tone={CONV} />
+              <FlowNode x={S1.PP.x} y={S1.PP.y} t={t} arriveStart={s1In.PP.start} arriveEnd={s1In.PP.end} label="Purchase Page" tone={OWN} />
+              <FlowNode x={S1.PC.x} y={S1.PC.y} t={t} arriveStart={s1In.PC.start} arriveEnd={s1In.PC.end} label="Purchase Confirmed" tone={CONV} />
+              <FlowNode x={S1.REV.x} y={S1.REV.y} t={t} arriveStart={s1In.REV.start} arriveEnd={s1In.REV.end} label="Revenue Attributed" tone={CONV} icon="$" />
+            </g>
+            <Label x={500} y={570} t={t} start={s1BackwardIn.start} end={s1BackwardIn.end} size={12} color={ACCENT} weight={800}>
               ⟲ building this backward
             </Label>
           </g>
