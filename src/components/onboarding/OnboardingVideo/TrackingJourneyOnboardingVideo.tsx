@@ -115,7 +115,7 @@ const GAP = 280;
 // each equals the sum of that scene's caption windows (see CAPTIONS),
 // so the slowest of "hear it / read it / watch it finish" sets the pace.
 const SCENE_SOURCE: [string, number][] = [
-  ["SC1", 17000], // preview finished journey + "build it backward" (3 lines)
+  ["SC1", 40600], // campaign map (3 sentences) → A→F chain → "build it backward" (3 captions)
   ["SC_BUILD", 40200], // create F→asset, E, D, C, B, A, payoff (4 lines)
   ["SC5", 18300], // root tracking domain concept (3 lines)
   ["SC6", 19900], // messy cross-root-domain example (2 lines)
@@ -178,18 +178,26 @@ function windowCaption(text: string, start: number, end: number, opts: { lead?: 
 }
 
 const CAPTIONS = [
-  // ---- SC1: why we build backward (3 lines) ----
+  // ---- SC1: campaign map (3 sentences), then A→F chain, then "backward" ----
   windowCaption(
-    "Let's say you want to build a more complex marketing campaign, where multiple videos work together to educate and nurture a potential customer.",
+    "Let's say you want to build a more complex marketing campaign, where multiple videos work together to educate and nurture a potential customer. You can also create branching paths, allowing viewers to follow different journeys that lead to the same or different outcomes.",
     into("SC1", 0), into("SC1", 7600)
   ),
   windowCaption(
+    "A prospect might watch Video A, then Video B, a few days later, moving on to Video C and Video D, each video building on the previous one and bringing them closer to making a purchase.",
+    into("SC1", 7600), into("SC1", 19000)
+  ),
+  windowCaption(
+    "With VSTRK, you can track this entire journey and see how each video contributes to the final result.",
+    into("SC1", 19000), into("SC1", 27000)
+  ),
+  windowCaption(
     "You might have one complete journey, from Video A all the way to Video F.",
-    into("SC1", 7600), into("SC1", 12400)
+    into("SC1", 27000), into("SC1", 36000)
   ),
   windowCaption(
     "But instead of starting with Video A, we're going to build this journey backward.",
-    into("SC1", 12400), into("SC1", 17000)
+    into("SC1", 36000), into("SC1", 40600)
   ),
 
   // ---- SC_BUILD: start with F, E promotes F, repeat backward, payoff (4 lines) ----
@@ -534,21 +542,26 @@ export default function TrackingJourneyOnboardingVideo({ onSkip, onComplete }: T
   };
   const s1In = {
     legend: at("SC1", 200, 500),
-    A: at("SC1", 600, 380), AB: at("SC1", 900, 320),
-    B: at("SC1", 1200, 380), BC: at("SC1", 1500, 320),
-    C: at("SC1", 1800, 380), CD: at("SC1", 2100, 320),
-    D: at("SC1", 2400, 380),
-    G: at("SC1", 3300, 380), GN: at("SC1", 3600, 320),
-    N: at("SC1", 3900, 380), NC: at("SC1", 4200, 480),
-    CH: at("SC1", 5200, 480), H: at("SC1", 5600, 380),
-    DNL: at("SC1", 6400, 420), NL: at("SC1", 6800, 380),
-    NLNLS: at("SC1", 7000, 360), NLS: at("SC1", 7300, 380),
-    HSP: at("SC1", 7900, 420), SP: at("SC1", 8200, 380), SPSB: at("SC1", 8500, 320), SB: at("SC1", 8800, 380),
-    HCP: at("SC1", 9100, 420), CP: at("SC1", 9400, 380), CPCB: at("SC1", 9700, 320), CB: at("SC1", 10000, 380),
-    HPP: at("SC1", 10300, 420), PP: at("SC1", 10600, 380), PPPC: at("SC1", 10900, 320), PC: at("SC1", 11200, 380),
-    PCREV: at("SC1", 11500, 320), REV: at("SC1", 11800, 380),
+    // sentence 1 (0-7600): legend + the four videos appear
+    A: at("SC1", 1200, 380), B: at("SC1", 2400, 380), C: at("SC1", 3600, 380), D: at("SC1", 4800, 380),
+    // sentence 2 (7600-19000): A→B→C→D walk, feeder videos, hub, newsletter
+    AB: at("SC1", 8200, 320), BC: at("SC1", 9400, 320), CD: at("SC1", 10600, 320),
+    G: at("SC1", 12000, 380), GN: at("SC1", 12500, 320), N: at("SC1", 13000, 380), NC: at("SC1", 13600, 480),
+    CH: at("SC1", 15000, 480), H: at("SC1", 15800, 380),
+    DNL: at("SC1", 16800, 420), NL: at("SC1", 17200, 380),
+    NLNLS: at("SC1", 17600, 360), NLS: at("SC1", 18000, 380),
+    // sentence 3 (19000-27000): the three conversion paths + revenue
+    HSP: at("SC1", 19600, 420), SP: at("SC1", 20000, 380), SPSB: at("SC1", 20400, 320), SB: at("SC1", 20800, 380),
+    HCP: at("SC1", 21400, 420), CP: at("SC1", 21800, 380), CPCB: at("SC1", 22200, 320), CB: at("SC1", 22600, 380),
+    HPP: at("SC1", 23200, 420), PP: at("SC1", 23600, 380), PPPC: at("SC1", 24000, 320), PC: at("SC1", 24400, 380),
+    PCREV: at("SC1", 24900, 320), REV: at("SC1", 25300, 380),
   };
-  const s1BackwardIn = at("SC1", 12700, 600);
+  // campaign map fades out as the A→F chain takes over (caption 4)
+  const s1MapOpacity = 1 - prog(t, SEG.SC1.start + 26700, SEG.SC1.start + 27300);
+  // previous A→F chain animation: nodes one-by-one, then arrows, then "backward"
+  const s1NodeIn = CHAIN_X.map((_, i) => at("SC1", 27500 + i * 900, 420));
+  const s1ArrowIn = CHAIN_X.slice(0, -1).map((_, i) => at("SC1", 32500 + i * 600, 380));
+  const s1BackwardIn = at("SC1", 36300, 600);
   const s1DimAmt = fadeWindow(t, s1BackwardIn.start, s1BackwardIn.end, Infinity, Infinity) * 0.5;
 
   /* ================= SCENE: BUILD (F, E, D, C, B, A, payoff) ================= */
@@ -698,7 +711,7 @@ export default function TrackingJourneyOnboardingVideo({ onSkip, onComplete }: T
 
           {/* ================= SCENE 1 ================= */}
           <g opacity={sc1Opacity}>
-            <g opacity={1 - s1DimAmt}>
+            <g opacity={s1MapOpacity}>
               {/* Legend */}
               {(() => {
                 const lp = prog(t, s1In.legend.start, s1In.legend.end);
@@ -757,7 +770,16 @@ export default function TrackingJourneyOnboardingVideo({ onSkip, onComplete }: T
               <FlowNode x={S1.PC.x} y={S1.PC.y} t={t} arriveStart={s1In.PC.start} arriveEnd={s1In.PC.end} label="Purchase Confirmed" tone={CONV} />
               <FlowNode x={S1.REV.x} y={S1.REV.y} t={t} arriveStart={s1In.REV.start} arriveEnd={s1In.REV.end} label="Revenue Attributed" tone={CONV} icon="$" />
             </g>
-            <Label x={500} y={570} t={t} start={s1BackwardIn.start} end={s1BackwardIn.end} size={12} color={ACCENT} weight={800}>
+            {/* Previous A→F chain animation */}
+            {s1ArrowIn.map((w, i) => (
+              <Arrow key={`s1-arrow-${i}`} x1={CHAIN_X[i] + 54} y1={CHAIN_Y} x2={CHAIN_X[i + 1] - 54} y2={CHAIN_Y}
+                t={t} start={w.start} end={w.end} color={ACCENT} />
+            ))}
+            {CHAIN_X.map((x, i) => (
+              <VideoNode key={`s1-node-${i}`} x={x} y={CHAIN_Y} t={t} arriveStart={s1NodeIn[i].start} arriveEnd={s1NodeIn[i].end}
+                label={CHAIN_LABEL[i]} fade={1 - s1DimAmt} />
+            ))}
+            <Label x={500} y={200} t={t} start={s1BackwardIn.start} end={s1BackwardIn.end} size={11} color={ACCENT} weight={800}>
               ⟲ building this backward
             </Label>
           </g>
