@@ -18,6 +18,9 @@ export const VSL_SCENES: VSLSceneDefinition[] = [
   // 38 s intro: content → click → website → outcomes → revenue
   { id: 'uni1', label: 'uni1', kind: 'timed', component: lazy(() => import('./scenes/universalvsl1')) },
 
+  // 10 s: custom tracking domain (shop.yourdomain.com)
+  { id: 'domain', label: 'domain', kind: 'timed', component: lazy(() => import('./scenes/trackingdomainvsl')) },
+
   // Diagnostic scene to verify Play / Pause / Restart / Recording mode.
   // Delete this line (and scenes/PlayerCheck.tsx) when you no longer need it.
   { id: 'player-check', label: 'Player Check', kind: 'timed', component: lazy(() => import('./scenes/PlayerCheck')) },
