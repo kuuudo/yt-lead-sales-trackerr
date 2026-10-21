@@ -83,6 +83,7 @@ import BusinessOwnerDemo from './pages/public/marketing/businessOwner/BusinessOw
 import BusinessOwnerLandingPage from './pages/public/marketing/businessOwner/BusinessOwnerLandingPage';
 import BusinessHireAgencyDemo from './pages/public/marketing/businessHireAgency/BusinessHireAgencyDemo';
 import BusinessHireAgencyLandingPage from './pages/public/marketing/businessHireAgency/BusinessHireAgencyLandingPage';
+import VSLPlayer from './pages/public/VSL/1ST/VSLPlayer';
 import { useMyTeam } from './lib/useMyTeam';
 // Top-level path segments that are "real" app pages (i.e. matched by an
 // explicit <Route> before the catch-all "/:token" route). If a single-segment
@@ -170,10 +171,16 @@ function isBusinessOwnerRoute(pathname: string): boolean {
 // NOTE: do NOT add '5q' to KNOWN_APP_PATHS (same reason as '1y' above).
 const BUSINESS_HIRE_AGENCY_DEMO_PATHS = ['/insights/5x'];
 const BUSINESS_HIRE_AGENCY_LANDING_PATHS = ['/5q'];
+
 function isBusinessHireAgencyRoute(pathname: string): boolean {
   const p = pathname.replace(/\/+$/, '');
   return BUSINESS_HIRE_AGENCY_DEMO_PATHS.includes(p) || BUSINESS_HIRE_AGENCY_LANDING_PATHS.includes(p);
 }
+
+// Local-only VSL recording stage (no data, no auth). Registered in BOTH route tables.
+// NOTE: do NOT add this to KNOWN_APP_PATHS. As a bare single-segment path,
+// isRelayRoute() already treats it as chrome-less and exempt from the access gate.
+const VSL_1ST_PATH = '/vsl1stversionanimation';
 
 // Renders the top nav + viewing banner everywhere EXCEPT the relay/token
 // redirect routes, without touching in-app navigation at all.
@@ -680,6 +687,7 @@ function MainContent() {
         {BUSINESS_HIRE_AGENCY_LANDING_PATHS.map(path => (
           <Route key={path} path={path} element={<BusinessHireAgencyLandingPage />} />
         ))}
+          <Route path={VSL_1ST_PATH} element={<VSLPlayer />} />
         {/* Phase 1 continuation relay — infrastructure only. Must be above /:token,
             and /r/platform must be above /r/:relayToken or it never matches. */}
         <Route path="/r/platform" element={<PlatformContinuation />} />
@@ -727,6 +735,7 @@ function MainContent() {
         {BUSINESS_HIRE_AGENCY_LANDING_PATHS.map(path => (
           <Route key={path} path={path} element={<BusinessHireAgencyLandingPage />} />
         ))}
+        <Route path={VSL_1ST_PATH} element={<VSLPlayer />} />
         <Route path="/" element={<Navigate to="/tree" replace />} />
         <Route path="/dashboard" element={<PageWrapper><Dashboard /></PageWrapper>} />
         <Route path="/tree" element={<PageWrapper><Tree /></PageWrapper>} />
