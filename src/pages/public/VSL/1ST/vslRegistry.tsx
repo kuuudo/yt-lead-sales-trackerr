@@ -24,6 +24,9 @@ export const VSL_SCENES: VSLSceneDefinition[] = [
   // 10 s: the two options (promote your own product / work with others)
   { id: 'two-options', label: 'two options', kind: 'timed', component: lazy(() => import('./scenes/twooptions')) },
 
+  // 10 s: the nine supported platforms
+  { id: '9platform', label: '9platform', kind: 'timed', component: lazy(() => import('./scenes/9platforms')) },
+
   // Diagnostic scene to verify Play / Pause / Restart / Recording mode.
   // Delete this line (and scenes/PlayerCheck.tsx) when you no longer need it.
   { id: 'player-check', label: 'Player Check', kind: 'timed', component: lazy(() => import('./scenes/PlayerCheck')) },
