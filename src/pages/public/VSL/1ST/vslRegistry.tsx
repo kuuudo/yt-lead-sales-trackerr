@@ -27,6 +27,9 @@ export const VSL_SCENES: VSLSceneDefinition[] = [
   // 10 s: the nine supported platforms
   { id: '9platform', label: '9platform', kind: 'timed', component: lazy(() => import('./scenes/9platforms')) },
 
+  // 13 s: paste the tracking link into Reddit / TikTok / LinkedIn
+  { id: 'pastelink', label: 'pasteLink', kind: 'timed', component: lazy(() => import('./scenes/pastlinktootherplatform')) },
+
   // Diagnostic scene to verify Play / Pause / Restart / Recording mode.
   // Delete this line (and scenes/PlayerCheck.tsx) when you no longer need it.
   { id: 'player-check', label: 'Player Check', kind: 'timed', component: lazy(() => import('./scenes/PlayerCheck')) },
