@@ -5,20 +5,21 @@ import { useSceneClock } from "../useSceneClock";
 /* ---------------------------------------------------------------
    VSTRK — VSL scene "Agency1" (agencysalespitch1.tsx) — 30 seconds, no subtitles
 
-   NARRATION THIS SCENE IS TIMED TO (~64 words, pace ≈ 0.47 s / word):
+   NARRATION THIS SCENE IS TIMED TO (~72 words, pace ≈ 0.42 s / word):
 
    [A 0.0-3.8 ] "ViewTrack helps marketing agencies close more clients and retain existing ones"
    [B 3.8-9.0 ] "by introducing a whole new layer of proof to their sales process and client communication."
    [C 9.0-15.2] "This new layer, ViewTrack, tracks the results of your marketing campaigns, ads, social posts, and videos,"
-   [D 15.2-22.0] "connecting the traffic they generate to what these visitors do on your client's website,"
-   [E 22.0-30.0] "from making purchases and signing up for newsletters"
+   [D 15.2-21.5] "connecting the traffic they generate to what these visitors do on your client's website,"
+   [E 21.5-30.0] "from making purchases and signing up for newsletters to booking consultations and sales calls."
 
    WHAT HAPPENS
      A  VSTRK badge + "For Agencies" chip. Two outcome cards appear: Close more clients · Retain existing.
      B  A central "Proof Layer" badge rises; faint lines connect it to Sales Process and Client Communication chips.
      C  Four campaign tiles (Campaigns / Ads / Posts / Videos) fade in as a row; each gains an eye (tracked).
      D  A traffic arrow draws from the campaign row down to a website card; the earlier agency outcomes dim slightly.
-     E  Two result chips appear under the website (Purchases · Newsletter signups). Final eye + soft pulse on the proof layer.
+     E  Four result chips appear under the website (Purchases · Newsletter · Consultations · Sales calls).
+        Final soft pulse on the proof layer.
 
    To retime, edit the seconds in the BEAT TIMING block and the CAMPAIGN / RESULT start times.
    Self-contained: React + scene props type + the optional clock hook only.
@@ -65,10 +66,12 @@ const TRAFFIC_LINE = [15.6, 17.2];
 const WEBSITE_IN = [16.8, 18.0];
 const DIM_TOP = [15.4, 16.6];
 
-// E — purchases / newsletters
-const RESULT_1 = [22.4, 23.6];  // Purchases
-const RESULT_2 = [24.8, 26.0];  // Newsletter signups
-const FINAL_PULSE = [27.0, 29.2];
+// E — purchases / newsletters / consultations / sales calls
+const RESULT_1 = [21.8, 22.8];  // Purchases
+const RESULT_2 = [23.4, 24.4];  // Newsletter signups
+const RESULT_3 = [25.2, 26.2];  // Consultations
+const RESULT_4 = [27.0, 28.0];  // Sales calls
+const FINAL_PULSE = [28.2, 29.6];
 
 /* ---------------- layout ---------------- */
 const CX = 480;
@@ -215,11 +218,15 @@ export function AgencySalesPitch1Frame({ ms }: { ms: number }) {
           </g>
         )}
 
-        {/* E — result chips */}
-        <Chip x={340} y={480} t={t} start={RESULT_1[0]} end={RESULT_1[1]} label="Purchases" width={120} />
-        <Chip x={620} y={480} t={t} start={RESULT_2[0]} end={RESULT_2[1]} label="Newsletter signups" width={168} fontSize={9.5} />
-        <DrawLine d={`M${CX - 40},${WEB_Y + 36} L340,468`} t={t} start={RESULT_1[0] - 0.3} end={RESULT_1[0] + 0.4} width={1.2} color={ACCENT} opacity={0.5} />
-        <DrawLine d={`M${CX + 40},${WEB_Y + 36} L620,468`} t={t} start={RESULT_2[0] - 0.3} end={RESULT_2[0] + 0.4} width={1.2} color={ACCENT} opacity={0.5} />
+        {/* E — result chips (4 across) */}
+        <Chip x={195} y={488} t={t} start={RESULT_1[0]} end={RESULT_1[1]} label="Purchases" width={118} />
+        <Chip x={365} y={488} t={t} start={RESULT_2[0]} end={RESULT_2[1]} label="Newsletter" width={118} fontSize={9.5} />
+        <Chip x={555} y={488} t={t} start={RESULT_3[0]} end={RESULT_3[1]} label="Consultations" width={128} fontSize={9.5} />
+        <Chip x={745} y={488} t={t} start={RESULT_4[0]} end={RESULT_4[1]} label="Sales calls" width={118} fontSize={9.5} />
+        <DrawLine d={`M${CX - 50},${WEB_Y + 36} L195,476`} t={t} start={RESULT_1[0] - 0.25} end={RESULT_1[0] + 0.35} width={1.2} color={ACCENT} opacity={0.45} />
+        <DrawLine d={`M${CX - 20},${WEB_Y + 36} L365,476`} t={t} start={RESULT_2[0] - 0.25} end={RESULT_2[0] + 0.35} width={1.2} color={ACCENT} opacity={0.45} />
+        <DrawLine d={`M${CX + 20},${WEB_Y + 36} L555,476`} t={t} start={RESULT_3[0] - 0.25} end={RESULT_3[0] + 0.35} width={1.2} color={ACCENT} opacity={0.45} />
+        <DrawLine d={`M${CX + 50},${WEB_Y + 36} L745,476`} t={t} start={RESULT_4[0] - 0.25} end={RESULT_4[0] + 0.35} width={1.2} color={ACCENT} opacity={0.45} />
       </g>
     </svg>
   );
