@@ -30,6 +30,9 @@ export const VSL_SCENES: VSLSceneDefinition[] = [
   // 13 s: paste the tracking link into Reddit / TikTok / LinkedIn
   { id: 'pastelink', label: 'pasteLink', kind: 'timed', component: lazy(() => import('./scenes/pastlinktootherplatform')) },
 
+  // 38 s: ViewTrack/VSTRK helps business owners hold agencies accountable (clicks → revenue)
+  { id: 'biss-owner', label: 'BissOwner', kind: 'timed', component: lazy(() => import('./scenes/BusinessOwnerVstrkhelp')) },
+
   // Diagnostic scene to verify Play / Pause / Restart / Recording mode.
   // Delete this line (and scenes/PlayerCheck.tsx) when you no longer need it.
   { id: 'player-check', label: 'Player Check', kind: 'timed', component: lazy(() => import('./scenes/PlayerCheck')) },
