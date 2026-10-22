@@ -33,6 +33,9 @@ export const VSL_SCENES: VSLSceneDefinition[] = [
   // 38 s: ViewTrack/VSTRK helps business owners hold agencies accountable (clicks → revenue)
   { id: 'biss-owner', label: 'BissOwner', kind: 'timed', component: lazy(() => import('./scenes/BusinessOwnerVstrkhelp')) },
 
+  // 50 s: instead of relying on what your marketer shows you — dig deeper, shared data, better decisions
+  { id: 'no-rely', label: 'NoRely', kind: 'timed', component: lazy(() => import('./scenes/bissHireAgencyNoRely')) },
+
   // Diagnostic scene to verify Play / Pause / Restart / Recording mode.
   // Delete this line (and scenes/PlayerCheck.tsx) when you no longer need it.
   { id: 'player-check', label: 'Player Check', kind: 'timed', component: lazy(() => import('./scenes/PlayerCheck')) },
