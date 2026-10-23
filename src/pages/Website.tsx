@@ -1,11 +1,26 @@
-import React, { useEffect, useState } from 'react'
+import React, { useEffect, useState, useRef, Suspense, lazy, type ComponentType } from 'react'
 import { Loader2 } from 'lucide-react'
 import TestimonialCard from '../components/testimonial/TestimonialCard'
 import {
   fetchWebsiteTestimonials,
   type PublicTestimonial,
 } from '../services/testimonial/publicTestimonials'
-import TrackingJourneyOnboardingVideo from '../components/onboarding/OnboardingVideo/TrackingJourneyOnboardingVideo'
+
+/* Flip these to true when Workspace (Section 05) / Marketplace (Section 06)
+   are ready to show on the public landing page. Until then they stay out of
+   the DOM and are never downloaded. */
+const SHOW_WORKSPACE_VIDEO = false
+const SHOW_MARKETPLACE_VIDEO = false
+
+const LazySection01 = lazy(() => import('../components/onboarding/OnboardingVideo/OnboardingVideoSection01'))
+const LazySection02 = lazy(() => import('../components/onboarding/OnboardingVideo/OnboardingVideoSection02'))
+const LazySection03 = lazy(() => import('../components/onboarding/OnboardingVideo/OnboardingVideoSection03'))
+const LazySection04 = lazy(() => import('../components/onboarding/OnboardingVideo/OnboardingVideoSection04'))
+const LazySection05 = lazy(() => import('../components/onboarding/OnboardingVideo/OnboardingVideoSection05'))
+const LazySection06 = lazy(() => import('../components/onboarding/OnboardingVideo/OnboardingVideoSection06'))
+const LazyTrackingJourney = lazy(() => import('../components/onboarding/OnboardingVideo/TrackingJourneyOnboardingVideo'))
+
+type VideoComp = ComponentType<{ embedded?: boolean; onSkip?: () => void; onComplete?: () => void }>
 
 const C = {
   bg: '#000', panel: '#0d0d0d', card: '#141414', line: '#222', text: '#f2f2f2', mut: '#8a8a8a', dim: '#6a6a6a',
@@ -269,26 +284,120 @@ function CrossDomain() {
   )
 }
 
-/* ---------- Click-to-play walkthrough (mounts only on click, so it never autoplays) ---------- */
-function Walkthrough({ label }: { label: string }) {
-  const [open, setOpen] = useState(false)
-  if (!open) {
-    return (
-      <button type="button" onClick={() => setOpen(true)} style={{
-        ...mono(C.text), marginTop: 14, display: 'inline-flex', alignItems: 'center', gap: 10, cursor: 'pointer',
-        background: 'transparent', border: '0.5px solid #3a3a3a', borderRadius: 8, padding: '10px 16px',
-      }}>
-        <span style={{ color: C.red }} aria-hidden="true">&#9654;</span>{label}
-      </button>
+/* ---------- Scroll-into-view video slot ----------
+   Mounts the video only while roughly on screen, so at most one or two
+   rAF loops run at a time. Unmounting stops the animation; remounting
+   starts from the beginning. Lazy + Suspense keeps the JS off the
+   critical path until first play. */
+function ScrollVideo({
+  Component,
+  title,
+  description,
+}: {
+  Component: VideoComp
+  title: string
+  description: string
+}) {
+  const ref = useRef<HTMLDivElement>(null)
+  const [visible, setVisible] = useState(false)
+
+  useEffect(() => {
+    const el = ref.current
+    if (!el) return
+    const io = new IntersectionObserver(
+      ([entry]) => setVisible(entry.isIntersecting),
+      { rootMargin: '80px 0px', threshold: 0.15 },
     )
-  }
-  // The video is designed on a white canvas, so it sits inside a white frame.
+    io.observe(el)
+    return () => io.disconnect()
+  }, [])
+
   return (
-    <div style={{ background: '#fff', borderRadius: 12, overflow: 'hidden', marginTop: 14, position: 'relative' }}>
-      <TrackingJourneyOnboardingVideo onSkip={() => setOpen(false)} onComplete={() => setOpen(false)} />
+    <div ref={ref} style={{ marginBottom: 36 }}>
+      <div style={{ ...mono(C.red), marginBottom: 6 }}>{title}</div>
+      <p style={{ fontSize: 14, color: C.mut, lineHeight: 1.55, margin: '0 0 12px', maxWidth: 640 }}>{description}</p>
+      <div style={{ background: '#fff', borderRadius: 12, overflow: 'hidden', minHeight: 280, position: 'relative' }}>
+        {visible ? (
+          <Suspense
+            fallback={
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', minHeight: 280, color: '#9a9aa8', fontFamily: MONO, fontSize: 12 }}>
+                Loading…
+              </div>
+            }
+          >
+            <Component embedded />
+          </Suspense>
+        ) : (
+          <div style={{ minHeight: 280, display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#bbb', fontFamily: MONO, fontSize: 11, letterSpacing: '0.08em' }}>
+            SCROLL TO PLAY
+          </div>
+        )}
+      </div>
     </div>
   )
 }
+
+/* Full story list. hidden:true entries are built into the page structure
+   but never rendered until you flip the flags at the top of this file. */
+const STORY_VIDEOS: {
+  id: string
+  title: string
+  description: string
+  Component: VideoComp
+  hidden?: boolean
+}[] = [
+  {
+    id: 's01',
+    title: '01 · Track the whole journey',
+    description:
+      'Post on any platform and still know which video led to a sale. VSTRK puts a tracking link on your content, and tracking starts the moment someone clicks.',
+    Component: LazySection01 as VideoComp,
+  },
+  {
+    id: 's02',
+    title: '02 · Turn winners into assets',
+    description:
+      'When a video works, turn it into an asset and create new content to promote it. You track the whole network of content behind a result, not just a single link.',
+    Component: LazySection02 as VideoComp,
+  },
+  {
+    id: 'journey',
+    title: '03 · Build a journey backward',
+    description:
+      'Start with your final video, make it an asset, and let each earlier video promote the next — all the way back to Video A. Also covers tracking domains, and how one journey can cross into a second domain.',
+    Component: LazyTrackingJourney as VideoComp,
+  },
+  {
+    id: 's03',
+    title: '04 · Work with other people',
+    description:
+      'Hire an agency, sponsor influencers, or have a teammate do your marketing. Each person gets their own promotion and tracking link, so you can compare them by revenue instead of views.',
+    Component: LazySection03 as VideoComp,
+  },
+  {
+    id: 's04',
+    title: '05 · Operator Mode',
+    description:
+      'Add team members or clients and see what they are actually doing — content, clicks, leads, and revenue. Then teach them what is working and why something did not.',
+    Component: LazySection04 as VideoComp,
+  },
+  {
+    id: 's05',
+    title: '06 · Workspace',
+    description:
+      'Pull out only the charts that answer today’s question. Investigate who is working harder, which content keeps earning, where revenue comes from, and how risk is distributed across platforms.',
+    Component: LazySection05 as VideoComp,
+    hidden: !SHOW_WORKSPACE_VIDEO,
+  },
+  {
+    id: 's06',
+    title: '07 · Where we’re heading',
+    description:
+      'We’re building toward a marketplace where businesses find proven marketers and results speak for themselves. Track. Attribute. Grow.',
+    Component: LazySection06 as VideoComp,
+    hidden: !SHOW_MARKETPLACE_VIDEO,
+  },
+]
 
 /* ---------- Page ---------- */
 export default function Website() {
@@ -312,6 +421,8 @@ export default function Website() {
       cancelled = true
     }
   }, [])
+
+  const visibleStory = STORY_VIDEOS.filter((v) => !v.hidden)
 
   return (
     <div style={{ background: C.bg, color: C.text, fontFamily: SANS, minHeight: '100vh' }}>
@@ -342,7 +453,6 @@ export default function Website() {
 
         <Section label="02 / Build it backward" title={<>Start at the end.<br />Work back to the start.</>} sub="Make your last video an asset. Let the one before it promote that asset. Repeat until every video leads to the next, all the way to revenue.">
           <BuildBackward />
-          <Walkthrough label="Watch how to build a journey" />
         </Section>
 
         <Section label="03 / Any platform, one campaign" title={<>Mix every platform.<br />Trace every path to revenue.</>} sub="Chain videos, posts, and pages across YouTube, TikTok, Instagram, X, Reddit, and more. Paths can split and merge, and VS-Track follows all of them.">
@@ -356,7 +466,16 @@ export default function Website() {
 
         <Section label="05 / Your domain" title={<>Your links. Your domain.<br />Even across brands.</>} sub="Put tracking links on your own domain. When a customer moves from one brand's domain to another, the journey keeps going.">
           <CrossDomain />
-          <Walkthrough label="Watch how domains work" />
+        </Section>
+
+        <Section
+          label="06 / The full story"
+          title={<>Watch how it all fits together.</>}
+          sub="Short explainers of every major piece of VSTRK. Each video starts when it scrolls into view and stops when it leaves, so only one or two run at a time."
+        >
+          {visibleStory.map((v) => (
+            <ScrollVideo key={v.id} Component={v.Component} title={v.title} description={v.description} />
+          ))}
         </Section>
 
         <section className="flex flex-col gap-6" style={{ marginTop: 88 }}>
