@@ -13,7 +13,7 @@ export const SPONSOR_DEMO_WHATSAPP_URL = 'https://wa.me/886903919125';
  * Accepts a watch URL, youtu.be URL, shorts URL or embed URL.
  * Leave '' until you have the link — the tab shows a placeholder.
  */
-export const FOUNDER_VIDEO_URL = '';
+   export const FOUNDER_VIDEO_URL = 'https://youtu.be/idJV1PAJrmc';
 
 /**
  * Landing Page tab content. Everything is empty on purpose: nothing here
