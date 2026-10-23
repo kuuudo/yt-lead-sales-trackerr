@@ -15,7 +15,7 @@ export const BUSINESS_HIRE_AGENCY_DEMO_WHATSAPP_URL = 'https://wa.me/88690391912
  * Accepts a watch URL, youtu.be URL, shorts URL or embed URL.
  * Leave '' until you have the link — the tab shows a placeholder.
  */
-export const FOUNDER_VIDEO_URL = '';
+export const FOUNDER_VIDEO_URL = 'https://youtu.be/jeNgE5bT8PY';
 
 /** Optional overrides for the landing page. Empty = use the built-in label. */
 export interface BusinessHireAgencyLandingContent {

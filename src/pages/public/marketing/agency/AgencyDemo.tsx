@@ -53,7 +53,9 @@ function toYouTubeEmbed(raw: string): string | null {
   } catch {
     return null;
   }
-  return id && /^[\w-]{11}$/.test(id) ? `https://www.youtube-nocookie.com/embed/${id}?rel=0` : null;
+   return id && /^[\w-]{11}$/.test(id)
+     ? `https://www.youtube-nocookie.com/embed/${id}?rel=0&autoplay=1&mute=1&playsinline=1`
+     : null;
 }
 
 function Placeholder({ title, children }: { title: string; children?: React.ReactNode }) {
@@ -93,7 +95,7 @@ function StartHere() {
           <iframe
             src={embed}
             title="VSTRK founder introduction"
-            allow="accelerometer; encrypted-media; gyroscope; picture-in-picture; fullscreen"
+            allow="autoplay; accelerometer; encrypted-media; gyroscope; picture-in-picture; fullscreen"
             allowFullScreen
             referrerPolicy="strict-origin-when-cross-origin"
             style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', border: 0 }}
