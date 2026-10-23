@@ -42,6 +42,9 @@ export const VSL_SCENES: VSLSceneDefinition[] = [
   // 50 s: competitors use case studies; you show per-post results + ongoing client visibility
   { id: 'agency2', label: 'agency2', kind: 'timed', component: lazy(() => import('./scenes/agency2')) },
 
+  // 36 s: companies evaluate marketing candidates via trial campaigns + tracked performance
+  { id: 'companyhire', label: 'companyhire', kind: 'timed', component: lazy(() => import('./scenes/CompanyHire')) },
+
   // Diagnostic scene to verify Play / Pause / Restart / Recording mode.
   // Delete this line (and scenes/PlayerCheck.tsx) when you no longer need it.
   { id: 'player-check', label: 'Player Check', kind: 'timed', component: lazy(() => import('./scenes/PlayerCheck')) },
