@@ -5,6 +5,8 @@ import {
   fetchWebsiteTestimonials,
   type PublicTestimonial,
 } from '../services/testimonial/publicTestimonials'
+import LoopVideoPreview from '../components/marketing/LoopVideoPreview'
+import VideoLightbox from '../components/marketing/VideoLightbox'
 
 /* Flip these to true when Workspace (Section 05) / Marketplace (Section 06)
    are ready to show on the public landing page. Until then they stay out of
@@ -426,6 +428,7 @@ export default function Website() {
 
   return (
     <div style={{ background: C.bg, color: C.text, fontFamily: SANS, minHeight: '100vh' }}>
+      <VideoLightbox />
       <style>{`.lp-nav-links{display:flex;gap:22px}@media(max-width:640px){.lp-nav-links{display:none}}`}</style>
       <div style={{ maxWidth: 960, margin: '0 auto', padding: '20px 20px 64px' }}>
         <header style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 56 }}>
@@ -449,23 +452,48 @@ export default function Website() {
               <LibraryRow title="Another video title" meta="Shared asset x3 · Goal: direct sales" />
             </div>
           </Frame>
+          <LoopVideoPreview
+            src="/videoloop/easytogeneratetrackinglink.mp4"
+            label="Generate a tracking link"
+            caption="Silent preview · click to expand"
+          />
         </Section></div>
 
         <Section label="02 / Build it backward" title={<>Start at the end.<br />Work back to the start.</>} sub="Make your last video an asset. Let the one before it promote that asset. Repeat until every video leads to the next, all the way to revenue.">
           <BuildBackward />
+          <LoopVideoPreview
+            src="/videoloop/treejourney.mp4"
+            label="Build the journey"
+            caption="Silent preview · click to expand"
+          />
         </Section>
 
         <Section label="03 / Any platform, one campaign" title={<>Mix every platform.<br />Trace every path to revenue.</>} sub="Chain videos, posts, and pages across YouTube, TikTok, Instagram, X, Reddit, and more. Paths can split and merge, and VS-Track follows all of them.">
           <MultiPlatform />
           <div style={{ ...mono(C.dim), marginTop: 10, letterSpacing: '0.08em' }}>If you can put a link on it, you can track it.</div>
+          <LoopVideoPreview
+            src="/videoloop/9platforms.mp4"
+            label="Track across platforms"
+            caption="Silent preview · click to expand"
+          />
         </Section>
 
         <div id="share"><Section label="04 / Share it" title={<>Turn anything into an asset.<br />See who sells it best.</>} sub="Share a video, page, or offer. Everyone who promotes it gets their own link, and you can rank them by revenue.">
           <TopAssets />
+          <LoopVideoPreview
+            src="/videoloop/partnerjourneymap.mp4"
+            label="Partners and shared journeys"
+            caption="Silent preview · click to expand"
+          />
         </Section></div>
 
         <Section label="05 / Your domain" title={<>Your links. Your domain.<br />Even across brands.</>} sub="Put tracking links on your own domain. When a customer moves from one brand's domain to another, the journey keeps going.">
           <CrossDomain />
+          <LoopVideoPreview
+            src="/videoloop/trackingdomainloopvideo.mp4"
+            label="Custom tracking domains"
+            caption="Silent preview · click to expand"
+          />
         </Section>
 
         <Section
