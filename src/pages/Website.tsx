@@ -339,6 +339,61 @@ function ScrollVideo({
   )
 }
 
+
+/* All product loop MP4s — silent previews, expand for controls */
+const PRODUCT_LOOPS: { src: string; title: string; about: string }[] = [
+  {
+    src: '/videoloop/easytogeneratetrackinglink.mp4',
+    title: 'Easy to generate tracking link',
+    about: 'Paste a content URL and get a tracking link in a few clicks.',
+  },
+  {
+    src: '/videoloop/9platforms.mp4',
+    title: '9 platforms',
+    about: 'Track the same campaign across YouTube, TikTok, Instagram, X, and more.',
+  },
+  {
+    src: '/videoloop/treejourney.mp4',
+    title: 'Tree journey',
+    about: 'See how videos chain into a journey tree that leads toward revenue.',
+  },
+  {
+    src: '/videoloop/trackcomplexjourn.mp4',
+    title: 'Track complex journey',
+    about: 'Follow longer, branching customer paths — not only a single linear click.',
+  },
+  {
+    src: '/videoloop/trackingdomainloopvideo.mp4',
+    title: 'Tracking domain',
+    about: 'Put tracking links on your own domain (and subdomains) while VSTRK still attributes.',
+  },
+  {
+    src: '/videoloop/partnerjourneymap.mp4',
+    title: 'Partner journey map',
+    about: 'Map how partners and collaborators move traffic through a shared journey.',
+  },
+  {
+    src: '/videoloop/trackyourselforotherpeopletrackstillwork.mp4',
+    title: 'Track yourself or other people',
+    about: 'Whether you promote it or someone else does, tracking still ties back to the result.',
+  },
+  {
+    src: '/videoloop/track4events.mp4',
+    title: 'Track 4 events',
+    about: 'Attribute key business events — clicks, leads, calls, and purchases — along the path.',
+  },
+  {
+    src: '/videoloop/assetanalyticschart.mp4',
+    title: 'Asset analytics chart',
+    about: 'Charts for how each asset performs: attention, conversions, and revenue.',
+  },
+  {
+    src: '/videoloop/workspacechartsallinoneplace.mp4',
+    title: 'Workspace charts all in one place',
+    about: 'Pull the views you care about into one workspace board instead of scattered tabs.',
+  },
+]
+
 /* Full story list. hidden:true entries are built into the page structure
    but never rendered until you flip the flags at the top of this file. */
 const STORY_VIDEOS: {
@@ -452,52 +507,43 @@ export default function Website() {
               <LibraryRow title="Another video title" meta="Shared asset x3 · Goal: direct sales" />
             </div>
           </Frame>
-          <LoopVideoPreview
-            src="/videoloop/easytogeneratetrackinglink.mp4"
-            label="Generate a tracking link"
-            caption="Silent preview · click to expand"
-          />
         </Section></div>
 
         <Section label="02 / Build it backward" title={<>Start at the end.<br />Work back to the start.</>} sub="Make your last video an asset. Let the one before it promote that asset. Repeat until every video leads to the next, all the way to revenue.">
           <BuildBackward />
-          <LoopVideoPreview
-            src="/videoloop/treejourney.mp4"
-            label="Build the journey"
-            caption="Silent preview · click to expand"
-          />
         </Section>
 
         <Section label="03 / Any platform, one campaign" title={<>Mix every platform.<br />Trace every path to revenue.</>} sub="Chain videos, posts, and pages across YouTube, TikTok, Instagram, X, Reddit, and more. Paths can split and merge, and VS-Track follows all of them.">
           <MultiPlatform />
           <div style={{ ...mono(C.dim), marginTop: 10, letterSpacing: '0.08em' }}>If you can put a link on it, you can track it.</div>
-          <LoopVideoPreview
-            src="/videoloop/9platforms.mp4"
-            label="Track across platforms"
-            caption="Silent preview · click to expand"
-          />
         </Section>
 
         <div id="share"><Section label="04 / Share it" title={<>Turn anything into an asset.<br />See who sells it best.</>} sub="Share a video, page, or offer. Everyone who promotes it gets their own link, and you can rank them by revenue.">
           <TopAssets />
-          <LoopVideoPreview
-            src="/videoloop/partnerjourneymap.mp4"
-            label="Partners and shared journeys"
-            caption="Silent preview · click to expand"
-          />
         </Section></div>
 
         <Section label="05 / Your domain" title={<>Your links. Your domain.<br />Even across brands.</>} sub="Put tracking links on your own domain. When a customer moves from one brand's domain to another, the journey keeps going.">
           <CrossDomain />
-          <LoopVideoPreview
-            src="/videoloop/trackingdomainloopvideo.mp4"
-            label="Custom tracking domains"
-            caption="Silent preview · click to expand"
-          />
         </Section>
 
         <Section
-          label="06 / The full story"
+          label="06 / Product previews"
+          title={<>See the product in motion.</>}
+          sub="Short silent loops from the real product. Each one plays when it scrolls into view; click any preview to expand with controls."
+        >
+          <div style={{ display: 'grid', gap: 28 }}>
+            {PRODUCT_LOOPS.map((v) => (
+              <div key={v.src}>
+                <div style={{ fontSize: 15, fontWeight: 500, color: C.text, marginBottom: 4 }}>{v.title}</div>
+                <p style={{ fontSize: 14, color: C.mut, lineHeight: 1.55, margin: '0 0 4px', maxWidth: 640 }}>{v.about}</p>
+                <LoopVideoPreview src={v.src} label={v.title} />
+              </div>
+            ))}
+          </div>
+        </Section>
+
+        <Section
+          label="07 / The full story"
           title={<>Watch how it all fits together.</>}
           sub="Short explainers of every major piece of VSTRK. Each video starts when it scrolls into view and stops when it leaves, so only one or two run at a time."
         >
