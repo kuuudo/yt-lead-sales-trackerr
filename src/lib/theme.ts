@@ -96,13 +96,16 @@ export function getStoredTheme(): ThemeId {
 // Html-level selectors beat Tailwind's :root @theme variables, so no !important needed.
 function ensureStyle() {
   if (typeof document === 'undefined' || document.getElementById(STYLE_ID)) return;
-  const css = THEMES.filter(t => t.id !== 'black')
+  const themeCss = THEMES.filter(t => t.id !== 'black')
     .map(t => {
       const body = Object.entries(t.vars).map(([k, v]) => `${k}:${v};`).join('');
       const scheme = t.id === 'light' ? 'light' : 'dark';
       return `html[data-theme="${t.id}"]{${body}color-scheme:${scheme};}`;
     })
     .join('\n');
+  // Safety net: any leftover Tailwind `bg-black` follows the theme page colour.
+  // (bg-black/20 etc. are different classes and are not affected.)
+  const css = themeCss + '\nhtml[data-theme] .bg-black{background-color:var(--color-zinc-950);}';
   const el = document.createElement('style');
   el.id = STYLE_ID;
   el.textContent = css;
