@@ -85,6 +85,7 @@ import BusinessHireAgencyDemo from './pages/public/marketing/businessHireAgency/
 import BusinessHireAgencyLandingPage from './pages/public/marketing/businessHireAgency/BusinessHireAgencyLandingPage';
 import VSLPlayer from './pages/public/VSL/1ST/VSLPlayer';
 import { useMyTeam } from './lib/useMyTeam';
+import { applyTheme, getStoredTheme } from './lib/theme';
 // Top-level path segments that are "real" app pages (i.e. matched by an
 // explicit <Route> before the catch-all "/:token" route). If a single-segment
 // pathname is NOT in this set, react-router falls through to "/:token" and
@@ -194,6 +195,27 @@ function AppChrome() {
       <ViewingBanner />
     </>
   );
+}
+
+// Applies the saved theme only inside the logged-in app. Public / relay /
+// marketing pages and logged-out screens always stay on the default black.
+function ThemeSync() {
+  const { user } = useAuth();
+  const { pathname } = useLocation();
+  const isPublic =
+    !user ||
+    isRelayRoute(pathname) ||
+    isSponsorDemoRoute(pathname) ||
+    isSponsorLandingRoute(pathname) ||
+    isInterviewRoute(pathname) ||
+    isAgencyRoute(pathname) ||
+    isBusinessOwnerRoute(pathname) ||
+    isBusinessHireAgencyRoute(pathname) ||
+    pathname === VSL_1ST_PATH;
+  useEffect(() => {
+    applyTheme(isPublic ? null : getStoredTheme());
+  }, [isPublic]);
+  return null;
 }
 
 const HUB_PATH = '/settings/getting-started';
@@ -844,6 +866,7 @@ export default function App() {
             <TutorialProvider>
               <DrillDownProvider>
                 <div className="min-h-screen overflow-x-clip bg-zinc-950 text-zinc-100 selection:bg-red-500/30 selection:text-white font-sans antialiased">
+                  <ThemeSync />
                   <AppChrome />
                   <MainContent />
                   <OnboardingOverlay />

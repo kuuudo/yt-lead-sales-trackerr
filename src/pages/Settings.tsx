@@ -18,14 +18,17 @@ import {
   Compass,
   User as UserIcon,
   MessageCircle,
+  Palette,
 } from 'lucide-react';
 import { Modal } from '../components/Modal';
 import { useNavigate, Link } from 'react-router-dom';
 import { useMyTeam } from '../lib/useMyTeam';
+import { THEMES, useTheme } from '../lib/theme';
 
 export default function Settings() {
   const { user } = useAuth();
   const { customer: myTeamCustomer } = useMyTeam();
+  const { theme, setTheme } = useTheme();
   const [webhookSecret, setWebhookSecret] = useState('');
   const [savedSecret, setSavedSecret] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
@@ -239,6 +242,49 @@ export default function Settings() {
           <Wrench size={15} />
           Installation
         </Link>
+      </section>
+
+      <section className="bento-card space-y-4">
+        <div className="flex items-center gap-3">
+          <div className="w-9 h-9 rounded-xl bg-zinc-800 flex items-center justify-center">
+            <Palette size={16} className="text-zinc-400" />
+          </div>
+          <div>
+            <h2 className="text-sm font-bold text-white">Appearance</h2>
+            <p className="text-[10px] text-zinc-500 uppercase tracking-widest font-bold">Theme preview</p>
+          </div>
+        </div>
+        <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
+          {THEMES.map(t => {
+            const active = theme === t.id;
+            return (
+              <button
+                key={t.id}
+                type="button"
+                onClick={() => setTheme(t.id)}
+                aria-pressed={active}
+                className={`rounded-xl border p-3 text-left transition-all ${
+                  active ? 'border-red-600' : 'border-zinc-800 hover:border-zinc-600'
+                }`}
+              >
+                <div
+                  className="h-10 rounded-lg mb-2 flex items-end gap-1 p-1.5"
+                  style={{ background: t.swatch[0], border: `1px solid ${t.swatch[2]}` }}
+                >
+                  <span className="h-full flex-1 rounded" style={{ background: t.swatch[1], border: `1px solid ${t.swatch[2]}` }} />
+                  <span className="h-1/2 w-3 rounded" style={{ background: '#dc2626' }} />
+                </div>
+                <div className="text-[10px] font-bold uppercase tracking-widest text-zinc-400 flex items-center justify-between">
+                  {t.label}
+                  {active && <Check size={12} className="text-red-500" />}
+                </div>
+              </button>
+            );
+          })}
+        </div>
+        <p className="text-[11px] text-zinc-500 leading-relaxed">
+          Preview only. Areas with hardcoded dark colours will not follow the theme yet. Black is the default.
+        </p>
       </section>
 
       <section className="bento-card space-y-4">
