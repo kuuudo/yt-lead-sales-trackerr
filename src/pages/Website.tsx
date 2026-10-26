@@ -1,4 +1,4 @@
-import React, { useEffect, useState, useRef, Suspense, lazy, type ComponentType } from 'react'
+import React, { useCallback, useEffect, useState, useRef, Suspense, lazy, type ComponentType } from 'react'
 import { Loader2 } from 'lucide-react'
 import TestimonialCard from '../components/testimonial/TestimonialCard'
 import {
@@ -24,13 +24,15 @@ const LazyTrackingJourney = lazy(() => import('../components/onboarding/Onboardi
 
 type VideoComp = ComponentType<{ embedded?: boolean; onSkip?: () => void; onComplete?: () => void }>
 
+/* "Daylight" palette: warm off-white page, white panels, purple brand accent. */
 const C = {
-  bg: '#000', panel: '#0d0d0d', card: '#141414', line: '#222', text: '#f2f2f2', mut: '#8a8a8a', dim: '#6a6a6a',
-  red: '#e11d1d', purple: '#7c5cff', lp: '#b7a6ff', green: '#22c55e', teal: '#2dd4bf', amber: '#e0b04a',
-  blue: '#4da3ff', orange: '#f97316',
+  bg: '#fbfaf7', panel: '#ffffff', card: '#ffffff', line: '#e4e0ec', text: '#14131a', mut: '#4d4c58', dim: '#5c5b66',
+  red: '#d11a1a', purple: '#5b3df0', lp: '#3b24b8', green: '#15803d', teal: '#0f766e', amber: '#8a5a00',
+  blue: '#1d6fd1', orange: '#c2410c',
+  tint: '#ece8ff', tintStroke: '#cfcad9', greenTint: '#e8f7ee',
 }
 const MONO = 'ui-monospace, SFMono-Regular, Menlo, monospace'
-const SANS = '-apple-system, BlinkMacSystemFont, "Helvetica Neue", sans-serif'
+const SANS = '"Bricolage Grotesque", -apple-system, BlinkMacSystemFont, "Helvetica Neue", sans-serif'
 const CTA_HREF = '/login' // every "Start tracking" button goes here
 
 const mono = (color = C.mut, size = 11): React.CSSProperties => ({
@@ -40,18 +42,18 @@ const mono = (color = C.mut, size = 11): React.CSSProperties => ({
 function Btn({ children, solid = true }: { children: React.ReactNode; solid?: boolean }) {
   return (
     <a href={CTA_HREF} style={{
-      ...mono(solid ? '#000' : C.text), fontWeight: 500, padding: '10px 18px', borderRadius: 8, textDecoration: 'none',
-      background: solid ? '#fff' : 'transparent', border: solid ? 'none' : '0.5px solid #3a3a3a', display: 'inline-block',
+      ...mono(solid ? '#fff' : C.text), fontWeight: 600, padding: '11px 20px', borderRadius: 10, textDecoration: 'none',
+      background: solid ? C.text : 'transparent', border: solid ? 'none' : `1.5px solid ${C.tintStroke}`, display: 'inline-block',
     }}>{children}</a>
   )
 }
 
 function Section({ label, title, sub, children }: { label: string; title: React.ReactNode; sub: string; children: React.ReactNode }) {
   return (
-    <section style={{ marginTop: 88 }}>
-      <div style={{ ...mono(C.red), marginBottom: 8 }}>{label}</div>
-      <h2 style={{ fontSize: 'clamp(24px,4vw,34px)', fontWeight: 500, lineHeight: 1.15, margin: 0 }}>{title}</h2>
-      <p style={{ fontSize: 15, color: C.mut, lineHeight: 1.6, margin: '12px 0 22px', maxWidth: 560 }}>{sub}</p>
+    <section style={{ marginTop: 96 }}>
+      <div style={{ ...mono(C.purple), marginBottom: 8 }}>{label}</div>
+      <h2 style={{ fontSize: 'clamp(26px,4vw,38px)', fontWeight: 700, lineHeight: 1.12, letterSpacing: '-0.02em', margin: 0 }}>{title}</h2>
+      <p style={{ fontSize: 16, color: C.mut, lineHeight: 1.6, margin: '12px 0 24px', maxWidth: 580 }}>{sub}</p>
       {children}
     </section>
   )
@@ -59,9 +61,9 @@ function Section({ label, title, sub, children }: { label: string; title: React.
 
 function Frame({ title, children, example = true }: { title: string; children: React.ReactNode; example?: boolean }) {
   return (
-    <div style={{ background: C.panel, border: `0.5px solid ${C.line}`, borderRadius: 12, padding: '12px 14px 10px' }}>
+    <div style={{ background: C.panel, border: `1px solid ${C.line}`, borderRadius: 16, padding: '14px 16px 12px', boxShadow: '0 24px 50px -32px rgba(59,36,184,0.35)' }}>
       <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8, marginBottom: 6 }}>
-        <span style={mono()}>{title}</span>
+        <span style={mono(C.dim)}>{title}</span>
         {example && <span style={mono(C.amber)}>Example, not real data</span>}
       </div>
       {children}
@@ -70,63 +72,74 @@ function Frame({ title, children, example = true }: { title: string; children: R
 }
 
 const T = (p: React.SVGProps<SVGTextElement>) => <text fontFamily={MONO} fontSize={11} fill={C.mut} {...p} />
-const Num = (p: React.SVGProps<SVGTextElement>) => <text fontFamily={SANS} fontSize={18} fontWeight={500} fill={C.text} {...p} />
 const Arrow = ({ x1, x2, y, color = C.purple }: { x1: number; x2: number; y: number; color?: string }) => (
   <path d={`M${x1},${y} L${x2},${y} M${x2 - 4},${y - 4} L${x2},${y} L${x2 - 4},${y + 4}`} fill="none" stroke={color} strokeWidth={1.8} strokeLinecap="round" />
 )
 
-/* ---------- Hero journey map ---------- */
-function JourneyMap() {
-  const chain = [
-    { x: 10, w: 110, p: 'YouTube', v: '200k', red: true },
-    { x: 160, w: 110, p: 'TikTok', v: '100k' },
-    { x: 310, w: 110, p: 'Facebook', v: '50k' },
-    { x: 460, w: 120, p: 'Landing page', v: '25k', acc: true },
+/* ---------- Hero journey card ---------- */
+function CheckLine({ children }: { children: React.ReactNode }) {
+  return (
+    <div style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
+      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke={C.purple} strokeWidth={2.4} strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M5 12.5l4.5 4.5L19 7.5" /></svg>
+      {children}
+    </div>
+  )
+}
+
+function HeroJourney() {
+  const bars = [
+    { p: 'YouTube', v: '200k', w: '100%', bg: C.tint, fg: C.text },
+    { p: 'TikTok', v: '100k', w: '50%', bg: '#d9ceff', fg: C.text },
+    { p: 'Facebook', v: '50k', w: '25%', bg: '#b9a8ff', fg: C.text },
+    { p: 'Landing page', v: '25k', w: '13%', bg: C.purple, fg: '#fff' },
   ]
   const outs = [
-    { x: 300, p: 'Sales call', v: '10k', s: 'booked', c: C.purple },
-    { x: 420, p: 'Buy page', v: '500', s: 'purchased', c: C.orange },
-    { x: 540, p: 'Consult', v: '20', s: 'booked', c: C.green },
+    { p: 'Sales call', v: '10k', s: 'booked' },
+    { p: 'Buy page', v: '500', s: 'purchased' },
+    { p: 'Consult', v: '20', s: 'booked' },
   ]
   return (
-    <Frame title="Journey map">
-      <svg viewBox="0 0 640 280" style={{ width: '100%', height: 'auto', display: 'block' }} role="img" aria-label="Three videos lead to a landing page that branches into a sales call, a purchase, and a consultation">
-        {outs.map((o) => <path key={o.p} d={`M520,96 C520,143 ${o.x + 50},143 ${o.x + 50},190`} fill="none" stroke={o.c} strokeWidth={1.5} />)}
-        {[0, 1, 2].map((i) => <g key={i}><Arrow x1={chain[i].x + chain[i].w} x2={chain[i + 1].x} y={68} /><T x={chain[i + 1].x - 20} y={60} textAnchor="middle">50%</T></g>)}
-        {chain.map((n) => (
-          <g key={n.p}>
-            <rect x={n.x} y={40} width={n.w} height={56} rx={9} fill={n.acc ? '#1a1538' : C.card} stroke={n.acc ? C.purple : '#2a2a2a'} />
-            <T x={n.x + 10} y={60} fill={n.red ? C.red : n.acc ? C.lp : C.mut}>{n.p.toUpperCase()}</T>
-            <Num x={n.x + 10} y={84}>{n.v}</Num>
-          </g>
+    <div style={{ background: C.panel, border: `1px solid ${C.line}`, borderRadius: 20, padding: 22, boxShadow: '0 30px 60px -28px rgba(59,36,184,0.35)' }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
+        <span style={mono(C.dim)}>Journey map</span>
+        <span style={mono(C.amber, 11)}>Example data</span>
+      </div>
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+        {bars.map((b) => (
+          <div key={b.p} style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+            <span style={{ width: 92, flex: 'none', fontSize: 13, color: C.mut }}>{b.p}</span>
+            <div style={{ flex: 1, minWidth: 0 }}>
+              <div style={{ width: b.w, minWidth: 64, height: 34, borderRadius: 8, background: b.bg, color: b.fg, display: 'flex', alignItems: 'center', padding: '0 12px', boxSizing: 'border-box', fontWeight: 600 }}>{b.v}</div>
+            </div>
+          </div>
         ))}
+      </div>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, minmax(0, 1fr))', gap: 10, marginTop: 18 }}>
         {outs.map((o) => (
-          <g key={o.p}>
-            <rect x={o.x} y={190} width={100} height={70} rx={9} fill={C.card} stroke={o.c} />
-            <T x={o.x + 10} y={210} fill={o.c === C.purple ? C.lp : o.c}>{o.p.toUpperCase()}</T>
-            <Num x={o.x + 10} y={234}>{o.v}</Num>
-            <T x={o.x + 10} y={251}>{o.s}</T>
-          </g>
+          <div key={o.p} style={{ border: `1px solid ${C.line}`, borderRadius: 12, padding: 12 }}>
+            <div style={{ fontSize: 12, color: C.dim }}>{o.p}</div>
+            <div style={{ fontSize: 22, fontWeight: 700, marginTop: 2 }}>{o.v}</div>
+            <div style={{ fontSize: 12, color: C.dim }}>{o.s}</div>
+          </div>
         ))}
-        <rect x={10} y={170} width={250} height={90} rx={9} fill="none" stroke="#2a2a2a" strokeDasharray="3 4" />
-        <T x={24} y={194}>BIGGEST DROP</T>
-        <text x={24} y={218} fontFamily={SANS} fontSize={15} fontWeight={500} fill={C.text}>YouTube to TikTok</text>
-        <text x={24} y={238} fontFamily={SANS} fontSize={12} fill={C.mut}>Half of viewers stopped here</text>
-      </svg>
-    </Frame>
+      </div>
+      <div style={{ marginTop: 16, padding: '12px 14px', borderRadius: 12, background: '#fff4dc', color: '#5e3f00', fontSize: 14, lineHeight: 1.45 }}>
+        <strong>Biggest drop: YouTube to TikTok.</strong> Half of viewers stopped here.
+      </div>
+    </div>
   )
 }
 
 /* ---------- 01 Link it ---------- */
 function LibraryRow({ title, meta }: { title: string; meta: string }) {
   return (
-    <div style={{ display: 'flex', alignItems: 'center', gap: 12, padding: 10, border: `0.5px solid ${C.line}`, borderRadius: 10, background: '#111' }}>
-      <div style={{ width: 64, height: 40, borderRadius: 6, background: '#1f1f1f', flex: 'none' }} />
+    <div style={{ display: 'flex', alignItems: 'center', gap: 12, padding: 10, border: `1px solid ${C.line}`, borderRadius: 12, background: '#faf9fc' }}>
+      <div style={{ width: 64, height: 40, borderRadius: 6, background: C.line, flex: 'none' }} />
       <div style={{ flex: 1, minWidth: 0 }}>
-        <div style={{ fontSize: 13 }}><span style={{ color: C.red }}>YouTube</span> · {title}</div>
-        <div style={{ ...mono(C.mut), letterSpacing: '0.06em', marginTop: 3 }}>{meta}</div>
+        <div style={{ fontSize: 14 }}><span style={{ color: C.red, fontWeight: 600 }}>YouTube</span> · {title}</div>
+        <div style={{ ...mono(C.dim), letterSpacing: '0.06em', marginTop: 3 }}>{meta}</div>
       </div>
-      <span style={{ ...mono(C.text), border: '0.5px solid #3a3a3a', padding: '6px 12px', borderRadius: 8 }}>Link</span>
+      <span style={{ ...mono(C.text), border: `1.5px solid ${C.tintStroke}`, padding: '6px 12px', borderRadius: 8, background: '#fff' }}>Link</span>
     </div>
   )
 }
@@ -154,11 +167,11 @@ function BuildBackward() {
                 const isNew = i === r.nw
                 return (
                   <g key={i}>
-                    <rect x={sx(i)} y={ny} width={72} height={40} rx={9} fill={isNew ? '#1c1c1c' : C.card} stroke={isNew ? C.text : C.purple} />
+                    <rect x={sx(i)} y={ny} width={72} height={40} rx={9} fill={isNew ? '#ffffff' : C.tint} stroke={isNew ? C.text : C.purple} strokeWidth={isNew ? 1.5 : 1} />
                     <T x={sx(i) + 10} y={ny + 25} fill={isNew ? C.text : C.lp}>VIDEO {L[i]}</T>
                     {r.tags.includes(i) && (
                       <g>
-                        <rect x={sx(i) + 30} y={ny - 8} width={40} height={15} rx={4} fill="#1a1538" stroke={C.purple} />
+                        <rect x={sx(i) + 30} y={ny - 8} width={40} height={15} rx={4} fill="#ffffff" stroke={C.purple} />
                         <T x={sx(i) + 36} y={ny + 3} fill={C.lp}>ASSET</T>
                       </g>
                     )}
@@ -166,7 +179,7 @@ function BuildBackward() {
                   </g>
                 )
               })}
-              <rect x={sx(6)} y={ny} width={72} height={40} rx={9} fill="#0f1a12" stroke={C.green} />
+              <rect x={sx(6)} y={ny} width={72} height={40} rx={9} fill={C.greenTint} stroke={C.green} />
               <T x={sx(6) + 9} y={ny + 25} fill={C.green}>REVENUE</T>
             </g>
           )
@@ -196,18 +209,18 @@ function MultiPlatform() {
   return (
     <Frame title="One campaign, many platforms">
       <svg viewBox="0 0 640 290" style={{ width: '100%', height: 'auto', display: 'block' }} role="img" aria-label="Posts across YouTube, TikTok, Instagram, Facebook, X, Reddit, Threads and LinkedIn lead through a landing page and checkout to revenue">
-        {EDGES.map(([a, b]) => { const A = box(a), B = box(b); return <path key={a + b} d={curve(A.x + A.w, A.cy, B.x, B.cy)} fill="none" stroke={C.purple} strokeWidth={1.2} opacity={0.8} /> })}
+        {EDGES.map(([a, b]) => { const A = box(a), B = box(b); return <path key={a + b} d={curve(A.x + A.w, A.cy, B.x, B.cy)} fill="none" stroke={C.purple} strokeWidth={1.2} opacity={0.6} /> })}
         {['ld', 'ck'].map((k) => { const A = box(k); return <path key={k} d={curve(A.x + A.w, A.cy, 556, 145)} fill="none" stroke={C.green} strokeWidth={1.6} /> })}
         {Object.entries(NODES).map(([k, n]) => (
           <g key={k}>
-            <rect x={COLS[n.c]} y={n.y} width={n.w ?? 100} height={40} rx={9} fill={n.acc ? '#1a1538' : C.card} stroke={n.acc ? C.purple : '#2a2a2a'} />
+            <rect x={COLS[n.c]} y={n.y} width={n.w ?? 100} height={40} rx={9} fill={n.acc ? C.tint : '#ffffff'} stroke={n.acc ? C.purple : C.tintStroke} />
             <T x={COLS[n.c] + 9} y={n.y + 17} fill={n.red ? C.red : n.acc ? C.lp : C.mut}>{n.p.toUpperCase()}</T>
-            <text x={COLS[n.c] + 9} y={n.y + 33} fontFamily={SANS} fontSize={12} fontWeight={500} fill={C.text}>{n.n}</text>
+            <text x={COLS[n.c] + 9} y={n.y + 33} fontFamily={SANS} fontSize={12} fontWeight={600} fill={C.text}>{n.n}</text>
           </g>
         ))}
-        <rect x={556} y={125} width={76} height={40} rx={9} fill="#0f1a12" stroke={C.green} />
+        <rect x={556} y={125} width={76} height={40} rx={9} fill={C.greenTint} stroke={C.green} />
         <T x={565} y={142} fill={C.green}>REVENUE</T>
-        <text x={565} y={158} fontFamily={SANS} fontSize={12} fontWeight={500} fill={C.text}>$12,400</text>
+        <text x={565} y={158} fontFamily={SANS} fontSize={12} fontWeight={600} fill={C.text}>$12,400</text>
       </svg>
     </Frame>
   )
@@ -225,9 +238,9 @@ function TopAssets() {
     <Frame title="Top assets">
       <div style={{ ...grid, ...mono(C.dim), padding: '4px 4px 6px' }}><span>Asset</span><span style={{ textAlign: 'right' }}>Clicks</span><span style={{ textAlign: 'right' }}>Conv.</span><span style={{ textAlign: 'right' }}>Revenue</span></div>
       {rows.map((r) => (
-        <div key={r[0]} style={{ ...grid, padding: '10px 4px', borderTop: `0.5px solid ${C.line}`, fontSize: 13 }}>
-          <div><div>{r[0]}</div><div style={{ ...mono(r[5] ? C.blue : C.mut), letterSpacing: '0.06em' }}>{r[1]}</div></div>
-          <span style={{ textAlign: 'right' }}>{r[2]}</span><span style={{ textAlign: 'right' }}>{r[3]}</span><span style={{ textAlign: 'right', fontWeight: 500 }}>{r[4]}</span>
+        <div key={r[0]} style={{ ...grid, padding: '10px 4px', borderTop: `1px solid ${C.line}`, fontSize: 14 }}>
+          <div><div>{r[0]}</div><div style={{ ...mono(r[5] ? C.blue : C.dim), letterSpacing: '0.06em' }}>{r[1]}</div></div>
+          <span style={{ textAlign: 'right' }}>{r[2]}</span><span style={{ textAlign: 'right' }}>{r[3]}</span><span style={{ textAlign: 'right', fontWeight: 700 }}>{r[4]}</span>
         </div>
       ))}
     </Frame>
@@ -239,8 +252,8 @@ function CrossDomain() {
   return (
     <>
       <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', marginBottom: 14 }}>
-        {[['Default', 'vstrk.com/kVMt', C.dim, C.line, C.mut], ['Your domain', 'go.yourbrand.com/kVMt', C.red, C.red, C.text]].map(([l, u, lc, bc, tc]) => (
-          <div key={l} style={{ flex: 1, minWidth: 220, border: `0.5px solid ${bc}`, borderRadius: 10, background: C.panel, padding: '10px 12px' }}>
+        {[['Default', 'vstrk.com/kVMt', C.dim, C.line, C.mut], ['Your domain', 'go.yourbrand.com/kVMt', C.purple, C.purple, C.text]].map(([l, u, lc, bc, tc]) => (
+          <div key={l} style={{ flex: 1, minWidth: 220, border: `1.5px solid ${bc}`, borderRadius: 12, background: C.panel, padding: '10px 12px' }}>
             <div style={{ ...mono(lc), marginBottom: 4 }}>{l}</div>
             <div style={{ fontFamily: MONO, fontSize: 14, color: tc }}>{u}</div>
           </div>
@@ -257,27 +270,27 @@ function CrossDomain() {
           <Arrow x1={422} x2={436} y={130} color={C.teal} />
           <Arrow x1={512} x2={526} y={130} color={C.teal} />
           <path d="M564,160 L564,214" stroke={C.green} strokeWidth={1.6} />
-          <rect x={284} y={112} width={58} height={16} fill="#000" />
+          <rect x={284} y={112} width={58} height={16} fill={C.panel} />
           <T x={313} y={124} textAnchor="middle" fill={C.text}>HANDOFF</T>
           {[['A', 26, 110, 'Intro', C.purple, C.lp], ['D', 170, 110, 'Offer', C.purple, C.lp], ['N', 346, 76, '', '#0f9d8f', C.teal], ['B', 436, 76, '', '#0f9d8f', C.teal], ['V', 526, 76, '', '#0f9d8f', C.teal]].map(([id, x, w, sub, s, t]) => (
             <g key={id as string}>
-              <rect x={x as number} y={100} width={w as number} height={60} rx={9} fill={C.card} stroke={s as string} />
+              <rect x={x as number} y={100} width={w as number} height={60} rx={9} fill="#ffffff" stroke={s as string} />
               <T x={(x as number) + 10} y={124} fill={t as string}>VIDEO {id}</T>
-              {sub && <text x={(x as number) + 10} y={145} fontFamily={SANS} fontSize={15} fontWeight={500} fill={C.text}>{sub}</text>}
+              {sub && <text x={(x as number) + 10} y={145} fontFamily={SANS} fontSize={15} fontWeight={600} fill={C.text}>{sub}</text>}
             </g>
           ))}
-          <rect x={526} y={214} width={76} height={52} rx={9} fill="#0f1a12" stroke={C.green} />
+          <rect x={526} y={214} width={76} height={52} rx={9} fill={C.greenTint} stroke={C.green} />
           <T x={535} y={234} fill={C.green}>REVENUE</T>
-          <text x={535} y={256} fontFamily={SANS} fontSize={15} fontWeight={500} fill={C.text}>$4,860</text>
+          <text x={535} y={256} fontFamily={SANS} fontSize={15} fontWeight={600} fill={C.text}>$4,860</text>
           <T x={26} y={184}>go.novashop.com</T><T x={170} y={184}>fly.novashop.com</T>
           <T x={26} y={266} fill={C.dim}>2 subdomains, 1 root domain</T><T x={346} y={266} fill={C.dim}>1 root domain</T>
         </svg>
       </Frame>
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(200px,1fr))', gap: 10, marginTop: 14 }}>
         {[['Your links', 'Put tracking links on your own domain.'], ['Subdomains', 'Use as many as you like under one root domain.'], ['Cross-domain', 'One journey can cross into a second root domain.']].map(([h, b]) => (
-          <div key={h} style={{ border: `0.5px solid ${C.line}`, borderRadius: 10, background: C.panel, padding: 14 }}>
-            <div style={{ ...mono(C.red), marginBottom: 6 }}>{h}</div>
-            <div style={{ fontSize: 13, color: '#cfcfcf', lineHeight: 1.5 }}>{b}</div>
+          <div key={h} style={{ border: `1px solid ${C.line}`, borderRadius: 12, background: C.panel, padding: 14 }}>
+            <div style={{ ...mono(C.purple), marginBottom: 6 }}>{h}</div>
+            <div style={{ fontSize: 14, color: C.mut, lineHeight: 1.5 }}>{b}</div>
           </div>
         ))}
       </div>
@@ -286,123 +299,18 @@ function CrossDomain() {
   )
 }
 
-/* ---------- Scroll-into-view video slot ----------
-   Mounts the video only while roughly on screen, so at most one or two
-   rAF loops run at a time. Unmounting stops the animation; remounting
-   starts from the beginning. Lazy + Suspense keeps the JS off the
-   critical path until first play. */
-function ScrollVideo({
-  Component,
-  title,
-  description,
-}: {
-  Component: VideoComp
-  title: string
-  description: string
-}) {
-  const ref = useRef<HTMLDivElement>(null)
-  const [visible, setVisible] = useState(false)
-
-  useEffect(() => {
-    const el = ref.current
-    if (!el) return
-    const io = new IntersectionObserver(
-      ([entry]) => setVisible(entry.isIntersecting),
-      { rootMargin: '80px 0px', threshold: 0.15 },
-    )
-    io.observe(el)
-    return () => io.disconnect()
-  }, [])
-
-  return (
-    <div ref={ref} style={{ marginBottom: 36 }}>
-      <div style={{ ...mono(C.red), marginBottom: 6 }}>{title}</div>
-      <p style={{ fontSize: 14, color: C.mut, lineHeight: 1.55, margin: '0 0 12px', maxWidth: 640 }}>{description}</p>
-      <div style={{ background: '#fff', borderRadius: 12, overflow: 'hidden', minHeight: 280, position: 'relative' }}>
-        {visible ? (
-          <Suspense
-            fallback={
-              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', minHeight: 280, color: '#9a9aa8', fontFamily: MONO, fontSize: 12 }}>
-                Loading…
-              </div>
-            }
-          >
-            <Component embedded />
-          </Suspense>
-        ) : (
-          <div style={{ minHeight: 280, display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#bbb', fontFamily: MONO, fontSize: 11, letterSpacing: '0.08em' }}>
-            SCROLL TO PLAY
-          </div>
-        )}
-      </div>
-    </div>
-  )
-}
-
-
-/* All product loop MP4s — silent previews, expand for controls */
-const PRODUCT_LOOPS: { src: string; title: string; about: string }[] = [
-  {
-    src: '/videoloop/easytogeneratetrackinglink.mp4',
-    title: 'Easy to generate tracking link',
-    about: 'Paste a content URL and get a tracking link in a few clicks.',
-  },
-  {
-    src: '/videoloop/9platforms.mp4',
-    title: '9 platforms',
-    about: 'Track the same campaign across YouTube, TikTok, Instagram, X, and more.',
-  },
-  {
-    src: '/videoloop/treejourney.mp4',
-    title: 'Tree journey',
-    about: 'See how videos chain into a journey tree that leads toward revenue.',
-  },
-  {
-    src: '/videoloop/trackcomplexjourn.mp4',
-    title: 'Track complex journey',
-    about: 'Follow longer, branching customer paths — not only a single linear click.',
-  },
-  {
-    src: '/videoloop/trackingdomainloopvideo.mp4',
-    title: 'Tracking domain',
-    about: 'Put tracking links on your own domain (and subdomains) while VSTRK still attributes.',
-  },
-  {
-    src: '/videoloop/partnerjourneymap.mp4',
-    title: 'Partner journey map',
-    about: 'Map how partners and collaborators move traffic through a shared journey.',
-  },
-  {
-    src: '/videoloop/trackyourselforotherpeopletrackstillwork.mp4',
-    title: 'Track yourself or other people',
-    about: 'Whether you promote it or someone else does, tracking still ties back to the result.',
-  },
-  {
-    src: '/videoloop/track4events.mp4',
-    title: 'Track 4 events',
-    about: 'Attribute key business events — clicks, leads, calls, and purchases — along the path.',
-  },
-  {
-    src: '/videoloop/assetanalyticschart.mp4',
-    title: 'Asset analytics chart',
-    about: 'Charts for how each asset performs: attention, conversions, and revenue.',
-  },
-  {
-    src: '/videoloop/workspacechartsallinoneplace.mp4',
-    title: 'Workspace charts all in one place',
-    about: 'Pull the views you care about into one workspace board instead of scattered tabs.',
-  },
-]
-
-/* Full story list. hidden:true entries are built into the page structure
-   but never rendered until you flip the flags at the top of this file. */
-const STORY_VIDEOS: {
+/* ---------- Story videos ---------- */
+type StoryVideo = {
   id: string
   title: string
   description: string
   Component: VideoComp
   hidden?: boolean
-}[] = [
+}
+
+/* Full story list. hidden:true entries are built into the page structure
+   but never rendered until you flip the flags at the top of this file. */
+const STORY_VIDEOS: StoryVideo[] = [
   {
     id: 's01',
     title: '01 · Track the whole journey',
@@ -456,11 +364,161 @@ const STORY_VIDEOS: {
   },
 ]
 
+/* ---------- Tabbed story player ----------
+   One framed player with a chapter list. Only the selected chapter is ever
+   mounted, and only while the player is roughly on screen, so at most one
+   rAF loop runs. Switching chapters (or scrolling away and back) remounts
+   the video from the start. Lazy + Suspense keeps each video's JS off the
+   critical path until it is first played. */
+function TabbedStory({ items }: { items: StoryVideo[] }) {
+  const ref = useRef<HTMLDivElement>(null)
+  const [visible, setVisible] = useState(false)
+  const [active, setActive] = useState(0)
+
+  useEffect(() => {
+    const el = ref.current
+    if (!el) return
+    const io = new IntersectionObserver(
+      ([entry]) => setVisible(entry.isIntersecting),
+      { rootMargin: '80px 0px', threshold: 0.15 },
+    )
+    io.observe(el)
+    return () => io.disconnect()
+  }, [])
+
+  const last = items.length - 1
+  const goNext = useCallback(() => setActive((i) => Math.min(i + 1, last)), [last])
+
+  const cur = items[Math.min(active, last)]
+  if (!cur) return null
+  const Cur = cur.Component
+  const [curNum, curName] = cur.title.split(' · ')
+
+  return (
+    <div ref={ref} style={{ border: `1px solid ${C.line}`, borderRadius: 18, background: C.panel, overflow: 'hidden', boxShadow: '0 40px 80px -44px rgba(59,36,184,0.4)' }}>
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, padding: '12px 18px', borderBottom: `1px solid ${C.line}`, background: '#f6f4fb' }}>
+        <div style={{ display: 'flex', gap: 7 }} aria-hidden="true">
+          {[0, 1, 2].map((i) => <span key={i} style={{ width: 10, height: 10, borderRadius: '50%', background: '#d7d2e3' }} />)}
+        </div>
+        <div style={{ fontSize: 13, fontWeight: 600, color: C.text, textAlign: 'center' }}>{curNum} · {curName}</div>
+        <div style={mono(C.dim)}>{Math.min(active, last) + 1} / {items.length}</div>
+      </div>
+
+      <div style={{ display: 'flex', flexWrap: 'wrap' }}>
+        <div style={{ flex: '2 1 560px', minWidth: 0, padding: 20, boxSizing: 'border-box' }}>
+          <div style={{ background: '#fff', border: `1px solid ${C.line}`, borderRadius: 12, overflow: 'hidden', minHeight: 280, position: 'relative' }}>
+            {visible ? (
+              <Suspense
+                fallback={
+                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', minHeight: 280, color: '#6b6b78', fontFamily: MONO, fontSize: 12 }}>
+                    Loading…
+                  </div>
+                }
+              >
+                <Cur key={cur.id} embedded onComplete={goNext} />
+              </Suspense>
+            ) : (
+              <div style={{ minHeight: 280, display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#6b6b78', fontFamily: MONO, fontSize: 11, letterSpacing: '0.08em' }}>
+                SCROLL TO PLAY
+              </div>
+            )}
+          </div>
+          <p style={{ fontSize: 15, color: C.mut, lineHeight: 1.65, margin: '16px 4px 0', maxWidth: 640 }}>{cur.description}</p>
+        </div>
+
+        <div className="lp-chapters" style={{ flex: '1 1 280px', minWidth: 0, padding: 20, boxSizing: 'border-box', display: 'flex', flexDirection: 'column', gap: 8 }}>
+          <div style={{ ...mono(C.dim), marginBottom: 4 }}>Chapters</div>
+          {items.map((v, i) => {
+            const [num, name] = v.title.split(' · ')
+            const on = i === active
+            return (
+              <button
+                key={v.id}
+                type="button"
+                onClick={() => setActive(i)}
+                aria-current={on ? 'true' : undefined}
+                style={{
+                  display: 'flex', gap: 12, alignItems: 'center', padding: 12, borderRadius: 12, cursor: 'pointer', textAlign: 'left',
+                  border: `1.5px solid ${on ? C.purple : 'transparent'}`, background: on ? C.tint : 'transparent',
+                  color: C.text, font: 'inherit',
+                }}
+              >
+                <span style={{ width: 28, height: 28, flex: 'none', borderRadius: 8, background: on ? C.purple : '#f0edf7', color: on ? '#fff' : C.mut, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 12, fontWeight: 700 }}>{num}</span>
+                <span style={{ fontSize: 14, lineHeight: 1.35, fontWeight: on ? 600 : 400 }}>{name}</span>
+              </button>
+            )
+          })}
+        </div>
+      </div>
+    </div>
+  )
+}
+
+/* ---------- Product loop previews ----------
+   Silent MP4 loops, shown as a card grid. `hero` cards are wider.
+   The first VISIBLE_LOOPS cards show by default; the rest sit behind a button. */
+const VISIBLE_LOOPS = 7
+const PRODUCT_LOOPS: { src: string; title: string; about: string; hero?: boolean }[] = [
+  {
+    src: '/videoloop/treejourney.mp4',
+    title: 'Tree journey',
+    about: 'See how videos chain into a journey tree that leads toward revenue.',
+    hero: true,
+  },
+  {
+    src: '/videoloop/9platforms.mp4',
+    title: '9 platforms',
+    about: 'Track the same campaign across YouTube, TikTok, Instagram, X, and more.',
+  },
+  {
+    src: '/videoloop/track4events.mp4',
+    title: 'Track 4 events',
+    about: 'Attribute key business events — clicks, leads, calls, and purchases — along the path.',
+  },
+  {
+    src: '/videoloop/assetanalyticschart.mp4',
+    title: 'Asset analytics chart',
+    about: 'Charts for how each asset performs: attention, conversions, and revenue.',
+    hero: true,
+  },
+  {
+    src: '/videoloop/trackingdomainloopvideo.mp4',
+    title: 'Tracking domain',
+    about: 'Put tracking links on your own domain (and subdomains) while VSTRK still attributes.',
+  },
+  {
+    src: '/videoloop/partnerjourneymap.mp4',
+    title: 'Partner journey map',
+    about: 'Map how partners and collaborators move traffic through a shared journey.',
+  },
+  {
+    src: '/videoloop/trackcomplexjourn.mp4',
+    title: 'Track complex journey',
+    about: 'Follow longer, branching customer paths — not only a single linear click.',
+  },
+  {
+    src: '/videoloop/easytogeneratetrackinglink.mp4',
+    title: 'Easy to generate tracking link',
+    about: 'Paste a content URL and get a tracking link in a few clicks.',
+  },
+  {
+    src: '/videoloop/trackyourselforotherpeopletrackstillwork.mp4',
+    title: 'Track yourself or other people',
+    about: 'Whether you promote it or someone else does, tracking still ties back to the result.',
+  },
+  {
+    src: '/videoloop/workspacechartsallinoneplace.mp4',
+    title: 'Workspace charts all in one place',
+    about: 'Pull the views you care about into one workspace board instead of scattered tabs.',
+  },
+]
+
 /* ---------- Page ---------- */
 export default function Website() {
   // Testimonials the owner marks "show on website" appear in the strip below.
   const [items, setItems] = useState<PublicTestimonial[]>([])
   const [loading, setLoading] = useState(true)
+  const [showAllLoops, setShowAllLoops] = useState(false)
 
   useEffect(() => {
     let cancelled = false
@@ -480,25 +538,49 @@ export default function Website() {
   }, [])
 
   const visibleStory = STORY_VIDEOS.filter((v) => !v.hidden)
+  const loops = showAllLoops ? PRODUCT_LOOPS : PRODUCT_LOOPS.slice(0, VISIBLE_LOOPS)
 
   return (
     <div style={{ background: C.bg, color: C.text, fontFamily: SANS, minHeight: '100vh' }}>
       <VideoLightbox />
-      <style>{`.lp-nav-links{display:flex;gap:22px}@media(max-width:640px){.lp-nav-links{display:none}}`}</style>
-      <div style={{ maxWidth: 960, margin: '0 auto', padding: '20px 20px 64px' }}>
-        <header style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 56 }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-            <span style={{ width: 7, height: 7, borderRadius: '50%', background: C.red }} />
-            <span style={{ fontFamily: MONO, fontSize: 14, fontWeight: 500, letterSpacing: '0.2em' }}>VS-TRACK</span>
+      <style>{`
+        @import url('https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:wght@400;600;700&display=swap');
+        .lp-nav-links{display:flex;gap:22px}
+        @media(max-width:640px){.lp-nav-links{display:none}}
+        .lp-chapters{border-left:1px solid ${C.line}}
+        @media(max-width:880px){.lp-chapters{border-left:none;border-top:1px solid ${C.line}}}
+        .lp-card{transition:border-color .15s}
+        .lp-card:hover{border-color:${C.purple}}
+      `}</style>
+      <div style={{ maxWidth: 1040, margin: '0 auto', padding: '24px 24px 72px' }}>
+        <header style={{ display: 'flex', flexWrap: 'wrap', gap: 16, justifyContent: 'space-between', alignItems: 'center', marginBottom: 64 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+            <span style={{ width: 9, height: 9, borderRadius: '50%', background: C.purple }} />
+            <span style={{ fontFamily: MONO, fontSize: 14, fontWeight: 600, letterSpacing: '0.2em' }}>VS-TRACK</span>
           </div>
-          <nav className="lp-nav-links" style={mono()}><a href="#link" style={{ color: 'inherit', textDecoration: 'none' }}>How it works</a><a href="#share" style={{ color: 'inherit', textDecoration: 'none' }}>Assets</a><a href="/pricing" style={{ color: 'inherit', textDecoration: 'none' }}>Pricing</a></nav>
+          <nav className="lp-nav-links" style={{ ...mono(C.mut), fontSize: 12 }}><a href="#link" style={{ color: 'inherit', textDecoration: 'none' }}>How it works</a><a href="#share" style={{ color: 'inherit', textDecoration: 'none' }}>Assets</a><a href="/pricing" style={{ color: 'inherit', textDecoration: 'none' }}>Pricing</a></nav>
           <Btn>Start tracking</Btn>
         </header>
 
-        <h1 style={{ fontSize: 'clamp(32px,6vw,52px)', fontWeight: 500, lineHeight: 1.1, margin: 0 }}>See the whole path<br />from video to sale.</h1>
-        <p style={{ fontSize: 16, color: C.mut, margin: '14px 0 20px', maxWidth: 520, lineHeight: 1.6 }}>Track any link on any platform, and share assets so others can promote them.</p>
-        <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', marginBottom: 28 }}><Btn>Start tracking</Btn><a href="#link" style={{ ...mono(C.text), border: '0.5px solid #3a3a3a', padding: '10px 18px', borderRadius: 8, textDecoration: 'none' }}>See how it works</a></div>
-        <JourneyMap />
+        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 48, alignItems: 'center' }}>
+          <div style={{ flex: '1 1 440px', minWidth: 0 }}>
+            <div style={{ display: 'inline-block', padding: '7px 14px', borderRadius: 999, background: C.tint, color: C.lp, fontSize: 13, fontWeight: 600 }}>Attribution for video-led marketing</div>
+            <h1 style={{ fontSize: 'clamp(38px,5.4vw,62px)', fontWeight: 700, lineHeight: 1.04, letterSpacing: '-0.025em', margin: '20px 0 0' }}>
+              See the whole path from <span style={{ background: 'linear-gradient(transparent 62%, #d9ceff 62%)' }}>video to sale.</span>
+            </h1>
+            <p style={{ fontSize: 18, color: C.mut, margin: '20px 0 0', maxWidth: 480, lineHeight: 1.6 }}>Track any link on any platform, and share assets so others can promote them.</p>
+            <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap', marginTop: 28 }}>
+              <a href={CTA_HREF} style={{ padding: '15px 26px', borderRadius: 12, background: C.purple, color: '#fff', fontSize: 16, fontWeight: 700, textDecoration: 'none' }}>Start tracking</a>
+              <a href="#link" style={{ padding: '15px 26px', borderRadius: 12, border: `1.5px solid ${C.tintStroke}`, color: C.text, fontSize: 16, fontWeight: 600, textDecoration: 'none' }}>See how it works</a>
+            </div>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 10, marginTop: 30, fontSize: 15, color: '#2b2a35' }}>
+              <CheckLine>Works across nine platforms</CheckLine>
+              <CheckLine>Know which video led to the sale</CheckLine>
+              <CheckLine>Compare people by revenue, not views</CheckLine>
+            </div>
+          </div>
+          <div style={{ flex: '1 1 440px', minWidth: 0 }}><HeroJourney /></div>
+        </div>
 
         <div id="link"><Section label="01 / Link it" title={<>Add any video or post.<br />Get a tracking link.</>} sub="Paste a link and it shows up in your content library, ready to track.">
           <Frame title="Content library" example={false}>
@@ -531,31 +613,48 @@ export default function Website() {
           title={<>See the product in motion.</>}
           sub="Short silent loops from the real product. Each one plays when it scrolls into view; click any preview to expand with controls."
         >
-          <div style={{ display: 'grid', gap: 28 }}>
-            {PRODUCT_LOOPS.map((v) => (
-              <div key={v.src}>
-                <div style={{ fontSize: 15, fontWeight: 500, color: C.text, marginBottom: 4 }}>{v.title}</div>
-                <p style={{ fontSize: 14, color: C.mut, lineHeight: 1.55, margin: '0 0 4px', maxWidth: 640 }}>{v.about}</p>
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 20 }}>
+            {loops.map((v, i) => (
+              <div
+                key={v.src}
+                className="lp-card"
+                style={{ flex: v.hero ? '2 1 520px' : '1 1 260px', minWidth: 0, border: `1px solid ${C.line}`, borderRadius: 16, background: C.panel, overflow: 'hidden', display: 'flex', flexDirection: 'column' }}
+              >
                 <LoopVideoPreview src={v.src} label={v.title} />
+                <div style={{ padding: '14px 18px 18px' }}>
+                  <div style={{ ...mono(C.purple), letterSpacing: '0.12em' }}>{String(i + 1).padStart(2, '0')}</div>
+                  <div style={{ fontSize: 17, fontWeight: 700, marginTop: 6 }}>{v.title}</div>
+                  <p style={{ fontSize: 14, color: C.mut, lineHeight: 1.55, margin: '6px 0 0' }}>{v.about}</p>
+                </div>
               </div>
             ))}
           </div>
+          {PRODUCT_LOOPS.length > VISIBLE_LOOPS && (
+            <div style={{ marginTop: 28, textAlign: 'center' }}>
+              <button
+                type="button"
+                onClick={() => setShowAllLoops((s) => !s)}
+                style={{ padding: '13px 24px', borderRadius: 12, border: `1.5px solid ${C.tintStroke}`, background: '#fff', color: C.text, fontFamily: SANS, fontSize: 15, fontWeight: 600, cursor: 'pointer' }}
+              >
+                {showAllLoops ? 'Show fewer previews' : `Show all ${PRODUCT_LOOPS.length} previews`}
+              </button>
+            </div>
+          )}
         </Section>
 
         <Section
           label="07 / The full story"
           title={<>Watch how it all fits together.</>}
-          sub="Short explainers of every major piece of VSTRK. Each video starts when it scrolls into view and stops when it leaves, so only one or two run at a time."
+          sub="Short explainers of every major piece of VSTRK. Pick a chapter on the right; only the one you choose plays."
         >
-          {visibleStory.map((v) => (
-            <ScrollVideo key={v.id} Component={v.Component} title={v.title} description={v.description} />
-          ))}
+          <TabbedStory items={visibleStory} />
         </Section>
 
-        <section className="flex flex-col gap-6" style={{ marginTop: 88 }}>
+        {/* Testimonial cards are styled for a dark surface, so they sit on a dark band. */}
+        <section className="flex flex-col gap-6" style={{ marginTop: 96, background: '#0b0b0e', borderRadius: 20, padding: '40px 24px' }}>
           <div className="text-center">
             <h2 className="text-lg font-bold text-white">Loved by creators</h2>
-            <p className="text-zinc-500 text-sm mt-1">
+            <p className="text-zinc-400 text-sm mt-1">
               Selected feedback from the VS-Track community.
             </p>
           </div>
@@ -567,7 +666,7 @@ export default function Website() {
           )}
 
           {!loading && items.length === 0 && (
-            <p className="text-center text-zinc-600 text-sm py-8">
+            <p className="text-center text-zinc-500 text-sm py-8">
               No website testimonials selected yet.
             </p>
           )}
@@ -582,8 +681,8 @@ export default function Website() {
         </section>
 
         <section style={{ marginTop: 96, textAlign: 'center' }}>
-          <div style={{ fontSize: 'clamp(22px,4vw,30px)', fontWeight: 500, marginBottom: 16 }}>Stop guessing. Start tracking.</div>
-          <Btn>Start tracking</Btn>
+          <div style={{ fontSize: 'clamp(24px,4vw,34px)', fontWeight: 700, letterSpacing: '-0.02em', marginBottom: 18 }}>Stop guessing. Start tracking.</div>
+          <a href={CTA_HREF} style={{ display: 'inline-block', padding: '15px 28px', borderRadius: 12, background: C.purple, color: '#fff', fontSize: 16, fontWeight: 700, textDecoration: 'none' }}>Start tracking</a>
         </section>
       </div>
     </div>
