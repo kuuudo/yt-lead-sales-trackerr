@@ -181,14 +181,14 @@ const OUTCOME_DIST = 460 // now used as vertical distance from hub down to the o
 // Tree-native dark presentation tokens (visual only — same values as
 // CampaignStructureMap's TREE_DARK, kept in sync for a consistent look).
 const TREE_DARK = {
-  page: '#0a0a0a',
-  canvas: '#0a0a0a',
-  cardBg: '#141414',
-  cardBgAlt: '#111111',
-  border: '#262626',
-  textPrimary: '#f5f5f5',
-  textSecondary: '#a3a3a3',
-  textFaint: '#737373',
+  page: 'var(--color-zinc-950)',
+  canvas: 'var(--color-zinc-950)',
+  cardBg: 'var(--color-zinc-900)',
+  cardBgAlt: 'var(--color-zinc-900)',
+  border: 'var(--color-zinc-800)',
+  textPrimary: 'var(--color-zinc-100)',
+  textSecondary: 'var(--color-zinc-400)',
+  textFaint: 'var(--color-zinc-500)',
 }
 const FORK_OFFSET = 100 // unused now that every branch has one outcome; kept in case a branch gains a second one again
 const COLUMN_SPACING = 260 // horizontal gap between adjacent branch columns
@@ -2029,7 +2029,7 @@ function ImportAssetsLayer({
               key={`import-edge:${c.assetId}`}
               d={curvePath(from, to)}
               fill="none"
-              stroke={dark ? '#a3a3a3' : '#94a3b8'}
+              stroke={dark ? 'var(--color-zinc-500)' : '#94a3b8'}
               strokeWidth={1.5}
               strokeOpacity={0.55}
             />
@@ -2285,7 +2285,7 @@ function JourneyGraphLayer({
   if (context.status === 'idle' && !context.graph) return null
 
   const dark = presentation === 'tree'
-  const edgeColor = dark ? '#525252' : '#94a3b8'
+  const edgeColor = dark ? 'var(--color-zinc-600)' : '#94a3b8'
   const pillBg = dark ? TREE_DARK.cardBg : '#ffffff'
   const pillBorder = dark ? TREE_DARK.border : '#e5e7eb'
   const pillText = dark ? TREE_DARK.textSecondary : '#6b7280'
@@ -2473,7 +2473,7 @@ function JourneyGraphLayer({
                   gap: thumb ? 9 : 2,
                   padding: thumb ? '0 10px' : '0 12px',
                   borderRadius: 10,
-                  border: `${isEntry ? 2 : 1.5}px solid ${isEntry ? (dark ? '#818cf8' : '#6366f1') : dark ? TREE_DARK.border : '#e5e7eb'}`,
+                  border: `${isEntry ? 2 : 1.5}px solid ${isEntry ? '#6366f1' : dark ? TREE_DARK.border : '#e5e7eb'}`,
                   background: dark ? TREE_DARK.cardBgAlt : '#ffffff',
                   boxShadow: hl
                     ? hl.colors.map((c) => `0 0 10px ${c}66`).join(', ')
@@ -2530,7 +2530,7 @@ function JourneyGraphLayer({
                       fontWeight: 700,
                       letterSpacing: '0.05em',
                       textTransform: 'uppercase',
-                      color: isEntry ? (dark ? '#818cf8' : '#6366f1') : dark ? TREE_DARK.textFaint : '#9ca3af',
+                      color: isEntry ? '#6366f1' : dark ? TREE_DARK.textFaint : '#9ca3af',
                     }}
                   >
                     {isEntry ? 'Entry' : 'In journey'}

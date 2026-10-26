@@ -596,14 +596,14 @@ const MARKETER_C = '#f59e0b' // amber
 // Tree-native dark presentation tokens (visual only — swapped in when
 // presentation === 'tree'; the 'campaign' presentation never reads these).
 const TREE_DARK = {
-  page: '#0a0a0a',
-  canvas: '#0a0a0a',
-  cardBg: '#141414',
-  cardBgAlt: '#111111',
-  border: '#262626',
-  textPrimary: '#f5f5f5',
-  textSecondary: '#a3a3a3',
-  textFaint: '#737373',
+  page: 'var(--color-zinc-950)',
+  canvas: 'var(--color-zinc-950)',
+  cardBg: 'var(--color-zinc-900)',
+  cardBgAlt: 'var(--color-zinc-900)',
+  border: 'var(--color-zinc-800)',
+  textPrimary: 'var(--color-zinc-100)',
+  textSecondary: 'var(--color-zinc-400)',
+  textFaint: 'var(--color-zinc-500)',
 }
 
 const MOCK_CAMPAIGN: TreeNode = {
