@@ -797,7 +797,7 @@ export default function InDepthAnalyticsTest() {
   // ── Render ───────────────────────────────────────────────────────────────
   if (loading) {
     return (
-      <div className="flex items-center justify-center min-h-screen bg-black">
+      <div className="flex items-center justify-center min-h-screen bg-zinc-950">
         <Loader2 className="animate-spin text-red-600" size={32} />
       </div>
     );
@@ -805,7 +805,7 @@ export default function InDepthAnalyticsTest() {
 
   return (
         <div
-      className="flex h-screen bg-black text-zinc-300 overflow-hidden fixed inset-0 z-[100]"
+      className="flex h-screen bg-zinc-950 text-zinc-300 overflow-hidden fixed inset-0 z-[100]"
       style={isReadOnly ? { paddingTop: 28 } : undefined}
     >
       {isReadOnly && (
@@ -1051,7 +1051,7 @@ export default function InDepthAnalyticsTest() {
       </aside>
 
       {/* ── Main content ─────────────────────────────────────────────────── */}
-      <div className="flex-1 flex flex-col h-full overflow-hidden bg-black relative">
+      <div className="flex-1 flex flex-col h-full overflow-hidden bg-zinc-950 relative">
 
         {/* Mobile filter sheet — same state as desktop sidebar */}
         {mobileMenuOpen && (
@@ -1674,7 +1674,7 @@ export default function InDepthAnalyticsTest() {
                 </tr>
               </thead>
 
-              <tbody className="bg-black divide-y divide-zinc-900">
+              <tbody className="bg-zinc-950 divide-y divide-zinc-900">
                 {displayRows.map(dRow => {
                   const row = dRow.engineRow;
                   // UI-only indicator: was this video uploaded within the
@@ -1708,7 +1708,7 @@ export default function InDepthAnalyticsTest() {
                   >
 
                     {/* ── Content identity cell ────────────────────────── */}
-                    <td className="px-6 py-4 whitespace-nowrap sticky left-0 z-10 bg-black group-hover:bg-zinc-950 transition-colors">
+                    <td className="px-6 py-4 whitespace-nowrap sticky left-0 z-10 bg-zinc-950 group-hover:bg-zinc-900 transition-colors">
                       <div className="flex items-center gap-3">
                         <img
                           src={resolveThumbnail(row.video)}
@@ -1817,7 +1817,7 @@ export default function InDepthAnalyticsTest() {
             </table>
 
             {sortedVideos.length === 0 && (
-              <div className="flex flex-col items-center justify-center py-20 bg-black">
+              <div className="flex flex-col items-center justify-center py-20 bg-zinc-950">
                 <BarChart3 size={40} className="text-zinc-800 mb-4" />
                 <p className="text-[10px] font-black uppercase text-zinc-600 tracking-widest">
                   No matching videos found

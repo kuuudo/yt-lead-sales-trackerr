@@ -1639,7 +1639,7 @@ export default function AllAssetsAnalytics() {
 
   return (
     <div
-      className="flex h-screen bg-black text-zinc-300 overflow-hidden fixed inset-0 z-[100]"
+      className="flex h-screen bg-zinc-950 text-zinc-300 overflow-hidden fixed inset-0 z-[100]"
       style={isReadOnly ? { paddingTop: 28 } : undefined}
     >
       {isReadOnly && (
@@ -2250,7 +2250,7 @@ export default function AllAssetsAnalytics() {
       </aside>
 
       {/* ── Main content ─────────────────────────────────────────────────── */}
-      <div className="flex-1 flex flex-col h-full overflow-hidden bg-black relative">
+      <div className="flex-1 flex flex-col h-full overflow-hidden bg-zinc-950 relative">
 
         <AnalyticsMobileFilterSheet
           open={mobileMenuOpen}
@@ -3480,7 +3480,7 @@ export default function AllAssetsAnalytics() {
                 </tr>
               </thead>
 
-              <tbody className="bg-black divide-y divide-zinc-900">
+              <tbody className="bg-zinc-950 divide-y divide-zinc-900">
                 {loading && (
                   <tr>
                     <td colSpan={colSpan} className="px-6 py-24 text-center">
@@ -3526,7 +3526,7 @@ export default function AllAssetsAnalytics() {
                     className="hover:bg-zinc-950 transition-colors group"
                   >
                     {/* ── Asset identity cell ─────────────────────────────── */}
-                    <td className="px-6 py-4 whitespace-nowrap sticky left-0 z-10 bg-black group-hover:bg-zinc-950 transition-colors">
+                    <td className="px-6 py-4 whitespace-nowrap sticky left-0 z-10 bg-zinc-950 group-hover:bg-zinc-900 transition-colors">
                       {showAssetCell && (
                       <div
                         className="flex items-center gap-3 cursor-pointer"

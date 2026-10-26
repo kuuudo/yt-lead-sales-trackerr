@@ -301,9 +301,9 @@ if (forceRefresh && isReadOnly) return;
                 width: 18,
                 height: 18,
                 borderRadius: 999,
-                border: '1px solid #333',
+                border: '1px solid var(--color-zinc-700)',
                 background: 'transparent',
-                color: '#737373',
+                color: 'var(--color-zinc-500)',
                 fontSize: 11,
                 fontWeight: 700,
                 lineHeight: 1,
@@ -339,8 +339,8 @@ style={{
   width: 288,
   maxWidth: 'min(18rem, calc(100vw - 2rem))',
   borderRadius: 12,
-  border: '1px solid #27272a',
-  background: '#18181b',
+  border: '1px solid var(--color-zinc-800)',
+  background: 'var(--color-zinc-900)',
   padding: 12,
   boxShadow: '0 25px 50px -12px rgba(0,0,0,0.5)',
 }}
@@ -352,7 +352,7 @@ style={{
                       fontWeight: 800,
                       letterSpacing: '0.12em',
                       textTransform: 'uppercase',
-                      color: '#71717a',
+                      color: 'var(--color-zinc-500)',
                     }}
                   >
                     Campaign Revenue
@@ -362,7 +362,7 @@ style={{
                       margin: 0,
                       fontSize: 11,
                       lineHeight: 1.5,
-                      color: '#d4d4d8',
+                      color: 'var(--color-zinc-300)',
                       fontWeight: 500,
                     }}
                   >
@@ -591,9 +591,9 @@ const RESPONSIVE_CSS = `
     width: 100%;
     gap: 0 !important;
     padding: 4px;
-    border: 1px solid #262626;
+    border: 1px solid var(--color-zinc-800);
     border-radius: 12px;
-    background: #111;
+    background: var(--color-zinc-900);
   }
   .vstrk-tab {
     flex: 1;
@@ -651,8 +651,8 @@ const RESPONSIVE_CSS = `
     display: flex;
     align-items: center;
     justify-content: space-between;
-    background: #111;
-    border: 1px solid #222;
+    background: var(--color-zinc-900);
+    border: 1px solid var(--color-zinc-800);
     border-radius: 14px;
     padding: 18px 20px;
   }
@@ -660,12 +660,12 @@ const RESPONSIVE_CSS = `
     font-size: 11px;
     letter-spacing: 0.1em;
     text-transform: uppercase;
-    color: #737373;
+    color: var(--color-zinc-500);
   }
   .vstrk-rev-value {
     font-size: 38px;
     font-weight: 700;
-    color: #fff;
+    color: var(--color-white);
     line-height: 1;
     transition: opacity 0.15s ease;
   }
@@ -722,8 +722,8 @@ const styles: Record<string, React.CSSProperties> = {
     position: 'relative',
     width: '100%',
     height: 'calc(100vh - 56px)',
-    backgroundColor: '#0a0a0a',
-    backgroundImage: 'radial-gradient(rgba(255, 255, 255, 0.05) 1px, transparent 1px)',
+    backgroundColor: 'var(--color-zinc-950)',
+    backgroundImage: 'radial-gradient(color-mix(in srgb, var(--color-zinc-500) 20%, transparent) 1px, transparent 1px)',
     backgroundSize: '24px 24px',
     overflow: 'auto',
     display: 'flex',
@@ -752,7 +752,7 @@ const styles: Record<string, React.CSSProperties> = {
   brandLabel: {
     fontSize: '13px',
     fontWeight: 600,
-    color: '#f5f5f5',
+    color: 'var(--color-zinc-100)',
     fontFamily: 'monospace, sans-serif',
     letterSpacing: '0.02em',
   },
@@ -769,7 +769,7 @@ const styles: Record<string, React.CSSProperties> = {
     borderRadius: '8px',
     fontSize: '11px',
     fontWeight: 500,
-    color: '#666666',
+    color: 'var(--color-zinc-600)',
     backgroundColor: 'transparent',
     border: '1px solid transparent',
     cursor: 'pointer',
@@ -777,9 +777,9 @@ const styles: Record<string, React.CSSProperties> = {
     outline: 'none',
   },
   headerButtonHover: {
-    color: '#a3a3a3',
-    borderColor: '#262626',
-    backgroundColor: '#141414',
+    color: 'var(--color-zinc-400)',
+    borderColor: 'var(--color-zinc-800)',
+    backgroundColor: 'var(--color-zinc-900)',
   },
   headerButtonIcon: {
     fontSize: '10px',
@@ -798,7 +798,7 @@ const styles: Record<string, React.CSSProperties> = {
     flexDirection: 'column',
     gap: '4px',
     fontSize: '10px',
-    color: '#737373',
+    color: 'var(--color-zinc-500)',
     fontWeight: 600,
     textTransform: 'uppercase' as const,
     letterSpacing: '0.06em',
@@ -807,18 +807,18 @@ const styles: Record<string, React.CSSProperties> = {
     minWidth: '160px',
     padding: '8px 10px',
     borderRadius: '8px',
-    border: '1px solid #262626',
-    backgroundColor: '#141414',
-    color: '#e5e5e5',
+    border: '1px solid var(--color-zinc-800)',
+    backgroundColor: 'var(--color-zinc-900)',
+    color: 'var(--color-zinc-200)',
     fontSize: '12px',
   },
   updateBtn: {
     marginLeft: 'auto',
     padding: '8px 14px',
     borderRadius: '8px',
-    border: '1px solid #333',
-    backgroundColor: '#1a1a1a',
-    color: '#e5e5e5',
+    border: '1px solid var(--color-zinc-700)',
+    backgroundColor: 'var(--color-zinc-900)',
+    color: 'var(--color-zinc-200)',
     fontSize: '11px',
     fontWeight: 700,
     letterSpacing: '0.04em',
@@ -854,7 +854,7 @@ const styles: Record<string, React.CSSProperties> = {
   },
   revenueLabel: {
     fontSize: '12px',
-    color: '#666666',
+    color: 'var(--color-zinc-600)',
     marginTop: '2px',
   },
   metricCard: {
@@ -863,14 +863,14 @@ const styles: Record<string, React.CSSProperties> = {
     display: 'flex',
     flexDirection: 'column',
     gap: '6px',
-    backgroundColor: '#111111',
-    border: '1px solid #222222',
+    backgroundColor: 'var(--color-zinc-900)',
+    border: '1px solid var(--color-zinc-800)',
     borderRadius: '10px',
     padding: '14px 16px',
   },
   metricLabel: {
     fontSize: '11px',
-    color: '#737373',
+    color: 'var(--color-zinc-500)',
   },
   metricValue: {
     fontSize: '20px',
@@ -884,7 +884,7 @@ const styles: Record<string, React.CSSProperties> = {
     flexShrink: 0,
   },
   statusMuted: {
-    color: '#4d4d4d',
+    color: 'var(--color-zinc-600)',
   },
   statusError: {
     color: '#f87171',

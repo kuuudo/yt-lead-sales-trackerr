@@ -1019,7 +1019,7 @@ const [sheetOpen, setSheetOpen] = useState(false);
     <section
       ref={rootRef}
       aria-label={labels.title}
-className={`${embedded ? 'relative w-full flex mt-4 min-h-[480px]' : 'relative left-1/2 -ml-[50vw] w-screen flex mt-8 min-h-[75vh]'} border-t border-red-600/40 bg-gradient-to-b from-zinc-950 via-black to-black`}
+className={`${embedded ? 'relative w-full flex mt-4 min-h-[480px]' : 'relative left-1/2 -ml-[50vw] w-screen flex mt-8 min-h-[75vh]'} border-t border-red-600/40 bg-gradient-to-b from-zinc-950 via-zinc-950 to-zinc-950`}
     >
       {/* Filters sidebar: sits beside the content, so it pushes it */}
       {isDesktop && panelOpen && (
@@ -1286,7 +1286,7 @@ className={`${embedded ? 'relative w-full flex mt-4 min-h-[480px]' : 'relative l
                   if (mainScrollRef.current && topScrollRef.current)
                     mainScrollRef.current.scrollLeft = topScrollRef.current.scrollLeft;
                 }}
-                className="sticky top-0 z-20 overflow-x-auto overflow-y-hidden custom-scrollbar bg-black"
+                className="sticky top-0 z-20 overflow-x-auto overflow-y-hidden custom-scrollbar bg-zinc-950"
                 style={{ height: 14 }}
               >
                 <div style={{ width: tableScrollWidth, height: 1 }} />
@@ -1328,10 +1328,10 @@ className={`${embedded ? 'relative w-full flex mt-4 min-h-[480px]' : 'relative l
                     ))}
                   </tr>
                 </thead>
-                <tbody className="bg-black divide-y divide-zinc-900">
+                <tbody className="bg-zinc-950 divide-y divide-zinc-900">
                   {shown.map((j) => (
                     <tr key={j.journeyId} className="hover:bg-zinc-950/80 group">
-                      <td className="px-3 py-3 sticky left-0 z-[5] bg-black group-hover:bg-zinc-950 min-w-[320px] max-w-[480px]">
+                      <td className="px-3 py-3 sticky left-0 z-[5] bg-zinc-950 group-hover:bg-zinc-900 min-w-[320px] max-w-[480px]">
                         <div className="text-[7px] font-black uppercase tracking-widest text-zinc-700 mb-0.5 flex flex-wrap items-center gap-x-2 gap-y-0.5">
                           <span>{j.journeyId.slice(0, 8)}…</span>
                           <RouteMeta j={j} labels={labels} />
