@@ -378,10 +378,10 @@ function TabbedStory({ items }: { items: StoryVideo[] }) {
   useEffect(() => {
     const el = ref.current
     if (!el) return
-    const io = new IntersectionObserver(
-      ([entry]) => setVisible(entry.isIntersecting),
-      { rootMargin: '80px 0px', threshold: 0.15 },
-    )
+const io = new IntersectionObserver(
+  ([entry]) => { if (entry.isIntersecting) setVisible(true) },
+  { rootMargin: '200px 0px', threshold: 0 },
+)
     io.observe(el)
     return () => io.disconnect()
   }, [])
@@ -435,7 +435,7 @@ function TabbedStory({ items }: { items: StoryVideo[] }) {
               <button
                 key={v.id}
                 type="button"
-                onClick={() => setActive(i)}
+                onClick={() => { setActive(i); setVisible(true) }}
                 aria-current={on ? 'true' : undefined}
                 style={{
                   display: 'flex', gap: 12, alignItems: 'center', padding: 12, borderRadius: 12, cursor: 'pointer', textAlign: 'left',
