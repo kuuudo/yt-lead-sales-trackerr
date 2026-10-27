@@ -584,7 +584,7 @@ export default function Website() {
     d: 'Keep tracking results for as long as your tracking links remain live.',
   },
 ].map(({ t, d }) => (
-                <div key={f.t} style={{ display: 'flex', gap: 10, alignItems: 'flex-start' }}>
+                <div key={t} style={{ display: 'flex', gap: 10, alignItems: 'flex-start' }}>
                   <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke={C.purple} strokeWidth={2.4} strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" style={{ flex: 'none', marginTop: 2 }}><path d="M5 12.5l4.5 4.5L19 7.5" /></svg>
                   <div>
                     <div style={{ fontSize: 15, fontWeight: 700, color: C.text }}>{f.t}</div>
