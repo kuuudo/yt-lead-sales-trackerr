@@ -1972,7 +1972,9 @@ const [showCampaignLinkConfigModal, setShowCampaignLinkConfigModal] = useState(f
   }, [chosenPromotionByAssetId, creativeEligibleAssignments]);
 
 
-  // When opening +Select Asset, mark Shared assets that ONLY have Creative promotions
+  // When opening +Select Asset, mark Shared assets that ONLY have Creative promotions.
+  // Exception: assets that belong to the *currently selected* Creative Promotion /
+  // Assignment stay selectable (same promotion context the user already chose).
   useEffect(() => {
     if (!showAssetPicker || !user) {
       setCreativeRestrictionsLoading(false);
@@ -1987,6 +1989,18 @@ const [showCampaignLinkConfigModal, setShowCampaignLinkConfigModal] = useState(f
           if (!cancelled) setCreativeOnlyAssetIds([]);
           return;
         }
+        // Assignment ids unlocked by the current Promotion selection.
+        const allowedAssignmentIds = new Set<string>();
+        if (selectedCreativeAssignmentId) {
+          allowedAssignmentIds.add(selectedCreativeAssignmentId);
+        }
+        if (selectedCreativePromotionId) {
+          const promo = eligiblePromotions.find(
+            p => p.promotionId === selectedCreativePromotionId
+          );
+          if (promo?.assignmentId) allowedAssignmentIds.add(promo.assignmentId);
+        }
+
         const candidateIds = new Set<string>();
         for (const a of creativeEligibleAssignments) {
           try {
@@ -2005,10 +2019,19 @@ const [showCampaignLinkConfigModal, setShowCampaignLinkConfigModal] = useState(f
           [...candidateIds].map(async assetId => {
             try {
               const options = await resolvePromotionContextForAsset(assetId, user.id);
+              if (options.length === 0) return;
+              // Same Creative Promotion/Assignment as currently selected → keep selectable.
               if (
-                options.length > 0 &&
-                options.every(o => creativeIds.has(o.assignmentId))
+                allowedAssignmentIds.size > 0 &&
+                options.some(
+                  o =>
+                    allowedAssignmentIds.has(o.assignmentId) ||
+                    o.promotionId === selectedCreativePromotionId
+                )
               ) {
+                return;
+              }
+              if (options.every(o => creativeIds.has(o.assignmentId))) {
                 only.push(assetId);
               }
             } catch {
@@ -2024,7 +2047,14 @@ const [showCampaignLinkConfigModal, setShowCampaignLinkConfigModal] = useState(f
     return () => {
       cancelled = true;
     };
-  }, [showAssetPicker, user?.id, creativeEligibleAssignments]);
+  }, [
+    showAssetPicker,
+    user?.id,
+    creativeEligibleAssignments,
+    selectedCreativeAssignmentId,
+    selectedCreativePromotionId,
+    eligiblePromotions,
+  ]);
 
   // SHARED / ASSIGNED: after Promotion context is known, load Path B usage rows
   useEffect(() => {
