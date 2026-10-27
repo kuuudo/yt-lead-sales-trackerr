@@ -559,36 +559,25 @@ export default function Website() {
             <h1 style={{ fontSize: 'clamp(38px,5.4vw,62px)', fontWeight: 700, lineHeight: 1.04, letterSpacing: '-0.025em', margin: '20px 0 0' }}>
               Track the whole path from <span style={{ background: 'linear-gradient(transparent 62%, #d9ceff 62%)' }}>video to sale.</span>
             </h1>
-            <p style={{ fontSize: 18, color: C.mut, margin: '20px 0 0', maxWidth: 520, lineHeight: 1.6 }}>Track videos, posts, Stories, and Shorts across 9 platforms. See how content connects across platforms and turns attention into subscribers, leads, consultations, and sales.</p>
+            <p style={{ fontSize: 18, color: C.mut, margin: '20px 0 0', maxWidth: 520, lineHeight: 1.6 }}>See how your content connects across platforms and turns attention into subscribers, leads, consultations, and sales.</p>
             <p style={{ fontSize: 16, fontWeight: 600, color: C.text, margin: '14px 0 0', maxWidth: 520, lineHeight: 1.5 }}>One piece of content. One connected marketing journey. Measurable results.</p>
             <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap', marginTop: 28 }}>
               <a href={CTA_HREF} style={{ padding: '15px 26px', borderRadius: 12, background: C.purple, color: '#fff', fontSize: 16, fontWeight: 700, textDecoration: 'none' }}>Start tracking →</a>
               <a href="#link" style={{ padding: '15px 26px', borderRadius: 12, border: `1.5px solid ${C.tintStroke}`, color: C.text, fontSize: 16, fontWeight: 600, textDecoration: 'none' }}>See how it works</a>
             </div>
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '18px 24px', marginTop: 34 }}>
-{[
-  {
-    t: 'Track Content Across 9 Platforms',
-    d: 'Track videos, posts, Stories, and Shorts across all 9 supported platforms. Connect your content to newsletter signups, leads, sales calls, consultations, and revenue.',
-  },
-  {
-    t: 'Track the Entire Marketing Journey',
-    d: 'YouTube video → Facebook post → TikTok → LinkedIn post → Revenue. Track how content across multiple platforms contributes to your results.',
-  },
-  {
-    t: 'Let Others Promote. Track Every Result.',
-    d: 'Let other people promote your offers using tracking links. See who drives signups, leads, consultations, and sales.',
-  },
-  {
-    t: 'Long-Term Tracking',
-    d: 'Keep tracking results for as long as your tracking links remain live.',
-  },
-].map(({ t, d }) => (
-                <div key={t} style={{ display: 'flex', gap: 10, alignItems: 'flex-start' }}>
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr', gap: '18px 24px', marginTop: 34 }}>
+              {[
+                { t: 'Track Content Across 9 Platforms', d: 'Track videos, posts, Stories, and Shorts across all 9 supported platforms. See which content leads to newsletter signups, leads, sales calls, consultations, and revenue.' },
+                { t: 'Track the Entire Marketing Journey', d: 'See how content across multiple platforms works together to generate results, from the first interaction to the final sale.', j: 'YouTube video → Facebook post → TikTok → LinkedIn post → Revenue', jn: 'Illustrative journey. Each step represents trackable content, not necessarily a required sequence.' },
+                { t: 'Let Others Promote. Track Every Result.', d: 'Let other people promote your content or offers. Give each promoter a tracking link so you can see who drives signups, leads, consultations, and sales.' },
+              ].map((f) => (
+                <div key={f.t} style={{ display: 'flex', gap: 10, alignItems: 'flex-start' }}>
                   <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke={C.purple} strokeWidth={2.4} strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" style={{ flex: 'none', marginTop: 2 }}><path d="M5 12.5l4.5 4.5L19 7.5" /></svg>
                   <div>
-                    <div style={{ fontSize: 15, fontWeight: 700, color: C.text }}>{t}</div>
-                    <div style={{ fontSize: 14, color: C.mut, lineHeight: 1.5, marginTop: 2 }}>{t}</div>
+                    <div style={{ fontSize: 15, fontWeight: 700, color: C.text }}>{f.t}</div>
+                    <div style={{ fontSize: 14, color: C.mut, lineHeight: 1.5, marginTop: 2 }}>{f.d}</div>
+                    {f.j && <div style={{ fontSize: 14, fontWeight: 600, color: C.lp, lineHeight: 1.5, marginTop: 8 }}>{f.j}</div>}
+                    {f.jn && <div style={{ fontSize: 12, color: C.dim, lineHeight: 1.45, marginTop: 4 }}>{f.jn}</div>}
                   </div>
                 </div>
               ))}
@@ -612,6 +601,10 @@ export default function Website() {
 
         <Section label="03 / Any platform, one campaign" title={<>Mix every platform.<br />Trace every path to revenue.</>} sub="Chain videos, posts, and pages across YouTube, TikTok, Instagram, X, Reddit, and more. Paths can split and merge, and VS-Track follows all of them.">
           <MultiPlatform />
+          <figure style={{ margin: '24px 0 0', maxWidth: 520 }}>
+            <img src="/journey-example.png" alt="Journey from YouTube video to Facebook post, TikTok, LinkedIn post, and Revenue" style={{ width: '100%', height: 'auto', borderRadius: 16, border: `1px solid ${C.line}`, display: 'block' }} />
+            <figcaption style={{ fontSize: 13, color: C.dim, lineHeight: 1.5, marginTop: 8 }}>Illustrative journey. Each step represents trackable content, not necessarily a required sequence.</figcaption>
+          </figure>
           <div style={{ ...mono(C.dim), marginTop: 10, letterSpacing: '0.08em' }}>If you can put a link on it, you can track it.</div>
         </Section>
 
