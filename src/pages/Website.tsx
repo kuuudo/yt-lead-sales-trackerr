@@ -579,20 +579,26 @@ export default function Website() {
       <style>{`
         @import url('https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:wght@400;600;700&display=swap');
         .lp-nav-links{display:flex;gap:22px}
-        @media(max-width:640px){.lp-nav-links{order:3;width:100%;justify-content:center;gap:28px}}
+        @media(max-width:640px){
+          .lp-header{gap:14px 12px !important;margin-bottom:36px !important}
+          .lp-head-cta a{padding:9px 14px !important;font-size:11px !important;letter-spacing:0.06em}
+          .lp-nav-links{order:3;width:100%;gap:0;border-top:1px solid ${C.line};border-bottom:1px solid ${C.line};font-size:13px !important}
+          .lp-nav-links a{flex:1;text-align:center;padding:13px 0;letter-spacing:0.08em;color:${C.text} !important}
+          .lp-nav-links a + a{border-left:1px solid ${C.line}}
+        }
         .lp-chapters{border-left:1px solid ${C.line}}
         @media(max-width:880px){.lp-chapters{border-left:none;border-top:1px solid ${C.line}}}
         .lp-card{transition:border-color .15s}
         .lp-card:hover{border-color:${C.purple}}
       `}</style>
       <div style={{ maxWidth: 1040, margin: '0 auto', padding: '24px 24px 72px' }}>
-        <header style={{ display: 'flex', flexWrap: 'wrap', gap: 16, justifyContent: 'space-between', alignItems: 'center', marginBottom: 64 }}>
+        <header className="lp-header" style={{ display: 'flex', flexWrap: 'wrap', gap: 16, justifyContent: 'space-between', alignItems: 'center', marginBottom: 64 }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
             <span style={{ width: 9, height: 9, borderRadius: '50%', background: C.purple }} />
             <span style={{ fontFamily: MONO, fontSize: 14, fontWeight: 600, letterSpacing: '0.2em' }}>VS-TRACK</span>
           </div>
           <nav className="lp-nav-links" style={{ ...mono(C.mut), fontSize: 12 }}><a href="#link" style={{ color: 'inherit', textDecoration: 'none' }}>How it works</a><a href="/pricing" style={{ color: 'inherit', textDecoration: 'none' }}>Pricing</a></nav>
-          <Btn>Start tracking</Btn>
+          <span className="lp-head-cta"><Btn>Start tracking</Btn></span>
         </header>
 
         <div style={{ display: 'flex', flexWrap: 'wrap', gap: 48, alignItems: 'center' }}>
