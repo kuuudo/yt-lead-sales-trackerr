@@ -617,7 +617,7 @@ export default function Website() {
               {[
                 { t: 'Track Content Across 9 Platforms', d: 'Track videos, posts, Stories, and Shorts across all 9 supported platforms. See which content leads to newsletter signups, leads, sales calls, consultations, and revenue.' },
                 { t: 'Track the Entire Marketing Journey', d: 'See how content across multiple platforms works together to generate results, from the first interaction to the final sale.', j: 'YouTube video → Facebook post → TikTok → LinkedIn post → Revenue', jn: 'Illustrative journey. Each step represents trackable content, not necessarily a required sequence.' },
-                { t: 'Let Others Promote. Track Every Result.', d: 'Let other people promote your content or offers. Give each promoter a tracking link so you can see who drives signups, leads, consultations, and sales.' },
+                { t: 'Let Others Promote. Track Every Result.', d: <>Let other people promote your content or offers using your own branded tracking domain. For example, share <span style={{ fontFamily: MONO, fontSize: 13, fontWeight: 600, color: C.lp, background: C.tint, padding: '2px 7px', borderRadius: 6, whiteSpace: 'nowrap' }}>go.yourdomain.com/</span> with your promoters, and they can generate unique tracking links like <span style={{ fontFamily: MONO, fontSize: 13, fontWeight: 600, color: C.lp, background: C.tint, padding: '2px 7px', borderRadius: 6, whiteSpace: 'nowrap' }}>go.yourdomain.com/1234</span> to promote your products. Track who drives signups, leads, consultations, and sales — all under your own domain.</> },
               ].map((f) => (
                 <div key={f.t} style={{ display: 'flex', gap: 10, alignItems: 'flex-start' }}>
                   <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke={C.purple} strokeWidth={2.4} strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" style={{ flex: 'none', marginTop: 2 }}><path d="M5 12.5l4.5 4.5L19 7.5" /></svg>
@@ -634,7 +634,19 @@ export default function Website() {
           <div style={{ flex: '1 1 440px', minWidth: 0 }}><HeroJourney /></div>
         </div>
 
-        <div id="link"><Section label="01 / Link it" title={<>Add any video or post.<br />Get a tracking link.</>} sub="Paste your content URL. We add the tracking magic and give you a tracking link. Paste it into your content description, and you’re done. It’s that easy to learn, that easy to use, and now you can track what happens next. Make tracking links your own. Vstrk supports custom tracking domains, you can use go.yourdomain.com/1234 — or replace go with any word that fits your brand, like shop, ai, or fly. Your links, your domain, your brand.">
+        <div id="link"><Section label="01 / Link it" title={<>Add any video or post.<br />Get a tracking link.</>} sub="Paste your content URL. We add the tracking magic and give you a tracking link. Paste it into your content description, and you’re done. It’s that easy to learn, that easy to use, and now you can track what happens next.">
+          <div style={{ border: `1.5px solid ${C.tintStroke}`, borderRadius: 16, background: `linear-gradient(135deg, ${C.tint} 0%, #ffffff 70%)`, padding: '22px 22px 20px', marginBottom: 18 }}>
+            <div style={{ ...mono(C.purple), marginBottom: 8, letterSpacing: '0.14em' }}>Custom tracking domain</div>
+            <div style={{ fontSize: 20, fontWeight: 700, letterSpacing: '-0.01em', color: C.text }}>Make tracking links your own.</div>
+            <div style={{ display: 'inline-block', maxWidth: '100%', marginTop: 14, padding: '12px 18px', borderRadius: 12, background: '#fff', border: `2px solid ${C.purple}`, boxShadow: '0 6px 18px rgba(91,61,240,0.18)', fontFamily: MONO, fontSize: 'clamp(15px,4.6vw,24px)', fontWeight: 700, color: C.purple, wordBreak: 'break-all' }}>go.yourdomain.com/1234</div>
+            <p style={{ fontSize: 15, color: C.mut, lineHeight: 1.6, margin: '14px 0 0', maxWidth: 560 }}>Vstrk supports custom tracking domains. Replace <b style={{ color: C.text }}>go</b> with any word that fits your brand:</p>
+            <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginTop: 10 }}>
+              {['go', 'shop', 'ai', 'fly'].map((w) => (
+                <span key={w} style={{ fontFamily: MONO, fontSize: 13, fontWeight: 600, color: C.lp, background: '#fff', border: `1px solid ${C.tintStroke}`, borderRadius: 999, padding: '5px 12px' }}>{w}.yourdomain.com</span>
+              ))}
+            </div>
+            <div style={{ fontSize: 15, fontWeight: 700, color: C.text, marginTop: 14 }}>Your links, your domain, your brand.</div>
+          </div>
           <Frame title="Content library" example={false}>
             <div style={{ display: 'grid', gap: 8 }}>
               <LibraryRow platform="YouTube" color={C.red} title="Your video title goes here" meta="Goal: direct sales" />
@@ -670,7 +682,7 @@ export default function Website() {
           <p style={{ margin: '28px 0 0', maxWidth: 640, fontSize: 18, fontWeight: 700, lineHeight: 1.5, letterSpacing: '-0.01em' }}>Build freely. Connect easily. Test every path. Track the entire campaign.</p>
         </Section>
 
-        <Section label="04 / Share it" title={<>Turn your links into assets.<br />Track everything they do.</>} sub="Turn your sales page, newsletter, consultation, or direct purchase link into an asset. Share it with marketers and track everything they do to promote it.">
+        <Section label="04 / Share it" title={<>TURN LINKS INTO ASSETS.<br />SHARE WITH MARKETERS. TRACK EVERYTHING THEY DO</>} sub="Turn your sales page, newsletter, consultation, or direct purchase link into an asset. Share it with marketers and track everything they do to promote it.">
           <div style={{ display: 'grid', gap: 14, maxWidth: 640, marginBottom: 28, fontSize: 16, color: C.mut, lineHeight: 1.65 }}>
             <p style={{ margin: 0 }}>Imagine you’re a sponsor with a product to promote. It has a direct purchase link and a sales page link. Turn those links into assets, then share them with 10 marketers.</p>
             <p style={{ margin: 0 }}>Each marketer promotes your asset in their own way. One uses a YouTube video. Another starts on TikTok, moves to YouTube, and then sends people to your direct purchase page. Another builds a longer path across Instagram and several YouTube videos.</p>
