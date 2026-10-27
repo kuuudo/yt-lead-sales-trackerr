@@ -669,6 +669,10 @@ const [nodeDetailTarget, setNodeDetailTarget] = useState<
   // title/thumbnailUrl are a best-effort display lookup — if the `videos`
   // read fails, the card still renders with the id as its label.
   const [unlinkedCandidates, setUnlinkedCandidates] = useState<UnlinkedVideo[]>([])
+  // Every (source video -> promoted asset) pair found in this promotion's
+  // redirect_links. Drives structural card -> card edges (a promoted video that
+  // promotes another promoted video/asset), independent of events_journey.
+  const [redirectAssetEdges, setRedirectAssetEdges] = useState<{ videoId: string; assetId: string }[]>([])
   // STEP 7 (additive) — asset_id -> videos.platform_url, for the external-
   // link icon on every promoted/creative node card.
   const [platformUrlByAssetId, setPlatformUrlByAssetId] = useState<Map<string, string | null>>(new Map())
@@ -1427,6 +1431,7 @@ const [nodeDetailTarget, setNodeDetailTarget] = useState<
   useEffect(() => {
     if (!promotionId || promotedAssetIdsKey === '') {
       setUnlinkedCandidates([])
+      setRedirectAssetEdges([])
       return
     }
     let cancelled = false
@@ -1451,9 +1456,13 @@ const [nodeDetailTarget, setNodeDetailTarget] = useState<
         const seen = new Set<string>()
         const ids: string[] = []
         const assetIdsByVideoId = new Map<string, Set<string>>()
+        const structuralPairs: { videoId: string; assetId: string }[] = []
         for (const row of (data ?? []) as { id: string; video_id: string | null; asset_id: string | null; token: string }[]) {
           if (row.video_id && row.asset_id) {
             if (!assetIdsByVideoId.has(row.video_id)) assetIdsByVideoId.set(row.video_id, new Set())
+            if (!assetIdsByVideoId.get(row.video_id)!.has(row.asset_id)) {
+              structuralPairs.push({ videoId: row.video_id, assetId: row.asset_id })
+            }
             assetIdsByVideoId.get(row.video_id)!.add(row.asset_id)
           }
           if (!row.video_id || seen.has(row.video_id)) continue
@@ -1461,6 +1470,7 @@ const [nodeDetailTarget, setNodeDetailTarget] = useState<
           ids.push(row.video_id)
           linkByVideoId.set(row.video_id, { id: row.id, token: row.token })
         }
+        setRedirectAssetEdges(structuralPairs)
         if (ids.length === 0) {
           setUnlinkedCandidates([])
           return
@@ -1526,6 +1536,28 @@ const [nodeDetailTarget, setNodeDetailTarget] = useState<
     const observed = new Set(positionedGraphNodes.map((n) => n.videoId))
     return unlinkedCandidates.filter((v) => !observed.has(v.videoId))
   }, [unlinkedCandidates, positionedGraphNodes])
+
+  // Structural card -> card edges: promoted video A has a redirect link (this
+  // promotion) whose asset is promoted card B. Only drawn when BOTH ends are
+  // cards on the canvas; Unlinked-ring videos are handled separately.
+  const promotedCardEdges = useMemo(() => {
+    const assetIdByVideoId = new Map<string, string>()
+    for (const [assetId, videoId] of promotedAssetVideoIds.entries()) assetIdByVideoId.set(videoId, assetId)
+    const seen = new Set<string>()
+    const out: { key: string; from: JourneyNode; to: JourneyNode }[] = []
+    for (const e of redirectAssetEdges) {
+      const fromAssetId = assetIdByVideoId.get(e.videoId)
+      if (!fromAssetId || fromAssetId === e.assetId) continue
+      const key = `${fromAssetId}::${e.assetId}`
+      if (seen.has(key)) continue
+      const from = allPromotedNodes.find((n) => n.assetId === fromAssetId)
+      const to = allPromotedNodes.find((n) => n.assetId === e.assetId)
+      if (!from || !to) continue
+      seen.add(key)
+      out.push({ key, from, to })
+    }
+    return out
+  }, [redirectAssetEdges, promotedAssetVideoIds, allPromotedNodes])
 
   // One circular group placed below the promoted-asset column. Height is
   // derived from the asset *count*, not the cards' current positions, so the
@@ -2494,6 +2526,45 @@ const creativeIds = new Set(
                 ]
               }),
             )}
+
+            {/* Structural card -> card edges (video promotes another promoted
+                asset), from redirect_links. Dashed = structural, no traffic needed. */}
+            {promotedCardEdges.map(({ key, from, to }) => {
+              const fw = from.isCreative ? CREATIVE_NODE_WIDTH : NODE_WIDTH
+              const fh = from.isCreative ? CREATIVE_NODE_HEIGHT : NODE_HEIGHT
+              const tw = to.isCreative ? CREATIVE_NODE_WIDTH : NODE_WIDTH
+              const th = to.isCreative ? CREATIVE_NODE_HEIGHT : NODE_HEIGHT
+              const fcx = from.x + fw / 2
+              const fcy = from.y + fh / 2
+              const tcx = to.x + tw / 2
+              const tcy = to.y + th / 2
+              const horizontal = Math.abs(tcx - fcx) >= Math.abs(tcy - fcy)
+              let d: string
+              if (horizontal) {
+                const goRight = tcx >= fcx
+                const x1 = goRight ? from.x + fw : from.x
+                const x2 = goRight ? to.x : to.x + tw
+                const midX = (x1 + x2) / 2
+                d = `M ${x1} ${fcy} C ${midX} ${fcy} ${midX} ${tcy} ${x2} ${tcy}`
+              } else {
+                const goDown = tcy >= fcy
+                const y1 = goDown ? from.y + fh : from.y
+                const y2 = goDown ? to.y : to.y + th
+                const midY = (y1 + y2) / 2
+                d = `M ${fcx} ${y1} C ${fcx} ${midY} ${tcx} ${midY} ${tcx} ${y2}`
+              }
+              return (
+                <path
+                  key={`card-edge-${key}`}
+                  d={d}
+                  fill="none"
+                  stroke="#94a3b8"
+                  strokeWidth={1.8}
+                  strokeDasharray="5 4"
+                  markerEnd="url(#journeyArrow)"
+                />
+              )
+            })}
 
             {/* STEP 10 (additive) — upstream edges. Same path/marker
                 convention as every edge kind above, mirrored leftward. A
