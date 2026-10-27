@@ -56,6 +56,7 @@ export interface PromotionSummary {
      * as listOrgAssignments()'s organization-wide scope.
      */
     created_by_user_id: string;
+    assignment_mode: string | null;
   } | null;
 
   campaign: {
@@ -75,8 +76,10 @@ export interface PromotionSummary {
    * label a historical promotion "Removed by {owner}" instead of
    * "Assigned by {owner}" without needing to open Promotion Detail.
    */
-  assignment_collaborator: {
+    assignment_collaborator: {
     status: string;
+    user_id: string | null;
+    user: { full_name: string | null; email: string | null } | null;
   } | null;
 }
 
@@ -157,13 +160,15 @@ export async function listMyPromotions(userId: string): Promise<PromotionSummary
   owner_user_id,
   assignment_id,
   assignment_collaborator_id,
-  assignment:assignments(id, title, created_by_user_id),
+  assignment:assignments(id, title, created_by_user_id, assignment_mode),
   campaign:campaigns(campaign_name),
   owner:profiles!promotions_owner_user_id_fkey(
     full_name,
     email
   ),
-  assignment_collaborator:assignment_collaborators(
+    assignment_collaborator:assignment_collaborators(
+    user_id,
+    user:profiles(full_name, email),
     status
   )
 `);

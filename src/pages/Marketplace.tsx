@@ -862,12 +862,14 @@ export default function Marketplace() {
                 <div>
                   <h3 className="font-bold text-white">{p.assignment?.title ?? p.campaign?.campaign_name ?? 'Promotion'}</h3>
                   <p className="text-zinc-500 text-xs mt-1">
-  Created {new Date(p.created_at).toLocaleDateString()}
+  Created {new Date(p.created_at).toLocaleDateString()}{p.assignment?.assignment_mode ? ` · ${p.assignment.assignment_mode === 'creative' ? 'Creative' : 'Regular'} Mode` : ''}
 </p>
 
 {p.owner && (
   <p className={`text-xs mt-1 ${p.assignment_collaborator && p.assignment_collaborator.status !== 'active' ? 'text-red-500' : 'text-orange-400'}`}>
-    {p.assignment_collaborator && p.assignment_collaborator.status !== 'active' ? 'Removed by' : 'Assigned by'} {p.owner.full_name ?? 'Unknown'}
+    {p.assignment?.created_by_user_id === userId && p.assignment_collaborator
+  ? `${p.assignment_collaborator.status !== 'active' ? 'Removed' : 'Assigned to'} ${p.assignment_collaborator.user?.full_name ?? p.assignment_collaborator.user?.email ?? 'Unknown'}`
+  : `${p.assignment_collaborator && p.assignment_collaborator.status !== 'active' ? 'Removed by' : 'Assigned by'} ${p.owner.full_name ?? 'Unknown'}`}
   </p>
 )}
                 </div>
