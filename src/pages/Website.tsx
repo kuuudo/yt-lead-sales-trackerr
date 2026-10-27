@@ -114,7 +114,7 @@ function HeroJourney() {
           </div>
         ))}
       </div>
-           <div style={{ marginTop: 14, fontSize: 12, color: C.dim, lineHeight: 1.45 }}>Illustrative journey. Each step represents trackable content, not necessarily a required sequence.</div>
+           <div style={{ marginTop: 14, fontSize: 12, color: C.dim, lineHeight: 1.45 }}>Every step tracked. Every path connected. Know exactly what's happening across your entire marketing journey.</div>
     </div>
   )
 }
