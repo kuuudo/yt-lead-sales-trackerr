@@ -2756,7 +2756,9 @@ const creativeIds = new Set(
                   {creativeGroupLayout.placed.length === 1 ? '' : 's'}
                 </span>
               </div>
-              {creativeGroupLayout.placed.map((node) => (
+              {creativeGroupLayout.placed.map((node) => {
+                const creativeVideoId = promotedAssetVideoIds.get(node.assetId)
+                return (
                 <div
                   key={node.assetId}
                   style={{
@@ -2791,8 +2793,24 @@ const creativeIds = new Set(
                       <ExternalLink size={11} />
                     </a>
                   )}
+                  {creativeVideoId ? (
+                    <button
+                      type="button"
+                      style={styles.videoLinksPortalBtn}
+                      title="Add New Links for this video"
+                      onPointerDown={(e) => e.stopPropagation()}
+                      onClick={(e) => {
+                        e.stopPropagation()
+                        e.preventDefault()
+                        navigate(`/videos/${creativeVideoId}?openAddLinks=1`)
+                      }}
+                    >
+                      + Links
+                    </button>
+                  ) : null}
                 </div>
-              ))}
+                )
+              })}
             </div>
           )}
 
