@@ -627,7 +627,7 @@ export default function Website() {
           <div style={{ flex: '1 1 440px', minWidth: 0 }}><HeroJourney /></div>
         </div>
 
-        <div id="link"><Section label="01 / Link it" title={<>Add any video or post.<br />Get a tracking link.</>} sub="Paste your content URL. We add the tracking magic and give you a tracking link. Paste it into your content description, and you’re done. It’s that easy to learn, that easy to use, and now you can track what happens next.">
+        <div id="link"><Section label="01 / Link it" title={<>Add any video or post.<br />Get a tracking link.</>} sub="Paste your content URL. We add the tracking magic and give you a tracking link. Paste it into your content description, and you’re done. It’s that easy to learn, that easy to use, and now you can track what happens next. Make tracking links your own. Vstrk supports custom tracking domains, you can use go.yourdomain.com/1234 — or replace go with any word that fits your brand, like shop, ai, or fly. Your links, your domain, your brand.">
           <Frame title="Content library" example={false}>
             <div style={{ display: 'grid', gap: 8 }}>
               <LibraryRow platform="YouTube" color={C.red} title="Your video title goes here" meta="Goal: direct sales" />
