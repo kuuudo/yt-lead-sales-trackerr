@@ -682,7 +682,7 @@ export default function Website() {
           <p style={{ margin: '28px 0 0', maxWidth: 640, fontSize: 18, fontWeight: 700, lineHeight: 1.5, letterSpacing: '-0.01em' }}>Build freely. Connect easily. Test every path. Track the entire campaign.</p>
         </Section>
 
-        <Section label="04 / Share it" title={<>TURN LINKS INTO ASSETS.<br />SHARE WITH MARKETERS. TRACK EVERYTHING THEY DO</>} sub="Turn your sales page, newsletter, consultation, or direct purchase link into an asset. Share it with marketers and track everything they do to promote it.">
+        <Section label="04 / Share it" title={<>TURN LINKS INTO ASSETS.<br />SHARE WITH MARKETERS.<br />TRACK EVERYTHING THEY DO</>} sub="Turn your sales page, newsletter, consultation, or direct purchase link into an asset. Share it with marketers and track everything they do to promote it.">
           <div style={{ display: 'grid', gap: 14, maxWidth: 640, marginBottom: 28, fontSize: 16, color: C.mut, lineHeight: 1.65 }}>
             <p style={{ margin: 0 }}>Imagine you’re a sponsor with a product to promote. It has a direct purchase link and a sales page link. Turn those links into assets, then share them with 10 marketers.</p>
             <p style={{ margin: 0 }}>Each marketer promotes your asset in their own way. One uses a YouTube video. Another starts on TikTok, moves to YouTube, and then sends people to your direct purchase page. Another builds a longer path across Instagram and several YouTube videos.</p>
