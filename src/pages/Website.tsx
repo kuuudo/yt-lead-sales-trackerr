@@ -566,12 +566,24 @@ export default function Website() {
               <a href="#link" style={{ padding: '15px 26px', borderRadius: 12, border: `1.5px solid ${C.tintStroke}`, color: C.text, fontSize: 16, fontWeight: 600, textDecoration: 'none' }}>See how it works</a>
             </div>
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '18px 24px', marginTop: 34 }}>
-              {[
-                { t: 'Cross-platform journeys', d: 'See how multiple pieces of content work together.' },
-                { t: 'Shareable assets', d: 'Let others promote your assets and track their results.' },
-                { t: 'Results, not just views', d: 'Measure signups, leads, consultations, and revenue.' },
-                { t: 'Long-term tracking', d: 'Keep tracking as long as your links remain live.' },
-              ].map((f) => (
+{[
+  {
+    t: 'Track Content Across 9 Platforms',
+    d: 'Track videos, posts, Stories, and Shorts across all 9 supported platforms. Connect your content to newsletter signups, leads, sales calls, consultations, and revenue.',
+  },
+  {
+    t: 'Track the Entire Marketing Journey',
+    d: 'YouTube video → Facebook post → TikTok → LinkedIn post → Revenue. Track how content across multiple platforms contributes to your results.',
+  },
+  {
+    t: 'Let Others Promote. Track Every Result.',
+    d: 'Let other people promote your offers using tracking links. See who drives signups, leads, consultations, and sales.',
+  },
+  {
+    t: 'Long-Term Tracking',
+    d: 'Keep tracking results for as long as your tracking links remain live.',
+  },
+].map(({ t, d }) => (
                 <div key={f.t} style={{ display: 'flex', gap: 10, alignItems: 'flex-start' }}>
                   <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke={C.purple} strokeWidth={2.4} strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" style={{ flex: 'none', marginTop: 2 }}><path d="M5 12.5l4.5 4.5L19 7.5" /></svg>
                   <div>
