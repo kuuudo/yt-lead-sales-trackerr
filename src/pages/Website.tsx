@@ -616,7 +616,7 @@ export default function Website() {
             <div style={{ display: 'grid', gridTemplateColumns: '1fr', gap: '18px 24px', marginTop: 34 }}>
               {[
                 { t: 'Track Content Across 9 Platforms', d: 'Track videos, posts, Stories, and Shorts across all 9 supported platforms. See which content leads to newsletter signups, leads, sales calls, consultations, and revenue.' },
-                { t: 'Track the Entire Marketing Journey', d: 'See how content across multiple platforms works together to generate results, from the first interaction to the final sale.', j: 'YouTube video → Facebook post → TikTok → LinkedIn post → Revenue', jn: 'Illustrative journey. Each step represents trackable content, not necessarily a required sequence.' },
+                { t: 'Track the Entire Marketing Journey', d: 'See how content across multiple platforms works together to generate results, from the first interaction to the final sale.', j: 'YouTube video → Facebook post → TikTok → LinkedIn post → Revenue', jn: '' },
                 { t: 'Let Others Promote. Track Every Result.', d: <>Let other people promote your content or offers using your own branded tracking domain. For example, share <span style={{ fontFamily: MONO, fontSize: 13, fontWeight: 600, color: C.lp, background: C.tint, padding: '2px 7px', borderRadius: 6, whiteSpace: 'nowrap' }}>go.yourdomain.com/</span> with your promoters, and they can generate unique tracking links like <span style={{ fontFamily: MONO, fontSize: 13, fontWeight: 600, color: C.lp, background: C.tint, padding: '2px 7px', borderRadius: 6, whiteSpace: 'nowrap' }}>go.yourdomain.com/1234</span> to promote your products. Track who drives signups, leads, consultations, and sales — all under your own domain.</> },
               ].map((f) => (
                 <div key={f.t} style={{ display: 'flex', gap: 10, alignItems: 'flex-start' }}>
@@ -678,7 +678,7 @@ export default function Website() {
           </div>
           <MultiPlatform />
         
-          <div style={{ fontSize: 12, color: C.dim, lineHeight: 1.45, marginTop: 10 }}>Illustrative journey. Each step represents trackable content, not necessarily a required sequence.</div>
+          
           <p style={{ margin: '28px 0 0', maxWidth: 640, fontSize: 18, fontWeight: 700, lineHeight: 1.5, letterSpacing: '-0.01em' }}>Build freely. Connect easily. Test every path. Track the entire campaign.</p>
         </Section>
 
