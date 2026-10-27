@@ -215,6 +215,9 @@ export default function VideoDetail() {
   const [creativeOnlyAssetIds, setCreativeOnlyAssetIds] = useState<string[]>([]);
   const [creativeRestrictionsLoading, setCreativeRestrictionsLoading] = useState(false);
   const [creativeEligibleAssignments, setCreativeEligibleAssignments] = useState<CreativeEligibleAssignment[]>([]);
+  // JourneyMap [+ Links] entry: return path + optional promotion context for asset allowlist
+  const [returnJourneyPromotionId, setReturnJourneyPromotionId] = useState<string | null>(null);
+  const [journeyContextPromotionId, setJourneyContextPromotionId] = useState<string | null>(null);
 
   useEffect(() => {
     if (!user?.id) return;
@@ -223,7 +226,9 @@ export default function VideoDetail() {
       .catch(() => setCreativeEligibleAssignments([]));
   }, [user?.id]);
 
-  // Same as Videos.tsx: when opening asset picker, compute creative-only asset ids
+  // Same as Videos.tsx: when opening asset picker, compute creative-only asset ids.
+  // Exception: assets under this video's Creative promotion/assignment, or the
+  // JourneyMap promotion context (journeyPromotionId), stay selectable.
   useEffect(() => {
     if (!showTrackAssetPicker || !user?.id) {
       setCreativeRestrictionsLoading(false);
@@ -238,6 +243,16 @@ export default function VideoDetail() {
           if (!cancelled) setCreativeOnlyAssetIds([]);
           return;
         }
+        const videoCreativePromotionId =
+          ((video as any)?.creative_promotion_id as string | null | undefined) || null;
+        const videoCreativeAssignmentId =
+          ((video as any)?.creative_assignment_id as string | null | undefined) || null;
+        const allowedPromotionIds = new Set<string>();
+        const allowedAssignmentIds = new Set<string>();
+        if (videoCreativePromotionId) allowedPromotionIds.add(videoCreativePromotionId);
+        if (journeyContextPromotionId) allowedPromotionIds.add(journeyContextPromotionId);
+        if (videoCreativeAssignmentId) allowedAssignmentIds.add(videoCreativeAssignmentId);
+
         const candidateIds = new Set<string>();
         for (const a of creativeEligibleAssignments) {
           try {
@@ -254,7 +269,17 @@ export default function VideoDetail() {
           [...candidateIds].map(async assetId => {
             try {
               const options = await resolvePromotionContextForAsset(assetId, user.id);
-              if (options.length > 0 && options.every(o => creativeIds.has(o.assignmentId))) {
+              if (options.length === 0) return;
+              if (
+                options.some(
+                  o =>
+                    allowedAssignmentIds.has(o.assignmentId) ||
+                    allowedPromotionIds.has(o.promotionId),
+                )
+              ) {
+                return;
+              }
+              if (options.every(o => creativeIds.has(o.assignmentId))) {
                 only.push(assetId);
               }
             } catch { /* ignore */ }
@@ -266,7 +291,14 @@ export default function VideoDetail() {
       }
     })();
     return () => { cancelled = true; };
-  }, [showTrackAssetPicker, user?.id, creativeEligibleAssignments]);
+  }, [
+    showTrackAssetPicker,
+    user?.id,
+    creativeEligibleAssignments,
+    (video as any)?.creative_promotion_id,
+    (video as any)?.creative_assignment_id,
+    journeyContextPromotionId,
+  ]);
 
   const [trackDomainByAssetId, setTrackDomainByAssetId] = useState<Map<string, string | null>>(new Map());
   const [trackPromoCtxByAssetId, setTrackPromoCtxByAssetId] = useState<Map<string, PromotionContext | null>>(new Map());
@@ -562,6 +594,17 @@ if (effectiveOrgId && effectiveUserId) {
     setTrackPromotedAssets([]);
     setShowTrackContentModal(true);
   };
+
+  // Capture JourneyMap entry params once (return path + promotion context)
+  useEffect(() => {
+    const open = searchParams.get('openAddLinks') === '1';
+    const jPromo = searchParams.get('journeyPromotionId');
+    if (!open && !jPromo) return;
+    if (jPromo) {
+      setReturnJourneyPromotionId(jPromo);
+      setJourneyContextPromotionId(jPromo);
+    }
+  }, [searchParams]);
 
   // JourneyMap [+ Links] → ?openAddLinks=1: open existing modal once video+campaign ready
   useEffect(() => {
@@ -1170,6 +1213,15 @@ if (effectiveOrgId && effectiveUserId) {
             >
               + Add New Links
             </button>
+              {returnJourneyPromotionId && (
+                <button
+                  type="button"
+                  onClick={() => navigate(`/marketplace/promotions/${returnJourneyPromotionId}/journey`)}
+                  className="ml-3 text-[10px] font-black uppercase tracking-widest text-zinc-400 hover:text-white transition-colors"
+                >
+                  ← Back to Journey Map
+                </button>
+              )}
             {SHOW_ADD_LINK_BUTTON && (
             <button
               onClick={() => setShowAddLink(!showAddLink)}
@@ -1260,9 +1312,23 @@ if (effectiveOrgId && effectiveUserId) {
         {showTrackContentModal && video && campaign && (
           <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4">
             <div className="w-full max-w-4xl bg-zinc-950 border border-zinc-800 rounded-2xl p-5 max-h-[90vh] overflow-y-auto">
-              <p className="text-[10px] font-black uppercase tracking-widest text-zinc-500">
-                + Add New Links
-              </p>
+              <div className="flex flex-wrap items-start justify-between gap-2 mb-1">
+                <p className="text-[10px] font-black uppercase tracking-widest text-zinc-500">
+                  + Add New Links
+                </p>
+                {returnJourneyPromotionId && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setShowTrackContentModal(false);
+                      navigate(`/marketplace/promotions/${returnJourneyPromotionId}/journey`);
+                    }}
+                    className="text-[10px] font-black uppercase tracking-widest text-zinc-400 hover:text-white transition-colors"
+                  >
+                    ← Back to Journey Map
+                  </button>
+                )}
+              </div>
               <p className="text-[11px] text-zinc-500 mb-4">
                 Same flow as Track New Content, with video and campaign locked to this page.
               </p>

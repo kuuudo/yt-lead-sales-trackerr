@@ -2729,7 +2729,9 @@ const creativeIds = new Set(
                     onClick={(e) => {
                       e.stopPropagation()
                       e.preventDefault()
-                      navigate(`/videos/${uNode.videoId}?openAddLinks=1`)
+                      const qs = new URLSearchParams({ openAddLinks: '1' })
+                      if (promotionId) qs.set('journeyPromotionId', promotionId)
+                      navigate(`/videos/${uNode.videoId}?${qs.toString()}`)
                     }}
                   >
                     + Links
@@ -2802,7 +2804,9 @@ const creativeIds = new Set(
                       onClick={(e) => {
                         e.stopPropagation()
                         e.preventDefault()
-                        navigate(`/videos/${creativeVideoId}?openAddLinks=1`)
+                        const qs = new URLSearchParams({ openAddLinks: '1' })
+                        if (promotionId) qs.set('journeyPromotionId', promotionId)
+                        navigate(`/videos/${creativeVideoId}?${qs.toString()}`)
                       }}
                     >
                       + Links
@@ -2875,7 +2879,9 @@ const creativeIds = new Set(
                     onClick={(e) => {
                       e.stopPropagation()
                       e.preventDefault()
-                      navigate(`/videos/${gNode.videoId}?openAddLinks=1`)
+                      const qs = new URLSearchParams({ openAddLinks: '1' })
+                      if (promotionId) qs.set('journeyPromotionId', promotionId)
+                      navigate(`/videos/${gNode.videoId}?${qs.toString()}`)
                     }}
                   >
                     + Links
@@ -3017,7 +3023,9 @@ const creativeIds = new Set(
                     onClick={(e) => {
                       e.stopPropagation()
                       e.preventDefault()
-                      navigate(`/videos/${v.videoId}?openAddLinks=1`)
+                      const qs = new URLSearchParams({ openAddLinks: '1' })
+                      if (promotionId) qs.set('journeyPromotionId', promotionId)
+                      navigate(`/videos/${v.videoId}?${qs.toString()}`)
                     }}
                   >
                     + Links
@@ -3773,7 +3781,6 @@ const styles: Record<string, React.CSSProperties> = {
     color: '#6b7280',
     cursor: 'pointer',
   },
-  // Style F — compact right-aligned [+ Links] on video nodes only
   videoLinksPortalBtn: {
     position: 'absolute',
     right: 6,
