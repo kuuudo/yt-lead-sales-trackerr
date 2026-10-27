@@ -587,8 +587,8 @@ export default function Website() {
                 <div key={t} style={{ display: 'flex', gap: 10, alignItems: 'flex-start' }}>
                   <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke={C.purple} strokeWidth={2.4} strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" style={{ flex: 'none', marginTop: 2 }}><path d="M5 12.5l4.5 4.5L19 7.5" /></svg>
                   <div>
-                    <div style={{ fontSize: 15, fontWeight: 700, color: C.text }}>{f.t}</div>
-                    <div style={{ fontSize: 14, color: C.mut, lineHeight: 1.5, marginTop: 2 }}>{f.d}</div>
+                    <div style={{ fontSize: 15, fontWeight: 700, color: C.text }}>{t}</div>
+                    <div style={{ fontSize: 14, color: C.mut, lineHeight: 1.5, marginTop: 2 }}>{t}</div>
                   </div>
                 </div>
               ))}
