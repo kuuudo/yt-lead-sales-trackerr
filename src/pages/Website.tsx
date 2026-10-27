@@ -680,7 +680,7 @@ export default function Website() {
           </div>
           <TopAssets />
           <p style={{ margin: '28px 0 0', maxWidth: 640, fontSize: 18, fontWeight: 700, lineHeight: 1.5, letterSpacing: '-0.01em' }}>Your asset. Their content. Every result tracked.</p>
-        </Section></div>
+        </Section>
 
         <Section label="05 / Your domain" title={<>Your links. Your domain.<br />Even across brands.</>} sub="Put tracking links on your own domain. When a customer moves from one brand's domain to another, the journey keeps going.">
           <CrossDomain />
