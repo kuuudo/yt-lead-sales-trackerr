@@ -92,8 +92,8 @@ function HeroJourney() {
   return (
     <div style={{ background: C.panel, border: `1px solid ${C.line}`, borderRadius: 20, padding: 22, boxShadow: '0 30px 60px -28px rgba(59,36,184,0.35)' }}>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
-        <span style={mono(C.dim)}>Journey map</span>
-        <span style={mono(C.amber, 11)}>Example data</span>
+        <span style={mono(C.dim)}>Marketing journey</span>
+        <span style={mono(C.dim, 11)}>Marketing journey</span>
       </div>
       <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
         {bars.map((b) => (
