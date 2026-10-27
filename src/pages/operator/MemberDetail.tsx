@@ -207,7 +207,7 @@ export default function MemberDetail() {
         }
       }
       await enterViewing(member.id, member.name);
-      navigate('/dashboard');
+      navigate('/tree');
     } catch (err: any) {
       setViewingError(err.message || 'Could not enter viewing mode.');
     } finally {
