@@ -225,27 +225,7 @@ function MultiPlatform() {
   )
 }
 
-  const box = (k: string) => { const n = NODES[k]; return { x: COLS[n.c], w: n.w ?? 100, cy: n.y + 20 } }
-  const curve = (x1: number, y1: number, x2: number, y2: number) => `M${x1},${y1} C${(x1 + x2) / 2},${y1} ${(x1 + x2) / 2},${y2} ${x2},${y2}`
-  return (
-    <Frame title="One campaign, many platforms">
-      <svg viewBox="0 0 640 290" style={{ width: '100%', height: 'auto', display: 'block' }} role="img" aria-label="Posts across YouTube, TikTok, Instagram, Facebook, X, Reddit, Threads and LinkedIn lead through a landing page and checkout to revenue">
-        {EDGES.map(([a, b]) => { const A = box(a), B = box(b); return <path key={a + b} d={curve(A.x + A.w, A.cy, B.x, B.cy)} fill="none" stroke={C.purple} strokeWidth={1.2} opacity={0.6} /> })}
-        {['ld', 'ck'].map((k) => { const A = box(k); return <path key={k} d={curve(A.x + A.w, A.cy, 556, 145)} fill="none" stroke={C.green} strokeWidth={1.6} /> })}
-        {Object.entries(NODES).map(([k, n]) => (
-          <g key={k}>
-            <rect x={COLS[n.c]} y={n.y} width={n.w ?? 100} height={40} rx={9} fill={n.acc ? C.tint : '#ffffff'} stroke={n.acc ? C.purple : C.tintStroke} />
-            <T x={COLS[n.c] + 9} y={n.y + 17} fill={n.red ? C.red : n.acc ? C.lp : C.mut}>{n.p.toUpperCase()}</T>
-            <text x={COLS[n.c] + 9} y={n.y + 33} fontFamily={SANS} fontSize={12} fontWeight={600} fill={C.text}>{n.n}</text>
-          </g>
-        ))}
-        <rect x={556} y={125} width={76} height={40} rx={9} fill={C.greenTint} stroke={C.green} />
-        <T x={565} y={142} fill={C.green}>REVENUE</T>
-        <text x={565} y={158} fontFamily={SANS} fontSize={12} fontWeight={600} fill={C.text}>$12,400</text>
-      </svg>
-    </Frame>
-  )
-}
+
 
 /* ---------- 04 Share it ---------- */
 function TopAssets() {
