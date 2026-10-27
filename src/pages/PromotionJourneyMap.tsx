@@ -1788,7 +1788,15 @@ const [nodeDetailTarget, setNodeDetailTarget] = useState<
     setCreativeRestrictionsLoading(true)
     ;(async () => {
       try {
-        const creativeIds = new Set(creativeEligibleAssignments.map(a => a.assignmentId))
+        const currentAssignmentId: string | null =
+  (promotionDetail as any)?.assignment?.id ||
+  (promotionDetail as any)?.promotion?.assignment_id ||
+  null
+const creativeIds = new Set(
+  creativeEligibleAssignments
+    .map(a => a.assignmentId)
+    .filter(id => id !== currentAssignmentId),
+)
         if (creativeIds.size === 0) {
           if (!cancelled) setCreativeOnlyAssetIds([])
           return
@@ -1821,7 +1829,7 @@ const [nodeDetailTarget, setNodeDetailTarget] = useState<
       }
     })()
     return () => { cancelled = true }
-  }, [showTrackAssetPicker, user?.id, creativeEligibleAssignments])
+  }, [showTrackAssetPicker, user?.id, creativeEligibleAssignments, promotionDetail])
 
   const isCreativePromotion = !!(
     trackCreativeMode === 'campaign_asset_only' ||
