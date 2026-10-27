@@ -164,6 +164,16 @@ async function resolveLinksToDownstream(links: RedirectLinkRow[]): Promise<Downs
   const edges: DownstreamEdge[] = []
   const seenNodeIds = new Set<string>()
 
+  // Resolve every distinct asset type up front, in parallel. Previously this
+  // awaited resolveAssetType() once per link inside the loop below (serial
+  // round trips — the main cause of the slow downstream load).
+  const resolvedAssetTypes = new Map<string, Awaited<ReturnType<typeof resolveAssetType>>>()
+  await Promise.all(
+    Array.from(new Set(links.map((l) => l.asset_id).filter((x): x is string => !!x))).map(async (id) => {
+      resolvedAssetTypes.set(id, await resolveAssetType(id))
+    }),
+  )
+
   for (const link of links) {
     const nodeId = `redirect:${link.id}`
     if (seenNodeIds.has(nodeId)) {
@@ -177,7 +187,7 @@ async function resolveLinksToDownstream(links: RedirectLinkRow[]): Promise<Downs
     let ownerCampaignId: string | null = null
 
     if (link.asset_id) {
-      const resolved = await resolveAssetType(link.asset_id)
+      const resolved = resolvedAssetTypes.get(link.asset_id)
       if (resolved?.assetType === 'campaign_element') {
         const key = link.campaign_id ? `${link.asset_id}::${link.campaign_id}` : ''
         const foundElementType =
@@ -241,9 +251,12 @@ async function resolveLinksToDownstream(links: RedirectLinkRow[]): Promise<Downs
 // for a promotion with no observed traffic.
 export async function resolveDownstreamNodes(graph: JourneyGraph, promotionId?: string): Promise<DownstreamResolution> {
   // Conversion-derived Thank You nodes for every video in the observed graph.
-  const outcomes: DownstreamResolution = promotionId
-    ? await resolveConversionOutcomes(graph.nodes.map((n) => n.videoId), promotionId)
-    : { nodes: [], edges: [] }
+  // Started now, awaited later: outcomes and structural links are independent,
+  // so they run concurrently instead of back to back.
+  const outcomesPromise: Promise<DownstreamResolution> = promotionId
+    ? resolveConversionOutcomes(graph.nodes.map((n) => n.videoId), promotionId)
+    : Promise.resolve({ nodes: [], edges: [] })
+  outcomesPromise.catch(() => {}) // avoid an unhandled rejection if structural throws first
   // Terminal = no observed outgoing edge in the observed video->video graph
   // journeyGraph.ts already built. Only these are candidates — a node with
   // a real outgoing edge already has its next step represented there.
@@ -253,7 +266,7 @@ export async function resolveDownstreamNodes(graph: JourneyGraph, promotionId?: 
   const redirectLinkIds = Array.from(
     new Set(terminalNodes.flatMap((n) => n.observedRedirectLinkIds)),
   )
-    if (redirectLinkIds.length === 0) return outcomes
+    if (redirectLinkIds.length === 0) return outcomesPromise
 
   const { data: redirectLinks, error: rlError } = await supabase
     .from('redirect_links')
@@ -265,6 +278,7 @@ export async function resolveDownstreamNodes(graph: JourneyGraph, promotionId?: 
   }
 
     const structural = await attachClickCounts(await resolveLinksToDownstream((redirectLinks ?? []) as RedirectLinkRow[]), promotionId)
+  const outcomes = await outcomesPromise
   return {
     nodes: [...structural.nodes, ...outcomes.nodes],
     edges: [...structural.edges, ...outcomes.edges],
@@ -476,11 +490,10 @@ export async function resolveDownstreamForVideoIds(
   videoIds: string[],
   promotionId: string,
 ): Promise<DownstreamResolution> {
-    const structural = await attachClickCounts(
-    await resolveDownstreamForVideoIdsStructural(videoIds, promotionId),
-    promotionId,
-  )
-  const outcomes = await resolveConversionOutcomes(videoIds, promotionId)
+  const [structural, outcomes] = await Promise.all([
+    resolveDownstreamForVideoIdsStructural(videoIds, promotionId).then((r) => attachClickCounts(r, promotionId)),
+    resolveConversionOutcomes(videoIds, promotionId),
+  ])
   return {
     nodes: [...structural.nodes, ...outcomes.nodes],
     edges: [...structural.edges, ...outcomes.edges],

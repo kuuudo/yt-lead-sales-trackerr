@@ -460,6 +460,47 @@ function findMatchingGraphNode(
   return positionedGraphNodes.find((n) => n.observedAssetIds.includes(assetId))
 }
 
+// Several videos often point at the same destination (same asset / same link
+// type + campaign), but the resolver emits one node per redirect link. Collapse
+// them to ONE node per destination and re-point every edge at it, so the map
+// shows many-to-one arrows instead of stacked, overlapping duplicates.
+// Conversion (Thank You) nodes are left alone.
+function dedupeDownstream(res: DownstreamResolution): DownstreamResolution {
+  const canonicalOf = new Map<string, string>()
+  const byKey = new Map<string, DownstreamNode>()
+  const nodes: DownstreamNode[] = []
+  for (const n of res.nodes) {
+    if (n.resolvedFrom === 'conversion') {
+      canonicalOf.set(n.id, n.id)
+      nodes.push(n)
+      continue
+    }
+    const key = n.assetId
+      ? `asset:${n.assetId}`
+      : `link:${n.elementType ?? ''}::${n.ownerCampaignId ?? ''}`
+    const existing = byKey.get(key)
+    if (existing) {
+      canonicalOf.set(n.id, existing.id)
+      if (n.clicks != null) existing.clicks = (existing.clicks ?? 0) + n.clicks
+      continue
+    }
+    const clone = { ...n }
+    byKey.set(key, clone)
+    canonicalOf.set(n.id, clone.id)
+    nodes.push(clone)
+  }
+  const seen = new Set<string>()
+  const edges: DownstreamResolution['edges'] = []
+  for (const e of res.edges) {
+    const to = canonicalOf.get(e.toNodeId) ?? e.toNodeId
+    const key = `${e.fromVideoId}::${to}`
+    if (seen.has(key)) continue
+    seen.add(key)
+    edges.push({ ...e, toNodeId: to })
+  }
+  return { nodes, edges }
+}
+
 // STEP 4 (additive) — merge two DownstreamResolution results, deduping by
 // node id (stable — see journeyDownstreamResolver.ts's `redirect:${id}`
 // scheme) and by (fromVideoId, toNodeId) edge pair. Needed because a
@@ -602,7 +643,8 @@ const [nodeDetailTarget, setNodeDetailTarget] = useState<
 
   // Downstream resolution (additive — STEP 3). Structural only, no
   // conversion data. See journeyDownstreamResolver.ts.
-  const [downstream, setDownstream] = useState<DownstreamResolution>({ nodes: [], edges: [] })
+  const [downstreamRaw, setDownstream] = useState<DownstreamResolution>({ nodes: [], edges: [] })
+  const downstream = useMemo(() => dedupeDownstream(downstreamRaw), [downstreamRaw])
 
   // ── STEP 10 (additive, 2026-09-27) — per-asset "Upstream" button ─────────
   // Keyed by promoted-asset assetId (same identity `nodes.map` already keys
@@ -642,6 +684,9 @@ const [nodeDetailTarget, setNodeDetailTarget] = useState<
   // the target and resets steps 3-6.
   const [hasClickedTrackNewContent, setHasClickedTrackNewContent] = useState(false)
   const [testCardTarget, setTestCardTarget] = useState<UnlinkedVideo | null>(null)
+  // Waiting-for-first-visit ring: connection lines show only for the hovered
+  // or selected video, so the canvas stays readable.
+  const [hoveredUnlinkedId, setHoveredUnlinkedId] = useState<string | null>(null)
   const [testCardPos, setTestCardPos] = useState<{ x: number; y: number }>({
     x: CANVAS_MARGIN,
     y: CANVAS_MID_Y + 260,
@@ -823,7 +868,10 @@ const [nodeDetailTarget, setNodeDetailTarget] = useState<
         // Instagram / TikTok / etc. all use the same platform-correct
         // fallback already used elsewhere in this file.
         const graphVideoIds = Array.from(new Set(built.nodes.map((n) => n.videoId)))
-        if (graphVideoIds.length > 0) {
+        // Runs concurrently with the type/downstream lookups below; awaited
+        // right after them.
+        const videoDisplayPromise = (async () => {
+          if (graphVideoIds.length === 0) return
           try {
             const { data: videoDisplayRows, error: videoDisplayError } = await supabase
               .from('videos')
@@ -850,7 +898,7 @@ const [nodeDetailTarget, setNodeDetailTarget] = useState<
             // itself (mirrors STEP 4/5's error handling).
             console.error('[PromotionJourneyMap] STEP 8 video display lookup failed:', videoDisplayErr?.message || videoDisplayErr)
           }
-        }
+        })()
 
         // Best-effort display type per node — see GraphNodeVisualType comment
         // above for why this stops at the broad asset_type category. Run
@@ -867,6 +915,7 @@ const [nodeDetailTarget, setNodeDetailTarget] = useState<
           ),
           resolveDownstreamNodes(built, promotionId),
         ])
+        await videoDisplayPromise
         if (cancelled) return
 
         setNodeVisualTypes(new Map(visualTypeEntries))
@@ -1286,9 +1335,31 @@ const [nodeDetailTarget, setNodeDetailTarget] = useState<
     const positionedStructuralDownstreamNodes = useMemo(() => {
     if (downstream.nodes.length === 0) return []
     const bySource = new Map<string, DownstreamNode[]>()
-        for (const n of downstream.nodes.filter((x) => x.resolvedFrom !== 'conversion')) {
-      if (!bySource.has(n.sourceVideoId)) bySource.set(n.sourceVideoId, [])
-      bySource.get(n.sourceVideoId)!.push(n)
+    // A deduped node can have several source videos; place it after the one
+    // that sits furthest right so every arrow still runs left -> right.
+    const sourcesByNode = new Map<string, Set<string>>()
+    for (const e of downstream.edges) {
+      if (!sourcesByNode.has(e.toNodeId)) sourcesByNode.set(e.toNodeId, new Set())
+      sourcesByNode.get(e.toNodeId)!.add(e.fromVideoId)
+    }
+    const primarySourceOf = (n: DownstreamNode): string => {
+      let best = n.sourceVideoId
+      let bestRight = -Infinity
+      for (const vid of sourcesByNode.get(n.id) ?? [n.sourceVideoId]) {
+        const a = downstreamSourceAnchors.get(vid)
+        if (!a) continue
+        const right = a.x + a.width
+        if (right > bestRight) {
+          bestRight = right
+          best = vid
+        }
+      }
+      return best
+    }
+    for (const n of downstream.nodes.filter((x) => x.resolvedFrom !== 'conversion')) {
+      const src = primarySourceOf(n)
+      if (!bySource.has(src)) bySource.set(src, [])
+      bySource.get(src)!.push(n)
     }
     const positioned: (DownstreamNode & { x: number; y: number })[] = []
     for (const [sourceVideoId, group] of bySource.entries()) {
@@ -2392,7 +2463,9 @@ const creativeIds = new Set(
             {/* Structural edges for Unlinked videos: video -> the promoted asset(s)
                 its redirect_links (promotion_id + asset_id) point at. No
                 events_journey needed. Dashed = structural, not yet observed. */}
-            {unlinkedGroup?.placed.flatMap((v) =>
+            {unlinkedGroup?.placed
+              .filter((v) => v.videoId === hoveredUnlinkedId || v.videoId === testCardTarget?.videoId)
+              .flatMap((v) =>
               v.assetIds.flatMap((assetId) => {
                 const target = allPromotedNodes.find((n) => n.assetId === assetId)
                 if (!target) return []
@@ -2413,8 +2486,8 @@ const creativeIds = new Set(
                     d={`M ${x1} ${y1} C ${x1} ${midY} ${x2} ${midY} ${x2} ${y2}`}
                     fill="none"
                     stroke="#ea580c"
-                    strokeOpacity={0.55}
-                    strokeWidth={1.6}
+                    strokeOpacity={0.8}
+                    strokeWidth={1.8}
                     strokeDasharray="5 4"
                     markerEnd="url(#journeyArrow)"
                   />,
@@ -2795,7 +2868,7 @@ const creativeIds = new Set(
               }}
             >
               <div style={styles.unlinkedGroupLabel}>
-                <span style={styles.unlinkedGroupTitle}>Unlinked</span>
+                <span style={styles.unlinkedGroupTitle}>Waiting for first visit</span>
                 <span style={styles.unlinkedGroupCount}>
                   {unlinkedGroup.placed.length} video{unlinkedGroup.placed.length === 1 ? '' : 's'}
                 </span>
@@ -2814,6 +2887,8 @@ const creativeIds = new Set(
                   }}
                   title={v.title ? `${v.title}\n${v.videoId}\nClick to test this journey` : `${v.videoId}\nClick to test this journey`}
                   onClick={() => openTestCard(v)}
+                  onMouseEnter={() => setHoveredUnlinkedId(v.videoId)}
+                  onMouseLeave={() => setHoveredUnlinkedId((cur) => (cur === v.videoId ? null : cur))}
                 >
                   <div style={{ ...styles.nodeThumb, height: UNLINKED_THUMB_HEIGHT }}>
                     <img src={v.thumbnailUrl} style={styles.nodeThumbImg} draggable={false} />
