@@ -2334,17 +2334,7 @@ const creativeIds = new Set(
           type="button"
           onClick={() => {
             setHasClickedTrackNewContent(true)
-            if (!promotionId) return
-            const assignmentId =
-              (promotionDetail as any)?.assignment?.id ||
-              (promotionDetail as any)?.promotion?.assignment_id ||
-              ''
-            const qs = new URLSearchParams({
-              trackPromotionId: promotionId,
-              fromJourneyMap: '1',
-            })
-            if (assignmentId) qs.set('trackAssignmentId', String(assignmentId))
-            navigate(`/videos?${qs.toString()}`)
+            openTrackModal()
           }}
           style={styles.trackBtn}
           title="Track new content for this promotion"
@@ -2731,6 +2721,19 @@ const creativeIds = new Set(
                   </span>
                 </div>
                 <div style={styles.graphNodeTitle}>{uNode.title}</div>
+                  <button
+                    type="button"
+                    style={styles.videoLinksPortalBtn}
+                    title="Add New Links for this video"
+                    onPointerDown={(e) => e.stopPropagation()}
+                    onClick={(e) => {
+                      e.stopPropagation()
+                      e.preventDefault()
+                      navigate(`/videos/${uNode.videoId}?openAddLinks=1`)
+                    }}
+                  >
+                    + Links
+                  </button>
               </div>
             )
           })}
@@ -2846,6 +2849,19 @@ const creativeIds = new Set(
                   </div>
                   <div style={styles.graphNodeTitle}>{displayTitle}</div>
                 </div>
+                  <button
+                    type="button"
+                    style={styles.videoLinksPortalBtn}
+                    title="Add New Links for this video"
+                    onPointerDown={(e) => e.stopPropagation()}
+                    onClick={(e) => {
+                      e.stopPropagation()
+                      e.preventDefault()
+                      navigate(`/videos/${gNode.videoId}?openAddLinks=1`)
+                    }}
+                  >
+                    + Links
+                  </button>
               </div>
             )
           })}
@@ -2975,6 +2991,19 @@ const creativeIds = new Set(
                     <img src={v.thumbnailUrl} style={styles.nodeThumbImg} draggable={false} />
                   </div>
                   <div style={styles.unlinkedNodeTitle}>{v.title || v.videoId}</div>
+                  <button
+                    type="button"
+                    style={styles.videoLinksPortalBtn}
+                    title="Add New Links for this video"
+                    onPointerDown={(e) => e.stopPropagation()}
+                    onClick={(e) => {
+                      e.stopPropagation()
+                      e.preventDefault()
+                      navigate(`/videos/${v.videoId}?openAddLinks=1`)
+                    }}
+                  >
+                    + Links
+                  </button>
                 </div>
               ))}
             </div>
@@ -3725,6 +3754,24 @@ const styles: Record<string, React.CSSProperties> = {
     border: '1px solid #e5e7eb',
     color: '#6b7280',
     cursor: 'pointer',
+  },
+  // Style F — compact right-aligned [+ Links] on video nodes only
+  videoLinksPortalBtn: {
+    position: 'absolute',
+    right: 6,
+    bottom: 6,
+    zIndex: 2,
+    padding: '2px 6px',
+    borderRadius: 4,
+    border: '1px solid #d4d4d8',
+    background: 'rgba(255,255,255,0.95)',
+    color: '#52525b',
+    fontSize: 9,
+    fontWeight: 700,
+    letterSpacing: '0.04em',
+    lineHeight: 1.2,
+    cursor: 'pointer',
+    whiteSpace: 'nowrap',
   },
   zoomControls: {
     position: 'absolute',

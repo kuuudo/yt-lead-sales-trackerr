@@ -22,7 +22,7 @@
 //   7. Edit Modal
 
 import React, { useState, useEffect, useCallback } from 'react';
-import { useParams, Link, useNavigate } from 'react-router-dom';
+import { useParams, Link, useNavigate, useSearchParams } from 'react-router-dom';
 import { useLanguage } from '../lib/hooks';
 import { supabase, Video, Campaign, LeadMagnet, Asset } from '../lib/supabase';
 import { useAuth } from '../lib/auth';
@@ -157,6 +157,7 @@ function AssetReachIllustration() {
 export default function VideoDetail() {
   const { id }       = useParams();
   const navigate     = useNavigate();
+  const [searchParams, setSearchParams] = useSearchParams();
   const { t }        = useLanguage();
   const { user }     = useAuth();
 
@@ -561,6 +562,22 @@ if (effectiveOrgId && effectiveUserId) {
     setTrackPromotedAssets([]);
     setShowTrackContentModal(true);
   };
+
+  // JourneyMap [+ Links] → ?openAddLinks=1: open existing modal once video+campaign ready
+  useEffect(() => {
+    if (searchParams.get('openAddLinks') !== '1') return;
+    if (!video || !campaign || isReadOnly) return;
+    if (loading) return;
+    openTrackContentModal();
+    setSearchParams(
+      (prev) => {
+        prev.delete('openAddLinks');
+        return prev;
+      },
+      { replace: true },
+    );
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [searchParams, video, campaign, isReadOnly, loading]);
 
   // Load locked Creative promotion label when modal opens / video changes
   useEffect(() => {
