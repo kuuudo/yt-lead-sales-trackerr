@@ -201,7 +201,7 @@ export default function Overview() {
       if (member.id === ALIN_POC.id) {
         notify('operator-alin-viewing-entered');
       }
-      navigate('/dashboard');
+      navigate('/tree');
     } catch (err: any) {
       setViewingError(err.message || 'Could not enter viewing mode.');
     } finally {
