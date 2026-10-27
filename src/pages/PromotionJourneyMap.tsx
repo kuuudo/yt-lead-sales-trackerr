@@ -2980,7 +2980,7 @@ const [nodeDetailTarget, setNodeDetailTarget] = useState<
               </select>
             )}
             {trackCampaignLocked && trackCreativeMode === 'campaign_links_and_assets' && trackCampaigns.length > 1 && (
-              <p style={{ fontSize: 11, color: '#71717a', marginTop: 4 }}>
+              <p style={{ fontSize: 11, color: 'var(--color-zinc-500)', marginTop: 4 }}>
                 Creative mode: ONLY PROMOTE ASSET or the one Sponsor campaign on this Assignment.
               </p>
             )}
@@ -3039,7 +3039,7 @@ const [nodeDetailTarget, setNodeDetailTarget] = useState<
               ] as const).map(([key, label]) => {
                 const checked = selectedCampaignLinkTypes.includes(key)
                 return (
-                  <label key={key} style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 12, color: '#d4d4d8', cursor: 'pointer' }}>
+                  <label key={key} style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 12, color: 'var(--color-zinc-300)', cursor: 'pointer' }}>
                     <input
                       type="checkbox"
                       checked={checked}
@@ -3054,7 +3054,7 @@ const [nodeDetailTarget, setNodeDetailTarget] = useState<
                 )
               })}
             </div>
-            <p style={{ fontSize: 11, color: '#71717a', marginBottom: 8 }}>
+            <p style={{ fontSize: 11, color: 'var(--color-zinc-500)', marginBottom: 8 }}>
               Domain for each type comes from Campaign configuration (owner configures on Campaign).
             </p>
 
@@ -3082,7 +3082,7 @@ const [nodeDetailTarget, setNodeDetailTarget] = useState<
             <div style={styles.trackPreviewPane}>
               Generated link will appear here
               <br />
-              <span style={{ fontWeight: 500, letterSpacing: '0.04em', textTransform: 'none', color: '#3f3f46', marginTop: 8, display: 'block' }}>
+              <span style={{ fontWeight: 500, letterSpacing: '0.04em', textTransform: 'none', color: 'var(--color-zinc-700)', marginTop: 8, display: 'block' }}>
                 Same layout as Videos → Track New Content
               </span>
             </div>
@@ -3819,11 +3819,11 @@ const styles: Record<string, React.CSSProperties> = {
     maxWidth: 960,
     maxHeight: '90vh',
     overflowY: 'auto',
-    background: '#09090b',
-    border: '1px solid #27272a',
+    background: 'var(--color-zinc-950)',
+    border: '1px solid var(--color-zinc-800)',
     borderRadius: 16,
     padding: 20,
-    color: '#e4e4e7',
+    color: 'var(--color-zinc-200)',
   },
   trackModalGrid: {
     display: 'grid',
@@ -3836,15 +3836,15 @@ const styles: Record<string, React.CSSProperties> = {
     gap: 24,
   },
   trackPreviewPane: {
-    border: '1px solid #27272a',
+    border: '1px solid var(--color-zinc-800)',
     borderRadius: 16,
-    background: '#0c0c0e',
+    background: 'var(--color-zinc-950)',
     minHeight: 280,
     display: 'flex',
     alignItems: 'center',
     justifyContent: 'center',
     padding: 24,
-    color: '#52525b',
+    color: 'var(--color-zinc-600)',
     fontSize: 10,
     fontWeight: 800,
     letterSpacing: '0.12em',
@@ -3856,12 +3856,12 @@ const styles: Record<string, React.CSSProperties> = {
     fontWeight: 800,
     letterSpacing: '0.12em',
     textTransform: 'uppercase',
-    color: '#71717a',
+    color: 'var(--color-zinc-500)',
     marginBottom: 6,
   },
   trackModalHint: {
     fontSize: 12,
-    color: '#a1a1aa',
+    color: 'var(--color-zinc-400)',
     marginBottom: 14,
   },
   trackLabel: {
@@ -3870,24 +3870,24 @@ const styles: Record<string, React.CSSProperties> = {
     fontWeight: 800,
     letterSpacing: '0.1em',
     textTransform: 'uppercase',
-    color: '#71717a',
+    color: 'var(--color-zinc-500)',
     marginTop: 10,
     marginBottom: 4,
   },
   trackInput: {
     width: '100%',
     borderRadius: 10,
-    border: '1px solid #3f3f46',
-    background: '#18181b',
-    color: '#fafafa',
+    border: '1px solid var(--color-zinc-700)',
+    background: 'var(--color-zinc-900)',
+    color: 'var(--color-zinc-100)',
     padding: '10px 12px',
     fontSize: 13,
   },
   trackLocked: {
     borderRadius: 10,
-    border: '1px solid #3f3f46',
+    border: '1px solid var(--color-zinc-700)',
     background: '#14532d33',
-    color: '#6ee7b7',
+    color: 'color-mix(in srgb, #10b981 65%, var(--color-zinc-100))',
     padding: '10px 12px',
     fontSize: 13,
     fontWeight: 600,
@@ -3899,14 +3899,14 @@ const styles: Record<string, React.CSSProperties> = {
     maxWidth: '100%',
     padding: '4px 8px',
     borderRadius: 8,
-    border: '1px solid #3f3f46',
-    background: '#18181b',
+    border: '1px solid var(--color-zinc-700)',
+    background: 'var(--color-zinc-900)',
     fontSize: 11,
   },
   trackChipX: {
     border: 'none',
     background: 'transparent',
-    color: '#a1a1aa',
+    color: 'var(--color-zinc-400)',
     cursor: 'pointer',
     fontSize: 14,
     lineHeight: 1,
@@ -3914,7 +3914,7 @@ const styles: Record<string, React.CSSProperties> = {
   trackLinkBtn: {
     border: 'none',
     background: 'transparent',
-    color: '#a1a1aa',
+    color: 'var(--color-zinc-400)',
     fontSize: 10,
     fontWeight: 700,
     letterSpacing: '0.08em',
@@ -3923,11 +3923,11 @@ const styles: Record<string, React.CSSProperties> = {
   },
   trackDashedBtn: {
     width: '100%',
-    border: '1px dashed #3f3f46',
+    border: '1px dashed var(--color-zinc-700)',
     borderRadius: 12,
     padding: '12px',
     background: 'transparent',
-    color: '#a1a1aa',
+    color: 'var(--color-zinc-400)',
     fontSize: 10,
     fontWeight: 800,
     letterSpacing: '0.1em',
@@ -3937,9 +3937,9 @@ const styles: Record<string, React.CSSProperties> = {
   trackCancel: {
     flex: 1,
     borderRadius: 12,
-    border: '1px solid #3f3f46',
+    border: '1px solid var(--color-zinc-700)',
     background: 'transparent',
-    color: '#a1a1aa',
+    color: 'var(--color-zinc-400)',
     padding: '10px',
     fontSize: 10,
     fontWeight: 800,
