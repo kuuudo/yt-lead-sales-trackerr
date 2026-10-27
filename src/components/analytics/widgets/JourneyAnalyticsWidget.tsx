@@ -392,7 +392,7 @@ export default function JourneyAnalyticsWidget({ widget, onUpdate }: Props) {
           <table style={styles.table}>
             <thead>
               <tr>
-                <th style={{ ...styles.th, ...styles.stickyCol, zIndex: 3, background: '#09090b' }}>
+                <th style={{ ...styles.th, ...styles.stickyCol, zIndex: 3, background: 'var(--color-zinc-950)' }}>
                   Journey Map
                 </th>
                 {JOURNEY_ANALYTICS_EXTRA.map(col => (
@@ -433,7 +433,7 @@ export default function JourneyAnalyticsWidget({ widget, onUpdate }: Props) {
                       <TypeCell types={journeyPromotedTypes(j, videoDisplay)} />
                     </td>
                     {JOURNEY_ANALYTICS_EXTRA.slice(1).map(c => (
-                      <td key={c.key} style={{ ...styles.td, ...styles.tdNum, color: '#52525b' }}>—</td>
+                      <td key={c.key} style={{ ...styles.td, ...styles.tdNum, color: 'var(--color-zinc-600)' }}>—</td>
                     ))}
                     {TABLE_COLUMNS.map(key => (
                       <td key={key} style={{ ...styles.td, ...styles.tdNum }}>
@@ -457,11 +457,11 @@ export default function JourneyAnalyticsWidget({ widget, onUpdate }: Props) {
                 <div style={{ ...styles.routeHeader, display: showAnalytics ? 'flex' : 'none' }}>
                   <span>{steps === 1 ? '1 video' : `${steps} videos`}</span>
                   <span>{metricsLoading ? '…' : `${routeClickTotal(m).toLocaleString()} clicks`}</span>
-                  <span style={{ color: rev.hasRevenue ? '#34d399' : '#52525b' }}>
+                  <span style={{ color: rev.hasRevenue ? '#34d399' : 'var(--color-zinc-600)' }}>
                     Revenue {rev.text}
                   </span>
                   {sortKey !== 'longest' && sortKey !== 'total_revenue' && (
-                    <span style={{ color: '#a1a1aa' }}>
+                    <span style={{ color: 'var(--color-zinc-400)' }}>
                       {sortOption?.shortLabel}: {metricsLoading
                         ? '…'
                         : formatRouteMetricCell(sortKey as ColKey, m, false)}
@@ -492,70 +492,70 @@ export default function JourneyAnalyticsWidget({ widget, onUpdate }: Props) {
 const styles: Record<string, React.CSSProperties> = {
   root: {
     display: 'flex', flexDirection: 'column', height: '100%',
-    background: '#141414', overflow: 'hidden', fontFamily: 'inherit',
+    background: 'var(--color-zinc-900)', overflow: 'hidden', fontFamily: 'inherit',
   },
   toolbarRow: {
     display: 'flex', alignItems: 'center', flexWrap: 'wrap', gap: 6,
-    padding: '5px 10px', borderBottom: '1px solid #1e1e1e', flexShrink: 0,
+    padding: '5px 10px', borderBottom: '1px solid var(--color-zinc-800)', flexShrink: 0,
   },
   toolbarLabel: {
     fontSize: 9, fontWeight: 800, textTransform: 'uppercase',
-    letterSpacing: '0.1em', color: '#52525b', flexShrink: 0,
+    letterSpacing: '0.1em', color: 'var(--color-zinc-600)', flexShrink: 0,
   },
-  divider: { width: 1, height: 14, background: '#27272a', flexShrink: 0 },
+  divider: { width: 1, height: 14, background: 'var(--color-zinc-800)', flexShrink: 0 },
   pillGroup: {
-    display: 'flex', gap: 2, padding: 2, background: '#0f0f0f',
-    borderRadius: 8, border: '1px solid #1e1e1e',
+    display: 'flex', gap: 2, padding: 2, background: 'var(--color-zinc-950)',
+    borderRadius: 8, border: '1px solid var(--color-zinc-800)',
   },
   pill: {
     background: 'transparent', border: 'none', borderRadius: 6,
-    padding: '3px 6px', fontSize: 9, fontWeight: 800, color: '#71717a',
+    padding: '3px 6px', fontSize: 9, fontWeight: 800, color: 'var(--color-zinc-500)',
     cursor: 'pointer', textTransform: 'uppercase', letterSpacing: '0.04em',
   },
-  pillActive: { background: '#3f3f46', color: '#ffffff' },
+  pillActive: { background: 'var(--color-zinc-700)', color: 'var(--color-white)' },
   select: {
-    background: '#0f0f0f', color: '#d4d4d8', border: '1px solid #27272a',
+    background: 'var(--color-zinc-950)', color: 'var(--color-zinc-300)', border: '1px solid var(--color-zinc-800)',
     borderRadius: 6, fontSize: 10, padding: '3px 6px', maxWidth: 160,
     colorScheme: 'dark',
   },
     toggleBtn: {
-    background: '#0f0f0f', border: '1px solid #27272a', borderRadius: 8,
-    padding: '4px 8px', fontSize: 9, fontWeight: 800, color: '#a1a1aa',
+    background: 'var(--color-zinc-950)', border: '1px solid var(--color-zinc-800)', borderRadius: 8,
+    padding: '4px 8px', fontSize: 9, fontWeight: 800, color: 'var(--color-zinc-400)',
     cursor: 'pointer', textTransform: 'uppercase', letterSpacing: '0.08em',
   },
-  toggleBtnActive: { background: '#3f3f46', color: '#ffffff' },
+  toggleBtnActive: { background: 'var(--color-zinc-700)', color: 'var(--color-white)' },
   toggleBtnHot:    { background: '#dc2626', borderColor: '#dc2626', color: '#ffffff' },
   table: { borderCollapse: 'collapse', minWidth: '100%', width: 'max-content' },
   th: {
-    position: 'sticky', top: 0, zIndex: 2, background: '#09090b',
+    position: 'sticky', top: 0, zIndex: 2, background: 'var(--color-zinc-950)',
     padding: '8px 10px', textAlign: 'left', fontSize: 8, fontWeight: 800,
-    textTransform: 'uppercase', letterSpacing: '0.08em', color: '#52525b',
-    borderBottom: '1px solid #18181b', whiteSpace: 'nowrap',
+    textTransform: 'uppercase', letterSpacing: '0.08em', color: 'var(--color-zinc-600)',
+    borderBottom: '1px solid var(--color-zinc-800)', whiteSpace: 'nowrap',
   },
   thBtn: {
     background: 'transparent', border: 'none', padding: 0, font: 'inherit',
     color: 'inherit', textTransform: 'inherit', letterSpacing: 'inherit', cursor: 'pointer',
   },
-  td: { padding: '6px 10px', borderBottom: '1px solid #18181b', whiteSpace: 'nowrap', verticalAlign: 'middle' },
-  tdNum: { fontSize: 11, fontWeight: 700, color: '#a1a1aa', fontVariantNumeric: 'tabular-nums' },
-  stickyCol: { position: 'sticky', left: 0, background: '#000', zIndex: 1 },
+  td: { padding: '6px 10px', borderBottom: '1px solid var(--color-zinc-800)', whiteSpace: 'nowrap', verticalAlign: 'middle' },
+  tdNum: { fontSize: 11, fontWeight: 700, color: 'var(--color-zinc-400)', fontVariantNumeric: 'tabular-nums' },
+  stickyCol: { position: 'sticky', left: 0, background: 'var(--color-zinc-950)', zIndex: 1 },
   sortContext: { padding: '4px 12px', flexShrink: 0 },
   sortContextText: {
     fontSize: 8, fontWeight: 800, textTransform: 'uppercase',
-    letterSpacing: '0.1em', color: '#3f3f46',
+    letterSpacing: '0.1em', color: 'var(--color-zinc-700)',
   },
   list: { flex: 1, overflowY: 'auto', padding: '4px 8px', colorScheme: 'dark' },
   routeCard: {
-    border: '1px solid #1e1e1e', background: '#101010', borderRadius: 10,
+    border: '1px solid var(--color-zinc-800)', background: 'var(--color-zinc-900)', borderRadius: 10,
     padding: '6px 8px', marginBottom: 6,
   },
   routeHeader: {
     display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 10,
     fontSize: 8, fontWeight: 800, textTransform: 'uppercase',
-    letterSpacing: '0.1em', color: '#52525b', marginBottom: 4,
+    letterSpacing: '0.1em', color: 'var(--color-zinc-600)', marginBottom: 4,
   },
   stripWrap: { overflowX: 'auto' },
   skeletonRow: { padding: '6px 4px', display: 'flex', flexDirection: 'column', gap: 6 },
-  skeleton: { height: 10, borderRadius: 4, background: '#1f1f1f' },
-  empty: { padding: 20, fontSize: 11, color: '#52525b', textAlign: 'center' },
+  skeleton: { height: 10, borderRadius: 4, background: 'var(--color-zinc-800)' },
+  empty: { padding: 20, fontSize: 11, color: 'var(--color-zinc-600)', textAlign: 'center' },
 }

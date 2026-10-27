@@ -103,7 +103,7 @@ const METRIC_COLORS: Partial<Record<MetricType, string>> = {
   consultation_thankyou: '#a78bfa',  // violet
   purchase_thankyou:     '#34d399',  // emerald
   call_booking_thankyou: '#60a5fa',  // blue
-  landing_page_view:     '#a1a1aa',  // zinc
+  landing_page_view:     'var(--color-zinc-400)',  // zinc
   newsletter_thankyou:   '#fb923c',  // orange
 }
 
@@ -133,7 +133,7 @@ function rankColor(rank: number): string {
   if (rank === 1) return '#FBBF24'  // amber-400
   if (rank === 2) return '#9CA3AF'  // zinc-400
   if (rank === 3) return '#B45309'  // amber-700
-  return '#3F3F46'                  // zinc-700
+  return 'var(--color-zinc-700)'                  // zinc-700
 }
 
 // ─── Component ────────────────────────────────────────────────────────────────
@@ -465,7 +465,7 @@ const hadQueryError = !!(eDirectData.error || spData.error || (ppData as any).er
   // Resolved labels for the current sort/metric
   const sortOption      = SORT_OPTIONS.find(o => o.value === sortKey)
   const metricOption    = SORT_OPTIONS.find(o => o.value === visibleMetric)
-  const metricColor     = METRIC_COLORS[visibleMetric] ?? '#a1a1aa'
+  const metricColor     = METRIC_COLORS[visibleMetric] ?? 'var(--color-zinc-400)'
   const isRevenueMetric = visibleMetric === 'total_revenue' || visibleMetric === 'purchase_thankyou'
 
   // ─── Render ───────────────────────────────────────────────────────────────
@@ -569,7 +569,7 @@ const hadQueryError = !!(eDirectData.error || spData.error || (ppData as any).er
             style={{
               ...styles.pill,
               ...(colPanelOpen ? styles.pillActive : {}),
-              border: '1px solid #27272a',
+              border: '1px solid var(--color-zinc-800)',
               padding: '3px 8px',
             }}
             onClick={() => setColPanelOpen(v => !v)}
@@ -691,7 +691,7 @@ const styles: Record<string, React.CSSProperties> = {
     display:       'flex',
     flexDirection: 'column',
     height:        '100%',
-    background:    '#141414',
+    background:    'var(--color-zinc-900)',
     overflow:      'hidden',
     fontFamily:    'inherit',
   },
@@ -703,7 +703,7 @@ const styles: Record<string, React.CSSProperties> = {
     flexWrap:     'wrap',
     gap:          6,
     padding:      '5px 10px',
-    borderBottom: '1px solid #1e1e1e',
+    borderBottom: '1px solid var(--color-zinc-800)',
     flexShrink:   0,
   },
   toolbarLabel: {
@@ -711,22 +711,22 @@ const styles: Record<string, React.CSSProperties> = {
     fontWeight:    800,
     textTransform: 'uppercase',
     letterSpacing: '0.1em',
-    color:         '#52525b',
+    color:         'var(--color-zinc-600)',
     flexShrink:    0,
   },
   divider: {
     width:      1,
     height:     14,
-    background: '#27272a',
+    background: 'var(--color-zinc-800)',
     flexShrink: 0,
   },
   pillGroup: {
     display:      'flex',
     gap:          2,
     padding:      2,
-    background:   '#0f0f0f',
+    background:   'var(--color-zinc-950)',
     borderRadius: 8,
-    border:       '1px solid #1e1e1e',
+    border:       '1px solid var(--color-zinc-800)',
   },
   pill: {
     background:    'transparent',
@@ -737,13 +737,13 @@ const styles: Record<string, React.CSSProperties> = {
     fontWeight:    800,
     textTransform: 'uppercase' as const,
     letterSpacing: '0.06em',
-    color:         '#52525b',
+    color:         'var(--color-zinc-600)',
     cursor:        'pointer',
     transition:    'all 0.1s',
   },
   pillActive: {
-    background: '#3f3f46',
-    color:      '#ffffff',
+    background: 'var(--color-zinc-700)',
+    color:      'var(--color-white)',
   },
   dateInput: {
     background:    'transparent',
@@ -752,14 +752,14 @@ const styles: Record<string, React.CSSProperties> = {
     padding:       '3px 4px',
     fontSize:      9,
     fontWeight:    700,
-    color:         '#a1a1aa',
+    color:         'var(--color-zinc-400)',
     colorScheme:   'dark' as const,
   },
 
   // ── Sort context label ─────────────────────────────────────────────────────
   sortContext: {
     padding:      '3px 10px',
-    borderBottom: '1px solid #1a1a1a',
+    borderBottom: '1px solid var(--color-zinc-800)',
     flexShrink:   0,
   },
   sortContextText: {
@@ -767,7 +767,7 @@ const styles: Record<string, React.CSSProperties> = {
     fontWeight:    800,
     textTransform: 'uppercase',
     letterSpacing: '0.1em',
-    color:         '#3f3f46',
+    color:         'var(--color-zinc-700)',
   },
 
   // ── List ───────────────────────────────────────────────────────────────────
@@ -781,7 +781,7 @@ const styles: Record<string, React.CSSProperties> = {
     alignItems:   'center',
     gap:          8,
     padding:      '5px 10px',
-    borderBottom: '1px solid #1a1a1a',
+    borderBottom: '1px solid var(--color-zinc-800)',
     minHeight:    40,
   },
   rank: {
@@ -801,7 +801,7 @@ const styles: Record<string, React.CSSProperties> = {
     aspectRatio:  '16/9',
     objectFit:    'cover',
     borderRadius: 4,
-    border:       '1px solid #27272a',
+    border:       '1px solid var(--color-zinc-800)',
     display:      'block',
   },
   platBadge: {
@@ -814,16 +814,16 @@ const styles: Record<string, React.CSSProperties> = {
     letterSpacing: '0.05em',
     padding:       '1px 3px',
     borderRadius:  3,
-    background:    '#18181b',
-    border:        '1px solid #3f3f46',
-    color:         '#a1a1aa',
+    background:    'var(--color-zinc-900)',
+    border:        '1px solid var(--color-zinc-700)',
+    color:         'var(--color-zinc-400)',
     lineHeight:    1,
   },
   title: {
     flex:         1,
     fontSize:     11,
     fontWeight:   600,
-    color:        '#d4d4d8',
+    color:        'var(--color-zinc-300)',
     overflow:     'hidden',
     textOverflow: 'ellipsis',
     whiteSpace:   'nowrap',
@@ -844,20 +844,20 @@ const styles: Record<string, React.CSSProperties> = {
     fontWeight:    700,
     textTransform: 'uppercase',
     letterSpacing: '0.1em',
-    color:         '#3f3f46',
+    color:         'var(--color-zinc-700)',
   },
   skeletonRow: {
     display:      'flex',
     alignItems:   'center',
     gap:          8,
     padding:      '5px 10px',
-    borderBottom: '1px solid #1a1a1a',
+    borderBottom: '1px solid var(--color-zinc-800)',
     height:       42,
   },
   skeleton: {
     height:        10,
     borderRadius:  4,
-    background:    '#1e1e1e',
+    background:    'var(--color-zinc-800)',
   },
 
   // ── Column toggle dropdown ─────────────────────────────────────────────────
@@ -872,8 +872,8 @@ const styles: Record<string, React.CSSProperties> = {
     right:        0,
     zIndex:       50,
     minWidth:     140,
-    background:   '#18181b',
-    border:       '1px solid #27272a',
+    background:   'var(--color-zinc-900)',
+    border:       '1px solid var(--color-zinc-800)',
     borderRadius: 10,
     overflow:     'hidden',
     boxShadow:    '0 8px 24px rgba(0,0,0,0.6)',
@@ -884,8 +884,8 @@ const styles: Record<string, React.CSSProperties> = {
     fontWeight:    800,
     textTransform: 'uppercase',
     letterSpacing: '0.12em',
-    color:         '#52525b',
-    borderBottom:  '1px solid #27272a',
+    color:         'var(--color-zinc-600)',
+    borderBottom:  '1px solid var(--color-zinc-800)',
   },
   dropdownItem: {
     display:       'block',
@@ -896,12 +896,12 @@ const styles: Record<string, React.CSSProperties> = {
     padding:       '7px 12px',
     fontSize:      11,
     fontWeight:    600,
-    color:         '#71717a',
+    color:         'var(--color-zinc-500)',
     cursor:        'pointer',
     transition:    'all 0.1s',
   },
   dropdownItemActive: {
-    background: '#27272a',
-    color:      '#ffffff',
+    background: 'var(--color-zinc-800)',
+    color:      'var(--color-white)',
   },
 }

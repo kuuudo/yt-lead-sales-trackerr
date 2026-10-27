@@ -101,7 +101,7 @@ function rankColor(rank: number): string {
   if (rank === 1) return '#FBBF24'
   if (rank === 2) return '#9CA3AF'
   if (rank === 3) return '#B45309'
-  return '#3F3F46'
+  return 'var(--color-zinc-700)'
 }
 
 // ─── Component ────────────────────────────────────────────────────────────────
@@ -133,7 +133,7 @@ export default function AllAssetsAnalyticsWidget({ widget, onUpdate }: Props) {
   }, [rows, selectedPlatform, sortKey])
 
   const sortOption  = SORT_OPTIONS.find(o => o.value === sortKey)
-  const metricColor = METRIC_COLORS[sortKey] ?? '#a1a1aa'
+  const metricColor = METRIC_COLORS[sortKey] ?? 'var(--color-zinc-400)'
 
   // ─── Render ───────────────────────────────────────────────────────────────
 
@@ -234,7 +234,7 @@ export default function AllAssetsAnalyticsWidget({ widget, onUpdate }: Props) {
             const value  = sortKey === 'total_revenue'
               ? `$${raw.toLocaleString()}`
               : raw.toLocaleString()
-            const typeColor = TYPE_COLORS[row.asset.asset_type] ?? '#a1a1aa'
+            const typeColor = TYPE_COLORS[row.asset.asset_type] ?? 'var(--color-zinc-400)'
 
             return (
               <div key={`${row.asset.id}::${row.promoting_video.id}`} style={styles.row}>
@@ -275,46 +275,46 @@ export default function AllAssetsAnalyticsWidget({ widget, onUpdate }: Props) {
 const styles: Record<string, React.CSSProperties> = {
   root: {
     display: 'flex', flexDirection: 'column', height: '100%',
-    background: '#141414', overflow: 'hidden', fontFamily: 'inherit',
+    background: 'var(--color-zinc-900)', overflow: 'hidden', fontFamily: 'inherit',
   },
   toolbarRow: {
     display: 'flex', alignItems: 'center', flexWrap: 'wrap', gap: 6,
-    padding: '5px 10px', borderBottom: '1px solid #1e1e1e', flexShrink: 0,
+    padding: '5px 10px', borderBottom: '1px solid var(--color-zinc-800)', flexShrink: 0,
   },
   toolbarLabel: {
     fontSize: 9, fontWeight: 800, textTransform: 'uppercase',
-    letterSpacing: '0.1em', color: '#52525b', flexShrink: 0,
+    letterSpacing: '0.1em', color: 'var(--color-zinc-600)', flexShrink: 0,
   },
-  divider: { width: 1, height: 14, background: '#27272a', flexShrink: 0 },
+  divider: { width: 1, height: 14, background: 'var(--color-zinc-800)', flexShrink: 0 },
   pillGroup: {
-    display: 'flex', gap: 2, padding: 2, background: '#0f0f0f',
-    borderRadius: 8, border: '1px solid #1e1e1e',
+    display: 'flex', gap: 2, padding: 2, background: 'var(--color-zinc-950)',
+    borderRadius: 8, border: '1px solid var(--color-zinc-800)',
   },
   pill: {
     background: 'transparent', border: 'none', borderRadius: 6,
-    padding: '3px 6px', fontSize: 9, fontWeight: 800, color: '#71717a',
+    padding: '3px 6px', fontSize: 9, fontWeight: 800, color: 'var(--color-zinc-500)',
     cursor: 'pointer', textTransform: 'uppercase', letterSpacing: '0.04em',
   },
-  pillActive: { background: '#3f3f46', color: '#ffffff' },
+  pillActive: { background: 'var(--color-zinc-700)', color: 'var(--color-white)' },
   sortContext: { padding: '4px 12px', flexShrink: 0 },
   sortContextText: {
     fontSize: 8, fontWeight: 800, textTransform: 'uppercase',
-    letterSpacing: '0.1em', color: '#3f3f46',
+    letterSpacing: '0.1em', color: 'var(--color-zinc-700)',
   },
   list: { flex: 1, overflowY: 'auto', padding: '2px 0', colorScheme: 'dark' },
   row: {
     display: 'flex', alignItems: 'center', gap: 8,
-    padding: '5px 10px', borderBottom: '1px solid #1a1a1a', minHeight: 40,
+    padding: '5px 10px', borderBottom: '1px solid var(--color-zinc-800)', minHeight: 40,
   },
   rank: { width: 26, fontSize: 10, fontWeight: 800, flexShrink: 0 },
   thumb: {
     width: 40, height: 28, objectFit: 'cover', borderRadius: 4,
-    border: '1px solid #27272a', flexShrink: 0, background: '#0f0f0f',
+    border: '1px solid var(--color-zinc-800)', flexShrink: 0, background: 'var(--color-zinc-950)',
   },
   textCol: { flex: 1, minWidth: 0 },
   titleLine: { display: 'flex', alignItems: 'center', gap: 6, minWidth: 0 },
   title: {
-    fontSize: 11, fontWeight: 700, color: '#e4e4e7',
+    fontSize: 11, fontWeight: 700, color: 'var(--color-zinc-200)',
     overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
   },
   typeBadge: {
@@ -322,7 +322,7 @@ const styles: Record<string, React.CSSProperties> = {
     border: '1px solid', borderRadius: 999, padding: '1px 5px', flexShrink: 0,
   },
   subLine: {
-    fontSize: 9, color: '#52525b', marginTop: 2,
+    fontSize: 9, color: 'var(--color-zinc-600)', marginTop: 2,
     overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
   },
   metricValue: {
@@ -330,8 +330,8 @@ const styles: Record<string, React.CSSProperties> = {
   },
   skeletonRow: {
     display: 'flex', alignItems: 'center', gap: 8,
-    padding: '5px 10px', borderBottom: '1px solid #1a1a1a', minHeight: 40,
+    padding: '5px 10px', borderBottom: '1px solid var(--color-zinc-800)', minHeight: 40,
   },
-  skeleton: { height: 12, borderRadius: 4, background: '#1f1f1f' },
-  empty: { padding: 20, fontSize: 11, color: '#52525b', textAlign: 'center' },
+  skeleton: { height: 12, borderRadius: 4, background: 'var(--color-zinc-800)' },
+  empty: { padding: 20, fontSize: 11, color: 'var(--color-zinc-600)', textAlign: 'center' },
 }
