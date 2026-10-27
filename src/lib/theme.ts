@@ -29,7 +29,7 @@ const zinc = (v: [string, string, string, string, string, string, string]) => ({
 
 export const THEMES: ThemeDef[] = [
   // Default: your current look (values live in index.css @theme). No overrides.
-  { id: 'black', label: 'Black', swatch: ['#050505', '#111111', '#222222'], vars: {} },
+  { id: 'black', label: 'Black (Default)', swatch: ['#050505', '#111111', '#222222'], vars: {} },
   {
     id: 'navy',
     label: 'Midnight Navy',
@@ -53,7 +53,7 @@ export const THEMES: ThemeDef[] = [
     // so bg-white buttons become dark and text-white becomes near-black.
     // bg-black / bg-[#...] / inline styles stay dark on purpose, so you can see them.
     id: 'light',
-    label: 'Light (Default)',
+    label: 'Light (preview)',
     swatch: ['#f4f4f6', '#ffffff', '#e4e4e9'],
     vars: {
       '--color-zinc-950': '#f4f4f6',
@@ -87,9 +87,9 @@ function isThemeId(v: unknown): v is ThemeId {
 export function getStoredTheme(): ThemeId {
   try {
     const v = localStorage.getItem(STORAGE_KEY);
-    return isThemeId(v) ? v : 'light';
+    return isThemeId(v) ? v : 'black';
   } catch {
-    return 'light';
+    return 'black';
   }
 }
 
@@ -105,7 +105,17 @@ function ensureStyle() {
     .join('\n');
   // Safety net: any leftover Tailwind `bg-black` follows the theme page colour.
   // (bg-black/20 etc. are different classes and are not affected.)
-  const css = themeCss + '\nhtml[data-theme] .bg-black{background-color:var(--color-zinc-950);}';
+  // Anything inside [data-theme-lock] keeps the ORIGINAL (default) look, whatever theme is active.
+  // Used for onboarding / tutorial pop-ups that were designed for the default look.
+  const lock =
+    'html[data-theme] [data-theme-lock]{' +
+    '--color-white:#ffffff;' +
+    '--color-zinc-950:#050505;--color-zinc-900:#111111;--color-zinc-800:#222222;' +
+    '--color-zinc-700:#3f3f46;--color-zinc-600:#52525c;--color-zinc-500:#71717b;--color-zinc-400:#9f9fa9;' +
+    '--color-zinc-300:#d4d4d8;--color-zinc-200:#e4e4e7;--color-zinc-100:#f4f4f5;--color-zinc-50:#fafafa;' +
+    '--color-gray-100:#f3f4f6;--color-gray-200:#e5e7eb;--color-gray-300:#d1d5dc;--color-gray-400:#99a1af;--color-gray-500:#6a7282;' +
+    '}';
+  const css = themeCss + '\nhtml[data-theme] .bg-black{background-color:var(--color-zinc-950);}\n' + lock;
   const el = document.createElement('style');
   el.id = STYLE_ID;
   el.textContent = css;

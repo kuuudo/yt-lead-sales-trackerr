@@ -869,8 +869,8 @@ export default function App() {
                   <ThemeSync />
                   <AppChrome />
                   <MainContent />
-                  <OnboardingOverlay />
-                  <TutorialRunner />
+                  <div data-theme-lock style={{ display: 'contents' }}><OnboardingOverlay /></div>
+                  <div data-theme-lock style={{ display: 'contents' }}><TutorialRunner /></div>
                 </div>
               </DrillDownProvider>
             </TutorialProvider>
