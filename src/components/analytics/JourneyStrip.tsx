@@ -35,7 +35,7 @@ export type CampaignElementNode = {
   label: string;
   /** MY / SHARED when asset org is known; omit badge when unknown. */
   assetScope?: AssetScopeTag | null;
-  /** For shared elements: owner org/display name (e.g. "Webmood"). */
+  /** For shared elements: campaign owner person as possessive (e.g. "Ali's"). */
   ownerLabel?: string | null;
 };
 

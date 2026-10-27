@@ -500,35 +500,27 @@ const [sheetOpen, setSheetOpen] = useState(false);
         }
         if (cancelled) return;
 
-        const foreignOrgIds = Array.from(
+        // Campaign owner person name for shared elements:
+        // ownerCampaignId → campaigns.user_id → profiles.full_name | email → "Ali's"
+        // Isolated; ignore failures. Never guess.
+        const campaignIds = Array.from(
           new Set(
-            Array.from(orgByAssetId.values()).filter(
-              (oid): oid is string => !!oid && oid !== organizationId,
-            ),
+            usable
+              .map((l) => l.ownerCampaignId)
+              .filter((id): id is string => !!id),
           ),
         );
-        const orgNameById = new Map<string, string>();
-        for (let i = 0; i < foreignOrgIds.length; i += CHUNK) {
-          const slice = foreignOrgIds.slice(i, i + CHUNK);
+        const userIdByCampaignId = new Map<string, string>();
+        for (let i = 0; i < campaignIds.length; i += CHUNK) {
+          const slice = campaignIds.slice(i, i + CHUNK);
           try {
             const { data, error } = await supabase
-              .from('organizations')
-              .select('id, name')
+              .from('campaigns')
+              .select('id, user_id')
               .in('id', slice);
-            if (error || cancelled) {
-              const { data: data2 } = await supabase
-                .from('organizations')
-                .select('id, organization_name')
-                .in('id', slice);
-              for (const o of (data2 ?? []) as { id: string; organization_name?: string | null }[]) {
-                const n = (o.organization_name ?? '').trim();
-                if (n) orgNameById.set(o.id, n);
-              }
-              continue;
-            }
-            for (const o of (data ?? []) as { id: string; name?: string | null }[]) {
-              const n = (o.name ?? '').trim();
-              if (n) orgNameById.set(o.id, n);
+            if (error || cancelled) continue;
+            for (const c of (data ?? []) as { id: string; user_id: string | null }[]) {
+              if (c.user_id) userIdByCampaignId.set(c.id, c.user_id);
             }
           } catch {
             /* isolated */
@@ -536,6 +528,34 @@ const [sheetOpen, setSheetOpen] = useState(false);
         }
         if (cancelled) return;
 
+        const profileIds = Array.from(new Set(userIdByCampaignId.values()));
+        const nameByUserId = new Map<string, string>();
+        for (let i = 0; i < profileIds.length; i += CHUNK) {
+          const slice = profileIds.slice(i, i + CHUNK);
+          try {
+            const { data, error } = await supabase
+              .from('profiles')
+              .select('id, full_name, email')
+              .in('id', slice);
+            if (error || cancelled) continue;
+            for (const p of (data ?? []) as {
+              id: string;
+              full_name: string | null;
+              email: string | null;
+            }[]) {
+              const raw = (p.full_name ?? '').trim() || (p.email ?? '').trim();
+              if (!raw) continue;
+              // Possessive: "Ali" → "Ali's", "James" → "James'"
+              const possessive = /s$/i.test(raw) ? `${raw}'` : `${raw}'s`;
+              nameByUserId.set(p.id, possessive);
+            }
+          } catch {
+            /* isolated */
+          }
+        }
+        if (cancelled) return;
+
+        // One node per (video, normalized element type); prefer first non-legacy link.
         const byVideo = new Map<string, CampaignElementNode[]>();
         const seenKey = new Set<string>();
         for (const link of usable) {
@@ -551,8 +571,10 @@ const [sheetOpen, setSheetOpen] = useState(false);
           let ownerLabel: string | null = null;
           if (assetOrg != null && organizationId) {
             assetScope = assetOrg === organizationId ? 'my' : 'shared';
-            if (assetScope === 'shared') {
-              ownerLabel = orgNameById.get(assetOrg) ?? null;
+            // Person name is additive on SHARED only; MY/SHARED badge stays independent.
+            if (assetScope === 'shared' && link.ownerCampaignId) {
+              const uid = userIdByCampaignId.get(link.ownerCampaignId);
+              ownerLabel = (uid && nameByUserId.get(uid)) || null;
             }
           }
 
