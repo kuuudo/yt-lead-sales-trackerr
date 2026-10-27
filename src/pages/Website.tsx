@@ -64,7 +64,7 @@ function Frame({ title, children, example = true }: { title: string; children: R
     <div style={{ background: C.panel, border: `1px solid ${C.line}`, borderRadius: 16, padding: '14px 16px 12px', boxShadow: '0 24px 50px -32px rgba(59,36,184,0.35)' }}>
       <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8, marginBottom: 6 }}>
         <span style={mono(C.dim)}>{title}</span>
-        {example && <span style={mono(C.amber)}>Example, not real data</span>}
+
       </div>
       {children}
     </div>
@@ -79,14 +79,14 @@ const Arrow = ({ x1, x2, y, color = C.purple }: { x1: number; x2: number; y: num
 /* ---------- Hero journey card ---------- */
 function HeroJourney() {
   const bars = [
-    { p: 'YouTube', v: '200k', w: '100%', bg: C.tint, fg: C.text },
-    { p: 'TikTok', v: '100k', w: '50%', bg: '#d9ceff', fg: C.text },
-    { p: 'Facebook', v: '50k', w: '25%', bg: '#b9a8ff', fg: C.text },
-    { p: 'Landing page', v: '25k', w: '13%', bg: C.purple, fg: '#fff' },
+    { p: 'YouTube video', v: '200k', w: '100%', bg: C.tint, fg: C.text },
+    { p: 'Facebook post', v: '100k', w: '50%', bg: '#d9ceff', fg: C.text },
+    { p: 'TikTok', v: '50k', w: '25%', bg: '#b9a8ff', fg: C.text },
+    { p: 'Sales call page', v: '25k', w: '13%', bg: C.purple, fg: '#fff' },
   ]
   const outs = [
     { p: 'Sales call', v: '10k', s: 'booked' },
-    { p: 'Buy page', v: '500', s: 'purchased' },
+    { p: 'Purchase page', v: '500', s: 'purchased' },
     { p: 'Consult', v: '20', s: 'booked' },
   ]
   return (
@@ -98,7 +98,7 @@ function HeroJourney() {
       <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
         {bars.map((b) => (
           <div key={b.p} style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-            <span style={{ width: 92, flex: 'none', fontSize: 13, color: C.mut }}>{b.p}</span>
+            <span style={{ width: 112, flex: 'none', fontSize: 13, color: C.mut }}>{b.p}</span>
             <div style={{ flex: 1, minWidth: 0 }}>
               <div style={{ width: b.w, minWidth: 64, height: 34, borderRadius: 8, background: b.bg, color: b.fg, display: 'flex', alignItems: 'center', padding: '0 12px', boxSizing: 'border-box', fontWeight: 600 }}>{b.v}</div>
             </div>
@@ -114,9 +114,7 @@ function HeroJourney() {
           </div>
         ))}
       </div>
-      <div style={{ marginTop: 16, padding: '12px 14px', borderRadius: 12, background: '#fff4dc', color: '#5e3f00', fontSize: 14, lineHeight: 1.45 }}>
-        <strong>Biggest drop: YouTube to TikTok.</strong> Half of viewers stopped here.
-      </div>
+           <div style={{ marginTop: 14, fontSize: 12, color: C.dim, lineHeight: 1.45 }}>Illustrative journey. Each step represents trackable content, not necessarily a required sequence.</div>
     </div>
   )
 }
