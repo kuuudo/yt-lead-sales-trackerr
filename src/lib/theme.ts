@@ -29,7 +29,7 @@ const zinc = (v: [string, string, string, string, string, string, string]) => ({
 
 export const THEMES: ThemeDef[] = [
   // Default: your current look (values live in index.css @theme). No overrides.
-  { id: 'black', label: 'Black (Default)', swatch: ['#050505', '#111111', '#222222'], vars: {} },
+  { id: 'black', label: 'Black', swatch: ['#050505', '#111111', '#222222'], vars: {} },
   {
     id: 'navy',
     label: 'Midnight Navy',
@@ -53,7 +53,7 @@ export const THEMES: ThemeDef[] = [
     // so bg-white buttons become dark and text-white becomes near-black.
     // bg-black / bg-[#...] / inline styles stay dark on purpose, so you can see them.
     id: 'light',
-    label: 'Light (preview)',
+    label: 'Light (Default)',
     swatch: ['#f4f4f6', '#ffffff', '#e4e4e9'],
     vars: {
       '--color-zinc-950': '#f4f4f6',
@@ -87,9 +87,9 @@ function isThemeId(v: unknown): v is ThemeId {
 export function getStoredTheme(): ThemeId {
   try {
     const v = localStorage.getItem(STORAGE_KEY);
-    return isThemeId(v) ? v : 'black';
+    return isThemeId(v) ? v : 'light';
   } catch {
-    return 'black';
+    return 'light';
   }
 }
 

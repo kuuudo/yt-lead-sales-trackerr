@@ -283,7 +283,7 @@ export default function Settings() {
           })}
         </div>
         <p className="text-[11px] text-zinc-500 leading-relaxed">
-          Preview only. Areas with hardcoded dark colours will not follow the theme yet. Black is the default.
+          Preview only. Areas with hardcoded dark colours will not follow the theme yet. Light is the default.
         </p>
       </section>
 
