@@ -54,6 +54,7 @@ import {
   type RouteSortMode,
   routeMemberCount,
   routeVideoStepCount,
+  routeLatestCreatedAt,
 } from '../../pages/JourneyAnalytics';
 import {
   getPromotionAssignmentGroups,
@@ -583,12 +584,18 @@ const [sheetOpen, setSheetOpen] = useState(false);
         .map(({ j }) => j);
     }
 
-    if (routeSortMode === 'default') return visible;
+    if (routeSortMode === 'default') {
+      // Default = newest first (latest created video in the route), stable on ties.
+      return visible
+        .map((j, index) => ({ j, index, t: routeLatestCreatedAt(j, display) }))
+        .sort((a, b) => b.t - a.t || a.index - b.index)
+        .map(({ j }) => j);
+    }
     return visible
       .map((j, index) => ({ j, index }))
       .sort((a, b) => byLength(a.j, b.j) || a.index - b.index)
       .map(({ j }) => j);
-  }, [visible, routeSortMode, colSort, routeMetrics, metricsLoading]);
+  }, [visible, routeSortMode, colSort, routeMetrics, metricsLoading, display]);
 
   // Paging: first PAGE_SIZE, then everything on "Show more". Reset on any change.
   const [rowLimit, setRowLimit] = useState(JOURNEY_PAGE_SIZE);

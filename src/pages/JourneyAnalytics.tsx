@@ -330,6 +330,24 @@ export function routeVideoStepCount(j: {
   return j.path?.steps?.length ?? 0;
 }
 
+/**
+ * Newest activity on a route = the most recent created_at among its videos.
+ * Used by "Default order" so a route containing a just-created video floats to the top.
+ */
+export function routeLatestCreatedAt(
+  j: { path?: { steps?: unknown[] | null } | null },
+  display: Map<string, { createdAt: string | null }>,
+): number {
+  let max = 0;
+  for (const step of j.path?.steps ?? []) {
+    const vid = (step as { videoId?: string } | null)?.videoId;
+    if (!vid) continue;
+    const t = Date.parse(display.get(vid)?.createdAt ?? '');
+    if (Number.isFinite(t) && t > max) max = t;
+  }
+  return max;
+}
+
 function formatJourneyMemberLabel(n: number): string {
   return n === 1 ? '1 journey' : `${n} journeys`;
 }
@@ -1089,7 +1107,13 @@ console.log('[DIAG membership]', {
   a.index - b.index)
       .map(({ j }) => j);
   }
-  if (routeSortMode === 'default') return visibleJourneys;
+  if (routeSortMode === 'default') {
+    // Default = newest first (latest created video in the route), stable on ties.
+    return visibleJourneys
+      .map((j, index) => ({ j, index, t: routeLatestCreatedAt(j, videoDisplay) }))
+      .sort((a, b) => b.t - a.t || a.index - b.index)
+      .map(({ j }) => j);
+  }
   return visibleJourneys
     .map((j, index) => ({ j, index }))
     .sort((a, b) => {
@@ -1098,7 +1122,7 @@ console.log('[DIAG membership]', {
       return a.index - b.index;
     })
     .map(({ j }) => j);
-}, [visibleJourneys, routeSortMode, colSort, routeMetrics]);
+}, [visibleJourneys, routeSortMode, colSort, routeMetrics, videoDisplay]);
 
 const shownJourneys = showAnalytics ? displayedJourneys.slice(0, rowLimit) : displayedJourneys;
 const hiddenCount = Math.max(0, displayedJourneys.length - rowLimit);
