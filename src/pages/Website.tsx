@@ -178,21 +178,53 @@ function BuildBackward() {
   )
 }
 
-/* ---------- 03 Any platform ---------- */
-const COLS = [20, 170, 320, 452]
-const NODES: Record<string, { c: number; y: number; p: string; n: string; w?: number; red?: boolean; acc?: boolean }> = {
-  ya: { c: 0, y: 30, p: 'YouTube', n: 'Video A', red: true }, ta: { c: 0, y: 95, p: 'TikTok', n: 'Video A' },
-  ia: { c: 0, y: 160, p: 'Instagram', n: 'Reel A' }, fa: { c: 0, y: 225, p: 'Facebook', n: 'Post A' },
-  yb: { c: 1, y: 60, p: 'YouTube', n: 'Video B', red: true }, ib: { c: 1, y: 130, p: 'Instagram', n: 'Post B' },
-  tb: { c: 1, y: 195, p: 'TikTok', n: 'Video B' }, x: { c: 2, y: 30, p: 'X', n: 'Thread' },
-  rd: { c: 2, y: 100, p: 'Reddit', n: 'Post' }, th: { c: 2, y: 165, p: 'Threads', n: 'Post' },
-  li: { c: 2, y: 230, p: 'LinkedIn', n: 'Post' }, ld: { c: 3, y: 90, p: 'Landing', n: 'page', w: 84, acc: true },
-  ck: { c: 3, y: 175, p: 'Checkout', n: 'page', w: 84, acc: true },
+/* ---------- 03 Build any journey ---------- */
+const JCOL = [14, 140, 266, 392, 518]
+const JROW = [34, 122, 210]
+type JNode = { c: number; r: number; p: string; n: string; red?: boolean; acc?: boolean; rev?: boolean; ext?: boolean }
+const JNODES: Record<string, JNode> = {
+  a: { c: 0, r: 0, p: 'YouTube', n: 'Video A', red: true },
+  b: { c: 1, r: 0, p: 'TikTok', n: 'Video B' },
+  c: { c: 2, r: 0, p: 'Instagram', n: 'Reel C' },
+  d: { c: 3, r: 0, p: 'Facebook', n: 'Post D' },
+  nl: { c: 4, r: 0, p: 'Newsletter', n: 'signup', acc: true },
+  g: { c: 2, r: 1, p: 'Threads', n: 'Post G' },
+  h: { c: 3, r: 1, p: 'Reddit', n: 'Post H' },
+  k: { c: 4, r: 1, p: 'LinkedIn', n: 'Post K' },
+  x: { c: 1, r: 2, p: 'TikTok', n: 'Video X', ext: true },
+  n: { c: 2, r: 2, p: 'X', n: 'Video N', ext: true },
+  rev: { c: 4, r: 2, p: 'Revenue', n: '$12,400', rev: true },
 }
-const EDGES = [['ya', 'yb'], ['ta', 'yb'], ['ta', 'ib'], ['ia', 'ib'], ['ia', 'tb'], ['fa', 'tb'], ['yb', 'x'], ['yb', 'rd'],
-  ['ib', 'rd'], ['ib', 'th'], ['tb', 'th'], ['tb', 'li'], ['x', 'ld'], ['rd', 'ld'], ['th', 'ld'], ['th', 'ck'], ['li', 'ck']]
+const HEDGES = [['a', 'b'], ['b', 'c'], ['c', 'd'], ['d', 'nl'], ['g', 'h'], ['h', 'k']]
+const VArrow = ({ x, y1, y2, color = C.purple, dashed = false }: { x: number; y1: number; y2: number; color?: string; dashed?: boolean }) => {
+  const dir = y2 > y1 ? 1 : -1
+  return <path d={`M${x},${y1} L${x},${y2} M${x - 4},${y2 - 4 * dir} L${x},${y2} L${x + 4},${y2 - 4 * dir}`} fill="none" stroke={color} strokeWidth={1.8} strokeLinecap="round" strokeDasharray={dashed ? '4 4' : undefined} />
+}
 
 function MultiPlatform() {
+  return (
+    <Frame title="One campaign, many branches">
+      <svg viewBox="0 0 640 262" style={{ width: '100%', height: 'auto', display: 'block' }} role="img" aria-label="A main path from Video A to a newsletter signup, a branch at Video C across Threads, Reddit and LinkedIn that leads to revenue, and another marketer's Video X promoting Video B">
+        {HEDGES.map(([a, b]) => { const A = JNODES[a], B = JNODES[b]; return <Arrow key={a + b} x1={JCOL[A.c] + 100} x2={JCOL[B.c]} y={JROW[A.r] + 20} /> })}
+        <VArrow x={316} y1={74} y2={122} />
+        <VArrow x={568} y1={162} y2={210} color={C.green} />
+        <VArrow x={190} y1={210} y2={74} dashed />
+        <path d="M240,230 L266,230 M262,226 L266,230 L262,234" fill="none" stroke={C.purple} strokeWidth={1.8} strokeLinecap="round" strokeDasharray="4 4" />
+        <T x={14} y={JROW[1] + 25} letterSpacing={1}>NEW BRANCH</T>
+        <T x={14} y={JROW[2] + 17} letterSpacing={1}>ANOTHER</T>
+        <T x={14} y={JROW[2] + 31} letterSpacing={1}>MARKETER</T>
+        {Object.entries(JNODES).map(([k, n]) => (
+          <g key={k}>
+            <rect x={JCOL[n.c]} y={JROW[n.r]} width={100} height={40} rx={9} fill={n.rev ? C.greenTint : n.acc ? C.tint : '#ffffff'} stroke={n.rev ? C.green : n.acc ? C.purple : C.tintStroke} strokeDasharray={n.ext ? '4 3' : undefined} />
+            <T x={JCOL[n.c] + 9} y={JROW[n.r] + 17} fill={n.rev ? C.green : n.red ? C.red : n.acc ? C.lp : C.mut}>{n.p.toUpperCase()}</T>
+            <text x={JCOL[n.c] + 9} y={JROW[n.r] + 33} fontFamily={SANS} fontSize={12} fontWeight={600} fill={C.text}>{n.n}</text>
+          </g>
+        ))}
+      </svg>
+    </Frame>
+  )
+}
+
   const box = (k: string) => { const n = NODES[k]; return { x: COLS[n.c], w: n.w ?? 100, cy: n.y + 20 } }
   const curve = (x1: number, y1: number, x2: number, y2: number) => `M${x1},${y1} C${(x1 + x2) / 2},${y1} ${(x1 + x2) / 2},${y2} ${x2},${y2}`
   return (
@@ -607,13 +639,17 @@ export default function Website() {
           <p style={{ margin: '28px 0 0', maxWidth: 640, fontSize: 18, fontWeight: 700, lineHeight: 1.5, letterSpacing: '-0.01em' }}>Every step tracked. Every path connected. Know exactly what’s happening across your entire marketing journey.</p>
         </Section>
 
-        <Section label="03 / Any platform, one campaign" title={<>Mix every platform.<br />Trace every path to revenue.</>} sub="Chain videos, posts, and pages across YouTube, TikTok, Instagram, X, Reddit, and more. Paths can split and merge, and VS-Track follows all of them.">
+        <Section label="03 / Build Any Marketing Journey" title={<>Connect the pieces.<br />Branch anywhere. Track everything.</>} sub="Your marketing campaign doesn’t have to follow one straight line.">
+          <div style={{ display: 'grid', gap: 14, maxWidth: 640, marginBottom: 28, fontSize: 16, color: C.mut, lineHeight: 1.65 }}>
+            <p style={{ margin: 0 }}>Start with Video A → Video B → Video C → Video D → Newsletter. Then create a branch at Video C that leads to Video G → Video H → Video K.</p>
+            <p style={{ margin: 0 }}>Want to test another path? Add a new branch. Another marketer can create Video X, promote your Video B, and direct viewers to Video N — your own content asset. Every piece connects to the bigger picture.</p>
+            <p style={{ margin: 0 }}>Think of it like LEGO. Connect your videos, posts, landing pages, and other content across 9 platforms. Create new branches, test different paths, and see how each part of your campaign performs.</p>
+            <p style={{ margin: 0 }}>If a branch isn’t delivering results, build a different one. Track clicks, conversions, and revenue to understand which paths work best.</p>
+          </div>
           <MultiPlatform />
-          <figure style={{ margin: '24px 0 0', maxWidth: 520 }}>
-            <img src="/journey-example.png" alt="Journey from YouTube video to Facebook post, TikTok, LinkedIn post, and Revenue" style={{ width: '100%', height: 'auto', borderRadius: 16, border: `1px solid ${C.line}`, display: 'block' }} />
-            <figcaption style={{ fontSize: 13, color: C.dim, lineHeight: 1.5, marginTop: 8 }}>Illustrative journey. Each step represents trackable content, not necessarily a required sequence.</figcaption>
-          </figure>
-          <div style={{ ...mono(C.dim), marginTop: 10, letterSpacing: '0.08em' }}>If you can put a link on it, you can track it.</div>
+        
+          <div style={{ fontSize: 12, color: C.dim, lineHeight: 1.45, marginTop: 10 }}>Illustrative journey. Each step represents trackable content, not necessarily a required sequence.</div>
+          <p style={{ margin: '28px 0 0', maxWidth: 640, fontSize: 18, fontWeight: 700, lineHeight: 1.5, letterSpacing: '-0.01em' }}>Build freely. Connect easily. Test every path. Track the entire campaign.</p>
         </Section>
 
         <div id="share"><Section label="04 / Share it" title={<>Turn anything into an asset.<br />See who sells it best.</>} sub="Share a video, page, or offer. Everyone who promotes it gets their own link, and you can rank them by revenue.">
