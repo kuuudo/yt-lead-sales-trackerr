@@ -138,10 +138,10 @@ function BuildBackward() {
   const L = 'ABCDEF'
   const sx = (i: number) => 26 + i * 86
   const rows = [
-    { label: '1. Create the last video', from: 5, to: 5, nw: 5, tags: [5] },
-    { label: '2. Let the one before promote it', from: 4, to: 5, nw: 4, tags: [4, 5] },
-    { label: '3. Keep repeating', from: 1, to: 5, nw: 1, tags: [1, 2, 3, 4, 5] },
-    { label: '4. The full journey', from: 0, to: 5, nw: 0, tags: [1, 2, 3, 4, 5] },
+    { label: '1. Start with your final step', from: 5, to: 5, nw: 5, tags: [] as number[] },
+    { label: '2. Connect the step before it', from: 4, to: 5, nw: 4, tags: [] as number[] },
+    { label: '3. Keep connecting', from: 1, to: 5, nw: 1, tags: [] as number[] },
+    { label: '4. One journey, every step tracked', from: 0, to: 5, nw: 0, tags: [] as number[] },
   ]
   return (
     <Frame title="Building a journey" example={false}>
@@ -596,8 +596,15 @@ export default function Website() {
           </Frame>
         </Section></div>
 
-        <Section label="02 / Build it backward" title={<>Start at the end.<br />Work back to the start.</>} sub="Make your last video an asset. Let the one before it promote that asset. Repeat until every video leads to the next, all the way to revenue.">
+        <Section label="02 / Track the Entire Journey" title={<>Complex campaigns.<br />Simple tracking.</>} sub="Your customers don’t always buy after watching one video. They may need multiple videos to learn about your product, build trust, and finally decide to buy.">
+          <div style={{ display: 'grid', gap: 14, maxWidth: 640, marginBottom: 28, fontSize: 16, color: C.mut, lineHeight: 1.65 }}>
+            <p style={{ margin: 0 }}>Imagine your YouTube Short is Step 3 of your marketing campaign, while your long-form video is Step 5. Between them, your audience might interact with content on TikTok, Facebook, or other platforms.</p>
+            <p style={{ margin: 0 }}>With VSTRK, you can easily connect these pieces of content into one marketing journey and track what happens at every step, across all 9 platforms.</p>
+            <p style={{ margin: 0, color: C.text, fontWeight: 600 }}>Is Video 3 converting poorly? Are people dropping off before booking a sales call? Which content brings people closer to a purchase?</p>
+            <p style={{ margin: 0 }}>Instead of guessing, see the clicks, conversions, and conversion rates across your entire marketing journey — so you know what’s working, what’s not, and where to improve.</p>
+          </div>
           <BuildBackward />
+          <p style={{ margin: '28px 0 0', maxWidth: 640, fontSize: 18, fontWeight: 700, lineHeight: 1.5, letterSpacing: '-0.01em' }}>Every step tracked. Every path connected. Know exactly what’s happening across your entire marketing journey.</p>
         </Section>
 
         <Section label="03 / Any platform, one campaign" title={<>Mix every platform.<br />Trace every path to revenue.</>} sub="Chain videos, posts, and pages across YouTube, TikTok, Instagram, X, Reddit, and more. Paths can split and merge, and VS-Track follows all of them.">
