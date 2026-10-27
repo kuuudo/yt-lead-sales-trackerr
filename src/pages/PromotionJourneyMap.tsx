@@ -220,6 +220,10 @@ interface UnlinkedVideo {
   // card icon, so the tutorial/test card can also link to the original
   // content, not just the tracked redirect link.
   platformUrl: string | null
+  // Promoted asset ids this video's redirect_links point at (promotion_id +
+  // asset_id). Lets the map draw a structural edge video -> promoted asset
+  // without any events_journey row.
+  assetIds: string[]
 }
 
 const MIN_SCALE = 0.4
@@ -1375,7 +1379,12 @@ const [nodeDetailTarget, setNodeDetailTarget] = useState<
         const linkByVideoId = new Map<string, { id: string; token: string }>()
         const seen = new Set<string>()
         const ids: string[] = []
-        for (const row of (data ?? []) as { id: string; video_id: string | null; token: string }[]) {
+        const assetIdsByVideoId = new Map<string, Set<string>>()
+        for (const row of (data ?? []) as { id: string; video_id: string | null; asset_id: string | null; token: string }[]) {
+          if (row.video_id && row.asset_id) {
+            if (!assetIdsByVideoId.has(row.video_id)) assetIdsByVideoId.set(row.video_id, new Set())
+            assetIdsByVideoId.get(row.video_id)!.add(row.asset_id)
+          }
           if (!row.video_id || seen.has(row.video_id)) continue
           seen.add(row.video_id)
           ids.push(row.video_id)
@@ -1423,6 +1432,7 @@ const [nodeDetailTarget, setNodeDetailTarget] = useState<
               redirectLinkId: link.id,
               token: link.token,
               platformUrl: m?.platformUrl ?? null,
+              assetIds: Array.from(assetIdsByVideoId.get(videoId) ?? []),
             }]
           }),
         )
@@ -2378,6 +2388,39 @@ const creativeIds = new Set(
                 />
               )
             })}
+
+            {/* Structural edges for Unlinked videos: video -> the promoted asset(s)
+                its redirect_links (promotion_id + asset_id) point at. No
+                events_journey needed. Dashed = structural, not yet observed. */}
+            {unlinkedGroup?.placed.flatMap((v) =>
+              v.assetIds.flatMap((assetId) => {
+                const target = allPromotedNodes.find((n) => n.assetId === assetId)
+                if (!target) return []
+                const tw = target.isCreative ? CREATIVE_NODE_WIDTH : NODE_WIDTH
+                const th = target.isCreative ? CREATIVE_NODE_HEIGHT : NODE_HEIGHT
+                const sx = unlinkedGroup.left + v.x + UNLINKED_NODE_WIDTH / 2
+                const sy = unlinkedGroup.top + v.y
+                const tx = target.x + tw / 2
+                const targetAbove = target.y + th <= sy
+                const x1 = sx
+                const y1 = targetAbove ? sy : sy + UNLINKED_NODE_HEIGHT
+                const x2 = tx
+                const y2 = targetAbove ? target.y + th : target.y
+                const midY = (y1 + y2) / 2
+                return [
+                  <path
+                    key={`unlinked-edge-${v.videoId}::${assetId}`}
+                    d={`M ${x1} ${y1} C ${x1} ${midY} ${x2} ${midY} ${x2} ${y2}`}
+                    fill="none"
+                    stroke="#ea580c"
+                    strokeOpacity={0.55}
+                    strokeWidth={1.6}
+                    strokeDasharray="5 4"
+                    markerEnd="url(#journeyArrow)"
+                  />,
+                ]
+              }),
+            )}
 
             {/* STEP 10 (additive) — upstream edges. Same path/marker
                 convention as every edge kind above, mirrored leftward. A
