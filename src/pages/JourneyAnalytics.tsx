@@ -65,6 +65,8 @@ import {
 import JourneyStrip, {
   type JourneyStripStep,
   type AssetScopeTag,
+  type CampaignElementNode,
+  campaignElementNodeLabel,
 } from '../components/analytics/JourneyStrip';
 import {
   getPromotionAssignmentGroups,
@@ -905,6 +907,10 @@ const [tableScrollWidth, setTableScrollWidth] = useState(0);
   const [excludedJourneys, setExcludedJourneys] = useState(0);
   const [entryVideoCount, setEntryVideoCount] = useState(0);
   const [videoDisplay, setVideoDisplay] = useState<Map<string, VideoDisplay>>(new Map());
+  /** Presentation-only: campaign element nodes under video tiles. Never in path.steps. */
+  const [elementNodesByVideo, setElementNodesByVideo] = useState<
+    Map<string, CampaignElementNode[]>
+  >(new Map());
   // Promotion options: ids already on the loaded journeys' Asset steps — the
   // same data the Promotion filter matches against (see usePromotionOptions).
   const loadedPromotionIds = useMemo(() => {
@@ -999,10 +1005,12 @@ console.log('[DIAG membership]', {
 });
         setExcludedJourneys(ds.excludedJourneys);
         setVideoDisplay(ds.videoDisplay);
+        setElementNodesByVideo(new Map());
       } catch (e: any) {
         if (!cancelled) {
           setError(e?.message ?? String(e));
           setJourneys([]);
+          setElementNodesByVideo(new Map());
         }
       } finally {
         if (!cancelled) setLoading(false);
@@ -1013,6 +1021,112 @@ console.log('[DIAG membership]', {
       cancelled = true;
     };
   }, [effectiveOrgId, organizationId, cacheKey]);
+
+  // Presentation-only: campaign element nodes for Journey Analytics strip.
+  // Isolated from loadJourneyDataset so Partner Journey never runs these reads
+  // and failures never touch journeyDatasetSoftFailures / incomplete / cache.
+  useEffect(() => {
+    if (loading || !effectiveOrgId) {
+      setElementNodesByVideo(new Map());
+      return;
+    }
+    const videoIds = Array.from(videoDisplay.keys());
+    if (videoIds.length === 0) {
+      setElementNodesByVideo(new Map());
+      return;
+    }
+    let cancelled = false;
+    (async () => {
+      try {
+        const allLinks: StructuralLink[] = [];
+        for (let i = 0; i < videoIds.length; i += DISCOVERY_BATCH) {
+          const slice = videoIds.slice(i, i + DISCOVERY_BATCH);
+          const links = await resolveStructuralLinksForVideos(slice).catch(() => [] as StructuralLink[]);
+          allLinks.push(...links);
+        }
+        if (cancelled) return;
+
+        // Same exclusion rule as applyPromotedTypes — cells and nodes stay aligned.
+        const usable = allLinks.filter((l) => l.resolution !== 'legacy' && l.elementType);
+        const linkIds = Array.from(new Set(usable.map((l) => l.redirectLinkId).filter(Boolean)));
+
+        // Scope badge: redirect_links → asset_id → assets.organization_id.
+        // Errors are local; never increment journeyDatasetSoftFailures.
+        const assetIdByLinkId = new Map<string, string>();
+        const CHUNK = 80;
+        for (let i = 0; i < linkIds.length; i += CHUNK) {
+          const slice = linkIds.slice(i, i + CHUNK);
+          try {
+            const { data, error } = await supabase
+              .from('redirect_links')
+              .select('id, asset_id')
+              .in('id', slice);
+            if (error || cancelled) continue;
+            for (const row of (data ?? []) as { id: string; asset_id: string | null }[]) {
+              if (row.asset_id) assetIdByLinkId.set(row.id, row.asset_id);
+            }
+          } catch {
+            /* isolated */
+          }
+        }
+        if (cancelled) return;
+
+        const assetIds = Array.from(new Set(assetIdByLinkId.values()));
+        const orgByAssetId = new Map<string, string | null>();
+        for (let i = 0; i < assetIds.length; i += CHUNK) {
+          const slice = assetIds.slice(i, i + CHUNK);
+          try {
+            const { data, error } = await supabase
+              .from('assets')
+              .select('id, organization_id')
+              .in('id', slice);
+            if (error || cancelled) continue;
+            for (const a of (data ?? []) as { id: string; organization_id: string | null }[]) {
+              orgByAssetId.set(a.id, a.organization_id ?? null);
+            }
+          } catch {
+            /* isolated */
+          }
+        }
+        if (cancelled) return;
+
+        // One node per (video, normalized element type); prefer first non-legacy link.
+        const byVideo = new Map<string, CampaignElementNode[]>();
+        const seenKey = new Set<string>();
+        for (const link of usable) {
+          const webmood = elementTypeToWebmood(link.elementType) ?? link.elementType;
+          if (!webmood) continue;
+          const dedupe = `${link.videoId}::${webmood}`;
+          if (seenKey.has(dedupe)) continue;
+          seenKey.add(dedupe);
+
+          const assetId = assetIdByLinkId.get(link.redirectLinkId);
+          const assetOrg = assetId ? orgByAssetId.get(assetId) : undefined;
+          let assetScope: AssetScopeTag | null = null;
+          if (assetOrg != null && organizationId) {
+            assetScope = assetOrg === organizationId ? 'my' : 'shared';
+          }
+
+          const node: CampaignElementNode = {
+            id: link.redirectLinkId || dedupe,
+            elementType: webmood,
+            label: campaignElementNodeLabel(webmood),
+            assetScope,
+          };
+          const list = byVideo.get(link.videoId) ?? [];
+          list.push(node);
+          byVideo.set(link.videoId, list);
+        }
+        if (!cancelled) setElementNodesByVideo(byVideo);
+      } catch (e) {
+        console.warn('[JourneyAnalytics] element nodes (presentation-only) failed', e);
+        if (!cancelled) setElementNodesByVideo(new Map());
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [loading, effectiveOrgId, organizationId, videoDisplay]);
 
   const { routeMetrics, metricsLoading } = useRouteRevenueMetrics({
     orgId: effectiveOrgId,
@@ -1801,6 +1915,7 @@ const showMoreBar =
       connectorLabels={
         showJourneyFlow ? flowConnectorLabels(j, flowCounts, flowLoading) : undefined
       }
+      elementNodesByVideo={elementNodesByVideo}
     />
   );
 

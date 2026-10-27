@@ -2,6 +2,7 @@
 // src/components/analytics/JourneyStrip.tsx
 // Presentational ONLY. One journey = one horizontal strip.
 // Optional: asset border, asset-scope badge, content-owner line.
+// Campaign element nodes (optional) are presentation-only under each video tile.
 // ─────────────────────────────────────────────────────────────────────────────
 
 import React, { useEffect, useRef } from 'react';
@@ -24,6 +25,18 @@ export type JourneyStripStep = {
   contentOwnerName?: string | null;
 };
 
+/** Presentation-only: a campaign element linked from a video (not an observed path step). */
+export type CampaignElementNode = {
+  /** Stable key (redirect link id or element type). */
+  id: string;
+  /** sales_call | consultation | newsletter | landing_page */
+  elementType: string;
+  /** Display label, e.g. Sales Call */
+  label: string;
+  /** MY / SHARED when asset org is known; omit badge when unknown. */
+  assetScope?: AssetScopeTag | null;
+};
+
 export type JourneyEndKey = 'sales_call' | 'purchase' | 'consultation' | 'newsletter' | 'other';
 export type JourneyStripEnd = { key: JourneyEndKey; label: string };
 
@@ -33,6 +46,18 @@ const WEBMOOD_CELLS: { type: string; label: string }[] = [
   { type: 'newsletter', label: 'NEWS' },
   { type: 'landing_page', label: 'PURCHASE' },
 ];
+
+const ELEMENT_NODE_LABEL: Record<string, string> = {
+  sales_call: 'Sales Call',
+  consultation: 'Consult',
+  newsletter: 'News',
+  landing_page: 'Purchase',
+};
+
+/** Public helper so loaders can reuse the same labels as the strip. */
+export function campaignElementNodeLabel(elementType: string): string {
+  return ELEMENT_NODE_LABEL[elementType] ?? elementType.replace(/_/g, ' ');
+}
 
 /** Scope accent colors — distinct, VSTRK-toned status indicators (not decoration). */
 export const ASSET_SCOPE_STYLE: Record<
@@ -96,6 +121,12 @@ export interface JourneyStripProps {
    * text '—' = unresolved, '0' = resolved with no events, '…' = loading.
    */
   connectorLabels?: ReadonlyArray<JourneyConnectorLabel> | null;
+  /**
+   * Presentation-only. Campaign element nodes keyed by source video id.
+   * Drawn under each video tile; never part of path.steps or connector gaps.
+   * When absent or empty, markup matches the previous strip exactly.
+   */
+  elementNodesByVideo?: ReadonlyMap<string, ReadonlyArray<CampaignElementNode>> | null;
 }
 
 export type JourneyConnectorLabel = { text: string; title?: string };
@@ -130,6 +161,34 @@ function Arrow({ label }: { label?: JourneyConnectorLabel }) {
   );
 }
 
+function ElementNodeCard({ node }: { node: CampaignElementNode }) {
+  const scopeStyle = node.assetScope ? ASSET_SCOPE_STYLE[node.assetScope] : null;
+  return (
+    <div
+      className="w-full rounded-md border border-dashed border-zinc-600 bg-zinc-950/90 px-1.5 py-1"
+      title={`Linked campaign element · ${node.label}`}
+      // Not clickable — presentation only; must not trigger video selection.
+      onClick={(e) => e.stopPropagation()}
+    >
+      <div className="text-[8px] font-black uppercase tracking-widest text-orange-400/90 truncate leading-tight">
+        {node.label}
+      </div>
+      <div className="flex items-center gap-1 mt-0.5 min-w-0">
+        <span className="text-[7px] font-black uppercase tracking-widest text-zinc-600 shrink-0">
+          Element
+        </span>
+        {scopeStyle && (
+          <span
+            className={`shrink-0 inline-flex items-center px-1 py-px rounded border text-[7px] font-black uppercase tracking-widest ${scopeStyle.badge}`}
+          >
+            {scopeStyle.label}
+          </span>
+        )}
+      </div>
+    </div>
+  );
+}
+
 export default function JourneyStrip({
   steps,
   end: _end,
@@ -137,6 +196,7 @@ export default function JourneyStrip({
   onSelectVideo,
   showContentOwner = false,
   connectorLabels,
+  elementNodesByVideo,
 }: JourneyStripProps) {
   void _end;
   const highlightRef = useRef<HTMLDivElement | null>(null);
@@ -161,6 +221,7 @@ export default function JourneyStrip({
         const isAsset = !!step.isAsset;
         const scope = step.assetScope ?? null;
         const scopeStyle = scope ? ASSET_SCOPE_STYLE[scope] : null;
+        const elementNodes = elementNodesByVideo?.get(step.videoId) ?? [];
 
         // Selected ring stays independent of asset border.
         const borderClass = highlighted
@@ -174,50 +235,62 @@ export default function JourneyStrip({
         return (
           <React.Fragment key={`${step.videoId}-${i}`}>
             {i > 0 && <Arrow label={connectorLabels?.[i - 1]} />}
-            <div
-              ref={assignRef ? highlightRef : undefined}
-              onClick={() => onSelectVideo?.(step.videoId)}
-              title={step.title}
-              className={`shrink-0 w-[112px] rounded-lg border p-1.5 transition-colors ${
-                onSelectVideo ? 'cursor-pointer' : ''
-              } ${borderClass}`}
-            >
-              <img
-                src={step.thumbnailUrl ?? ''}
-                alt=""
-                className="w-full h-[52px] object-cover rounded-md border border-zinc-800 bg-zinc-900"
-                onError={(e) => {
-                  const t = e.currentTarget;
-                  t.onerror = null;
-                  t.src = `https://placehold.co/112x52/18181b/52525b?text=${encodeURIComponent(
-                    (step.platform ?? 'video').toUpperCase(),
-                  )}`;
-                }}
-              />
-              <div className="mt-1 text-[10px] font-bold truncate leading-snug text-zinc-200">
-                {step.title}
-              </div>
-              <div className="flex items-center gap-1 mt-0.5 min-w-0">
-                <span className="text-[8px] font-black uppercase tracking-widest text-zinc-600 shrink-0">
-                  {isAsset ? 'Asset' : 'Video'}
-                </span>
-                {isAsset && scopeStyle && (
-                  <span
-                    className={`shrink-0 inline-flex items-center px-1 py-px rounded border text-[7px] font-black uppercase tracking-widest ${scopeStyle.badge}`}
-                  >
-                    {scopeStyle.label}
+            {/* Column: video tile + optional element nodes. Nodes sit outside
+                the clickable tile so they never set selectedVideoId. */}
+            <div className="shrink-0 flex flex-col items-stretch w-[112px]">
+              <div
+                ref={assignRef ? highlightRef : undefined}
+                onClick={() => onSelectVideo?.(step.videoId)}
+                title={step.title}
+                className={`w-full rounded-lg border p-1.5 transition-colors ${
+                  onSelectVideo ? 'cursor-pointer' : ''
+                } ${borderClass}`}
+              >
+                <img
+                  src={step.thumbnailUrl ?? ''}
+                  alt=""
+                  className="w-full h-[52px] object-cover rounded-md border border-zinc-800 bg-zinc-900"
+                  onError={(e) => {
+                    const t = e.currentTarget;
+                    t.onerror = null;
+                    t.src = `https://placehold.co/112x52/18181b/52525b?text=${encodeURIComponent(
+                      (step.platform ?? 'video').toUpperCase(),
+                    )}`;
+                  }}
+                />
+                <div className="mt-1 text-[10px] font-bold truncate leading-snug text-zinc-200">
+                  {step.title}
+                </div>
+                <div className="flex items-center gap-1 mt-0.5 min-w-0">
+                  <span className="text-[8px] font-black uppercase tracking-widest text-zinc-600 shrink-0">
+                    {isAsset ? 'Asset' : 'Video'}
                   </span>
+                  {isAsset && scopeStyle && (
+                    <span
+                      className={`shrink-0 inline-flex items-center px-1 py-px rounded border text-[7px] font-black uppercase tracking-widest ${scopeStyle.badge}`}
+                    >
+                      {scopeStyle.label}
+                    </span>
+                  )}
+                </div>
+                {showContentOwner && step.contentOwnerName && (
+                  <div
+                    className="mt-0.5 text-[8px] font-bold text-zinc-400 truncate"
+                    title={step.contentOwnerName}
+                  >
+                    {step.contentOwnerName}
+                  </div>
                 )}
+                <StepCampaignLinks types={step.promotedTypes} />
               </div>
-              {showContentOwner && step.contentOwnerName && (
-                <div
-                  className="mt-0.5 text-[8px] font-bold text-zinc-400 truncate"
-                  title={step.contentOwnerName}
-                >
-                  {step.contentOwnerName}
+              {elementNodes.length > 0 && (
+                <div className="mt-1 flex flex-col gap-1">
+                  <div className="mx-auto w-px h-2 border-l border-dashed border-zinc-600" aria-hidden />
+                  {elementNodes.map((node) => (
+                    <ElementNodeCard key={node.id} node={node} />
+                  ))}
                 </div>
               )}
-              <StepCampaignLinks types={step.promotedTypes} />
             </div>
           </React.Fragment>
         );
