@@ -69,6 +69,11 @@ import {
 } from '../services/promotion/listCreativeEligibleCampaigns'
 import { resolvePromotionContextForAsset } from '../services/asset/resolvePromotionContextForAsset'
 import type { CampaignLinkTypeKey } from '../services/video/createVideo'
+// Same platform helpers Videos.tsx uses for its Platform grid + URL auto-detect.
+import { PLATFORM_CONFIG, detectPlatform, type Platform } from '../lib/platformParser'
+// Same helpers Videos.tsx uses to create links for non-primary campaigns.
+import { createRedirectLink } from '../lib/redirects'
+import { buildCampaignRedirectJobs } from '../services/redirect/buildCampaignRedirectJobs'
 
 import type { PromotionContext } from '../services/asset/resolvePromotionContextForAsset'
 
@@ -473,6 +478,43 @@ function mergeDownstreamResolutions(a: DownstreamResolution, b: DownstreamResolu
   return { nodes: Array.from(nodeById.values()), edges }
 }
 
+// ─── "Links to include" helpers (same shape as Videos.tsx) ────────────────────
+const CAMPAIGN_LINK_TYPE_META: Record<CampaignLinkTypeKey, { label: string }> = {
+  landing_page: { label: 'Direct purchase / Landing' },
+  newsletter: { label: 'Newsletter' },
+  consultation: { label: 'Consultation' },
+  sales_call: { label: 'Sales call' },
+}
+
+const CAMPAIGN_LINK_DOMAIN_COL: Record<CampaignLinkTypeKey, string> = {
+  landing_page: 'landing_page_tracking_domain_id',
+  newsletter: 'newsletter_tracking_domain_id',
+  consultation: 'consultation_tracking_domain_id',
+  sales_call: 'sales_call_tracking_domain_id',
+}
+
+const TRACK_CAMPAIGN_COLUMNS =
+  'id, campaign_name, is_system, landing_page_url, newsletter_url, consultation_booking_url, has_paid_consultation, sales_call_booking_url, has_sales_call'
+
+function domainMapFromCampaignRow(row: any): Partial<Record<CampaignLinkTypeKey, string | null>> {
+  const out: Partial<Record<CampaignLinkTypeKey, string | null>> = {}
+  if (!row) return out
+  ;(Object.keys(CAMPAIGN_LINK_DOMAIN_COL) as CampaignLinkTypeKey[]).forEach((k) => {
+    out[k] = row[CAMPAIGN_LINK_DOMAIN_COL[k]] ?? null
+  })
+  return out
+}
+
+function availableCampaignLinkTypes(campaign: any): CampaignLinkTypeKey[] {
+  if (!campaign) return []
+  const out: CampaignLinkTypeKey[] = []
+  if (campaign.landing_page_url) out.push('landing_page')
+  if (campaign.newsletter_url) out.push('newsletter')
+  if (campaign.consultation_booking_url || campaign.has_paid_consultation) out.push('consultation')
+  if (campaign.sales_call_booking_url || campaign.has_sales_call) out.push('sales_call')
+  return out
+}
+
 // ─── Component ────────────────────────────────────────────────────────────────
 
 export default function PromotionJourneyMap() {
@@ -492,7 +534,7 @@ export default function PromotionJourneyMap() {
   const [trackUrl, setTrackUrl] = useState('')
   const [trackPlatform, setTrackPlatform] = useState<'youtube' | 'tiktok' | 'instagram' | 'linkedin' | 'x' | 'threads' | 'facebook' | 'reddit' | 'twitch'>('youtube')
   const [trackCampaignId, setTrackCampaignId] = useState('')
-  const [trackCampaigns, setTrackCampaigns] = useState<Array<{ id: string; campaign_name: string }>>([])
+  const [trackCampaigns, setTrackCampaigns] = useState<Array<{ id: string; campaign_name: string; [k: string]: any }>>([])
   const [trackCampaignLocked, setTrackCampaignLocked] = useState(false)
   const [trackCreativeMode, setTrackCreativeMode] = useState<string | null>(null)
   const [trackSponsorOrgId, setTrackSponsorOrgId] = useState<string | null>(null)
@@ -506,7 +548,9 @@ export default function PromotionJourneyMap() {
   const [creativeOnlyAssetIds, setCreativeOnlyAssetIds] = useState<string[]>([])
   const [creativeRestrictionsLoading, setCreativeRestrictionsLoading] = useState(false)
   const [creativeEligibleAssignments, setCreativeEligibleAssignments] = useState<CreativeEligibleAssignment[]>([])
-  const [selectedCampaignLinkTypes, setSelectedCampaignLinkTypes] = useState<CampaignLinkTypeKey[]>([])
+  // campaignId -> selected link types (links may span more than one campaign)
+  const [selectedLinksByCampaignId, setSelectedLinksByCampaignId] = useState<Record<string, CampaignLinkTypeKey[]>>({})
+  const [linksModalCampaignId, setLinksModalCampaignId] = useState<string | null>(null)
   const [showCampaignLinksPicker, setShowCampaignLinksPicker] = useState(false)
   const [nodes, setNodes] = useState<JourneyNode[]>([])
   const [creativeGroupLayout, setCreativeGroupLayout] = useState<{
@@ -1791,6 +1835,9 @@ const [nodeDetailTarget, setNodeDetailTarget] = useState<
     setTrackError(null)
     setTrackUrl('')
     setTrackPlatform('youtube')
+    setSelectedLinksByCampaignId({})
+    setLinksModalCampaignId(null)
+    setShowCampaignLinksPicker(false)
     const promoCampaignId =
       (promotionDetail as any).promotion?.campaign_id ||
       (promotionDetail as any).campaign_id ||
@@ -1881,7 +1928,7 @@ const [nodeDetailTarget, setNodeDetailTarget] = useState<
       // Only Sponsor ONLY PROMOTE ASSET (+ optional one normal creative_campaign_id)
       const { data: onlyPromote } = await supabase
         .from('campaigns')
-        .select('id, campaign_name, is_system')
+        .select(TRACK_CAMPAIGN_COLUMNS)
         .eq('organization_id', sponsorOrgId)
         .eq('is_system', true)
         .eq('campaign_name', 'ONLY PROMOTE ASSET')
@@ -1890,6 +1937,7 @@ const [nodeDetailTarget, setNodeDetailTarget] = useState<
       const allowed: Array<{ id: string; campaign_name: string }> = []
       if (onlyPromote?.id) {
         allowed.push({
+          ...(onlyPromote as any),
           id: onlyPromote.id as string,
           campaign_name: (onlyPromote.campaign_name as string) || 'ONLY PROMOTE ASSET',
         })
@@ -1898,7 +1946,7 @@ const [nodeDetailTarget, setNodeDetailTarget] = useState<
       if (creativeMode === 'campaign_links_and_assets' && creativeCampaignId) {
         const { data: extra } = await supabase
           .from('campaigns')
-          .select('id, campaign_name, is_system, archived_at, organization_id')
+          .select(TRACK_CAMPAIGN_COLUMNS + ', archived_at, organization_id')
           .eq('id', creativeCampaignId)
           .maybeSingle()
         if (
@@ -1908,6 +1956,7 @@ const [nodeDetailTarget, setNodeDetailTarget] = useState<
           !extra.archived_at
         ) {
           allowed.push({
+            ...(extra as any),
             id: extra.id as string,
             campaign_name: (extra.campaign_name as string) || 'Sponsor campaign',
           })
@@ -1930,7 +1979,7 @@ const [nodeDetailTarget, setNodeDetailTarget] = useState<
       if (orgId) {
         const { data: camps } = await supabase
           .from('campaigns')
-          .select('id, campaign_name')
+          .select(TRACK_CAMPAIGN_COLUMNS)
           .eq('organization_id', orgId)
           .is('archived_at', null)
           .order('campaign_name')
@@ -2021,11 +2070,35 @@ const [nodeDetailTarget, setNodeDetailTarget] = useState<
         campaign: campaignRow as any,
         organizationId: orgId,
         userId: user.id,
-        campaignLinkTypes: selectedCampaignLinkTypes,
+        campaignLinkTypes: selectedLinksByCampaignId[trackCampaignId] ?? [],
         createdViaCreative: isCreativePromotion,
         creativePromotionId: isCreativePromotion ? promotionId : null,
         creativeAssignmentId: isCreativePromotion ? assignmentId : null,
       } as any)
+
+      // Multi-campaign links: primary campaign's links were created inside
+      // createVideo(); create the rest here (same logic as Videos.tsx).
+      if (savedVideo?.id) {
+        const { resolveUpstreamDomainForVideo } = await import('../lib/resolveSourceUpstreamDomain')
+        const sourceUpstreamDomain = await resolveUpstreamDomainForVideo(savedVideo.id)
+        const appBaseUrl = window.location.origin
+        for (const [campId, types] of Object.entries(selectedLinksByCampaignId)) {
+          if (!campId || campId === trackCampaignId || !types?.length) continue
+          const { data: fetched } = await supabase.from('campaigns').select('*').eq('id', campId).maybeSingle()
+          if (!fetched) continue
+          const allow = new Set<string>(types)
+          const jobs = buildCampaignRedirectJobs(fetched as any).filter(([t]: any) => allow.has(t))
+          const domainMap = domainMapFromCampaignRow(fetched)
+          await Promise.all(
+            jobs.map(([type, url]: any) =>
+              createRedirectLink(savedVideo.id, campId, type, url, appBaseUrl, undefined, undefined, {
+                trackingDomainId: domainMap[type as CampaignLinkTypeKey] ?? null,
+                upstreamDomain: sourceUpstreamDomain,
+              }),
+            ),
+          )
+        }
+      }
 
       if (isCreativePromotion && savedVideo?.asset_id && assignmentId) {
         const { error: attachErr } = await supabase.rpc('attach_creative_content_asset', {
@@ -2941,22 +3014,49 @@ const [nodeDetailTarget, setNodeDetailTarget] = useState<
             <div style={styles.trackModalGridWide} className="track-modal-grid">
             <div>
             <label style={styles.trackLabel}>Platform</label>
-            <select
-              style={styles.trackInput}
-              value={trackPlatform}
-              onChange={(e) => setTrackPlatform(e.target.value as any)}
-            >
-              {['youtube','tiktok','instagram','linkedin','x','threads','facebook','reddit','twitch'].map((p) => (
-                <option key={p} value={p}>{p}</option>
-              ))}
-            </select>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 8 }}>
+              {(Object.keys(PLATFORM_CONFIG) as Platform[]).map((p) => {
+                const active = trackPlatform === p
+                return (
+                  <button
+                    key={p}
+                    type="button"
+                    onClick={() => {
+                      setTrackPlatform(p as any)
+                      setTrackUrl('')
+                    }}
+                    style={{
+                      height: 40,
+                      borderRadius: 12,
+                      border: active ? '1px solid #dc2626' : '1px solid var(--color-zinc-800)',
+                      background: active ? 'rgba(220,38,38,0.10)' : 'var(--color-zinc-950)',
+                      color: active ? '#f87171' : 'var(--color-zinc-500)',
+                      fontSize: 10,
+                      fontWeight: 900,
+                      letterSpacing: '0.1em',
+                      textTransform: 'uppercase',
+                      cursor: 'pointer',
+                    }}
+                  >
+                    {PLATFORM_CONFIG[p].label}
+                  </button>
+                )
+              })}
+            </div>
 
-            <label style={styles.trackLabel}>URL</label>
+            <label style={styles.trackLabel}>{PLATFORM_CONFIG[trackPlatform as Platform]?.label ?? trackPlatform} URL</label>
             <input
-              style={styles.trackInput}
+              style={{ ...styles.trackInput, fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace' }}
+              type="url"
               value={trackUrl}
-              onChange={(e) => setTrackUrl(e.target.value)}
-              placeholder="https://..."
+              onChange={(e) => {
+                const url = e.target.value
+                const detected = detectPlatform(url)
+                setTrackUrl(url)
+                // Jump to the matching platform as soon as the pasted URL is recognised
+                if (detected) setTrackPlatform(detected as any)
+              }}
+              placeholder={PLATFORM_CONFIG[trackPlatform as Platform]?.placeholder ?? 'https://...'}
             />
 
             <label style={styles.trackLabel}>
@@ -3029,34 +3129,47 @@ const [nodeDetailTarget, setNodeDetailTarget] = useState<
             </div>
 
             
-            <label style={styles.trackLabel}>Campaign links to include</label>
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 6, marginBottom: 8 }}>
-              {([
-                ['landing_page', 'Direct purchase / Landing'],
-                ['newsletter', 'Newsletter'],
-                ['consultation', 'Consultation'],
-                ['sales_call', 'Sales call'],
-              ] as const).map(([key, label]) => {
-                const checked = selectedCampaignLinkTypes.includes(key)
-                return (
-                  <label key={key} style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 12, color: 'var(--color-zinc-300)', cursor: 'pointer' }}>
-                    <input
-                      type="checkbox"
-                      checked={checked}
-                      onChange={() => {
-                        setSelectedCampaignLinkTypes(prev =>
-                          checked ? prev.filter(k => k !== key) : [...prev, key],
-                        )
-                      }}
-                    />
-                    {label}
-                  </label>
-                )
-              })}
-            </div>
-            <p style={{ fontSize: 11, color: 'var(--color-zinc-500)', marginBottom: 8 }}>
-              Domain for each type comes from Campaign configuration (owner configures on Campaign).
-            </p>
+            {!(trackCreativeMode === 'campaign_asset_only') && trackCampaignId && (
+              <button
+                type="button"
+                onClick={() => {
+                  setLinksModalCampaignId((prev) => prev || trackCampaignId || null)
+                  setShowCampaignLinksPicker(true)
+                }}
+                style={{
+                  width: '100%',
+                  marginTop: 12,
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'space-between',
+                  gap: 8,
+                  background: 'var(--color-zinc-950)',
+                  border: '1px solid var(--color-zinc-800)',
+                  borderRadius: 12,
+                  padding: '10px 12px',
+                  textAlign: 'left',
+                  cursor: 'pointer',
+                }}
+              >
+                <span>
+                  <span style={{ display: 'block', fontSize: 10, fontWeight: 900, letterSpacing: '0.1em', textTransform: 'uppercase', color: 'var(--color-zinc-500)' }}>
+                    Links to include
+                  </span>
+                  <span style={{ display: 'block', fontSize: 11, color: 'var(--color-zinc-300)', marginTop: 2, fontWeight: 500 }}>
+                    {(() => {
+                      const entries = Object.entries(selectedLinksByCampaignId).filter(([, t]) => t.length > 0)
+                      const typeCount = entries.reduce((n, [, t]) => n + t.length, 0)
+                      if (typeCount === 0) return 'None selected'
+                      if (entries.length <= 1) return `${typeCount} link type${typeCount === 1 ? '' : 's'} selected`
+                      return `${typeCount} link types · ${entries.length} campaigns`
+                    })()}
+                  </span>
+                </span>
+                <span style={{ fontSize: 10, fontWeight: 900, letterSpacing: '0.1em', textTransform: 'uppercase', color: 'var(--color-zinc-500)', flexShrink: 0 }}>
+                  Choose
+                </span>
+              </button>
+            )}
 
             {trackError && <p style={{ color: '#dc2626', fontSize: 12 }}>{trackError}</p>}
 
@@ -3087,6 +3200,128 @@ const [nodeDetailTarget, setNodeDetailTarget] = useState<
               </span>
             </div>
             </div>
+          </div>
+        </div>
+      )}
+
+      {showCampaignLinksPicker && (
+        <div style={{ ...styles.trackOverlay, zIndex: 60 }}>
+          <div
+            style={{
+              width: '100%',
+              maxWidth: 448,
+              maxHeight: '85vh',
+              overflowY: 'auto',
+              background: 'var(--color-zinc-950)',
+              border: '1px solid var(--color-zinc-800)',
+              borderRadius: 16,
+              padding: 20,
+              display: 'flex',
+              flexDirection: 'column',
+              gap: 14,
+              color: 'var(--color-zinc-200)',
+            }}
+          >
+            <p style={{ ...styles.trackModalEyebrow, marginBottom: 0 }}>Links to include</p>
+            <p style={{ fontSize: 12, color: 'var(--color-zinc-400)', margin: 0 }}>
+              Choose campaign link types for this content. You can switch campaigns and select links from more than
+              one campaign. Domains come from each Campaign owner&apos;s saved configuration — not chosen here.
+            </p>
+            {(() => {
+              const options = trackCampaigns.filter(
+                (c) => !c.is_system && c.campaign_name !== 'ONLY PROMOTE ASSET',
+              )
+              const activeId = linksModalCampaignId || trackCampaignId || options[0]?.id || ''
+              const campaign = trackCampaigns.find((c) => c.id === activeId) ?? null
+              const available = availableCampaignLinkTypes(campaign)
+              const selectedForActive = selectedLinksByCampaignId[activeId] ?? []
+              return (
+                <>
+                  <div>
+                    <label style={{ ...styles.trackLabel, marginTop: 0 }}>Campaign</label>
+                    <select
+                      style={styles.trackInput}
+                      value={activeId}
+                      onChange={(e) => setLinksModalCampaignId(e.target.value || null)}
+                    >
+                      {options.map((c) => {
+                        const n = selectedLinksByCampaignId[c.id]?.length ?? 0
+                        return (
+                          <option key={c.id} value={c.id}>
+                            {c.campaign_name}
+                            {c.id === trackCampaignId ? ' (primary)' : ''}
+                            {n > 0 ? ` · ${n} selected` : ''}
+                          </option>
+                        )
+                      })}
+                    </select>
+                  </div>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                    {available.length === 0 ? (
+                      <p style={{ fontSize: 12, color: 'var(--color-zinc-500)', margin: 0 }}>
+                        This campaign has no landing / newsletter / consultation / sales URLs configured.
+                      </p>
+                    ) : (
+                      available.map((key) => {
+                        const checked = selectedForActive.includes(key)
+                        return (
+                          <label
+                            key={key}
+                            style={{
+                              display: 'flex',
+                              alignItems: 'center',
+                              gap: 12,
+                              border: '1px solid var(--color-zinc-800)',
+                              borderRadius: 12,
+                              padding: '10px 12px',
+                              cursor: 'pointer',
+                            }}
+                          >
+                            <input
+                              type="checkbox"
+                              style={{ accentColor: '#dc2626' }}
+                              checked={checked}
+                              onChange={() => {
+                                if (!activeId) return
+                                setSelectedLinksByCampaignId((prev) => {
+                                  const cur = prev[activeId] ?? []
+                                  return {
+                                    ...prev,
+                                    [activeId]: checked ? cur.filter((k) => k !== key) : [...cur, key],
+                                  }
+                                })
+                              }}
+                            />
+                            <span style={{ fontSize: 14, color: 'var(--color-zinc-200)' }}>
+                              {CAMPAIGN_LINK_TYPE_META[key].label}
+                            </span>
+                          </label>
+                        )
+                      })
+                    )}
+                  </div>
+                </>
+              )
+            })()}
+            <button
+              type="button"
+              onClick={() => setShowCampaignLinksPicker(false)}
+              style={{
+                width: '100%',
+                background: '#dc2626',
+                color: '#fff',
+                border: 'none',
+                borderRadius: 12,
+                padding: '10px',
+                fontSize: 10,
+                fontWeight: 900,
+                letterSpacing: '0.1em',
+                textTransform: 'uppercase',
+                cursor: 'pointer',
+              }}
+            >
+              Done
+            </button>
           </div>
         </div>
       )}
