@@ -53,6 +53,6 @@ const styles: Record<string, React.CSSProperties> = {
     // Ensures the map's absolute/fixed descendants are contained.
     // CampaignStructureMap switches its page shell to absolute fill when
     // presentation="tree" or embedded=true (see that file).
-    background: '#0a0a0a',
+    background: 'var(--color-zinc-950)',
   },
 }

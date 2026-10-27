@@ -660,7 +660,7 @@ export default function InDepthAnalyticsWidget({ widget, onUpdate }: Props) {
 
         {/* EV toggle */}
         <button
-          style={{ ...s.pill, ...(includeEV ? s.pillActive : {}), border: '1px solid #27272a' }}
+          style={{ ...s.pill, ...(includeEV ? s.pillActive : {}), border: '1px solid var(--color-zinc-800)' }}
           onClick={() => setIncludeEV(v => !v)}
           title={includeEV ? 'EV included — click to exclude' : 'EV excluded — click to include'}
         >
@@ -672,7 +672,7 @@ export default function InDepthAnalyticsWidget({ widget, onUpdate }: Props) {
         {/* Columns dropdown */}
         <div style={{ position: 'relative' as const }} ref={columnsRef}>
           <button
-            style={{ ...s.pill, ...(columnsOpen ? s.pillActive : {}), border: '1px solid #27272a', padding: '3px 8px' }}
+            style={{ ...s.pill, ...(columnsOpen ? s.pillActive : {}), border: '1px solid var(--color-zinc-800)', padding: '3px 8px' }}
             onClick={() => setColumnsOpen(v => !v)}
             title="Toggle columns"
           >
@@ -696,7 +696,7 @@ export default function InDepthAnalyticsWidget({ widget, onUpdate }: Props) {
                     {COLUMN_LABELS[key as MetricType]}
                   </button>
                 ))}
-                <div style={{ ...s.dropdownHeader, borderTop: '1px solid #27272a', marginTop: 2 }}>
+                <div style={{ ...s.dropdownHeader, borderTop: '1px solid var(--color-zinc-800)', marginTop: 2 }}>
                   Conversion Rates
                 </div>
                 {CONVERSION_RATE_COLUMNS.map(key => (
@@ -717,7 +717,7 @@ export default function InDepthAnalyticsWidget({ widget, onUpdate }: Props) {
         </div>
 
         {/* Video count */}
-        <span style={{ ...s.label, marginLeft: 'auto', color: '#52525b' }}>
+        <span style={{ ...s.label, marginLeft: 'auto', color: 'var(--color-zinc-600)' }}>
           {sortedVideos.length} videos
         </span>
 
@@ -806,7 +806,7 @@ export default function InDepthAnalyticsWidget({ widget, onUpdate }: Props) {
             <div style={s.divider} />
             <div style={{ position: 'relative' as const }} ref={filtersRef}>
               <button
-                style={{ ...s.pill, ...(filtersOpen ? s.pillActive : {}), border: '1px solid #27272a', padding: '3px 8px' }}
+                style={{ ...s.pill, ...(filtersOpen ? s.pillActive : {}), border: '1px solid var(--color-zinc-800)', padding: '3px 8px' }}
                 onClick={() => setFiltersOpen(v => !v)}
               >
                 LM ({selectedLeadMagnets.length || 'All'}) ▾
@@ -970,7 +970,7 @@ export default function InDepthAnalyticsWidget({ widget, onUpdate }: Props) {
                       const val = getConversionRate(key, row)
                       return (
                         <td key={key} style={s.td}>
-                          <span style={{ ...s.metricVal, color: val === '—' ? '#3f3f46' : '#34d399' }}>
+                          <span style={{ ...s.metricVal, color: val === '—' ? 'var(--color-zinc-700)' : '#34d399' }}>
                             {val}
                           </span>
                         </td>
@@ -1009,7 +1009,7 @@ const s: Record<string, React.CSSProperties> = {
     display:       'flex',
     flexDirection: 'column',
     height:        '100%',
-    background:    '#141414',
+    background:    'var(--color-zinc-900)',
     overflow:      'hidden',
     fontFamily:    'inherit',
   },
@@ -1020,7 +1020,7 @@ const s: Record<string, React.CSSProperties> = {
     alignItems:   'center',
     gap:          4,
     padding:      '4px 8px',
-    borderBottom: '1px solid #1e1e1e',
+    borderBottom: '1px solid var(--color-zinc-800)',
     flexShrink:   0,
     overflowX:    'auto',
   },
@@ -1029,14 +1029,14 @@ const s: Record<string, React.CSSProperties> = {
     fontWeight:    800,
     textTransform: 'uppercase',
     letterSpacing: '0.1em',
-    color:         '#52525b',
+    color:         'var(--color-zinc-600)',
     flexShrink:    0,
     marginRight:   2,
   },
   divider: {
     width:      1,
     height:     12,
-    background: '#27272a',
+    background: 'var(--color-zinc-800)',
     flexShrink: 0,
     marginLeft: 2,
     marginRight:2,
@@ -1045,9 +1045,9 @@ const s: Record<string, React.CSSProperties> = {
     display:      'flex',
     gap:          2,
     padding:      2,
-    background:   '#0f0f0f',
+    background:   'var(--color-zinc-950)',
     borderRadius: 8,
-    border:       '1px solid #1e1e1e',
+    border:       '1px solid var(--color-zinc-800)',
   },
   pill: {
     background:    'transparent',
@@ -1058,7 +1058,7 @@ const s: Record<string, React.CSSProperties> = {
     fontWeight:    800,
     textTransform: 'uppercase' as const,
     letterSpacing: '0.05em',
-    color:         '#52525b',
+    color:         'var(--color-zinc-600)',
     cursor:        'pointer',
     transition:    'all 0.1s',
     flexShrink:    0,
@@ -1067,26 +1067,26 @@ const s: Record<string, React.CSSProperties> = {
     gap:           3,
   },
   pillActive: {
-    background: '#3f3f46',
-    color:      '#ffffff',
+    background: 'var(--color-zinc-700)',
+    color:      'var(--color-white)',
   },
   countBadge: {
     fontSize:      7,
     fontWeight:    900,
-    background:    '#27272a',
-    color:         '#71717a',
+    background:    'var(--color-zinc-800)',
+    color:         'var(--color-zinc-500)',
     borderRadius:  3,
     padding:       '1px 4px',
     lineHeight:    1,
   },
   select: {
-    background:    '#1c1c1c',
-    border:        '1px solid #27272a',
+    background:    'var(--color-zinc-900)',
+    border:        '1px solid var(--color-zinc-800)',
     borderRadius:  6,
     padding:       '3px 6px',
     fontSize:      8,
     fontWeight:    700,
-    color:         '#a1a1aa',
+    color:         'var(--color-zinc-400)',
     outline:       'none',
     cursor:        'pointer',
     textTransform: 'uppercase' as const,
@@ -1100,7 +1100,7 @@ const s: Record<string, React.CSSProperties> = {
     padding:       '3px 4px',
     fontSize:      9,
     fontWeight:    700,
-    color:         '#a1a1aa',
+    color:         'var(--color-zinc-400)',
     colorScheme:   'dark' as const,
   },
 
@@ -1120,8 +1120,8 @@ const s: Record<string, React.CSSProperties> = {
   th: {
     padding:         '5px 10px',
     textAlign:       'left',
-    background:      '#111',
-    borderBottom:    '1px solid #1e1e1e',
+    background:      'var(--color-zinc-900)',
+    borderBottom:    '1px solid var(--color-zinc-800)',
     position:        'sticky',
     top:             0,
     zIndex:          10,
@@ -1137,7 +1137,7 @@ const s: Record<string, React.CSSProperties> = {
     fontWeight:    900,
     textTransform: 'uppercase',
     letterSpacing: '0.1em',
-    color:         '#52525b',
+    color:         'var(--color-zinc-600)',
     display:       'flex',
     alignItems:    'center',
     whiteSpace:    'nowrap',
@@ -1145,7 +1145,7 @@ const s: Record<string, React.CSSProperties> = {
 
   // ── Table body ────────────────────────────────────────────────────────────
   tr: {
-    borderBottom: '1px solid #1a1a1a',
+    borderBottom: '1px solid var(--color-zinc-800)',
     transition:   'background 0.1s',
   },
   trInRange: {
@@ -1160,7 +1160,7 @@ const s: Record<string, React.CSSProperties> = {
   tdSticky: {
     position:   'sticky',
     left:       0,
-    background: '#141414',
+    background: 'var(--color-zinc-900)',
     zIndex:     5,
   },
   tdInRangeBg: {
@@ -1179,7 +1179,7 @@ const s: Record<string, React.CSSProperties> = {
     aspectRatio:  '16/9',
     objectFit:    'cover',
     borderRadius: 4,
-    border:       '1px solid #27272a',
+    border:       '1px solid var(--color-zinc-800)',
     flexShrink:   0,
     display:      'block',
   },
@@ -1190,7 +1190,7 @@ const s: Record<string, React.CSSProperties> = {
   contentTitle: {
     fontSize:     10,
     fontWeight:   700,
-    color:        '#d4d4d8',
+    color:        'var(--color-zinc-300)',
     overflow:     'hidden',
     textOverflow: 'ellipsis',
     whiteSpace:   'nowrap',
@@ -1202,7 +1202,7 @@ const s: Record<string, React.CSSProperties> = {
   contentSub: {
     fontSize:      8,
     fontWeight:    700,
-    color:         '#52525b',
+    color:         'var(--color-zinc-600)',
     textTransform: 'uppercase',
     letterSpacing: '0.08em',
     marginTop:     1,
@@ -1229,7 +1229,7 @@ const s: Record<string, React.CSSProperties> = {
   metricVal: {
     fontSize:           10,
     fontWeight:         700,
-    color:              '#a1a1aa',
+    color:              'var(--color-zinc-400)',
     fontVariantNumeric: 'tabular-nums',
     display:            'block',
   },
@@ -1238,16 +1238,16 @@ const s: Record<string, React.CSSProperties> = {
     fontWeight:    800,
     textTransform: 'uppercase',
     letterSpacing: '0.08em',
-    color:         '#3f3f46',
+    color:         'var(--color-zinc-700)',
     marginTop:     1,
   },
 
   // ── Nav button ────────────────────────────────────────────────────────────
   navBtn: {
     background:   'transparent',
-    border:       '1px solid #27272a',
+    border:       '1px solid var(--color-zinc-800)',
     borderRadius: 5,
-    color:        '#52525b',
+    color:        'var(--color-zinc-600)',
     fontSize:     11,
     cursor:       'pointer',
     padding:      '2px 5px',
@@ -1271,13 +1271,13 @@ const s: Record<string, React.CSSProperties> = {
     fontWeight:    700,
     textTransform: 'uppercase',
     letterSpacing: '0.1em',
-    color:         '#3f3f46',
+    color:         'var(--color-zinc-700)',
   },
   spinner: {
     width:        20,
     height:       20,
     borderRadius: '50%',
-    border:       '2px solid #27272a',
+    border:       '2px solid var(--color-zinc-800)',
     borderTop:    '2px solid #dc2626',
     animation:    'spin 0.7s linear infinite',
   },
@@ -1293,8 +1293,8 @@ const s: Record<string, React.CSSProperties> = {
     top:          'calc(100% + 4px)',
     left:         0,
     zIndex:       50,
-    background:   '#18181b',
-    border:       '1px solid #27272a',
+    background:   'var(--color-zinc-900)',
+    border:       '1px solid var(--color-zinc-800)',
     borderRadius: 8,
     overflow:     'hidden',
     boxShadow:    '0 8px 24px rgba(0,0,0,0.7)',
@@ -1305,8 +1305,8 @@ const s: Record<string, React.CSSProperties> = {
     fontWeight:    900,
     textTransform: 'uppercase',
     letterSpacing: '0.12em',
-    color:         '#52525b',
-    borderBottom:  '1px solid #27272a',
+    color:         'var(--color-zinc-600)',
+    borderBottom:  '1px solid var(--color-zinc-800)',
   },
   dropdownItem: {
     display:    'flex',
@@ -1319,14 +1319,14 @@ const s: Record<string, React.CSSProperties> = {
     padding:    '6px 10px',
     fontSize:   10,
     fontWeight: 600,
-    color:      '#71717a',
+    color:      'var(--color-zinc-500)',
     cursor:     'pointer',
     transition: 'all 0.1s',
     whiteSpace: 'nowrap',
   },
   dropdownItemActive: {
-    background: '#27272a',
-    color:      '#ffffff',
+    background: 'var(--color-zinc-800)',
+    color:      'var(--color-white)',
   },
   checkBox: {
     display:        'inline-flex',
@@ -1335,10 +1335,10 @@ const s: Record<string, React.CSSProperties> = {
     width:          12,
     height:         12,
     borderRadius:   3,
-    border:         '1px solid #3f3f46',
+    border:         '1px solid var(--color-zinc-700)',
     fontSize:       8,
     fontWeight:     900,
-    color:          '#ffffff',
+    color:          'var(--color-white)',
     flexShrink:     0,
   },
 }
