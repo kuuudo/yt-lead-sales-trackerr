@@ -228,22 +228,62 @@ function MultiPlatform() {
 
 
 /* ---------- 04 Share it ---------- */
+const SH_ROWS: { steps: [string, string][]; to: 0 | 1 }[] = [
+  { steps: [['YouTube', 'Video']], to: 0 },
+  { steps: [['TikTok', 'Video']], to: 0 },
+  { steps: [['TikTok', 'Short'], ['YouTube', 'Video']], to: 0 },
+  { steps: [['Instagram', 'Reel'], ['YouTube', 'Video 1'], ['YouTube', 'Video 2']], to: 0 },
+  { steps: [['Instagram', 'Post']], to: 1 },
+  { steps: [['TikTok', 'Video'], ['Instagram', 'Reel'], ['YouTube', 'Video 1'], ['YouTube', 'Video 2']], to: 1 },
+]
+const SH_X = 82, SH_PITCH = 98, SH_W = 84, SH_BOX = 508
+
 function TopAssets() {
-  const rows = [
-    ['Spring course landing page', 'Assigned · 2 users', '1,840', '96', '$9,120', true],
-    ['Launch day video', 'Assigned · 1 user', '1,120', '54', '$4,860', true],
-    ['Free consultation page', 'My asset', '640', '31', '$1,550', false],
-  ] as const
-  const grid: React.CSSProperties = { display: 'grid', gridTemplateColumns: '1fr 64px 56px 80px', gap: 8, alignItems: 'center' }
+  const boxes = [
+    { y: 28, h: 218, a: 'Direct purchase', b: 'page' },
+    { y: 254, h: 106, a: 'Sales page', b: '' },
+  ]
   return (
-    <Frame title="Top assets">
-      <div style={{ ...grid, ...mono(C.dim), padding: '4px 4px 6px' }}><span>Asset</span><span style={{ textAlign: 'right' }}>Clicks</span><span style={{ textAlign: 'right' }}>Conv.</span><span style={{ textAlign: 'right' }}>Revenue</span></div>
-      {rows.map((r) => (
-        <div key={r[0]} style={{ ...grid, padding: '10px 4px', borderTop: `1px solid ${C.line}`, fontSize: 14 }}>
-          <div><div>{r[0]}</div><div style={{ ...mono(r[5] ? C.blue : C.dim), letterSpacing: '0.06em' }}>{r[1]}</div></div>
-          <span style={{ textAlign: 'right' }}>{r[2]}</span><span style={{ textAlign: 'right' }}>{r[3]}</span><span style={{ textAlign: 'right', fontWeight: 700 }}>{r[4]}</span>
-        </div>
-      ))}
+    <Frame title="One asset, many marketers">
+      <svg viewBox="0 0 640 374" style={{ width: '100%', height: 'auto', display: 'block' }} role="img" aria-label="Six marketers each promote the same direct purchase page or sales page using different paths across YouTube, TikTok and Instagram, and every piece of content also promotes the page">
+        <T x={SH_X} y={14} fontSize={10} letterSpacing={1}>EACH MARKETER’S CONTENT</T>
+        <T x={SH_BOX} y={14} fontSize={10} letterSpacing={1}>YOUR ASSETS</T>
+        {boxes.map((bx) => {
+          const cy = bx.y + bx.h / 2
+          return (
+            <g key={bx.a}>
+              <rect x={SH_BOX} y={bx.y} width={126} height={bx.h} rx={12} fill={C.tint} stroke={C.purple} />
+              <T x={SH_BOX + 10} y={cy - 12} fill={C.lp} fontSize={10}>ASSET</T>
+              <text x={SH_BOX + 10} y={cy + 6} fontFamily={SANS} fontSize={13} fontWeight={700} fill={C.text}>{bx.a}</text>
+              {bx.b && <text x={SH_BOX + 10} y={cy + 22} fontFamily={SANS} fontSize={13} fontWeight={700} fill={C.text}>{bx.b}</text>}
+            </g>
+          )
+        })}
+        {SH_ROWS.map((r, i) => {
+          const y = 28 + i * 56, cy = y + 19, last = r.steps.length - 1
+          const cx = (k: number) => SH_X + k * SH_PITCH
+          return (
+            <g key={i}>
+              <T x={8} y={cy + 4} fontSize={10}>{`MARKETER ${i + 1}`}</T>
+              {r.steps.map(([p, n], k) => (
+                <g key={k}>
+                  <rect x={cx(k)} y={y} width={SH_W} height={38} rx={9} fill="#ffffff" stroke={C.tintStroke} />
+                  <T x={cx(k) + 8} y={y + 15} fill={p === 'YouTube' ? C.red : C.mut}>{p.toUpperCase()}</T>
+                  <text x={cx(k) + 8} y={y + 30} fontFamily={SANS} fontSize={12} fontWeight={600} fill={C.text}>{n}</text>
+                  {k < last && <Arrow x1={cx(k) + SH_W} x2={cx(k + 1)} y={cy} />}
+                </g>
+              ))}
+              <Arrow x1={cx(last) + SH_W} x2={SH_BOX} y={cy} />
+              {last > 0 && (
+                <g>
+                  <path d={`M${cx(0) + 42},${y + 46} L${SH_BOX},${y + 46}${r.steps.slice(0, last).map((_, k) => ` M${cx(k) + 42},${y + 38} L${cx(k) + 42},${y + 46}`).join('')}`} fill="none" stroke={C.purple} strokeWidth={1.4} strokeDasharray="4 4" opacity={0.7} />
+                  <path d={`M${SH_BOX - 4},${y + 42} L${SH_BOX},${y + 46} L${SH_BOX - 4},${y + 50}`} fill="none" stroke={C.purple} strokeWidth={1.4} strokeLinecap="round" opacity={0.7} />
+                </g>
+              )}
+            </g>
+          )
+        })}
+      </svg>
     </Frame>
   )
 }
@@ -632,8 +672,14 @@ export default function Website() {
           <p style={{ margin: '28px 0 0', maxWidth: 640, fontSize: 18, fontWeight: 700, lineHeight: 1.5, letterSpacing: '-0.01em' }}>Build freely. Connect easily. Test every path. Track the entire campaign.</p>
         </Section>
 
-        <div id="share"><Section label="04 / Share it" title={<>Turn anything into an asset.<br />See who sells it best.</>} sub="Share a video, page, or offer. Everyone who promotes it gets their own link, and you can rank them by revenue.">
+        <Section label="04 / Share it" title={<>Turn your links into assets.<br />Track everything they do.</>} sub="Turn your sales page, newsletter, consultation, or direct purchase link into an asset. Share it with marketers and track everything they do to promote it.">
+          <div style={{ display: 'grid', gap: 14, maxWidth: 640, marginBottom: 28, fontSize: 16, color: C.mut, lineHeight: 1.65 }}>
+            <p style={{ margin: 0 }}>Imagine you’re a sponsor with a product to promote. It has a direct purchase link and a sales page link. Turn those links into assets, then share them with 10 marketers.</p>
+            <p style={{ margin: 0 }}>Each marketer promotes your asset in their own way. One uses a YouTube video. Another starts on TikTok, moves to YouTube, and then sends people to your direct purchase page. Another builds a longer path across Instagram and several YouTube videos.</p>
+            <p style={{ margin: 0 }}>Every video and post along the way is already promoting your sales page or direct purchase page. You see all of it: every step, every click, every conversion.</p>
+          </div>
           <TopAssets />
+          <p style={{ margin: '28px 0 0', maxWidth: 640, fontSize: 18, fontWeight: 700, lineHeight: 1.5, letterSpacing: '-0.01em' }}>Your asset. Their content. Every result tracked.</p>
         </Section></div>
 
         <Section label="05 / Your domain" title={<>Your links. Your domain.<br />Even across brands.</>} sub="Put tracking links on your own domain. When a customer moves from one brand's domain to another, the journey keeps going.">
