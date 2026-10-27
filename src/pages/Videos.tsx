@@ -2814,7 +2814,7 @@ console.log(
 
   return (
     <div className="space-y-8">
-      <header className="flex justify-between items-center">
+      <header className="flex flex-col gap-4 sm:flex-row sm:justify-between sm:items-center">
         <div>
           <h1 className="text-3xl font-bold text-white flex items-center gap-3">
   <Youtube className="text-red-600" size={28} /> {t.videos.title}
@@ -2829,11 +2829,11 @@ console.log(
 </h1>
           <p className="text-zinc-500 text-[10px] uppercase tracking-widest mt-1">Manage your tracked content</p>
         </div>
-        <div className="flex items-center gap-3">
+        <div className="flex flex-wrap items-center gap-3">
           {!isReadOnly && (
           <button
             onClick={() => setShowImportWizard(true)}
-            className="flex items-center gap-2 border border-zinc-700 hover:border-zinc-500 text-zinc-400 hover:text-zinc-200 px-4 py-2.5 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all"
+            className="flex flex-1 sm:flex-none justify-center items-center gap-2 border border-zinc-700 hover:border-zinc-500 text-zinc-400 hover:text-zinc-200 px-4 py-2.5 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all"
           >
             <Upload size={14} />
             Import YouTube Analytics
@@ -2858,7 +2858,7 @@ console.log(
               setShowAdd(!showAdd);
             }} 
             data-tutorial-id="videos-track-new"
-            className="flex items-center gap-2 bg-white hover:bg-zinc-200 text-zinc-950 px-5 py-2.5 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all"
+            className="flex flex-1 sm:flex-none justify-center items-center gap-2 whitespace-nowrap bg-white hover:bg-zinc-200 text-zinc-950 px-5 py-2.5 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all"
           >
             {showAdd ? 'Cancel' : <><Plus size={16} /> {t.videos.add}</>}
           </button>

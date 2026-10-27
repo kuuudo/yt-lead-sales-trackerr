@@ -342,7 +342,7 @@ export default function Campaigns() {
 
   return (
     <div className="space-y-8">
-      <header className="flex justify-between items-center">
+      <header className="flex flex-col gap-4 sm:flex-row sm:justify-between sm:items-center">
         <div>
           <h1 className="text-3xl font-bold text-white flex items-center gap-3">
             <Briefcase className="text-red-600" size={28} /> {t.campaigns.title}
@@ -356,10 +356,10 @@ export default function Campaigns() {
           </h1>
           <p className="text-zinc-500 text-[10px] uppercase tracking-widest mt-1">Configure your revenue engine</p>
         </div>
-        <div className="flex items-center gap-3">
+        <div className="flex flex-wrap items-center gap-3">
           <button
             onClick={openArchivedModal}
-            className="flex items-center gap-2 bg-zinc-900 hover:bg-zinc-800 border border-zinc-800 text-zinc-300 px-5 py-2.5 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all"
+            className="flex flex-1 sm:flex-none justify-center items-center gap-2 whitespace-nowrap bg-zinc-900 hover:bg-zinc-800 border border-zinc-800 text-zinc-300 px-5 py-2.5 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all"
           >
             <EyeOff size={14} /> Hidden{level2Campaigns.length > 0 ? ` (${level2Campaigns.length})` : ''}
           </button>
@@ -369,7 +369,7 @@ export default function Campaigns() {
               localStorage.setItem('campaign_form_return', location.pathname);
               setShowAdd(!showAdd);
             }}
-            className="flex items-center gap-2 bg-white hover:bg-zinc-200 text-zinc-950 px-5 py-2.5 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all"
+            className="flex flex-1 sm:flex-none justify-center items-center gap-2 whitespace-nowrap bg-white hover:bg-zinc-200 text-zinc-950 px-5 py-2.5 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all"
           >
             {showAdd ? <><X size={14} /> Close</> : <><Plus size={16} /> {t.campaigns.create}</>}
           </button>

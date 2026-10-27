@@ -540,7 +540,7 @@ export default function Marketplace() {
 
   return (
     <div className="min-h-screen bg-zinc-950 text-zinc-100">
-      <div className="max-w-5xl mx-auto px-6 py-10">
+      <div className="max-w-5xl mx-auto px-4 sm:px-6 py-10">
         <div className="flex items-center justify-between mb-1">
   <div className="flex items-center gap-3">
     <span className="w-2 h-2 rounded-full bg-red-600" />
@@ -564,20 +564,27 @@ export default function Marketplace() {
         </div>
 
      
-        <div className="flex gap-2 mb-8 border-b border-zinc-800">
+        <div className="flex gap-1 sm:gap-2 mb-8 border-b border-zinc-800 overflow-x-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
           {TABS.map(({ key, label, icon: Icon }) => (
             <button
               key={key}
               onClick={() => setTab(key)}
               data-tutorial-id={key === 'invitations' ? 'marketplace-invitations-tab' : undefined}
-              className={`flex items-center gap-2 px-4 py-3 text-xs font-bold uppercase tracking-wider transition-colors border-b-2 -mb-px ${
+              className={`flex flex-shrink-0 items-center gap-2 whitespace-nowrap px-2.5 sm:px-4 py-3 text-[10px] sm:text-xs font-bold uppercase tracking-wide sm:tracking-wider transition-colors border-b-2 -mb-px ${
                 tab === key
                   ? 'text-white border-red-600'
                   : 'text-zinc-500 border-transparent hover:text-zinc-300'
               }`}
             >
-              <Icon size={14} />
-              {label}
+              <Icon size={14} className="hidden sm:block" />
+              {key === 'promotions' ? (
+                <>
+                  <span className="sm:hidden">Promotions</span>
+                  <span className="hidden sm:inline">{label}</span>
+                </>
+              ) : (
+                label
+              )}
             </button>
           ))}
         </div>
