@@ -727,6 +727,14 @@ const [showCampaignLinkConfigModal, setShowCampaignLinkConfigModal] = useState(f
   const [eligiblePromotions, setEligiblePromotions] = useState<EligiblePromotion[]>([]);
   const [creativeEligibleAssignments, setCreativeEligibleAssignments] = useState<CreativeEligibleAssignment[]>([]);
   const [selectedCreativeAssignmentId, setSelectedCreativeAssignmentId] = useState<string | null>(null);
+  // C1: entry from PromotionJourneyMap (?trackPromotionId=&fromJourneyMap=1)
+  const [lockedFromJourneyMap, setLockedFromJourneyMap] = useState(false);
+  const [returnJourneyPromotionId, setReturnJourneyPromotionId] = useState<string | null>(null);
+  const [pendingTrackPromotionId, setPendingTrackPromotionId] = useState<string | null>(null);
+  const [pendingTrackAssignmentId, setPendingTrackAssignmentId] = useState<string | null>(null);
+  const [journeyMapPreselectDone, setJourneyMapPreselectDone] = useState(false);
+  const [journeyMapPreselectError, setJourneyMapPreselectError] = useState<string | null>(null);
+  const [eligibilityLoaded, setEligibilityLoaded] = useState(false);
   /** Max asset ids allowed under Creative promotion_only (auto-loaded set). */
   const [creativeScopeAssetIds, setCreativeScopeAssetIds] = useState<string[] | null>(null);
   const [showCreativeAssetDeselect, setShowCreativeAssetDeselect] = useState(false);
@@ -1196,6 +1204,28 @@ const [showCampaignLinkConfigModal, setShowCampaignLinkConfigModal] = useState(f
       setSearchParams(prev => { prev.delete('openImport'); return prev; }, { replace: true });
     }
   }, [searchParams, setSearchParams]);
+
+  // C1: capture JourneyMap deep-link once, then strip params
+  useEffect(() => {
+    const fromJm = searchParams.get('fromJourneyMap') === '1';
+    const promoId = searchParams.get('trackPromotionId');
+    const assignId = searchParams.get('trackAssignmentId');
+    if (!fromJm && !promoId && !assignId) return;
+    if (fromJm && promoId) {
+      setLockedFromJourneyMap(true);
+      setReturnJourneyPromotionId(promoId);
+      setPendingTrackPromotionId(promoId);
+      setPendingTrackAssignmentId(assignId || null);
+      setJourneyMapPreselectDone(false);
+      setJourneyMapPreselectError(null);
+    }
+    setSearchParams(prev => {
+      prev.delete('fromJourneyMap');
+      prev.delete('trackPromotionId');
+      prev.delete('trackAssignmentId');
+      return prev;
+    }, { replace: true });
+  }, [searchParams, setSearchParams]);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [copied, setCopied] = useState<string | null>(null);
@@ -1597,6 +1627,87 @@ const [showCampaignLinkConfigModal, setShowCampaignLinkConfigModal] = useState(f
     }
   };
 
+  // C1: after eligibility loads, preselect the JourneyMap promotion/assignment once.
+  // Form opens only on success; miss shows an error + return link (no unlocked form).
+  useEffect(() => {
+    if (!lockedFromJourneyMap) return;
+    if (journeyMapPreselectDone || journeyMapPreselectError) return;
+    if (!eligibilityLoaded) return;
+    if (isReadOnly) {
+      setJourneyMapPreselectError('Tracking is read-only in this view.');
+      return;
+    }
+
+    let cancelled = false;
+    (async () => {
+      try {
+        const assignId = pendingTrackAssignmentId;
+        const promoId = pendingTrackPromotionId;
+
+        if (assignId) {
+          const assign = creativeEligibleAssignments.find(a => a.assignmentId === assignId);
+          if (assign) {
+            await handleCreativeAssignmentPick(assignId);
+            if (cancelled) return;
+            setJourneyMapPreselectDone(true);
+            setShowAdd(true);
+            return;
+          }
+        }
+
+        if (promoId) {
+          const promo = eligiblePromotions.find(p => p.promotionId === promoId);
+          if (promo) {
+            await handlePromotionPick(promoId);
+            if (cancelled) return;
+            setJourneyMapPreselectDone(true);
+            setShowAdd(true);
+            return;
+          }
+          const viaAssign = creativeEligibleAssignments.find(a =>
+            eligiblePromotions.some(
+              p => p.promotionId === promoId && p.assignmentId === a.assignmentId
+            )
+          );
+          if (viaAssign) {
+            await handleCreativeAssignmentPick(viaAssign.assignmentId);
+            if (cancelled) return;
+            setJourneyMapPreselectDone(true);
+            setShowAdd(true);
+            return;
+          }
+        }
+
+        if (!cancelled) {
+          setJourneyMapPreselectError(
+            'This promotion is not available for tracking under your account.'
+          );
+        }
+      } catch (e: any) {
+        if (!cancelled) {
+          setJourneyMapPreselectError(
+            e?.message || 'Could not load the promotion from the journey map.'
+          );
+        }
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [
+    lockedFromJourneyMap,
+    journeyMapPreselectDone,
+    journeyMapPreselectError,
+    eligibilityLoaded,
+    isReadOnly,
+    pendingTrackPromotionId,
+    pendingTrackAssignmentId,
+    eligiblePromotions,
+    creativeEligibleAssignments,
+  ]);
+
 
   const [modalConfig, setModalConfig] = useState<{
     isOpen: boolean;
@@ -1770,9 +1881,12 @@ const [showCampaignLinkConfigModal, setShowCampaignLinkConfigModal] = useState(f
     if (!user?.id || isReadOnly) {
       setCreativeEligibleCampaigns([]);
       setEligiblePromotions([]);
+      setCreativeEligibleAssignments([]);
+      setEligibilityLoaded(true);
       return;
     }
     let cancelled = false;
+    setEligibilityLoaded(false);
     Promise.all([
       listEligiblePromotionsForMarketer(user.id),
       listCreativeEligibleCampaignsForMarketer(user.id),
@@ -1783,6 +1897,7 @@ const [showCampaignLinkConfigModal, setShowCampaignLinkConfigModal] = useState(f
         setEligiblePromotions(promos);
         setCreativeEligibleCampaigns(camps);
         setCreativeEligibleAssignments(assigns);
+        setEligibilityLoaded(true);
       })
       .catch(err => {
         console.error('[Videos] promotion eligibility failed', err);
@@ -1790,6 +1905,7 @@ const [showCampaignLinkConfigModal, setShowCampaignLinkConfigModal] = useState(f
           setEligiblePromotions([]);
           setCreativeEligibleCampaigns([]);
           setCreativeEligibleAssignments([]);
+          setEligibilityLoaded(true);
         }
       });
     return () => { cancelled = true; };
@@ -2866,6 +2982,30 @@ console.log(
         </div>
       </header>
 
+      {lockedFromJourneyMap && journeyMapPreselectError && (
+        <div className="mb-6 rounded-xl border border-red-900/50 bg-red-950/30 p-4 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+          <p className="text-red-300 text-xs font-bold uppercase tracking-widest">
+            {journeyMapPreselectError}
+          </p>
+          {returnJourneyPromotionId && (
+            <button
+              type="button"
+              onClick={() => navigate(`/marketplace/promotions/${returnJourneyPromotionId}/journey`)}
+              className="shrink-0 text-[10px] font-black uppercase tracking-widest text-red-400 hover:text-red-300 underline"
+            >
+              Back to Journey Map
+            </button>
+          )}
+        </div>
+      )}
+
+      {lockedFromJourneyMap && !journeyMapPreselectDone && !journeyMapPreselectError && (
+        <div className="mb-6 flex items-center gap-2 text-zinc-500 text-xs font-bold uppercase tracking-widest">
+          <Loader2 size={14} className="animate-spin" />
+          Loading promotion from journey map…
+        </div>
+      )}
+
       <AnimatePresence>
         {showAdd && (
           <motion.section 
@@ -2874,13 +3014,22 @@ console.log(
             exit={{ opacity: 0, scale: 0.95 }}
             className="bento-card border-zinc-800"
           >
-            <div className="flex justify-between items-center mb-6">
+            <div className="flex justify-between items-center mb-6 gap-3 flex-wrap">
               <h2 className="text-xl font-black text-white uppercase tracking-tight">
                 {editingVideoId ? 'Edit Tracked Video' : 'Track New Content'}
               </h2>
+              {lockedFromJourneyMap && returnJourneyPromotionId && (
+                <button
+                  type="button"
+                  onClick={() => navigate(`/marketplace/promotions/${returnJourneyPromotionId}/journey`)}
+                  className="text-[10px] font-black uppercase tracking-widest text-zinc-400 hover:text-white transition-colors"
+                >
+                  ← Back to Journey Map
+                </button>
+              )}
             </div>
 
-            {campaigns.length === 0 ? (
+            {campaigns.length === 0 && !lockedFromJourneyMap ? (
               <div className="text-center py-10">
                 <p className="text-zinc-500 text-xs font-bold uppercase tracking-widest mb-4">No campaigns created yet</p>
                 <a href="/campaigns" className="text-red-500 text-[10px] uppercase font-bold underline">Create a campaign first</a>
@@ -3051,9 +3200,11 @@ console.log(
                               : (selectedCreativePromotionId ?? '')
                           }
                           onChange={e => {
+                            if (lockedFromJourneyMap) return;
                             handlePromotionPick(e.target.value).catch(console.error);
                           }}
-                          className="w-full bg-zinc-950 border border-zinc-900 rounded-xl p-3 text-[11px] font-bold uppercase outline-none focus:border-red-600 appearance-none"
+                          disabled={lockedFromJourneyMap}
+                          className="w-full bg-zinc-950 border border-zinc-900 rounded-xl p-3 text-[11px] font-bold uppercase outline-none focus:border-red-600 appearance-none disabled:opacity-60 disabled:cursor-not-allowed"
                         >
                           <option value="">Select a promotion (optional)</option>
                           {creativeEligibleAssignments.length > 0 && (
@@ -4773,12 +4924,26 @@ setEditingVideoId(v.id);
               )}
             </div>
 
-            <button
-              onClick={() => setShowLinksModal(false)}
-              className="w-full h-10 bg-zinc-800 hover:bg-zinc-700 text-white rounded-xl text-[10px] font-black uppercase tracking-widest transition-all"
-            >
-              Done
-            </button>
+            <div className="flex flex-col gap-2">
+              {lockedFromJourneyMap && returnJourneyPromotionId && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setShowLinksModal(false);
+                    navigate(`/marketplace/promotions/${returnJourneyPromotionId}/journey`);
+                  }}
+                  className="w-full h-10 bg-red-600 hover:bg-red-500 text-white rounded-xl text-[10px] font-black uppercase tracking-widest transition-all"
+                >
+                  Back to Journey Map
+                </button>
+              )}
+              <button
+                onClick={() => setShowLinksModal(false)}
+                className="w-full h-10 bg-zinc-800 hover:bg-zinc-700 text-white rounded-xl text-[10px] font-black uppercase tracking-widest transition-all"
+              >
+                Done
+              </button>
+            </div>
           </motion.div>
         </div>
       )}

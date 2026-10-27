@@ -2334,7 +2334,17 @@ const creativeIds = new Set(
           type="button"
           onClick={() => {
             setHasClickedTrackNewContent(true)
-            openTrackModal()
+            if (!promotionId) return
+            const assignmentId =
+              (promotionDetail as any)?.assignment?.id ||
+              (promotionDetail as any)?.promotion?.assignment_id ||
+              ''
+            const qs = new URLSearchParams({
+              trackPromotionId: promotionId,
+              fromJourneyMap: '1',
+            })
+            if (assignmentId) qs.set('trackAssignmentId', String(assignmentId))
+            navigate(`/videos?${qs.toString()}`)
           }}
           style={styles.trackBtn}
           title="Track new content for this promotion"
