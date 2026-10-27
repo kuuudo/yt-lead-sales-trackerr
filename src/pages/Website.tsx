@@ -120,12 +120,12 @@ function HeroJourney() {
 }
 
 /* ---------- 01 Link it ---------- */
-function LibraryRow({ title, meta }: { title: string; meta: string }) {
+function LibraryRow({ platform, color, title, meta }: { platform: string; color: string; title: string; meta: string }) {
   return (
     <div style={{ display: 'flex', alignItems: 'center', gap: 12, padding: 10, border: `1px solid ${C.line}`, borderRadius: 12, background: '#faf9fc' }}>
       <div style={{ width: 64, height: 40, borderRadius: 6, background: C.line, flex: 'none' }} />
       <div style={{ flex: 1, minWidth: 0 }}>
-        <div style={{ fontSize: 14 }}><span style={{ color: C.red, fontWeight: 600 }}>YouTube</span> · {title}</div>
+        <div style={{ fontSize: 14 }}><span style={{ color, fontWeight: 600 }}>{platform}</span> · {title}</div>
         <div style={{ ...mono(C.dim), letterSpacing: '0.06em', marginTop: 3 }}>{meta}</div>
       </div>
       <span style={{ ...mono(C.text), border: `1.5px solid ${C.tintStroke}`, padding: '6px 12px', borderRadius: 8, background: '#fff' }}>Link</span>
@@ -584,11 +584,14 @@ export default function Website() {
           <div style={{ flex: '1 1 440px', minWidth: 0 }}><HeroJourney /></div>
         </div>
 
-        <div id="link"><Section label="01 / Link it" title={<>Add any video or post.<br />Get a tracking link.</>} sub="Paste a link and it shows up in your content library, ready to track.">
+        <div id="link"><Section label="01 / Link it" title={<>Add any video or post.<br />Get a tracking link.</>} sub="Paste your content URL. We add the tracking magic and give you a tracking link. Paste it into your content description, and you’re done. It’s that easy to learn, that easy to use, and now you can track what happens next.">
           <Frame title="Content library" example={false}>
             <div style={{ display: 'grid', gap: 8 }}>
-              <LibraryRow title="Your video title goes here" meta="My asset · Goal: direct sales" />
-              <LibraryRow title="Another video title" meta="Shared asset x3 · Goal: direct sales" />
+              <LibraryRow platform="YouTube" color={C.red} title="Your video title goes here" meta="Goal: direct sales" />
+              <LibraryRow platform="LinkedIn" color="#0a66c2" title="Your post title goes here" meta="Goal: consultations" />
+              <LibraryRow platform="Instagram" color="#c13584" title="Your Reel caption goes here" meta="Goal: leads" />
+              <LibraryRow platform="Threads" color={C.text} title="Your thread goes here" meta="Goal: newsletter signups" />
+              <LibraryRow platform="Reddit" color="#d93a00" title="Your post title goes here" meta="Goal: sales calls" />
             </div>
           </Frame>
         </Section></div>
