@@ -26,6 +26,7 @@ import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { BarChart3, ChevronDown, ChevronLeft, Check, Filter, Loader2, Megaphone, X } from 'lucide-react';
 
 import { useAuth } from '../../lib/auth';
+import { supabase } from '../../lib/supabase';
 import { useViewing } from '../../lib/ViewingContext';
 import { useOrganization } from '../../lib/useOrganization';
 import { journeyAnalyticsPageCache } from '../../lib/journeyAnalyticsPageCache';
@@ -68,7 +69,15 @@ import {
   routeRevenueDisplay,
   useRouteRevenueMetrics,
 } from './useRouteRevenueMetrics';
-import JourneyStrip from './JourneyStrip';
+import JourneyStrip, {
+  type CampaignElementNode,
+  type AssetScopeTag,
+  campaignElementNodeLabel,
+} from './JourneyStrip';
+import {
+  resolveStructuralLinksForVideos,
+  type StructuralLink,
+} from '../../services/journey/journeyDownstreamResolver';
 import {
   flowConnectorLabels,
   useJourneyFlowCounts,
@@ -82,6 +91,26 @@ import {
 export const JOURNEY_PAGE_SIZE = 15;
 const EMPTY_DISPLAY: JourneyDataset['videoDisplay'] = new Map();
 const EMPTY_JOURNEYS: JourneyDataset['journeys'] = [];
+
+
+/** Same mapping JourneyAnalytics uses for promoted type cells / element nodes. */
+function elementTypeToWebmood(elementType: string | null | undefined): string | null {
+  if (!elementType) return null;
+  const t = elementType.toLowerCase();
+  if (t === 'sales_call' || t === 'sales') return 'sales_call';
+  if (t === 'consultation' || t === 'consult') return 'consultation';
+  if (t === 'newsletter' || t === 'news') return 'newsletter';
+  if (
+    t === 'landing_page' ||
+    t === 'landing' ||
+    t === 'purchase' ||
+    t === 'direct_purchase'
+  )
+    return 'landing_page';
+  return null;
+}
+
+const ELEMENT_DISCOVERY_BATCH = 50;
 
 
 type RouteMetaLabels = Pick<
@@ -393,6 +422,11 @@ const [sheetOpen, setSheetOpen] = useState(false);
   const [showAnalytics, setShowAnalytics] = useState(false);
   /** Independent of showAnalytics. */
   const [showFlow, setShowFlow] = useState(false);
+  /** Presentation-only: show/hide campaign element nodes under video tiles. */
+  const [showCampaignElements, setShowCampaignElements] = useState(true);
+  const [elementNodesByVideo, setElementNodesByVideo] = useState<
+    Map<string, CampaignElementNode[]>
+  >(new Map());
   /** UI-only sort of filtered routes; does not change grouping or filtering. */
   const [routeSortMode, setRouteSortMode] = useState<RouteSortMode>('longest_first');
   /** Header-click sort on a metric column. null = off. */
@@ -402,6 +436,148 @@ const [sheetOpen, setSheetOpen] = useState(false);
 
   const journeys = dataset?.journeys ?? EMPTY_JOURNEYS;
   const display = dataset?.videoDisplay ?? EMPTY_DISPLAY;
+
+  // Presentation-only element nodes (same rules as Journey Analytics). Isolated reads.
+  useEffect(() => {
+    if (!armed || loading || !effectiveOrgId) {
+      setElementNodesByVideo(new Map());
+      return;
+    }
+    const videoIds = Array.from(display.keys());
+    if (videoIds.length === 0) {
+      setElementNodesByVideo(new Map());
+      return;
+    }
+    let cancelled = false;
+    const organizationId = effectiveOrgId;
+    (async () => {
+      try {
+        const allLinks: StructuralLink[] = [];
+        for (let i = 0; i < videoIds.length; i += ELEMENT_DISCOVERY_BATCH) {
+          const slice = videoIds.slice(i, i + ELEMENT_DISCOVERY_BATCH);
+          const links = await resolveStructuralLinksForVideos(slice).catch(() => [] as StructuralLink[]);
+          allLinks.push(...links);
+        }
+        if (cancelled) return;
+
+        const usable = allLinks.filter((l) => l.resolution !== 'legacy' && l.elementType);
+        const linkIds = Array.from(new Set(usable.map((l) => l.redirectLinkId).filter(Boolean)));
+        const assetIdByLinkId = new Map<string, string>();
+        const CHUNK = 80;
+        for (let i = 0; i < linkIds.length; i += CHUNK) {
+          const slice = linkIds.slice(i, i + CHUNK);
+          try {
+            const { data, error } = await supabase
+              .from('redirect_links')
+              .select('id, asset_id')
+              .in('id', slice);
+            if (error || cancelled) continue;
+            for (const row of (data ?? []) as { id: string; asset_id: string | null }[]) {
+              if (row.asset_id) assetIdByLinkId.set(row.id, row.asset_id);
+            }
+          } catch {
+            /* isolated */
+          }
+        }
+        if (cancelled) return;
+
+        const assetIds = Array.from(new Set(assetIdByLinkId.values()));
+        const orgByAssetId = new Map<string, string | null>();
+        for (let i = 0; i < assetIds.length; i += CHUNK) {
+          const slice = assetIds.slice(i, i + CHUNK);
+          try {
+            const { data, error } = await supabase
+              .from('assets')
+              .select('id, organization_id')
+              .in('id', slice);
+            if (error || cancelled) continue;
+            for (const a of (data ?? []) as { id: string; organization_id: string | null }[]) {
+              orgByAssetId.set(a.id, a.organization_id ?? null);
+            }
+          } catch {
+            /* isolated */
+          }
+        }
+        if (cancelled) return;
+
+        const foreignOrgIds = Array.from(
+          new Set(
+            Array.from(orgByAssetId.values()).filter(
+              (oid): oid is string => !!oid && oid !== organizationId,
+            ),
+          ),
+        );
+        const orgNameById = new Map<string, string>();
+        for (let i = 0; i < foreignOrgIds.length; i += CHUNK) {
+          const slice = foreignOrgIds.slice(i, i + CHUNK);
+          try {
+            const { data, error } = await supabase
+              .from('organizations')
+              .select('id, name')
+              .in('id', slice);
+            if (error || cancelled) {
+              const { data: data2 } = await supabase
+                .from('organizations')
+                .select('id, organization_name')
+                .in('id', slice);
+              for (const o of (data2 ?? []) as { id: string; organization_name?: string | null }[]) {
+                const n = (o.organization_name ?? '').trim();
+                if (n) orgNameById.set(o.id, n);
+              }
+              continue;
+            }
+            for (const o of (data ?? []) as { id: string; name?: string | null }[]) {
+              const n = (o.name ?? '').trim();
+              if (n) orgNameById.set(o.id, n);
+            }
+          } catch {
+            /* isolated */
+          }
+        }
+        if (cancelled) return;
+
+        const byVideo = new Map<string, CampaignElementNode[]>();
+        const seenKey = new Set<string>();
+        for (const link of usable) {
+          const webmood = elementTypeToWebmood(link.elementType) ?? link.elementType;
+          if (!webmood) continue;
+          const dedupe = `${link.videoId}::${webmood}`;
+          if (seenKey.has(dedupe)) continue;
+          seenKey.add(dedupe);
+
+          const assetId = assetIdByLinkId.get(link.redirectLinkId);
+          const assetOrg = assetId ? orgByAssetId.get(assetId) : undefined;
+          let assetScope: AssetScopeTag | null = null;
+          let ownerLabel: string | null = null;
+          if (assetOrg != null && organizationId) {
+            assetScope = assetOrg === organizationId ? 'my' : 'shared';
+            if (assetScope === 'shared') {
+              ownerLabel = orgNameById.get(assetOrg) ?? null;
+            }
+          }
+
+          const node: CampaignElementNode = {
+            id: link.redirectLinkId || dedupe,
+            elementType: webmood,
+            label: campaignElementNodeLabel(webmood),
+            assetScope,
+            ownerLabel,
+          };
+          const list = byVideo.get(link.videoId) ?? [];
+          list.push(node);
+          byVideo.set(link.videoId, list);
+        }
+        if (!cancelled) setElementNodesByVideo(byVideo);
+      } catch (e) {
+        console.warn('[PartnerJourneySection] element nodes (presentation-only) failed', e);
+        if (!cancelled) setElementNodesByVideo(new Map());
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [armed, loading, effectiveOrgId, display]);
+
 
   const loadedPromotionIds = useMemo(() => {
     const ids = new Set<string>();
@@ -1079,6 +1255,19 @@ className={`${embedded ? 'relative w-full flex mt-4 min-h-[480px]' : 'relative l
             {showFlow ? labels.hideFlow : labels.showFlow}
           </button>
 
+          <button
+            type="button"
+            onClick={() => setShowCampaignElements((v) => !v)}
+            title="Show campaign element destinations under each video (presentation only)"
+            className={`h-9 px-3 rounded-xl border text-[9px] font-black uppercase tracking-widest ${
+              showCampaignElements
+                ? 'bg-zinc-700 border-zinc-600 text-white'
+                : 'bg-zinc-900 border-zinc-800 text-zinc-400 hover:text-white'
+            }`}
+          >
+            {showCampaignElements ? 'Hide Elements' : 'Show Elements'}
+          </button>
+
           <div className="flex items-center gap-1 p-1 bg-zinc-900 border border-zinc-800 rounded-xl">
             <button
               type="button"
@@ -1349,6 +1538,7 @@ className={`${embedded ? 'relative w-full flex mt-4 min-h-[480px]' : 'relative l
                           onSelectVideo={(id: string) => setSelectedVideoId((p) => (p === id ? null : id))}
                           showContentOwner={showOwner}
                           connectorLabels={connectorsFor(j)}
+                          elementNodesByVideo={showCampaignElements ? elementNodesByVideo : undefined}
                         />
                       </td>
                       <td className="px-4 py-3 whitespace-nowrap">
@@ -1396,6 +1586,7 @@ className={`${embedded ? 'relative w-full flex mt-4 min-h-[480px]' : 'relative l
                   onSelectVideo={(id: string) => setSelectedVideoId((p) => (p === id ? null : id))}
                   showContentOwner={showOwner}
                   connectorLabels={connectorsFor(j)}
+                  elementNodesByVideo={showCampaignElements ? elementNodesByVideo : undefined}
                 />
               </div>
             ))}

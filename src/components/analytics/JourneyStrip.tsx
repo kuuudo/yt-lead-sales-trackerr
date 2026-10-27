@@ -35,6 +35,8 @@ export type CampaignElementNode = {
   label: string;
   /** MY / SHARED when asset org is known; omit badge when unknown. */
   assetScope?: AssetScopeTag | null;
+  /** For shared elements: owner org/display name (e.g. "Webmood"). */
+  ownerLabel?: string | null;
 };
 
 export type JourneyEndKey = 'sales_call' | 'purchase' | 'consultation' | 'newsletter' | 'other';
@@ -163,10 +165,18 @@ function Arrow({ label }: { label?: JourneyConnectorLabel }) {
 
 function ElementNodeCard({ node }: { node: CampaignElementNode }) {
   const scopeStyle = node.assetScope ? ASSET_SCOPE_STYLE[node.assetScope] : null;
+  const ownerLine =
+    node.assetScope === 'shared' && node.ownerLabel
+      ? node.ownerLabel
+      : null;
+  const titleBits = [
+    `Linked campaign element · ${node.label}`,
+    ownerLine ? `Owner: ${ownerLine}` : null,
+  ].filter(Boolean);
   return (
     <div
       className="w-full rounded-md border border-dashed border-zinc-600 bg-zinc-950/90 px-1.5 py-1"
-      title={`Linked campaign element · ${node.label}`}
+      title={titleBits.join(' · ')}
       // Not clickable — presentation only; must not trigger video selection.
       onClick={(e) => e.stopPropagation()}
     >
@@ -185,6 +195,14 @@ function ElementNodeCard({ node }: { node: CampaignElementNode }) {
           </span>
         )}
       </div>
+      {ownerLine && (
+        <div
+          className="mt-0.5 text-[7px] font-bold text-violet-300/90 truncate leading-tight"
+          title={ownerLine}
+        >
+          {ownerLine}
+        </div>
+      )}
     </div>
   );
 }

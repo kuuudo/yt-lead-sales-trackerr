@@ -881,6 +881,8 @@ export default function JourneyAnalytics() {
   const [showContentOwner, setShowContentOwner] = useState(false);
   /** Independent of showAnalytics: counts between adjacent videos (see useJourneyFlowCounts). */
   const [showJourneyFlow, setShowJourneyFlow] = useState(false);
+  /** Presentation-only: show/hide campaign element nodes under video tiles. */
+  const [showCampaignElements, setShowCampaignElements] = useState(true);
   /** UI-only sort of filtered route rows; does not mutate grouping source data. */
   const [routeSortMode, setRouteSortMode] = useState<RouteSortMode>('longest_first');
 const [colSort, setColSort] = useState<{ key: (typeof TABLE_COLUMNS)[number]; dir: 'asc' | 'desc' } | null>(null);
@@ -1090,6 +1092,44 @@ console.log('[DIAG membership]', {
         }
         if (cancelled) return;
 
+        // Owner display names for shared elements (org name). Isolated; ignore failures.
+        const foreignOrgIds = Array.from(
+          new Set(
+            Array.from(orgByAssetId.values()).filter(
+              (oid): oid is string => !!oid && oid !== organizationId,
+            ),
+          ),
+        );
+        const orgNameById = new Map<string, string>();
+        for (let i = 0; i < foreignOrgIds.length; i += CHUNK) {
+          const slice = foreignOrgIds.slice(i, i + CHUNK);
+          try {
+            const { data, error } = await supabase
+              .from('organizations')
+              .select('id, name')
+              .in('id', slice);
+            if (error || cancelled) {
+              // Fallback column names some installs use
+              const { data: data2 } = await supabase
+                .from('organizations')
+                .select('id, organization_name')
+                .in('id', slice);
+              for (const o of (data2 ?? []) as { id: string; organization_name?: string | null }[]) {
+                const n = (o.organization_name ?? '').trim();
+                if (n) orgNameById.set(o.id, n);
+              }
+              continue;
+            }
+            for (const o of (data ?? []) as { id: string; name?: string | null }[]) {
+              const n = (o.name ?? '').trim();
+              if (n) orgNameById.set(o.id, n);
+            }
+          } catch {
+            /* isolated */
+          }
+        }
+        if (cancelled) return;
+
         // One node per (video, normalized element type); prefer first non-legacy link.
         const byVideo = new Map<string, CampaignElementNode[]>();
         const seenKey = new Set<string>();
@@ -1103,8 +1143,12 @@ console.log('[DIAG membership]', {
           const assetId = assetIdByLinkId.get(link.redirectLinkId);
           const assetOrg = assetId ? orgByAssetId.get(assetId) : undefined;
           let assetScope: AssetScopeTag | null = null;
+          let ownerLabel: string | null = null;
           if (assetOrg != null && organizationId) {
             assetScope = assetOrg === organizationId ? 'my' : 'shared';
+            if (assetScope === 'shared') {
+              ownerLabel = orgNameById.get(assetOrg) ?? null;
+            }
           }
 
           const node: CampaignElementNode = {
@@ -1112,6 +1156,7 @@ console.log('[DIAG membership]', {
             elementType: webmood,
             label: campaignElementNodeLabel(webmood),
             assetScope,
+            ownerLabel,
           };
           const list = byVideo.get(link.videoId) ?? [];
           list.push(node);
@@ -1915,7 +1960,7 @@ const showMoreBar =
       connectorLabels={
         showJourneyFlow ? flowConnectorLabels(j, flowCounts, flowLoading) : undefined
       }
-      elementNodesByVideo={elementNodesByVideo}
+      elementNodesByVideo={showCampaignElements ? elementNodesByVideo : undefined}
     />
   );
 
@@ -2052,6 +2097,19 @@ const showMoreBar =
                 }`}
               >
                 {showJourneyFlow ? 'Hide Journey Flow' : 'Show Journey Flow'}
+              </button>
+
+              <button
+                type="button"
+                onClick={() => setShowCampaignElements((v) => !v)}
+                title="Show campaign element destinations under each video (presentation only; not observed path steps)"
+                className={`h-9 px-3 rounded-xl border text-[9px] font-black uppercase tracking-widest transition-all ${
+                  showCampaignElements
+                    ? 'bg-zinc-700 border-zinc-600 text-white'
+                    : 'bg-zinc-900 border-zinc-800 text-zinc-400 hover:text-white'
+                }`}
+              >
+                {showCampaignElements ? 'Hide Elements' : 'Show Elements'}
               </button>
 
               {selectedVideoId && (
