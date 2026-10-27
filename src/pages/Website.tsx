@@ -26,7 +26,7 @@ type VideoComp = ComponentType<{ embedded?: boolean; onSkip?: () => void; onComp
 
 /* "Daylight" palette: warm off-white page, white panels, purple brand accent. */
 const C = {
-  bg: '#fbfaf7', panel: '#ffffff', card: '#ffffff', line: '#e4e0ec', text: '#14131a', mut: '#4d4c58', dim: '#5c5b66',
+  bg: '#ffffff', panel: '#ffffff', card: '#ffffff', line: '#e4e0ec', text: '#14131a', mut: '#4d4c58', dim: '#5c5b66',
   red: '#d11a1a', purple: '#5b3df0', lp: '#3b24b8', green: '#15803d', teal: '#0f766e', amber: '#8a5a00',
   blue: '#1d6fd1', orange: '#c2410c',
   tint: '#ece8ff', tintStroke: '#cfcad9', greenTint: '#e8f7ee',
