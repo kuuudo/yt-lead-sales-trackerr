@@ -13,6 +13,7 @@ import VideoLightbox from '../components/marketing/VideoLightbox'
    the DOM and are never downloaded. */
 const SHOW_WORKSPACE_VIDEO = false
 const SHOW_MARKETPLACE_VIDEO = false
+const SHOW_TESTIMONIALS = false // set to true when you have testimonials to show
 
 const LazySection01 = lazy(() => import('../components/onboarding/OnboardingVideo/OnboardingVideoSection01'))
 const LazySection02 = lazy(() => import('../components/onboarding/OnboardingVideo/OnboardingVideoSection02'))
@@ -720,34 +721,36 @@ export default function Website() {
         </Section>
 
         {/* Testimonial cards are styled for a dark surface, so they sit on a dark band. */}
-        <section className="flex flex-col gap-6" style={{ marginTop: 96, background: '#0b0b0e', borderRadius: 20, padding: '40px 24px' }}>
-          <div className="text-center">
-            <h2 className="text-lg font-bold text-white">Loved by creators</h2>
-            <p className="text-zinc-400 text-sm mt-1">
-              Selected feedback from the VS-Track community.
-            </p>
-          </div>
-
-          {loading && (
-            <div className="flex justify-center py-12">
-              <Loader2 className="text-red-600 animate-spin" size={28} />
+        {SHOW_TESTIMONIALS && (
+          <section className="flex flex-col gap-6" style={{ marginTop: 96, background: '#0b0b0e', borderRadius: 20, padding: '40px 24px' }}>
+            <div className="text-center">
+              <h2 className="text-lg font-bold text-white">Loved by creators</h2>
+              <p className="text-zinc-400 text-sm mt-1">
+                Selected feedback from the VS-Track community.
+              </p>
             </div>
-          )}
 
-          {!loading && items.length === 0 && (
-            <p className="text-center text-zinc-500 text-sm py-8">
-              No website testimonials selected yet.
-            </p>
-          )}
+            {loading && (
+              <div className="flex justify-center py-12">
+                <Loader2 className="text-red-600 animate-spin" size={28} />
+              </div>
+            )}
 
-          {!loading && items.length > 0 && (
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-              {items.map((t) => (
-                <TestimonialCard key={t.id} testimonial={t} compact />
-              ))}
-            </div>
-          )}
-        </section>
+            {!loading && items.length === 0 && (
+              <p className="text-center text-zinc-500 text-sm py-8">
+                No website testimonials selected yet.
+              </p>
+            )}
+
+            {!loading && items.length > 0 && (
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                {items.map((t) => (
+                  <TestimonialCard key={t.id} testimonial={t} compact />
+                ))}
+              </div>
+            )}
+          </section>
+        )}
 
         <section style={{ marginTop: 96, textAlign: 'center' }}>
           <div style={{ fontSize: 'clamp(24px,4vw,34px)', fontWeight: 700, letterSpacing: '-0.02em', marginBottom: 18 }}>Stop guessing. Start tracking.</div>
