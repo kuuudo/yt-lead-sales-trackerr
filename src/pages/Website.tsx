@@ -541,7 +541,7 @@ export default function Website() {
   const loops = showAllLoops ? PRODUCT_LOOPS : PRODUCT_LOOPS.slice(0, VISIBLE_LOOPS)
 
   return (
-    <div style={{ background: C.bg, color: C.text, fontFamily: SANS, minHeight: '100vh' }}>
+    <div style={{ position: 'fixed', inset: 0, zIndex: 200, overflowY: 'auto', background: C.bg, color: C.text, fontFamily: SANS }}>
       <VideoLightbox />
       <style>{`
         @import url('https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:wght@400;600;700&display=swap');
