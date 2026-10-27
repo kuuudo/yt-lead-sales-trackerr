@@ -705,7 +705,51 @@ const [nodeDetailTarget, setNodeDetailTarget] = useState<
                 : null,
           )
         }
-        const assetIds = detail.assets.map((a) => a.assetId).filter(Boolean)
+        // Creative-mode videos become assets immediately (videos.asset_id) and are
+        // stamped with creative_promotion_id, but the promotion's asset list
+        // (promotion_assets via getPromotionDetail) can lag behind or miss them
+        // (e.g. attach_creative_content_asset not yet run / created elsewhere /
+        // campaign owned by another account). Pull them straight from videos so
+        // they always appear in the green Creative ring.
+        const detailAssets: PromotionDetailData['assets'] = [...detail.assets]
+        try {
+          const known = new Set(detailAssets.map((a) => a.assetId).filter(Boolean))
+          const { data: creativeRows, error: creativeErr } = await supabase
+            .from('videos')
+            .select('id, asset_id, video_title, thumbnail_url, platform, platform_url')
+            .eq('creative_promotion_id', promotionId)
+            .eq('created_via_creative', true)
+            .not('asset_id', 'is', null)
+            .is('deleted_at', null)
+          if (creativeErr) throw creativeErr
+          for (const r of (creativeRows ?? []) as {
+            id: string
+            asset_id: string
+            video_title: string | null
+            thumbnail_url: string | null
+            platform: string | null
+            platform_url: string | null
+          }[]) {
+            if (!r.asset_id || known.has(r.asset_id)) continue
+            known.add(r.asset_id)
+            detailAssets.push({
+              assetId: r.asset_id,
+              promotionAssetId: `creative-video:${r.id}`,
+              resource: {
+                origin: 'video',
+                originId: r.id,
+                title: r.video_title || 'Untitled video',
+                thumbnailUrl: r.thumbnail_url ?? null,
+                platform: r.platform ?? null,
+                resourceType: 'video',
+              },
+            } as any)
+          }
+        } catch (creativeLookupErr: any) {
+          // Additive lookup — must never blank the map.
+          console.error('[PromotionJourneyMap] creative video lookup failed:', creativeLookupErr?.message || creativeLookupErr)
+        }
+        const assetIds = detailAssets.map((a) => a.assetId).filter(Boolean)
         let creativeAssetIds = new Set<string>()
         // STEP 7 (additive, 2026-09-20) — platform_url per promoted asset,
         // for the external-link icon on each node card. Folded into this
@@ -726,7 +770,7 @@ const [nodeDetailTarget, setNodeDetailTarget] = useState<
           }
         }
         setPlatformUrlByAssetId(platformUrlMap)
-        const tagged = detail.assets.map((a) => ({
+        const tagged = detailAssets.map((a) => ({
           ...a,
           isCreative: creativeAssetIds.has(a.assetId),
         }))
