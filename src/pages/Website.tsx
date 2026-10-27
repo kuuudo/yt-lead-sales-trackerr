@@ -327,15 +327,6 @@ function CrossDomain() {
           <T x={26} y={266} fill={C.dim}>2 subdomains, 1 root domain</T><T x={346} y={266} fill={C.dim}>1 root domain</T>
         </svg>
       </Frame>
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(200px,1fr))', gap: 10, marginTop: 14 }}>
-        {[['Your links', 'Put tracking links on your own domain.'], ['Subdomains', 'Use as many as you like under one root domain.'], ['Cross-domain', 'One journey can cross into a second root domain.']].map(([h, b]) => (
-          <div key={h} style={{ border: `1px solid ${C.line}`, borderRadius: 12, background: C.panel, padding: 14 }}>
-            <div style={{ ...mono(C.purple), marginBottom: 6 }}>{h}</div>
-            <div style={{ fontSize: 14, color: C.mut, lineHeight: 1.5 }}>{b}</div>
-          </div>
-        ))}
-      </div>
-      <div style={{ ...mono(C.dim), marginTop: 12, letterSpacing: '0.08em' }}>Need a more complex setup? Message us on WhatsApp.</div>
     </>
   )
 }
@@ -682,7 +673,7 @@ export default function Website() {
           <p style={{ margin: '28px 0 0', maxWidth: 640, fontSize: 18, fontWeight: 700, lineHeight: 1.5, letterSpacing: '-0.01em' }}>Your asset. Their content. Every result tracked.</p>
         </Section>
 
-        <Section label="05 / Your domain" title={<>Your links. Your domain.<br />Even across brands.</>} sub="Put tracking links on your own domain. When a customer moves from one brand's domain to another, the journey keeps going.">
+        <Section label="05 / CROSS-DOMAIN TRACKING" title={<>Track Customer Journeys Across Domains.</>} sub="Keep tracking as customers move between different websites and brands. From the first video they watch to the offer they purchase, VSTRK connects the journey across domains.">
           <CrossDomain />
         </Section>
 
