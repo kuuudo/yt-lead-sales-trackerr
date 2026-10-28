@@ -22,9 +22,11 @@
 // that component, which is a change to existing code, not a data-source
 // swap. Left as a flagged blocker rather than silently faked.
 //
-// Mobile layout (UI only, no data/logic change): below the md breakpoint the
-// five stat cards become a horizontally swipeable snap row instead of a
-// cramped 5-column grid. From md up it is the original 5-column grid.
+// MOBILE LAYOUT (UI only, no data/logic changes):
+// Below the `md` breakpoint the stats become a full-width Revenue hero card
+// plus a 2x2 grid for the other four stats, and the update-revenue row stacks
+// with a full-width button. At `md` and above the layout is identical to the
+// previous desktop version (5-column grid, right-aligned update row).
 // ─────────────────────────────────────────────────────────────────────────────
 
 import React, { useState, useEffect } from 'react';
@@ -221,7 +223,7 @@ export default function MemberDetail() {
 
   if (orgLoading || loading) {
     return (
-      <div className="max-w-4xl mx-auto px-6 py-20 text-center">
+      <div className="max-w-4xl mx-auto px-4 md:px-6 py-20 text-center">
         <p className="text-[10px] font-black uppercase text-zinc-600 tracking-widest">Loading…</p>
       </div>
     );
@@ -229,7 +231,7 @@ export default function MemberDetail() {
 
   if (notFound || !member) {
     return (
-      <div className="max-w-3xl mx-auto px-6 py-20 text-center">
+      <div className="max-w-3xl mx-auto px-4 md:px-6 py-20 text-center">
         <p className="text-[10px] font-black uppercase text-zinc-600 tracking-widest">
           Member not found
         </p>
@@ -238,7 +240,7 @@ export default function MemberDetail() {
   }
 
   return (
-    <div className="max-w-4xl mx-auto px-6 py-8 space-y-6">
+    <div className="max-w-4xl mx-auto px-4 md:px-6 py-6 md:py-8 space-y-5 md:space-y-6 overflow-x-hidden">
       <button
         onClick={() => navigate('/operator/members')}
         className="flex items-center gap-1.5 text-[10px] font-black uppercase tracking-widest text-zinc-600 hover:text-zinc-300 transition-colors"
@@ -257,31 +259,40 @@ export default function MemberDetail() {
         </div>
       </div>
 
-      {/* ── Stats ──────────────────────────────────────────────────────────
-          Mobile: horizontal swipe row (snap), bleeds to the screen edges.
-          md and up: original 5-column grid. */}
-      <section className="flex gap-3 overflow-x-auto snap-x snap-mandatory -mx-6 px-6 pb-1 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden md:mx-0 md:px-0 md:pb-0 md:grid md:grid-cols-5 md:overflow-visible">
+      {/* ── Stats ────────────────────────────────────────────────────────
+          Mobile: Revenue spans both columns (hero), the other four sit in a
+          2x2 grid. md and up: back to the original 5-column row. */}
+      <section className="grid grid-cols-2 md:grid-cols-5 gap-3">
         {[
-          { label: 'Revenue',       value: formatMemberRevenue(byMember[member.id]),                      icon: DollarSign,    color: 'text-emerald-400', mobileWidth: 'w-[160px]' },
-          { label: 'Purchases',     value: formatMemberCount(byMember[member.id], 'purchases'),           icon: ShoppingCart,  color: 'text-white',       mobileWidth: 'w-[128px]' },
-          { label: 'Sales Calls',   value: formatMemberCount(byMember[member.id], 'salesCalls'),          icon: PhoneCall,     color: 'text-white',       mobileWidth: 'w-[128px]' },
-          { label: 'Newsletter',    value: formatMemberCount(byMember[member.id], 'newsletterOptins'),    icon: Mail,          color: 'text-white',       mobileWidth: 'w-[128px]' },
-          { label: 'Consultations', value: formatMemberCount(byMember[member.id], 'consultations'),       icon: CalendarCheck, color: 'text-white',       mobileWidth: 'w-[140px]' },
+          { label: 'Revenue',       value: formatMemberRevenue(byMember[member.id]),                      icon: DollarSign,    color: 'text-emerald-400', hero: true },
+          { label: 'Purchases',     value: formatMemberCount(byMember[member.id], 'purchases'),           icon: ShoppingCart,  color: 'text-white',       hero: false },
+          { label: 'Sales Calls',   value: formatMemberCount(byMember[member.id], 'salesCalls'),          icon: PhoneCall,     color: 'text-white',       hero: false },
+          { label: 'Newsletter',    value: formatMemberCount(byMember[member.id], 'newsletterOptins'),    icon: Mail,          color: 'text-white',       hero: false },
+          { label: 'Consultations', value: formatMemberCount(byMember[member.id], 'consultations'),       icon: CalendarCheck, color: 'text-white',       hero: false },
         ].map(card => (
           <div
             key={card.label}
-            className={`bento-card py-6 px-4 flex flex-col justify-between min-h-[100px] shrink-0 snap-start ${card.mobileWidth} md:w-auto md:shrink`}
+            className={`bento-card min-w-0 flex flex-col justify-between ${
+              card.hero
+                ? 'col-span-2 md:col-span-1 py-5 md:py-6 px-4 min-h-[96px] md:min-h-[100px]'
+                : 'py-4 md:py-6 px-4 min-h-[88px] md:min-h-[100px]'
+            }`}
           >
-            <span className="label-caps !text-zinc-600 whitespace-nowrap">{card.label}</span>
+            <span className="label-caps !text-zinc-600">{card.label}</span>
             <div className="flex items-center justify-between gap-2 mt-auto">
-              <span className={`text-xl font-black whitespace-nowrap ${card.color}`}>{card.value}</span>
-              <card.icon size={16} className={`${card.color} opacity-40 shrink-0`} />
+              <span className={`font-black truncate ${card.color} ${card.hero ? 'text-3xl md:text-xl' : 'text-xl'}`}>
+                {card.value}
+              </span>
+              <card.icon size={card.hero ? 20 : 16} className={`${card.color} opacity-40 shrink-0`} />
             </div>
           </div>
         ))}
       </section>
 
-      <div className="flex flex-wrap items-center justify-between gap-3 -mt-3 md:justify-end">
+      {/* ── Update revenue row ───────────────────────────────────────────
+          Mobile: stacked, button full width. md and up: original
+          right-aligned single row. */}
+      <div className="flex flex-col items-stretch gap-2 md:flex-row md:items-center md:justify-end md:gap-3 -mt-2 md:-mt-3">
         {byMember[member.id]?.result?.asOf && (
           <span className="text-[9px] font-bold text-zinc-600">
             Revenue as of {new Date(byMember[member.id]!.result!.asOf!).toLocaleString()}
@@ -293,7 +304,7 @@ export default function MemberDetail() {
         <button
           onClick={() => updateRevenue(member.id)}
           disabled={byMember[member.id]?.updating || byMember[member.id]?.loading}
-          className="shrink-0 ml-auto flex items-center gap-2 px-3 py-2 border border-zinc-800 rounded-lg text-[10px] font-black uppercase tracking-widest text-zinc-300 hover:text-white hover:border-zinc-600 transition-all disabled:opacity-50"
+          className="w-full md:w-auto justify-center flex items-center gap-2 px-3 py-2.5 md:py-2 border border-zinc-800 rounded-lg text-[10px] font-black uppercase tracking-widest text-zinc-300 hover:text-white hover:border-zinc-600 transition-all disabled:opacity-50"
         >
           <RefreshCw size={13} className={byMember[member.id]?.updating ? 'animate-spin' : ''} />
           {byMember[member.id]?.updating ? 'Updating…' : 'Update revenue'}
@@ -302,10 +313,10 @@ export default function MemberDetail() {
 
       {/* ── Quick actions ────────────────────────────────────────────────── */}
       <section className="bento-card p-0 overflow-hidden">
-        <div className="px-6 py-4 border-b border-zinc-900 bg-zinc-900/10">
+        <div className="px-4 md:px-6 py-4 border-b border-zinc-900 bg-zinc-900/10">
           <h2 className="label-caps !text-white">Quick actions</h2>
         </div>
-        <div className="p-6 space-y-3">
+        <div className="p-4 md:p-6 space-y-3">
           {/* Replaces the previous three disabled placeholder buttons. Once
               viewing mode is entered, the member's Dashboard, Campaigns,
               Videos, Assets, Analytics, and Workspace pages are all
