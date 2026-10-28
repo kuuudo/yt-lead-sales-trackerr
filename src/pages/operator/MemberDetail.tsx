@@ -21,6 +21,10 @@
 // member. Reusing it here would require adding a memberId prop/filter to
 // that component, which is a change to existing code, not a data-source
 // swap. Left as a flagged blocker rather than silently faked.
+//
+// Mobile layout (UI only, no data/logic change): below the md breakpoint the
+// five stat cards become a horizontally swipeable snap row instead of a
+// cramped 5-column grid. From md up it is the original 5-column grid.
 // ─────────────────────────────────────────────────────────────────────────────
 
 import React, { useState, useEffect } from 'react';
@@ -244,35 +248,40 @@ export default function MemberDetail() {
 
       {/* ── Header ───────────────────────────────────────────────────────── */}
       <div className="flex items-center gap-4">
-        <div className="w-14 h-14 rounded-xl bg-zinc-900 border border-zinc-700 flex items-center justify-center text-sm font-black text-zinc-300">
+        <div className="w-14 h-14 shrink-0 rounded-xl bg-zinc-900 border border-zinc-700 flex items-center justify-center text-sm font-black text-zinc-300">
           {initials(member.name)}
         </div>
-        <div>
-          <h1 className="text-lg font-black text-white">{member.name}</h1>
-          <p className="text-[10px] font-bold text-zinc-600">{member.email}</p>
+        <div className="min-w-0">
+          <h1 className="text-lg font-black text-white truncate">{member.name}</h1>
+          <p className="text-[10px] font-bold text-zinc-600 truncate">{member.email}</p>
         </div>
       </div>
 
-      {/* ── Stats (placeholders — see file header) ─────────────────────── */}
-      <section className="grid grid-cols-5 gap-3">
+      {/* ── Stats ──────────────────────────────────────────────────────────
+          Mobile: horizontal swipe row (snap), bleeds to the screen edges.
+          md and up: original 5-column grid. */}
+      <section className="flex gap-3 overflow-x-auto snap-x snap-mandatory -mx-6 px-6 pb-1 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden md:mx-0 md:px-0 md:pb-0 md:grid md:grid-cols-5 md:overflow-visible">
         {[
-          { label: 'Revenue',       value: formatMemberRevenue(byMember[member.id]),                      icon: DollarSign,    color: 'text-emerald-400' },
-          { label: 'Purchases',     value: formatMemberCount(byMember[member.id], 'purchases'),           icon: ShoppingCart,  color: 'text-white' },
-          { label: 'Sales Calls',   value: formatMemberCount(byMember[member.id], 'salesCalls'),          icon: PhoneCall,     color: 'text-white' },
-          { label: 'Newsletter',    value: formatMemberCount(byMember[member.id], 'newsletterOptins'),    icon: Mail,          color: 'text-white' },
-          { label: 'Consultations', value: formatMemberCount(byMember[member.id], 'consultations'),       icon: CalendarCheck, color: 'text-white' },
+          { label: 'Revenue',       value: formatMemberRevenue(byMember[member.id]),                      icon: DollarSign,    color: 'text-emerald-400', mobileWidth: 'w-[160px]' },
+          { label: 'Purchases',     value: formatMemberCount(byMember[member.id], 'purchases'),           icon: ShoppingCart,  color: 'text-white',       mobileWidth: 'w-[128px]' },
+          { label: 'Sales Calls',   value: formatMemberCount(byMember[member.id], 'salesCalls'),          icon: PhoneCall,     color: 'text-white',       mobileWidth: 'w-[128px]' },
+          { label: 'Newsletter',    value: formatMemberCount(byMember[member.id], 'newsletterOptins'),    icon: Mail,          color: 'text-white',       mobileWidth: 'w-[128px]' },
+          { label: 'Consultations', value: formatMemberCount(byMember[member.id], 'consultations'),       icon: CalendarCheck, color: 'text-white',       mobileWidth: 'w-[140px]' },
         ].map(card => (
-          <div key={card.label} className="bento-card py-6 px-4 flex flex-col justify-between min-h-[100px]">
-            <span className="label-caps !text-zinc-600">{card.label}</span>
-            <div className="flex items-center justify-between mt-auto">
-              <span className={`text-xl font-black ${card.color}`}>{card.value}</span>
-              <card.icon size={16} className={`${card.color} opacity-40`} />
+          <div
+            key={card.label}
+            className={`bento-card py-6 px-4 flex flex-col justify-between min-h-[100px] shrink-0 snap-start ${card.mobileWidth} md:w-auto md:shrink`}
+          >
+            <span className="label-caps !text-zinc-600 whitespace-nowrap">{card.label}</span>
+            <div className="flex items-center justify-between gap-2 mt-auto">
+              <span className={`text-xl font-black whitespace-nowrap ${card.color}`}>{card.value}</span>
+              <card.icon size={16} className={`${card.color} opacity-40 shrink-0`} />
             </div>
           </div>
         ))}
       </section>
 
-      <div className="flex items-center justify-end gap-3 -mt-3">
+      <div className="flex flex-wrap items-center justify-between gap-3 -mt-3 md:justify-end">
         {byMember[member.id]?.result?.asOf && (
           <span className="text-[9px] font-bold text-zinc-600">
             Revenue as of {new Date(byMember[member.id]!.result!.asOf!).toLocaleString()}
@@ -284,7 +293,7 @@ export default function MemberDetail() {
         <button
           onClick={() => updateRevenue(member.id)}
           disabled={byMember[member.id]?.updating || byMember[member.id]?.loading}
-          className="flex items-center gap-2 px-3 py-2 border border-zinc-800 rounded-lg text-[10px] font-black uppercase tracking-widest text-zinc-300 hover:text-white hover:border-zinc-600 transition-all disabled:opacity-50"
+          className="shrink-0 ml-auto flex items-center gap-2 px-3 py-2 border border-zinc-800 rounded-lg text-[10px] font-black uppercase tracking-widest text-zinc-300 hover:text-white hover:border-zinc-600 transition-all disabled:opacity-50"
         >
           <RefreshCw size={13} className={byMember[member.id]?.updating ? 'animate-spin' : ''} />
           {byMember[member.id]?.updating ? 'Updating…' : 'Update revenue'}

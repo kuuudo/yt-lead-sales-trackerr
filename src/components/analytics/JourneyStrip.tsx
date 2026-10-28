@@ -35,7 +35,7 @@ export type CampaignElementNode = {
   label: string;
   /** MY / SHARED when asset org is known; omit badge when unknown. */
   assetScope?: AssetScopeTag | null;
-  /** For shared elements: campaign owner person as possessive (e.g. "Ali's"). */
+  /** Campaign owner person as possessive (e.g. "Ali's") when not the viewer. */
   ownerLabel?: string | null;
 };
 
@@ -165,10 +165,8 @@ function Arrow({ label }: { label?: JourneyConnectorLabel }) {
 
 function ElementNodeCard({ node }: { node: CampaignElementNode }) {
   const scopeStyle = node.assetScope ? ASSET_SCOPE_STYLE[node.assetScope] : null;
-  const ownerLine =
-    node.assetScope === 'shared' && node.ownerLabel
-      ? node.ownerLabel
-      : null;
+  // Person name is independent of MY/SHARED (e.g. same-org "Jack's" on a MY badge).
+  const ownerLine = node.ownerLabel ? node.ownerLabel : null;
   const titleBits = [
     `Linked campaign element · ${node.label}`,
     ownerLine ? `Owner: ${ownerLine}` : null,

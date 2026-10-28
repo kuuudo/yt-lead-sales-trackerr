@@ -1092,9 +1092,10 @@ console.log('[DIAG membership]', {
         }
         if (cancelled) return;
 
-        // Campaign owner person name for shared elements:
+        // Campaign owner person name (additive to MY/SHARED badge):
         // ownerCampaignId → campaigns.user_id → profiles.full_name | email → "Ali's"
-        // Isolated; ignore failures. Never guess.
+        // Shown when the campaign owner is someone else (not the viewer), even if
+        // the asset is still MY (same org). Isolated; ignore failures. Never guess.
         const campaignIds = Array.from(
           new Set(
             usable
@@ -1161,12 +1162,15 @@ console.log('[DIAG membership]', {
           const assetOrg = assetId ? orgByAssetId.get(assetId) : undefined;
           let assetScope: AssetScopeTag | null = null;
           let ownerLabel: string | null = null;
+          // MY/SHARED stays org-based (unchanged).
           if (assetOrg != null && organizationId) {
             assetScope = assetOrg === organizationId ? 'my' : 'shared';
-            // Person name is additive on SHARED only; MY/SHARED badge stays independent.
-            if (assetScope === 'shared' && link.ownerCampaignId) {
-              const uid = userIdByCampaignId.get(link.ownerCampaignId);
-              ownerLabel = (uid && nameByUserId.get(uid)) || null;
+          }
+          // Person name: campaign owner other than the viewer (works for same-org MY).
+          if (link.ownerCampaignId) {
+            const uid = userIdByCampaignId.get(link.ownerCampaignId);
+            if (uid && uid !== effectiveViewerId) {
+              ownerLabel = nameByUserId.get(uid) ?? null;
             }
           }
 
@@ -1190,7 +1194,7 @@ console.log('[DIAG membership]', {
     return () => {
       cancelled = true;
     };
-  }, [loading, effectiveOrgId, organizationId, videoDisplay]);
+  }, [loading, effectiveOrgId, organizationId, effectiveViewerId, videoDisplay]);
 
   const { routeMetrics, metricsLoading } = useRouteRevenueMetrics({
     orgId: effectiveOrgId,
