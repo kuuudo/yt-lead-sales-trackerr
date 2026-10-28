@@ -1,11 +1,13 @@
 // ─────────────────────────────────────────────────────────────────────────────
 // Members.tsx
 //
-// Real data via organization_members + profiles. UI/JSX unchanged from the
-// mock version — only the data source changed.
-//
-// Reuses useOrganization() and useAuth() exactly as they exist. No new hooks,
-// no new tables, no migrations.
+// Real data via organization_members + profiles. Data logic unchanged —
+// this version only changes the layout so it fits phone screens:
+//   - tighter page/card padding on mobile (px-4, then px-6 from `sm:` up)
+//   - Invite button collapses to a "+" icon on mobile
+//   - member rows stack on mobile (identity on top, revenue + actions below)
+//     and return to the single-line layout from `sm:` up
+//   - initials() now ignores "(POC)" style parentheticals
 //
 // Notes on this wiring:
 //
@@ -49,7 +51,14 @@ interface OperatorMember {
 }
 
 function initials(name: string): string {
-  return name.split(' ').map(p => p[0]).join('').slice(0, 2).toUpperCase();
+  return name
+    .replace(/\(.*?\)/g, '') // drop "(POC)" etc.
+    .trim()
+    .split(/\s+/)
+    .map(p => p[0])
+    .join('')
+    .slice(0, 2)
+    .toUpperCase();
 }
 
 function statusLabel(status: OperatorMember['status']): { text: string; color: string } {
@@ -78,25 +87,25 @@ export default function Members() {
       .select('user_id, role, profiles(id, full_name, email, avatar_url)')
       .eq('organization_id', organizationId)
       .then(({ data, error }) => {
-  console.log("=== MEMBERS RAW RESPONSE ===");
-  console.log("error:", error);
-  console.log("data:", data);
+        console.log("=== MEMBERS RAW RESPONSE ===");
+        console.log("error:", error);
+        console.log("data:", data);
 
-  if (error) {
-    console.error('Failed to load members:', error);
-    setLoading(false);
-    return;
-  }
+        if (error) {
+          console.error('Failed to load members:', error);
+          setLoading(false);
+          return;
+        }
 
-  const rows = (data ?? [])
+        const rows = (data ?? [])
           // Exclude the Owner's own row — see file header note #2.
           .filter(row => row.role !== 'owner')
           .map(row => {
-  console.log("ROW");
-  console.log(row);
+            console.log("ROW");
+            console.log(row);
 
-  console.log("PROFILE");
-  console.log(row.profiles);
+            console.log("PROFILE");
+            console.log(row.profiles);
             // Supabase returns the joined relation as an object here since
             // user_id -> profiles.id is a many-to-one relationship.
             const profile = row.profiles as unknown as {
@@ -177,25 +186,27 @@ export default function Members() {
 
   if (orgLoading || loading) {
     return (
-      <div className="max-w-6xl mx-auto px-6 py-20 text-center">
+      <div className="max-w-6xl mx-auto px-4 sm:px-6 py-20 text-center">
         <p className="text-[10px] font-black uppercase text-zinc-600 tracking-widest">Loading…</p>
       </div>
     );
   }
 
   return (
-    <div className="max-w-6xl mx-auto px-6 py-8 space-y-6">
-      <div className="flex items-center justify-between">
+    <div className="max-w-6xl mx-auto px-4 sm:px-6 py-6 sm:py-8 space-y-6 overflow-x-hidden">
+      <div className="flex items-center justify-between gap-3">
         <h1 className="label-caps !text-white text-lg">Members</h1>
         <Link
           to="/operator/members/invite"
-          className="flex items-center gap-2 bg-zinc-900 border border-zinc-700 text-zinc-200 text-[10px] font-black uppercase tracking-widest px-4 py-2.5 rounded-xl hover:border-zinc-500 hover:text-white transition-all"
+          aria-label="Invite member"
+          className="shrink-0 whitespace-nowrap flex items-center gap-2 bg-zinc-900 border border-zinc-700 text-zinc-200 text-[10px] font-black uppercase tracking-widest px-3 sm:px-4 py-2.5 rounded-xl hover:border-zinc-500 hover:text-white transition-all"
         >
-          <Plus size={13} /> Invite member
+          <Plus size={13} />
+          <span className="hidden sm:inline">Invite member</span>
         </Link>
       </div>
 
-      <div className="relative max-w-xs">
+      <div className="relative w-full sm:max-w-xs">
         <Search size={13} className="absolute left-3 top-1/2 -translate-y-1/2 text-zinc-600" />
         <input
           value={search}
@@ -206,7 +217,7 @@ export default function Members() {
       </div>
 
       <section className="bento-card p-0 overflow-hidden">
-        <div className="px-6 py-4 border-b border-zinc-900 bg-zinc-900/10 flex justify-between">
+        <div className="px-4 sm:px-6 py-4 border-b border-zinc-900 bg-zinc-900/10 flex justify-between">
           <h2 className="label-caps !text-white">All Members</h2>
           <span className="text-[9px] font-black uppercase tracking-widest text-zinc-600">
             {filtered.length} of {members.length}
@@ -221,28 +232,33 @@ export default function Members() {
           </div>
         ) : (
           <div className="divide-y divide-zinc-900/50">
-            {filtered.map(m => {
-              return (
-                <div
-                  key={m.id}
-                  className="flex items-center justify-between px-6 py-3 hover:bg-white/[0.015] transition-colors cursor-pointer"
-                  onClick={() => navigate(`/operator/members/${m.id}`)}
-                >
-                  <div className="flex items-center gap-3">
-                    <div className="w-8 h-8 rounded-lg bg-zinc-900 border border-zinc-700 flex items-center justify-center text-[10px] font-black text-zinc-400">
-                      {initials(m.name)}
-                    </div>
-                    <div>
-                      <p className="text-[11px] font-bold text-zinc-200">{m.name}</p>
-                      <p className="text-[9px] font-bold text-zinc-600">{m.email}</p>
-                    </div>
+            {filtered.map(m => (
+              <div
+                key={m.id}
+                className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between px-4 sm:px-6 py-3 hover:bg-white/[0.015] transition-colors cursor-pointer"
+                onClick={() => navigate(`/operator/members/${m.id}`)}
+              >
+                {/* Identity */}
+                <div className="flex items-center gap-3 min-w-0">
+                  <div className="shrink-0 w-8 h-8 rounded-lg bg-zinc-900 border border-zinc-700 flex items-center justify-center text-[10px] font-black text-zinc-400">
+                    {initials(m.name)}
                   </div>
+                  <div className="min-w-0">
+                    <p className="text-[11px] font-bold text-zinc-200 truncate">{m.name}</p>
+                    <p className="text-[9px] font-bold text-zinc-600 truncate">{m.email}</p>
+                  </div>
+                </div>
 
-                  <div className="flex items-center gap-6" onClick={e => e.stopPropagation()}>
+                {/* Revenue + actions */}
+                <div
+                  className="flex items-center justify-between sm:justify-end gap-3 sm:gap-6 pl-11 sm:pl-0"
+                  onClick={e => e.stopPropagation()}
+                >
+                  <span className="text-sm font-black text-emerald-400 tabular-nums sm:w-20 sm:text-right">
+                    {formatMemberRevenue(byMember[m.id])}
+                  </span>
 
-                    <span className="text-sm font-black text-emerald-400 tabular-nums w-20 text-right">
-                      {formatMemberRevenue(byMember[m.id])}
-                    </span>
+                  <div className="flex items-center gap-1.5">
                     <button
                       onClick={() => updateRevenue(m.id)}
                       disabled={byMember[m.id]?.updating || byMember[m.id]?.loading}
@@ -252,26 +268,24 @@ export default function Members() {
                     >
                       <RefreshCw size={13} className={byMember[m.id]?.updating ? 'animate-spin' : ''} />
                     </button>
-                    <div className="flex gap-1.5">
-                      <button
-                        onClick={() => navigate(`/operator/members/${m.id}`)}
-                        className="p-2 border border-zinc-800 rounded-lg text-zinc-500 hover:text-white hover:border-zinc-700 transition-all"
-                        aria-label={`View ${m.name}'s analytics`}
-                      >
-                        <BarChart3 size={13} />
-                      </button>
-                      <button
-                        onClick={() => { /* TODO: remove confirmation via existing <Modal /> */ }}
-                        className="p-2 border border-zinc-800 rounded-lg text-zinc-600 hover:text-red-400 hover:border-red-900 transition-all"
-                        aria-label={`Remove ${m.name}`}
-                      >
-                        <X size={13} />
-                      </button>
-                    </div>
+                    <button
+                      onClick={() => navigate(`/operator/members/${m.id}`)}
+                      className="p-2 border border-zinc-800 rounded-lg text-zinc-500 hover:text-white hover:border-zinc-700 transition-all"
+                      aria-label={`View ${m.name}'s analytics`}
+                    >
+                      <BarChart3 size={13} />
+                    </button>
+                    <button
+                      onClick={() => { /* TODO: remove confirmation via existing <Modal /> */ }}
+                      className="p-2 border border-zinc-800 rounded-lg text-zinc-600 hover:text-red-400 hover:border-red-900 transition-all"
+                      aria-label={`Remove ${m.name}`}
+                    >
+                      <X size={13} />
+                    </button>
                   </div>
                 </div>
-              );
-            })}
+              </div>
+            ))}
           </div>
         )}
       </section>
