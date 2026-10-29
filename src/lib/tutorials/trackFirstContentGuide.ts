@@ -34,6 +34,7 @@ import type { Tutorial } from '../tutorialTypes';
 
 export const trackFirstContentGuide: Tutorial = {
   id: 'track-first-content',
+  minimizable: true,
   mode: 'follow-along',
   steps: [
     {

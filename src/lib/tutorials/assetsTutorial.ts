@@ -32,6 +32,7 @@ async function resolveMostRecentCampaignRoute(): Promise<string | null> {
 
 export const assetsTutorial: Tutorial = {
   id: 'assets',
+  minimizable: true,
   steps: [
     {
       id: 'intro',

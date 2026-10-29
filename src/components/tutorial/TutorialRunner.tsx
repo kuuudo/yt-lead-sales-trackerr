@@ -260,7 +260,7 @@ export default function TutorialRunner() {
     );
   }
 
-  const canMinimize = !!tutorial.minimizable && !isFollowAlong && window.innerWidth < 640;
+  const canMinimize = !!tutorial.minimizable && window.innerWidth < 640;
 
   if (canMinimize && minimized) {
     return (
@@ -535,6 +535,7 @@ export default function TutorialRunner() {
           {isFollowAlong && (
             <button
               onClick={() => setPanelOpen(false)}
+              style={{ display: canMinimize ? 'none' : undefined }}
               className="absolute -top-2 -right-9 w-6 h-6 rounded-full bg-white border border-zinc-200 text-zinc-400 hover:text-zinc-900 text-xs flex items-center justify-center shadow"
               aria-label="Minimize guide"
             >

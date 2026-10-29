@@ -39,6 +39,7 @@ import type { Tutorial } from '../tutorialTypes';
 
 export const startFirstCollabGuide: Tutorial = {
   id: 'start-first-collab',
+  minimizable: true,
   steps: [
     {
       id: 'go-to-collab',
