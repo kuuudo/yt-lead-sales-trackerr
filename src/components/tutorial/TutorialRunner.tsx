@@ -221,6 +221,13 @@ export default function TutorialRunner() {
     setPanelOpen(true);
   }, [tutorial?.id]);
 
+  // Mobile minimize (only for tutorials with minimizable: true).
+  // Reopens whenever the step changes or a try-it action completes.
+  const [minimized, setMinimized] = useState(false);
+  useEffect(() => {
+    setMinimized(false);
+  }, [tutorial?.id, stepIndex, actionSatisfied]);
+
   // Auto-advance: once a Follow-Along step's real-world action is detected,
   // move on automatically instead of waiting for a Next click — this is the
   // "Instruction → user performs action → detect → continue" behavior from
@@ -248,6 +255,28 @@ export default function TutorialRunner() {
           className="pointer-events-auto fixed bottom-5 right-5 w-12 h-12 rounded-full bg-white border border-zinc-200 text-lg shadow-2xl flex items-center justify-center hover:scale-105 transition-transform"
         >
           🎓
+        </button>
+      </div>
+    );
+  }
+
+  const canMinimize = !!tutorial.minimizable && !isFollowAlong && window.innerWidth < 640;
+
+  if (canMinimize && minimized) {
+    return (
+      <div className="fixed inset-0 pointer-events-none" style={{ zIndex: 2147483000 }} aria-live="polite">
+        <button
+          type="button"
+          onClick={() => setMinimized(false)}
+          aria-label="Reopen the guide"
+          style={{ bottom: 'max(16px, env(safe-area-inset-bottom))' }}
+          className="pointer-events-auto fixed left-4 right-4 flex items-center justify-between bg-zinc-900 border border-zinc-700 rounded-xl px-4 py-3 shadow-2xl"
+        >
+          <span className="text-[10px] font-black uppercase tracking-widest text-white">
+            🎓 Guide · Step {stepIndex + 1}/{tutorial.steps.length}
+            {needsAction && !actionSatisfied ? ' · Waiting…' : ''}
+          </span>
+          <span className="text-white text-xs">▲</span>
         </button>
       </div>
     );
@@ -373,6 +402,16 @@ export default function TutorialRunner() {
             <p className="text-[9px] font-black uppercase tracking-widest text-zinc-400 mb-1 flex items-center gap-1">
               🎓 Follow Along
             </p>
+          )}
+          {canMinimize && (
+            <button
+              type="button"
+              onClick={() => setMinimized(true)}
+              aria-label="Minimize guide"
+              className="absolute top-3 right-4 text-[10px] font-black uppercase tracking-widest text-zinc-400 hover:text-white"
+            >
+              Minimize ▼
+            </button>
           )}
           {step.tag && (
             <span

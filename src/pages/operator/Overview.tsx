@@ -440,23 +440,23 @@ export default function Overview() {
   ✕
 </button>
 */}
-    <button
-      onClick={() => {
-        setShowOnboarding(false);
-        start(workWithYourTeamGuide);
-      }}
-      className="fixed top-4 left-4 z-[20001] max-w-[calc(100vw-32px)] sm:max-w-[280px] flex items-start gap-2 bg-white text-black dark:bg-zinc-900 dark:text-white border border-zinc-200 dark:border-zinc-700 rounded-2xl text-left px-4 py-3 shadow-lg hover:bg-zinc-100 dark:hover:bg-zinc-800 transition-colors"
-    >
-      <span className="text-base leading-none shrink-0">🎓</span>
-      <span>
-        <span className="block text-[10px] font-black uppercase tracking-widest mb-1">
-          First Team Setup — Do It Yourself (Just a Demo)
-        </span>
-        <span className="block text-[10px] font-normal normal-case text-zinc-600 dark:text-zinc-400 leading-snug">
-          Don't worry if you don't have a teammate yet — this is just a demo. We'll add a creator account so you can see their account from an Operator's perspective.
-        </span>
-      </span>
-    </button>
+   <button
+  onClick={() => {
+    setShowOnboarding(false);
+    start(workWithYourTeamGuide);
+  }}
+  className="fixed top-4 left-4 z-[20001] max-w-[calc(100vw-32px)] sm:max-w-[280px] flex items-start gap-2 bg-[#ffffff] text-[#000000] border border-[#e4e4e7] rounded-2xl text-left px-4 py-3 shadow-lg hover:bg-[#f4f4f5] transition-colors"
+>
+  <span className="text-base leading-none shrink-0">🎓</span>
+  <span>
+    <span className="block text-[10px] font-black uppercase tracking-widest mb-1 text-[#000000]">
+      First Team Setup — Do It Yourself (Just a Demo)
+    </span>
+    <span className="block text-[10px] font-normal normal-case text-[#52525b] leading-snug">
+      Don't worry if you don't have a teammate yet — this is just a demo. We'll add a creator account so you can see their account from an Operator's perspective.
+    </span>
+  </span>
+</button>
     <OnboardingVideoSection04
       onSkip={() => setShowOnboarding(false)}
       onComplete={() => setShowOnboarding(false)}

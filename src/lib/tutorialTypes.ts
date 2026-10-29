@@ -101,5 +101,7 @@ export interface Tutorial {
    * 'tour'. 'follow-along' = white bottom-right guide card.
    */
   mode?: 'tour' | 'follow-along';
+  /** Mobile only: shows a Minimize button on the card and a slim reopen bar. */
+  minimizable?: boolean;
   steps: TutorialStep[];
 }

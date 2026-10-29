@@ -37,6 +37,7 @@ async function resolveMostRecentPromotionRoute(): Promise<string | null> {
 }
 export const marketplaceTutorial: Tutorial = {
   id: 'marketplace',
+  minimizable: true,
   steps: [
     {
       id: 'create-assignment',
