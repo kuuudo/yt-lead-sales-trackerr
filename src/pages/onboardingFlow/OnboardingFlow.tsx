@@ -1,6 +1,6 @@
-import { useEffect } from 'react';
+import { useEffect, useState } from 'react';
 import { AnimatePresence, motion, useReducedMotion } from 'motion/react';
-import { useNavigate, useSearchParams } from 'react-router-dom';
+import { useSearchParams } from 'react-router-dom';
 import IntroVideoOverlay from '../../components/onboardingFlow/IntroVideoOverlay';
 import OnboardingShell from '../../components/onboardingFlow/OnboardingShell';
 import {
@@ -8,17 +8,20 @@ import {
   isSituationComplete,
   isTrackComplete,
   isUsageComplete,
+  TOTAL_STEPS,
   TRACK_OTHER_ID,
   useOnboardingAnswers,
   type RoleId,
 } from '../../lib/onboardingFlow';
 import { trackOnboardingStep } from '../../lib/onboardingSync';
 import { MethodStep, RoleStep, SituationStep, TrackStep, UsageStep, WelcomeStep } from './steps';
+import SignupStep, { SIGNUP_SUBMIT_ID } from './SignupStep';
 
-const STEP_IDS = ['welcome', 'role', 'situation', 'track', 'method', 'usage', 'campaign'] as const;
+const STEP_IDS = ['welcome', 'role', 'situation', 'track', 'method', 'usage', 'campaign', 'signup'] as const;
 type StepId = (typeof STEP_IDS)[number];
 // Same numbers as the "0N / 06" label. 'campaign' is the hand-off after the last question (the intro
-// video, then signup), so it shares 6.
+// video), so it shares 6. 'signup' is the account page: the progress bar stays full (Math.min below)
+// while furthest_step records 7, so "reached sign-up" is visible in the funnel.
 const STEP_NUMBER: Record<StepId, number> = {
   welcome: 1,
   role: 2,
@@ -27,6 +30,7 @@ const STEP_NUMBER: Record<StepId, number> = {
   method: 5,
   usage: 6,
   campaign: 6,
+  signup: 7,
 };
 
 /**
@@ -35,7 +39,7 @@ const STEP_NUMBER: Record<StepId, number> = {
  */
 export default function OnboardingFlow() {
   const [params, setParams] = useSearchParams();
-  const navigate = useNavigate();
+  const [signupLocked, setSignupLocked] = useState(false); // signing up, or confirmation email sent
   const { answers, update } = useOnboardingAnswers();
   const reduce = useReducedMotion();
 
@@ -71,9 +75,9 @@ export default function OnboardingFlow() {
 
   const go = (next: StepId) => setParams({ step: next });
 
-  // After the intro video (ended, skipped, or unable to play) go to the existing sign-up page.
+  // After the intro video (ended, skipped, or unable to play) show the in-flow sign-up step.
   // `replace`, so Back from sign-up returns to the last question instead of replaying the video.
-  const toSignup = () => navigate('/login?mode=signup', { replace: true });
+  const toSignup = () => setParams({ step: 'signup' }, { replace: true });
 
   const pickRole = (role: RoleId) => {
     if (role !== answers.role) update({ role, situation: null, otherText: '' });
@@ -93,7 +97,7 @@ export default function OnboardingFlow() {
     role: { back: () => go('welcome'), next: () => go('situation'), label: 'Continue', disabled: !answers.role },
     situation: {
       back: () => go('role'),
-      next: () => go('campaign'),
+      next: () => go('track'),
       label: 'Continue',
       disabled: !isSituationComplete(answers),
     },
@@ -101,11 +105,17 @@ export default function OnboardingFlow() {
     method: { back: () => go('track'), next: () => go('usage'), label: 'Continue', disabled: !isMethodComplete(answers) },
     usage: { back: () => go('method'), next: () => go('campaign'), label: 'Continue', disabled: !isUsageComplete(answers) },
     campaign: { back: () => go('usage'), next: () => {}, label: 'Continue', disabled: true },
+    signup: {
+      back: () => go('usage'),
+      next: () => document.getElementById(SIGNUP_SUBMIT_ID)?.click(),
+      label: 'Create my account',
+      disabled: signupLocked,
+    },
   }[step] as { back?: () => void; next: () => void; label: string; disabled: boolean };
 
   return (
     <OnboardingShell
-      step={STEP_NUMBER[step]}
+      step={Math.min(STEP_NUMBER[step], TOTAL_STEPS)}
       width={step === 'welcome' ? 'wide' : 'narrow'}
       scrollKey={step}
       onBack={footer.back}
@@ -147,6 +157,7 @@ export default function OnboardingFlow() {
           {(step === 'usage' || step === 'campaign') && (
             <UsageStep value={answers.usagePlan} onChange={(usagePlan) => update({ usagePlan })} />
           )}
+          {step === 'signup' && <SignupStep onLockedChange={setSignupLocked} />}
         </motion.div>
       </AnimatePresence>
       {step === 'campaign' && <IntroVideoOverlay onDone={toSignup} />}
