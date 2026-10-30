@@ -7,6 +7,7 @@ import {
   useOnboardingAnswers,
   type RoleId,
 } from '../../lib/onboardingFlow';
+import { trackOnboardingStep } from '../../lib/onboardingSync';
 import { NextStepPlaceholder, RoleStep, SituationStep, WelcomeStep } from './steps';
 
 const STEP_IDS = ['welcome', 'role', 'situation', 'campaign'] as const;
@@ -32,6 +33,13 @@ export default function OnboardingFlow() {
   useEffect(() => {
     if (requested && requested !== step) setParams({ step }, { replace: true });
   }, [requested, step, setParams]);
+
+  // Research funnel: record the furthest step reached. Reaching 'campaign' means every question
+  // built so far is answered (guards above), so that is "completed". When you add more questions,
+  // move the 'campaign' check to the new last question step.
+  useEffect(() => {
+    void trackOnboardingStep(STEP_NUMBER[step], step === 'campaign');
+  }, [step]);
 
   const go = (next: StepId) => setParams({ step: next });
 

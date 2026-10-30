@@ -1,4 +1,5 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
+import { saveOnboardingAnswers } from './onboardingSync';
 
 /** Total segments in the progress bar for the whole onboarding (not just the 3 built so far). */
 export const TOTAL_STEPS = 6;
@@ -21,6 +22,9 @@ export interface SituationOption {
   description: string;
 }
 
+// If you add, rename or remove a role here, update ALLOWED_VALUES.role in
+// supabase/functions/save-onboarding-answers/index.ts too (functions can't import from src/),
+// then redeploy that function. Otherwise saves containing the new role are rejected.
 export const ROLES: RoleOption[] = [
   { id: 'business_owner', title: 'Business owner', description: 'Grow your business through content.' },
   { id: 'marketer', title: 'Marketer', description: 'Make every campaign easier to measure.' },
@@ -117,16 +121,38 @@ export function isSituationComplete(a: OnboardingAnswers): boolean {
   return SITUATIONS[a.role].options.some((o) => o.id === a.situation);
 }
 
-/** Answers survive a refresh and the later sign-up redirect because they live in localStorage. */
+/** Minimum gap between saves while someone is typing. The first change after a pause saves immediately. */
+const SAVE_THROTTLE_MS = 800;
+
+/**
+ * Answers survive a refresh (localStorage) and are saved to Supabase as they change, even before
+ * sign-up. Each save sends every answer, so a failed save is repaired by the next one and never
+ * blocks the user. New fields added to OnboardingAnswers are saved automatically (camelCase → snake_case).
+ */
 export function useOnboardingAnswers() {
   const [answers, setAnswers] = useState<OnboardingAnswers>(readOnboardingAnswers);
+  const latest = useRef(answers);
+  const timer = useRef<number | undefined>(undefined);
+  const lastSent = useRef(0);
 
   useEffect(() => {
+    latest.current = answers;
     try {
       localStorage.setItem(STORAGE_KEY, JSON.stringify(answers));
     } catch {
       /* storage unavailable */
     }
+
+    // Nothing to send until something is answered (after the first send, always send so clears reach the server).
+    if (lastSent.current === 0 && Object.values(answers).every((v) => v == null || v === '')) return;
+    if (timer.current !== undefined) return; // a save is already queued and will read the latest answers
+    const wait = Math.max(0, SAVE_THROTTLE_MS - (Date.now() - lastSent.current));
+    // No cleanup on purpose: a queued save should still go out if the user navigates away.
+    timer.current = window.setTimeout(() => {
+      timer.current = undefined;
+      lastSent.current = Date.now();
+      void saveOnboardingAnswers(latest.current);
+    }, wait);
   }, [answers]);
 
   const update = useCallback(

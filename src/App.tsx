@@ -85,6 +85,7 @@ import BusinessHireAgencyDemo from './pages/public/marketing/businessHireAgency/
 import BusinessHireAgencyLandingPage from './pages/public/marketing/businessHireAgency/BusinessHireAgencyLandingPage';
 import VSLPlayer from './pages/public/VSL/1ST/VSLPlayer';
 import OnboardingFlow from './pages/onboardingFlow/OnboardingFlow';
+import { useLinkOnboardingOnSignIn } from './lib/onboardingSync';
 import { useMyTeam } from './lib/useMyTeam';
 import { applyTheme, getStoredTheme } from './lib/theme';
 // Top-level path segments that are "real" app pages (i.e. matched by an
@@ -864,6 +865,7 @@ function PageWrapper({ children }: { children: React.ReactNode }) {
 }
 
 export default function App() {
+  useLinkOnboardingOnSignIn(); // links anonymous onboarding answers to the account after sign-up
   return (
     <Router>
       <AuthProvider>
