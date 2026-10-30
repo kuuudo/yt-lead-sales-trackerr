@@ -1,7 +1,6 @@
 import { useEffect, useState } from 'react';
 import { AnimatePresence, motion, useReducedMotion } from 'motion/react';
 import { useSearchParams } from 'react-router-dom';
-import IntroVideoOverlay from '../../components/onboardingFlow/IntroVideoOverlay';
 import OnboardingShell from '../../components/onboardingFlow/OnboardingShell';
 import {
   isMethodComplete,
@@ -17,11 +16,11 @@ import { trackOnboardingStep } from '../../lib/onboardingSync';
 import { MethodStep, RoleStep, SituationStep, TrackStep, UsageStep, WelcomeStep } from './steps';
 import SignupStep, { SIGNUP_SUBMIT_ID } from './SignupStep';
 
-const STEP_IDS = ['welcome', 'role', 'situation', 'track', 'method', 'usage', 'campaign', 'signup'] as const;
+const STEP_IDS = ['welcome', 'role', 'situation', 'track', 'method', 'usage', 'signup'] as const;
 type StepId = (typeof STEP_IDS)[number];
-// Same numbers as the "0N / 06" label. 'campaign' is the hand-off after the last question (the intro
-// video), so it shares 6. 'signup' is the account page: the progress bar stays full (Math.min below)
-// while furthest_step records 7, so "reached sign-up" is visible in the funnel.
+// Same numbers as the "0N / 06" label. 'signup' is the account page after the last question: the
+// progress bar stays full (Math.min below) while furthest_step records 7, so "reached sign-up" is
+// visible in the funnel.
 const STEP_NUMBER: Record<StepId, number> = {
   welcome: 1,
   role: 2,
@@ -29,7 +28,6 @@ const STEP_NUMBER: Record<StepId, number> = {
   track: 4,
   method: 5,
   usage: 6,
-  campaign: 6,
   signup: 7,
 };
 
@@ -66,18 +64,15 @@ export default function OnboardingFlow() {
     if (requested && requested !== step) setParams({ step }, { replace: true });
   }, [requested, step, setParams]);
 
-  // Research funnel: record the furthest step reached. Reaching 'campaign' (the hand-off after the
-  // last question) means every question is answered (guards above), so that is "completed". When you
-  // add more questions, put them before 'campaign' and the gates above keep this correct.
+  // Research funnel: record the furthest step reached. Reaching 'signup' (the hand-off after the
+  // last question) means every question is answered (guards above), so that is "completed".
+  // Whether they then create an account is the separate user_id field. When you add more questions,
+  // put them before 'signup' and the gates above keep this correct.
   useEffect(() => {
-    void trackOnboardingStep(STEP_NUMBER[step], step === 'campaign');
+    void trackOnboardingStep(STEP_NUMBER[step], step === 'signup');
   }, [step]);
 
   const go = (next: StepId) => setParams({ step: next });
-
-  // After the intro video (ended, skipped, or unable to play) show the in-flow sign-up step.
-  // `replace`, so Back from sign-up returns to the last question instead of replaying the video.
-  const toSignup = () => setParams({ step: 'signup' }, { replace: true });
 
   const pickRole = (role: RoleId) => {
     if (role !== answers.role) update({ role, situation: null, otherText: '' });
@@ -103,8 +98,7 @@ export default function OnboardingFlow() {
     },
     track: { back: () => go('situation'), next: () => go('method'), label: 'Continue', disabled: !isTrackComplete(answers) },
     method: { back: () => go('track'), next: () => go('usage'), label: 'Continue', disabled: !isMethodComplete(answers) },
-    usage: { back: () => go('method'), next: () => go('campaign'), label: 'Continue', disabled: !isUsageComplete(answers) },
-    campaign: { back: () => go('usage'), next: () => {}, label: 'Continue', disabled: true },
+    usage: { back: () => go('method'), next: () => go('signup'), label: 'Continue', disabled: !isUsageComplete(answers) },
     signup: {
       back: () => go('usage'),
       next: () => document.getElementById(SIGNUP_SUBMIT_ID)?.click(),
@@ -126,7 +120,7 @@ export default function OnboardingFlow() {
     >
       <AnimatePresence mode="wait" initial={false}>
         <motion.div
-          key={step === 'campaign' ? 'usage' : step} // the hand-off keeps the last question as the dimmed backdrop
+          key={step}
           initial={{ opacity: 0, y: reduce ? 0 : 8 }}
           animate={{ opacity: 1, y: 0 }}
           exit={{ opacity: 0 }}
@@ -154,13 +148,12 @@ export default function OnboardingFlow() {
           {step === 'method' && (
             <MethodStep value={answers.currentTracking} onChange={(currentTracking) => update({ currentTracking })} />
           )}
-          {(step === 'usage' || step === 'campaign') && (
+          {step === 'usage' && (
             <UsageStep value={answers.usagePlan} onChange={(usagePlan) => update({ usagePlan })} />
           )}
           {step === 'signup' && <SignupStep onLockedChange={setSignupLocked} />}
         </motion.div>
       </AnimatePresence>
-      {step === 'campaign' && <IntroVideoOverlay onDone={toSignup} />}
     </OnboardingShell>
   );
 }
