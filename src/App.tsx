@@ -84,6 +84,7 @@ import BusinessOwnerLandingPage from './pages/public/marketing/businessOwner/Bus
 import BusinessHireAgencyDemo from './pages/public/marketing/businessHireAgency/BusinessHireAgencyDemo';
 import BusinessHireAgencyLandingPage from './pages/public/marketing/businessHireAgency/BusinessHireAgencyLandingPage';
 import VSLPlayer from './pages/public/VSL/1ST/VSLPlayer';
+import OnboardingFlow from './pages/onboardingFlow/OnboardingFlow';
 import { useMyTeam } from './lib/useMyTeam';
 import { applyTheme, getStoredTheme } from './lib/theme';
 // Top-level path segments that are "real" app pages (i.e. matched by an
@@ -182,6 +183,8 @@ function isBusinessHireAgencyRoute(pathname: string): boolean {
 // NOTE: do NOT add this to KNOWN_APP_PATHS. As a bare single-segment path,
 // isRelayRoute() already treats it as chrome-less and exempt from the access gate.
 const VSL_1ST_PATH = '/vsl1stversionanimation';
+// Public pre-signup onboarding. Do NOT add 'start' to KNOWN_APP_PATHS (bare single-segment path = chrome-less + exempt from access gate).
+const ONBOARDING_PATH = '/start';
 
 // Renders the top nav + viewing banner everywhere EXCEPT the relay/token
 // redirect routes, without touching in-app navigation at all.
@@ -710,9 +713,11 @@ function MainContent() {
           <Route key={path} path={path} element={<BusinessHireAgencyLandingPage />} />
         ))}
           <Route path={VSL_1ST_PATH} element={<VSLPlayer />} />
-        {/* Phase 1 continuation relay — infrastructure only. Must be above /:token,
-            and /r/platform must be above /r/:relayToken or it never matches. */}
-        <Route path="/r/platform" element={<PlatformContinuation />} />
+<Route path={ONBOARDING_PATH} element={<OnboardingFlow />} />
+
+{/* Phase 1 continuation relay — infrastructure only. Must be above /:token,
+    and /r/platform must be above /r/:relayToken or it never matches. */}
+<Route path="/r/platform" element={<PlatformContinuation />} />
         <Route path="/r/:relayToken" element={<ContinuationRelay />} />
         <Route path="/track/:token" element={<Track />} />
         <Route path="/:token" element={<Track />} />
@@ -788,8 +793,9 @@ function MainContent() {
             and /r/platform must be above /r/:relayToken or it never matches. */}
         <Route path="/r/platform" element={<PlatformContinuation />} />
         <Route path="/r/:relayToken" element={<ContinuationRelay />} />
-        <Route path="/track/:token" element={<Track />} />
-        <Route path="/:token" element={<Track />} />
+       <Route path="/track/:token" element={<Track />} />
+<Route path={ONBOARDING_PATH} element={<Navigate to="/tree" replace />} />
+<Route path="/:token" element={<Track />} />
         <Route path="*" element={<Navigate to="/tree" replace />} />
         <Route path="/analytics-test" element={<AnalyticsTest />} />
         <Route path="/pricing" element={<PageWrapper><Pricing /></PageWrapper>} />
