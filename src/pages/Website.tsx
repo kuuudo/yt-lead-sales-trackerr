@@ -34,7 +34,7 @@ const C = {
 }
 const MONO = 'ui-monospace, SFMono-Regular, Menlo, monospace'
 const SANS = '"Bricolage Grotesque", -apple-system, BlinkMacSystemFont, "Helvetica Neue", sans-serif'
-const CTA_HREF = '/login' // every "Start tracking" button goes here
+const CTA_HREF = '/start' // every "Start tracking" button goes to the onboarding flow
 
 const mono = (color = C.mut, size = 11): React.CSSProperties => ({
   fontFamily: MONO, fontSize: size, color, letterSpacing: '0.12em', textTransform: 'uppercase',
