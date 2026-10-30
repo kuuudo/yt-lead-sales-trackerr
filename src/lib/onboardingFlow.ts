@@ -33,6 +33,13 @@ export const ROLES: RoleOption[] = [
   { id: 'creator', title: 'YouTuber / content creator', description: 'Turn your content into measurable results.' },
 ];
 
+/** A plain choice card. `description` is optional. */
+export interface ChoiceOption {
+  id: string;
+  title: string;
+  description?: string;
+}
+
 export const OTHER_OPTION: SituationOption = {
   id: 'other',
   title: 'Something else',
@@ -79,14 +86,54 @@ export const SITUATIONS: Record<RoleId, { question: string; options: SituationOp
   },
 };
 
+/** Step 4 (pick several). "Other" opens a text box, so you can see what people want tracked that VSTRK doesn't cover yet. */
+export const TRACK_OTHER_ID = 'other';
+export const TRACK_OPTIONS: ChoiceOption[] = [
+  { id: 'sales_purchases', title: 'Sales & purchases', description: 'Purchases and closed deals.' },
+  { id: 'revenue', title: 'Revenue generated', description: 'How much money your content and links bring in.' },
+  { id: 'consultations_bookings', title: 'Consultations & bookings', description: 'Booked calls, consultations and sales calls.' },
+  { id: 'leads_signups', title: 'Leads & newsletter signups', description: 'Potential customers and email subscribers.' },
+  { id: 'clicks_traffic', title: 'Link clicks & traffic', description: 'Who clicks your links and visits your site.' },
+  { id: TRACK_OTHER_ID, title: 'Other', description: 'Tell us what you’d like to track.' },
+];
+
+/** Step 5 (pick one). */
+export const METHOD_OPTIONS: ChoiceOption[] = [
+  { id: 'spreadsheets', title: 'Spreadsheets (Excel / Google Sheets)' },
+  { id: 'platform_analytics', title: 'Platform analytics (YouTube, Instagram, TikTok, etc.)' },
+  { id: 'links_or_utm', title: 'Tracking links or UTM parameters' },
+  { id: 'mix_of_tools', title: 'A mix of different tools' },
+  { id: 'not_tracking', title: 'I’m not tracking my results yet' },
+];
+
+/** Step 6 (pick one). */
+export const USAGE_OPTIONS: ChoiceOption[] = [
+  { id: 'own_content', title: 'Track my own content and campaigns' },
+  { id: 'collaborate', title: 'Let creators, partners or marketers promote my business' },
+  { id: 'both', title: 'Both — track my own content and collaborate with others' },
+  { id: 'not_sure', title: 'I’m not sure yet' },
+];
+
 export interface OnboardingAnswers {
   role: RoleId | null;
   situation: string | null;
   otherText: string;
+  trackGoals: string[];
+  trackOther: string;
+  currentTracking: string | null;
+  usagePlan: string | null;
 }
 
 const STORAGE_KEY = 'vstrk.onboarding.v1';
-const EMPTY: OnboardingAnswers = { role: null, situation: null, otherText: '' };
+const EMPTY: OnboardingAnswers = {
+  role: null,
+  situation: null,
+  otherText: '',
+  trackGoals: [],
+  trackOther: '',
+  currentTracking: null,
+  usagePlan: null,
+};
 
 /** Safe to call anywhere (e.g. the sign-up step, to save answers to the new account). */
 export function readOnboardingAnswers(): OnboardingAnswers {
@@ -99,6 +146,12 @@ export function readOnboardingAnswers(): OnboardingAnswers {
       role,
       situation: role && typeof p.situation === 'string' ? p.situation : null,
       otherText: typeof p.otherText === 'string' ? p.otherText : '',
+      trackGoals: Array.isArray(p.trackGoals)
+        ? p.trackGoals.filter((g: unknown) => TRACK_OPTIONS.some((o) => o.id === g))
+        : [],
+      trackOther: typeof p.trackOther === 'string' ? p.trackOther : '',
+      currentTracking: METHOD_OPTIONS.some((o) => o.id === p.currentTracking) ? p.currentTracking : null,
+      usagePlan: USAGE_OPTIONS.some((o) => o.id === p.usagePlan) ? p.usagePlan : null,
     };
   } catch {
     return EMPTY;
@@ -120,6 +173,20 @@ export function isSituationComplete(a: OnboardingAnswers): boolean {
   }
   return SITUATIONS[a.role].options.some((o) => o.id === a.situation);
 }
+
+export function isTrackComplete(a: OnboardingAnswers): boolean {
+  if (a.trackGoals.length === 0) return false;
+  if (a.trackGoals.includes(TRACK_OTHER_ID)) {
+    return !OTHER_REASON_REQUIRED || a.trackOther.trim().length >= OTHER_REASON_MIN_LENGTH;
+  }
+  return true;
+}
+
+export const isMethodComplete = (a: OnboardingAnswers): boolean =>
+  METHOD_OPTIONS.some((o) => o.id === a.currentTracking);
+
+export const isUsageComplete = (a: OnboardingAnswers): boolean =>
+  USAGE_OPTIONS.some((o) => o.id === a.usagePlan);
 
 /** Minimum gap between saves while someone is typing. The first change after a pause saves immediately. */
 const SAVE_THROTTLE_MS = 800;
@@ -144,7 +211,8 @@ export function useOnboardingAnswers() {
     }
 
     // Nothing to send until something is answered (after the first send, always send so clears reach the server).
-    if (lastSent.current === 0 && Object.values(answers).every((v) => v == null || v === '')) return;
+    const isEmpty = (v: unknown) => v == null || v === '' || (Array.isArray(v) && v.length === 0);
+    if (lastSent.current === 0 && Object.values(answers).every(isEmpty)) return;
     if (timer.current !== undefined) return; // a save is already queued and will read the latest answers
     const wait = Math.max(0, SAVE_THROTTLE_MS - (Date.now() - lastSent.current));
     // No cleanup on purpose: a queued save should still go out if the user navigates away.

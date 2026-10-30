@@ -12,9 +12,14 @@ import {
   type LucideIcon,
 } from 'lucide-react';
 import {
+  METHOD_OPTIONS,
   OTHER_OPTION,
   ROLES,
   SITUATIONS,
+  TRACK_OPTIONS,
+  TRACK_OTHER_ID,
+  USAGE_OPTIONS,
+  type ChoiceOption,
   type OnboardingAnswers,
   type RoleId,
 } from '../../lib/onboardingFlow';
@@ -213,12 +218,151 @@ export function SituationStep({
   );
 }
 
+/* ───────────── 04 · What to track (pick several) ───────────── */
+
+export function TrackStep({
+  goals,
+  otherText,
+  onToggle,
+  onOtherText,
+}: {
+  goals: string[];
+  otherText: string;
+  onToggle: (id: string) => void;
+  onOtherText: (text: string) => void;
+}) {
+  return (
+    <div>
+      <StepHeader
+        n={4}
+        label="What you track"
+        tag="Onboarding"
+        title="What do you want to track?"
+        subtitle="Select all the activities and results that matter to your business."
+      />
+      <ChooseOne label="Select all that apply" />
+      <div role="group" aria-label="What you want to track" className="mt-3 flex flex-col gap-3">
+        {TRACK_OPTIONS.map((o) => (
+          <OptionCard
+            key={o.id}
+            multi
+            title={o.title}
+            description={o.description}
+            selected={goals.includes(o.id)}
+            onSelect={() => onToggle(o.id)}
+          />
+        ))}
+      </div>
+
+      <AnimatePresence initial={false}>
+        {goals.includes(TRACK_OTHER_ID) && (
+          <motion.div
+            key="track-other"
+            initial={{ height: 0, opacity: 0 }}
+            animate={{ height: 'auto', opacity: 1 }}
+            exit={{ height: 0, opacity: 0 }}
+            transition={{ duration: 0.22 }}
+            className="overflow-hidden"
+          >
+            <label className="block px-1 pb-1 pt-5">
+              <span className="text-[14px] font-medium">What else would you like to track?</span>
+              <textarea
+                autoFocus
+                rows={2}
+                maxLength={200}
+                value={otherText}
+                onChange={(e) => onOtherText(e.target.value)}
+                placeholder="For example: webinar registrations, app installs…"
+                className="mt-2 w-full resize-none rounded-2xl border border-[#E4E0F5] bg-white px-4 py-3 text-[16px] outline-none transition placeholder:text-[#A29EB8] focus:border-[#5B3DF5] focus:ring-4 focus:ring-[#5B3DF5]/15"
+              />
+            </label>
+          </motion.div>
+        )}
+      </AnimatePresence>
+    </div>
+  );
+}
+
+/* ───────────── 05 / 06 · pick-one questions ───────────── */
+
+function ChoiceList({
+  label,
+  options,
+  value,
+  onChange,
+}: {
+  label: string;
+  options: ChoiceOption[];
+  value: string | null;
+  onChange: (id: string) => void;
+}) {
+  return (
+    <>
+      <ChooseOne />
+      <div role="radiogroup" aria-label={label} className="mt-3 flex flex-col gap-3">
+        {options.map((o) => (
+          <OptionCard
+            key={o.id}
+            title={o.title}
+            description={o.description}
+            selected={value === o.id}
+            onSelect={() => onChange(o.id)}
+          />
+        ))}
+      </div>
+    </>
+  );
+}
+
+export function MethodStep({ value, onChange }: { value: string | null; onChange: (id: string) => void }) {
+  return (
+    <div>
+      <StepHeader
+        n={5}
+        label="How you track today"
+        tag="Onboarding"
+        title="How do you track your marketing performance today?"
+        subtitle="Choose the option that best describes your current workflow."
+      />
+      <ChoiceList label="How you track today" options={METHOD_OPTIONS} value={value} onChange={onChange} />
+    </div>
+  );
+}
+
+export function UsageStep({ value, onChange }: { value: string | null; onChange: (id: string) => void }) {
+  return (
+    <div>
+      <StepHeader
+        n={6}
+        label="How you’ll use VSTRK"
+        tag="Onboarding"
+        title="How do you plan to use VSTRK?"
+        subtitle="VSTRK lets you track your own content and collaborate with others while keeping track of the results."
+      />
+      <ChoiceList label="How you plan to use VSTRK" options={USAGE_OPTIONS} value={value} onChange={onChange} />
+      <aside className="mt-6 rounded-2xl border border-[#E4E0F5] bg-white p-5">
+        <span
+          className="inline-block rounded bg-[#EEEAFF] px-2 py-1 text-[10px] uppercase tracking-[0.14em] text-[#5B3DF5]"
+          style={FONT.mono}
+        >
+          Collaboration
+        </span>
+        <p className="mt-3 text-[17px] font-semibold">One link. Multiple promoters. Clear results.</p>
+        <p className="mt-1 text-[14px] text-[#5E5B70]">
+          Share your tracking assets with others. They can create their own content-specific links, while you can
+          track the results.
+        </p>
+      </aside>
+    </div>
+  );
+}
+
 /* ───────────── TEMP · replace with the campaign step ───────────── */
 
 export function NextStepPlaceholder({ answers }: { answers: OnboardingAnswers }) {
   return (
     <div>
-      <Eyebrow n={4} label="Campaign setup" />
+      <Eyebrow n={6} label="Campaign setup" />
       <h1 className="mt-5 text-[40px] font-extrabold leading-[1.03] tracking-[-0.035em] sm:text-[56px]" style={FONT.display}>
         Campaign setup comes next.
       </h1>

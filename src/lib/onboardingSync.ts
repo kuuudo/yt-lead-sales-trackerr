@@ -38,13 +38,15 @@ export function getOnboardingSessionId(): string {
 
 const toSnake = (key: string) => key.replace(/[A-Z]/g, (c) => `_${c.toLowerCase()}`);
 
-/** otherText → other_text, '' → null (null removes the answer on the server). */
+/** otherText → other_text, ''/[] → null (null removes the answer on the server). */
 function toDbAnswers(answers: object): Record<string, unknown> {
   const out: Record<string, unknown> = {};
   for (const [key, value] of Object.entries(answers)) {
     if (typeof value === 'string') {
       const text = value.trim().slice(0, MAX_TEXT);
       out[toSnake(key)] = text === '' ? null : text;
+    } else if (Array.isArray(value)) {
+      out[toSnake(key)] = value.length === 0 ? null : value;
     } else {
       out[toSnake(key)] = value ?? null;
     }

@@ -1,6 +1,6 @@
 import { useEffect, useRef, type ReactNode } from 'react';
 import { motion } from 'motion/react';
-import { ArrowLeft, ArrowRight, Info, type LucideIcon } from 'lucide-react';
+import { ArrowLeft, ArrowRight, Check, Info, type LucideIcon } from 'lucide-react';
 import { TOTAL_STEPS } from '../../lib/onboardingFlow';
 
 export const FONT = {
@@ -183,10 +183,10 @@ export function StepHeader({
   );
 }
 
-export function ChooseOne() {
+export function ChooseOne({ label = 'Choose one' }: { label?: string }) {
   return (
     <p className="mt-9 flex items-center gap-2 text-[14px] text-[#6B6880]">
-      <Info size={15} aria-hidden /> Choose one
+      <Info size={15} aria-hidden /> {label}
     </p>
   );
 }
@@ -198,6 +198,7 @@ export function OptionCard({
   selected,
   onSelect,
   className = '',
+  multi = false,
 }: {
   icon?: LucideIcon;
   title: string;
@@ -205,11 +206,13 @@ export function OptionCard({
   selected: boolean;
   onSelect: () => void;
   className?: string;
+  /** Checkbox style, for "select all that apply" questions. */
+  multi?: boolean;
 }) {
   return (
     <button
       type="button"
-      role="radio"
+      role={multi ? 'checkbox' : 'radio'}
       aria-checked={selected}
       onClick={onSelect}
       className={`flex w-full items-center gap-4 rounded-2xl border px-5 py-4 text-left transition focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-[#5B3DF5]/25 ${
@@ -231,19 +234,36 @@ export function OptionCard({
         <span className="block text-[17px] font-semibold leading-snug">{title}</span>
         {description && <span className="mt-0.5 block text-[14px] leading-snug text-[#5E5B70]">{description}</span>}
       </span>
-      <span
-        aria-hidden
-        className={`grid h-[22px] w-[22px] shrink-0 place-items-center rounded-full border-2 transition-colors ${
-          selected ? 'border-[#5B3DF5]' : 'border-[#CFCAE6]'
-        }`}
-      >
-        <motion.span
-          className="h-[10px] w-[10px] rounded-full bg-[#5B3DF5]"
-          initial={false}
-          animate={{ scale: selected ? 1 : 0 }}
-          transition={{ type: 'spring', stiffness: 500, damping: 30 }}
-        />
-      </span>
+      {multi ? (
+        <span
+          aria-hidden
+          className={`grid h-[22px] w-[22px] shrink-0 place-items-center rounded-md border-2 transition-colors ${
+            selected ? 'border-[#5B3DF5] bg-[#5B3DF5]' : 'border-[#CFCAE6]'
+          }`}
+        >
+          <motion.span
+            initial={false}
+            animate={{ scale: selected ? 1 : 0 }}
+            transition={{ type: 'spring', stiffness: 500, damping: 30 }}
+          >
+            <Check size={14} strokeWidth={3} className="text-white" aria-hidden />
+          </motion.span>
+        </span>
+      ) : (
+        <span
+          aria-hidden
+          className={`grid h-[22px] w-[22px] shrink-0 place-items-center rounded-full border-2 transition-colors ${
+            selected ? 'border-[#5B3DF5]' : 'border-[#CFCAE6]'
+          }`}
+        >
+          <motion.span
+            className="h-[10px] w-[10px] rounded-full bg-[#5B3DF5]"
+            initial={false}
+            animate={{ scale: selected ? 1 : 0 }}
+            transition={{ type: 'spring', stiffness: 500, damping: 30 }}
+          />
+        </span>
+      )}
     </button>
   );
 }
