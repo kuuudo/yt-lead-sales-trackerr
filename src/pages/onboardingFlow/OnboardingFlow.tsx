@@ -1,6 +1,7 @@
 import { useEffect } from 'react';
 import { AnimatePresence, motion, useReducedMotion } from 'motion/react';
-import { useSearchParams } from 'react-router-dom';
+import { useNavigate, useSearchParams } from 'react-router-dom';
+import IntroVideoOverlay from '../../components/onboardingFlow/IntroVideoOverlay';
 import OnboardingShell from '../../components/onboardingFlow/OnboardingShell';
 import {
   isMethodComplete,
@@ -12,11 +13,12 @@ import {
   type RoleId,
 } from '../../lib/onboardingFlow';
 import { trackOnboardingStep } from '../../lib/onboardingSync';
-import { MethodStep, NextStepPlaceholder, RoleStep, SituationStep, TrackStep, UsageStep, WelcomeStep } from './steps';
+import { MethodStep, RoleStep, SituationStep, TrackStep, UsageStep, WelcomeStep } from './steps';
 
 const STEP_IDS = ['welcome', 'role', 'situation', 'track', 'method', 'usage', 'campaign'] as const;
 type StepId = (typeof STEP_IDS)[number];
-// Same numbers as the "0N / 06" label. 'campaign' is the hand-off after the last question, so it shares 6.
+// Same numbers as the "0N / 06" label. 'campaign' is the hand-off after the last question (the intro
+// video, then signup), so it shares 6.
 const STEP_NUMBER: Record<StepId, number> = {
   welcome: 1,
   role: 2,
@@ -33,6 +35,7 @@ const STEP_NUMBER: Record<StepId, number> = {
  */
 export default function OnboardingFlow() {
   const [params, setParams] = useSearchParams();
+  const navigate = useNavigate();
   const { answers, update } = useOnboardingAnswers();
   const reduce = useReducedMotion();
 
@@ -67,6 +70,10 @@ export default function OnboardingFlow() {
   }, [step]);
 
   const go = (next: StepId) => setParams({ step: next });
+
+  // After the intro video (ended, skipped, or unable to play) go to the existing sign-up page.
+  // `replace`, so Back from sign-up returns to the last question instead of replaying the video.
+  const toSignup = () => navigate('/login?mode=signup', { replace: true });
 
   const pickRole = (role: RoleId) => {
     if (role !== answers.role) update({ role, situation: null, otherText: '' });
@@ -109,7 +116,7 @@ export default function OnboardingFlow() {
     >
       <AnimatePresence mode="wait" initial={false}>
         <motion.div
-          key={step}
+          key={step === 'campaign' ? 'usage' : step} // the hand-off keeps the last question as the dimmed backdrop
           initial={{ opacity: 0, y: reduce ? 0 : 8 }}
           animate={{ opacity: 1, y: 0 }}
           exit={{ opacity: 0 }}
@@ -137,12 +144,12 @@ export default function OnboardingFlow() {
           {step === 'method' && (
             <MethodStep value={answers.currentTracking} onChange={(currentTracking) => update({ currentTracking })} />
           )}
-          {step === 'usage' && (
+          {(step === 'usage' || step === 'campaign') && (
             <UsageStep value={answers.usagePlan} onChange={(usagePlan) => update({ usagePlan })} />
           )}
-          {step === 'campaign' && <NextStepPlaceholder answers={answers} />}
         </motion.div>
       </AnimatePresence>
+      {step === 'campaign' && <IntroVideoOverlay onDone={toSignup} />}
     </OnboardingShell>
   );
 }
