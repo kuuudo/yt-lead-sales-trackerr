@@ -4,10 +4,10 @@
 // qualifies and how the stage is derived from real data). Rendered once, in
 // MainContent's logged-in branch (App.tsx), so it needs Router + Auth + Tutorial.
 //
-//   stage 'campaign' -> full-screen light Campaign screen
+//   stage 'campaign' -> light Campaign pop-up over the app (after a short pause)
 //   stage 'track'    -> starts the Track First Content onboarding guide
 //   stage 'asset'    -> starts the onboarding Video Library asset guide (original minus the track-again button)
-//   stage 'finish'   -> full-screen light Finish screen; Finish ends onboarding for good
+//   stage 'finish'   -> light Finish pop-up; Finish ends onboarding for good
 //
 // Guide completion: tutorial-overlay does not say WHICH guide finished, only that
 // status went to 'completed' (last step "Done") or 'idle' (closed). Whenever that
@@ -16,7 +16,7 @@
 //
 // This file never creates a workspace (it never calls createUserWorkspace).
 
-import { useEffect, useRef } from 'react';
+import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Rocket } from 'lucide-react';
 import { useAuth } from '../../lib/auth';
@@ -25,7 +25,22 @@ import { useOnboarding, type OnboardingStage } from '../../lib/onboardingProgres
 import type { Tutorial } from '../../lib/tutorialTypes';
 import { trackFirstContentOnboardingGuide } from '../../lib/tutorials/trackFirstContentOnboardingGuide';
 import { createVideoLibraryAssetOnboardingGuide } from '../../lib/tutorials/createVideoLibraryAssetOnboardingGuide';
-import { CampaignScreen, FinishScreen } from '../../pages/onboardingFlow/PostSignupSteps';
+import { CampaignModal, FinishModal } from '../../pages/onboardingFlow/PostSignupSteps';
+
+// Pacing: nothing should jump out the instant the page loads or a step ends.
+const CAMPAIGN_POPUP_DELAY_MS = 1800; // let the app settle first after sign-in
+const FINISH_POPUP_DELAY_MS = 600;
+const GUIDE_START_DELAY_MS = 600; // a beat between a pop-up closing / a guide ending and the next guide
+
+/** Renders its children only after a pause. They fade in on their own once mounted. */
+function AfterDelay({ ms, children }: { ms: number; children: ReactNode }) {
+  const [ready, setReady] = useState(false);
+  useEffect(() => {
+    const t = window.setTimeout(() => setReady(true), ms);
+    return () => window.clearTimeout(t);
+  }, [ms]);
+  return ready ? <>{children}</> : null;
+}
 
 export default function OnboardingGate() {
   const { user } = useAuth();
@@ -62,8 +77,11 @@ export default function OnboardingGate() {
   useEffect(() => {
     if (!guide || !user || status === 'active') return;
     if (autoStartedFor.current === state) return;
-    autoStartedFor.current = state as OnboardingStage;
-    launch(guide);
+    const timer = window.setTimeout(() => {
+      autoStartedFor.current = state as OnboardingStage;
+      launch(guide);
+    }, GUIDE_START_DELAY_MS);
+    return () => window.clearTimeout(timer);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [guide, state, status, user]);
 
@@ -73,16 +91,20 @@ export default function OnboardingGate() {
   return (
     <div data-theme-lock style={{ display: 'contents' }}>
       {state === 'campaign' && (
-        <CampaignScreen organizationId={organizationId} onCreated={() => void refresh()} />
+        <AfterDelay ms={CAMPAIGN_POPUP_DELAY_MS}>
+          <CampaignModal organizationId={organizationId} onCreated={() => void refresh()} />
+        </AfterDelay>
       )}
 
       {state === 'finish' && (
-        <FinishScreen
-          onFinish={async () => {
-            await finish(); // throws if saving fails; the screen shows the error
-            navigate('/tree');
-          }}
-        />
+        <AfterDelay ms={FINISH_POPUP_DELAY_MS}>
+          <FinishModal
+            onFinish={async () => {
+              await finish(); // throws if saving fails; the pop-up shows the error
+              navigate('/tree');
+            }}
+          />
+        </AfterDelay>
       )}
 
       {/* Safety net: if the guide was closed mid-way there is otherwise no way to bring it back

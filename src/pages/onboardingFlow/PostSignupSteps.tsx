@@ -1,30 +1,78 @@
 // src/pages/onboardingFlow/PostSignupSteps.tsx
 //
-// The two full-screen, light-style screens of the post-signup onboarding:
-//   CampaignScreen - create the first campaign (same createCampaign() as the Campaigns page)
-//   FinishScreen   - shown once the first Asset is in the Library; "Finish" ends onboarding
+// The two pop-ups of the post-signup onboarding. They float over the real app
+// (centered on desktop, a bottom sheet on phones) instead of taking the whole page:
+//   CampaignModal - create the first campaign (same createCampaign() as the Campaigns page)
+//   FinishModal   - shown once the first Asset is in the Library; "Finish" ends onboarding
 //
-// The two guided stages in between (track content, create asset) are NOT screens:
+// The two guided stages in between (track content, create asset) are NOT pop-ups:
 // they run as follow-along guides over the real app (see OnboardingGate).
 
-import { useState, type FormEvent } from 'react';
+import { useEffect, useState, type FormEvent, type ReactNode } from 'react';
+import { motion } from 'motion/react';
 import { CheckCircle2, Loader2 } from 'lucide-react';
-import OnboardingShell, { FONT } from '../../components/onboardingFlow/OnboardingShell';
+import { FONT } from '../../components/onboardingFlow/OnboardingShell';
 import { createCampaign, NEW_CAMPAIGN_DEFAULTS } from '../../lib/createCampaign';
 import { useAuth } from '../../lib/auth';
 import { SUPPORT_WHATSAPP_URL } from '../../lib/support';
 
-/** Campaign, Track content, Create Asset, Finish. */
-const TOTAL = 4;
-
+// 16px inputs on purpose: smaller text makes iOS Safari zoom the page on focus.
 const inputClass =
-  'mt-2 w-full rounded-2xl border border-[#E4E0F5] bg-white px-4 py-3 text-[16px] outline-none transition placeholder:text-[#A29EB8] focus:border-[#5B3DF5] focus:ring-4 focus:ring-[#5B3DF5]/15';
+  'mt-1.5 w-full rounded-xl border border-[#E4E0F5] bg-white px-4 py-3 text-[16px] text-[#14121F] outline-none transition placeholder:text-[#A29EB8] focus:border-[#5B3DF5] focus:ring-4 focus:ring-[#5B3DF5]/15';
 
-function Eyebrow({ children }: { children: string }) {
+const primaryButton =
+  'mt-6 flex h-[52px] w-full items-center justify-center gap-2 rounded-xl bg-[#5B3DF5] text-[13px] font-medium uppercase tracking-[0.14em] text-white shadow-[0_12px_28px_-10px_rgba(91,61,245,0.6)] transition hover:bg-[#4A2FE0] focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-[#5B3DF5]/30 disabled:cursor-not-allowed disabled:opacity-50 disabled:shadow-none';
+
+/** Same font link the pre-signup flow uses (same id, so it is only ever added once). */
+function useOnboardingFonts() {
+  useEffect(() => {
+    if (document.getElementById('vstrk-onboarding-fonts')) return;
+    const link = document.createElement('link');
+    link.id = 'vstrk-onboarding-fonts';
+    link.rel = 'stylesheet';
+    link.href =
+      'https://fonts.googleapis.com/css2?family=Inter+Tight:wght@500;700;800&family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap';
+    document.head.appendChild(link);
+  }, []);
+}
+
+/** Dimmed backdrop + card. Centered on desktop, a bottom sheet on phones. Not dismissible. */
+function ModalFrame({ label, children }: { label: string; children: ReactNode }) {
+  useOnboardingFonts();
   return (
-    <span className="text-[11px] uppercase tracking-[0.14em] text-[#5B3DF5]" style={FONT.mono}>
-      {children}
-    </span>
+    <motion.div
+      className="fixed inset-0 z-[100] flex items-end justify-center overflow-y-auto bg-[#14121F]/45 p-0 backdrop-blur-[2px] sm:items-center sm:p-6"
+      initial={{ opacity: 0 }}
+      animate={{ opacity: 1 }}
+      transition={{ duration: 0.35, ease: 'easeOut' }}
+    >
+      <motion.div
+        role="dialog"
+        aria-modal="true"
+        aria-label={label}
+        className="max-h-[92dvh] w-full max-w-[460px] overflow-y-auto rounded-t-3xl bg-[#FBFAFF] p-6 pb-[max(1.5rem,env(safe-area-inset-bottom))] text-[#14121F] shadow-[0_30px_80px_-20px_rgba(20,18,31,0.55)] sm:rounded-3xl sm:p-8"
+        style={{ fontFamily: "'Inter', system-ui, sans-serif" }}
+        initial={{ opacity: 0, y: 24 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ duration: 0.4, delay: 0.1, ease: 'easeOut' }}
+      >
+        {children}
+      </motion.div>
+    </motion.div>
+  );
+}
+
+function Heading({ eyebrow, title, subtitle }: { eyebrow: string; title: string; subtitle: string }) {
+  return (
+    <div>
+      <span className="text-[11px] uppercase tracking-[0.14em] text-[#5B3DF5]" style={FONT.mono}>
+        {eyebrow}
+      </span>
+      <h2 className="mt-3 text-[28px] font-extrabold leading-[1.08] tracking-[-0.03em]" style={FONT.display}>
+        {title}
+      </h2>
+      <p className="mt-2 text-[15px] leading-snug text-[#5E5B70]">{subtitle}</p>
+    </div>
   );
 }
 
@@ -47,22 +95,9 @@ function parsePrice(raw: string): number {
   return Number.isFinite(n) && n > 0 ? n : 0;
 }
 
-function SupportLink() {
-  return (
-    <a
-      href={SUPPORT_WHATSAPP_URL}
-      target="_blank"
-      rel="noopener noreferrer"
-      className="font-medium text-[#5B3DF5] underline-offset-4 hover:underline"
-    >
-      Contact support on WhatsApp
-    </a>
-  );
-}
-
 /* ───────────── Stage 1 · Create the first campaign ───────────── */
 
-export function CampaignScreen({
+export function CampaignModal({
   organizationId,
   onCreated,
 }: {
@@ -76,7 +111,11 @@ export function CampaignScreen({
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  const submit = async () => {
+  // Auto-focus only with a mouse: on phones it would pop the keyboard up over the sheet.
+  const canAutoFocus = typeof window !== 'undefined' && window.matchMedia('(pointer: fine)').matches;
+
+  const submit = async (e: FormEvent) => {
+    e.preventDefault();
     if (busy) return;
     const name = product.trim();
     const url = normalizeUrl(website);
@@ -97,7 +136,7 @@ export function CampaignScreen({
         userId: user.id,
         organizationId,
       });
-      // Stay busy on success: the gate re-reads progress and swaps this screen away,
+      // Stay busy on success: the gate re-reads progress and swaps this pop-up away,
       // so a second click can never create a duplicate campaign.
       onCreated();
     } catch (err: any) {
@@ -106,100 +145,74 @@ export function CampaignScreen({
     }
   };
 
-  const onFormSubmit = (e: FormEvent) => {
-    e.preventDefault();
-    void submit();
-  };
-
   return (
-    <OnboardingShell
-      step={1}
-      totalSteps={TOTAL}
-      hideLogin
-      scrollKey="campaign"
-      onNext={() => void submit()}
-      nextLabel={busy ? 'Creating…' : 'Create campaign'}
-      nextDisabled={busy}
-      footerNote="Track. Attribute. Grow."
-    >
-      <div>
-        <div className="flex items-center justify-between gap-4">
-          <Eyebrow>Quick setup — Your first campaign</Eyebrow>
-          <span className="text-[11px] uppercase tracking-[0.14em] text-[#6B6880]" style={FONT.mono}>
-            About 1 minute
+    <ModalFrame label="Set up your first campaign">
+      <Heading
+        eyebrow="Quick setup"
+        title="You’re in. Let’s set you up."
+        subtitle="Start with your first campaign. It takes a minute."
+      />
+
+      <form onSubmit={submit} className="mt-6 flex flex-col gap-4">
+        <label className="block">
+          <span className="text-[14px] font-medium">What are you selling?</span>
+          <input
+            autoFocus={canAutoFocus}
+            type="text"
+            value={product}
+            onChange={(e) => setProduct(e.target.value)}
+            placeholder="e.g. My coaching program"
+            className={inputClass}
+          />
+        </label>
+        <label className="block">
+          <span className="text-[14px] font-medium">Your website</span>
+          <input
+            type="text"
+            inputMode="url"
+            autoCapitalize="none"
+            autoCorrect="off"
+            value={website}
+            onChange={(e) => setWebsite(e.target.value)}
+            placeholder="yourbrand.com"
+            className={inputClass}
+          />
+        </label>
+        <label className="block">
+          <span className="text-[14px] font-medium">Approximate price</span>
+          <input
+            type="text"
+            inputMode="decimal"
+            value={price}
+            onChange={(e) => setPrice(e.target.value)}
+            placeholder="e.g. 997"
+            className={inputClass}
+          />
+          <span className="mt-1.5 block text-[13px] leading-snug text-[#6B6880]">
+            A rough number is fine. You can change it later.
           </span>
-        </div>
-        <h1
-          className="mt-5 text-[40px] font-extrabold leading-[1.03] tracking-[-0.035em] sm:text-[56px]"
-          style={FONT.display}
-        >
-          You’re in. Let’s create your first campaign.
-        </h1>
-        <p className="mt-4 max-w-[34em] text-[17px] leading-relaxed text-[#5E5B70]">
-          A campaign is what you’re promoting. Next we’ll track one piece of content and turn it into a reusable Asset.
-        </p>
+        </label>
 
-        <form onSubmit={onFormSubmit} className="mt-9 flex flex-col gap-5">
-          <label className="block">
-            <span className="text-[14px] font-medium">What are you selling?</span>
-            <input
-              autoFocus
-              type="text"
-              value={product}
-              onChange={(e) => setProduct(e.target.value)}
-              placeholder="For example: my coaching program"
-              className={inputClass}
-            />
-          </label>
-          <label className="block">
-            <span className="text-[14px] font-medium">Website where people buy or sign up</span>
-            <input
-              type="text"
-              inputMode="url"
-              autoCapitalize="none"
-              autoCorrect="off"
-              value={website}
-              onChange={(e) => setWebsite(e.target.value)}
-              placeholder="yourbrand.com"
-              className={inputClass}
-            />
-          </label>
-          <label className="block">
-            <span className="text-[14px] font-medium">Approximate price of your offer</span>
-            <input
-              type="text"
-              inputMode="decimal"
-              value={price}
-              onChange={(e) => setPrice(e.target.value)}
-              placeholder="For example: 997"
-              className={inputClass}
-            />
-            <span className="mt-2 block text-[13px] leading-snug text-[#5E5B70]">
-              A rough number is fine. You can update it anytime in your Campaign settings.
-            </span>
-          </label>
+        {error && (
+          <p role="alert" className="text-[14px] font-medium text-[#C0392B]">
+            {error}
+          </p>
+        )}
 
-          {error && (
-            <p role="alert" className="text-[14px] font-medium text-[#C0392B]">
-              {error}
-            </p>
-          )}
-
-          {/* Lets the Enter key submit; the visible button is the footer's main button. */}
-          <button type="submit" tabIndex={-1} aria-hidden className="sr-only">
-            Create campaign
-          </button>
-        </form>
-      </div>
-    </OnboardingShell>
+        <button type="submit" disabled={busy} className={primaryButton} style={FONT.mono}>
+          {busy && <Loader2 size={16} className="animate-spin" aria-hidden />}
+          {busy ? 'Creating…' : 'Create campaign'}
+        </button>
+      </form>
+    </ModalFrame>
   );
 }
 
-/* ───────────── Stage 4 · Finish ───────────── */
+/* ───────────── Final stage · Finish ───────────── */
 
-const DONE_ITEMS = ['Created your first campaign', 'Tracked your first content', 'Created your first Asset'];
+const DONE_ITEMS = ['First campaign created', 'First content tracked', 'First Asset created'];
 
-export function FinishScreen({ onFinish }: { onFinish: () => Promise<void> }) {
+export function FinishModal({ onFinish }: { onFinish: () => Promise<void> }) {
   const [busy, setBusy] = useState(false);
   const [failed, setFailed] = useState(false);
 
@@ -217,54 +230,37 @@ export function FinishScreen({ onFinish }: { onFinish: () => Promise<void> }) {
   };
 
   return (
-    <OnboardingShell
-      step={TOTAL}
-      totalSteps={TOTAL}
-      hideLogin
-      scrollKey="finish"
-      onNext={() => void finish()}
-      nextLabel={busy ? 'Finishing…' : 'Finish'}
-      nextDisabled={busy}
-      footerNote="Track. Attribute. Grow."
-    >
-      <div>
-        <Eyebrow>All done</Eyebrow>
-        <h1
-          className="mt-5 text-[40px] font-extrabold leading-[1.03] tracking-[-0.035em] sm:text-[56px]"
-          style={FONT.display}
-        >
-          You’re all set.
-        </h1>
-        <p className="mt-4 max-w-[34em] text-[17px] leading-relaxed text-[#5E5B70]">
-          That’s the core of VSTRK: your content, a tracking link, and the results behind it. You can revisit the
-          guides any time from Get Started.
+    <ModalFrame label="Setup complete">
+      <Heading eyebrow="All done" title="You’re all set." subtitle="Your first campaign, link and Asset are ready." />
+
+      <ul className="mt-6 flex flex-col gap-2.5">
+        {DONE_ITEMS.map((label) => (
+          <li key={label} className="flex items-center gap-3 rounded-xl border border-[#E4E0F5] bg-white px-4 py-3">
+            <CheckCircle2 size={18} className="shrink-0 text-[#5B3DF5]" aria-hidden />
+            <span className="text-[15px] font-medium">{label}</span>
+          </li>
+        ))}
+      </ul>
+
+      {failed && (
+        <p role="alert" className="mt-4 text-[14px] font-medium text-[#C0392B]">
+          We couldn’t save that. Please try again, or{' '}
+          <a
+            href={SUPPORT_WHATSAPP_URL}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="text-[#5B3DF5] underline-offset-4 hover:underline"
+          >
+            contact support
+          </a>
+          .
         </p>
+      )}
 
-        <ul className="mt-9 flex flex-col gap-3">
-          {DONE_ITEMS.map((label) => (
-            <li
-              key={label}
-              className="flex items-center gap-4 rounded-2xl border border-[#E4E0F5] bg-white px-5 py-4"
-            >
-              <span className="grid h-11 w-11 shrink-0 place-items-center rounded-xl bg-[#F0EDFD] text-[#5B3DF5]">
-                <CheckCircle2 size={20} aria-hidden />
-              </span>
-              <span className="text-[17px] font-semibold leading-snug">{label}</span>
-            </li>
-          ))}
-        </ul>
-
-        {busy && (
-          <p className="mt-6 flex items-center gap-2 text-[14px] text-[#5E5B70]">
-            <Loader2 size={15} className="animate-spin" aria-hidden /> Saving…
-          </p>
-        )}
-        {failed && (
-          <p role="alert" className="mt-6 text-[14px] font-medium text-[#C0392B]">
-            We couldn’t save that. Please try Finish again, or <SupportLink />.
-          </p>
-        )}
-      </div>
-    </OnboardingShell>
+      <button type="button" onClick={() => void finish()} disabled={busy} className={primaryButton} style={FONT.mono}>
+        {busy && <Loader2 size={16} className="animate-spin" aria-hidden />}
+        {busy ? 'Finishing…' : 'Finish'}
+      </button>
+    </ModalFrame>
   );
 }

@@ -4,6 +4,7 @@
 // replaces only its first step:
 //   - the "Track Your First Content" button is removed (onboarding users have just
 //     tracked a video, and that button would send them back through the track guide)
+//   - minimizable on phones (the original isn't), so the card can't hide the "+ Asset" button
 //   - the copy says "you just tracked your first link, now turn it into an Asset"
 // The last step ("You created your first Video Library Asset!") is unchanged.
 //
@@ -17,6 +18,8 @@ import { createVideoLibraryAssetGuide } from './createVideoLibraryAssetGuide';
 export const createVideoLibraryAssetOnboardingGuide: Tutorial = {
   ...createVideoLibraryAssetGuide,
   id: 'onboarding-create-video-library-asset',
+  // Phone: lets the person minimize the card so it never covers the "+ Asset" button.
+  minimizable: true,
   steps: createVideoLibraryAssetGuide.steps.map((step) => {
     if (step.id !== 'add-to-library') return step;
     const { ctaLinks: _ctaLinks, ...rest } = step;
