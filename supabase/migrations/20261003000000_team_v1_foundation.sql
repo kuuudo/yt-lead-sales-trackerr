@@ -806,4 +806,28 @@ Limit 3 · Used 1 · Status active id,name,member_limit,status,created_at
   1742e9e3-0cd0-48fe-b12b-9fa0cf9d4002,2782544c-c742-49b2-a910-4e2affda4247,97test@gmail.com,member,pending,,2026-10-05 09:47:51.077834+00, 
   18102207-3696-4106-abbd-be4e43fa109f,2782544c-c742-49b2-a910-4e2affda4247,96test@gmail.com,member,pending,,2026-10-05 09:47:51.077834+00, 
   4b6fed31-9e9f-4f76-96d2-b6f9fe472f79,2782544c-c742-49b2-a910-4e2affda4247,99test@gmail.com,owner,active,035c640a-797f-4f43-a785-d1cc82725418,2026-10-05 09:36:22.777854+00,2026-10-05 09:45:41.85402+00           so i try to create a new account  97test@gmail.com   97test    and it is a success,  so did i do all the test?   id,customer_id,email,role,status,user_id,created_at,activated_at 
-  1742e9e3-0cd0-48fe-b12b-9fa0cf9d4002,2782544c-c742-49b2-a910-4e2affda4247,97test@gmail.com,member,active,ed43b410-f3d6-40df-a048-b5907ce353e7,2026-10-05 09:47:51.077834+00,2026-10-05 09:53:04.998601+00        i go to /team i see Team You are not an approved Team Owner for any Customer. and i try to deactive a account, 98test@gmail.com and i refresh in 98test@gmail.com i see Access inactive VSTRK Your VSTRK access is currently inactive. Access is granted when your email has been pre-registered by VSTRK. If you believe this is a mistake, contact us on WhatsApp. and the account that is under it also got deactivated, (so lets say i deactive 99test@gmail.com and under 99test@gmail.com it has 94test@gmail.com, when i deactivate 99test@gmail.com , 94also deactivate, and when i activate 99, 94 also reactivate, did i do all the test? Your tracking links and redirects continue to work.                
+  1742e9e3-0cd0-48fe-b12b-9fa0cf9d4002,2782544c-c742-49b2-a910-4e2affda4247,97test@gmail.com,member,active,ed43b410-f3d6-40df-a048-b5907ce353e7,2026-10-05 09:47:51.077834+00,2026-10-05 09:53:04.998601+00        i go to /team i see Team You are not an approved Team Owner for any Customer. and i try to deactive a account, 98test@gmail.com and i refresh in 98test@gmail.com i see Access inactive VSTRK Your VSTRK access is currently inactive. Access is granted when your email has been pre-registered by VSTRK. If you believe this is a mistake, contact us on WhatsApp. and the account that is under it also got deactivated, (so lets say i deactive 99test@gmail.com and under 99test@gmail.com it has 94test@gmail.com, when i deactivate 99test@gmail.com , 94also deactivate, and when i activate 99, 94 also reactivate, did i do all the test? Your tracking links and redirects continue to work.        
+
+
+
+  temporarily (make new account成功註冊、成功登入)  只需要把 inactive 改成 active
+  
+  CREATE OR REPLACE FUNCTION public.handle_new_user_access()
+RETURNS trigger
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path TO 'public'
+AS $function$
+begin
+  -- Best-effort only: never block auth.users insert.
+  begin
+    insert into public.account_access (user_id, status)
+    values (new.id, 'active')
+    on conflict (user_id) do nothing;
+  exception
+    when others then
+      raise warning 'handle_new_user_access failed for %: %', new.id, sqlerrm;
+  end;
+  return new;
+end;
+$function$;)        

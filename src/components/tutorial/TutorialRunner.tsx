@@ -19,6 +19,7 @@ import { marketplaceTutorial } from '../../lib/tutorials/marketplaceTutorial';
 import { promotionTutorial } from '../../lib/tutorials/promotionTutorial';
 import { videosTutorial } from '../../lib/tutorials/videosTutorial';
 import { trackFirstContentGuide } from '../../lib/tutorials/trackFirstContentGuide';
+import { trackFirstContentOnboardingGuide } from '../../lib/tutorials/trackFirstContentOnboardingGuide';
 import { createFirstAssetGuide } from '../../lib/tutorials/createFirstAssetGuide';
 import { createCampaignAssetGuide } from '../../lib/tutorials/createCampaignAssetGuide';
 import { createVideoLibraryAssetGuide } from '../../lib/tutorials/createVideoLibraryAssetGuide';
@@ -35,6 +36,7 @@ const TUTORIAL_REGISTRY = {
   [videosTutorial.id]: videosTutorial,
   [promotionTutorial.id]: promotionTutorial,
   [trackFirstContentGuide.id]: trackFirstContentGuide,
+  [trackFirstContentOnboardingGuide.id]: trackFirstContentOnboardingGuide,
   [createFirstAssetGuide.id]: createFirstAssetGuide,
   [createCampaignAssetGuide.id]: createCampaignAssetGuide,
   [createVideoLibraryAssetGuide.id]: createVideoLibraryAssetGuide,

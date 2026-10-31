@@ -8,6 +8,7 @@ import { Plus, Globe, ChevronRight, DollarSign, Phone, Mail as MailIcon, Briefca
 import { motion, AnimatePresence } from 'motion/react';
 import { Modal } from '../components/Modal';
 import { useOrganization } from '../lib/useOrganization'
+import { createCampaign } from '../lib/createCampaign';
 import CampaignOnboardingStep from '../components/onboarding/CampaignOnboardingStep';
 import CampaignOnboardingVideo from '../components/onboarding/CampaignOnboardingVideo/CampaignOnboardingVideo';
 import CampaignOnboardingStripeVideo from '../components/onboarding/CampaignOnboardingVideo/CampaignOnboardingStripeVideo';
@@ -151,34 +152,15 @@ export default function Campaigns() {
 
   setSaving(true);
     try {
-      const { data, error } = await supabase
-        .from('campaigns')
-        .insert([{ ...formData, user_id: user.id, organization_id: organizationId }]) 
-        .select();
-      if (error) throw new Error(`${error.message} — ${error.details}`);
-      if (data) {
-
-                // Pricing version 1 for the new campaign (history starts now)
-        const nowIso = new Date().toISOString();
-        const { error: versionErr } = await supabase
-          .from('campaign_pricing_versions')
-          .insert([{
-            campaign_id: data[0].id,
-            version: 1,
-            effective_from: nowIso,
-            effective_to: null,
-            offer_price: formData.offer_price ?? 0,
-            consultation_fee: formData.consultation_fee ?? 0,
-            estimated_close_rate: formData.estimated_close_rate ?? 0,
-            base_offer_value: formData.base_offer_value ?? 0,
-            upsell_probability: formData.upsell_probability ?? 0,
-            average_upsell_value: formData.average_upsell_value ?? 0,
-          }]);
-        if (versionErr) {
-          // Campaign row exists; surface version failure so it can be fixed
-          throw new Error(`Campaign created but pricing version failed: ${versionErr.message}`);
-        }
-        setCampaigns([data[0], ...campaigns]);
+      // Shared with the post-signup onboarding (src/lib/createCampaign.ts):
+      // campaigns insert + campaign_pricing_versions v1, unchanged.
+      const created = await createCampaign({
+        formData,
+        userId: user.id,
+        organizationId,
+      });
+      if (created) {
+        setCampaigns([created, ...campaigns]);
         setShowAdd(false);
         setFormData(emptyForm);
         // Go back to where they came from
@@ -188,7 +170,7 @@ export default function Campaigns() {
           'Campaign Created',
           'Your campaign has been created successfully.',
           'success',
-          () => navigate(ret || `/campaigns/${data[0].id}`)
+          () => navigate(ret || `/campaigns/${created.id}`)
         );
       }
     } catch (err: any) {

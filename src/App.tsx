@@ -20,6 +20,7 @@ import { useOnboardingHubIndicator } from './lib/onboardingHubIndicator';
 import MobileRankingsButton from './components/MobileRankingsButton';
 import AccessInactiveScreen from './components/AccessInactiveScreen';
 import OnboardingOverlay from './components/onboarding/OnboardingOverlay';
+import OnboardingGate from './components/onboarding/OnboardingGate';
 import LeaveTestimonialModal from './components/testimonial/LeaveTestimonialModal';
 import Auth from './pages/Auth';
 import ContinuationRelay from './pages/ContinuationRelay';
@@ -730,6 +731,9 @@ function MainContent() {
   }
 
   return (
+    <>
+    {/* Post-signup onboarding for new accounts. Skipped on chrome-less token/relay routes. */}
+    {!isRelayRoute(pathname) && <OnboardingGate />}
     <AnimatePresence mode="wait">
       <Routes>
         <Route path="/login" element={<Navigate to="/tree" replace />} />
@@ -830,6 +834,7 @@ function MainContent() {
       </Routes>
 
     </AnimatePresence>
+    </>
   );
 }
 

@@ -34,6 +34,10 @@ interface ShellProps {
   nextDisabled?: boolean;
   /** Small line shown bottom-left on desktop when there is no Back button. */
   footerNote?: string;
+  /** Number of progress segments. Defaults to the pre-signup TOTAL_STEPS. */
+  totalSteps?: number;
+  /** Hide the "Log in" link (used after sign-up, when the person is already logged in). */
+  hideLogin?: boolean;
   children: ReactNode;
 }
 
@@ -46,6 +50,8 @@ export default function OnboardingShell({
   nextLabel,
   nextDisabled,
   footerNote,
+  totalSteps = TOTAL_STEPS,
+  hideLogin = false,
   children,
 }: ShellProps) {
   useOnboardingFonts();
@@ -77,16 +83,18 @@ export default function OnboardingShell({
             <span className="hidden text-[11px] uppercase tracking-[0.14em] text-[#6B6880] sm:block" style={FONT.mono}>
               Your starting point
             </span>
-            <a
-              href="/login"
-              className="text-[13px] font-medium text-[#5E5B70] underline-offset-4 transition-colors hover:text-[#14121F] hover:underline focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-[#5B3DF5]/25"
-            >
-              Log in
-            </a>
+            {!hideLogin && (
+              <a
+                href="/login"
+                className="text-[13px] font-medium text-[#5E5B70] underline-offset-4 transition-colors hover:text-[#14121F] hover:underline focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-[#5B3DF5]/25"
+              >
+                Log in
+              </a>
+            )}
           </div>
         </div>
-        <ol aria-label={`Step ${step} of ${TOTAL_STEPS}`} className="mt-4 flex gap-2">
-          {Array.from({ length: TOTAL_STEPS }, (_, i) => (
+        <ol aria-label={`Step ${step} of ${totalSteps}`} className="mt-4 flex gap-2">
+          {Array.from({ length: totalSteps }, (_, i) => (
             <li
               key={i}
               aria-current={i + 1 === step ? 'step' : undefined}
