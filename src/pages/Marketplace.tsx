@@ -5,6 +5,7 @@ import { motion, AnimatePresence } from 'motion/react';
 import { Modal } from '../components/Modal';
 import { useEffectiveIdentity } from '../lib/useEffectiveIdentity';
 import { useViewing } from '../lib/ViewingContext';
+
 import {
   listOrgAssignments,
   listMyCollaborations,
@@ -70,17 +71,19 @@ export default function Marketplace() {
   useEffect(() => {
     const onCollabInviteStep =
       tutorialStatus === 'active' &&
-      activeTutorial?.id === 'start-first-collab' &&
+      (activeTutorial?.id === 'start-first-collab' ||
+        activeTutorial?.id === 'onboarding-start-first-collab') &&
       activeTutorial.steps[tutorialStepIndex]?.id === 'open-your-invitation';
     if (onCollabInviteStep && tab !== 'invitations') {
       setTab('invitations');
     }
 
   // force My Promotions tab for the transition step
-    const onGoToPromotionStep =
-      tutorialStatus === 'active' &&
-      activeTutorial?.id === 'start-first-collab' &&
-      activeTutorial.steps[tutorialStepIndex]?.id === 'go-to-promotion-detail';
+const onGoToPromotionStep =
+  tutorialStatus === 'active' &&
+  (activeTutorial?.id === 'start-first-collab' ||
+    activeTutorial?.id === 'onboarding-start-first-collab') &&
+  activeTutorial.steps[tutorialStepIndex]?.id === 'go-to-promotion-detail';
     if (onGoToPromotionStep && tab !== 'promotions') {
       setTab('promotions');
     }

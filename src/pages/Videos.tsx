@@ -663,7 +663,9 @@ export default function Videos() {
   // since the two guides can never be active at the same time but should
   // not share gating logic.
   const isStartFirstCollabGuideActive =
-    tutorialStatus === 'active' && activeTutorial?.id === startFirstCollabGuide.id;
+    tutorialStatus === 'active' &&
+    (activeTutorial?.id === startFirstCollabGuide.id ||
+      activeTutorial?.id === 'onboarding-start-first-collab');
 
   useEffect(() => {
     if (isStartFirstCollabGuideActive && showAdd) {

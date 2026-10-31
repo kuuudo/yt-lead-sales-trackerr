@@ -11,7 +11,7 @@
 // WHERE STATE LIVES (no database changes)
 //   - "Finished" flag: auth user metadata (`onboarding_finished_at`), so it
 //     follows the account across browsers and devices.
-//   - Current step: derived from real data every time (campaign, video, asset),
+//   - Current step: derived from real data every time (campaign, video, asset, collab),
 //     so leaving and coming back always lands on the right step.
 //
 // WORKSPACE
@@ -38,7 +38,7 @@ const FINISHED_KEY = 'onboarding_finished_at';
 const WORKSPACE_RETRIES = 10;
 const WORKSPACE_RETRY_MS = 1000;
 
-export type OnboardingStage = 'campaign' | 'track' | 'asset' | 'finish';
+export type OnboardingStage = 'campaign' | 'track' | 'asset' | 'collab' | 'finish';
 export type OnboardingState = 'off' | 'loading' | OnboardingStage;
 
 function isEligibleNewUser(user: User | null): boolean {
@@ -64,8 +64,8 @@ async function findOrganizationId(userId: string, shouldStop: () => boolean): Pr
   return null;
 }
 
-/** First missing piece wins: campaign -> tracked video -> asset in the Library -> finish. */
-async function deriveStage(organizationId: string): Promise<OnboardingStage> {
+/** First missing piece wins: campaign -> tracked video -> asset in the Library -> collaboration -> finish. */
+async function deriveStage(organizationId: string, userId: string): Promise<OnboardingStage> {
   const campaigns = await supabase
     .from('campaigns')
     .select('id', { count: 'exact', head: true })
@@ -91,6 +91,25 @@ async function deriveStage(organizationId: string): Promise<OnboardingStage> {
   if (libraryAssets.error) throw libraryAssets.error;
   if (!libraryAssets.count) return 'asset';
 
+  // Start First Collaboration is done once the user owns a Promotion that runs through an
+  // Assignment (assignment_collaborator_id set). createPromotion.ts only sets that id for an
+  // ACTIVE collaborator, which exists only after the invitation was accepted, so this row
+  // means: invited -> accepted -> "Start Promoting" pressed. A Promotion the user made
+  // directly for their own Asset has assignment_collaborator_id = null and does not count.
+  const collabPromotions = await supabase
+    .from('promotions')
+    .select('id', { count: 'exact', head: true })
+    .eq('organization_id', organizationId)
+    .eq('owner_user_id', userId)
+    .not('assignment_collaborator_id', 'is', null);
+  if (collabPromotions.error) {
+    // Fail soft: never trap someone on a step we cannot read. Skip to Finish instead of
+    // switching the whole onboarding off.
+    console.error('[onboarding] could not read collaboration progress, skipping that step:', collabPromotions.error);
+    return 'finish';
+  }
+  if (!collabPromotions.count) return 'collab';
+
   return 'finish';
 }
 
@@ -105,19 +124,19 @@ export function useOnboarding() {
   const orgRef = useRef<string | null>(null);
   const runId = useRef(0);
 
-  /** Re-reads campaign / video / asset data and moves to the matching step. */
+  /** Re-reads campaign / video / asset / collaboration data and moves to the matching step. */
   const refresh = useCallback(async () => {
     const orgId = orgRef.current;
-    if (!orgId) return;
+    if (!orgId || !userId) return;
     const myRun = ++runId.current;
     try {
-      const stage = await deriveStage(orgId);
+      const stage = await deriveStage(orgId, userId);
       if (runId.current === myRun) setState(stage);
     } catch (err) {
       console.error('[onboarding] could not read progress, skipping onboarding for now:', err);
       if (runId.current === myRun) setState('off');
     }
-  }, []);
+  }, [userId]);
 
   useEffect(() => {
     if (!userId || !eligible) {

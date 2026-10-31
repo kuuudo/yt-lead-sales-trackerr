@@ -7,6 +7,7 @@
 //   stage 'campaign' -> light Campaign pop-up over the app (after a short pause)
 //   stage 'track'    -> starts the Track First Content onboarding guide
 //   stage 'asset'    -> starts the onboarding Video Library asset guide (original minus the track-again button)
+//   stage 'collab'   -> starts the onboarding Start First Collab guide (original steps, own id)
 //   stage 'finish'   -> light Finish pop-up; Finish ends onboarding for good
 //
 // Guide completion: tutorial-overlay does not say WHICH guide finished, only that
@@ -25,6 +26,7 @@ import { useOnboarding, type OnboardingStage } from '../../lib/onboardingProgres
 import type { Tutorial } from '../../lib/tutorialTypes';
 import { trackFirstContentOnboardingGuide } from '../../lib/tutorials/trackFirstContentOnboardingGuide';
 import { createVideoLibraryAssetOnboardingGuide } from '../../lib/tutorials/createVideoLibraryAssetOnboardingGuide';
+import { startFirstCollabOnboardingGuide } from '../../lib/tutorials/startFirstCollabOnboardingGuide';
 import { CampaignModal, FinishModal } from '../../pages/onboardingFlow/PostSignupSteps';
 
 // Pacing: nothing should jump out the instant the page loads or a step ends.
@@ -56,7 +58,13 @@ export default function OnboardingGate() {
   stateRef.current = state;
 
   const guide: Tutorial | null =
-    state === 'track' ? trackFirstContentOnboardingGuide : state === 'asset' ? createVideoLibraryAssetOnboardingGuide : null;
+    state === 'track'
+      ? trackFirstContentOnboardingGuide
+      : state === 'asset'
+        ? createVideoLibraryAssetOnboardingGuide
+        : state === 'collab'
+          ? startFirstCollabOnboardingGuide
+          : null;
 
   /** Same-device saved progress resumes at its step; otherwise (e.g. new device) step 1. */
   const launch = (g: Tutorial) => {
@@ -68,7 +76,7 @@ export default function OnboardingGate() {
   // A guide ended ('completed' on its last step, 'idle' when closed): re-read real progress.
   useEffect(() => {
     if (status === 'active') return;
-    if (stateRef.current === 'track' || stateRef.current === 'asset') void refresh();
+    if (stateRef.current === 'track' || stateRef.current === 'asset' || stateRef.current === 'collab') void refresh();
   }, [status, refresh]);
 
   // Start the guide for the current stage, once per stage per page load.
@@ -96,7 +104,9 @@ export default function OnboardingGate() {
         </AfterDelay>
       )}
 
-      {state === 'finish' && (
+      {/* Not while a guide is open: the collab guide keeps going after its Promotion exists, so a page
+          reload there must not cover the resumed guide with this pop-up. It appears once the guide ends. */}
+      {state === 'finish' && status !== 'active' && (
         <AfterDelay ms={FINISH_POPUP_DELAY_MS}>
           <FinishModal
             onFinish={async () => {
@@ -108,8 +118,9 @@ export default function OnboardingGate() {
       )}
 
       {/* Safety net: if the guide was closed mid-way there is otherwise no way to bring it back
-          until the next page load. Only shown while a guided stage is waiting. */}
-      {guide && status === 'idle' && (
+          until the next page load. Only shown while a guided stage is waiting. Also shown after a guide
+          ENDED ('completed') without finishing its stage (e.g. Next clicked past the real action). */}
+      {guide && status !== 'active' && (
         <button
           type="button"
           onClick={() => launch(guide)}
