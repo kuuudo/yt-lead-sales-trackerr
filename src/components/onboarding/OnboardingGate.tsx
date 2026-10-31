@@ -6,7 +6,7 @@
 //
 //   stage 'campaign' -> full-screen light Campaign screen
 //   stage 'track'    -> starts the Track First Content onboarding guide
-//   stage 'asset'    -> starts the Video Library asset guide (unchanged original)
+//   stage 'asset'    -> starts the onboarding Video Library asset guide (original minus the track-again button)
 //   stage 'finish'   -> full-screen light Finish screen; Finish ends onboarding for good
 //
 // Guide completion: tutorial-overlay does not say WHICH guide finished, only that
@@ -24,7 +24,7 @@ import { readPersistedProgress, useTutorial } from '../../lib/tutorial-overlay';
 import { useOnboarding, type OnboardingStage } from '../../lib/onboardingProgress';
 import type { Tutorial } from '../../lib/tutorialTypes';
 import { trackFirstContentOnboardingGuide } from '../../lib/tutorials/trackFirstContentOnboardingGuide';
-import { createVideoLibraryAssetGuide } from '../../lib/tutorials/createVideoLibraryAssetGuide';
+import { createVideoLibraryAssetOnboardingGuide } from '../../lib/tutorials/createVideoLibraryAssetOnboardingGuide';
 import { CampaignScreen, FinishScreen } from '../../pages/onboardingFlow/PostSignupSteps';
 
 export default function OnboardingGate() {
@@ -41,7 +41,7 @@ export default function OnboardingGate() {
   stateRef.current = state;
 
   const guide: Tutorial | null =
-    state === 'track' ? trackFirstContentOnboardingGuide : state === 'asset' ? createVideoLibraryAssetGuide : null;
+    state === 'track' ? trackFirstContentOnboardingGuide : state === 'asset' ? createVideoLibraryAssetOnboardingGuide : null;
 
   /** Same-device saved progress resumes at its step; otherwise (e.g. new device) step 1. */
   const launch = (g: Tutorial) => {
