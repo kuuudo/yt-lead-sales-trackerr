@@ -564,6 +564,17 @@ export default function CampaignOnboardingStep({ onComplete, onSceneChange }: Ca
   const [loadingSetUpId, setLoadingSetUpId] = useState<string | null>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
 
+  // "Campaign Loaded" confirmation. Opened only after Set Up has loaded the
+  // campaign + lead magnets; OK just closes it (no reload, no reset) and
+  // briefly pulses the existing Next button so people notice it.
+  const [showLoadedModal, setShowLoadedModal] = useState(false);
+  const [highlightNext, setHighlightNext] = useState(false);
+  useEffect(() => {
+    if (!highlightNext) return;
+    const t = setTimeout(() => setHighlightNext(false), 3000);
+    return () => clearTimeout(t);
+  }, [highlightNext]);
+
    // Load active campaigns for this org so the user can continue an existing one
   useEffect(() => {
     let cancelled = false;
@@ -720,6 +731,7 @@ export default function CampaignOnboardingStep({ onComplete, onSceneChange }: Ca
       setEditingLeadMagnets((magnets || []) as Partial<LeadMagnet>[]);
       setEditingCampaignId(campaignId);
       setStep('basics');
+      setShowLoadedModal(true);
 
       // The form sits above the list — bring it into view.
       requestAnimationFrame(() => scrollRef.current?.scrollTo({ top: 0, behavior: 'smooth' }));
@@ -741,6 +753,8 @@ export default function CampaignOnboardingStep({ onComplete, onSceneChange }: Ca
     setShowThankYouVideo(false);
     setStep('basics');
     setError(null);
+    setShowLoadedModal(false);
+    setHighlightNext(false);
   };
 
   // ── Save: mirrors Campaigns.tsx's submitCampaign() exactly ─────────────
@@ -828,6 +842,7 @@ export default function CampaignOnboardingStep({ onComplete, onSceneChange }: Ca
   return (
     <div
       style={{
+        position: 'relative',
         display: 'flex',
         flexDirection: 'column',
         height: '100%',
@@ -835,6 +850,76 @@ export default function CampaignOnboardingStep({ onComplete, onSceneChange }: Ca
         fontFamily: '-apple-system, BlinkMacSystemFont, "Helvetica Neue", sans-serif',
       }}
     >
+      {/* "Campaign Loaded" confirmation — scoped to the wizard panel. */}
+      <AnimatePresence>
+        {showLoadedModal && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            transition={{ duration: 0.15 }}
+            style={{
+              position: 'absolute',
+              inset: 0,
+              zIndex: 10,
+              background: 'rgba(21,21,31,0.45)',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              padding: 16,
+            }}
+          >
+            <motion.div
+              role="dialog"
+              aria-modal="true"
+              aria-labelledby="campaign-loaded-title"
+              initial={{ opacity: 0, y: 8, scale: 0.98 }}
+              animate={{ opacity: 1, y: 0, scale: 1 }}
+              transition={{ duration: 0.18, ease: 'easeOut' }}
+              style={{
+                width: '100%',
+                maxWidth: 340,
+                background: '#fff',
+                borderRadius: 14,
+                padding: '20px 22px',
+                boxShadow: '0 12px 40px rgba(21,21,31,0.22)',
+              }}
+            >
+              <h3 id="campaign-loaded-title" style={{ fontSize: 16, fontWeight: 800, color: ink, margin: '0 0 6px' }}>
+                Campaign Loaded
+              </h3>
+              <p style={{ fontSize: 13, fontWeight: 600, color: ink, margin: '0 0 4px', lineHeight: 1.5 }}>
+                Your campaign data is filled in.
+              </p>
+              <p style={{ fontSize: 12.5, color: sub, margin: '0 0 16px', lineHeight: 1.55 }}>
+                You can make any changes you want, or simply click Next Step to continue.
+              </p>
+              <button
+                type="button"
+                autoFocus
+                onClick={() => {
+                  setShowLoadedModal(false);
+                  setHighlightNext(true);
+                }}
+                style={{
+                  width: '100%',
+                  padding: '10px 18px',
+                  borderRadius: 8,
+                  border: 'none',
+                  background: purple,
+                  color: '#fff',
+                  fontSize: 13,
+                  fontWeight: 700,
+                  cursor: 'pointer',
+                }}
+              >
+                OK
+              </button>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
       {/* Step header */}
       <div style={{ padding: '20px 24px 0' }}>
         <div style={{ display: 'flex', gap: 6, marginBottom: 14 }}>
@@ -879,12 +964,6 @@ export default function CampaignOnboardingStep({ onComplete, onSceneChange }: Ca
                 Start a new campaign instead
               </button>
             </div>
-            {step === 'basics' && (
-              <p style={{ fontSize: 12, color: sub, margin: '4px 0 0', lineHeight: 1.5 }}>
-                <strong style={{ color: purple }}>Campaign loaded.</strong> Your existing information is
-                prefilled. Review and continue.
-              </p>
-            )}
           </div>
         )}
 
@@ -1386,9 +1465,21 @@ export default function CampaignOnboardingStep({ onComplete, onSceneChange }: Ca
         </button>
 
         {step !== 'review' ? (
-          <button
+          <motion.button
             type="button"
             onClick={goNext}
+            animate={
+              highlightNext
+                ? {
+                    boxShadow: [
+                      '0 6px 16px rgba(91,61,240,0.3)',
+                      '0 0 0 6px rgba(91,61,240,0.35)',
+                      '0 6px 16px rgba(91,61,240,0.3)',
+                    ],
+                  }
+                : { boxShadow: '0 6px 16px rgba(91,61,240,0.3)' }
+            }
+            transition={highlightNext ? { duration: 0.9, repeat: 2 } : { duration: 0.2 }}
             style={{
               padding: '10px 20px',
               borderRadius: 8,
@@ -1398,11 +1489,10 @@ export default function CampaignOnboardingStep({ onComplete, onSceneChange }: Ca
               fontSize: 13,
               fontWeight: 700,
               cursor: 'pointer',
-              boxShadow: '0 6px 16px rgba(91,61,240,0.3)',
             }}
           >
-            Next →
-          </button>
+            {editingCampaignId ? 'Next Step →' : 'Next →'}
+          </motion.button>
         ) : (
           <button
             type="button"
