@@ -9,7 +9,7 @@
 // Hub state (the nav dot) is separate from guide progress: visiting this
 // page clears the dot only; it does not start, complete, or reset any guide.
 import { workWithYourTeamGuide } from '../lib/tutorials/workWithYourTeamGuide';
-import React, { useEffect } from 'react';
+import React, { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { motion } from 'motion/react';
 import { Compass, Rocket, Library, Video, Users, Globe, MessageCircle, Eye, type LucideIcon } from 'lucide-react';
@@ -22,6 +22,7 @@ import { createFirstAssetGuide } from '../lib/tutorials/createFirstAssetGuide';
 import { trackFirstContentGuide } from '../lib/tutorials/trackFirstContentGuide';
 import { startFirstCollabGuide } from '../lib/tutorials/startFirstCollabGuide';
 import { getStartedTour, GET_STARTED_TOUR_ID } from '../lib/tutorials/getStartedTour';
+import { FinishModal } from './onboardingFlow/PostSignupSteps';
 
 type HubTask = {
   id: string;
@@ -76,6 +77,7 @@ export default function GettingStarted() {
   const navigate = useNavigate();
   const { isReadOnly, viewingMemberName } = useViewing();
   const { markSeen } = useOnboardingHubIndicator();
+  const [showIntro, setShowIntro] = useState(false);
 
   // Visiting the page clears the nav indicator. Guide progress is untouched.
   useEffect(() => {
@@ -160,13 +162,24 @@ export default function GettingStarted() {
           </button>
           <button
             type="button"
-            onClick={() => start(getStartedTour)}
+            onClick={() => setShowIntro(true)}
             className="inline-flex items-center gap-2 border border-zinc-700 text-zinc-300 hover:text-white hover:border-zinc-500 text-xs font-black uppercase tracking-widest rounded-xl px-6 h-11 transition-colors"
           >
             Show Guide
           </button>
         </div>
       </div>
+
+            {showIntro && (
+        <div data-theme-lock style={{ display: 'contents' }}>
+          <FinishModal
+            onFinish={async () => {
+              setShowIntro(false);
+              start(getStartedTour);
+            }}
+          />
+        </div>
+      )}
 
       {isReadOnly && (
         <div className="rounded-xl border border-amber-500/30 bg-amber-500/10 px-4 py-3 text-[11px] text-amber-300 leading-relaxed">

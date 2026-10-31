@@ -36,14 +36,15 @@
 // Paid Consultation, Lead Magnet, and Review are untouched.
 // ─────────────────────────────────────────────────────────────────────────
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import {
   CreditCard,
   Wallet,
   type LucideIcon,
 } from 'lucide-react';
-import { supabase, type Campaign } from '../../lib/supabase';
+import { supabase, type Campaign, type LeadMagnet } from '../../lib/supabase';
+import { saveCampaign } from '../../services/campaign/saveCampaign';
 import { useAuth } from '../../lib/auth';
 import { useOrganization } from '../../lib/useOrganization';
 import CampaignOnboardingVideo from './CampaignOnboardingVideo/CampaignOnboardingVideo';
@@ -553,6 +554,16 @@ export default function CampaignOnboardingStep({ onComplete, onSceneChange }: Ca
   const [pickerMode, setPickerMode] = useState<'loading' | 'pick' | 'create'>('loading');
   const [existingCampaigns, setExistingCampaigns] = useState<Campaign[]>([]);
   const [showAllCampaigns, setShowAllCampaigns] = useState(false);
+
+  // "Set Up" mode: when set, the wizard edits this existing campaign instead
+  // of creating a new one. Lead magnets are loaded alongside and handed back
+  // to saveCampaign unchanged, because saveCampaign deletes + re-inserts them
+  // on every call and the wizard has no UI for managing them.
+  const [editingCampaignId, setEditingCampaignId] = useState<string | null>(null);
+  const [editingLeadMagnets, setEditingLeadMagnets] = useState<Partial<LeadMagnet>[]>([]);
+  const [loadingSetUpId, setLoadingSetUpId] = useState<string | null>(null);
+  const scrollRef = useRef<HTMLDivElement>(null);
+
    // Load active campaigns for this org so the user can continue an existing one
   useEffect(() => {
     let cancelled = false;
@@ -655,7 +666,87 @@ export default function CampaignOnboardingStep({ onComplete, onSceneChange }: Ca
   if (!formData.uses_stripe && !formData.purchase_thankyou_url) warnings.push('No Purchase Thank You URL — pixel tracking for confirmed purchases won\u2019t work yet.');
  
 
+  // ── Set Up: load an existing campaign into the wizard ──────────────────
+  // Fetches the FULL row (the picker list only selects a few columns) plus
+  // its lead magnets, then prefills every wizard field. If either load
+  // fails we abort — entering edit mode without the lead magnets would make
+  // saveCampaign wipe them on save.
+  const handleSetUp = async (campaignId: string) => {
+    setLoadingSetUpId(campaignId);
+    setError(null);
+    try {
+      const { data: row, error: rowErr } = await supabase
+        .from('campaigns')
+        .select('*')
+        .eq('id', campaignId)
+        .single();
+      if (rowErr) throw rowErr;
+      if (!row) throw new Error('Campaign not found.');
+
+      const { data: magnets, error: magnetsErr } = await supabase
+        .from('lead_magnets')
+        .select('*')
+        .eq('campaign_id', campaignId);
+      if (magnetsErr) throw magnetsErr;
+
+      // Copy only the wizard's own fields, coercing DB nulls back to the
+      // emptyForm default for that field's type so inputs stay controlled.
+      const next: Record<string, unknown> = { ...emptyForm };
+      (Object.keys(emptyForm) as (keyof FormData)[]).forEach((key) => {
+        const dbVal = (row as any)[key];
+        if (dbVal === null || dbVal === undefined) return;
+        const def = emptyForm[key];
+        if (typeof def === 'number') next[key] = Number(dbVal) || 0;
+        else if (typeof def === 'boolean') next[key] = Boolean(dbVal);
+        else next[key] = String(dbVal);
+      });
+      const loaded = next as FormData;
+
+      // Payment step: purchase_method defaults to 'stripe_checkout' on
+      // campaigns made by the signup onboarding, so it only counts as a real
+      // choice when a checkout URL was saved. Otherwise start at the intro.
+      if (loaded.checkout_url.trim().length > 0) {
+        setPaymentTrack(STRIPE_VALUES.includes(loaded.purchase_method as PurchaseMethod) ? 'stripe' : 'other');
+        setPaymentStage('options');
+        setHasSelectedSpecificCard(true);
+      } else {
+        setPaymentTrack(null);
+        setPaymentStage('intro');
+        setHasSelectedSpecificCard(false);
+      }
+      setShowThankYouVideo(false);
+
+      setFormData(loaded);
+      setEditingLeadMagnets((magnets || []) as Partial<LeadMagnet>[]);
+      setEditingCampaignId(campaignId);
+      setStep('basics');
+
+      // The form sits above the list — bring it into view.
+      requestAnimationFrame(() => scrollRef.current?.scrollTo({ top: 0, behavior: 'smooth' }));
+    } catch (err: any) {
+      setError(err.message || 'Could not load that campaign. Please try again.');
+    } finally {
+      setLoadingSetUpId(null);
+    }
+  };
+
+  // Leave Set Up mode and go back to a blank "new campaign" wizard.
+  const startNewCampaign = () => {
+    setEditingCampaignId(null);
+    setEditingLeadMagnets([]);
+    setFormData(emptyForm);
+    setPaymentTrack(null);
+    setPaymentStage('intro');
+    setHasSelectedSpecificCard(false);
+    setShowThankYouVideo(false);
+    setStep('basics');
+    setError(null);
+  };
+
   // ── Save: mirrors Campaigns.tsx's submitCampaign() exactly ─────────────
+  // In Set Up mode this instead updates the existing campaign through the
+  // shared saveCampaign() — the same function CampaignDetail uses — so
+  // pricing versions and redirect links are handled in one place.
   const createCampaign = async () => {
     if (!user) {
       setError('You need to be signed in to create a campaign.');
@@ -668,6 +759,16 @@ export default function CampaignOnboardingStep({ onComplete, onSceneChange }: Ca
     setSaving(true);
     setError(null);
     try {
+      if (editingCampaignId) {
+        await saveCampaign({
+          campaignId: editingCampaignId,
+          formData: formData as unknown as Partial<Campaign>,
+          leadMagnets: editingLeadMagnets,
+        });
+        onComplete(editingCampaignId);
+        return;
+      }
+
       const { data, error: insertErr } = await supabase
         .from('campaigns')
         .insert([{ ...formData, user_id: user.id, organization_id: organizationId }])
@@ -750,10 +851,43 @@ export default function CampaignOnboardingStep({ onComplete, onSceneChange }: Ca
             />
           ))}
         </div>
-        <h2 style={{ fontSize: 19, fontWeight: 800, color: ink, margin: '0 0 4px' }}>{STEP_TITLE[step]}</h2>
+        <h2 style={{ fontSize: 19, fontWeight: 800, color: ink, margin: '0 0 4px' }}>
+          {step === 'review' && editingCampaignId ? "Let's save it" : STEP_TITLE[step]}
+        </h2>
       </div>
 
-      <div style={{ flex: 1, overflow: 'auto', padding: '16px 24px 8px' }}>
+      <div ref={scrollRef} style={{ flex: 1, overflow: 'auto', padding: '16px 24px 8px' }}>
+        {/* Set Up mode banner — makes it obvious the click worked and which
+            campaign is being edited. The "loaded" line only shows on the
+            first step, right after the click. */}
+        {editingCampaignId && (
+          <div
+            style={{
+              background: purpleSoft,
+              border: `1px solid ${purpleBorder}`,
+              borderRadius: 10,
+              padding: '10px 14px',
+              marginBottom: 14,
+              maxWidth: 680,
+            }}
+          >
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10, flexWrap: 'wrap' }}>
+              <span style={{ fontSize: 12.5, fontWeight: 800, color: ink }}>
+                Editing: {formData.campaign_name || 'Untitled campaign'}
+              </span>
+              <button type="button" onClick={startNewCampaign} style={linkButtonStyle}>
+                Start a new campaign instead
+              </button>
+            </div>
+            {step === 'basics' && (
+              <p style={{ fontSize: 12, color: sub, margin: '4px 0 0', lineHeight: 1.5 }}>
+                <strong style={{ color: purple }}>Campaign loaded.</strong> Your existing information is
+                prefilled. Review and continue.
+              </p>
+            )}
+          </div>
+        )}
+
         <AnimatePresence mode="wait">
           <motion.div
             key={step}
@@ -858,33 +992,70 @@ export default function CampaignOnboardingStep({ onComplete, onSceneChange }: Ca
                           ? existingCampaigns
                           : existingCampaigns.slice(0, 3)
                         ).map((c) => (
-                          <button
+                          <div
                             key={c.id}
-                            type="button"
-                            onClick={() => onComplete(c.id)}
                             style={{
-                              textAlign: 'left',
-                              padding: '12px 14px',
+                              padding: '10px 14px',
                               borderRadius: 10,
-                              border: `1px solid ${border}`,
+                              border: `1px solid ${editingCampaignId === c.id ? purple : border}`,
                               background: panel,
-                              cursor: 'pointer',
                               display: 'flex',
-                              flexDirection: 'column',
-                              gap: 3,
+                              alignItems: 'center',
+                              justifyContent: 'space-between',
+                              flexWrap: 'wrap',
+                              gap: 8,
                             }}
                           >
-                            <span style={{ fontSize: 13.5, fontWeight: 700, color: ink }}>
-                              {c.campaign_name || 'Untitled campaign'}
-                            </span>
-                            <span style={{ fontSize: 11.5, color: sub }}>
-                              ${c.offer_price ?? 0}
-                              {(c as any).newsletter_url ? ' · Newsletter' : ''}
-                              {c.has_sales_call ? ' · Sales Call' : ''}
-                              {c.has_paid_consultation ? ' · Consultation' : ''}
-                              {c.has_lead_magnet ? ' · Lead Magnet' : ''}
-                            </span>
-                          </button>
+                            <div style={{ display: 'flex', flexDirection: 'column', gap: 3, flex: '1 1 160px', minWidth: 0 }}>
+                              <span style={{ fontSize: 13.5, fontWeight: 700, color: ink }}>
+                                {c.campaign_name || 'Untitled campaign'}
+                              </span>
+                              <span style={{ fontSize: 11.5, color: sub }}>
+                                ${c.offer_price ?? 0}
+                                {(c as any).newsletter_url ? ' · Newsletter' : ''}
+                                {c.has_sales_call ? ' · Sales Call' : ''}
+                                {c.has_paid_consultation ? ' · Consultation' : ''}
+                                {c.has_lead_magnet ? ' · Lead Magnet' : ''}
+                              </span>
+                            </div>
+                            <div style={{ display: 'flex', gap: 6, flexShrink: 0 }}>
+                              <button
+                                type="button"
+                                onClick={() => handleSetUp(c.id)}
+                                disabled={loadingSetUpId !== null}
+                                style={{
+                                  padding: '6px 14px',
+                                  borderRadius: 999,
+                                  border: 'none',
+                                  background: purple,
+                                  color: '#fff',
+                                  fontSize: 12,
+                                  fontWeight: 700,
+                                  cursor: loadingSetUpId !== null ? 'not-allowed' : 'pointer',
+                                  opacity: loadingSetUpId !== null && loadingSetUpId !== c.id ? 0.5 : 1,
+                                }}
+                              >
+                                {loadingSetUpId === c.id ? 'Loading…' : 'Set Up'}
+                              </button>
+                              {/* Unchanged behavior: straight to Installation. */}
+                              <button
+                                type="button"
+                                onClick={() => onComplete(c.id)}
+                                style={{
+                                  padding: '6px 14px',
+                                  borderRadius: 999,
+                                  border: `1px solid ${border}`,
+                                  background: '#fff',
+                                  color: ink,
+                                  fontSize: 12,
+                                  fontWeight: 600,
+                                  cursor: 'pointer',
+                                }}
+                              >
+                                Skip to Pixel
+                              </button>
+                            </div>
+                          </div>
                         ))}
                       </div>
                       {existingCampaigns.length > 3 && (
@@ -1249,7 +1420,9 @@ export default function CampaignOnboardingStep({ onComplete, onSceneChange }: Ca
               boxShadow: '0 6px 16px rgba(91,61,240,0.3)',
             }}
           >
-            {saving ? 'Creating…' : 'Create Campaign →'}
+            {saving
+              ? editingCampaignId ? 'Saving…' : 'Creating…'
+              : editingCampaignId ? 'Save and continue →' : 'Create Campaign →'}
           </button>
         )}
       </div>
