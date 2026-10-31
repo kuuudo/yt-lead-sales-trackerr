@@ -3,7 +3,9 @@
 // The two pop-ups of the post-signup onboarding. They float over the real app
 // (centered on desktop, a bottom sheet on phones) instead of taking the whole page:
 //   CampaignModal - create the first campaign (same createCampaign() as the Campaigns page)
-//   FinishModal   - shown once the first Asset is in the Library; "Finish" ends onboarding
+//   FinishModal   - the "first stage completed" transition, shown once the first collaboration exists;
+//                   "Continue to Setup" ends onboarding and sends the user on to Get Started
+//                   (deliberately no "later" option)
 //
 // The two guided stages in between (track content, create asset) are NOT pop-ups:
 // they run as follow-along guides over the real app (see OnboardingGate).
@@ -210,7 +212,12 @@ export function CampaignModal({
 
 /* ───────────── Final stage · Finish ───────────── */
 
-const DONE_ITEMS = ['First campaign created', 'First content tracked', 'First Asset created'];
+const DONE_ITEMS = [
+  'First campaign created',
+  'First content tracked',
+  'First Asset created',
+  'First collaboration created',
+];
 
 export function FinishModal({ onFinish }: { onFinish: () => Promise<void> }) {
   const [busy, setBusy] = useState(false);
@@ -230,10 +237,17 @@ export function FinishModal({ onFinish }: { onFinish: () => Promise<void> }) {
   };
 
   return (
-    <ModalFrame label="Setup complete">
-      <Heading eyebrow="All done" title="You’re all set." subtitle="Your first campaign, link and Asset are ready." />
+    <ModalFrame label="First stage completed">
+      <Heading
+        eyebrow="First stage completed"
+        title="You’ve Got the Basics."
+        subtitle="You’ve learned the basics of VSTRK. Now let’s set up your tracking."
+      />
 
-      <ul className="mt-6 flex flex-col gap-2.5">
+      <span className="mt-6 block text-[11px] uppercase tracking-[0.14em] text-[#6B6880]" style={FONT.mono}>
+        What you’ve completed
+      </span>
+      <ul className="mt-3 flex flex-col gap-2.5">
         {DONE_ITEMS.map((label) => (
           <li key={label} className="flex items-center gap-3 rounded-xl border border-[#E4E0F5] bg-white px-4 py-3">
             <CheckCircle2 size={18} className="shrink-0 text-[#5B3DF5]" aria-hidden />
@@ -241,6 +255,15 @@ export function FinishModal({ onFinish }: { onFinish: () => Promise<void> }) {
           </li>
         ))}
       </ul>
+
+      <div className="mt-4 rounded-xl border border-[#E4E0F5] bg-[#F1EEFF] px-4 py-3">
+        <span className="text-[11px] uppercase tracking-[0.14em] text-[#5B3DF5]" style={FONT.mono}>
+          Next: Complete Your Setup
+        </span>
+        <p className="mt-1.5 text-[14px] leading-snug text-[#14121F]">
+          Track revenue, newsletter signups, sales calls and consultations.
+        </p>
+      </div>
 
       {failed && (
         <p role="alert" className="mt-4 text-[14px] font-medium text-[#C0392B]">
@@ -259,7 +282,7 @@ export function FinishModal({ onFinish }: { onFinish: () => Promise<void> }) {
 
       <button type="button" onClick={() => void finish()} disabled={busy} className={primaryButton} style={FONT.mono}>
         {busy && <Loader2 size={16} className="animate-spin" aria-hidden />}
-        {busy ? 'Finishing…' : 'Finish'}
+        {busy ? 'Opening…' : 'Continue to Setup →'}
       </button>
     </ModalFrame>
   );

@@ -8,7 +8,8 @@
 //   stage 'track'    -> starts the Track First Content onboarding guide
 //   stage 'asset'    -> starts the onboarding Video Library asset guide (original minus the track-again button)
 //   stage 'collab'   -> starts the onboarding Start First Collab guide (original steps, own id)
-//   stage 'finish'   -> light Finish pop-up; Finish ends onboarding for good
+//   stage 'finish'   -> light "first stage complete" pop-up; "Continue to Setup" ends onboarding for good,
+//                       opens /settings/getting-started and starts the separate Get Started Tour
 //
 // Guide completion: tutorial-overlay does not say WHICH guide finished, only that
 // status went to 'completed' (last step "Done") or 'idle' (closed). Whenever that
@@ -18,7 +19,7 @@
 // This file never creates a workspace (it never calls createUserWorkspace).
 
 import { useEffect, useRef, useState, type ReactNode } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useLocation, useNavigate } from 'react-router-dom';
 import { Rocket } from 'lucide-react';
 import { useAuth } from '../../lib/auth';
 import { readPersistedProgress, useTutorial } from '../../lib/tutorial-overlay';
@@ -27,6 +28,7 @@ import type { Tutorial } from '../../lib/tutorialTypes';
 import { trackFirstContentOnboardingGuide } from '../../lib/tutorials/trackFirstContentOnboardingGuide';
 import { createVideoLibraryAssetOnboardingGuide } from '../../lib/tutorials/createVideoLibraryAssetOnboardingGuide';
 import { startFirstCollabOnboardingGuide } from '../../lib/tutorials/startFirstCollabOnboardingGuide';
+import { getStartedTour } from '../../lib/tutorials/getStartedTour';
 import { CampaignModal, FinishModal } from '../../pages/onboardingFlow/PostSignupSteps';
 
 // Pacing: nothing should jump out the instant the page loads or a step ends.
@@ -49,6 +51,7 @@ export default function OnboardingGate() {
   const { status, start, resumeAt } = useTutorial();
   const { state, organizationId, refresh, finish } = useOnboarding();
   const navigate = useNavigate();
+  const location = useLocation();
 
   // Stage whose guide was already auto-started in this page load. Stops a guide the
   // person just closed from popping straight back open.
@@ -93,6 +96,18 @@ export default function OnboardingGate() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [guide, state, status, user]);
 
+  // TEST TRIGGER for the Get Started Tour (separate from the onboarding stages): opening any page
+  // with ?tour=get-started starts it, then removes the parameter. Works for any logged-in account.
+  useEffect(() => {
+    const params = new URLSearchParams(location.search);
+    if (params.get('tour') !== 'get-started' || !user || status === 'active') return;
+    params.delete('tour');
+    const rest = params.toString();
+    navigate({ pathname: '/settings/getting-started', search: rest ? `?${rest}` : '' }, { replace: true });
+    start(getStartedTour);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [location.search, user]);
+
   if (state === 'off' || state === 'loading') return null;
 
   // data-theme-lock keeps these screens in the original colours whatever app theme is selected.
@@ -111,7 +126,8 @@ export default function OnboardingGate() {
           <FinishModal
             onFinish={async () => {
               await finish(); // throws if saving fails; the pop-up shows the error
-              navigate('/tree');
+              navigate('/settings/getting-started');
+              start(getStartedTour); // separate follow-up tour, not an onboarding stage
             }}
           />
         </AfterDelay>

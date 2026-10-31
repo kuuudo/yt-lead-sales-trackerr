@@ -21,6 +21,7 @@ import type { Tutorial } from '../lib/tutorialTypes';
 import { createFirstAssetGuide } from '../lib/tutorials/createFirstAssetGuide';
 import { trackFirstContentGuide } from '../lib/tutorials/trackFirstContentGuide';
 import { startFirstCollabGuide } from '../lib/tutorials/startFirstCollabGuide';
+import { getStartedTour, GET_STARTED_TOUR_ID } from '../lib/tutorials/getStartedTour';
 
 type HubTask = {
   id: string;
@@ -69,7 +70,7 @@ const TASKS: HubTask[] = [
 ];
 
 export default function GettingStarted() {
-  const { start } = useTutorial();
+  const { start, tutorial, stepIndex, status } = useTutorial();
   // Same hook + handler the Installation page used for "Continue Setup".
   const { open: openOnboarding } = useOnboardingOverlay();
   const navigate = useNavigate();
@@ -80,6 +81,21 @@ export default function GettingStarted() {
   useEffect(() => {
     markSeen();
   }, [markSeen]);
+
+  // Get Started Tour only: bring the spotlighted card into view for the current step.
+  // (TutorialRunner measures and highlights the card but does not scroll to it.)
+  useEffect(() => {
+    if (status !== 'active' || tutorial?.id !== GET_STARTED_TOUR_ID) return;
+    const selector = tutorial.steps[stepIndex]?.targetSelector;
+    if (!selector) return;
+    const t = window.setTimeout(() => {
+      document.querySelector(selector)?.scrollIntoView({
+        behavior: 'smooth',
+        block: window.innerWidth < 640 ? 'start' : 'center', // phones: the guide card covers the lower half
+      });
+    }, 150);
+    return () => window.clearTimeout(t);
+  }, [status, tutorial, stepIndex]);
 
   const handleTask = (task: HubTask) => {
     if (task.guide) {
@@ -119,7 +135,7 @@ export default function GettingStarted() {
 
       {/* Campaign setup card — moved here from Installation.tsx. Same image,
           copy, and handler (openOnboarding); only the button color changed. */}
-      <div className="bg-zinc-900 border border-zinc-800 rounded-2xl p-6">
+      <div data-tutorial-id="getting-started-setup" className="scroll-mt-24 bg-zinc-900 border border-zinc-800 rounded-2xl p-6">
         <p className="label-caps text-zinc-500 mb-3">Getting Started</p>
 
         <img
@@ -135,12 +151,21 @@ export default function GettingStarted() {
           We&apos;ll get your first campaign ready together — who you&apos;re selling
           to, how they buy, and how VSTRK tracks it back here.
         </p>
-        <button
-          onClick={openOnboarding}
-          className="inline-flex items-center gap-2 bg-white text-zinc-950 hover:bg-zinc-200 text-xs font-black uppercase tracking-widest rounded-xl px-6 h-11 transition-colors"
-        >
-          Setup
-        </button>
+        <div className="flex flex-wrap items-center gap-3">
+          <button
+            onClick={openOnboarding}
+            className="inline-flex items-center gap-2 bg-white text-zinc-950 hover:bg-zinc-200 text-xs font-black uppercase tracking-widest rounded-xl px-6 h-11 transition-colors"
+          >
+            Setup
+          </button>
+          <button
+            type="button"
+            onClick={() => start(getStartedTour)}
+            className="inline-flex items-center gap-2 border border-zinc-700 text-zinc-300 hover:text-white hover:border-zinc-500 text-xs font-black uppercase tracking-widest rounded-xl px-6 h-11 transition-colors"
+          >
+            Show Guide
+          </button>
+        </div>
       </div>
 
       {isReadOnly && (
@@ -156,10 +181,11 @@ export default function GettingStarted() {
           return (
             <motion.div
               key={task.id}
+              data-tutorial-id={task.id === 'setup-tracking-domain' ? 'getting-started-tracking-domain' : undefined}
               initial={{ opacity: 0, y: 8 }}
               animate={{ opacity: 1, y: 0 }}
               transition={{ duration: 0.25, delay: i * 0.05 }}
-              className="bento-card flex items-center gap-4"
+              className="bento-card scroll-mt-24 flex items-center gap-4"
             >
               <div className="w-10 h-10 rounded-lg bg-zinc-900 border border-zinc-800 flex items-center justify-center text-zinc-400 shrink-0">
                 <Icon size={18} />
@@ -181,7 +207,7 @@ export default function GettingStarted() {
         })}
       </section>
 
-      <div className="bg-zinc-900 border border-zinc-800 rounded-2xl p-6">
+      <div data-tutorial-id="getting-started-explore" className="scroll-mt-24 bg-zinc-900 border border-zinc-800 rounded-2xl p-6">
         <div className="flex items-center gap-2 label-caps text-zinc-500 mb-3">
           <Eye size={12} />
           Get to Know VSTRK

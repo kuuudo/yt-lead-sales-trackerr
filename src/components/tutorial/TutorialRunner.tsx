@@ -14,6 +14,7 @@ import { useNavigate, useLocation } from 'react-router-dom';
 import { AnimatePresence, motion } from 'motion/react';
 import { useTutorial, readPersistedProgress } from '../../lib/tutorial-overlay';
 import { useAuth } from '../../lib/auth';
+import { getStartedTour } from '../../lib/tutorials/getStartedTour';
 import { assetsTutorial } from '../../lib/tutorials/assetsTutorial';
 import { marketplaceTutorial } from '../../lib/tutorials/marketplaceTutorial';
 import { promotionTutorial } from '../../lib/tutorials/promotionTutorial';
@@ -44,6 +45,7 @@ const TUTORIAL_REGISTRY = {
   [createVideoLibraryAssetGuide.id]: createVideoLibraryAssetGuide,
   [createImportAssetGuide.id]: createImportAssetGuide,
   [workWithYourTeamGuide.id]: workWithYourTeamGuide,
+  [getStartedTour.id]: getStartedTour,
 };
 
 interface Rect {
