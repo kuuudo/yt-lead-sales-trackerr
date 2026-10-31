@@ -647,8 +647,10 @@ export default function Videos() {
   // transitions the user caused themselves and reports them via notify(). Only
   // 3 milestones are reported, matching the locked "don't validate every field"
   // decision — platform/URL and campaign stay plain instructional steps.
-  const isTrackFirstContentGuideActive =
-    tutorialStatus === 'active' && activeTutorial?.id === trackFirstContentGuide.id;
+   const isTrackFirstContentGuideActive =
+     tutorialStatus === 'active' &&
+     (activeTutorial?.id === trackFirstContentGuide.id ||
+       activeTutorial?.id === 'onboarding-track-first-content');
 
   useEffect(() => {
     if (isTrackFirstContentGuideActive && showAdd) {
