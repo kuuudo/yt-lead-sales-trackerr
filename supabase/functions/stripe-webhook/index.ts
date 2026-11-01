@@ -1,12 +1,13 @@
+// supabase/functions/stripe-webhook/index.ts
+// Phase C: on checkout.session.completed, optionally copy plan_name + billing_interval
+// from pricing_plans via session.metadata.plan_code. Payment update never fails on plan lookup.
+
 import Stripe from 'https://esm.sh/stripe@14.21.0'
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2'
 
-const stripe = new Stripe(
-  Deno.env.get('STRIPE_SECRET_KEY')!,
-  {
-    apiVersion: '2024-06-20',
-  }
-)
+const stripe = new Stripe(Deno.env.get('STRIPE_SECRET_KEY')!, {
+  apiVersion: '2024-06-20',
+})
 
 Deno.serve(async (req) => {
   try {
@@ -18,7 +19,6 @@ Deno.serve(async (req) => {
 
     const body = await req.text()
 
-    // IMPORTANT: constructEventAsync
     const event = await stripe.webhooks.constructEventAsync(
       body,
       signature,
@@ -31,22 +31,47 @@ Deno.serve(async (req) => {
     )
 
     switch (event.type) {
-
       case 'checkout.session.completed': {
         const session = event.data.object as Stripe.Checkout.Session
-
         const organization_id = session.metadata?.organization_id
 
         if (!organization_id) break
 
+        const updatePayload: Record<string, unknown> = {
+          stripe_customer_id: session.customer as string,
+          stripe_subscription_id: session.subscription as string,
+          status: 'active',
+          updated_at: new Date().toISOString(),
+        }
+
+        // Best-effort plan label from Checkout metadata (Phase B sets plan_code).
+        const planCode =
+          typeof session.metadata?.plan_code === 'string'
+            ? session.metadata.plan_code.trim()
+            : ''
+
+        if (planCode) {
+          try {
+            const { data: plan } = await supabase
+              .from('pricing_plans')
+              .select('name, interval')
+              .eq('code', planCode)
+              .maybeSingle()
+
+            if (plan?.name) {
+              updatePayload.plan_name = plan.name
+            }
+            if (plan?.interval) {
+              updatePayload.billing_interval = plan.interval
+            }
+          } catch (planErr) {
+            console.error('Plan metadata lookup failed (payment still applied):', planErr)
+          }
+        }
+
         await supabase
           .from('subscriptions')
-          .update({
-            stripe_customer_id: session.customer as string,
-            stripe_subscription_id: session.subscription as string,
-            status: 'active',
-            updated_at: new Date().toISOString(),
-          })
+          .update(updatePayload)
           .eq('organization_id', organization_id)
 
         break
@@ -96,16 +121,10 @@ Deno.serve(async (req) => {
       }
     }
 
-    return new Response(
-      JSON.stringify({ received: true }),
-      {
-        status: 200,
-        headers: {
-          'Content-Type': 'application/json',
-        },
-      }
-    )
-
+    return new Response(JSON.stringify({ received: true }), {
+      status: 200,
+      headers: { 'Content-Type': 'application/json' },
+    })
   } catch (err) {
     console.error(err)
 
@@ -113,9 +132,7 @@ Deno.serve(async (req) => {
       JSON.stringify({
         error: err instanceof Error ? err.message : String(err),
       }),
-      {
-        status: 400,
-      }
+      { status: 400 }
     )
   }
 })

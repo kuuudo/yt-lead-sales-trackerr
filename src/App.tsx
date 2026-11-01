@@ -42,6 +42,7 @@ import Settings from './pages/Settings';
 import GettingStarted from './pages/GettingStarted';
 import AnalyticsTest from './pages/AnalyticsTest';
 import Pricing from './pages/Pricing';
+import AdminBilling from './pages/AdminBilling';
 import Workspace from './pages/Workspace';
 import WorkspaceHub from './pages/WorkspaceHub';
 import BoardPage from './pages/BoardPage';
@@ -860,6 +861,7 @@ if (
         <Route path="/assets/analytics" element={<PageWrapper><AssetAnalyticsMock /></PageWrapper>} />
         <Route path="/team" element={<PageWrapper><Team /></PageWrapper>} />
         <Route path="/admin/customers" element={<PageWrapper><AdminCustomers /></PageWrapper>} />
+        <Route path="/admin/billing" element={<PageWrapper><AdminBilling /></PageWrapper>} />
       </Routes>
 
     </AnimatePresence>

@@ -159,3 +159,183 @@ commit;
 -- update public.pricing_plans set stripe_price_id = 'price_xxx', updated_at = now() where code = 'weekly';
 -- update public.pricing_plans set stripe_price_id = 'price_yyy', updated_at = now() where code = 'monthly';
 -- update public.pricing_plans set stripe_price_id = 'price_zzz', updated_at = now() where code = 'yearly';
+
+
+-- Phase C: Admin Billing RPCs
+-- Admin = team_is_admin() only (UUID ee2f8a30-27b6-49f8-8a00-cff679e9da14)
+-- No broad UPDATE grants on pricing_plans or subscriptions for authenticated.
+
+begin;
+
+-- ---------------------------------------------------------------------------
+-- admin_list_pricing_plans — all plans including disabled
+-- ---------------------------------------------------------------------------
+create or replace function public.admin_list_pricing_plans()
+returns setof public.pricing_plans
+language plpgsql
+stable
+security definer
+set search_path = public
+as $$
+begin
+  if not public.team_is_admin() then
+    raise exception 'not_admin';
+  end if;
+
+  return query
+  select *
+  from public.pricing_plans
+  order by sort_order asc, code asc;
+end;
+$$;
+
+revoke all on function public.admin_list_pricing_plans() from public;
+revoke execute on function public.admin_list_pricing_plans() from anon;
+grant execute on function public.admin_list_pricing_plans() to authenticated;
+
+-- ---------------------------------------------------------------------------
+-- admin_update_pricing_plan
+-- ---------------------------------------------------------------------------
+create or replace function public.admin_update_pricing_plan(
+  p_id               uuid,
+  p_name             text,
+  p_description      text,
+  p_stripe_price_id  text,
+  p_amount_cents     integer,
+  p_is_enabled       boolean,
+  p_is_recommended   boolean,
+  p_sort_order       integer
+)
+returns jsonb
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  v_name text := trim(p_name);
+  v_price text := trim(p_stripe_price_id);
+  v_row public.pricing_plans%rowtype;
+begin
+  if not public.team_is_admin() then
+    return jsonb_build_object('success', false, 'error', 'not_admin');
+  end if;
+
+  if p_id is null then
+    return jsonb_build_object('success', false, 'error', 'id_required');
+  end if;
+
+  if v_name is null or length(v_name) = 0 then
+    return jsonb_build_object('success', false, 'error', 'invalid_name');
+  end if;
+
+  if v_price is null or length(v_price) = 0 then
+    return jsonb_build_object('success', false, 'error', 'invalid_stripe_price_id');
+  end if;
+
+  if p_amount_cents is null or p_amount_cents <= 0 then
+    return jsonb_build_object('success', false, 'error', 'invalid_amount_cents');
+  end if;
+
+  if p_sort_order is null then
+    return jsonb_build_object('success', false, 'error', 'invalid_sort_order');
+  end if;
+
+  select * into v_row
+  from public.pricing_plans
+  where id = p_id
+  for update;
+
+  if not found then
+    return jsonb_build_object('success', false, 'error', 'plan_not_found');
+  end if;
+
+  -- Only one recommended plan at a time when enabling recommended.
+  if coalesce(p_is_recommended, false) then
+    update public.pricing_plans
+    set is_recommended = false,
+        updated_at = now()
+    where id <> p_id
+      and is_recommended = true;
+  end if;
+
+  update public.pricing_plans
+  set
+    name = v_name,
+    description = nullif(trim(coalesce(p_description, '')), ''),
+    stripe_price_id = v_price,
+    amount_cents = p_amount_cents,
+    is_enabled = coalesce(p_is_enabled, true),
+    is_recommended = coalesce(p_is_recommended, false),
+    sort_order = p_sort_order,
+    updated_at = now()
+  where id = p_id;
+
+  return jsonb_build_object(
+    'success', true,
+    'id', p_id
+  );
+end;
+$$;
+
+revoke all on function public.admin_update_pricing_plan(uuid, text, text, text, integer, boolean, boolean, integer) from public;
+revoke execute on function public.admin_update_pricing_plan(uuid, text, text, text, integer, boolean, boolean, integer) from anon;
+grant execute on function public.admin_update_pricing_plan(uuid, text, text, text, integer, boolean, boolean, integer) to authenticated;
+
+-- ---------------------------------------------------------------------------
+-- admin_list_subscriptions — read-only roster for Admin
+-- ---------------------------------------------------------------------------
+create or replace function public.admin_list_subscriptions()
+returns table (
+  subscription_id         uuid,
+  organization_id         uuid,
+  organization_name       text,
+  owner_user_id           uuid,
+  owner_email             text,
+  status                  text,
+  plan_name               text,
+  billing_interval        text,
+  trial_ends_at           timestamptz,
+  current_period_end      timestamptz,
+  stripe_customer_id      text,
+  stripe_subscription_id  text,
+  created_at              timestamptz,
+  updated_at              timestamptz
+)
+language plpgsql
+stable
+security definer
+set search_path = public
+as $$
+begin
+  if not public.team_is_admin() then
+    raise exception 'not_admin';
+  end if;
+
+  return query
+  select
+    s.id,
+    s.organization_id,
+    o.name,
+    o.owner_id,
+    u.email::text,
+    s.status,
+    s.plan_name,
+    s.billing_interval,
+    s.trial_ends_at,
+    s.current_period_end,
+    s.stripe_customer_id,
+    s.stripe_subscription_id,
+    s.created_at,
+    s.updated_at
+  from public.subscriptions s
+  join public.organizations o on o.id = s.organization_id
+  left join auth.users u on u.id = o.owner_id
+  order by s.updated_at desc nulls last, s.created_at desc;
+end;
+$$;
+
+revoke all on function public.admin_list_subscriptions() from public;
+revoke execute on function public.admin_list_subscriptions() from anon;
+grant execute on function public.admin_list_subscriptions() to authenticated;
+
+commit;
