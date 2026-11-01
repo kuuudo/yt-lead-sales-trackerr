@@ -70,7 +70,7 @@ export const workWithYourTeamGuide: Tutorial = {
       title: 'You\u2019re in Read-Only mode',
       body:
         'You\u2019re now viewing another user\u2019s account in Read-Only mode. You can explore their data, but you can\u2019t make changes.',
-      route: '/dashboard',
+      route: '/tree',
     },
   ],
 };

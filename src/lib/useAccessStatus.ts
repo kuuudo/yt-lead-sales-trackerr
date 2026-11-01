@@ -1,48 +1,123 @@
+
 import { useEffect, useState } from 'react';
 import { supabase } from './supabase';
-import { claimTeamMembership } from './claimTeamMembership';
 
-export type AccessState = 'loading' | 'allowed' | 'inactive';
+export type AccessState = 'loading' | 'allowed' | 'pricing';
 
-type Result = { userId: string; state: 'allowed' | 'inactive' };
+type Result = {
+  userId: string;
+  state: 'allowed' | 'pricing';
+};
 
 /**
- * Manual access flag. Reads the signed-in user's own row in public.account_access.
- *  - status = 'inactive'                -> 'inactive'
- *  - status = 'active' / no row         -> 'allowed'
- *  - query error (V1: fail-open, logged) -> 'allowed'
- * Checked once per user id (login / page load).
- * Before reading access, attempts claim_team_membership (idempotent).
+ * Stage A:
+ * 1. Active Team membership -> allowed
+ * 2. Valid 3-day trial -> allowed
+ * 3. Trusted paid subscription -> allowed
+ * 4. Otherwise -> pricing
+ *
+ * Legacy account_access inactive is not used for billing access.
  */
-export function useAccessStatus(userId: string | null | undefined): AccessState {
+export function useAccessStatus(
+  userId: string | null | undefined
+): AccessState {
   const [result, setResult] = useState<Result | null>(null);
 
   useEffect(() => {
     if (!userId) return;
+
     let cancelled = false;
 
     (async () => {
-      // Claim any pending Team membership for this email before reading access.
-      // Errors are ignored — gate still fail-opens on the account_access read.
-      await claimTeamMembership();
-
-      let state: Result['state'] = 'allowed';
       try {
-        const { data, error } = await supabase
-          .from('account_access')
-          .select('status')
-          .eq('user_id', userId)
-          .maybeSingle();
+        // STEP 1: Claim pending Team membership.
+        const { error: claimError } = await supabase.rpc(
+          'claim_team_membership'
+        );
 
-        if (error) {
-          console.error('[useAccessStatus] query failed, failing open:', error);
-        } else if (data?.status === 'inactive') {
-          state = 'inactive';
+        if (claimError) {
+          console.error('[useAccessStatus] Team claim:', claimError);
         }
-      } catch (err) {
-        console.error('[useAccessStatus] unexpected error, failing open:', err);
+
+        // STEP 2: Check active Team membership.
+        const { data: isTeam, error: teamError } = await supabase.rpc(
+          'team_has_active_membership'
+        );
+
+        if (teamError) {
+          console.error('[useAccessStatus] Team check:', teamError);
+        }
+
+        if (!cancelled && isTeam === true) {
+          setResult({ userId, state: 'allowed' });
+          return;
+        }
+
+        // STEP 3: Get the user's organization memberships.
+        const { data: memberships, error: membershipError } =
+          await supabase
+            .from('organization_members')
+            .select('organization_id')
+            .eq('user_id', userId);
+
+        if (membershipError) {
+          throw membershipError;
+        }
+
+        const orgIds = [
+          ...new Set(
+            (memberships ?? []).map((membership) => membership.organization_id)
+          ),
+        ];
+
+        if (orgIds.length === 0) {
+          if (!cancelled) {
+            setResult({ userId, state: 'pricing' });
+          }
+          return;
+        }
+
+        // STEP 4: Check subscriptions.
+        const { data: subscriptions, error: subscriptionError } =
+          await supabase
+            .from('subscriptions')
+            .select(
+              'status, trial_ends_at, stripe_subscription_id, organization_id'
+            )
+            .in('organization_id', orgIds);
+
+        if (subscriptionError) {
+          throw subscriptionError;
+        }
+
+        const now = Date.now();
+
+        const hasAccess = (subscriptions ?? []).some((subscription) => {
+          const trustedPaid =
+            subscription.status === 'active' &&
+            subscription.stripe_subscription_id != null;
+
+          const validTrial =
+            subscription.status === 'trialing' &&
+            subscription.trial_ends_at != null &&
+            new Date(subscription.trial_ends_at).getTime() > now;
+
+          return trustedPaid || validTrial;
+        });
+
+        if (!cancelled) {
+          setResult({
+            userId,
+            state: hasAccess ? 'allowed' : 'pricing',
+          });
+        }
+      } catch (error) {
+        console.error('[useAccessStatus] Access check failed:', error);
+
+        if (!cancelled) {
+          setResult({ userId, state: 'pricing' });
+        }
       }
-      if (!cancelled) setResult({ userId, state });
     })();
 
     return () => {
@@ -51,8 +126,10 @@ export function useAccessStatus(userId: string | null | undefined): AccessState 
   }, [userId]);
 
   if (!userId) return 'allowed';
-  // A result for a previous user must never apply to the current one.
-  if (!result || result.userId !== userId) return 'loading';
+
+  if (!result || result.userId !== userId) {
+    return 'loading';
+  }
+
   return result.state;
 }
-

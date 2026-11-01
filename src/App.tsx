@@ -18,7 +18,6 @@ import TutorialRunner from './components/tutorial/TutorialRunner';
 import { useEffectiveIdentity } from './lib/useEffectiveIdentity';
 import { useOnboardingHubIndicator } from './lib/onboardingHubIndicator';
 import MobileRankingsButton from './components/MobileRankingsButton';
-import AccessInactiveScreen from './components/AccessInactiveScreen';
 import OnboardingOverlay from './components/onboarding/OnboardingOverlay';
 import OnboardingGate from './components/onboarding/OnboardingGate';
 import LeaveTestimonialModal from './components/testimonial/LeaveTestimonialModal';
@@ -674,9 +673,11 @@ function MainContent() {
       </div>
     );
   }
-  if (access === 'inactive' && !isRelayRoute(pathname)) {
-    return <AccessInactiveScreen />;
-  }
+// Expired trial or no valid subscription → Pricing.
+// Keep relay routes unaffected.
+if (access === 'pricing' && pathname !== '/pricing' && !isRelayRoute(pathname)) {
+  return <Navigate to="/pricing" replace />;
+}
   
   if (!user) {
     // Allow public token redirects even when not logged in
@@ -733,7 +734,9 @@ function MainContent() {
   return (
     <>
     {/* Post-signup onboarding for new accounts. Skipped on chrome-less token/relay routes. */}
-    {!isRelayRoute(pathname) && <OnboardingGate />}
+    {!isRelayRoute(pathname) &&
+  access !== 'pricing' &&
+  <OnboardingGate />}
     <AnimatePresence mode="wait">
       <Routes>
         <Route path="/login" element={<Navigate to="/tree" replace />} />

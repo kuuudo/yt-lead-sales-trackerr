@@ -48,13 +48,14 @@ export async function createUserWorkspace(userId: string, email: string, fullNam
     return { success: false, step: 'membership', error: membershipError }
   }
 
-  // STEP 4 - SUBSCRIPTION (was STEP 5; system campaign step removed)
-  const { error: subscriptionError } = await supabase
-    .from('subscriptions')
-    .insert({
-      organization_id: org.id,
-      status: 'trialing'
-    })
+// STEP 4 - SUBSCRIPTION
+// Database trigger is authoritative: forces a 3-day trial.
+const { error: subscriptionError } = await supabase
+  .from('subscriptions')
+  .insert({
+    organization_id: org.id,
+    status: 'trialing'
+  })
 
   if (subscriptionError) {
     console.error('Subscription creation failed:', subscriptionError)

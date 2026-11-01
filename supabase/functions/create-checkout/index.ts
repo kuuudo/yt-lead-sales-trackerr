@@ -74,9 +74,7 @@ Deno.serve(async (req) => {
           quantity: 1,
         },
       ],
-      subscription_data: {
-        trial_period_days: 7,
-      },
+
       success_url: `${origin}/dashboard?upgraded=true`,
       cancel_url: `${origin}/pricing`,
       metadata: {
