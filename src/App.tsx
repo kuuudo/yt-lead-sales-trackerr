@@ -186,7 +186,13 @@ function isBusinessHireAgencyRoute(pathname: string): boolean {
 const VSL_1ST_PATH = '/vsl1stversionanimation';
 // Public pre-signup onboarding. Do NOT add 'start' to KNOWN_APP_PATHS (bare single-segment path = chrome-less + exempt from access gate).
 const ONBOARDING_PATH = '/start';
-
+// Accounts that should always bypass the Pricing Gate.
+const ALWAYS_ALLOWED_EMAILS = new Set([
+  'alinospam2020@gmail.com',
+  '178@gmail.com',
+  'webmoodofficial@gmail.com',
+  'kaksidigitals@gmail.com',
+]);
 // Renders the top nav + viewing banner everywhere EXCEPT the relay/token
 // redirect routes, without touching in-app navigation at all.
 function AppChrome() {
@@ -662,11 +668,19 @@ function Navigation() {
 }
 
 function MainContent() {
-  const { user, loading } = useAuth();
-  useTracker();
-  const { pathname } = useLocation();
-  const access = useAccessStatus(user?.id);
-  if (loading || (access === 'loading' && !isRelayRoute(pathname))) {
+const { user, loading } = useAuth();
+useTracker();
+const { pathname } = useLocation();
+
+const isAlwaysAllowed = ALWAYS_ALLOWED_EMAILS.has(
+  user?.email?.trim().toLowerCase() ?? ''
+);
+
+const access = useAccessStatus(user?.id);
+  if (
+  loading ||
+  (access === 'loading' && !isRelayRoute(pathname) && !isAlwaysAllowed)
+) {
     return (
       <div className="min-h-screen bg-zinc-950 flex items-center justify-center">
         <Loader2 className="text-red-600 animate-spin" size={32} />
@@ -675,7 +689,12 @@ function MainContent() {
   }
 // Expired trial or no valid subscription → Pricing.
 // Keep relay routes unaffected.
-if (access === 'pricing' && pathname !== '/pricing' && !isRelayRoute(pathname)) {
+if (
+  !isAlwaysAllowed &&
+  access === 'pricing' &&
+  pathname !== '/pricing' &&
+  !isRelayRoute(pathname)
+) {
   return <Navigate to="/pricing" replace />;
 }
   
@@ -806,7 +825,14 @@ if (access === 'pricing' && pathname !== '/pricing' && !isRelayRoute(pathname)) 
 <Route path="/:token" element={<Track />} />
         <Route path="*" element={<Navigate to="/tree" replace />} />
         <Route path="/analytics-test" element={<AnalyticsTest />} />
-        <Route path="/pricing" element={<PageWrapper><Pricing /></PageWrapper>} />
+        <Route
+  path="/pricing"
+  element={
+    isAlwaysAllowed
+      ? <Navigate to="/tree" replace />
+      : <PageWrapper><Pricing /></PageWrapper>
+  }
+/>
         <Route path="/workspace" element={<PageWrapper><Workspace /></PageWrapper>} />
         <Route path="/workspace/hub" element={<WorkspaceHub />} />
         <Route path="/workspace/:boardId" element={<BoardPage />} />
