@@ -1,7 +1,11 @@
+// supabase/functions/create-checkout/index.ts
+// Phase B: accepts plan_id, looks up stripe_price_id server-side.
+// Never trusts a Price ID from the browser.
+
 import Stripe from 'https://esm.sh/stripe@14.21.0'
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2'
 
-console.log("CREATE CHECKOUT STARTED")
+console.log('CREATE CHECKOUT STARTED')
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -12,10 +16,9 @@ const corsHeaders = {
 const stripeKey = Deno.env.get('STRIPE_SECRET_KEY')
 const supabaseUrl = Deno.env.get('SUPABASE_URL')
 const supabaseKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')
-const priceId = Deno.env.get('STRIPE_PRICE_ID')
 
-if (!stripeKey || !supabaseUrl || !supabaseKey || !priceId) {
-  throw new Error("Missing environment variables")
+if (!stripeKey || !supabaseUrl || !supabaseKey) {
+  throw new Error('Missing environment variables')
 }
 
 const stripe = new Stripe(stripeKey, {
@@ -23,7 +26,7 @@ const stripe = new Stripe(stripeKey, {
 })
 
 Deno.serve(async (req) => {
-  console.log("REQUEST:", req.method)
+  console.log('REQUEST:', req.method)
 
   if (req.method === 'OPTIONS') {
     return new Response('ok', { headers: corsHeaders })
@@ -36,17 +39,61 @@ Deno.serve(async (req) => {
     if (!authHeader) {
       return new Response(JSON.stringify({ error: 'Missing auth header' }), {
         status: 401,
-        headers: corsHeaders,
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
       })
     }
 
     const token = authHeader.replace('Bearer ', '')
-    const { data: { user }, error } = await supabase.auth.getUser(token)
+    const {
+      data: { user },
+      error: authError,
+    } = await supabase.auth.getUser(token)
 
-    if (error || !user) {
+    if (authError || !user) {
       return new Response(JSON.stringify({ error: 'Unauthorized' }), {
         status: 401,
-        headers: corsHeaders,
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+      })
+    }
+
+    const body = await req.json().catch(() => ({}))
+    const origin = typeof body.origin === 'string' ? body.origin : null
+    const planId = typeof body.plan_id === 'string' ? body.plan_id.trim() : null
+
+    if (!origin) {
+      return new Response(JSON.stringify({ error: 'Missing origin' }), {
+        status: 400,
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+      })
+    }
+
+    if (!planId) {
+      return new Response(JSON.stringify({ error: 'Missing plan_id' }), {
+        status: 400,
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+      })
+    }
+
+    // Server-side plan lookup only. Ignore any stripe_price_id from the client.
+    const { data: plan, error: planError } = await supabase
+      .from('pricing_plans')
+      .select('id, code, name, stripe_price_id, is_enabled')
+      .eq('id', planId)
+      .eq('is_enabled', true)
+      .maybeSingle()
+
+    if (planError) {
+      console.error('PLAN LOOKUP ERROR:', planError)
+      return new Response(JSON.stringify({ error: 'Plan lookup failed' }), {
+        status: 500,
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+      })
+    }
+
+    if (!plan || !plan.stripe_price_id || plan.stripe_price_id.startsWith('REPLACE_ME_')) {
+      return new Response(JSON.stringify({ error: 'Invalid or unavailable plan' }), {
+        status: 400,
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
       })
     }
 
@@ -60,26 +107,26 @@ Deno.serve(async (req) => {
     if (!membership) {
       return new Response(JSON.stringify({ error: 'No organization found' }), {
         status: 400,
-        headers: corsHeaders,
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
       })
     }
 
-    const { origin } = await req.json()
-
+    // No trial_period_days — Supabase owns the trial clock (Stage A).
     const session = await stripe.checkout.sessions.create({
       mode: 'subscription',
       line_items: [
         {
-          price: priceId,
+          price: plan.stripe_price_id,
           quantity: 1,
         },
       ],
-
       success_url: `${origin}/dashboard?upgraded=true`,
       cancel_url: `${origin}/pricing`,
       metadata: {
         organization_id: membership.organization_id,
         user_id: user.id,
+        plan_id: plan.id,
+        plan_code: plan.code,
       },
     })
 
@@ -90,15 +137,17 @@ Deno.serve(async (req) => {
         ...corsHeaders,
       },
     })
-
   } catch (err) {
-    console.error("CHECKOUT ERROR:", err)
+    console.error('CHECKOUT ERROR:', err)
 
-    return new Response(JSON.stringify({
-      error: err instanceof Error ? err.message : String(err),
-    }), {
-      status: 500,
-      headers: corsHeaders,
-    })
+    return new Response(
+      JSON.stringify({
+        error: err instanceof Error ? err.message : String(err),
+      }),
+      {
+        status: 500,
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+      }
+    )
   }
 })
