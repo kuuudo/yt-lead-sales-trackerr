@@ -121,7 +121,7 @@ export default function OnboardingGate() {
 
       {/* Not while a guide is open: the collab guide keeps going after its Promotion exists, so a page
           reload there must not cover the resumed guide with this pop-up. It appears once the guide ends. */}
-      {state === 'finish' && status !== 'active' && (
+      {state === 'finish' && status !== 'active' && location.pathname !== '/pricing' && (
         <AfterDelay ms={FINISH_POPUP_DELAY_MS}>
           <FinishModal
             onFinish={async () => {

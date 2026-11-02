@@ -12,7 +12,7 @@
 
 import { useEffect, useState, type FormEvent, type ReactNode } from 'react';
 import { motion } from 'motion/react';
-import { CheckCircle2, Loader2 } from 'lucide-react';
+import { CheckCircle2, Loader2, CalendarDays } from 'lucide-react';
 import { FONT } from '../../components/onboardingFlow/OnboardingShell';
 import { createCampaign, NEW_CAMPAIGN_DEFAULTS } from '../../lib/createCampaign';
 import { useAuth } from '../../lib/auth';
@@ -273,30 +273,50 @@ export function FinishModal({ onFinish }: { onFinish: () => Promise<void> }) {
         </p>
       </div>
 
-      {planState === 'none' && (
-        <p className="mt-4 text-[13px] leading-snug text-[#6B6880]">
-          Ready to pick a plan?{' '}
-          <Link
-            to="/pricing"
-            className="font-medium text-[#5B3DF5] underline-offset-4 hover:underline"
-          >
-            View plans
-          </Link>
-        </p>
-      )}
 
-      {pricingEntry === 'show' && (
-        <p className="mt-4 text-[13px] leading-snug text-[#6B6880]">
-          You’re on a free trial. Want to keep using VSTRK after it ends?{' '}
-          <Link
-            to="/pricing"
-            state={{ from: location.pathname + location.search }}
-            className="font-medium text-[#5B3DF5] underline-offset-4 hover:underline"
-          >
-            View plans
-          </Link>
-        </p>
-      )}
+
+{pricingEntry === 'show' && (
+  <div className="mt-5 flex items-center gap-4 rounded-2xl border-2 border-[#C4B5FD] bg-gradient-to-br from-[#F0EBFF] to-[#E6DCFF] px-4 py-5 shadow-[0_8px_24px_-12px_rgba(91,61,245,0.35)] sm:gap-5 sm:px-5">
+    {/* Calendar icon */}
+    <div className="flex h-16 w-16 shrink-0 items-center justify-center rounded-full bg-[#DED2FF] sm:h-20 sm:w-20">
+      <CalendarDays
+        size={36}
+        strokeWidth={2.2}
+        className="text-[#5B3DF5] sm:hidden"
+        aria-hidden
+      />
+      <CalendarDays
+        size={42}
+        strokeWidth={2.2}
+        className="hidden text-[#5B3DF5] sm:block"
+        aria-hidden
+      />
+    </div>
+
+    {/* Divider */}
+    <div className="h-20 w-[2px] shrink-0 bg-[#A78BFA]" />
+
+    {/* Trial information */}
+    <div className="min-w-0 flex-1">
+      <p className="text-[16px] font-extrabold leading-snug tracking-[-0.02em] text-[#14121F] sm:text-[18px]">
+        You’re on a 3-day free trial.
+      </p>
+
+      <p className="mt-1 text-[14px] leading-snug text-[#30245C] sm:text-[15px]">
+        Want to keep using VSTRK after it ends?
+      </p>
+
+      <Link
+        to="/pricing"
+        state={{ from: location.pathname + location.search }}
+        className="mt-1.5 inline-flex items-center gap-1 text-[16px] font-bold text-[#5428E8] underline decoration-2 underline-offset-4 transition hover:text-[#3D1AB8] sm:text-[18px]"
+      >
+        View plans <span aria-hidden>→</span>
+      </Link>
+    </div>
+  </div>
+)}
+
 
       {failed && (
         <p role="alert" className="mt-4 text-[14px] font-medium text-[#C0392B]">
