@@ -24,6 +24,7 @@ import {
   intervalLabel,
 } from '../lib/pricingPlans';
 import { PlanCard } from '../components/pricing/PlanCard';
+import { MultipleAccountsCTA } from '../components/pricing/MultipleAccountsCTA';
 
 type UpgradePlan = PricingPlan & {
   is_enabled: boolean;
@@ -322,6 +323,14 @@ export default function Upgrade() {
           })}
         </div>
       )}
+
+      <MultipleAccountsCTA
+        heading="Need More Accounts?"
+        description={[
+          'Expanding your team or managing accounts for multiple clients?',
+          'We offer custom plans tailored to your business needs.',
+        ]}
+      />
 
       <div className="mt-10 flex flex-wrap items-center justify-center gap-6 text-zinc-600 text-[10px] font-bold uppercase tracking-widest relative z-10">
         <span className="flex items-center gap-1.5">

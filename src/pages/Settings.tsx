@@ -25,6 +25,7 @@ import { useNavigate, Link } from 'react-router-dom';
 import { useMyTeam } from '../lib/useMyTeam';
 import { THEMES, useTheme } from '../lib/theme';
 import UpgradeEntry from '../components/UpgradeEntry';
+import { WHATSAPP_CONTACT_URL } from '../lib/contactLinks';
 
 export default function Settings() {
   const { user } = useAuth();
@@ -455,7 +456,7 @@ export default function Settings() {
           Got a question? Message me on WhatsApp. I'll answer as long as I'm awake.
         </p>
         <a
-          href="https://chat.whatsapp.com/G07wVgoAyRS3Z171uRDQ1K?s=cl&p=a&mlu=4"
+          href={WHATSAPP_CONTACT_URL}
           target="_blank"
           rel="noopener noreferrer"
           className="w-full bg-white text-zinc-950 h-11 rounded-xl text-xs font-black uppercase tracking-widest hover:bg-zinc-200 transition-all flex items-center justify-center gap-2"

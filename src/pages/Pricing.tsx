@@ -11,6 +11,7 @@ import { supabase } from '../lib/supabase';
 import { createCheckout } from '../lib/createCheckout';
 import { PricingPlan, PLAN_DISPLAY_COLUMNS } from '../lib/pricingPlans';
 import { PlanCard } from '../components/pricing/PlanCard';
+import { MultipleAccountsCTA } from '../components/pricing/MultipleAccountsCTA';
 
 export default function Pricing() {
   const [plans, setPlans] = useState<PricingPlan[]>([]);
@@ -116,6 +117,14 @@ export default function Pricing() {
           {error}
         </p>
       )}
+
+      <MultipleAccountsCTA
+        heading="Need Multiple Accounts?"
+        description={[
+          'Purchase accounts for your agency, clients, or team.',
+          'We offer custom plans tailored to your business needs.',
+        ]}
+      />
 
       <motion.div
         initial={{ opacity: 0 }}

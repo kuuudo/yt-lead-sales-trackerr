@@ -31,11 +31,30 @@ export const THEMES: ThemeDef[] = [
   // The original dark look (values live in index.css @theme). No overrides.
   { id: 'black', label: 'Black', swatch: ['#050505', '#111111', '#222222'], vars: {} },
   {
-    // Dark theme tinted toward the website's brand purple (#5b3df0).
+    // Light theme with a faint lavender tint (website look). Same flipped neutral
+    // scale as 'light'; only page/border surfaces are tinted.
     id: 'purple',
-    label: 'Royal Purple',
-    swatch: ['#0d0a1a', '#151026', '#241c3d'],
-    vars: zinc(['#0d0a1a', '#151026', '#241c3d', '#362b58', '#5a4a8c', '#8a7cb8', '#b3a8d8']),
+    label: 'Purple',
+    swatch: ['#f6f4fb', '#ffffff', '#e4e0ec'],
+    vars: {
+      '--color-zinc-950': '#f6f4fb',
+      '--color-zinc-900': '#ffffff',
+      '--color-zinc-800': '#e4e0ec',
+      '--color-zinc-700': '#d7d2e3',
+      '--color-zinc-600': '#a1a1ad',
+      '--color-zinc-500': '#6b6b78',
+      '--color-zinc-400': '#52525e',
+      '--color-zinc-300': '#3f3f4a',
+      '--color-zinc-200': '#2a2a33',
+      '--color-zinc-100': '#18181d',
+      '--color-zinc-50': '#0b0b0e',
+      '--color-gray-100': '#18181d',
+      '--color-gray-200': '#2a2a33',
+      '--color-gray-300': '#3f3f4a',
+      '--color-gray-400': '#52525e',
+      '--color-gray-500': '#6b6b78',
+      '--color-white': '#0b0b0e',
+    },
   },
   {
     id: 'forest',
@@ -94,7 +113,7 @@ function ensureStyle() {
   const themeCss = THEMES.filter(t => t.id !== 'black')
     .map(t => {
       const body = Object.entries(t.vars).map(([k, v]) => `${k}:${v};`).join('');
-      const scheme = t.id === 'light' ? 'light' : 'dark';
+      const scheme = t.id === 'light' || t.id === 'purple' ? 'light' : 'dark';
       return `html[data-theme="${t.id}"]{${body}color-scheme:${scheme};}`;
     })
     .join('\n');
