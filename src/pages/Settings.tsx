@@ -25,6 +25,7 @@ import { useNavigate, Link } from 'react-router-dom';
 import { useMyTeam } from '../lib/useMyTeam';
 import { THEMES, useTheme } from '../lib/theme';
 import UpgradeEntry from '../components/UpgradeEntry';
+import PricingEntry from '../components/PricingEntry';
 import { WHATSAPP_CONTACT_URL } from '../lib/contactLinks';
 
 export default function Settings() {
@@ -244,6 +245,7 @@ export default function Settings() {
           <Wrench size={15} />
           Installation
         </Link>
+        <PricingEntry />
         <UpgradeEntry />
       </section>
 

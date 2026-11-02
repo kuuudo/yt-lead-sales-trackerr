@@ -3,7 +3,7 @@
 // Contact only: no plan, no Stripe price, no billing logic.
 
 import { MessageCircle } from 'lucide-react';
-import { WHATSAPP_CONTACT_URL } from '../../lib/contactLinks';
+import { INTERVIEW_DEMO_WHATSAPP_URL } from '../../pages/public/marketing/interviewmarketers/interviewDemoConfig';
 
 type Props = {
   heading: string;
@@ -30,7 +30,7 @@ export function MultipleAccountsCTA({ heading, description }: Props) {
         </div>
       </div>
       <a
-        href={WHATSAPP_CONTACT_URL}
+        href={INTERVIEW_DEMO_WHATSAPP_URL}
         target="_blank"
         rel="noopener noreferrer"
         className="shrink-0 w-full md:w-auto bg-white text-zinc-950 h-11 px-6 rounded-xl text-xs font-black uppercase tracking-widest hover:bg-zinc-200 transition-all flex items-center justify-center gap-2"

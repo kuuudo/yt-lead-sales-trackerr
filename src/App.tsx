@@ -11,6 +11,7 @@ import { motion, AnimatePresence } from 'motion/react';
 import { useTracker, useLanguage } from './lib/hooks';
 import { AuthProvider, useAuth } from './lib/auth';
 import { useAccessStatus } from './lib/useAccessStatus';
+import { ALWAYS_ALLOWED_EMAILS } from './lib/accessConfig';
 import { ViewingProvider, useViewing } from './lib/ViewingContext';
 import { OnboardingOverlayProvider } from './lib/onboarding-overlay';
 import { TutorialProvider } from './lib/tutorial-overlay';
@@ -188,13 +189,7 @@ function isBusinessHireAgencyRoute(pathname: string): boolean {
 const VSL_1ST_PATH = '/vsl1stversionanimation';
 // Public pre-signup onboarding. Do NOT add 'start' to KNOWN_APP_PATHS (bare single-segment path = chrome-less + exempt from access gate).
 const ONBOARDING_PATH = '/start';
-// Accounts that should always bypass the Pricing Gate.
-const ALWAYS_ALLOWED_EMAILS = new Set([
-  'alinospam2020@gmail.com',
-  '178@gmail.com',
-  'webmoodofficial@gmail.com',
-  'kaksidigitals@gmail.com',
-]);
+
 // Renders the top nav + viewing banner everywhere EXCEPT the relay/token
 // redirect routes, without touching in-app navigation at all.
 function AppChrome() {

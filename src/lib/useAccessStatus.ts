@@ -4,6 +4,26 @@ import { supabase } from './supabase';
 
 export type AccessState = 'loading' | 'allowed' | 'pricing';
 
+export type AccessSubscription = {
+  status: string | null;
+  trial_ends_at: string | null;
+  stripe_subscription_id: string | null;
+};
+
+/** Trusted paid: active + a real Stripe subscription id. */
+export function isTrustedPaidSubscription(subscription: AccessSubscription): boolean {
+  return subscription.status === 'active' && subscription.stripe_subscription_id != null;
+}
+
+/** Valid trial: trialing and trial_ends_at still in the future. */
+export function isValidTrialSubscription(subscription: AccessSubscription, now: number): boolean {
+  return (
+    subscription.status === 'trialing' &&
+    subscription.trial_ends_at != null &&
+    new Date(subscription.trial_ends_at).getTime() > now
+  );
+}
+
 type Result = {
   userId: string;
   state: 'allowed' | 'pricing';
@@ -92,18 +112,11 @@ export function useAccessStatus(
 
         const now = Date.now();
 
-        const hasAccess = (subscriptions ?? []).some((subscription) => {
-          const trustedPaid =
-            subscription.status === 'active' &&
-            subscription.stripe_subscription_id != null;
-
-          const validTrial =
-            subscription.status === 'trialing' &&
-            subscription.trial_ends_at != null &&
-            new Date(subscription.trial_ends_at).getTime() > now;
-
-          return trustedPaid || validTrial;
-        });
+        const hasAccess = (subscriptions ?? []).some(
+          (subscription) =>
+            isTrustedPaidSubscription(subscription) ||
+            isValidTrialSubscription(subscription, now)
+        );
 
         if (!cancelled) {
           setResult({

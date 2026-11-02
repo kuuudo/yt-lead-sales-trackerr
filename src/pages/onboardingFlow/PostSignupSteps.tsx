@@ -16,6 +16,10 @@ import { CheckCircle2, Loader2 } from 'lucide-react';
 import { FONT } from '../../components/onboardingFlow/OnboardingShell';
 import { createCampaign, NEW_CAMPAIGN_DEFAULTS } from '../../lib/createCampaign';
 import { useAuth } from '../../lib/auth';
+import { Link, useLocation } from 'react-router-dom';
+import { usePricingEntry } from '../../lib/usePricingEntry';
+import { Link } from 'react-router-dom';
+import { useHasPaidPlan } from '../../lib/useHasPaidPlan';
 import { SUPPORT_WHATSAPP_URL } from '../../lib/support';
 
 // 16px inputs on purpose: smaller text makes iOS Safari zoom the page on focus.
@@ -222,6 +226,10 @@ const DONE_ITEMS = [
 export function FinishModal({ onFinish }: { onFinish: () => Promise<void> }) {
   const [busy, setBusy] = useState(false);
   const [failed, setFailed] = useState(false);
+  const pricingEntry = usePricingEntry();
+  const location = useLocation();
+  const { user } = useAuth();
+  const planState = useHasPaidPlan(user?.id);
 
   const finish = async () => {
     if (busy) return;
@@ -264,6 +272,31 @@ export function FinishModal({ onFinish }: { onFinish: () => Promise<void> }) {
           Track revenue, newsletter signups, sales calls and consultations.
         </p>
       </div>
+
+      {planState === 'none' && (
+        <p className="mt-4 text-[13px] leading-snug text-[#6B6880]">
+          Ready to pick a plan?{' '}
+          <Link
+            to="/pricing"
+            className="font-medium text-[#5B3DF5] underline-offset-4 hover:underline"
+          >
+            View plans
+          </Link>
+        </p>
+      )}
+
+      {pricingEntry === 'show' && (
+        <p className="mt-4 text-[13px] leading-snug text-[#6B6880]">
+          You’re on a free trial. Want to keep using VSTRK after it ends?{' '}
+          <Link
+            to="/pricing"
+            state={{ from: location.pathname + location.search }}
+            className="font-medium text-[#5B3DF5] underline-offset-4 hover:underline"
+          >
+            View plans
+          </Link>
+        </p>
+      )}
 
       {failed && (
         <p role="alert" className="mt-4 text-[14px] font-medium text-[#C0392B]">

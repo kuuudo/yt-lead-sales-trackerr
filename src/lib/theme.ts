@@ -7,7 +7,7 @@
 
 import { useCallback, useState } from 'react';
 
-export type ThemeId = 'black' | 'forest' | 'purple' | 'light';
+export type ThemeId = 'black' | 'purple' | 'light';
 
 export interface ThemeDef {
   id: ThemeId;
@@ -17,15 +17,7 @@ export interface ThemeDef {
   vars: Record<string, string>;
 }
 
-const zinc = (v: [string, string, string, string, string, string, string]) => ({
-  '--color-zinc-950': v[0],
-  '--color-zinc-900': v[1],
-  '--color-zinc-800': v[2],
-  '--color-zinc-700': v[3],
-  '--color-zinc-600': v[4],
-  '--color-zinc-500': v[5],
-  '--color-zinc-400': v[6],
-});
+
 
 export const THEMES: ThemeDef[] = [
   // The original dark look (values live in index.css @theme). No overrides.
@@ -56,12 +48,7 @@ export const THEMES: ThemeDef[] = [
       '--color-white': '#0b0b0e',
     },
   },
-  {
-    id: 'forest',
-    label: 'Forest',
-    swatch: ['#060d0a', '#0c1612', '#16241d'],
-    vars: zinc(['#060d0a', '#0c1612', '#16241d', '#22372d', '#3f5a4d', '#6f8c7d', '#9bb5a7']),
-  },
+
   {
     // Default theme: flips the whole neutral scale (incl. white + gray text),
     // so bg-white buttons become dark and text-white becomes near-black.

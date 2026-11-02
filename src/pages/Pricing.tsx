@@ -6,7 +6,8 @@
 
 import { useEffect, useState } from 'react';
 import { motion } from 'motion/react';
-import { Check, Zap, Shield, Loader2 } from 'lucide-react';
+import { Link, useLocation } from 'react-router-dom';
+import { Check, Zap, Shield, Loader2, ArrowLeft } from 'lucide-react';
 import { supabase } from '../lib/supabase';
 import { createCheckout } from '../lib/createCheckout';
 import { PricingPlan, PLAN_DISPLAY_COLUMNS } from '../lib/pricingPlans';
@@ -17,7 +18,13 @@ export default function Pricing() {
   const [plans, setPlans] = useState<PricingPlan[]>([]);
   const [loadingPlans, setLoadingPlans] = useState(true);
   const [checkoutPlanId, setCheckoutPlanId] = useState<string | null>(null);
-  const [error, setError] = useState<string | null>(null);
+    const [error, setError] = useState<string | null>(null);
+  const location = useLocation();
+  const fromPath = (location.state as { from?: unknown } | null)?.from;
+  const backTo =
+    typeof fromPath === 'string' && fromPath.startsWith('/') && !fromPath.startsWith('/pricing')
+      ? fromPath
+      : null;
 
   useEffect(() => {
     let cancelled = false;
@@ -66,6 +73,16 @@ export default function Pricing() {
         <div className="absolute top-1/3 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[600px] h-[600px] bg-red-600/5 rounded-full blur-[120px]" />
         <div className="absolute bottom-0 right-0 w-[300px] h-[300px] bg-violet-600/5 rounded-full blur-[100px]" />
       </div>
+
+      {backTo && (
+        <Link
+          to={backTo}
+          className="absolute top-6 left-6 z-10 inline-flex items-center gap-2 text-[10px] font-bold uppercase tracking-widest text-zinc-500 hover:text-zinc-200 transition-colors"
+        >
+          <ArrowLeft size={12} />
+          Back
+        </Link>
+      )}
 
       <motion.div
         initial={{ opacity: 0, y: 16 }}
