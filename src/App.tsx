@@ -684,6 +684,27 @@ const access = useAccessStatus(user?.id);
       </div>
     );
   }
+// Access could not be determined (queries kept failing / new workspace never appeared).
+// This is NOT "no access": do not send to Pricing and do not let the user through.
+if (access === 'error' && !isRelayRoute(pathname) && !isAlwaysAllowed) {
+  return (
+    <div className="min-h-screen bg-zinc-950 flex flex-col items-center justify-center gap-4 p-6 text-center">
+      <p className="text-sm font-bold text-white">
+        無法確認帳號狀態，請重試
+      </p>
+      <p className="text-xs text-zinc-400">
+        Unable to verify your account status. Please try again.
+      </p>
+      <button
+        type="button"
+        onClick={() => window.location.reload()}
+        className="bg-white text-zinc-950 h-11 px-6 rounded-xl text-xs font-black uppercase tracking-widest hover:bg-zinc-200 transition-all"
+      >
+        重試 / Retry
+      </button>
+    </div>
+  );
+}
 // Expired trial or no valid subscription → Pricing.
 // Keep relay routes unaffected.
 if (
