@@ -42,6 +42,7 @@ import Settings from './pages/Settings';
 import GettingStarted from './pages/GettingStarted';
 import AnalyticsTest from './pages/AnalyticsTest';
 import Pricing from './pages/Pricing';
+import Upgrade from './pages/Upgrade';
 import AdminBilling from './pages/AdminBilling';
 import Workspace from './pages/Workspace';
 import WorkspaceHub from './pages/WorkspaceHub';
@@ -817,6 +818,9 @@ if (
         <Route path="/settings" element={<PageWrapper><Settings /></PageWrapper>} />
         <Route path="/settings/tracking-domains" element={<PageWrapper><TrackingDomains /></PageWrapper>} />
         <Route path="/settings/getting-started" element={<PageWrapper><GettingStarted /></PageWrapper>} />
+        {/* Plan change for paying owners. Guarded in-page (Admin switch + owner + trusted paid)
+            and again in the schedule-plan-change / cancel-pending-plan-change Edge Functions. */}
+        <Route path="/settings/upgrade" element={<PageWrapper><Upgrade /></PageWrapper>} />
         {/* Phase 1 continuation relay — infrastructure only. Must be above /:token,
             and /r/platform must be above /r/:relayToken or it never matches. */}
         <Route path="/r/platform" element={<PlatformContinuation />} />

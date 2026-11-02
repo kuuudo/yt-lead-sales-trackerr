@@ -1,71 +1,16 @@
 // src/pages/Pricing.tsx
 // Phase B: loads enabled plans from pricing_plans; checkout by plan id only.
+// Plan type, display helpers and the card itself now live in shared modules
+// (lib/pricingPlans.ts, components/pricing/PlanCard.tsx) so Upgrade.tsx renders
+// the same thing. Query + checkout behaviour below is unchanged.
 
 import { useEffect, useState } from 'react';
 import { motion } from 'motion/react';
-import {
-  Check,
-  Zap,
-  BarChart3,
-  Globe,
-  Link2,
-  Shield,
-  Sparkles,
-  ArrowRight,
-  Loader2,
-} from 'lucide-react';
+import { Check, Zap, Shield, Loader2 } from 'lucide-react';
 import { supabase } from '../lib/supabase';
 import { createCheckout } from '../lib/createCheckout';
-
-type PricingPlan = {
-  id: string;
-  code: string;
-  name: string;
-  description: string | null;
-  interval: 'week' | 'month' | 'year' | string;
-  amount_cents: number;
-  currency: string;
-  is_recommended: boolean;
-  sort_order: number;
-};
-
-const PRO_FEATURES = [
-  'Unlimited campaigns',
-  'Unlimited video imports',
-  'Full attribution engine',
-  'Multi-platform tracking',
-  'Custom redirect domains',
-  'Stripe revenue attribution',
-  'Creator collaboration',
-  'Priority support',
-];
-
-const FEATURE_ICONS: Record<string, React.ReactNode> = {
-  'Full attribution engine': <BarChart3 size={13} />,
-  'Multi-platform tracking': <Globe size={13} />,
-  'Custom redirect domains': <Link2 size={13} />,
-  'Stripe revenue attribution': <Zap size={13} />,
-  'Creator collaboration': <Sparkles size={13} />,
-  'Priority support': <Shield size={13} />,
-};
-
-function formatMoney(cents: number, currency: string): string {
-  try {
-    return new Intl.NumberFormat('en-US', {
-      style: 'currency',
-      currency: currency.toUpperCase(),
-      maximumFractionDigits: 0,
-    }).format(cents / 100);
-  } catch {
-    return `$${(cents / 100).toFixed(0)}`;
-  }
-}
-
-function intervalLabel(interval: string): string {
-  if (interval === 'week') return '/week';
-  if (interval === 'year') return '/year';
-  return '/month';
-}
+import { PricingPlan, PLAN_DISPLAY_COLUMNS } from '../lib/pricingPlans';
+import { PlanCard } from '../components/pricing/PlanCard';
 
 export default function Pricing() {
   const [plans, setPlans] = useState<PricingPlan[]>([]);
@@ -82,9 +27,7 @@ export default function Pricing() {
 
       const { data, error: qErr } = await supabase
         .from('pricing_plans')
-        .select(
-          'id, code, name, description, interval, amount_cents, currency, is_recommended, sort_order'
-        )
+        .select(PLAN_DISPLAY_COLUMNS)
         .eq('is_enabled', true)
         .order('sort_order', { ascending: true });
 
@@ -156,88 +99,15 @@ export default function Pricing() {
           transition={{ duration: 0.4, delay: 0.1 }}
           className="grid grid-cols-1 md:grid-cols-3 gap-5 w-full max-w-5xl relative z-10"
         >
-          {plans.map((plan) => {
-            const recommended = plan.is_recommended;
-            const busy = checkoutPlanId === plan.id;
-
-            return (
-              <div
-                key={plan.id}
-                className={`rounded-2xl border bg-zinc-950/80 p-8 flex flex-col relative overflow-hidden ${
-                  recommended
-                    ? 'border-red-600/30 shadow-[0_0_60px_rgba(220,38,38,0.08)]'
-                    : 'border-zinc-800/60'
-                }`}
-              >
-                {recommended && (
-                  <div className="absolute top-0 left-0 right-0 h-px bg-gradient-to-r from-transparent via-red-600/60 to-transparent" />
-                )}
-
-                <div className="mb-6">
-                  <div className="flex items-center gap-2 mb-2">
-                    <p
-                      className={`text-[10px] font-bold uppercase tracking-widest ${
-                        recommended ? 'text-red-400' : 'text-zinc-500'
-                      }`}
-                    >
-                      {plan.name}
-                    </p>
-                    {recommended && (
-                      <span className="px-2 py-0.5 rounded-full bg-red-600/15 text-red-400 text-[9px] font-bold uppercase tracking-wider border border-red-600/20">
-                        Recommended
-                      </span>
-                    )}
-                  </div>
-                  <h2 className="text-2xl font-black text-white mb-1">{plan.name}</h2>
-                  <p className="text-zinc-500 text-sm">
-                    {plan.description || 'Full VSTRK access'}
-                  </p>
-                </div>
-
-                <div className="flex items-end gap-1 mb-8">
-                  <div className="text-4xl font-black text-white">
-                    {formatMoney(plan.amount_cents, plan.currency)}
-                  </div>
-                  <div className="text-zinc-500 text-sm mb-1.5">
-                    {intervalLabel(plan.interval)}
-                  </div>
-                </div>
-
-                <ul className="space-y-3 mb-8 flex-1">
-                  {PRO_FEATURES.map((f) => (
-                    <li
-                      key={f}
-                      className="flex items-center gap-3 text-sm text-zinc-300"
-                    >
-                      <div className="w-4 h-4 rounded-full bg-red-600/15 border border-red-600/30 flex items-center justify-center shrink-0 text-red-400">
-                        {FEATURE_ICONS[f] ?? <Check size={9} />}
-                      </div>
-                      {f}
-                    </li>
-                  ))}
-                </ul>
-
-                <button
-                  onClick={() => handleUpgrade(plan.id)}
-                  disabled={!!checkoutPlanId}
-                  className={`w-full h-12 rounded-xl transition-all text-white text-xs font-black uppercase tracking-widest flex items-center justify-center gap-2 disabled:opacity-60 disabled:cursor-not-allowed ${
-                    recommended
-                      ? 'bg-red-600 hover:bg-red-500 shadow-[0_0_30px_rgba(220,38,38,0.25)]'
-                      : 'bg-zinc-800 hover:bg-zinc-700 border border-zinc-700'
-                  }`}
-                >
-                  {busy ? (
-                    <Loader2 size={16} className="animate-spin" />
-                  ) : (
-                    <>
-                      Subscribe
-                      <ArrowRight size={14} />
-                    </>
-                  )}
-                </button>
-              </div>
-            );
-          })}
+          {plans.map((plan) => (
+            <PlanCard
+              key={plan.id}
+              plan={plan}
+              busy={checkoutPlanId === plan.id}
+              disabled={!!checkoutPlanId}
+              onSelect={(p) => handleUpgrade(p.id)}
+            />
+          ))}
         </motion.div>
       )}
 

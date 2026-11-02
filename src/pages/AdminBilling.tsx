@@ -30,6 +30,7 @@ type PricingPlan = {
   is_enabled: boolean;
   is_recommended: boolean;
   sort_order: number;
+  available_in_upgrade: boolean;
 };
 
 type SubRow = {
@@ -47,6 +48,10 @@ type SubRow = {
   stripe_subscription_id: string | null;
   created_at: string | null;
   updated_at: string | null;
+  stripe_schedule_id: string | null;
+  pending_plan_name: string | null;
+  pending_billing_interval: string | null;
+  pending_effective_at: string | null;
 };
 
 function money(cents: number, currency = 'usd') {
@@ -84,6 +89,38 @@ export default function AdminBilling() {
   const [savingId, setSavingId] = useState<string | null>(null);
   const [message, setMessage] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [upgradeEnabled, setUpgradeEnabled] = useState<boolean | null>(null);
+  const [savingUpgradeSwitch, setSavingUpgradeSwitch] = useState(false);
+
+  const loadSettings = useCallback(async () => {
+    const { data, error: err } = await supabase.rpc('admin_get_billing_settings');
+    if (err) {
+      setError(err.message);
+      return;
+    }
+    setUpgradeEnabled(Boolean((data as { upgrade_enabled?: boolean })?.upgrade_enabled));
+  }, []);
+
+  const toggleUpgradeEnabled = async (next: boolean) => {
+    setSavingUpgradeSwitch(true);
+    setMessage(null);
+    setError(null);
+    const { data, error: err } = await supabase.rpc('admin_set_upgrade_enabled', {
+      p_enabled: next,
+    });
+    setSavingUpgradeSwitch(false);
+    if (err) {
+      setError(err.message);
+      return;
+    }
+    const result = data as { success?: boolean; error?: string };
+    if (!result?.success) {
+      setError(result?.error || 'Save failed');
+      return;
+    }
+    setUpgradeEnabled(next);
+    setMessage(`Upgrade feature ${next ? 'enabled' : 'disabled'}.`);
+  };
 
   const loadPlans = useCallback(async () => {
     setLoadingPlans(true);
@@ -120,7 +157,8 @@ export default function AdminBilling() {
   useEffect(() => {
     if (!isAdmin) return;
     void loadPlans();
-  }, [isAdmin, loadPlans]);
+    void loadSettings();
+  }, [isAdmin, loadPlans, loadSettings]);
 
   useEffect(() => {
     if (!isAdmin || tab !== 'subscriptions') return;
@@ -157,6 +195,7 @@ export default function AdminBilling() {
       p_is_enabled: d.is_enabled,
       p_is_recommended: d.is_recommended,
       p_sort_order: d.sort_order,
+      p_available_in_upgrade: d.available_in_upgrade,
     });
 
     setSavingId(null);
@@ -245,6 +284,34 @@ export default function AdminBilling() {
 
       {tab === 'plans' && (
         <section className="space-y-4">
+          <div className="bento-card p-5 flex flex-wrap items-center justify-between gap-4">
+            <div className="space-y-1 max-w-xl">
+              <p className="text-[10px] font-bold uppercase tracking-widest text-zinc-500">
+                Upgrade feature (existing paying customers)
+              </p>
+              <p className="text-xs text-zinc-400 leading-relaxed">
+                When on, eligible paying owners can open Settings → Change plan and schedule a switch that
+                starts at the end of their current billing period. When off, the page and both plan-change
+                Edge Functions reject every request. Which plans appear there is set per plan below
+                (“Available in Upgrade”), independently of the Pricing page.
+              </p>
+            </div>
+            <label className="inline-flex items-center gap-3 text-xs text-zinc-200">
+              <input
+                type="checkbox"
+                checked={upgradeEnabled === true}
+                disabled={upgradeEnabled === null || savingUpgradeSwitch}
+                onChange={(e) => void toggleUpgradeEnabled(e.target.checked)}
+              />
+              {upgradeEnabled === null
+                ? 'Loading…'
+                : upgradeEnabled
+                ? 'Upgrade enabled'
+                : 'Upgrade disabled'}
+              {savingUpgradeSwitch && <Loader2 size={14} className="animate-spin" />}
+            </label>
+          </div>
+
           <div className="flex items-start gap-2 rounded-xl border border-amber-500/30 bg-amber-500/10 px-4 py-3 text-[11px] text-amber-200 leading-relaxed">
             <AlertTriangle size={14} className="shrink-0 mt-0.5" />
             <span>
@@ -382,6 +449,16 @@ export default function AdminBilling() {
                       <label className="inline-flex items-center gap-2 text-xs text-zinc-300">
                         <input
                           type="checkbox"
+                          checked={d.available_in_upgrade}
+                          onChange={(e) =>
+                            patchDraft(p.id, { available_in_upgrade: e.target.checked })
+                          }
+                        />
+                        Available in Upgrade
+                      </label>
+                      <label className="inline-flex items-center gap-2 text-xs text-zinc-300">
+                        <input
+                          type="checkbox"
                           checked={d.is_recommended}
                           onChange={(e) =>
                             patchDraft(p.id, { is_recommended: e.target.checked })
@@ -454,8 +531,10 @@ export default function AdminBilling() {
                     <th className="px-3 py-2">Interval</th>
                     <th className="px-3 py-2">Trial ends</th>
                     <th className="px-3 py-2">Period end</th>
+                    <th className="px-3 py-2">Pending change</th>
                     <th className="px-3 py-2">Stripe cust</th>
                     <th className="px-3 py-2">Stripe sub</th>
+                    <th className="px-3 py-2">Stripe schedule</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-zinc-900/80">
@@ -472,11 +551,21 @@ export default function AdminBilling() {
                       <td className="px-3 py-2">{s.billing_interval || '—'}</td>
                       <td className="px-3 py-2 whitespace-nowrap">{fmtDate(s.trial_ends_at)}</td>
                       <td className="px-3 py-2 whitespace-nowrap">{fmtDate(s.current_period_end)}</td>
+                      <td className="px-3 py-2 whitespace-nowrap">
+                        {s.pending_plan_name
+                          ? `${s.pending_plan_name} (${s.pending_billing_interval || '?'}) on ${fmtDate(
+                              s.pending_effective_at
+                            )}`
+                          : '—'}
+                      </td>
                       <td className="px-3 py-2 font-mono text-[10px] text-zinc-500 max-w-[100px] truncate">
                         {s.stripe_customer_id || '—'}
                       </td>
                       <td className="px-3 py-2 font-mono text-[10px] text-zinc-500 max-w-[100px] truncate">
                         {s.stripe_subscription_id || '—'}
+                      </td>
+                      <td className="px-3 py-2 font-mono text-[10px] text-zinc-500 max-w-[100px] truncate">
+                        {s.stripe_schedule_id || '—'}
                       </td>
                     </tr>
                   ))}

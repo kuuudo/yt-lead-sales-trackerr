@@ -1,13 +1,13 @@
 // Theme preview (step 1): swaps ONLY the neutral zinc/gray surfaces + text.
-// "black" is the default and adds no attribute/CSS, so the app looks exactly
-// as it does today until someone picks something else.
+// "light" is the default theme. "black" is the original dark look: it adds no
+// attribute/CSS (its values live in index.css @theme).
 // Semantic colours (red/green/blue/violet/amber...) are intentionally NOT touched.
 // Anything hardcoded (bg-black, bg-[#...], inline hex, canvas, charts) will NOT
 // follow the theme — that is the point of this preview.
 
 import { useCallback, useState } from 'react';
 
-export type ThemeId = 'black' | 'navy' | 'charcoal' | 'forest' | 'light';
+export type ThemeId = 'black' | 'forest' | 'purple' | 'light';
 
 export interface ThemeDef {
   id: ThemeId;
@@ -28,19 +28,14 @@ const zinc = (v: [string, string, string, string, string, string, string]) => ({
 });
 
 export const THEMES: ThemeDef[] = [
-  // Default: your current look (values live in index.css @theme). No overrides.
-  { id: 'black', label: 'Black (Default)', swatch: ['#050505', '#111111', '#222222'], vars: {} },
+  // The original dark look (values live in index.css @theme). No overrides.
+  { id: 'black', label: 'Black', swatch: ['#050505', '#111111', '#222222'], vars: {} },
   {
-    id: 'navy',
-    label: 'Midnight Navy',
-    swatch: ['#0b0b14', '#12121d', '#1d1d2b'],
-    vars: zinc(['#0b0b14', '#12121d', '#1d1d2b', '#2c2c3f', '#4a4a63', '#7a7a96', '#a0a0b8']),
-  },
-  {
-    id: 'charcoal',
-    label: 'Warm Charcoal',
-    swatch: ['#0f0e0d', '#171513', '#221f1c'],
-    vars: zinc(['#0f0e0d', '#171513', '#221f1c', '#332f2b', '#54504a', '#85807a', '#aaa59e']),
+    // Dark theme tinted toward the website's brand purple (#5b3df0).
+    id: 'purple',
+    label: 'Royal Purple',
+    swatch: ['#0d0a1a', '#151026', '#241c3d'],
+    vars: zinc(['#0d0a1a', '#151026', '#241c3d', '#362b58', '#5a4a8c', '#8a7cb8', '#b3a8d8']),
   },
   {
     id: 'forest',
@@ -49,11 +44,11 @@ export const THEMES: ThemeDef[] = [
     vars: zinc(['#060d0a', '#0c1612', '#16241d', '#22372d', '#3f5a4d', '#6f8c7d', '#9bb5a7']),
   },
   {
-    // Preview-only: flips the whole neutral scale (incl. white + gray text),
+    // Default theme: flips the whole neutral scale (incl. white + gray text),
     // so bg-white buttons become dark and text-white becomes near-black.
-    // bg-black / bg-[#...] / inline styles stay dark on purpose, so you can see them.
+    // bg-black / bg-[#...] / inline styles stay dark.
     id: 'light',
-    label: 'Light (preview)',
+    label: 'Light (Default)',
     swatch: ['#f4f4f6', '#ffffff', '#e4e4e9'],
     vars: {
       '--color-zinc-950': '#f4f4f6',
@@ -87,9 +82,9 @@ function isThemeId(v: unknown): v is ThemeId {
 export function getStoredTheme(): ThemeId {
   try {
     const v = localStorage.getItem(STORAGE_KEY);
-    return isThemeId(v) ? v : 'black';
+    return isThemeId(v) ? v : 'light';
   } catch {
-    return 'black';
+    return 'light';
   }
 }
 
