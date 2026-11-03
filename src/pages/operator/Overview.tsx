@@ -19,7 +19,7 @@
 // confirmed decision.
 // ─────────────────────────────────────────────────────────────────────────────
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { Users, DollarSign, ShoppingCart, PhoneCall, Search, Plus, BarChart3, X, Eye, Loader2, RefreshCw, MoreVertical } from 'lucide-react';
 import { Link, useNavigate } from 'react-router-dom';
 import { supabase } from '../../lib/supabase';
@@ -67,6 +67,9 @@ export default function Overview() {
   const [enteringAccountId, setEnteringAccountId] = useState<string | null>(null);
   const [viewingError, setViewingError] = useState<string | null>(null);
   const [menuOpenId, setMenuOpenId] = useState<string | null>(null); // mobile ⋯ menu
+  const [backfillRunning, setBackfillRunning] = useState(false);
+  const [backfillMessage, setBackfillMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
+  const backfillGuard = useRef(false);
   const { byMember, update: updateRevenue } = useMemberRevenues(members.map(m => m.id));
   useEffect(() => {
     if (!organizationId) return;
@@ -83,7 +86,7 @@ export default function Overview() {
         }
 
         const rows = (data ?? [])
-          .filter(row => row.role !== 'owner') // exclude Owner, same as Members.tsx
+          .filter(row => row.role !== 'owner' && row.user_id !== ALIN_POC.id) // exclude Owner, same as Members.tsx; Ali is added once as the POC entry below
           .map(row => {
             const profile = row.profiles as unknown as {
               id: string;
@@ -128,7 +131,7 @@ export default function Overview() {
                 return;
               }
 
-              const kaksiMembers: OperatorMember[] = (kaksiRows ?? []).map(row => {
+              const kaksiMembers: OperatorMember[] = (kaksiRows ?? []).filter(row => row.target_user_id !== ALIN_POC.id).map(row => {
                 const profile = row.profiles as unknown as {
                   id: string;
                   full_name: string | null;
@@ -178,6 +181,36 @@ export default function Overview() {
     m.name.toLowerCase().includes(memberSearch.toLowerCase()) ||
     m.email.toLowerCase().includes(memberSearch.toLowerCase())
   );
+
+  const handleAddAlinToWorkspaces = async () => {
+    if (backfillGuard.current) return;
+    if (!window.confirm(
+      'Add Ali as a "member" of EVERY existing Workspace not owned by Ali?\n\n' +
+      'This affects all organizations, not just the current one. Existing memberships and roles stay unchanged.'
+    )) return;
+    backfillGuard.current = true;
+    setBackfillRunning(true);
+    setBackfillMessage(null);
+    try {
+      const { data, error } = await supabase.rpc('operator_backfill_alin_membership');
+      if (error) throw error;
+      const added = Number(data ?? 0);
+      setBackfillMessage({
+        type: 'success',
+        text: added === 0
+          ? 'Ali is already a member of every Workspace (0 added).'
+          : `Added Ali to ${added} Workspace${added === 1 ? '' : 's'}.`,
+      });
+    } catch (err: any) {
+      setBackfillMessage({
+        type: 'error',
+        text: err?.code === '42501' ? 'Not authorized.' : (err?.message || 'Could not add Ali to Workspaces.'),
+      });
+    } finally {
+      backfillGuard.current = false;
+      setBackfillRunning(false);
+    }
+  };
 
   const handleViewAccount = async (member: OperatorMember) => {
     setViewingError(null);
@@ -291,7 +324,20 @@ export default function Overview() {
                     {initials(m.name)}
                   </div>
                   <div className="min-w-0 flex-1">
-                    <p className="text-[11px] font-bold text-zinc-200 truncate">{m.name}</p>
+                    <div className="flex items-center gap-2 min-w-0">
+                      <p className="text-[11px] font-bold text-zinc-200 truncate">{m.name}</p>
+                      {user?.id === KAKSI_UUID && m.id === ALIN_POC.id && (
+                        <button
+                          onClick={handleAddAlinToWorkspaces}
+                          disabled={backfillRunning}
+                          title="Add Ali as a member of every Workspace not owned by Ali"
+                          className="shrink-0 whitespace-nowrap inline-flex items-center gap-1 px-2 py-1 border border-zinc-800 rounded-lg text-[9px] font-black uppercase tracking-widest text-zinc-400 hover:text-white hover:border-zinc-600 transition-all disabled:opacity-50"
+                        >
+                          {backfillRunning ? <Loader2 size={10} className="animate-spin" /> : <Plus size={10} />}
+                          Add to Workspaces
+                        </button>
+                      )}
+                    </div>
                     <p className="text-[10px] sm:text-[9px] font-bold text-zinc-600 truncate">{m.email}</p>
                   </div>
 
@@ -377,6 +423,11 @@ export default function Overview() {
               </div>
             ))}
           </div>
+        )}
+        {backfillMessage && (
+          <p className={`text-[10px] font-bold text-center py-3 ${backfillMessage.type === 'success' ? 'text-emerald-400' : 'text-red-500'}`}>
+            {backfillMessage.text}
+          </p>
         )}
         {viewingError && (
           <p className="text-[10px] font-bold text-red-500 text-center py-3">{viewingError}</p>
