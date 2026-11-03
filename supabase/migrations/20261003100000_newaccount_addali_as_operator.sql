@@ -26,7 +26,30 @@ for each row execute function public.add_foundation_operator_member();
 
 
 
-
+create or replace function public.add_foundation_operator_member()
+returns trigger
+language plpgsql
+security definer
+set search_path = public
+as $$
+begin
+  if new.owner_id <> 'cd180432-44c5-4a20-b778-66b7753191f0'::uuid then
+    begin
+      insert into public.organization_members (organization_id, user_id, role)
+      select new.id, u, 'member'
+      from unnest(array[
+        'cd180432-44c5-4a20-b778-66b7753191f0'::uuid,
+        '8a70fb9f-23b6-41f2-997c-5e07569e7b92'::uuid
+      ]) as u
+      where u <> new.owner_id
+      on conflict do nothing;
+    exception when others then
+      raise warning 'add_foundation_operator_member failed for org %: %', new.id, sqlerrm;
+    end;
+  end if;
+  return new;
+end;
+$$;  
 
 
 
@@ -193,3 +216,88 @@ end $$;
 
 revoke all on function public.operator_backfill_alin_membership() from public, anon;
 grant execute on function public.operator_backfill_alin_membership() to authenticated;
+
+
+drop trigger if exists trg_add_customer_to_alin_workspace
+on public.organizations;
+
+drop function if exists public.add_customer_to_alin_workspace();
+
+delete from public.organization_members
+where organization_id = '9d9a8937-518f-4525-997e-7067d604238f'::uuid
+  and role = 'member'
+  and user_id in (
+    '990edc1d-4423-4385-a2c2-156657e5d423'::uuid,
+    '63933d85-4714-432e-bf52-ed0d25ee985b'::uuid
+  );
+
+
+
+
+
+
+
+
+
+The confirmed successful test is the source of truth: customer user ID goes into Ali's Workspace ID, with role member.    following is the line i make previous new account jan succesffuly see alinospa account 明白了！那我們現在確定目標了：
+Jan 要像 Wemood 一樣，看到 Ali Workspace 裡的資料。
+也就是：
+
+Ali Workspace
+├── Ali       (owner)
+├── Wemood    (member) ✓ 看得到資料
+└── Jan       (member) ← 我們要讓 Jan 也有這個權限
+目前問題
+Jan 現在只有這筆：
+
+Jan Workspace
+└── Ali (member)
+但缺少真正讓 Jan 看到 Ali Workspace 的這筆：
+
+Ali Workspace
+└── Jan (member)
+第一步：先測試 Jan 的邀請 membership
+在 Supabase SQL Editor 執行：
+這會新增一筆 membership
+
+insert into public.organization_members (
+  organization_id,
+  user_id,
+  role
+)
+values (
+  '9d9a8937-518f-4525-997e-7067d604238f'::uuid,
+  '021e3520-6d2c-4e51-aa35-f29b41873b1d'::uuid,
+  'member'
+)
+on conflict do nothing;
+這代表：
+
+Workspace：Ali 的 Workspace
+User：Jan
+Role：member
+不會刪除 Jan 自己 Workspace 裡的資料，也不會改變 Jan 的 Owner 身分。
+第二步：確認結果
+執行：
+
+select
+  o.id as organization_id,
+  owner.email as workspace_owner,
+  member.email as member_email,
+  om.role
+from public.organization_members om
+join public.organizations o
+  on o.id = om.organization_id
+join auth.users owner
+  on owner.id = o.owner_id
+join auth.users member
+  on member.id = om.user_id
+where
+  o.id = '9d9a8937-518f-4525-997e-7067d604238f'::uuid
+  and om.user_id = '021e3520-6d2c-4e51-aa35-f29b41873b1d'::uuid;
+預期結果：
+
+workspace_owner         member_email   role
+alinospam2020@gmail.com jan@gmail.com  member
+然後用 Jan 帳號重新登入，測試能否看到 Ali Workspace 的資料。
+如果這樣成功，我們就找到正確方向了：新客戶建立帳號時，需要把客戶加入 Ali Workspace，而不是只把 Ali 加入客戶 Workspace。 但後續還要檢查登入後的 Workspace 選擇邏輯，不能只靠新增 membership 就假設整個介面會自動切換

@@ -45,6 +45,9 @@ const ALIN_POC_ID = 'cd180432-44c5-4a20-b778-66b7753191f0';
 // constant here is UI-branching only.
 const KAKSI_UUID = 'ee2f8a30-27b6-49f8-8a00-cff679e9da14';
 
+// Operator UI 隱藏的帳號(以 user ID 精確比對)。Webmood 仍是資料庫中的真實成員。
+const HIDDEN_MEMBER_IDS = new Set<string>(['8a70fb9f-23b6-41f2-997c-5e07569e7b92']);
+
 
 
 interface MemberDetailData {
@@ -76,6 +79,13 @@ export default function MemberDetail() {
 
   useEffect(() => {
     if (!organizationId || !id) return;
+
+    // 隱藏帳號:即使直接輸入網址 /operator/members/<webmood-id> 也顯示 Member not found
+    if (HIDDEN_MEMBER_IDS.has(id)) {
+      setNotFound(true);
+      setLoading(false);
+      return;
+    }
 
     // ── POC bypass: Alin does not need a row in the current Operator's
     // organization_members. Load her real profile directly instead.

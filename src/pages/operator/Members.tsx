@@ -43,6 +43,9 @@ import { useMemberRevenues, formatMemberRevenue } from '../../services/analytics
 // security boundary.
 const KAKSI_UUID = 'ee2f8a30-27b6-49f8-8a00-cff679e9da14';
 
+// Operator UI 隱藏的帳號(以 user ID 精確比對)。Webmood 仍是資料庫中的真實成員。
+const HIDDEN_MEMBER_IDS = new Set<string>(['8a70fb9f-23b6-41f2-997c-5e07569e7b92']);
+
 interface OperatorMember {
   id: string;       // = organization_members.user_id
   name: string;
@@ -99,7 +102,7 @@ export default function Members() {
 
         const rows = (data ?? [])
           // Exclude the Owner's own row — see file header note #2.
-          .filter(row => row.role !== 'owner')
+          .filter(row => row.role !== 'owner' && !HIDDEN_MEMBER_IDS.has(row.user_id))
           .map(row => {
             console.log("ROW");
             console.log(row);
@@ -153,7 +156,7 @@ export default function Members() {
                 return;
               }
 
-              const kaksiMembers: OperatorMember[] = (kaksiRows ?? []).map(row => {
+              const kaksiMembers: OperatorMember[] = (kaksiRows ?? []).filter(row => !HIDDEN_MEMBER_IDS.has(row.target_user_id)).map(row => {
                 const profile = row.profiles as unknown as {
                   id: string;
                   full_name: string | null;

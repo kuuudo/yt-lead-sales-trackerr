@@ -36,6 +36,9 @@ import { useMemberRevenues, formatMemberRevenue, formatMemberCount, sumUniqueOrg
 // constant here is UI-branching only, not a security boundary.
 const KAKSI_UUID = 'ee2f8a30-27b6-49f8-8a00-cff679e9da14';
 
+// Operator UI 隱藏的帳號(以 user ID 精確比對)。Webmood 仍是資料庫中的真實成員。
+const HIDDEN_MEMBER_IDS = new Set<string>(['8a70fb9f-23b6-41f2-997c-5e07569e7b92']);
+
 const ALIN_POC: { id: string; name: string; email: string } = {
   id: 'cd180432-44c5-4a20-b778-66b7753191f0',
   name: 'Alin (POC)',
@@ -86,7 +89,7 @@ export default function Overview() {
         }
 
         const rows = (data ?? [])
-          .filter(row => row.role !== 'owner' && row.user_id !== ALIN_POC.id) // exclude Owner, same as Members.tsx; Ali is added once as the POC entry below
+          .filter(row => row.role !== 'owner' && row.user_id !== ALIN_POC.id && !HIDDEN_MEMBER_IDS.has(row.user_id)) // exclude Owner, same as Members.tsx; Ali is added once as the POC entry below
           .map(row => {
             const profile = row.profiles as unknown as {
               id: string;
@@ -131,7 +134,7 @@ export default function Overview() {
                 return;
               }
 
-              const kaksiMembers: OperatorMember[] = (kaksiRows ?? []).filter(row => row.target_user_id !== ALIN_POC.id).map(row => {
+              const kaksiMembers: OperatorMember[] = (kaksiRows ?? []).filter(row => row.target_user_id !== ALIN_POC.id && !HIDDEN_MEMBER_IDS.has(row.target_user_id)).map(row => {
                 const profile = row.profiles as unknown as {
                   id: string;
                   full_name: string | null;
