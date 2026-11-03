@@ -326,7 +326,7 @@ export default function Overview() {
                   <div className="min-w-0 flex-1">
                     <div className="flex items-center gap-2 min-w-0">
                       <p className="text-[11px] font-bold text-zinc-200 truncate">{m.name}</p>
-                      {user?.id === KAKSI_UUID && m.id === ALIN_POC.id && (
+                      {m.id === ALIN_POC.id && (
                         <button
                           onClick={handleAddAlinToWorkspaces}
                           disabled={backfillRunning}

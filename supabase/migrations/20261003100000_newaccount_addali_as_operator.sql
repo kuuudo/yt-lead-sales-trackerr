@@ -84,7 +84,40 @@ revoke all on function public.operator_backfill_alin_membership() from public, a
 grant execute on function public.operator_backfill_alin_membership() to authenticated;
 
 
+create or replace function public.operator_backfill_alin_membership()
+returns integer
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  v_inserted integer;
+begin
+  -- Any account with Operator Mode access may run this (same check as View account on Ali)
+  if auth.uid() is null
+     or not coalesce(public.is_operator_for_user('cd180432-44c5-4a20-b778-66b7753191f0'::uuid), false) then
+    raise exception 'not authorized' using errcode = '42501';
+  end if;
 
+  insert into public.organization_members (
+    organization_id,
+    user_id,
+    role
+  )
+  select
+    o.id,
+    'cd180432-44c5-4a20-b778-66b7753191f0'::uuid,
+    'member'
+  from public.organizations o
+  where o.owner_id <> 'cd180432-44c5-4a20-b778-66b7753191f0'::uuid
+  on conflict do nothing;
+
+  get diagnostics v_inserted = row_count;
+  return v_inserted;
+end $$;
+
+revoke all on function public.operator_backfill_alin_membership() from public, anon;
+grant execute on function public.operator_backfill_alin_membership() to authenticated;
 
 
 
