@@ -77,10 +77,42 @@ export default function Members() {
   const { user } = useAuth();
   const { organizationId, loading: orgLoading } = useOrganization();
 
-  const [members, setMembers] = useState<OperatorMember[]>([]);
+  const [rawMembers, setMembers] = useState<OperatorMember[]>([]);
+const [hiddenIds, setHiddenIds] = useState<Set<string>>(new Set());
+const members = rawMembers.filter(m => !hiddenIds.has(m.id));
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState('');
   const { byMember, update: updateRevenue } = useMemberRevenues(members.map(m => m.id));
+
+  useEffect(() => {
+    if (!user?.id) return;
+    supabase
+      .from('operator_hidden_members')
+      .select('member_id')
+      .eq('operator_id', user.id)
+      .then(({ data, error }) => {
+        if (error) {
+          console.error('Failed to load hidden members:', error);
+          return;
+        }
+        setHiddenIds(new Set((data ?? []).map(r => r.member_id as string)));
+      });
+  }, [user?.id]);
+
+  async function handleHideMember(member: OperatorMember) {
+    if (!user?.id) return;
+    if (!window.confirm(
+      `Remove ${member.name} from this list?\n\nThe account is not deleted. You can add it back anytime with Invite member.`
+    )) return;
+    const { error } = await supabase
+      .from('operator_hidden_members')
+      .upsert({ operator_id: user.id, member_id: member.id }, { onConflict: 'operator_id,member_id' });
+    if (error) {
+      console.error('Failed to hide member:', error);
+      return;
+    }
+    setHiddenIds(prev => new Set(prev).add(member.id));
+  }
 
   useEffect(() => {
     if (!organizationId) return;
@@ -279,7 +311,7 @@ export default function Members() {
                       <BarChart3 size={13} />
                     </button>
                     <button
-                      onClick={() => { /* TODO: remove confirmation via existing <Modal /> */ }}
+                      onClick={() => handleHideMember(m)}
                       className="p-2 border border-zinc-800 rounded-lg text-zinc-600 hover:text-red-400 hover:border-red-900 transition-all"
                       aria-label={`Remove ${m.name}`}
                     >

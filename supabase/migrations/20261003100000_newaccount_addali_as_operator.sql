@@ -51,7 +51,26 @@ begin
 end;
 $$;  
 
+create table public.operator_hidden_members (
+  operator_id uuid not null references auth.users(id) on delete cascade,
+  member_id   uuid not null,
+  created_at  timestamptz not null default now(),
+  primary key (operator_id, member_id)
+);
 
+alter table public.operator_hidden_members enable row level security;
+
+create policy "own select" on public.operator_hidden_members
+  for select using (operator_id = auth.uid());
+create policy "own insert" on public.operator_hidden_members
+  for insert with check (operator_id = auth.uid());
+create policy "own delete" on public.operator_hidden_members
+  for delete using (operator_id = auth.uid());
+
+
+
+  ---------------------------------------------------
+  (i didnt run following, i used to run but deleted) 
 
 
 （foloowing is a eixisiting account manually add and bypass rls) 

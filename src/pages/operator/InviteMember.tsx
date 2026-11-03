@@ -43,6 +43,15 @@ export default function InviteMember() {
   const [pocSuccess, setPocSuccess] = useState(false);
   const [kaksiSuccess, setKaksiSuccess] = useState(false);
 
+  async function unhideMember(memberId: string) {
+    if (!user) return;
+    await supabase
+      .from('operator_hidden_members')
+      .delete()
+      .eq('operator_id', user.id)
+      .eq('member_id', memberId);
+  }
+
   async function handleInvite() {
     if (!organizationId || !user) return;
     setSubmitting(true);
@@ -70,6 +79,8 @@ export default function InviteMember() {
         setSubmitting(false);
         return;
       }
+
+      await unhideMember(targetProfile.id);
 
       const { data: existingAccess } = await supabase
         .from('kaksi_operator_access')
@@ -106,6 +117,7 @@ export default function InviteMember() {
     // access check is enforced later by is_operator_for_user()'s
     // matching SQL bypass. This branch does not grant any access.
     if (normalizedEmail === ALIN_POC_EMAIL) {
+      await unhideMember('cd180432-44c5-4a20-b778-66b7753191f0');
       setPocSuccess(true);
       setSubmitting(false);
       notify('operator-alin-added');
@@ -119,6 +131,23 @@ export default function InviteMember() {
       .select('id')
       .eq('email', normalizedEmail)
       .maybeSingle();
+
+    // 如果這個人是被自己隱藏的成員:直接取消隱藏,不走邀請/接受流程
+    if (existingProfile) {
+      const { data: hiddenRow } = await supabase
+        .from('operator_hidden_members')
+        .select('member_id')
+        .eq('operator_id', user.id)
+        .eq('member_id', existingProfile.id)
+        .maybeSingle();
+
+      if (hiddenRow) {
+        await unhideMember(existingProfile.id);
+        setKaksiSuccess(true); // 沿用「Account added / Go to Members」畫面
+        setSubmitting(false);
+        return;
+      }
+    }
 
     if (existingProfile) {
       const { data: existingMembership } = await supabase

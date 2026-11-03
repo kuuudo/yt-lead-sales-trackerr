@@ -63,7 +63,10 @@ export default function Overview() {
   const { notify, start } = useTutorial();
   const { user } = useAuth();
   const { organizationId, loading: orgLoading } = useOrganization();
-  const [members, setMembers] = useState<OperatorMember[]>([]);
+  const [rawMembers, setMembers] = useState<OperatorMember[]>([]);
+const [hiddenIds, setHiddenIds] = useState<Set<string>>(new Set());
+// 被隱藏的成員從資料來源就排除,所以人數、營收、Top Performers 會一起正確
+const members = rawMembers.filter(m => !hiddenIds.has(m.id));
   const [loading, setLoading] = useState(true);
   const [showOnboarding, setShowOnboarding] = useState(false);
   const [memberSearch, setMemberSearch] = useState('');
@@ -74,6 +77,21 @@ export default function Overview() {
   const [backfillMessage, setBackfillMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
   const backfillGuard = useRef(false);
   const { byMember, update: updateRevenue } = useMemberRevenues(members.map(m => m.id));
+
+  useEffect(() => {
+    if (!user?.id) return;
+    supabase
+      .from('operator_hidden_members')
+      .select('member_id')
+      .eq('operator_id', user.id)
+      .then(({ data, error }) => {
+        if (error) {
+          console.error('Failed to load hidden members:', error);
+          return;
+        }
+        setHiddenIds(new Set((data ?? []).map(r => r.member_id as string)));
+      });
+  }, [user?.id]);
   useEffect(() => {
     if (!organizationId) return;
 
@@ -213,6 +231,22 @@ export default function Overview() {
       backfillGuard.current = false;
       setBackfillRunning(false);
     }
+  };
+
+  const handleHideMember = async (member: OperatorMember) => {
+    if (!user?.id) return;
+    if (!window.confirm(
+      `Remove ${member.name} from this list?\n\nThe account is not deleted. You can add it back anytime with Invite member.`
+    )) return;
+    const { error } = await supabase
+      .from('operator_hidden_members')
+      .upsert({ operator_id: user.id, member_id: member.id }, { onConflict: 'operator_id,member_id' });
+    if (error) {
+      console.error('Failed to hide member:', error);
+      setViewingError('Could not remove member.');
+      return;
+    }
+    setHiddenIds(prev => new Set(prev).add(member.id));
   };
 
   const handleViewAccount = async (member: OperatorMember) => {
@@ -372,7 +406,7 @@ export default function Overview() {
                             Update revenue
                           </button>
                           <button
-                            onClick={() => { /* TODO: remove confirmation via existing <Modal /> */ setMenuOpenId(null); }}
+                            onClick={() => { handleHideMember(m); setMenuOpenId(null); }}
                             className="w-full flex items-center gap-2 px-4 py-3 text-[11px] font-bold text-red-400 hover:bg-zinc-900 text-left"
                           >
                             <X size={13} />
@@ -416,7 +450,7 @@ export default function Overview() {
                     <span className="sm:hidden">Analytics</span>
                   </button>
                   <button
-                    onClick={() => { /* TODO: remove confirmation via existing <Modal /> */ }}
+                    onClick={() => handleHideMember(m)}
                     className="hidden sm:inline-flex p-2 border border-zinc-800 rounded-lg text-zinc-600 hover:text-red-400 hover:border-red-900 transition-all"
                     aria-label={`Remove ${m.name}`}
                   >
