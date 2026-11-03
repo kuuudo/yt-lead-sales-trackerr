@@ -236,28 +236,82 @@ export default function Upgrade() {
 
       {/* Confirmation */}
       {choice && (
-        <div className="w-full max-w-5xl mb-8 rounded-2xl border border-red-600/30 bg-red-600/5 p-6 space-y-3 relative z-10">
-          <p className="text-sm text-white font-bold">
-            {hasPending ? 'Replace your pending change with' : 'Switch to'} {choice.name} (
-            {formatMoney(choice.amount_cents, choice.currency)}
-            {intervalLabel(choice.interval)})?
-          </p>
-          <p className="text-xs text-zinc-400 leading-relaxed">
-            You keep your current plan until {effectiveLabel}. On that date your subscription
-            switches to {choice.name} and you are charged{' '}
-            {formatMoney(choice.amount_cents, choice.currency)}
-            {intervalLabel(choice.interval)} for the new billing period. No charge today, no second
-            subscription. You can change or cancel this before {effectiveLabel}.
-          </p>
+        <div className="w-full max-w-5xl mb-8 rounded-2xl border border-red-600/30 bg-red-600/5 p-6 space-y-5 relative z-10">
+          <div>
+            <h3 className="text-sm font-bold text-white">Change your subscription</h3>
+            <p className="text-xs text-zinc-400 mt-1">
+              Review your new subscription before confirming.
+            </p>
+          </div>
+
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 text-sm">
+            <div className="rounded-xl border border-zinc-800/80 bg-zinc-950/60 p-4 space-y-1">
+              <p className="text-[10px] font-bold uppercase tracking-widest text-zinc-500">
+                Current Plan
+              </p>
+              <p className="text-white font-bold">
+                {currentPlan
+                  ? currentPlan.name
+                  : subscription.plan_name || 'Your current plan'}
+              </p>
+              <p className="text-zinc-400 text-xs">
+                {currentPlan
+                  ? `${formatMoney(currentPlan.amount_cents, currentPlan.currency)}${intervalLabel(
+                      currentPlan.interval
+                    )}`
+                  : subscription.billing_interval
+                  ? `${subscription.billing_interval}`
+                  : '—'}
+              </p>
+            </div>
+            <div className="rounded-xl border border-red-600/20 bg-red-600/5 p-4 space-y-1">
+              <p className="text-[10px] font-bold uppercase tracking-widest text-red-400/80">
+                New Plan
+              </p>
+              <p className="text-white font-bold">{choice.name}</p>
+              <p className="text-zinc-300 text-xs">
+                {formatMoney(choice.amount_cents, choice.currency)}
+                {intervalLabel(choice.interval)}
+              </p>
+            </div>
+          </div>
+
+          <div className="space-y-2 text-xs text-zinc-300">
+            <div className="flex flex-wrap gap-x-6 gap-y-1">
+              <p>
+                <span className="text-zinc-500 font-bold uppercase tracking-widest text-[10px] mr-2">
+                  Effective Date
+                </span>
+                {effectiveIso ? (
+                  <span className="text-white font-medium">{effectiveLabel}</span>
+                ) : (
+                  <span className="text-amber-300">
+                    Unable to determine the effective date. Please refresh and try again.
+                  </span>
+                )}
+              </p>
+              <p>
+                <span className="text-zinc-500 font-bold uppercase tracking-widest text-[10px] mr-2">
+                  Today&apos;s Charge
+                </span>
+                <span className="text-white font-medium">$0</span>
+              </p>
+            </div>
+            <p className="text-zinc-400 leading-relaxed">
+              Your current subscription remains active until your new plan takes effect. You
+              won&apos;t be charged today.
+            </p>
+          </div>
+
           <div className="flex gap-3">
             <button
               type="button"
               onClick={() => void confirmChange()}
-              disabled={!!busyPlanId}
+              disabled={!!busyPlanId || !effectiveIso}
               className="inline-flex items-center gap-2 px-5 h-10 rounded-xl bg-red-600 hover:bg-red-500 text-white text-[10px] font-black uppercase tracking-widest disabled:opacity-60"
             >
               {busyPlanId ? <Loader2 size={14} className="animate-spin" /> : <Check size={14} />}
-              Confirm change
+              Confirm Plan Change
             </button>
             <button
               type="button"

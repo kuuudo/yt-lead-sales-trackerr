@@ -236,7 +236,7 @@ const members = rawMembers.filter(m => !hiddenIds.has(m.id));
   const handleHideMember = async (member: OperatorMember) => {
     if (!user?.id) return;
     if (!window.confirm(
-      `Remove ${member.name} from this list?\n\nThe account is not deleted. You can add it back anytime with Invite member.`
+      `Remove ${member.name} from this list?\n\nYou can add it back anytime with Invite member.`
     )) return;
     const { error } = await supabase
       .from('operator_hidden_members')
@@ -363,17 +363,7 @@ const members = rawMembers.filter(m => !hiddenIds.has(m.id));
                   <div className="min-w-0 flex-1">
                     <div className="flex items-center gap-2 min-w-0">
                       <p className="text-[11px] font-bold text-zinc-200 truncate">{m.name}</p>
-                      {m.id === ALIN_POC.id && (
-                        <button
-                          onClick={handleAddAlinToWorkspaces}
-                          disabled={backfillRunning}
-                          title="Add every existing customer as a member of Ali's Workspace"
-                          className="shrink-0 whitespace-nowrap inline-flex items-center gap-1 px-2 py-1 border border-zinc-800 rounded-lg text-[9px] font-black uppercase tracking-widest text-zinc-400 hover:text-white hover:border-zinc-600 transition-all disabled:opacity-50"
-                        >
-                          {backfillRunning ? <Loader2 size={10} className="animate-spin" /> : <Plus size={10} />}
-                          Add to Workspaces
-                        </button>
-                      )}
+
                     </div>
                     <p className="text-[10px] sm:text-[9px] font-bold text-zinc-600 truncate">{m.email}</p>
                   </div>
