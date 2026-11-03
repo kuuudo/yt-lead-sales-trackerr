@@ -185,8 +185,8 @@ export default function Overview() {
   const handleAddAlinToWorkspaces = async () => {
     if (backfillGuard.current) return;
     if (!window.confirm(
-      'Add Ali as a "member" of EVERY existing Workspace not owned by Ali?\n\n' +
-      'This affects all organizations, not just the current one. Existing memberships and roles stay unchanged.'
+      'Add EVERY existing customer as a "member" of Ali\'s Workspace?\n\n' +
+      'Customers already in Ali\'s Workspace, and all existing roles, stay unchanged. Ali himself is skipped.'
     )) return;
     backfillGuard.current = true;
     setBackfillRunning(true);
@@ -198,13 +198,13 @@ export default function Overview() {
       setBackfillMessage({
         type: 'success',
         text: added === 0
-          ? 'Ali is already a member of every Workspace (0 added).'
-          : `Added Ali to ${added} Workspace${added === 1 ? '' : 's'}.`,
+          ? 'Every customer is already a member of Ali\'s Workspace (0 added).'
+          : `Added ${added} customer${added === 1 ? '' : 's'} to Ali's Workspace.`,
       });
     } catch (err: any) {
       setBackfillMessage({
         type: 'error',
-        text: err?.code === '42501' ? 'Not authorized.' : (err?.message || 'Could not add Ali to Workspaces.'),
+        text: err?.code === '42501' ? 'Not authorized.' : (err?.message || 'Could not add customers to Ali\'s Workspace.'),
       });
     } finally {
       backfillGuard.current = false;
@@ -330,7 +330,7 @@ export default function Overview() {
                         <button
                           onClick={handleAddAlinToWorkspaces}
                           disabled={backfillRunning}
-                          title="Add Ali as a member of every Workspace not owned by Ali"
+                          title="Add every existing customer as a member of Ali's Workspace"
                           className="shrink-0 whitespace-nowrap inline-flex items-center gap-1 px-2 py-1 border border-zinc-800 rounded-lg text-[9px] font-black uppercase tracking-widest text-zinc-400 hover:text-white hover:border-zinc-600 transition-all disabled:opacity-50"
                         >
                           {backfillRunning ? <Loader2 size={10} className="animate-spin" /> : <Plus size={10} />}
