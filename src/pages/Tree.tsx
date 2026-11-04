@@ -2,6 +2,7 @@ import React, { Suspense, useCallback, useEffect, useMemo, useState } from 'reac
 import { useNavigate } from 'react-router-dom';
 import { Canvas, useLoader } from '@react-three/fiber';
 import { OBJLoader } from 'three/examples/jsm/loaders/OBJLoader.js';
+import { MTLLoader } from 'three/examples/jsm/loaders/MTLLoader.js';
 import { Bounds, Center, OrbitControls, useGLTF } from '@react-three/drei';
 import { supabase } from '../lib/supabase';
 import { useViewing } from '../lib/ViewingContext';
@@ -31,11 +32,17 @@ function TreeModel() {
 
 // Only this organization (alinospam2020's Workspace) uses the casa model
 const CASA_ORG_ID = '9d9a8937-518f-4525-997e-7067d604238f';
-const CASA_MODEL_URL = `${import.meta.env.BASE_URL}models/casa.obj`;
+const CASA_MODEL_URL = `${import.meta.env.BASE_URL}models/casa/casa.obj`;
+const CASA_MTL_URL = `${import.meta.env.BASE_URL}models/casa/casa.mtl`;
 
 function CasaModel() {
-  const obj = useLoader(OBJLoader, CASA_MODEL_URL);
+  const materials = useLoader(MTLLoader, CASA_MTL_URL);
+  const obj = useLoader(OBJLoader, CASA_MODEL_URL, (loader) => {
+    materials.preload();
+    loader.setMaterials(materials);
+  });
   return <primitive object={obj} />;
+}
 }
 useGLTF.preload(TREE_MODEL_URL);
 
