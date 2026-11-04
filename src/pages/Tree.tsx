@@ -1,6 +1,7 @@
 import React, { Suspense, useCallback, useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Canvas, useLoader } from '@react-three/fiber';
+import { Canvas, useFrame, useLoader } from '@react-three/fiber';
+import { RepeatWrapping, SRGBColorSpace, TextureLoader, type Mesh, type MeshPhongMaterial } from 'three';
 import { OBJLoader } from 'three/examples/jsm/loaders/OBJLoader.js';
 import { MTLLoader } from 'three/examples/jsm/loaders/MTLLoader.js';
 import { Bounds, Center, OrbitControls, useGLTF } from '@react-three/drei';
@@ -41,6 +42,33 @@ function CasaModel() {
     materials.preload();
     loader.setMaterials(materials);
   });
+  const water = useLoader(TextureLoader, `${import.meta.env.BASE_URL}models/water/water.jpg`);
+
+  useEffect(() => {
+    water.wrapS = RepeatWrapping;
+    water.wrapT = RepeatWrapping;
+    water.repeat.set(8, 8);
+    water.colorSpace = SRGBColorSpace;
+    obj.traverse((child) => {
+      const mesh = child as Mesh;
+      const mats = Array.isArray(mesh.material) ? mesh.material : [mesh.material];
+      mats.forEach((m) => {
+        if (m && m.name === 'agua') {
+          const mat = m as MeshPhongMaterial;
+          mat.map = water;
+          mat.color.set('#ffffff');
+          mat.needsUpdate = true;
+        }
+      });
+    });
+  }, [obj, water]);
+
+  // Slow water movement
+  useFrame((_, dt) => {
+    water.offset.x += dt * 0.02;
+    water.offset.y += dt * 0.01;
+  });
+
   return <primitive object={obj} />;
 }
 
@@ -502,7 +530,7 @@ style={{
 
       <div className="vstrk-hero" style={styles.heroFrame}>
         <div className="vstrk-tree-stage">
-          <Canvas camera={{ position: [0, 12, 70], fov: 35 }} dpr={[1, 2]} gl={{ alpha: true }}>
+          <Canvas camera={{ position: [50, 40, 50], fov: 35 }} dpr={[1, 2]} gl={{ alpha: true }}>
             <ambientLight intensity={0.9} />
             <hemisphereLight args={['#ffffff', '#222222', 0.8]} />
             <directionalLight position={[20, 40, 25]} intensity={1.6} />
