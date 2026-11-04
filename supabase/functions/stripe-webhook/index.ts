@@ -1,12 +1,23 @@
 // supabase/functions/stripe-webhook/index.ts
-// Phase C: on checkout.session.completed, optionally copy plan_name + billing_interval
-// from pricing_plans via session.metadata.plan_code. Payment update never fails on plan lookup.
+// Phase C: on checkout.session.completed, copy plan_name + billing_interval from
+// pricing_plans. The ACTUAL purchased Stripe Price ID is the source of truth;
+// session.metadata.plan_code is only a fallback.
 //
 // Scheduled plan changes (Upgrade): the subscription_schedule.* events and the
 // customer.subscription.updated/deleted handlers keep the pending_* columns and
 // the current plan_name/billing_interval in sync with Stripe. Stripe is the
 // authority: schedule events are never trusted from their payload, the latest
 // schedule is re-fetched from Stripe so out-of-order delivery cannot corrupt state.
+//
+// Sync fix (Nov 2026):
+//  - Stripe API 2025-03-31.basil and later no longer put current_period_end on the
+//    Subscription; it lives on subscription items. Reading the old field produced
+//    `RangeError: Invalid time value` -> HTTP 400. Period end is now read from either
+//    place and never converted unless it is a valid timestamp.
+//  - checkout.session.completed retrieves the Subscription itself, so it does not
+//    depend on the order in which Stripe delivers events.
+//  - Critical database writes are checked. On failure the function returns 500 so
+//    Stripe retries, instead of answering 200 with nothing saved.
 
 import Stripe from 'https://esm.sh/stripe@14.21.0'
 import { createClient, type SupabaseClient } from 'https://esm.sh/@supabase/supabase-js@2'
@@ -22,6 +33,52 @@ const CLEARED_PENDING = {
   pending_effective_at: null,
   pending_stripe_price_id: null,
 }
+
+// --- helpers:start
+
+// Unix seconds -> ISO string, or null if the value is missing or not a valid date.
+function unixToIso(value: unknown): string | null {
+  if (typeof value !== 'number' || !Number.isFinite(value)) return null
+  const d = new Date(value * 1000)
+  return Number.isNaN(d.getTime()) ? null : d.toISOString()
+}
+
+// Current period end of a Subscription, tolerant of both API shapes:
+//  - pre-basil: top-level `current_period_end`
+//  - basil+   : `items.data[*].current_period_end`
+// With several items the EARLIEST end is used (the next renewal that will occur).
+function subscriptionPeriodEndIso(sub: unknown): string | null {
+  const s = sub as
+    | {
+        current_period_end?: unknown
+        items?: { data?: Array<{ current_period_end?: unknown } | null> }
+      }
+    | null
+    | undefined
+
+  const top = unixToIso(s?.current_period_end)
+  if (top) return top
+
+  const ends = (s?.items?.data ?? [])
+    .map((item) => item?.current_period_end)
+    .filter((v): v is number => typeof v === 'number' && Number.isFinite(v))
+  if (ends.length === 0) return null
+
+  return unixToIso(Math.min(...ends))
+}
+
+// Stripe expandable field -> id (string or expanded object).
+function idOf(v: unknown): string | null {
+  if (typeof v === 'string') return v
+  if (v && typeof v === 'object' && 'id' in v) return String((v as { id: string }).id)
+  return null
+}
+
+// --- helpers:end
+
+// Thrown when a required write/lookup did not succeed. The handler answers 500 so
+// Stripe retries the event later (every write below is idempotent).
+class WebhookRetryError extends Error {}
 
 // Map a Stripe Price ID back to our plan catalog (pricing_plans is the source of truth).
 async function planByPriceId(
@@ -137,7 +194,10 @@ Deno.serve(async (req) => {
         const session = event.data.object as Stripe.Checkout.Session
         const organization_id = session.metadata?.organization_id
 
-        if (!organization_id) break
+        if (!organization_id) {
+          console.warn('checkout.session.completed without organization_id metadata, ignored:', session.id)
+          break
+        }
 
         const updatePayload: Record<string, unknown> = {
           stripe_customer_id: session.customer as string,
@@ -146,35 +206,96 @@ Deno.serve(async (req) => {
           updated_at: new Date().toISOString(),
         }
 
-        // Best-effort plan label from Checkout metadata (Phase B sets plan_code).
+        // 1) Ask Stripe what was actually bought. Doing this here (instead of relying
+        //    on customer.subscription.updated) makes this handler self-sufficient, so
+        //    event delivery order cannot leave plan / period end empty.
+        const subscriptionId = idOf(session.subscription)
+        let stripeSub: Stripe.Subscription | null = null
+        let retrieveFailed = false
+
+        if (subscriptionId) {
+          try {
+            stripeSub = await stripe.subscriptions.retrieve(subscriptionId)
+          } catch (retrieveErr) {
+            retrieveFailed = true
+            console.error('Stripe subscription retrieve failed:', subscriptionId, retrieveErr)
+          }
+        }
+
+        const periodEndIso = subscriptionPeriodEndIso(stripeSub)
+        if (periodEndIso) {
+          updatePayload.current_period_end = periodEndIso
+        } else if (stripeSub) {
+          console.warn('No valid period end on retrieved subscription:', subscriptionId)
+        }
+
+        // 2) Plan: the real Price ID wins; metadata.plan_code is only a fallback.
+        let plan: { code?: string | null; name?: string | null; interval?: string | null } | null =
+          await planByPriceId(supabase, idOf(stripeSub?.items?.data?.[0]?.price))
+
         const planCode =
           typeof session.metadata?.plan_code === 'string'
             ? session.metadata.plan_code.trim()
             : ''
 
-        if (planCode) {
-          try {
-            const { data: plan } = await supabase
-              .from('pricing_plans')
-              .select('name, interval')
-              .eq('code', planCode)
-              .maybeSingle()
+        if (plan && planCode && plan.code && plan.code !== planCode) {
+          console.warn(
+            'plan_code metadata disagrees with the purchased Price ID; using the Price ID:',
+            planCode,
+            plan.code
+          )
+        }
 
-            if (plan?.name) {
-              updatePayload.plan_name = plan.name
-            }
-            if (plan?.interval) {
-              updatePayload.billing_interval = plan.interval
-            }
-          } catch (planErr) {
-            console.error('Plan metadata lookup failed (payment still applied):', planErr)
+        if (!plan && planCode) {
+          const { data: metaPlan, error: metaPlanError } = await supabase
+            .from('pricing_plans')
+            .select('code, name, interval')
+            .eq('code', planCode)
+            .maybeSingle()
+          if (metaPlanError) {
+            console.error('Plan lookup by plan_code failed:', planCode, metaPlanError)
+          } else {
+            plan = metaPlan
           }
         }
 
-        await supabase
+        if (plan?.name) {
+          updatePayload.plan_name = plan.name
+        }
+        if (plan?.interval) {
+          updatePayload.billing_interval = plan.interval
+        }
+
+        // 3) Write. Payment fields are saved first so the customer has access
+        //    immediately, even if something below asks Stripe to retry.
+        const { data: written, error: writeError } = await supabase
           .from('subscriptions')
           .update(updatePayload)
           .eq('organization_id', organization_id)
+          .select('id')
+
+        if (writeError) {
+          console.error('Subscription update failed (checkout.session.completed):', organization_id, writeError)
+          throw new WebhookRetryError('Subscription update failed')
+        }
+        if (!written || written.length === 0) {
+          console.error('No subscription row for organization (payment NOT recorded):', organization_id, session.id)
+          throw new WebhookRetryError('No subscription row for organization')
+        }
+
+        // 4) Payment is recorded. If the plan or period could not be determined, ask
+        //    Stripe to retry (all writes are idempotent) and make the failure visible.
+        if (retrieveFailed) {
+          throw new WebhookRetryError('Stripe subscription retrieve failed; plan and period end pending retry')
+        }
+        if (!plan?.name) {
+          console.error('Purchased plan could not be resolved:', {
+            session: session.id,
+            subscription: subscriptionId,
+            plan_code: planCode,
+          })
+          throw new WebhookRetryError('Purchased plan could not be resolved')
+        }
 
         break
       }
@@ -184,8 +305,16 @@ Deno.serve(async (req) => {
 
         const updatePayload: Record<string, unknown> = {
           status: sub.status,
-          current_period_end: new Date(sub.current_period_end * 1000).toISOString(),
           updated_at: new Date().toISOString(),
+        }
+
+        // Period end: top-level (old API versions) or items (basil+). Never convert
+        // a missing/invalid value, and never overwrite the stored one with nothing.
+        const periodEndIso = subscriptionPeriodEndIso(sub)
+        if (periodEndIso) {
+          updatePayload.current_period_end = periodEndIso
+        } else {
+          console.warn('No valid current_period_end on subscription event:', sub.id)
         }
 
         // Keep the CURRENT plan label in step with the price Stripe is actually
@@ -198,15 +327,32 @@ Deno.serve(async (req) => {
           updatePayload.billing_interval = currentPlan.interval
         }
 
-        const { data: row } = await supabase
+        const { data: row, error: rowError } = await supabase
           .from('subscriptions')
           .select('stripe_schedule_id, pending_stripe_price_id')
           .eq('stripe_subscription_id', sub.id)
           .maybeSingle()
 
+        if (rowError) {
+          console.error('Subscription lookup failed (customer.subscription.updated):', sub.id, rowError)
+          throw new WebhookRetryError('Subscription lookup failed')
+        }
+
+        // No row carries this subscription id yet: this event overtook
+        // checkout.session.completed, which saves the id and now also fills in
+        // status, plan and period end from Stripe by itself. Nothing to update.
+        if (!row) {
+          console.warn(
+            'No subscriptions row for',
+            sub.id,
+            '- event arrived before checkout.session.completed; that handler populates the row'
+          )
+          break
+        }
+
         // Transition applied: Stripe is now billing the pending price -> nothing pending.
         if (
-          row?.pending_stripe_price_id &&
+          row.pending_stripe_price_id &&
           currentPriceId &&
           row.pending_stripe_price_id === currentPriceId
         ) {
@@ -215,7 +361,7 @@ Deno.serve(async (req) => {
 
         // Customer is cancelling at period end: a scheduled switch no longer makes
         // sense. Release the schedule (best effort) and clear the pending change.
-        if (sub.cancel_at_period_end && row?.stripe_schedule_id) {
+        if (sub.cancel_at_period_end && row.stripe_schedule_id) {
           try {
             await stripe.subscriptionSchedules.release(row.stripe_schedule_id)
           } catch (releaseErr) {
@@ -224,10 +370,15 @@ Deno.serve(async (req) => {
           Object.assign(updatePayload, CLEARED_PENDING, { stripe_schedule_id: null })
         }
 
-        await supabase
+        const { error: updateError } = await supabase
           .from('subscriptions')
           .update(updatePayload)
           .eq('stripe_subscription_id', sub.id)
+
+        if (updateError) {
+          console.error('Subscription update failed (customer.subscription.updated):', sub.id, updateError)
+          throw new WebhookRetryError('Subscription update failed')
+        }
 
         break
       }
@@ -281,11 +432,15 @@ Deno.serve(async (req) => {
   } catch (err) {
     console.error(err)
 
+    // Retryable failures answer 500; everything else (bad signature, malformed
+    // payload) keeps the original 400. Stripe retries any non-2xx response.
+    const status = err instanceof WebhookRetryError ? 500 : 400
+
     return new Response(
       JSON.stringify({
         error: err instanceof Error ? err.message : String(err),
       }),
-      { status: 400 }
+      { status, headers: { 'Content-Type': 'application/json' } }
     )
   }
 })

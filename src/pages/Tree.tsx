@@ -1,6 +1,7 @@
 import React, { Suspense, useCallback, useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Canvas } from '@react-three/fiber';
+import { Canvas, useLoader } from '@react-three/fiber';
+import { OBJLoader } from 'three/examples/jsm/loaders/OBJLoader.js';
 import { Bounds, Center, OrbitControls, useGLTF } from '@react-three/drei';
 import { supabase } from '../lib/supabase';
 import { useViewing } from '../lib/ViewingContext';
@@ -26,6 +27,15 @@ const TREE_MODEL_URL = `${import.meta.env.BASE_URL}models/tree.glb`;
 function TreeModel() {
   const { scene } = useGLTF(TREE_MODEL_URL);
   return <primitive object={scene} />;
+}
+
+// Only this organization (alinospam2020's Workspace) uses the casa model
+const CASA_ORG_ID = '9d9a8937-518f-4525-997e-7067d604238f';
+const CASA_MODEL_URL = `${import.meta.env.BASE_URL}models/casa.obj`;
+
+function CasaModel() {
+  const obj = useLoader(OBJLoader, CASA_MODEL_URL);
+  return <primitive object={obj} />;
 }
 useGLTF.preload(TREE_MODEL_URL);
 
@@ -492,7 +502,7 @@ style={{
             <Suspense fallback={null}>
               <Bounds fit clip observe margin={1.15}>
                 <Center>
-                  <TreeModel />
+                  {organizationId === CASA_ORG_ID ? <CasaModel /> : <TreeModel />}
                 </Center>
               </Bounds>
             </Suspense>
