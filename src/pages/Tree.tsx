@@ -43,7 +43,7 @@ function CasaModel() {
   });
   return <primitive object={obj} />;
 }
-}
+
 useGLTF.preload(TREE_MODEL_URL);
 
 function formatRevenue(n: number): string {
