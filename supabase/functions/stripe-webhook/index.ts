@@ -221,7 +221,8 @@ Deno.serve(async (req) => {
             console.error('Stripe subscription retrieve failed:', subscriptionId, retrieveErr)
           }
         }
-
+// A fresh purchase starts un-cancelled (clears any stale flag from an earlier subscription).
+updatePayload.cancel_at_period_end = stripeSub?.cancel_at_period_end === true
         const periodEndIso = subscriptionPeriodEndIso(stripeSub)
         if (periodEndIso) {
           updatePayload.current_period_end = periodEndIso
@@ -303,11 +304,13 @@ Deno.serve(async (req) => {
       case 'customer.subscription.updated': {
         const sub = event.data.object as Stripe.Subscription
 
-        const updatePayload: Record<string, unknown> = {
-          status: sub.status,
-          updated_at: new Date().toISOString(),
-        }
-
+       const updatePayload: Record<string, unknown> = {
+  status: sub.status,
+  // Mirrors Stripe so the UI can show "cancels on <date>" and offer Resume.
+  // Requires the cancel_at_period_end column (run the migration first).
+  cancel_at_period_end: sub.cancel_at_period_end === true,
+  updated_at: new Date().toISOString(),
+}
         // Period end: top-level (old API versions) or items (basil+). Never convert
         // a missing/invalid value, and never overwrite the stored one with nothing.
         const periodEndIso = subscriptionPeriodEndIso(sub)

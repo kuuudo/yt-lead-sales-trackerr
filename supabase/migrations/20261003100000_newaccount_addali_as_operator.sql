@@ -68,7 +68,11 @@ create policy "own delete" on public.operator_hidden_members
   for delete using (operator_id = auth.uid());
 
 
-
+-- Cancel Subscription: mirror Stripe's subscription.cancel_at_period_end.
+-- Idempotent: safe to run even if the column already exists.
+-- RUN THIS BEFORE deploying the updated stripe-webhook or the new frontend.
+alter table public.subscriptions
+  add column if not exists cancel_at_period_end boolean not null default false;
   ---------------------------------------------------
   (i didnt run following, i used to run but deleted) 
 

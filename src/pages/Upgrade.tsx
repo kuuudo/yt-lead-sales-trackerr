@@ -25,6 +25,7 @@ import {
 } from '../lib/pricingPlans';
 import { PlanCard } from '../components/pricing/PlanCard';
 import { MultipleAccountsCTA } from '../components/pricing/MultipleAccountsCTA';
+import CancelSubscriptionCard from '../components/CancelSubscriptionCard';
 
 type UpgradePlan = PricingPlan & {
   is_enabled: boolean;
@@ -377,6 +378,10 @@ export default function Upgrade() {
           })}
         </div>
       )}
+
+      <div className="w-full max-w-5xl mt-10 relative z-10">
+        <CancelSubscriptionCard subscriptionId={subscription.id} onChanged={() => void refresh()} />
+      </div>
 
       <MultipleAccountsCTA
         heading="Need More Accounts?"

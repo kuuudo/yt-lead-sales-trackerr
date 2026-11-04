@@ -33,3 +33,11 @@ entrypoint = "./functions/link-onboarding/index.ts"
 [functions.schedule-plan-change]
 enabled = true
 verify_jwt = false
+
+[functions.cancel-pending-plan-change]
+enabled = true
+verify_jwt = false
+
+[functions.set-cancel-at-period-end]
+enabled = true
+verify_jwt = false
