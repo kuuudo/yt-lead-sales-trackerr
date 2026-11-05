@@ -20,6 +20,7 @@ const INK = '#15151f';
 const LINE = '#d9d9e3';
 const MUTED = '#6b6b78';
 const MONO = 'ui-monospace, SFMono-Regular, Menlo, monospace';
+const TRY_FREE_URL = 'https://www.vstrk.com/start';
 
 type StepKey = 'start' | 'landing' | 'tracking' | 'asset' | 'collab' | 'operator' | 'workspace' | 'journey';
 
@@ -157,6 +158,14 @@ export default function BusinessOwnerDemo() {
         <WhatsAppLink style={{ ...pill(false), border: `1px solid ${ACCENT}`, color: ACCENT, textDecoration: 'none' }}>
           Contact VSTRK on WhatsApp →
         </WhatsAppLink>
+        <a
+          href={TRY_FREE_URL}
+          target="_blank"
+          rel="noopener noreferrer"
+          style={{ ...pill(false), background: INK, border: `1px solid ${INK}`, color: '#fff', textDecoration: 'none' }}
+        >
+          Try VSTRK for Free →
+        </a>
       </div>
 
       {/* Body */}

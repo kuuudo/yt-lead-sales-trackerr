@@ -133,15 +133,7 @@ const AUDIENCE = [
   'You want to decide from your own results, not someone else’s playbook.',
 ];
 
-const FAQ = [
-  { q: 'Does VSTRK prove which post caused a sale?', a: 'No. It shows which tracked content, conversion events and revenue are connected, and how journeys unfold where they’re tracked. That’s evidence for your decisions, not proof of cause.' },
-  { q: 'Do I need a full funnel to use it?', a: 'No. It’s most useful when you have at least one step after the content, such as a newsletter, a booking page or a checkout. The more steps you track, the more you can see.' },
-  { q: 'Does it need to be a certain size of business?', a: 'No. It’s relevant if you’re already investing time or money in content and want to know what it produces.' },
-  { q: 'What if a platform doesn’t provide some of the data?', a: 'VSTRK shows what connected platforms and your tracking make available. If something isn’t tracked or connected, it isn’t shown.' },
-  { q: 'Will it tell me what content to make or fix my offer?', a: 'No. It shows what’s happening. Your offer, pricing, audience and ideas still matter, and the decisions stay yours.' },
-  { q: 'I already look at platform analytics. Why isn’t that enough?', a: 'They show what happens on each platform. VSTRK is built to connect that to the conversions and revenue that follow, in one place.' },
-  { q: 'Can I see the product before I talk to anyone?', a: 'Yes. The interactive demo walks through the product step by step, and you can open it any time.' },
-];
+
 
 /* ───────────────────────────── PIECES ───────────────────────────── */
 
@@ -491,10 +483,7 @@ export default function BusinessOwnerLandingPage({ embedded = false }: { embedde
           </p>
         </Section>
 
-        {/* 10 · OBJECTIONS */}
-        <Section label="Questions you may have" title="Honest answers before you decide">
-          <Faq items={FAQ} />
-        </Section>
+
 
         {/* 11 · NEXT STEPS */}
         <section style={{ marginTop: 96, background: C.panel, border: `1px solid ${C.purple}`, borderRadius: 16, padding: 'clamp(24px, 5vw, 44px)', textAlign: 'center' }}>

@@ -141,14 +141,7 @@ const FORMATS = [
   { t: 'A final-round challenge', b: 'Use it as the last step between two or three finalists.' },
 ];
 
-const FAQ = [
-  { q: 'Will strong candidates take part in something like this?', a: 'Some will and some won’t. It tends to go better when the task is clearly scoped, the timeframe is reasonable, the rules are explained up front, and candidates understand what they get from taking part. Think about whether and how to compensate participants.' },
-  { q: 'Is it fine to have candidates promote a real product?', a: 'Rules about trial work, unpaid work and promotions differ by country and by how a challenge is run. Check with a legal or HR adviser before you start. VSTRK can’t give legal advice.' },
-  { q: 'Does the candidate with the most revenue win?', a: 'No. Revenue is one signal among several. Use it alongside the quality of the ideas, the consistency of the work, and how well the person fits your team.' },
-  { q: 'What if a platform doesn’t provide some of the data?', a: 'VSTRK shows what connected platforms and tracking make available. If a metric isn’t available, it isn’t shown, and you judge on the rest.' },
-  { q: 'Do I need to be a marketer to judge the results?', a: 'It helps to have someone who can review the ideas. The tracked results give you a shared, concrete starting point for that conversation.' },
-  { q: 'Can I see the product before I talk to anyone?', a: 'Yes. The interactive demo walks through the product step by step, and you can open it any time.' },
-];
+
 
 /* ───────────────────────────── PIECES ───────────────────────────── */
 
@@ -583,10 +576,7 @@ export default function InterviewLandingPage({ embedded = false }: { embedded?: 
           </ul>
         </Section>
 
-        {/* 8 · OBJECTIONS */}
-        <Section label="Questions you may have" title="Honest answers before you decide">
-          <Faq items={FAQ} />
-        </Section>
+
 
         {/* 9 · NEXT STEPS */}
         <section

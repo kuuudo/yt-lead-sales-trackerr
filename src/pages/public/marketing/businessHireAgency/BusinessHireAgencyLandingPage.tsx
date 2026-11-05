@@ -172,15 +172,7 @@ const NOT_THIS = [
   { t: 'Not a guarantee', b: 'Results depend on your product, pricing, market and sales process too. A weak month isn’t automatically someone’s fault.' },
 ];
 
-const FAQ = [
-  { q: 'Will VSTRK tell me whether my agency is a scam?', a: 'No. VSTRK doesn’t identify bad agencies and can’t guarantee honesty or results. It helps you see which tracked content, conversions and revenue are connected, so you can ask better questions and judge the work on evidence.' },
-  { q: 'If results are weak, does that mean my agency is failing?', a: 'Not necessarily. Your product, pricing, market, sales process and tracking setup all affect results. The data shows where to look and what to discuss. It doesn’t prove who or what is responsible.' },
-  { q: 'Is the revenue shown the revenue my agency created?', a: 'Not automatically. Tracked revenue shows what is associated with the content and conversions you track. It doesn’t prove that a specific piece of marketing caused a sale. Use it as evidence, not as a verdict.' },
-  { q: 'Do my marketers need to be involved?', a: 'Tracking works best when you set it up together and agree on what you’ll measure. Having your team on the same page from the start makes the data more useful for both sides.' },
-  { q: 'Can I reuse what my marketers created?', a: 'That depends on your agreement with them, including who owns the content. Check your contract and talk to your team. VSTRK helps you see what worked. It doesn’t change your legal rights.' },
-  { q: 'What if a platform doesn’t provide some of the data?', a: 'VSTRK shows what connected platforms and your tracking make available. If something isn’t available, it isn’t shown, and you judge on the rest.' },
-  { q: 'Can I see the product before I talk to anyone?', a: 'Yes. The interactive demo walks through the product step by step, and you can open it any time.' },
-];
+
 
 /* ───────────────────────────── PIECES ───────────────────────────── */
 
@@ -614,10 +606,7 @@ export default function BusinessHireAgencyLandingPage({ embedded = false }: { em
           </div>
         </Section>
 
-        {/* 13 · OBJECTIONS */}
-        <Section label="Questions you may have" title="Honest answers before you decide">
-          <Faq items={FAQ} />
-        </Section>
+
 
         {/* 14 · NEXT STEPS */}
         <section

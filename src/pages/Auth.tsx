@@ -5,7 +5,7 @@ import { motion } from 'motion/react';
 import { KeyRound, Mail, User, Loader2 } from 'lucide-react';
 import { Modal } from '../components/Modal';
 import { createUserWorkspace } from '../lib/createUserWorkspace';
-import { SUPPORT_WHATSAPP_URL } from '../lib/support';
+import { AGENCY_DEMO_WHATSAPP_URL } from './public/marketing/agency/agencyDemoConfig';
 import { THEMES } from '../lib/theme';
 
 
@@ -158,17 +158,13 @@ export default function Auth() {
         </form>
 
         <footer className="mt-6 text-center space-y-3">
-          <p className="text-sm text-zinc-400 leading-relaxed px-2">
-            {t.auth.accessHint ||
-              'VSTRK access is for pre-registered emails only. Sign up with the email provided to you by VSTRK.'}
-          </p>
           <a
-            href={SUPPORT_WHATSAPP_URL}
+            href={AGENCY_DEMO_WHATSAPP_URL}
             target="_blank"
             rel="noopener noreferrer"
             className="block text-sm font-bold uppercase tracking-widest text-zinc-400 hover:text-white transition-colors"
           >
-            {t.auth.contactSupport || 'No access? Contact VSTRK on WhatsApp'}
+            Specialized needs? Contact me on WhatsApp
           </a>
           <button 
             onClick={() => setIsLogin(!isLogin)}

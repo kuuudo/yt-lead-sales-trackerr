@@ -139,15 +139,7 @@ const PROCESS = [
   { t: 'Repeat', b: 'Replicate what works, stop what doesn’t, and turn strong campaigns into case studies.' },
 ];
 
-const FAQ = [
-  { q: 'Does VSTRK guarantee that my agency will win or keep clients?', a: 'No. VSTRK doesn’t guarantee sales, retention or results. It gives you a clearer, better-evidenced view of what your marketing is doing, so you can make a stronger case for it.' },
-  { q: 'Is the revenue shown the revenue my agency created?', a: 'Not necessarily. Tracked revenue shows what is associated with the content and conversions you track. It doesn’t automatically prove your campaign caused all of it. Use it as evidence alongside your own judgment, not as a claim of causation.' },
-  { q: 'Do I have to show clients all my data?', a: 'No. You can use VSTRK internally, share selected results, or give clients full visibility. How open you are is your decision.' },
-  { q: 'What if a platform doesn’t provide some of the data?', a: 'VSTRK shows the data that connected platforms and your tracking make available. If something isn’t available, it isn’t shown, and you judge on the rest.' },
-  { q: 'Can I use client results in case studies?', a: 'Only with the client’s permission and with confidential information protected. VSTRK helps you keep the supporting data. It doesn’t replace your agreements with clients.' },
-  { q: 'What if my results are only average right now?', a: 'The data can still help. Seeing which content and strategies work and which don’t is how you improve, and that’s often the first step to better results.' },
-  { q: 'Can I see the product before I talk to anyone?', a: 'Yes. The interactive demo walks through the product step by step, and you can open it any time.' },
-];
+
 
 /* ───────────────────────────── PIECES ───────────────────────────── */
 
@@ -540,10 +532,7 @@ export default function AgencyLandingPage({ embedded = false }: { embedded?: boo
           </div>
         </Section>
 
-        {/* 13 · OBJECTIONS */}
-        <Section label="Questions you may have" title="Honest answers before you decide">
-          <Faq items={FAQ} />
-        </Section>
+       
 
         {/* 14 · NEXT STEPS */}
         <section
