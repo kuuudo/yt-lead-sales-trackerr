@@ -597,7 +597,7 @@ export default function Website() {
             <span style={{ width: 9, height: 9, borderRadius: '50%', background: C.purple }} />
             <span style={{ fontFamily: MONO, fontSize: 14, fontWeight: 600, letterSpacing: '0.2em' }}>VS-TRACK</span>
           </div>
-          <nav className="lp-nav-links" style={{ ...mono(C.mut), fontSize: 12 }}><a href="#link" style={{ color: 'inherit', textDecoration: 'none' }}>How it works</a><a href="/pricing" style={{ color: 'inherit', textDecoration: 'none' }}>Pricing</a></nav>
+          <nav className="lp-nav-links" style={{ ...mono(C.mut), fontSize: 12 }}><a href="#link" style={{ color: 'inherit', textDecoration: 'none' }}>How it works</a></nav>
           <span className="lp-head-cta"><Btn>Start tracking</Btn></span>
         </header>
 
