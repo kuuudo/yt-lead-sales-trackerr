@@ -14,6 +14,7 @@ import VideoLightbox from '../components/marketing/VideoLightbox'
 const SHOW_WORKSPACE_VIDEO = false
 const SHOW_MARKETPLACE_VIDEO = false
 const SHOW_TESTIMONIALS = false // set to true when you have testimonials to show
+const SHOW_PRICING_LINK = false // set to true to show the Pricing link in the header nav
 
 const LazySection01 = lazy(() => import('../components/onboarding/OnboardingVideo/OnboardingVideoSection01'))
 const LazySection02 = lazy(() => import('../components/onboarding/OnboardingVideo/OnboardingVideoSection02'))
@@ -597,7 +598,7 @@ export default function Website() {
             <span style={{ width: 9, height: 9, borderRadius: '50%', background: C.purple }} />
             <span style={{ fontFamily: MONO, fontSize: 14, fontWeight: 600, letterSpacing: '0.2em' }}>VS-TRACK</span>
           </div>
-          <nav className="lp-nav-links" style={{ ...mono(C.mut), fontSize: 12 }}><a href="#link" style={{ color: 'inherit', textDecoration: 'none' }}>How it works</a></nav>
+          <nav className="lp-nav-links" style={{ ...mono(C.mut), fontSize: 12 }}><a href="#link" style={{ color: 'inherit', textDecoration: 'none' }}>How it works</a><a href="#previews" style={{ color: 'inherit', textDecoration: 'none' }}>See Product in Action</a>{SHOW_PRICING_LINK && <a href="/pricing" style={{ color: 'inherit', textDecoration: 'none' }}>Pricing</a>}</nav>
           <span className="lp-head-cta"><Btn>Start tracking</Btn></span>
         </header>
 
@@ -696,7 +697,7 @@ export default function Website() {
           <CrossDomain />
         </Section>
 
-        <Section
+        <div id="previews"><Section
           label="06 / Product previews"
           title={<>See the product in motion.</>}
           sub="Short silent loops from the real product. Each one plays when it scrolls into view; click any preview to expand with controls."
@@ -728,7 +729,7 @@ export default function Website() {
               </button>
             </div>
           )}
-        </Section>
+        </Section></div>
 
         <Section
           label="07 / The full story"
