@@ -132,8 +132,11 @@ async function syncPendingFromSchedule(
 
   if (!subId) return
 
-  const now = Math.floor(Date.now() / 1000)
-  const next = schedule.phases.find((p) => p.start_date > now)
+const refTime = schedule.current_phase?.start_date ?? Math.floor(Date.now() / 1000)
+
+const next = [...schedule.phases]
+  .sort((a, b) => a.start_date - b.start_date)
+  .find((p) => p.start_date > refTime)
 
   if (!next) {
     // Schedule is live but has no future phase (e.g. right after a transition).

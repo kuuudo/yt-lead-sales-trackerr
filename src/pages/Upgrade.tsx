@@ -26,6 +26,7 @@ import {
 import { PlanCard } from '../components/pricing/PlanCard';
 import { MultipleAccountsCTA } from '../components/pricing/MultipleAccountsCTA';
 import CancelSubscriptionCard from '../components/CancelSubscriptionCard';
+import ManagePaymentMethodButton from '../components/ManagePaymentMethodButton';
 
 type UpgradePlan = PricingPlan & {
   is_enabled: boolean;
@@ -188,6 +189,7 @@ export default function Upgrade() {
             {subscription.current_period_end &&
               ` · current period ends ${formatLongDate(subscription.current_period_end)}`}
           </p>
+          <ManagePaymentMethodButton subscriptionId={subscription.id} />
         </div>
 
         <div

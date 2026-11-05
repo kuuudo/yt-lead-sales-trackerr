@@ -41,3 +41,7 @@ verify_jwt = false
 [functions.set-cancel-at-period-end]
 enabled = true
 verify_jwt = false
+
+[functions.create-portal-session]
+enabled = true
+verify_jwt = false
