@@ -48,6 +48,8 @@ export interface TopAssetsParams {
   scope: TopAssetsScope;
   customRange?: { start: Date; end: Date } | null;
   forceRefresh?: boolean;
+  /** READ-ONLY viewing (Alin POC): only read existing snapshots, never write. */
+  readOnly?: boolean;
 }
 
 export function rankTopAssets(rows: TopAssetRow[], metric: TopAssetsMetric): TopAssetRow[] {
@@ -105,6 +107,7 @@ async function loadWindowAssetRows(
   period: MonthPeriod,
   scope: RankingScope,
   forceRefresh: boolean,
+  readOnly = false,
 ): Promise<TopAssetRow[]> {
   console.log('[getTopAssetsAnalytics] loadWindow', {
     organizationId,
@@ -113,11 +116,12 @@ async function loadWindowAssetRows(
     forceRefresh,
   });
 
-  if (forceRefresh) {
+  if (forceRefresh && !readOnly) {
     await refreshProvisionalAssetSnapshot(organizationId, period, scope);
   }
 
   let snap = await getAssetRankingSnapshot(organizationId, period, scope);
+  if (!snap && readOnly) return [];
   if (!snap) {
     console.log('[getTopAssetsAnalytics] empty window — computing once');
     await refreshProvisionalAssetSnapshot(organizationId, period, scope);
@@ -148,10 +152,10 @@ async function loadWindowAssetRows(
 }
 
 export async function getTopAssetsAnalytics(params: TopAssetsParams): Promise<TopAssetRow[]> {
-  const { organizationId, preset, scope, customRange, forceRefresh = false } = params;
+  const { organizationId, preset, scope, customRange, forceRefresh = false, readOnly = false } = params;
   if (!organizationId) return [];
   if (scope !== 'my' && scope !== 'assigned' && scope !== 'shared') return [];
 
   const period = windowForPreset(preset, customRange ?? null);
-  return loadWindowAssetRows(organizationId, period, scope, forceRefresh);
+  return loadWindowAssetRows(organizationId, period, scope, forceRefresh, readOnly);
 }

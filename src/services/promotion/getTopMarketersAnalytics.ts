@@ -45,6 +45,8 @@ export interface TopMarketersParams {
   preset: TopMarketersPreset;
   customRange?: { start: Date; end: Date } | null;
   forceRefresh?: boolean;
+  /** READ-ONLY viewing (Alin POC): only read existing snapshots, never write. */
+  readOnly?: boolean;
 }
 
 export function rankTopMarketers(rows: MarketerRow[], metric: TopMarketersMetric): MarketerRow[] {
@@ -143,14 +145,16 @@ async function loadWindowMarketerRows(
   organizationId: string,
   period: MonthPeriod,
   forceRefresh: boolean,
+  readOnly = false,
 ): Promise<MarketerRow[]> {
   console.log('[getTopMarketersAnalytics] loadWindow', { organizationId, period, forceRefresh });
 
-  if (forceRefresh) {
+  if (forceRefresh && !readOnly) {
     await refreshProvisionalMonthlySnapshot(organizationId, period);
   }
 
   let snap = await getMonthlySnapshot(organizationId, period);
+  if (!snap && readOnly) return [];
   if (!snap) {
     await refreshProvisionalMonthlySnapshot(organizationId, period);
     snap = await getMonthlySnapshot(organizationId, period);
@@ -203,9 +207,9 @@ async function loadWindowMarketerRows(
 export async function getTopMarketersAnalytics(
   params: TopMarketersParams,
 ): Promise<MarketerRow[]> {
-  const { organizationId, preset, customRange, forceRefresh = false } = params;
+  const { organizationId, preset, customRange, forceRefresh = false, readOnly = false } = params;
   if (!organizationId) return [];
 
   const period = windowForPreset(preset, customRange ?? null);
-  return loadWindowMarketerRows(organizationId, period, forceRefresh);
+  return loadWindowMarketerRows(organizationId, period, forceRefresh, readOnly);
 }

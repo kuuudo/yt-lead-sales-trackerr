@@ -1,5 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
+import { useViewing } from '../lib/ViewingContext';
 import { TrendingUp, Loader2, ChevronRight, X } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import {
@@ -32,6 +33,9 @@ const PRESETS: { key: TopPromotionsPreset; label: string }[] = [
 
 const INITIAL_VISIBLE = 5;
 
+// Alin's POC workspace: viewers in READ-ONLY mode may only read existing snapshots.
+const ALIN_POC_ORG_ID = '9d9a8937-518f-4525-997e-7067d604238f';
+
 function formatMetric(value: number, metric: TopPromotionsMetric): string {
   if (metric === 'revenue' || metric === 'rpc') {
     return value.toLocaleString(undefined, {
@@ -53,6 +57,8 @@ interface TopPromotionsProps {
 
 export default function TopPromotions({ organizationId }: TopPromotionsProps) {
   const navigate = useNavigate();
+  const { isReadOnly } = useViewing();
+  const readOnlySnapshots = isReadOnly && organizationId === ALIN_POC_ORG_ID;
 
   const [metric, setMetric] = useState<TopPromotionsMetric>('revenue');
   const [preset, setPreset] = useState<TopPromotionsPreset>('last_30_days');
@@ -92,6 +98,7 @@ export default function TopPromotions({ organizationId }: TopPromotionsProps) {
       setError(null);
 
       getTopPromotionsAnalytics({
+        readOnly: readOnlySnapshots,
         organizationId,
         preset,
         customRange:
@@ -115,7 +122,7 @@ export default function TopPromotions({ organizationId }: TopPromotionsProps) {
           }
         });
     },
-    [organizationId, preset, customStart, customEnd],
+    [organizationId, preset, customStart, customEnd, readOnlySnapshots],
   );
 
   useEffect(() => {
@@ -167,7 +174,7 @@ value={metric}
           </select>
                     <button
             type="button"
-            disabled={loading || refreshing || !organizationId}
+            disabled={loading || refreshing || !organizationId || readOnlySnapshots}
             onClick={() => {
               setRefreshing(true);
               load(true);

@@ -41,6 +41,8 @@ export interface TopPromotionsParams {
   preset: TopPromotionsPreset;
   customRange?: { start: Date; end: Date } | null;
   forceRefresh?: boolean;
+  /** READ-ONLY viewing (Alin POC): only read existing snapshots, never write. */
+  readOnly?: boolean;
 }
 
 export function rankTopPromotions(
@@ -116,6 +118,7 @@ async function loadWindowPromotionRows(
   organizationId: string,
   period: MonthPeriod,
   forceRefresh: boolean,
+  readOnly = false,
 ): Promise<TopPromotionRow[]> {
   console.log('[getTopPromotionsAnalytics] loadWindow', {
     organizationId,
@@ -123,11 +126,12 @@ async function loadWindowPromotionRows(
     forceRefresh,
   });
 
-  if (forceRefresh) {
+  if (forceRefresh && !readOnly) {
     await refreshProvisionalMonthlySnapshot(organizationId, period);
   }
 
   let snap = await getMonthlySnapshot(organizationId, period);
+  if (!snap && readOnly) return [];
   if (!snap) {
     console.log('[getTopPromotionsAnalytics] empty window — computing once');
     await refreshProvisionalMonthlySnapshot(organizationId, period);
@@ -155,9 +159,9 @@ async function loadWindowPromotionRows(
 export async function getTopPromotionsAnalytics(
   params: TopPromotionsParams,
 ): Promise<TopPromotionRow[]> {
-  const { organizationId, preset, customRange, forceRefresh = false } = params;
+  const { organizationId, preset, customRange, forceRefresh = false, readOnly = false } = params;
   if (!organizationId) return [];
 
   const period = windowForPreset(preset, customRange ?? null);
-  return loadWindowPromotionRows(organizationId, period, forceRefresh);
+  return loadWindowPromotionRows(organizationId, period, forceRefresh, readOnly);
 }

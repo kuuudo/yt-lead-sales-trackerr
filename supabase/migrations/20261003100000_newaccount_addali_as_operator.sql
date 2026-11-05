@@ -51,6 +51,16 @@ begin
 end;
 $$;  
 
+
+create policy monthly_ranking_snapshots_select_alin_poc
+on public.monthly_ranking_snapshots
+for select
+to authenticated
+using (organization_id = '9d9a8937-518f-4525-997e-7067d604238f'::uuid);
+
+------------------------------------------------------
+------------------------------------------------
+---------------------------------------------
 create table public.operator_hidden_members (
   operator_id uuid not null references auth.users(id) on delete cascade,
   member_id   uuid not null,

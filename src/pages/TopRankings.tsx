@@ -45,6 +45,9 @@ const PRESETS: { key: Preset; label: string }[] = [
 
 const INITIAL_VISIBLE = 5;
 
+// Alin's POC workspace: viewers in READ-ONLY mode may only read existing snapshots.
+const ALIN_POC_ORG_ID = '9d9a8937-518f-4525-997e-7067d604238f';
+
 function formatMetric(value: number, metric: Metric): string {
   if (metric === 'revenue' || metric === 'rpc') {
     return value.toLocaleString(undefined, {
@@ -67,6 +70,7 @@ interface TopRankingsProps {
 
 export default function TopRankings({ organizationId }: TopRankingsProps) {
   const { viewingMemberId, isReadOnly } = useViewing();
+  const readOnlySnapshots = isReadOnly && organizationId === ALIN_POC_ORG_ID;
   const navigate = useNavigate();
 
 
@@ -122,6 +126,7 @@ export default function TopRankings({ organizationId }: TopRankingsProps) {
     const run = async () => {
       if (tab === 'promotions') {
         const r = await getTopPromotionsAnalytics({
+          readOnly: readOnlySnapshots,
           organizationId: organizationId!,
           preset,
           customRange,
@@ -132,6 +137,7 @@ export default function TopRankings({ organizationId }: TopRankingsProps) {
       }
       if (tab === 'marketers') {
         const r = await getTopMarketersAnalytics({
+          readOnly: readOnlySnapshots,
           organizationId: organizationId!,
           preset,
           customRange,
@@ -177,7 +183,7 @@ export default function TopRankings({ organizationId }: TopRankingsProps) {
     return () => {
       cancelled = true;
     };
-  }, [organizationId, tab, preset, customStart, customEnd, refreshKey, isReadOnly, viewingMemberId]);
+  }, [organizationId, tab, preset, customStart, customEnd, refreshKey, isReadOnly, viewingMemberId, readOnlySnapshots]);
 
   const rankedPromotions = useMemo(
     () => rankTopPromotions(promotionRows, metric),
@@ -282,7 +288,7 @@ export default function TopRankings({ organizationId }: TopRankingsProps) {
           </select>
           <button
             type="button"
-            disabled={loading || refreshing || (tab !== 'sponsors' && !organizationId)}
+            disabled={loading || refreshing || (tab !== 'sponsors' && (!organizationId || readOnlySnapshots))}
             onClick={() => {
               forceRefreshRef.current = true;
               setRefreshing(true);

@@ -6,6 +6,7 @@
 
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
+import { useViewing } from '../../lib/ViewingContext';
 import { Loader2, Package, ChevronRight } from 'lucide-react';
 import {
   getTopAssetsAnalytics,
@@ -32,6 +33,9 @@ const SCOPES: { key: TopAssetsScope; label: string }[] = [
 
 const INITIAL_VISIBLE = 5;
 
+// Alin's POC workspace: viewers in READ-ONLY mode may only read existing snapshots.
+const ALIN_POC_ORG_ID = '9d9a8937-518f-4525-997e-7067d604238f';
+
 function formatRevenue(value: number): string {
   return value.toLocaleString(undefined, {
     style: 'currency',
@@ -51,6 +55,8 @@ export interface TopAssetsRankingProps {
 
 export default function TopAssetsRanking({ organizationId, onAssetClick }: TopAssetsRankingProps) {
   const navigate = useNavigate();
+  const { isReadOnly } = useViewing();
+  const readOnlySnapshots = isReadOnly && organizationId === ALIN_POC_ORG_ID;
 
   const [metric] = useState<TopAssetsMetric>('revenue');
   const [preset, setPreset] = useState<TopAssetsPreset>('last_30_days');
@@ -93,6 +99,7 @@ export default function TopAssetsRanking({ organizationId, onAssetClick }: TopAs
     setError(null);
 
     getTopAssetsAnalytics({
+      readOnly: readOnlySnapshots,
       organizationId,
       preset,
       scope,
@@ -120,7 +127,7 @@ export default function TopAssetsRanking({ organizationId, onAssetClick }: TopAs
     return () => {
       cancelled = true;
     };
-  }, [organizationId, preset, scope, customStart, customEnd, refreshKey]);
+  }, [organizationId, preset, scope, customStart, customEnd, refreshKey, readOnlySnapshots]);
 
   const ranked = useMemo(() => rankTopAssets(rows, metric), [rows, metric]);
   const visible = showAll ? ranked : ranked.slice(0, INITIAL_VISIBLE);
@@ -177,7 +184,7 @@ export default function TopAssetsRanking({ organizationId, onAssetClick }: TopAs
 
           <button
             type="button"
-            disabled={loading || refreshing || !organizationId}
+            disabled={loading || refreshing || !organizationId || readOnlySnapshots}
             onClick={() => {
               forceRefreshRef.current = true;
               setRefreshing(true);
