@@ -10,7 +10,7 @@
 // mirrors the existing onboarding screen.
 // ─────────────────────────────────────────────────────────────────────────
 
-import React, { useCallback, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { FOUNDER_VIDEO_URL, SPONSOR_DEMO_WHATSAPP_URL } from './sponsorDemoConfig';
 import { SPONSOR_DEMO_VIDEOS } from './sponsorDemoVideos';
 import SponsorLandingPage from './SponsorLandingPage';
@@ -111,10 +111,25 @@ function StartHere() {
   );
 }
 
+/** True on narrow (phone) viewports. Desktop layout is left untouched. */
+function useIsMobile(breakpoint = 640): boolean {
+  const query = `(max-width: ${breakpoint}px)`;
+  const [isMobile, setIsMobile] = useState(() => (typeof window !== 'undefined' ? window.matchMedia(query).matches : false));
+  useEffect(() => {
+    const mq = window.matchMedia(query);
+    const onChange = () => setIsMobile(mq.matches);
+    onChange();
+    mq.addEventListener('change', onChange);
+    return () => mq.removeEventListener('change', onChange);
+  }, [query]);
+  return isMobile;
+}
+
 export default function SponsorDemo() {
   const [index, setIndex] = useState(0);
   const step = STEPS[index];
   const isLast = index === STEPS.length - 1;
+  const isMobile = useIsMobile();
 
   const goNext = useCallback(() => setIndex((i) => Math.min(i + 1, STEPS.length - 1)), []);
   const goBack = useCallback(() => setIndex((i) => Math.max(i - 1, 0)), []);
@@ -155,6 +170,8 @@ export default function SponsorDemo() {
             {s.label}
           </button>
         ))}
+        {!isMobile && (
+          <>
         <WhatsAppLink style={{ ...pill(false), border: `1px solid ${ACCENT}`, color: ACCENT, textDecoration: 'none' }}>
           Contact VSTRK on WhatsApp →
         </WhatsAppLink>
@@ -166,6 +183,8 @@ export default function SponsorDemo() {
         >
           Try VSTRK for Free →
         </a>
+          </>
+        )}
       </div>
 
       {/* Body */}
@@ -173,8 +192,25 @@ export default function SponsorDemo() {
         {body}
       </div>
 
+      {/* Mobile only: primary CTAs pinned just above the footer so they are always visible */}
+      {isMobile && (
+        <div style={{ display: 'flex', gap: 8, padding: '10px 12px', borderTop: `1px solid ${LINE}`, background: '#fafafa', flexShrink: 0 }}>
+          <WhatsAppLink style={{ flex: 1, textAlign: 'center', padding: '11px 8px', borderRadius: 10, border: `1px solid ${ACCENT}`, color: ACCENT, background: '#fff', fontSize: 13, fontWeight: 700, textDecoration: 'none' }}>
+            Contact on WhatsApp
+          </WhatsAppLink>
+          <a
+            href={TRY_FREE_URL}
+            target="_blank"
+            rel="noopener noreferrer"
+            style={{ flex: 1, textAlign: 'center', padding: '11px 8px', borderRadius: 10, border: `1px solid ${INK}`, background: INK, color: '#fff', fontSize: 13, fontWeight: 700, textDecoration: 'none' }}
+          >
+            Try VSTRK free
+          </a>
+        </div>
+      )}
+
       {/* Footer */}
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, padding: '12px 20px', borderTop: `1px solid ${LINE}`, background: '#fafafa' }}>
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, paddingTop: 12, paddingLeft: 20, paddingRight: 20, paddingBottom: 'calc(12px + env(safe-area-inset-bottom, 0px))', borderTop: `1px solid ${LINE}`, background: '#fafafa', flexShrink: 0 }}>
         <button
           type="button" onClick={goBack} disabled={index === 0}
           style={{ padding: '9px 16px', borderRadius: 8, border: `1px solid ${LINE}`, background: '#fff', color: INK, fontSize: 13, fontWeight: 600, cursor: index === 0 ? 'default' : 'pointer', opacity: index === 0 ? 0.4 : 1 }}
@@ -184,12 +220,12 @@ export default function SponsorDemo() {
         <span style={{ fontFamily: MONO, fontSize: 11, fontWeight: 700, letterSpacing: 0.6, textTransform: 'uppercase', color: '#9a9aa8', textAlign: 'center' }}>
           {String(index + 1).padStart(2, '0')} {step.label} · {index + 1} / {STEPS.length}
         </span>
-        {isLast ? (
+        {isLast && !isMobile ? (
           <WhatsAppLink style={{ padding: '9px 16px', borderRadius: 8, background: ACCENT, color: '#fff', fontSize: 13, fontWeight: 700, textDecoration: 'none' }}>
             Contact on WhatsApp →
           </WhatsAppLink>
         ) : (
-          <button type="button" onClick={goNext} style={{ padding: '9px 16px', borderRadius: 8, border: 'none', background: ACCENT, color: '#fff', fontSize: 13, fontWeight: 700, cursor: 'pointer' }}>
+          <button type="button" onClick={goNext} disabled={isLast} style={{ padding: '9px 16px', borderRadius: 8, border: 'none', background: ACCENT, color: '#fff', fontSize: 13, fontWeight: 700, cursor: isLast ? 'default' : 'pointer', opacity: isLast ? 0.4 : 1 }}>
             Next →
           </button>
         )}
