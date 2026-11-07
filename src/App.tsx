@@ -452,7 +452,7 @@ function Navigation() {
               <button className="w-8 h-8 rounded-full bg-zinc-900 border border-zinc-800 flex items-center justify-center text-zinc-500">
                 <UserIcon size={14} />
               </button>
-              <button onClick={() => signOut()} className="text-zinc-600 hover:text-red-500 transition-colors">
+              <button onClick={() => Promise.resolve(signOut()).finally(() => window.location.assign('/website'))} className="text-zinc-600 hover:text-red-500 transition-colors">
                 <LogOut size={16} />
               </button>
             </div>
@@ -637,7 +637,7 @@ function Navigation() {
                 <button
                   onClick={() => {
                     setMobileOpen(false);
-                    signOut();
+                    Promise.resolve(signOut()).finally(() => window.location.assign('/website'));
                   }}
                   className="flex items-center gap-3 px-3 py-2.5 rounded-md text-[11px] font-bold uppercase tracking-widest text-zinc-600 hover:text-red-500 hover:bg-zinc-900/50 transition-all"
                 >

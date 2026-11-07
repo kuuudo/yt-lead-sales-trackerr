@@ -511,3 +511,115 @@ begin
     case when v_fail = 0 then 'RESULT: ALL PASS' else 'RESULT: AT LEAST ONE FAIL' end;
 end
 $test$;
+
+
+-- =====================================================================
+-- 05  admin_set_member_limit  -  fixes the "Update limit" button
+--
+-- The button in /admin/customers calls supabase.rpc('admin_set_member_limit',
+-- { p_customer_id, p_member_limit }) but that function was never created in
+-- the database, so the call failed. The frontend already sends exactly these
+-- parameters and already understands the replies below. NO frontend change.
+--
+-- Replies (jsonb):
+--   { success: true,  customer_id, member_limit, used, unchanged }
+--   { success: false, error: 'not_admin' | 'invalid_member_limit'
+--                           | 'customer_not_found' }
+--   { success: false, error: 'below_current_count', used, member_limit }
+--
+-- Rules (same as the rest of the Team system):
+--   * Admin only (team_is_admin()).
+--   * "used" = EVERY customer_members row (owner + pending + active, and
+--     deactivated members too), exactly like owner_add_members counts seats.
+--     A limit below "used" is refused. A limit equal to "used" is allowed.
+--   * Minimum 1, same as admin_create_customer and the customers CHECK.
+--     No upper cap is added, because admin_create_customer has none either.
+--   * Locks the customer row first, like owner_add_members, so it cannot race
+--     with an owner adding members at the same moment.
+--   * Changes ONLY customers.member_limit. No seats, members or access change.
+--
+-- Safe to run once (refuses if the function already exists).
+-- ROLLBACK:  drop function if exists public.admin_set_member_limit(uuid, integer);
+-- =====================================================================
+begin;
+
+do $pre$
+begin
+  if to_regprocedure('public.team_is_admin()') is null then
+    raise exception 'precondition failed: team_is_admin() not found';
+  end if;
+  if to_regprocedure('public.admin_set_member_limit(uuid,integer)') is not null then
+    raise exception 'already exists: admin_set_member_limit(uuid,integer)';
+  end if;
+end
+$pre$;
+
+create or replace function public.admin_set_member_limit(p_customer_id uuid, p_member_limit integer)
+ returns jsonb
+ language plpgsql
+ security definer
+ set search_path to 'public'
+as $function$
+declare
+  v_cust public.customers%rowtype;
+  v_used integer;
+begin
+  if not public.team_is_admin() then
+    return jsonb_build_object('success', false, 'error', 'not_admin');
+  end if;
+
+  if p_member_limit is null or p_member_limit < 1 then
+    return jsonb_build_object('success', false, 'error', 'invalid_member_limit');
+  end if;
+
+  select * into v_cust
+  from public.customers
+  where id = p_customer_id
+  for update;
+
+  if not found then
+    return jsonb_build_object('success', false, 'error', 'customer_not_found');
+  end if;
+
+  -- Seats already consumed: every row, whatever its status or access state.
+  select count(*) into v_used
+  from public.customer_members
+  where customer_id = p_customer_id;
+
+  if p_member_limit < v_used then
+    return jsonb_build_object(
+      'success', false,
+      'error', 'below_current_count',
+      'used', v_used,
+      'member_limit', v_cust.member_limit
+    );
+  end if;
+
+  if p_member_limit = v_cust.member_limit then
+    return jsonb_build_object(
+      'success', true,
+      'customer_id', p_customer_id,
+      'member_limit', v_cust.member_limit,
+      'used', v_used,
+      'unchanged', true
+    );
+  end if;
+
+  update public.customers
+  set member_limit = p_member_limit
+  where id = p_customer_id;
+
+  return jsonb_build_object(
+    'success', true,
+    'customer_id', p_customer_id,
+    'member_limit', p_member_limit,
+    'used', v_used,
+    'unchanged', false
+  );
+end;
+$function$;
+
+revoke all on function public.admin_set_member_limit(uuid, integer) from public, anon;
+grant execute on function public.admin_set_member_limit(uuid, integer) to authenticated;
+
+commit;
