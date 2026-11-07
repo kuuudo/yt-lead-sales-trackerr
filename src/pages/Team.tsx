@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { supabase } from '../lib/supabase';
-import { useMyTeam } from '../lib/useMyTeam';
+import { useMyTeam, type TeamMember } from '../lib/useMyTeam';
 import { Loader2, Users } from 'lucide-react';
 
 export default function Team() {
@@ -9,6 +9,7 @@ export default function Team() {
   const [saving, setSaving] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
   const [formError, setFormError] = useState<string | null>(null);
+  const [busyId, setBusyId] = useState<string | null>(null);
 
   const parseEmails = (text: string): string[] =>
     text
@@ -67,6 +68,47 @@ export default function Team() {
     }
   };
 
+  // Deactivate / reactivate one member. Never frees a slot: the row stays, only access changes.
+  const handleSetAccess = async (m: TeamMember, active: boolean) => {
+    if (
+      !active &&
+      !window.confirm(`Deactivate ${m.email}? They lose access now, and the slot stays used.`)
+    ) {
+      return;
+    }
+    setBusyId(m.id);
+    setMessage(null);
+    setFormError(null);
+    try {
+      const { data, error: rpcErr } = await supabase.rpc('owner_set_member_access', {
+        p_member_id: m.id,
+        p_active: active,
+      });
+      if (rpcErr) throw rpcErr;
+
+      const result = data as { success?: boolean; error?: string };
+      if (!result?.success) {
+        setFormError(
+          result?.error === 'revoked_by_admin'
+            ? 'This member was deactivated by VSTRK. Contact us to reactivate.'
+            : result?.error ?? 'Update failed'
+        );
+      } else {
+        setMessage(
+          active
+            ? `Reactivated ${m.email}.`
+            : `Deactivated ${m.email}. The slot stays used.`
+        );
+        refresh();
+      }
+    } catch (err: any) {
+      console.error('[Team] set access', err);
+      setFormError(err?.message ?? 'Update failed');
+    } finally {
+      setBusyId(null);
+    }
+  };
+
   if (loading) {
     return (
       <div className="flex items-center justify-center min-h-[40vh]">
@@ -121,6 +163,7 @@ export default function Team() {
         <div className="text-sm font-bold text-white">Add Member Emails</div>
         <p className="text-[11px] text-zinc-500">
           Emails become permanent slots. They cannot be edited or removed after creation.
+          Deactivating a member stops their access but keeps the slot used.
         </p>
         <textarea
           value={emailsText}
@@ -142,26 +185,64 @@ export default function Team() {
       <section className="bento-card space-y-3">
         <h2 className="text-sm font-bold text-white">Members</h2>
         <ul className="space-y-2">
-          {members.map(m => (
-            <li
-              key={m.id}
-              className="flex items-center justify-between gap-3 text-[12px] border-b border-zinc-900/80 pb-2 last:border-0"
-            >
-              <div className="min-w-0">
-                <div className="font-mono text-zinc-300 truncate">{m.email}</div>
-                <div className="text-[10px] uppercase tracking-widest text-zinc-600 mt-0.5">
-                  {m.role}
-                </div>
-              </div>
-              <span
-                className={`shrink-0 text-[10px] font-bold uppercase tracking-widest ${
-                  m.status === 'active' ? 'text-green-500' : 'text-zinc-500'
-                }`}
+          {members.map(m => {
+            const pending = m.status !== 'active';
+            const revoked = !pending && m.access_revoked_by != null;
+            const label = pending
+              ? 'pending'
+              : m.access_revoked_by === 'admin'
+                ? 'deactivated by admin'
+                : revoked
+                  ? 'deactivated'
+                  : 'active';
+            const canToggle =
+              m.role !== 'owner' &&
+              !pending &&
+              customer.status === 'active' &&
+              m.access_revoked_by !== 'admin';
+            return (
+              <li
+                key={m.id}
+                className="flex items-center justify-between gap-3 text-[12px] border-b border-zinc-900/80 pb-2 last:border-0"
               >
-                {m.status}
-              </span>
-            </li>
-          ))}
+                <div className="min-w-0">
+                  <div className="font-mono text-zinc-300 truncate">{m.email}</div>
+                  <div className="text-[10px] uppercase tracking-widest text-zinc-600 mt-0.5">
+                    {m.role}
+                  </div>
+                </div>
+                <div className="shrink-0 flex items-center gap-3">
+                  <span
+                    className={`text-[10px] font-bold uppercase tracking-widest ${
+                      label === 'active'
+                        ? 'text-green-500'
+                        : revoked
+                          ? 'text-amber-400'
+                          : 'text-zinc-500'
+                    }`}
+                  >
+                    {label}
+                  </span>
+                  {canToggle && (
+                    <button
+                      type="button"
+                      disabled={busyId !== null}
+                      onClick={() => void handleSetAccess(m, revoked)}
+                      className="px-3 py-1.5 rounded-md border border-zinc-800 bg-zinc-900/50 text-zinc-400 hover:text-white text-[10px] font-bold uppercase tracking-widest disabled:opacity-40"
+                    >
+                      {busyId === m.id ? (
+                        <Loader2 className="animate-spin" size={12} />
+                      ) : revoked ? (
+                        'Reactivate'
+                      ) : (
+                        'Deactivate'
+                      )}
+                    </button>
+                  )}
+                </div>
+              </li>
+            );
+          })}
         </ul>
       </section>
     </div>

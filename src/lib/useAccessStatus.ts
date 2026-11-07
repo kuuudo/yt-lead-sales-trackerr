@@ -54,10 +54,16 @@ const sleep = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve,
  * 'pending' = rows are missing but the account is new, so they may still be created.
  * 'error'   = a query failed, or the Team check failed and nothing else granted access
  *             (we cannot prove "no access" when the Team check itself was unknown).
+ *
+ * teamBound = this account's email is on a customer's Team roster (see claim_team_membership).
+ *             A Team-bound account whose Team access is not valid (member revoked, or customer
+ *             inactive) must not fall back on the automatically created personal trial.
+ *             A trusted paid subscription still counts, and the trial row itself is never touched.
  */
 async function checkAccessOnce(
   userId: string,
-  isNewAccount: boolean
+  isNewAccount: boolean,
+  teamBound: boolean
 ): Promise<CheckOutcome> {
   try {
     // Team check. A failure here means "unknown", not "not a Team member".
@@ -96,7 +102,9 @@ async function checkAccessOnce(
     const list = subscriptions ?? [];
     const now = Date.now();
     const hasAccess = list.some(
-      (s) => isTrustedPaidSubscription(s) || isValidTrialSubscription(s, now)
+      (s) =>
+        isTrustedPaidSubscription(s) ||
+        (!teamBound && isValidTrialSubscription(s, now))
     );
     if (hasAccess) return 'allowed';
 
@@ -120,6 +128,9 @@ async function checkAccessOnce(
  * - Missing rows on a brand-new account keep the state at 'loading' and are re-checked.
  * - Query failures are retried, then reported as 'error' (never as 'pricing').
  *
+ * - A Team-bound account (email on a customer's roster) never uses its personal trial as access:
+ *   Team access or a trusted paid subscription only. See checkAccessOnce.
+ *
  * Legacy account_access inactive is not used for billing access.
  */
 export function useAccessStatus(
@@ -135,11 +146,19 @@ export function useAccessStatus(
     (async () => {
       try {
         // Claim pending Team membership (once). Failure is logged; the Team check decides.
-        const { error: claimError } = await supabase.rpc('claim_team_membership');
+        const { data: claimData, error: claimError } = await supabase.rpc('claim_team_membership');
         if (claimError) {
           console.error('[useAccessStatus] Team claim:', claimError);
         }
         if (cancelled) return;
+
+        // Team-bound = this email is on a customer's roster: claimed (success) or the customer is
+        // inactive. Everything else ('no_match', not authenticated, ...) is a normal account.
+        // If the claim call itself failed we cannot tell, so we keep today's behaviour (not bound)
+        // rather than risk sending a brand-new normal user to Pricing.
+        const claim = claimData as { success?: boolean; error?: string } | null;
+        const teamBound =
+          !claimError && (claim?.success === true || claim?.error === 'customer_inactive');
 
         // Account age only decides whether missing rows are worth waiting for.
         // Unknown or unparsable age => treat as new (wait) rather than as a paywall.
@@ -159,7 +178,7 @@ export function useAccessStatus(
         let errorRetries = 0;
 
         for (;;) {
-          const outcome = await checkAccessOnce(userId, isNewAccount);
+          const outcome = await checkAccessOnce(userId, isNewAccount, teamBound);
           if (cancelled) return;
 
           if (outcome === 'allowed' || outcome === 'pricing') {

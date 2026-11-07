@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useState } from 'react';
 import { supabase } from '../lib/supabase';
-import { Loader2, Plus, Power, Users } from 'lucide-react';
+import { Loader2, Plus, Power, Users, X } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 
 type CustomerRow = {
@@ -17,7 +17,18 @@ type MemberRow = {
   email: string;
   role: string;
   status: string;
+  /** null = access not revoked; otherwise who deactivated this member. The slot stays used. */
+  access_revoked_by: 'admin' | 'owner' | null;
 };
+
+/** What Admin sees for one member. Seat usage is unaffected by any of these states. */
+function memberAccessLabel(m: MemberRow, customerStatus: string): { label: string; className: string } {
+  if (m.status !== 'active') return { label: 'Pending', className: 'text-zinc-500' };
+  if (m.access_revoked_by === 'admin') return { label: 'Deactivated by Admin', className: 'text-amber-400' };
+  if (m.access_revoked_by === 'owner') return { label: 'Deactivated by Owner', className: 'text-amber-400' };
+  if (customerStatus !== 'active') return { label: 'Customer inactive', className: 'text-amber-400' };
+  return { label: 'Active', className: 'text-green-500' };
+}
 
 export default function AdminCustomers() {
   const navigate = useNavigate();
@@ -38,6 +49,11 @@ export default function AdminCustomers() {
 
   // Per-customer limit edit draft values
   const [limitDrafts, setLimitDrafts] = useState<Record<string, number>>({});
+
+  // Members modal (one customer at a time)
+  const [membersModalCustomerId, setMembersModalCustomerId] = useState<string | null>(null);
+  const [busyMemberId, setBusyMemberId] = useState<string | null>(null);
+  const [modalError, setModalError] = useState<string | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -93,7 +109,7 @@ export default function AdminCustomers() {
         const ids = list.map(c => c.id);
         const { data: mems, error: mErr } = await supabase
           .from('customer_members')
-          .select('id, customer_id, email, role, status')
+          .select('id, customer_id, email, role, status, access_revoked_by')
           .in('customer_id', ids)
           .order('created_at', { ascending: true });
 
@@ -119,6 +135,16 @@ export default function AdminCustomers() {
     if (!adminChecked || !isAdmin) return;
     void load();
   }, [adminChecked, isAdmin, load]);
+
+  // Escape closes the members modal.
+  useEffect(() => {
+    if (!membersModalCustomerId) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') setMembersModalCustomerId(null);
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [membersModalCustomerId]);
 
   const parseEmails = (text: string): string[] =>
     text
@@ -235,6 +261,36 @@ export default function AdminCustomers() {
     }
   };
 
+  // Deactivate / reactivate ONE member. Only changes access; the row (the slot) always stays.
+  const handleSetMemberAccess = async (customerId: string, m: MemberRow, active: boolean) => {
+    setBusyMemberId(m.id);
+    setModalError(null);
+    try {
+      const { data, error: rpcErr } = await supabase.rpc('admin_set_member_access', {
+        p_member_id: m.id,
+        p_active: active,
+      });
+      if (rpcErr) throw rpcErr;
+      const result = data as { success?: boolean; error?: string };
+      if (!result?.success) {
+        setModalError(result?.error ?? 'Update failed');
+      } else {
+        // Update in place: no full reload, so the modal does not flash.
+        setMembersByCustomer(prev => ({
+          ...prev,
+          [customerId]: (prev[customerId] ?? []).map(x =>
+            x.id === m.id ? { ...x, access_revoked_by: active ? null : 'admin' } : x
+          ),
+        }));
+      }
+    } catch (err: any) {
+      console.error('[AdminCustomers] member access', err);
+      setModalError(err?.message ?? 'Update failed');
+    } finally {
+      setBusyMemberId(null);
+    }
+  };
+
   if (!adminChecked || !isAdmin) {
     return (
       <div className="flex items-center justify-center min-h-[40vh]">
@@ -250,6 +306,9 @@ export default function AdminCustomers() {
       </div>
     );
   }
+
+  const modalCustomer = customers.find(c => c.id === membersModalCustomerId) ?? null;
+  const modalMembers = modalCustomer ? membersByCustomer[modalCustomer.id] ?? [] : [];
 
   return (
     <div className="space-y-8 max-w-3xl">
@@ -397,26 +456,112 @@ export default function AdminCustomers() {
                 </button>
               </div>
 
-              <ul className="space-y-1 border-t border-zinc-800 pt-3">
-                {mems.map(m => (
-                  <li
-                    key={m.id}
-                    className="flex items-center justify-between text-[11px] font-mono text-zinc-400"
-                  >
-                    <span>
-                      {m.email}{' '}
-                      <span className="text-zinc-600">({m.role})</span>
-                    </span>
-                    <span className={m.status === 'active' ? 'text-green-500' : 'text-zinc-500'}>
-                      {m.status}
-                    </span>
-                  </li>
-                ))}
-              </ul>
+              <div className="flex items-center gap-3 border-t border-zinc-800 pt-3">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setModalError(null);
+                    setMembersModalCustomerId(c.id);
+                  }}
+                  className="flex items-center gap-1.5 px-3 py-1.5 rounded-md border border-zinc-800 bg-zinc-900/50 text-zinc-400 hover:text-white text-[10px] font-bold uppercase tracking-widest"
+                >
+                  <Users size={12} />
+                  View members ({used})
+                </button>
+                {mems.some(m => m.access_revoked_by != null) && (
+                  <span className="text-[10px] font-bold uppercase tracking-widest text-amber-400">
+                    {mems.filter(m => m.access_revoked_by != null).length} deactivated
+                  </span>
+                )}
+              </div>
             </div>
           );
         })}
       </section>
+
+      {modalCustomer && (
+        <div
+          className="fixed inset-0 z-[100] flex items-center justify-center bg-black/60 p-4"
+          role="dialog"
+          aria-modal="true"
+          aria-label={`Members of ${modalCustomer.name}`}
+          onClick={() => setMembersModalCustomerId(null)}
+        >
+          <div
+            className="bento-card w-full max-w-xl max-h-[85vh] flex flex-col space-y-3"
+            onClick={e => e.stopPropagation()}
+          >
+            <div className="flex items-start justify-between gap-4">
+              <div className="min-w-0">
+                <div className="text-sm font-bold text-white truncate">{modalCustomer.name}</div>
+                <div className="text-[11px] text-zinc-400 mt-1">
+                  Limit {modalCustomer.member_limit} · Used {modalMembers.length} · Status{' '}
+                  <span
+                    className={modalCustomer.status === 'active' ? 'text-green-400' : 'text-amber-400'}
+                  >
+                    {modalCustomer.status}
+                  </span>
+                </div>
+              </div>
+              <button
+                type="button"
+                aria-label="Close"
+                onClick={() => setMembersModalCustomerId(null)}
+                className="shrink-0 p-1.5 rounded-md border border-zinc-800 bg-zinc-900/50 text-zinc-400 hover:text-white"
+              >
+                <X size={14} />
+              </button>
+            </div>
+
+            <p className="text-[11px] text-zinc-500">
+              Deactivating a member removes their access but keeps their slot used.
+              {modalCustomer.status !== 'active' &&
+                ' This customer is inactive, so every member is without access until it is reactivated.'}
+            </p>
+
+            {modalError && (
+              <div className="rounded-xl border border-red-500/30 bg-red-500/10 px-4 py-3 text-xs text-red-300">
+                {modalError}
+              </div>
+            )}
+
+            <ul className="overflow-y-auto min-h-0 divide-y divide-zinc-800/80">
+              {modalMembers.map(m => {
+                const access = memberAccessLabel(m, modalCustomer.status);
+                const canToggle = m.role !== 'owner' && m.status === 'active';
+                const revoked = m.access_revoked_by != null;
+                return (
+                  <li key={m.id} className="flex items-center justify-between gap-3 py-2">
+                    <div className="min-w-0">
+                      <div className="font-mono text-[11px] text-zinc-300 truncate">{m.email}</div>
+                      <div className="text-[10px] uppercase tracking-widest mt-0.5">
+                        <span className="text-zinc-600">{m.role}</span>{' '}
+                        <span className={`font-bold ${access.className}`}>{access.label}</span>
+                      </div>
+                    </div>
+                    {canToggle && (
+                      <button
+                        type="button"
+                        disabled={busyMemberId !== null}
+                        onClick={() => void handleSetMemberAccess(modalCustomer.id, m, revoked)}
+                        className="shrink-0 px-3 py-1.5 rounded-md border border-zinc-800 bg-zinc-900/50 text-zinc-400 hover:text-white text-[10px] font-bold uppercase tracking-widest disabled:opacity-40"
+                      >
+                        {busyMemberId === m.id ? (
+                          <Loader2 className="animate-spin" size={12} />
+                        ) : revoked ? (
+                          'Reactivate'
+                        ) : (
+                          'Deactivate'
+                        )}
+                      </button>
+                    )}
+                  </li>
+                );
+              })}
+            </ul>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

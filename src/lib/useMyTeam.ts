@@ -16,6 +16,8 @@ export type TeamMember = {
   user_id: string | null;
   activated_at: string | null;
   created_at: string;
+  /** null = access not revoked; 'admin' / 'owner' = who deactivated this member (slot stays used). */
+  access_revoked_by: 'admin' | 'owner' | null;
 };
 
 type MyTeamState = {
@@ -68,7 +70,7 @@ export function useMyTeam(): MyTeamState {
 
         const { data: memberRows, error: mErr } = await supabase
           .from('customer_members')
-          .select('id, email, role, status, user_id, activated_at, created_at')
+          .select('id, email, role, status, user_id, activated_at, created_at, access_revoked_by')
           .eq('customer_id', cust.id)
           .order('created_at', { ascending: true });
 
