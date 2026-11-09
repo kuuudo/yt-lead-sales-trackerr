@@ -614,7 +614,7 @@ export default function Website() {
               <a href={CTA_HREF} style={{ padding: '15px 26px', borderRadius: 12, background: C.purple, color: '#fff', fontSize: 16, fontWeight: 700, textDecoration: 'none' }}>Start tracking →</a>
               <a href="#link" style={{ padding: '15px 26px', borderRadius: 12, border: `1.5px solid ${C.tintStroke}`, color: C.text, fontSize: 16, fontWeight: 600, textDecoration: 'none' }}>See how it works</a>
             </div>
-            <div style={{ marginTop: 12, fontSize: 14, color: C.mut }}>✓ No credit card required &nbsp;·&nbsp; ✓ Cancel anytime
+            <div style={{ marginTop: 12, fontSize: 14, color: C.mut }}>✓ 3-day free trial &nbsp;·&nbsp; ✓ No credit card required &nbsp;·&nbsp; ✓ Cancel anytime
             </div>
             <div style={{ display: 'grid', gridTemplateColumns: '1fr', gap: '18px 24px', marginTop: 34 }}>
               {[
