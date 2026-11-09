@@ -614,11 +614,13 @@ export default function Website() {
               <a href={CTA_HREF} style={{ padding: '15px 26px', borderRadius: 12, background: C.purple, color: '#fff', fontSize: 16, fontWeight: 700, textDecoration: 'none' }}>Start tracking →</a>
               <a href="#link" style={{ padding: '15px 26px', borderRadius: 12, border: `1.5px solid ${C.tintStroke}`, color: C.text, fontSize: 16, fontWeight: 600, textDecoration: 'none' }}>See how it works</a>
             </div>
+            <div style={{ marginTop: 12, fontSize: 14, color: C.mut }}>✓ No credit card required &nbsp;·&nbsp; ✓ Cancel anytime
+            </div>
             <div style={{ display: 'grid', gridTemplateColumns: '1fr', gap: '18px 24px', marginTop: 34 }}>
               {[
                 { t: 'Track Content Across 9 Platforms', d: 'Track videos, posts, Stories, and Shorts across all 9 supported platforms. See which content leads to newsletter signups, leads, sales calls, consultations, and revenue.' },
                 { t: 'Track the Entire Marketing Journey', d: 'See how content across multiple platforms works together to generate results, from the first interaction to the final sale.', j: 'YouTube video → Facebook post → TikTok → LinkedIn post → Revenue', jn: '' },
-                { t: 'Let Others Promote. Track Every Result.', d: <>Let other people promote your content or offers using your own branded tracking domain. For example, share <span style={{ fontFamily: MONO, fontSize: 13, fontWeight: 600, color: C.lp, background: C.tint, padding: '2px 7px', borderRadius: 6, whiteSpace: 'nowrap' }}>go.yourdomain.com/</span> with your promoters, and they can generate unique tracking links like <span style={{ fontFamily: MONO, fontSize: 13, fontWeight: 600, color: C.lp, background: C.tint, padding: '2px 7px', borderRadius: 6, whiteSpace: 'nowrap' }}>go.yourdomain.com/1234</span> to promote your products. Track who drives signups, leads, consultations, and sales — all under your own domain.</> },
+                { t: 'Let Others Promote. Track Every Result.', d: <>You can also let other people promote your content or offers using your own branded tracking domain. For example, share <span style={{ fontFamily: MONO, fontSize: 13, fontWeight: 600, color: C.lp, background: C.tint, padding: '2px 7px', borderRadius: 6, whiteSpace: 'nowrap' }}>go.yourdomain.com/</span> with your promoters, and they can generate unique tracking links like <span style={{ fontFamily: MONO, fontSize: 13, fontWeight: 600, color: C.lp, background: C.tint, padding: '2px 7px', borderRadius: 6, whiteSpace: 'nowrap' }}>go.yourdomain.com/1234</span> to promote your products. Track who drives signups, leads, consultations, and sales — all under your own domain.</> },
               ].map((f) => (
                 <div key={f.t} style={{ display: 'flex', gap: 10, alignItems: 'flex-start' }}>
                   <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke={C.purple} strokeWidth={2.4} strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" style={{ flex: 'none', marginTop: 2 }}><path d="M5 12.5l4.5 4.5L19 7.5" /></svg>
@@ -773,7 +775,12 @@ export default function Website() {
 
         <section style={{ marginTop: 96, textAlign: 'center' }}>
           <div style={{ fontSize: 'clamp(24px,4vw,34px)', fontWeight: 700, letterSpacing: '-0.02em', marginBottom: 18 }}>Stop guessing. Start tracking.</div>
-          <a href={CTA_HREF} style={{ display: 'inline-block', padding: '15px 28px', borderRadius: 12, background: C.purple, color: '#fff', fontSize: 16, fontWeight: 700, textDecoration: 'none' }}>Start tracking</a>
+          <p style={{ fontSize: 16, color: C.mut, margin: '0 0 22px' }}>Try VS-TRACK free for 3 days. No card needed.</p>
+          <a href={CTA_HREF} style={{ display: 'inline-block', padding: '15px 28px', borderRadius: 12, background: C.purple, color: '#fff', fontSize: 16, fontWeight: 700, textDecoration: 'none' }}>Start your 3-day free trial</a>
+          <div style={{ marginTop: 14, fontSize: 14, color: C.mut, display: 'flex', flexWrap: 'wrap', justifyContent: 'center', gap: '6px 18px' }}>
+            <span>✓ No credit card required</span>
+            <span>✓ Cancel anytime</span>
+          </div>
         </section>
       </div>
     </div>
