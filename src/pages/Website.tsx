@@ -608,8 +608,8 @@ export default function Website() {
             <h1 style={{ fontSize: 'clamp(38px,5.4vw,62px)', fontWeight: 700, lineHeight: 1.04, letterSpacing: '-0.025em', margin: '20px 0 0' }}>
               Track the whole path from <span style={{ background: 'linear-gradient(transparent 62%, #d9ceff 62%)' }}>video to sale.</span>
             </h1>
-            <p style={{ fontSize: 18, color: C.mut, margin: '20px 0 0', maxWidth: 520, lineHeight: 1.6 }}>See how your content connects across platforms and turns attention into subscribers, leads, consultations, and sales.</p>
-            <p style={{ fontSize: 16, fontWeight: 600, color: C.text, margin: '14px 0 0', maxWidth: 520, lineHeight: 1.5 }}>One piece of content. One connected marketing journey. Measurable results.</p>
+            <p style={{ fontSize: 18, color: C.mut, margin: '20px 0 0', maxWidth: 520, lineHeight: 1.6 }}>Track content across 9 platforms, discover which videos and posts drive leads and sales across complex, multi-platform customer journeys, and let others promote your content, products, or offers through unique tracking links while measuring the results they generate.</p>
+            
             <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap', marginTop: 28 }}>
               <a href={CTA_HREF} style={{ padding: '15px 26px', borderRadius: 12, background: C.purple, color: '#fff', fontSize: 16, fontWeight: 700, textDecoration: 'none' }}>Start tracking →</a>
               <a href="#link" style={{ padding: '15px 26px', borderRadius: 12, border: `1.5px solid ${C.tintStroke}`, color: C.text, fontSize: 16, fontWeight: 600, textDecoration: 'none' }}>See how it works</a>
