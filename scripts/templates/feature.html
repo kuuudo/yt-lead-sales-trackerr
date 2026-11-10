@@ -1,0 +1,18 @@
+        <article class="detail">
+          <div class="label">Feature</div>
+          <h1>{{title}}</h1>
+{{#draft}}
+          <div class="ph"><span class="ph-label">Feature introduction</span></div>
+          <div class="ph"><span class="ph-label">Problem being solved</span></div>
+          <div class="ph"><span class="ph-label">How it works</span></div>
+          <div class="ph ph-media"><span class="ph-label">Supporting visual or demo</span><span class="ph-sub">Placeholder only. No interactive demo is included.</span></div>
+          <div class="ph-row">
+            <div class="ph"><span class="ph-label">Related guides</span></div>
+            <div class="ph"><span class="ph-label">Relevant use cases</span></div>
+          </div>
+{{/draft}}
+{{^draft}}
+          <div class="prose">{{{body}}}</div>
+{{{related}}}
+{{/draft}}
+        </article>

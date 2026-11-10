@@ -1,0 +1,18 @@
+        <article class="detail">
+          <div class="label">Use case</div>
+          <h1>{{title}}</h1>
+{{#draft}}
+          <div class="ph"><span class="ph-label">Business situation</span></div>
+          <div class="ph"><span class="ph-label">The measurement problem</span></div>
+          <div class="ph"><span class="ph-label">Example workflow</span></div>
+          <div class="ph"><span class="ph-label">How VSTRK can help</span></div>
+          <div class="ph-row">
+            <div class="ph"><span class="ph-label">Related features</span></div>
+            <div class="ph"><span class="ph-label">Related guides</span></div>
+          </div>
+{{/draft}}
+{{^draft}}
+          <div class="prose">{{{body}}}</div>
+{{{related}}}
+{{/draft}}
+        </article>

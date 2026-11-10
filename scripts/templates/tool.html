@@ -1,0 +1,40 @@
+        <article class="detail">
+          <div class="label">Tool</div>
+          <h1>{{title}}</h1>
+{{#draft}}
+          <div class="ph"><span class="ph-label">Tool introduction</span></div>
+{{/draft}}
+{{#is_utm}}
+          <div class="card tool-ui" aria-label="UTM link builder (layout placeholder)">
+            <div class="label">UTM link builder</div>
+            <div class="tool-grid">
+              <label class="full">Website URL<input type="text" placeholder="https://example.com/landing-page" disabled /></label>
+              <label>Campaign source<input type="text" placeholder="youtube" disabled /></label>
+              <label>Campaign medium<input type="text" placeholder="video" disabled /></label>
+              <label>Campaign name<input type="text" placeholder="spring-launch" disabled /></label>
+              <label>Campaign term (optional)<input type="text" disabled /></label>
+              <label class="full">Campaign content (optional)<input type="text" disabled /></label>
+            </div>
+            <div class="tool-output">
+              <div class="label">Generated URL</div>
+              <div class="tool-output-box">Your link will appear here</div>
+              <button class="btn btn-solid" type="button" disabled>Copy link</button>
+            </div>
+            <p class="tool-note">Layout placeholder. This tool is not active yet and does not generate links.</p>
+          </div>
+{{/is_utm}}
+{{^is_utm}}
+          <div class="ph ph-tall"><span class="ph-label">Tool interface</span></div>
+{{/is_utm}}
+{{#draft}}
+          <div class="ph"><span class="ph-label">How to use this tool</span></div>
+          <div class="ph-row">
+            <div class="ph"><span class="ph-label">Related guides</span></div>
+            <div class="ph"><span class="ph-label">Related features</span></div>
+          </div>
+{{/draft}}
+{{^draft}}
+          <div class="prose">{{{body}}}</div>
+{{{related}}}
+{{/draft}}
+        </article>

@@ -1,0 +1,51 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>{{title_tag}}</title>
+    <meta name="description" content="{{description}}" />
+    <meta name="robots" content="{{robots}}" />
+    <link rel="canonical" href="{{canonical}}" />
+
+    <meta property="og:type" content="{{og_type}}" />
+    <meta property="og:site_name" content="VSTRK" />
+    <meta property="og:title" content="{{title_tag}}" />
+    <meta property="og:description" content="{{description}}" />
+    <meta property="og:url" content="{{canonical}}" />
+
+    <meta name="twitter:card" content="summary" />
+    <meta name="twitter:title" content="{{title_tag}}" />
+    <meta name="twitter:description" content="{{description}}" />
+
+    <link rel="icon" type="image/png" href="/favicon/logo.png" />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:wght@400;600;700&display=swap" />
+    <link rel="stylesheet" href="/m/m.css" />
+{{{jsonld}}}
+  </head>
+  <body>
+    <div class="container">
+      <header class="m-header">
+        <a class="m-brand" href="{{home_url}}"><span class="m-brand-dot"></span><span class="m-brand-name">VS-TRACK</span></a>
+        <nav class="m-nav" aria-label="Resources">{{{nav}}}</nav>
+        <a class="btn btn-solid" href="{{cta_url}}">Start tracking</a>
+      </header>
+
+      <main>
+{{#draft}}
+        <div class="draft-banner">Draft preview &mdash; not published. This page is set to noindex and is excluded from the sitemap.</div>
+{{/draft}}
+{{{crumbs}}}
+{{{content}}}
+{{{cta}}}
+      </main>
+
+      <footer class="m-footer">
+        <nav aria-label="Footer">{{{footer_nav}}}</nav>
+        <span>&copy; {{year}} VSTRK</span>
+      </footer>
+    </div>
+  </body>
+</html>

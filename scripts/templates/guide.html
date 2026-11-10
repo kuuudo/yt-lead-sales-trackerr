@@ -1,0 +1,19 @@
+        <article class="detail">
+          <div class="label">Guide</div>
+          <h1>{{title}}</h1>
+{{#draft}}
+          <div class="ph"><span class="ph-label">Introduction</span><span class="ph-sub">Short intro that answers the question first.</span></div>
+          <div class="ph"><span class="ph-label">Table of contents</span></div>
+          <div class="ph ph-tall"><span class="ph-label">Article content</span></div>
+          <div class="ph ph-media"><span class="ph-label">Screenshots or illustrations</span></div>
+          <div class="ph"><span class="ph-label">FAQ</span></div>
+          <div class="ph-row">
+            <div class="ph"><span class="ph-label">Related guides</span></div>
+            <div class="ph"><span class="ph-label">Relevant features</span></div>
+          </div>
+{{/draft}}
+{{^draft}}
+          <div class="prose">{{{body}}}</div>
+{{{related}}}
+{{/draft}}
+        </article>

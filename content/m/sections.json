@@ -1,0 +1,78 @@
+{
+  "site": {
+    "name": "VSTRK",
+    "baseUrl": "https://www.vstrk.com",
+    "homeUrl": "/",
+    "ctaUrl": "/start"
+  },
+  "index": {
+    "label": "Resources",
+    "title": "VSTRK Resources",
+    "seoTitle": "VSTRK Resources | Guides, Features, Tools, Use Cases and Comparisons",
+    "description": "Guides, feature explanations, free tools, use cases, and comparisons from VSTRK.",
+    "intro": "Guides, feature explanations, free tools, use cases, and comparisons from VSTRK.",
+    "status": "draft"
+  },
+  "sections": [
+    {
+      "key": "guides",
+      "label": "Guides",
+      "title": "Guides",
+      "seoTitle": "Guides | VSTRK",
+      "description": "Practical VSTRK guides for tracking content to leads, signups, and revenue.",
+      "intro": "Practical guides for tracking content to leads, signups, and revenue.",
+      "cardKind": "Guide",
+      "cardLink": "Read the guide",
+      "cardStyle": "standard",
+      "status": "draft"
+    },
+    {
+      "key": "features",
+      "label": "Features",
+      "title": "Features",
+      "seoTitle": "Features | VSTRK",
+      "description": "What VSTRK does and how each part of the platform works.",
+      "intro": "What VSTRK does and how each part works.",
+      "cardKind": "Feature",
+      "cardLink": "Learn more",
+      "cardStyle": "standard",
+      "status": "draft"
+    },
+    {
+      "key": "tools",
+      "label": "Tools",
+      "title": "Tools",
+      "seoTitle": "Tools | VSTRK",
+      "description": "Free marketing tools from VSTRK.",
+      "intro": "Free marketing tools from VSTRK.",
+      "cardKind": "Tool",
+      "cardLink": "Open the tool",
+      "cardStyle": "standard",
+      "status": "draft"
+    },
+    {
+      "key": "use-cases",
+      "label": "Use cases",
+      "title": "Use cases",
+      "seoTitle": "Use Cases | VSTRK",
+      "description": "How different teams and businesses use VSTRK to measure marketing results.",
+      "intro": "How different teams and businesses use VSTRK to measure marketing results.",
+      "cardKind": "Use case",
+      "cardLink": "Read the use case",
+      "cardStyle": "standard",
+      "status": "draft"
+    },
+    {
+      "key": "compare",
+      "label": "Compare",
+      "title": "Compare",
+      "seoTitle": "Compare | VSTRK",
+      "description": "How VSTRK compares with other tools.",
+      "intro": "How VSTRK compares with other tools.",
+      "cardKind": "Comparison",
+      "cardLink": "See the comparison",
+      "cardStyle": "compact",
+      "status": "draft"
+    }
+  ]
+}

@@ -1,0 +1,27 @@
+        <article class="detail">
+          <div class="label">Comparison</div>
+          <h1>{{title}}</h1>
+{{#draft}}
+          <div class="ph"><span class="ph-label">What each product is designed for</span></div>
+          <div class="table-wrap">
+            <table class="cmp">
+              <thead><tr><th>Feature</th><th>VSTRK</th><th>{{competitor}}</th></tr></thead>
+              <tbody>
+                <tr><td>&mdash;</td><td>&mdash;</td><td>&mdash;</td></tr>
+                <tr><td>&mdash;</td><td>&mdash;</td><td>&mdash;</td></tr>
+                <tr><td>&mdash;</td><td>&mdash;</td><td>&mdash;</td></tr>
+              </tbody>
+            </table>
+          </div>
+          <div class="ph-row">
+            <div class="ph"><span class="ph-label">Where {{competitor}} is stronger</span></div>
+            <div class="ph"><span class="ph-label">Where VSTRK is different</span></div>
+          </div>
+          <div class="ph"><span class="ph-label">Which type of user should choose each product</span></div>
+          <div class="ph"><span class="ph-label">Related guides</span></div>
+{{/draft}}
+{{^draft}}
+          <div class="prose">{{{body}}}</div>
+{{{related}}}
+{{/draft}}
+        </article>
