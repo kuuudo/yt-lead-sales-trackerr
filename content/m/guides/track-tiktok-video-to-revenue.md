@@ -2,7 +2,7 @@
 title: "How to Track TikTok Videos to Revenue"
 seo_title: "How to Track TikTok Videos to Revenue: Methods and Tools | VSTRK"
 description: "Learn how to connect each TikTok video to leads, calls and sales, and compare the tools that track TikTok to revenue, from single-platform to all-platform."
-status: draft
+status: published
 primary_keyword: "track tiktok video to revenue"
 card_summary: "Connect each TikTok video to leads, calls and sales, and see how the tracking tools compare."
 related:
