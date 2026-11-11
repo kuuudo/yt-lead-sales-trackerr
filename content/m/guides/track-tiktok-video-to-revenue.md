@@ -5,10 +5,7 @@ description: "Learn how to connect each TikTok video to leads, calls and sales, 
 status: published
 primary_keyword: "track tiktok video to revenue"
 card_summary: "Connect each TikTok video to leads, calls and sales, and see how the tracking tools compare."
-related:
-  - features/partner-tracking-links
-  - tools/utm-link-builder
-  - compare/bitly-alternative-for-lead-tracking
+related: []
 ---
 
 <!-- EDITOR NOTES (delete before publishing): (1) VSTRK's nine-platform coverage, conversion tracking, Stripe revenue integration, partner tracking links, 3-day free trial and weekly pricing should be checked against the current live product and pricing pages before publishing. Confirm the exact nine-platform list and any limitations of Stripe revenue attribution. (2) Competitor details come from each vendor's public pages in November 2026. Re-check before publishing. (3) Confirm TikTok's current link-in-bio rules on the TikTok Support Center page linked below. -->
@@ -48,7 +45,7 @@ The tag in step one is usually a set of UTM parameters added to the end of a URL
 https://example.com/templates?utm_source=tiktok&utm_medium=social&utm_campaign=spring-templates&utm_content=invoice-mistakes
 ```
 
-Google's documentation says the source, medium and campaign parameters should always be included, and that values are case sensitive, so `tiktok` and `TikTok` show up as separate rows in reports. Pick a naming convention and keep it. Our [UTM Link Builder](/m/tools/utm-link-builder/) is a free way to generate consistent links.
+Google's documentation says the source, medium and campaign parameters should always be included, and that values are case sensitive, so `tiktok` and `TikTok` show up as separate rows in reports. Pick a naming convention and keep it. Our UTM Link Builder is a free way to generate consistent links.
 
 Two TikTok-specific details are worth knowing. First, profiles typically allow one clickable website link, and which accounts can add it has changed over time, so check TikTok's [current requirements](https://support.tiktok.com/en/getting-started/setting-up-your-profile/linking-another-social-media-account). Second, links opened inside TikTok often open in its in-app browser. TikTok's own ads help says that browser can keep Google Analytics from logging the correct referral channel, and Matomo notes that organic TikTok visits may show up as direct traffic without campaign parameters. A tagged link is the fix, and testing it before you post is cheap insurance.
 
@@ -81,11 +78,11 @@ The lowest-cost option is to tag your links with UTM parameters and read the res
 
 ### Link-in-bio tools and link shorteners
 
-Link-in-bio pages and link shorteners put several destinations behind one profile link and count clicks on each. They are good at answering which link people tapped. Most stop there: they report clicks, not what the visitor did next. If you want a deeper comparison of what a link shortener does and does not measure, see our [comparison of Bitly and deeper lead tracking](/m/compare/bitly-alternative-for-lead-tracking/).
+Link-in-bio pages and link shorteners put several destinations behind one profile link and count clicks on each. They are good at answering which link people tapped. Most stop there: they report clicks, not what the visitor did next. If you want a deeper comparison of what a link shortener does and does not measure, see our comparison of Bitly and deeper lead tracking.
 
 ### Landing pages and unique tracking links
 
-A dedicated landing page per video or campaign makes the source obvious, since anyone who lands there came from that video. Unique tracking links go a step further: each video, or each person promoting you, gets a link that identifies exactly who sent the visitor. If other people promote your products, [partner tracking links](/m/features/partner-tracking-links/) let you measure what each one produces instead of guessing.
+A dedicated landing page per video or campaign makes the source obvious, since anyone who lands there came from that video. Unique tracking links go a step further: each video, or each person promoting you, gets a link that identifies exactly who sent the visitor. If other people promote your products, partner tracking links let you measure what each one produces instead of guessing.
 
 ### Analytics and attribution platforms
 
