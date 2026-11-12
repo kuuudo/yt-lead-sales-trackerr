@@ -132,7 +132,7 @@ You can also create unique tracking links for partners, affiliates or other peop
 
 TikTok tracking in VSTRK is link-based: it relies on viewers clicking a tracking link you have placed, rather than claiming native access to TikTok's internal analytics.
 
-VSTRK offers a 3-day free trial, with its weekly plan priced at $17 USD per week. You can try it with your own content and see how your tracking results look before deciding whether it fits your workflow.
+VSTRK offers a 3-day free trial, with its weekly plan priced at $15 USD per week. You can try it with your own content and see how your tracking results look before deciding whether it fits your workflow.
 
 ## How the tools compare
 
@@ -326,7 +326,7 @@ Several tools in this guide describe partner or affiliate tracking, including Re
 
 Views tell you what people watched. Revenue tells you what worked. To connect the two, give each TikTok video its own tagged link, record what visitors do afterward, and tie the money back to the video that started it.
 
-Which tool you need depends on how you work. A single-platform tool can be a good fit if you stick to one platform. If you publish across several platforms, want to see the whole customer journey, connect Stripe revenue, or let others promote your offers, an all-platform tool is worth a look. VSTRK is built for that second case. You can [start tracking with VSTRK](/start) with a 3-day free trial and explore the weekly plan at $17 USD per week.
+Which tool you need depends on how you work. A single-platform tool can be a good fit if you stick to one platform. If you publish across several platforms, want to see the whole customer journey, connect Stripe revenue, or let others promote your offers, an all-platform tool is worth a look. VSTRK is built for that second case. You can [start tracking with VSTRK](/start) with a 3-day free trial and explore the weekly plan at $15 USD per week.
 
 ## References
 
