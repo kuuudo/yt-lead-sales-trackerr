@@ -5,23 +5,155 @@
           <div class="ph"><span class="ph-label">Tool introduction</span></div>
 {{/draft}}
 {{#is_utm}}
-          <div class="card tool-ui" aria-label="UTM link builder (layout placeholder)">
+          <p class="lead">Create trackable marketing URLs in seconds. Add UTM parameters to your links and understand where your website traffic comes from.</p>
+          <p class="tool-note">Free. No signup. Runs in your browser.</p>
+          <div class="card tool-ui" aria-label="UTM link builder">
             <div class="label">UTM link builder</div>
+            <div class="tool-presets">
+              <span>Try an example</span>
+              <button class="pill" type="button" data-preset="youtube">YouTube</button>
+              <button class="pill" type="button" data-preset="facebook">Facebook</button>
+              <button class="pill" type="button" data-preset="newsletter">Email newsletter</button>
+            </div>
             <div class="tool-grid">
-              <label class="full">Website URL<input type="text" placeholder="https://example.com/landing-page" disabled /></label>
-              <label>Campaign source<input type="text" placeholder="youtube" disabled /></label>
-              <label>Campaign medium<input type="text" placeholder="video" disabled /></label>
-              <label>Campaign name<input type="text" placeholder="spring-launch" disabled /></label>
-              <label>Campaign term (optional)<input type="text" disabled /></label>
-              <label class="full">Campaign content (optional)<input type="text" disabled /></label>
+              <label class="full">Website URL<input id="utm-url" type="text" inputmode="url" autocomplete="off" spellcheck="false" placeholder="https://example.com/landing-page" /></label>
+              <label>Campaign source<input id="utm-source" type="text" autocomplete="off" spellcheck="false" placeholder="youtube" /></label>
+              <label>Campaign medium<input id="utm-medium" type="text" autocomplete="off" spellcheck="false" placeholder="video" /></label>
+              <label>Campaign name<input id="utm-campaign" type="text" autocomplete="off" spellcheck="false" placeholder="spring-launch" /></label>
+              <label>Campaign term (optional)<input id="utm-term" type="text" autocomplete="off" spellcheck="false" /></label>
+              <label class="full">Campaign content (optional)<input id="utm-content" type="text" autocomplete="off" spellcheck="false" /></label>
             </div>
             <div class="tool-output">
               <div class="label">Generated URL</div>
-              <div class="tool-output-box">Your link will appear here</div>
-              <button class="btn btn-solid" type="button" disabled>Copy link</button>
+              <div class="tool-output-box" id="utm-output" aria-live="polite">Your link will appear here</div>
+              <p class="tool-error" id="utm-error" role="alert" hidden></p>
+              <div class="tool-actions">
+                <button class="btn btn-solid" id="utm-copy" type="button" disabled>Copy link</button>
+                <button class="btn btn-ghost" id="utm-clear" type="button">Clear all</button>
+              </div>
             </div>
-            <p class="tool-note">Layout placeholder. This tool is not active yet and does not generate links.</p>
           </div>
+          <script>
+          (function () {
+            var KEYS = ['url', 'source', 'medium', 'campaign', 'term', 'content'];
+            var el = {};
+            KEYS.forEach(function (k) { el[k] = document.getElementById('utm-' + k); });
+            var box = document.getElementById('utm-output');
+            var errEl = document.getElementById('utm-error');
+            var copyBtn = document.getElementById('utm-copy');
+            var clearBtn = document.getElementById('utm-clear');
+            var UTM_KEY = /^utm_(source|medium|campaign|term|content)(=|$)/i;
+            var current = '';
+
+            var PRESETS = {
+              youtube: { url: 'https://example.com/offer', source: 'youtube', medium: 'video', campaign: 'black-friday-sale', term: '', content: 'description-link' },
+              facebook: { url: 'https://example.com/offer', source: 'facebook', medium: 'social', campaign: 'spring-launch', term: '', content: 'organic-post' },
+              newsletter: { url: 'https://example.com/offer', source: 'newsletter', medium: 'email', campaign: 'weekly-digest', term: '', content: 'header-button' }
+            };
+
+            function val(k) { return el[k].value.trim(); }
+
+            function build() {
+              var raw = val('url');
+              if (!raw) return { url: '', error: '', hint: '' };
+              if (/\s/.test(raw)) return { url: '', error: 'The URL cannot contain spaces.', hint: '' };
+              var full = /^[a-z][a-z0-9+.-]*:\/\//i.test(raw) ? raw : 'https://' + raw;
+              var parsed;
+              try {
+                parsed = new URL(full);
+              } catch (e) {
+                return { url: '', error: 'Enter a valid URL, for example https://example.com/page', hint: '' };
+              }
+              if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
+                return { url: '', error: 'The URL must start with http:// or https://', hint: '' };
+              }
+              if (parsed.hostname.indexOf('.') === -1 && parsed.hostname !== 'localhost') {
+                return { url: '', error: 'Enter a full domain, for example example.com', hint: '' };
+              }
+              var source = val('source');
+              var medium = val('medium');
+              var campaign = val('campaign');
+              if (!source || !medium || !campaign) {
+                return { url: '', error: '', hint: 'Fill in source, medium and campaign name to generate your link.' };
+              }
+              var hashIdx = full.indexOf('#');
+              var hash = hashIdx >= 0 ? full.slice(hashIdx) : '';
+              var noHash = hashIdx >= 0 ? full.slice(0, hashIdx) : full;
+              var qIdx = noHash.indexOf('?');
+              var base = qIdx >= 0 ? noHash.slice(0, qIdx) : noHash;
+              var query = qIdx >= 0 ? noHash.slice(qIdx + 1) : '';
+              if (/^https?:\/\/[^\/]+$/i.test(base)) base += '/';
+              var kept = query.split('&').filter(function (p) { return p && !UTM_KEY.test(p); });
+              var added = [
+                'utm_source=' + encodeURIComponent(source),
+                'utm_medium=' + encodeURIComponent(medium),
+                'utm_campaign=' + encodeURIComponent(campaign)
+              ];
+              if (val('term')) added.push('utm_term=' + encodeURIComponent(val('term')));
+              if (val('content')) added.push('utm_content=' + encodeURIComponent(val('content')));
+              return { url: base + '?' + kept.concat(added).join('&') + hash, error: '', hint: '' };
+            }
+
+            function update() {
+              var r = build();
+              var showErr = r.error && document.activeElement !== el.url;
+              current = r.url;
+              errEl.textContent = showErr ? r.error : '';
+              errEl.hidden = !showErr;
+              box.textContent = r.url || r.hint || 'Your link will appear here';
+              box.className = 'tool-output-box' + (r.url ? ' has-url' : '');
+              copyBtn.disabled = !r.url;
+              copyBtn.textContent = 'Copy link';
+            }
+
+            function fallbackCopy(done) {
+              var ta = document.createElement('textarea');
+              ta.value = current;
+              ta.setAttribute('readonly', '');
+              ta.style.position = 'fixed';
+              ta.style.opacity = '0';
+              document.body.appendChild(ta);
+              ta.select();
+              try {
+                if (document.execCommand('copy')) done();
+              } catch (e) {
+                // nothing else to try
+              }
+              document.body.removeChild(ta);
+            }
+
+            copyBtn.addEventListener('click', function () {
+              if (!current) return;
+              var done = function () {
+                copyBtn.textContent = 'Copied!';
+                setTimeout(function () { copyBtn.textContent = 'Copy link'; }, 1600);
+              };
+              if (navigator.clipboard && navigator.clipboard.writeText) {
+                navigator.clipboard.writeText(current).then(done, function () { fallbackCopy(done); });
+              } else {
+                fallbackCopy(done);
+              }
+            });
+
+            clearBtn.addEventListener('click', function () {
+              KEYS.forEach(function (k) { el[k].value = ''; });
+              update();
+              el.url.focus();
+            });
+
+            Array.prototype.forEach.call(document.querySelectorAll('[data-preset]'), function (b) {
+              b.addEventListener('click', function () {
+                var p = PRESETS[b.getAttribute('data-preset')];
+                KEYS.forEach(function (k) { el[k].value = p[k]; });
+                update();
+              });
+            });
+
+            KEYS.forEach(function (k) { el[k].addEventListener('input', update); });
+            el.url.addEventListener('blur', update);
+            update();
+          })();
+          </script>
 {{/is_utm}}
 {{^is_utm}}
           <div class="ph ph-tall"><span class="ph-label">Tool interface</span></div>
