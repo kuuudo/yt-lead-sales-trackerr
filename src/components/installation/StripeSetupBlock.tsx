@@ -133,7 +133,7 @@ export const StripeSetupBlock = ({
           </div>
           <p className="text-[11px] text-zinc-500 pl-7 leading-relaxed">
             This is your tracked checkout link. Use this as your &quot;Buy Now&quot; button — it
-            routes through VS-Track so purchases are attributed to the correct video.
+            routes through Vstrk so purchases are attributed to the correct video.
           </p>
           <div className="flex gap-2 pl-7">
             {trackedUrl ? (
@@ -162,7 +162,7 @@ export const StripeSetupBlock = ({
                 </p>
                 <p className="text-[11px] text-zinc-600 leading-relaxed">
                   If you ever switch payment providers or update your checkout URL, just
-                  change it in Campaign Settings. Your VS-Track link keeps working
+                  change it in Campaign Settings. Your Vstrk link keeps working
                   automatically — no need to update your website or videos.
                 </p>
               </div>

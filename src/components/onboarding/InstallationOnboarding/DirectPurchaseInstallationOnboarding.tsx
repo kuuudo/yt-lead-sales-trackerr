@@ -396,7 +396,7 @@ export default function DirectPurchaseInstallationOnboarding({
                 <div style={{ marginBottom: 12 }}>
                   <p style={{ fontSize: 12, fontWeight: 700, color: '#15151f', margin: '0 0 6px' }}>1. Your tracked checkout link</p>
                   <p style={{ fontSize: 12, color: '#6b6b78', margin: '0 0 8px', lineHeight: 1.45 }}>
-                    Use this as your Buy Now button — routes through VS-Track.
+                    Use this as your Buy Now button — routes through Vstrk.
                   </p>
                   {trackedUrl ? (
                     <div style={{ display: 'flex', gap: 8, alignItems: 'flex-start' }}>

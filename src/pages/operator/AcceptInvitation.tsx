@@ -97,7 +97,7 @@ export default function AcceptInvitation() {
           <>
             <h1 className="label-caps !text-white mb-2">You've been invited</h1>
             <p className="text-[9px] font-bold text-zinc-600 mb-6">
-              You've been invited to join an organization on VS-Track.
+              You've been invited to join an organization on Vstrk.
             </p>
             {result && !result.success && (
               <p className="text-[10px] font-bold text-amber-500 mb-4">{errorMessage(result)}</p>

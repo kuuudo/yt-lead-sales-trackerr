@@ -596,7 +596,7 @@ export default function Website() {
         <header className="lp-header" style={{ display: 'flex', flexWrap: 'wrap', gap: 16, justifyContent: 'space-between', alignItems: 'center', marginBottom: 64 }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
             <span style={{ width: 9, height: 9, borderRadius: '50%', background: C.purple }} />
-            <span style={{ fontFamily: MONO, fontSize: 14, fontWeight: 600, letterSpacing: '0.2em' }}>VS-TRACK</span>
+            <span style={{ fontFamily: MONO, fontSize: 14, fontWeight: 600, letterSpacing: '0.2em' }}>Vstrk</span>
           </div>
           <nav className="lp-nav-links" style={{ ...mono(C.mut), fontSize: 12 }}><a href="#link" style={{ color: 'inherit', textDecoration: 'none' }}>How it works</a><a href="#previews" style={{ color: 'inherit', textDecoration: 'none' }}>See Product in Action</a><a href="/m/" style={{ color: 'inherit', textDecoration: 'none' }}>Guides</a>{SHOW_PRICING_LINK && <a href="/pricing" style={{ color: 'inherit', textDecoration: 'none' }}>Pricing</a>}</nav>
           <span className="lp-head-cta"><Btn>Start tracking</Btn></span>
@@ -747,7 +747,7 @@ export default function Website() {
             <div className="text-center">
               <h2 className="text-lg font-bold text-white">Loved by creators</h2>
               <p className="text-zinc-400 text-sm mt-1">
-                Selected feedback from the VS-Track community.
+                Selected feedback from the Vstrk community.
               </p>
             </div>
 
@@ -775,7 +775,7 @@ export default function Website() {
 
         <section style={{ marginTop: 96, textAlign: 'center' }}>
           <div style={{ fontSize: 'clamp(24px,4vw,34px)', fontWeight: 700, letterSpacing: '-0.02em', marginBottom: 18 }}>Stop guessing. Start tracking.</div>
-          <p style={{ fontSize: 16, color: C.mut, margin: '0 0 22px' }}>Try VS-TRACK free for 3 days. No card needed.</p>
+          <p style={{ fontSize: 16, color: C.mut, margin: '0 0 22px' }}>Try Vstrk free for 3 days. No card needed.</p>
           <a href={CTA_HREF} style={{ display: 'inline-block', padding: '15px 28px', borderRadius: 12, background: C.purple, color: '#fff', fontSize: 16, fontWeight: 700, textDecoration: 'none' }}>Start your 3-day free trial</a>
           <div style={{ marginTop: 14, fontSize: 14, color: C.mut, display: 'flex', flexWrap: 'wrap', justifyContent: 'center', gap: '6px 18px' }}>
             <span>✓ No credit card required</span>

@@ -397,10 +397,10 @@ export default function CampaignDetail() {
             <div className="space-y-1">
               <p className="text-[11px] font-bold text-green-400 uppercase tracking-widest">Payment settings saved</p>
               <p className="text-[12px] text-zinc-300 leading-relaxed">
-                Your Stripe checkout URL has been updated — but your VS-Track link stays exactly the same.
+                Your Stripe checkout URL has been updated — but your Vstrk link stays exactly the same.
               </p>
               <p className="text-[11px] text-zinc-500 leading-relaxed">
-                You do not need to update anything on your website, landing page, or YouTube descriptions. Anyone who clicks your existing VS-Track link will automatically be sent to the new checkout.
+                You do not need to update anything on your website, landing page, or YouTube descriptions. Anyone who clicks your existing Vstrk link will automatically be sent to the new checkout.
               </p>
             </div>
           </motion.div>

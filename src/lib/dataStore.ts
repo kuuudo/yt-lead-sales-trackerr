@@ -1,5 +1,5 @@
 /**
- * Central data cache for VS-Track.
+ * Central data cache for Vstrk.
  *
  * Rule: any resource that many pages need (videos, campaigns, lead magnets)
  * lives here. Pages call `useDataStore().fetchVideos()` etc. That function

@@ -420,7 +420,7 @@ const CampaignCard = ({
                 <Info size={14} className="text-zinc-500 shrink-0 mt-0.5" />
                 <div className="space-y-1">
                   <p className="text-[11px] text-zinc-400 leading-relaxed">
-                    Your tracking links work by routing visitors through VS-Track before sending them to your destination. Each redirect is auto-generated per video. Configure your funnel tracking below, then{' '}
+                    Your tracking links work by routing visitors through Vstrk before sending them to your destination. Each redirect is auto-generated per video. Configure your funnel tracking below, then{' '}
                     <Link to="/videos" className="text-red-400 hover:text-red-300 font-bold underline underline-offset-2">go to Videos</Link>{' '}
                     to attach this campaign to your content.
                   </p>
@@ -476,7 +476,7 @@ const CampaignCard = ({
                   <div>
                     <p className="text-[10px] font-black uppercase tracking-widest text-blue-400 mb-1">Lead Magnet Tracking</p>
                     <p className="text-[11px] text-zinc-400 leading-relaxed">
-                      Lead magnet tracking is handled <span className="text-zinc-300 font-bold">automatically</span> via your video tracking links. When a viewer clicks your lead magnet link in the video description, VS-Track records the click event instantly — no pixel or thank-you page needed.
+                      Lead magnet tracking is handled <span className="text-zinc-300 font-bold">automatically</span> via your video tracking links. When a viewer clicks your lead magnet link in the video description, Vstrk records the click event instantly — no pixel or thank-you page needed.
                     </p>
                   </div>
                 </div>

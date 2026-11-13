@@ -362,7 +362,7 @@ function Navigation() {
           )}
           <Link to="/website" className="text-sm font-black uppercase tracking-[0.2em] text-white flex items-center gap-2 shrink-0">
             <div className="w-2 h-2 bg-red-600 rounded-sm shadow-[0_0_10px_rgba(220,38,38,0.5)]" />
-            VS-Track
+            Vstrk
           </Link>
           {user && (
             <div ref={desktopNavRef} className="hidden md:flex items-center gap-6">
@@ -499,7 +499,7 @@ function Navigation() {
                   className="text-sm font-black uppercase tracking-[0.2em] text-white flex items-center gap-2"
                 >
                   <div className="w-2 h-2 bg-red-600 rounded-sm shadow-[0_0_10px_rgba(220,38,38,0.5)]" />
-                  VS-Track
+                  Vstrk
                 </Link>
                 <button
                   onClick={() => setMobileOpen(false)}

@@ -2,7 +2,7 @@
  * src/services/assignment/inviteCollaborator.ts
  *
  * Creates an invitation for an Assignment. Per Design Lock, this works
- * whether or not the invited email has a VS-Track account yet — identity
+ * whether or not the invited email has a Vstrk account yet — identity
  * is resolved later, at accept time (accept_assignment_invitation checks
  * invited_email against the accepting user's profile email).
  *

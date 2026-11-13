@@ -740,7 +740,7 @@ export default function UnmappedVideos() {
       {/* What does this mean? */}
       <div className="bg-zinc-900/40 border border-zinc-800 rounded-xl p-4">
         <p className="text-zinc-400 text-[10px] font-bold uppercase tracking-widest">
-          These videos were found in your YouTube CSV export but could not be automatically matched to a video in your VS-Track library.
+          These videos were found in your YouTube CSV export but could not be automatically matched to a video in your Vstrk library.
           Raw analytics data for these videos is safely stored. Once mapped, historical metrics will be backfilled automatically.
         </p>
       </div>

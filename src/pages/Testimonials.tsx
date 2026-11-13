@@ -46,10 +46,10 @@ export default function Testimonials() {
           <MessageSquareQuote className="text-red-500" size={22} />
         </div>
         <h1 className="text-2xl md:text-3xl font-bold text-white tracking-tight">
-          What people say about VS-Track
+          What people say about Vstrk
         </h1>
         <p className="text-zinc-500 text-sm mt-2">
-          Real feedback from creators and teams using VS-Track.
+          Real feedback from creators and teams using Vstrk.
         </p>
       </header>
 

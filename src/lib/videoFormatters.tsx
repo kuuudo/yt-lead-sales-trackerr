@@ -438,7 +438,7 @@ export function getElementTypeLabel(elementType: CampaignElementType | string): 
 // Asset Resource utilities (Import Asset pipeline)
 //
 // Asset Resources are NOT videos and NOT Campaign Elements. resource_type is
-// the VS-Track resource category (Design Lock §4) — independent of platform.
+// the Vstrk resource category (Design Lock §4) — independent of platform.
 // Mirrors the ELEMENT_THUMBNAILS pattern above; intentionally does not share
 // state or logic with the video formatters or Campaign Element utilities.
 // ─────────────────────────────────────────────────────────────────────────────

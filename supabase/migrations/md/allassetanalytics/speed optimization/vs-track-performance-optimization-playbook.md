@@ -1,4 +1,4 @@
-# VS-Track Performance Optimization / Sequential Query Investigation Playbook
+# Vstrk Performance Optimization / Sequential Query Investigation Playbook
 
 **Subject:** `AllAssetsAnalytics` load-time optimization
 **Status:** Two optimization rounds complete. Third round (AllAssetsAnalytics.tsx-level) not yet started.

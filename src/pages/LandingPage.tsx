@@ -293,7 +293,7 @@ export default function LandingPage() {
         <header style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 56 }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
             <span style={{ width: 7, height: 7, borderRadius: '50%', background: C.red }} />
-            <span style={{ fontFamily: MONO, fontSize: 14, fontWeight: 500, letterSpacing: '0.2em' }}>VS-TRACK</span>
+            <span style={{ fontFamily: MONO, fontSize: 14, fontWeight: 500, letterSpacing: '0.2em' }}>Vstrk</span>
           </div>
           <nav className="lp-nav-links" style={mono()}><a href="#link" style={{ color: 'inherit', textDecoration: 'none' }}>How it works</a><a href="#share" style={{ color: 'inherit', textDecoration: 'none' }}>Assets</a><a href="/pricing" style={{ color: 'inherit', textDecoration: 'none' }}>Pricing</a></nav>
           <Btn>Start tracking</Btn>
@@ -318,7 +318,7 @@ export default function LandingPage() {
           <Walkthrough label="Watch how to build a journey" />
         </Section>
 
-        <Section label="03 / Any platform, one campaign" title={<>Mix every platform.<br />Trace every path to revenue.</>} sub="Chain videos, posts, and pages across YouTube, TikTok, Instagram, X, Reddit, and more. Paths can split and merge, and VS-Track follows all of them.">
+        <Section label="03 / Any platform, one campaign" title={<>Mix every platform.<br />Trace every path to revenue.</>} sub="Chain videos, posts, and pages across YouTube, TikTok, Instagram, X, Reddit, and more. Paths can split and merge, and Vstrk follows all of them.">
           <MultiPlatform />
           <div style={{ ...mono(C.dim), marginTop: 10, letterSpacing: '0.08em' }}>If you can put a link on it, you can track it.</div>
         </Section>

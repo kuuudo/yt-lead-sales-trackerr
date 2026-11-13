@@ -226,7 +226,7 @@ function buildCta(config) {
   // Copy reused from the existing homepage closing section (Website.tsx).
   return `        <section class="m-cta">
           <div class="big">Stop guessing. Start tracking.</div>
-          <p>Try VS-TRACK free for 3 days. No card needed.</p>
+          <p>Try Vstrk free for 3 days. No card needed.</p>
           <a class="btn-primary" href="${esc(config.site.ctaUrl)}">Start your 3-day free trial</a>
         </section>`;
 }
@@ -288,7 +288,7 @@ function buildCard(page) {
 
 function buildSectionCard(section, count) {
   return `          <a class="card" href="/m/${section.key}/">
-            <div class="card-top"><span class="label">${esc(section.label)}</span><span class="chip">${count} draft</span></div>
+            <div class="card-top"><span class="label">${esc(section.label)}</span></div>
             <h3>${esc(section.title)}</h3>
             <p>${esc(section.intro)}</p>
             <span class="card-link">Browse ${esc(section.label.toLowerCase())} &rarr;</span>

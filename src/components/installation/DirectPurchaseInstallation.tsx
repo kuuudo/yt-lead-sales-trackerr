@@ -118,7 +118,7 @@ export const DirectPurchaseInstallation = ({
               destinationUrl={campaign.checkout_url}
               linkType="checkout"
               eventLabel="Checkout"
-              limitationMessage="Without direct integration, we track visitor intent. For the best attribution accuracy, we recommend using your own website and embedding external tools inside your pages so VS-Track can track the full customer journey."
+              limitationMessage="Without direct integration, we track visitor intent. For the best attribution accuracy, we recommend using your own website and embedding external tools inside your pages so Vstrk can track the full customer journey."
             />
           )}
 
@@ -128,7 +128,7 @@ export const DirectPurchaseInstallation = ({
               destinationUrl={campaign.checkout_url}
               linkType="checkout"
               eventLabel="Payment Page"
-              limitationMessage="Without direct integration, we track visitor intent. For the best attribution accuracy, we recommend using your own website and embedding external tools inside your pages so VS-Track can track the full customer journey."
+              limitationMessage="Without direct integration, we track visitor intent. For the best attribution accuracy, we recommend using your own website and embedding external tools inside your pages so Vstrk can track the full customer journey."
             />
           )}
 

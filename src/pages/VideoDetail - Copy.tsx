@@ -104,7 +104,7 @@ function normalizeDest(url: string | null | undefined): string {
 // starts collapsed by default (still manually expandable). See the
 // `illustrationExpanded` state below for how this is applied.
 const ASSET_LIBRARY_ILLUSTRATION_VIEW_LIMIT = 5;
-const ASSET_LIBRARY_ILLUSTRATION_STORAGE_KEY = 'vs-track:asset-library-illustration-views';
+const ASSET_LIBRARY_ILLUSTRATION_STORAGE_KEY = 'vstrk:asset-library-illustration-views';
 
 // ── analyticsEngine imports ────────────────────────────────────────────────────
 import {

@@ -113,7 +113,7 @@ export const generateAttributionPixel = (
   eventType: string,
   _amount?: number | null
 ): string => {
-  return `<!-- VS-Track Pixel: ${eventType} -->
+  return `<!-- Vstrk Pixel: ${eventType} -->
 <script>
 (function () {
   const CONFIG = {
@@ -250,7 +250,7 @@ export const generateAttributionPixel = (
     event_type: CONFIG.event_type,
     conversion_id: conversionId
   };
-  console.debug('[VS-Track] firing pixel:', payload);
+  console.debug('[Vstrk] firing pixel:', payload);
   fetch('https://www.vstrk.com/api/pixel', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
