@@ -99,7 +99,7 @@ function normalizeDest(url: string | null | undefined): string {
 }
 
 
-// Asset Library illustration — progressive onboarding. Shown in full for the
+// Asset Library illustration — progressive onboarding.. Shown in full for the
 // first N times a user encounters the empty state, across any video, then
 // starts collapsed by default (still manually expandable). See the
 // `illustrationExpanded` state below for how this is applied.
