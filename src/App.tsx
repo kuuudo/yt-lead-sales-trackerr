@@ -67,6 +67,7 @@ import TrackingDomains from './pages/TrackingDomains';
 import AdminTestimonials from './pages/AdminTestimonials';
 import Testimonials from './pages/Testimonials';
 import Website from './pages/Website';
+import PublicPlansPage from './pages/public/WebsitePricing/PublicPlansPage';
 import AllAssetsAnalytics from './pages/AllAssetsAnalytics';
 import AllPromotionsAnalytics from './pages/AllPromotionsAnalytics';
 import AllCampaignAnalytics from './pages/AllCampaignAnalytics';
@@ -722,6 +723,8 @@ if (
     <Routes>
         <Route path="/testimonials" element={<PageWrapper><Testimonials /></PageWrapper>} />
         <Route path="/website" element={<PageWrapper><Website /></PageWrapper>} />
+        {/* Public marketing pricing page. Bare single-segment path: do NOT add 'plans' to KNOWN_APP_PATHS. */}
+        <Route path="/plans" element={<PublicPlansPage />} />
         {SPONSOR_DEMO_PATHS.map(path => (
           <Route key={path} path={path} element={<SponsorDemo />} />
         ))}
@@ -878,6 +881,7 @@ if (
         <Route path="/testimonialss" element={<PageWrapper><AdminTestimonials /></PageWrapper>} />
                 <Route path="/testimonials" element={<PageWrapper><Testimonials /></PageWrapper>} />
         <Route path="/website" element={<PageWrapper><Website /></PageWrapper>} />
+        <Route path="/plans" element={<PublicPlansPage />} />
         <Route path="/assets/analytics" element={<PageWrapper><AssetAnalyticsMock /></PageWrapper>} />
         <Route path="/team" element={<PageWrapper><Team /></PageWrapper>} />
         <Route path="/admin/customers" element={<PageWrapper><AdminCustomers /></PageWrapper>} />

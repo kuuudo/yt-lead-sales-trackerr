@@ -11,7 +11,7 @@
     "seoTitle": "VSTRK Resources | Guides, Features, Tools, Use Cases and Comparisons",
     "description": "Guides, feature explanations, free tools, use cases, and comparisons from VSTRK.",
     "intro": "Guides, feature explanations, free tools, use cases, and comparisons from VSTRK.",
-    "status": "draft"
+    "status": "published"
   },
   "sections": [
     {
@@ -24,7 +24,7 @@
       "cardKind": "Guide",
       "cardLink": "Read the guide",
       "cardStyle": "standard",
-      "status": "draft"
+      "status": "published"
     },
     {
       "key": "features",
@@ -36,7 +36,7 @@
       "cardKind": "Feature",
       "cardLink": "Learn more",
       "cardStyle": "standard",
-      "status": "draft"
+      "status": "published"
     },
     {
       "key": "tools",
@@ -48,7 +48,7 @@
       "cardKind": "Tool",
       "cardLink": "Open the tool",
       "cardStyle": "standard",
-      "status": "draft"
+      "status": "published"
     },
     {
       "key": "use-cases",
@@ -60,7 +60,7 @@
       "cardKind": "Use case",
       "cardLink": "Read the use case",
       "cardStyle": "standard",
-      "status": "draft"
+      "status": "published"
     },
     {
       "key": "compare",
@@ -72,7 +72,7 @@
       "cardKind": "Comparison",
       "cardLink": "See the comparison",
       "cardStyle": "compact",
-      "status": "draft"
+      "status": "published"
     }
   ]
 }

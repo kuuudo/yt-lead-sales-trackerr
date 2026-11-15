@@ -7,6 +7,7 @@ import {
 } from '../services/testimonial/publicTestimonials'
 import LoopVideoPreview from '../components/marketing/LoopVideoPreview'
 import VideoLightbox from '../components/marketing/VideoLightbox'
+import PublicPlansSection from './public/WebsitePricing/PublicPlansSection'
 
 /* Flip these to true when Workspace (Section 05) / Marketplace (Section 06)
    are ready to show on the public landing page. Until then they stay out of
@@ -14,7 +15,7 @@ import VideoLightbox from '../components/marketing/VideoLightbox'
 const SHOW_WORKSPACE_VIDEO = false
 const SHOW_MARKETPLACE_VIDEO = false
 const SHOW_TESTIMONIALS = false // set to true when you have testimonials to show
-const SHOW_PRICING_LINK = false // set to true to show the Pricing link in the header nav
+const SHOW_PRICING_LINK = true // set to true to show the Pricing link in the header nav
 
 const LazySection01 = lazy(() => import('../components/onboarding/OnboardingVideo/OnboardingVideoSection01'))
 const LazySection02 = lazy(() => import('../components/onboarding/OnboardingVideo/OnboardingVideoSection02'))
@@ -598,7 +599,7 @@ export default function Website() {
             <span style={{ width: 9, height: 9, borderRadius: '50%', background: C.purple }} />
             <span style={{ fontFamily: MONO, fontSize: 14, fontWeight: 600, letterSpacing: '0.2em' }}>Vstrk</span>
           </div>
-          <nav className="lp-nav-links" style={{ ...mono(C.mut), fontSize: 12 }}><a href="#link" style={{ color: 'inherit', textDecoration: 'none' }}>How it works</a><a href="#previews" style={{ color: 'inherit', textDecoration: 'none' }}>See Product in Action</a><a href="/m/" style={{ color: 'inherit', textDecoration: 'none' }}>Guides</a>{SHOW_PRICING_LINK && <a href="/pricing" style={{ color: 'inherit', textDecoration: 'none' }}>Pricing</a>}</nav>
+          <nav className="lp-nav-links" style={{ ...mono(C.mut), fontSize: 12 }}><a href="#link" style={{ color: 'inherit', textDecoration: 'none' }}>How it works</a><a href="#previews" style={{ color: 'inherit', textDecoration: 'none' }}>See Product in Action</a><a href="/m/" style={{ color: 'inherit', textDecoration: 'none' }}>Guides</a>{SHOW_PRICING_LINK && <a href="#plans" style={{ color: 'inherit', textDecoration: 'none' }}>Pricing</a>}</nav>
           <span className="lp-head-cta"><Btn>Start tracking</Btn></span>
         </header>
 
@@ -740,6 +741,14 @@ export default function Website() {
         >
           <TabbedStory items={visibleStory} />
         </Section>
+
+        <div id="plans"><Section
+          label="08 / Pricing"
+          title={<>One plan. Start free for 3 days.</>}
+          sub="Simple weekly pricing. Try everything free, then keep tracking for $15 USD per week."
+        >
+          <PublicPlansSection />
+        </Section></div>
 
         {/* Testimonial cards are styled for a dark surface, so they sit on a dark band. */}
         {SHOW_TESTIMONIALS && (
