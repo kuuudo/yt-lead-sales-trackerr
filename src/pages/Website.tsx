@@ -51,6 +51,140 @@ function Btn({ children, solid = true }: { children: React.ReactNode; solid?: bo
   )
 }
 
+/* ---------- Hero headline: "video" → backspace → 9 platforms → "video" → repeat ----------
+   One CSS timeline (HT_CYCLE seconds) drives every moving part, so the loop can never drift.
+   React only measures the word widths once (in em, so it stays responsive) so the highlighted
+   slot can glide between the width of "video" and the width of the widest platform name. */
+const HERO_FIRST_WORD = 'video'
+const HERO_PLATFORMS = ['YouTube', 'TikTok', 'Instagram', 'LinkedIn', 'X', 'Threads', 'Facebook', 'Reddit', 'Twitch']
+const HERO_HL = 'linear-gradient(transparent 62%, #d9ceff 62%)' // the existing lavender highlight
+const HERO_H1: React.CSSProperties = { fontSize: 'clamp(38px,5.4vw,62px)', fontWeight: 700, lineHeight: 1.04, letterSpacing: '-0.025em', margin: 0 }
+
+// Timeline in seconds. Everything below is derived from these numbers.
+const HT = {
+  hold: 1.5,      // "video" stays readable
+  del: 0.12,      // time between backspace key presses (5 letters = 0.6s)
+  delFade: 0.06,  // each letter's own quick fade-out
+  expand: 0.4,    // empty slot widens from "video" to the widest platform name
+  show: 2.2,      // each platform's slot
+  fade: 0.35,     // fade + vertical move in / out
+  ret: 0.5,       // Twitch → "video": slot narrows while "video" rises back in
+}
+const HT_DEL_END = HT.hold + HT.del * HERO_FIRST_WORD.length         // 2.1s
+const HT_PLAT_START = HT_DEL_END + HT.expand                          // 2.5s
+const HT_PLAT_END = HT_PLAT_START + HT.show * HERO_PLATFORMS.length   // 22.3s
+const HT_CYCLE = HT_PLAT_END + HT.ret                                 // 22.8s, then it repeats
+
+const HERO_ROTATOR_CSS = (() => {
+  const pct = (s: number) => `${+((s / HT_CYCLE) * 100).toFixed(3)}%`
+  const T = `${HT_CYCLE}s`
+  const restore = HT_PLAT_END + 0.1 // letters come back while the "video" layer is still invisible
+  const letters = [...HERO_FIRST_WORD].map((_, j) => {
+    const t = HT.hold + HT.del * (HERO_FIRST_WORD.length - 1 - j) // last letter is deleted first
+    return `@keyframes lp-c${j}{0%,${pct(t)}{opacity:1}${pct(t + HT.delFade)},${pct(restore)}{opacity:0}${pct(restore + 0.05)},100%{opacity:1}}`
+      + `.lp-anim .lp-c${j}{animation:lp-c${j} ${T} linear infinite}`
+  }).join('')
+  return `
+        .lp-sr{position:absolute;width:1px;height:1px;margin:-1px;padding:0;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap;border:0}
+        .lp-slot{display:inline-grid;white-space:nowrap;user-select:none;overflow-x:clip}
+        .lp-slot>*{grid-area:1/1}
+        .lp-v{justify-self:start}
+        .lp-w{justify-self:center;opacity:0;animation:lp-w ${T} cubic-bezier(.22,.61,.36,1) var(--d,0s) infinite backwards}
+        .lp-anim .lp-slot{width:var(--lp-wv);animation:lp-slot-w ${T} cubic-bezier(.65,0,.35,1) infinite}
+        .lp-anim .lp-v{animation:lp-v ${T} cubic-bezier(.22,.61,.36,1) infinite}
+        @keyframes lp-slot-w{0%,${pct(HT_DEL_END)}{width:var(--lp-wv)}${pct(HT_PLAT_START)},${pct(HT_PLAT_END)}{width:var(--lp-wm)}${pct(HT_PLAT_END + HT.ret - 0.1)},100%{width:var(--lp-wv)}}
+        @keyframes lp-v{0%,${pct(HT_DEL_END)}{opacity:1;transform:none}${pct(HT_DEL_END + 0.02)},${pct(HT_CYCLE - HT.fade)}{opacity:0;transform:translateY(.35em)}100%{opacity:1;transform:none}}
+        @keyframes lp-w{0%{opacity:0;transform:translateY(.35em)}${pct(HT.fade)},${pct(HT.show - HT.fade)}{opacity:1;transform:none}${pct(HT.show)},100%{opacity:0;transform:translateY(-.35em)}}
+        ${letters}
+        @media(prefers-reduced-motion:reduce){
+          .lp-anim .lp-slot,.lp-anim .lp-v,.lp-anim .lp-c{animation:none !important}
+          .lp-anim .lp-slot{width:auto !important}
+          .lp-anim .lp-w,.lp-anim .lp-sizer{display:none !important}
+        }
+      `
+})()
+
+function HeroHeadline() {
+  const wrapRef = useRef<HTMLDivElement>(null)
+  const [dims, setDims] = useState<{ wv: number; wm: number } | null>(null)
+
+  // Measure "video" and the widest platform name once (in em), and again when web fonts finish loading.
+  useEffect(() => {
+    const h1 = wrapRef.current?.querySelector('h1')
+    if (!h1) return
+    let off = false
+    let timer = 0
+    const measure = () => {
+      if (off) return
+      const fs = parseFloat(getComputedStyle(h1).fontSize)
+      if (!fs) return
+      const probe = document.createElement('span')
+      probe.setAttribute('aria-hidden', 'true')
+      probe.style.cssText = 'position:absolute;visibility:hidden;white-space:nowrap;pointer-events:none'
+      h1.appendChild(probe)
+      const em = (txt: string) => {
+        const s = document.createElement('span')
+        s.style.display = 'inline-block'
+        s.textContent = txt
+        probe.appendChild(s)
+        return s.getBoundingClientRect().width / fs
+      }
+      const wv = Math.round(em(HERO_FIRST_WORD) * 1000) / 1000
+      const wm = Math.round(Math.max(...HERO_PLATFORMS.map((p) => em(p))) * 1000) / 1000
+      h1.removeChild(probe)
+      setDims((prev) => (prev && prev.wv === wv && prev.wm === wm ? prev : { wv, wm }))
+    }
+    const fonts = document.fonts
+    if (fonts && fonts.load) {
+      Promise.race([
+        fonts.load('700 1em "Bricolage Grotesque"'),
+        new Promise((r) => { timer = window.setTimeout(r, 1500) }),
+      ]).then(measure, measure)
+      fonts.addEventListener?.('loadingdone', measure)
+    } else {
+      measure()
+    }
+    return () => {
+      off = true
+      window.clearTimeout(timer)
+      fonts?.removeEventListener?.('loadingdone', measure)
+    }
+  }, [])
+
+  const ready = dims !== null
+  const vars = dims ? ({ '--lp-wv': `${dims.wv}em`, '--lp-wm': `${dims.wm}em` } as React.CSSProperties) : undefined
+
+  return (
+    <div ref={wrapRef} className={ready ? 'lp-anim' : undefined} style={{ display: 'grid', gridTemplateColumns: 'minmax(0,1fr)', margin: '20px 0 0', ...vars }}>
+      {/* The real headline. Screen readers and crawlers get one stable sentence; the animated copy is hidden from them. */}
+      <h1 style={{ ...HERO_H1, gridArea: '1 / 1', alignSelf: 'start' }}>
+        <span className="lp-sr">Track the whole path from video to sale.</span>
+        <span aria-hidden="true">
+          Track the whole path from{' '}
+          <span style={{ background: HERO_HL }}>
+            <span className="lp-slot">
+              <span className="lp-v">{[...HERO_FIRST_WORD].map((ch, j) => <span key={j} className={`lp-c lp-c${j}`}>{ch}</span>)}</span>
+              {ready && HERO_PLATFORMS.map((p, i) => (
+                <span key={p} className="lp-w" style={{ '--d': `${HT_PLAT_START + i * HT.show}s` } as React.CSSProperties}>{p}</span>
+              ))}
+            </span>{' '}to sale.
+          </span>
+        </span>
+      </h1>
+      {/* Invisible copy of the headline with the slot at its widest. It shares the grid cell, so the block never
+          changes height (and nothing below it moves) even if "video" would wrap onto fewer lines than "Instagram". */}
+      {ready && (
+        <div className="lp-sizer" aria-hidden="true" style={{ ...HERO_H1, gridArea: '1 / 1', visibility: 'hidden', pointerEvents: 'none' }}>
+          Track the whole path from{' '}
+          <span style={{ background: HERO_HL }}>
+            <span style={{ display: 'inline-grid', width: 'var(--lp-wm)', whiteSpace: 'nowrap' }}>{HERO_FIRST_WORD}</span>{' '}to sale.
+          </span>
+        </div>
+      )}
+    </div>
+  )
+}
+
 function Section({ label, title, sub, children }: { label: string; title: React.ReactNode; sub: string; children: React.ReactNode }) {
   return (
     <section style={{ marginTop: 96 }}>
@@ -592,6 +726,7 @@ export default function Website() {
         @media(max-width:880px){.lp-chapters{border-left:none;border-top:1px solid ${C.line}}}
         .lp-card{transition:border-color .15s}
         .lp-card:hover{border-color:${C.purple}}
+        ${HERO_ROTATOR_CSS}
       `}</style>
       <div style={{ maxWidth: 1040, margin: '0 auto', padding: '24px 24px 72px' }}>
         <header className="lp-header" style={{ display: 'flex', flexWrap: 'wrap', gap: 16, justifyContent: 'space-between', alignItems: 'center', marginBottom: 64 }}>
@@ -606,9 +741,7 @@ export default function Website() {
         <div style={{ display: 'flex', flexWrap: 'wrap', gap: 48, alignItems: 'center' }}>
           <div style={{ flex: '1 1 440px', minWidth: 0 }}>
             <div style={{ display: 'inline-block', padding: '7px 14px', borderRadius: 999, background: C.tint, color: C.lp, fontSize: 13, fontWeight: 600, letterSpacing: '0.06em' }}>CONTENT → CONVERSIONS → REVENUE</div>
-            <h1 style={{ fontSize: 'clamp(38px,5.4vw,62px)', fontWeight: 700, lineHeight: 1.04, letterSpacing: '-0.025em', margin: '20px 0 0' }}>
-              Track the whole path from <span style={{ background: 'linear-gradient(transparent 62%, #d9ceff 62%)' }}>video to sale.</span>
-            </h1>
+            <HeroHeadline />
             <p style={{ fontSize: 18, color: C.mut, margin: '20px 0 0', maxWidth: 520, lineHeight: 1.6 }}>Track content across 9 platforms, discover which videos and posts drive leads and sales across complex, multi-platform customer journeys, and let others promote your content, products, or offers through unique tracking links while measuring the results they generate.</p>
             
             <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap', marginTop: 28 }}>
