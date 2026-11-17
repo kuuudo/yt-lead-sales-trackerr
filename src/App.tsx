@@ -68,6 +68,8 @@ import AdminTestimonials from './pages/AdminTestimonials';
 import Testimonials from './pages/Testimonials';
 import Website from './pages/Website';
 import PublicPlansPage from './pages/public/WebsitePricing/PublicPlansPage';
+import FounderLifetimePage from './pages/public/WebsitePricing/FounderLifetimePage';
+import FounderThankYouPage from './pages/public/WebsitePricing/FounderThankYouPage';
 import AllAssetsAnalytics from './pages/AllAssetsAnalytics';
 import AllPromotionsAnalytics from './pages/AllPromotionsAnalytics';
 import AllCampaignAnalytics from './pages/AllCampaignAnalytics';
@@ -191,11 +193,18 @@ const VSL_1ST_PATH = '/vsl1stversionanimation';
 // Public pre-signup onboarding. Do NOT add 'start' to KNOWN_APP_PATHS (bare single-segment path = chrome-less + exempt from access gate).
 const ONBOARDING_PATH = '/start';
 
+// Founder Lifetime Access promo: public, full-screen, for any visitor (logged in or out).
+// Handled by an early return in MainContent; no nav, no access gate, no overlays.
+const FOUNDER_OFFER_PATHS = ['/m/founder', '/m/founder-thank-you'];
+function isFounderOfferRoute(pathname: string): boolean {
+  return FOUNDER_OFFER_PATHS.includes(pathname.replace(/\/+$/, '').toLowerCase());
+}
+
 // Renders the top nav + viewing banner everywhere EXCEPT the relay/token
 // redirect routes, without touching in-app navigation at all.
 function AppChrome() {
   const location = useLocation();
-  if (isRelayRoute(location.pathname) || isSponsorDemoRoute(location.pathname) || isSponsorLandingRoute(location.pathname) || isInterviewRoute(location.pathname) || isAgencyRoute(location.pathname) || isBusinessOwnerRoute(location.pathname) || isBusinessHireAgencyRoute(location.pathname)) return null;
+  if (isRelayRoute(location.pathname) || isSponsorDemoRoute(location.pathname) || isSponsorLandingRoute(location.pathname) || isInterviewRoute(location.pathname) || isAgencyRoute(location.pathname) || isBusinessOwnerRoute(location.pathname) || isBusinessHireAgencyRoute(location.pathname) || isFounderOfferRoute(location.pathname)) return null;
 
   return (
     <>
@@ -219,6 +228,7 @@ function ThemeSync() {
     isAgencyRoute(pathname) ||
     isBusinessOwnerRoute(pathname) ||
     isBusinessHireAgencyRoute(pathname) ||
+    isFounderOfferRoute(pathname) ||
     pathname === VSL_1ST_PATH;
   useEffect(() => {
     applyTheme(isPublic ? null : getStoredTheme());
@@ -675,6 +685,17 @@ const isAlwaysAllowed = ALWAYS_ALLOWED_EMAILS.has(
 );
 
 const access = useAccessStatus(user?.id);
+
+  // Founder Lifetime Access promo pages: always public, before the loading spinner,
+  // the access gate and the /pricing redirect. Only these two exact paths reach this.
+  if (isFounderOfferRoute(pathname)) {
+    return (
+      <Routes>
+        <Route path="/m/founder" element={<FounderLifetimePage />} />
+        <Route path="/m/founder-thank-you" element={<FounderThankYouPage />} />
+      </Routes>
+    );
+  }
   if (
   loading ||
   (access === 'loading' && !isRelayRoute(pathname) && !isAlwaysAllowed)
@@ -924,6 +945,18 @@ function PageWrapper({ children }: { children: React.ReactNode }) {
   );
 }
 
+// Same two overlays as before, just not rendered on the founder promo pages.
+function RootOverlays() {
+  const { pathname } = useLocation();
+  if (isFounderOfferRoute(pathname)) return null;
+  return (
+    <>
+      <div data-theme-lock style={{ display: 'contents' }}><OnboardingOverlay /></div>
+      <div data-theme-lock style={{ display: 'contents' }}><TutorialRunner /></div>
+    </>
+  );
+}
+
 export default function App() {
   useLinkOnboardingOnSignIn(); // links anonymous onboarding answers to the account after sign-up
   return (
@@ -937,8 +970,8 @@ export default function App() {
                   <ThemeSync />
                   <AppChrome />
                   <MainContent />
-                  <div data-theme-lock style={{ display: 'contents' }}><OnboardingOverlay /></div>
-                  <div data-theme-lock style={{ display: 'contents' }}><TutorialRunner /></div>
+                  <RootOverlays />
+                  
                 </div>
               </DrillDownProvider>
             </TutorialProvider>
