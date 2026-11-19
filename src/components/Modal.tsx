@@ -11,6 +11,8 @@ interface ModalProps {
   cancelLabel?: string;
   onConfirm?: () => void;
   variant?: 'danger' | 'info' | 'success';
+  /** Optional extra content rendered under the message (e.g. a support link). */
+  extra?: React.ReactNode;
 }
 
 export function Modal({ 
@@ -21,7 +23,8 @@ export function Modal({
   confirmLabel = 'Confirm', 
   cancelLabel = 'Cancel', 
   onConfirm, 
-  variant = 'info' 
+  variant = 'info',
+  extra
 }: ModalProps) {
   return (
     <AnimatePresence>
@@ -63,6 +66,7 @@ export function Modal({
                 <p className="text-zinc-400 text-sm font-medium leading-relaxed">
                   {message}
                 </p>
+                {extra && <div className="mt-4">{extra}</div>}
               </div>
             </div>
             

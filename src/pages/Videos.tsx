@@ -60,6 +60,7 @@ import {
 } from '../lib/videoFormatters';
 import { motion, AnimatePresence } from 'motion/react';
 import { Modal } from '../components/Modal';
+import { SUPPORT_WHATSAPP_URL } from '../lib/support';
 import { ConfigureCampaignLinksModal } from '../components/ConfigureCampaignLinksModal';
 import { useOrganization } from '../lib/useOrganization';
 import { useViewing } from '../lib/ViewingContext';
@@ -1728,6 +1729,7 @@ const [showCampaignLinkConfigModal, setShowCampaignLinkConfigModal] = useState(f
     message: string;
     variant: 'info' | 'danger' | 'success';
     onConfirm?: () => void;
+    extra?: React.ReactNode;
   }>({
     isOpen: false,
     title: '',
@@ -1735,8 +1737,13 @@ const [showCampaignLinkConfigModal, setShowCampaignLinkConfigModal] = useState(f
     variant: 'info'
   });
 
-  const showAlert = (title: string, message: string, variant: 'info' | 'danger' | 'success' = 'info') => {
-    setModalConfig({ isOpen: true, title, message, variant, onConfirm: undefined });
+  const showAlert = (
+    title: string,
+    message: string,
+    variant: 'info' | 'danger' | 'success' = 'info',
+    extra?: React.ReactNode
+  ) => {
+    setModalConfig({ isOpen: true, title, message, variant, onConfirm: undefined, extra });
   };
 
   const showConfirm = (title: string, message: string, onConfirm: () => void, variant: 'info' | 'danger' | 'success' = 'danger') => {
@@ -2331,7 +2338,20 @@ const [showCampaignLinkConfigModal, setShowCampaignLinkConfigModal] = useState(f
       return showAlert(
         'Invalid URL',
         `Could not parse this ${PLATFORM_CONFIG[platform].label} URL. Please check and try again.`,
-        'danger'
+        'danger',
+        <div className="space-y-3">
+          <p className="text-zinc-500 text-xs font-medium leading-relaxed">
+            {"If you believe this is a mistake, contact me on WhatsApp. I'll investigate and fix it within 24 hours."}
+          </p>
+          <a
+            href={SUPPORT_WHATSAPP_URL}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="flex w-full items-center justify-center px-6 py-3 rounded-2xl border border-zinc-800 text-zinc-300 text-[10px] font-black uppercase tracking-[0.2em] hover:bg-zinc-800 hover:text-white transition-all active:scale-95"
+          >
+            Contact me on WhatsApp
+          </a>
+        </div>
       );
 
     const campaign =
@@ -5096,7 +5116,7 @@ setEditingVideoId(v.id);
         message={modalConfig.message}
         variant={modalConfig.variant}
         onConfirm={modalConfig.onConfirm}
-        
+        extra={modalConfig.extra}
       />
 {showOnboarding && (
   <div className="fixed inset-0 z-[20000] bg-white overflow-auto">
