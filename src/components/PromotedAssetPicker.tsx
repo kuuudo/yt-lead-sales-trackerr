@@ -89,6 +89,7 @@ import type { AssignedAssetSummary } from '../services/asset/getAssignedAssetSum
 import {
   resolveAssetThumbnail,
   resolveElementThumbnail,
+  resolveThumbnail,
   getElementTypeLabel,
   RESOURCE_TYPE_LABELS,
   type ResourceType,
@@ -198,7 +199,10 @@ function fromMyRow(row: AssetLibraryRow, assignedMap: Map<string, number | null>
             resource_type: row.resource_type,
             platform: row.platform,
           })
-        : row.thumbnail_url,
+        : resolveThumbnail({
+            thumbnail_url: row.thumbnail_url,
+            platform: row.platform,
+          }),
     resourceType: (row.resource_type as ResourceType) ?? null,
     elementType: (row.element_type as CampaignElementType) ?? null,
     // No filter applied anymore — My Assets now include campaign_element,

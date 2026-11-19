@@ -1276,8 +1276,17 @@ const [showCampaignLinkConfigModal, setShowCampaignLinkConfigModal] = useState(f
     campaign_id: '',
     objectives: ['sales'] as Video['video_goal'],
     hasLeadMagnet: false,
-    selectedLeadMagnets: [] as string[]
+    selectedLeadMagnets: [] as string[],
+    // Manual Platform Override: true once the user explicitly picks a platform button
+    // (or when editing a saved video, whose stored platform is already explicit).
+    platformManual: false
   });
+
+  // Manual Platform Override: a URL was pasted, auto-detection failed, and the user has
+  // not manually picked a platform yet. Drives the neutral label, the un-highlighted
+  // platform buttons and the inline warning. Never true for auto-detected URLs.
+  const platformUndetected =
+    formData.url.trim() !== '' && !detectPlatform(formData.url) && !formData.platformManual;
 
   const selectedCreativeCampaign = creativeEligibleCampaigns.find(c => c.campaignId === formData.campaign_id) ?? null;
   const isCreativeCampaign = selectedCreativeCampaign !== null;
@@ -2305,7 +2314,14 @@ const [showCampaignLinkConfigModal, setShowCampaignLinkConfigModal] = useState(f
     if (!formData.url) return showAlert('Information Needed', 'Please enter a content URL.', 'info');
 
     const detected = detectPlatform(formData.url);
-    const platform = detected || formData.platform;
+    // Manual Platform Override: never silently fall back to the default platform.
+    const platform = detected || (formData.platformManual ? formData.platform : null);
+    if (!platform)
+      return showAlert(
+        'Platform Not Detected',
+        "We couldn't automatically detect this platform. Please select the platform manually to continue.",
+        'info'
+      );
 
     setFetchingInfo(true);
     const info = await getPlatformInfo(formData.url, platform);
@@ -2664,6 +2680,7 @@ console.log(
         objectives: ['sales'],
         hasLeadMagnet: false,
         selectedLeadMagnets: [],
+        platformManual: false,
       });
       setPromotedAssets([]);
       setPromotionContextByAssetId(new Map());
@@ -3001,7 +3018,8 @@ console.log(
                   campaign_id: campaigns[0]?.id || '',
                   objectives: ['sales'],
                   hasLeadMagnet: false,
-                  selectedLeadMagnets: []
+                  selectedLeadMagnets: [],
+                  platformManual: false
                 });
                 setPromotedAssets([]);
               }
@@ -3081,10 +3099,17 @@ console.log(
                             key={p}
                             type="button"
                             onClick={() =>
-                              setFormData(prev => ({ ...prev, platform: p, url: '' }))
+                              setFormData(prev => ({
+                                ...prev,
+                                platform: p,
+                                platformManual: true,
+                                // Detected URL -> cleared (original behavior).
+                                // Undetected URL -> preserved so the manual choice can use it.
+                                url: detectPlatform(prev.url) ? '' : prev.url
+                              }))
                             }
                             className={`h-10 rounded-xl border text-[10px] font-black uppercase tracking-widest transition-all ${
-                              formData.platform === p
+                              formData.platform === p && !platformUndetected
                                 ? 'border-red-600 bg-red-600/10 text-red-400'
                                 : 'border-zinc-800 bg-zinc-950 text-zinc-500 hover:border-zinc-600'
                             }`}
@@ -3098,7 +3123,7 @@ console.log(
                     {/* URL Input */}
                     <div className="space-y-1">
                       <label className="label-caps">
-                        {PLATFORM_CONFIG[formData.platform].label} URL
+                        {platformUndetected ? 'URL' : `${PLATFORM_CONFIG[formData.platform].label} URL`}
                       </label>
                       <input
                         type="url"
@@ -3109,12 +3134,18 @@ console.log(
                           setFormData(prev => ({
                             ...prev,
                             url,
-                            platform: detected || prev.platform
+                            platform: detected || prev.platform,
+                            platformManual: detected ? false : prev.platformManual
                           }));
                         }}
                         placeholder={PLATFORM_CONFIG[formData.platform].placeholder}
                         className="w-full bg-zinc-950 border border-zinc-800 rounded-xl p-4 text-sm outline-none focus:border-red-600 transition-all font-mono text-zinc-400"
                       />
+                      {platformUndetected && (
+                        <p className="text-[11px] text-amber-500 font-bold leading-snug pt-1">
+                          {"We couldn't automatically detect this platform. If you believe this is a mistake, you can manually select the platform to continue."}
+                        </p>
+                      )}
                     </div>
 
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -4819,7 +4850,8 @@ console.log(
                       objectives: v.video_goal,
                       platform: (v.platform as Platform) || 'youtube',
                       hasLeadMagnet: !!(v.selected_lead_magnet_ids && v.selected_lead_magnet_ids.length > 0),
-                      selectedLeadMagnets: v.selected_lead_magnet_ids || []
+                      selectedLeadMagnets: v.selected_lead_magnet_ids || [],
+                      platformManual: true
                     });
 setEditingVideoId(v.id);
                     setShowAdd(true);
