@@ -56,7 +56,7 @@ export function detectPlatform(url: string): Platform | null {
   if (/linkedin\.com/.test(url))            return 'linkedin'
   if (/(?:^|[./])x\.com|twitter\.com/.test(url)) return 'x'
   if (/threads\.net|threads\.com/.test(url)) return 'threads'
-  if (/facebook\.com|fb\.com/.test(url))   return 'facebook'
+  if (/facebook\.com|fb\.com|fb\.watch/.test(url))   return 'facebook'
   if (/reddit\.com/.test(url))             return 'reddit'
   if (/twitch\.tv/.test(url))              return 'twitch'
   return null // unknown — caller must handle this; never silently default
@@ -88,14 +88,16 @@ export function extractPostId(url: string, platform: Platform): string | null {
           clean.match(/youtu\.be\/([0-9A-Za-z_-]{11})/)?.[1] ||
           clean.match(/\/embed\/([0-9A-Za-z_-]{11})/)?.[1] ||
           clean.match(/\/shorts\/([0-9A-Za-z_-]{11})/)?.[1] ||
+          clean.match(/\/live\/([0-9A-Za-z_-]{11})/)?.[1] ||
           null
         )
 
-      // TikTok — /video/{numeric id} or short-link /t/{alphanumeric}
+      // TikTok — /video/{id}, /photo/{id}, /t/{code}, or vt|vm.tiktok.com/{code}
       case 'tiktok':
         return (
-          clean.match(/\/video\/(\d+)/)?.[1] ||
+          clean.match(/\/(?:video|photo)\/(\d+)/)?.[1] ||
           clean.match(/\/t\/([A-Za-z0-9]+)/)?.[1] ||
+          clean.match(/^\s*(?:https?:\/\/)?(?:vt|vm)\.tiktok\.com\/([A-Za-z0-9]+)/)?.[1] ||
           null
         )
 
@@ -142,12 +144,17 @@ export function extractPostId(url: string, platform: Platform): string | null {
           url.match(/[?&]v=(\d+)/)?.[1] ||
           url.match(/[?&]story_fbid=(\d+)/)?.[1] ||
           url.match(/[?&]fbid=(\d+)/)?.[1] ||
+          clean.match(/^\s*(?:https?:\/\/)?fb\.watch\/([A-Za-z0-9_-]+)/)?.[1] ||
           null
         )
 
       // Reddit — /comments/{alphanumeric id}
       case 'reddit':
-        return clean.match(/\/comments\/([A-Za-z0-9]+)/)?.[1] || null
+        return (
+          clean.match(/\/comments\/([A-Za-z0-9]+)/)?.[1] ||
+          clean.match(/\/r\/[^/]+\/s\/([A-Za-z0-9]+)/)?.[1] ||
+          null
+        )
 
       // Twitch — /videos/{id} (VODs) or /clip/{slug} (clips) or /:channel/clip/{slug}
       case 'twitch':
