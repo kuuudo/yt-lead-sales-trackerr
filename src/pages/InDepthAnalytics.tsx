@@ -14,8 +14,10 @@
 //    Core TABLE_COLUMNS default ON. 4 conversion rate columns default OFF.
 // 4. 4 conversion rate columns — Newsletter Opt-in Rate, Call Booking Rate,
 //    Consultation Rate, Purchase Rate. Same rate() formula as VideoDetail.tsx.
-// 5. Quick sort buttons — Revenue, Consultations, Purchases, Calls, Clicks,
-//    Opt-ins. Map to existing sortConfig keys.
+// 5. Quick sort buttons — Newest (default, UI-only re-sort by created_at),
+//    Revenue, Consultations, Purchases, Calls, Clicks, Opt-ins. The latter map
+//    to existing sortConfig keys. Platform + sort rows also show on mobile
+//    (horizontally scrollable).
 //
 // PARITY CONTRACT (unchanged)
 // ═══════════════════════════
@@ -184,7 +186,12 @@ function getConversionRate(key: ConversionRateKey, row: any): string {
 // Quick sort shortcuts
 // ─────────────────────────────────────────────────────────────────────────────
 
+// 'newest' is a UI-only sort (re-sorts by video.created_at after the engine);
+// it is never passed to the engine as a sortConfig key.
+const NEWEST_KEY = 'newest';
+
 const SORT_SHORTCUTS: { label: string; key: string }[] = [
+  { label: 'Newest',        key: NEWEST_KEY },
   { label: 'Revenue',       key: 'total_revenue' },
   { label: 'Consultations', key: 'consultation_thankyou' },
   { label: 'Purchases',     key: 'purchase_thankyou' },
@@ -276,6 +283,9 @@ export default function InDepthAnalyticsTest() {
     key: 'total_revenue',
     direction: 'desc',
   });
+  // Newest-first (by created_at) is the default view. While true, the engine's
+  // sortConfig stays on a valid key and is ignored for row order.
+  const [newestActive, setNewestActive] = useState(true);
 
   // ── New UI state ─────────────────────────────────────────────────────────
   // Platform filter: [] means "All"
@@ -700,6 +710,20 @@ export default function InDepthAnalyticsTest() {
   // ── Platform filter (applied after engine, pure UI) ──────────────────────
   const sortedVideos = useMemo(() => {
     let rows = engineSorted;
+    // Newest: UI-only re-sort by created_at desc; missing/invalid dates last.
+    if (newestActive) {
+      const ts = (r: (typeof engineSorted)[number]) => {
+        const t = r.video.created_at ? Date.parse(r.video.created_at as string) : NaN;
+        return Number.isNaN(t) ? null : t;
+      };
+      rows = [...rows].sort((a, b) => {
+        const ta = ts(a), tb = ts(b);
+        if (ta === null && tb === null) return 0;
+        if (ta === null) return 1;
+        if (tb === null) return -1;
+        return tb - ta;
+      });
+    }
     // Creative scope (default hides Creative-created videos from main list)
     if (contentScope === 'standard') {
       rows = rows.filter(row => !(row.video as any).created_via_creative);
@@ -720,7 +744,7 @@ export default function InDepthAnalyticsTest() {
     return rows.filter(row =>
       selectedPlatforms.includes(row.video.platform ?? 'youtube'),
     );
-  }, [engineSorted, selectedPlatforms, contentScope, user?.id]);
+  }, [engineSorted, selectedPlatforms, contentScope, user?.id, newestActive]);
 
   /**
    * Display grain: video × link-campaign when multi-campaign links exist.
@@ -778,6 +802,12 @@ export default function InDepthAnalyticsTest() {
 
   // ── Sort handler (unchanged) ─────────────────────────────────────────────
   const handleSort = (key: string) => {
+    if (newestActive) {
+      // Leaving Newest: start the clicked column at desc (no toggle from the hidden default).
+      setNewestActive(false);
+      setSortConfig({ key, direction: 'desc' });
+      return;
+    }
     setSortConfig(prev => handleSortToggle(prev, key));
   };
 
@@ -1413,14 +1443,15 @@ export default function InDepthAnalyticsTest() {
           </div>
 
           {/* Second row: platform filter + quick sort — desktop only (mobile uses FAB sheet) */}
-          <div className="hidden lg:flex px-8 pb-4 flex-wrap items-center justify-between gap-3">
+          {/* Mobile: stacked, each row scrolls horizontally. Desktop (lg): unchanged wrapping row. */}
+          <div className="flex flex-col gap-2 px-4 pb-3 lg:flex-row lg:px-8 lg:pb-4 lg:flex-wrap lg:items-center lg:justify-between lg:gap-3">
 
             {/* Platform filter pills */}
-            <div className="flex flex-wrap items-center gap-1.5">
+            <div className="flex flex-nowrap items-center gap-1.5 overflow-x-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden lg:flex-wrap lg:overflow-visible">
               {/* "All" pill */}
               <button
                 onClick={() => setSelectedPlatforms([])}
-                className={`h-7 px-3 rounded-lg border text-[9px] font-black uppercase tracking-widest transition-all ${
+                className={`shrink-0 whitespace-nowrap h-7 px-3 rounded-lg border text-[9px] font-black uppercase tracking-widest transition-all ${
                   selectedPlatforms.length === 0
                     ? 'bg-red-600 border-red-600 text-white'
                     : 'border-zinc-800 bg-zinc-900 text-zinc-500 hover:border-zinc-600 hover:text-zinc-300'
@@ -1451,7 +1482,7 @@ export default function InDepthAnalyticsTest() {
                       )
                     }
                     style={active ? { backgroundColor: color, borderColor: color } : {}}
-                    className={`h-7 px-3 rounded-lg border text-[9px] font-black uppercase tracking-widest transition-all flex items-center gap-1.5 ${
+                    className={`shrink-0 whitespace-nowrap h-7 px-3 rounded-lg border text-[9px] font-black uppercase tracking-widest transition-all flex items-center gap-1.5 ${
                       active
                         ? 'text-white'
                         : 'border-zinc-800 bg-zinc-900 text-zinc-500 hover:border-zinc-600 hover:text-zinc-300'
@@ -1470,17 +1501,25 @@ export default function InDepthAnalyticsTest() {
             </div>
 
             {/* Quick sort buttons */}
-            <div className="flex items-center gap-1.5">
-              <span className="text-[8px] font-black uppercase tracking-widest text-zinc-700 mr-1">
+            <div className="flex flex-nowrap items-center gap-1.5 overflow-x-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden lg:overflow-visible">
+              <span className="shrink-0 text-[8px] font-black uppercase tracking-widest text-zinc-700 mr-1">
                 Sort
               </span>
               {SORT_SHORTCUTS.map(s => {
-                const active = sortConfig.key === s.key;
+                const isNewest = s.key === NEWEST_KEY;
+                const active = isNewest ? newestActive : !newestActive && sortConfig.key === s.key;
                 return (
                   <button
                     key={s.key}
-                    onClick={() => setSortConfig({ key: s.key, direction: 'desc' })}
-                    className={`h-7 px-3 rounded-lg border text-[9px] font-black uppercase tracking-widest transition-all ${
+                    onClick={() => {
+                      if (isNewest) {
+                        setNewestActive(true);
+                      } else {
+                        setNewestActive(false);
+                        setSortConfig({ key: s.key, direction: 'desc' });
+                      }
+                    }}
+                    className={`shrink-0 whitespace-nowrap h-7 px-3 rounded-lg border text-[9px] font-black uppercase tracking-widest transition-all ${
                       active
                         ? 'bg-red-600 border-red-600 text-white'
                         : 'border-zinc-800 bg-zinc-900 text-zinc-500 hover:border-zinc-600 hover:text-zinc-300'
@@ -1648,7 +1687,7 @@ export default function InDepthAnalyticsTest() {
                         <ArrowUpDown
                           size={10}
                           className={
-                            sortConfig.key === key
+                            !newestActive && sortConfig.key === key
                               ? 'text-red-500'
                               : 'text-zinc-800 group-hover:text-zinc-600'
                           }
@@ -1830,4 +1869,3 @@ export default function InDepthAnalyticsTest() {
     </div>
   );
 }
-
