@@ -74,7 +74,7 @@ import {
   BarChart3, Calendar, Filter, ChevronLeft,
   MousePointer2, DollarSign, Users, Phone, Briefcase,
   Activity, User, ArrowUpDown, ExternalLink, Loader2, X, Menu,
-  Columns, Check, ChevronDown,
+  Columns, Check, ChevronDown, Video as VideoIcon,
 } from 'lucide-react';
 
 
@@ -253,6 +253,21 @@ export default function InDepthAnalyticsTest() {
         : null)
     : authUser;
   const navigate = useNavigate();
+
+  // ── Content action modal (one shared modal for table + mobile cards) ─────
+  const [contentActionVideo, setContentActionVideo] = useState<any | null>(null);
+  const getOriginalPostUrl = (v: any): string | null =>
+    (v?.platform_url && String(v.platform_url).trim()) ||
+    (v?.youtube_url && String(v.youtube_url).trim()) ||
+    null;
+  useEffect(() => {
+    if (!contentActionVideo) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') setContentActionVideo(null);
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [contentActionVideo]);
 
   // ── Raw data state (unchanged) ───────────────────────────────────────────
   const [loading, setLoading]                 = useState(true);
@@ -1599,6 +1614,12 @@ export default function InDepthAnalyticsTest() {
                   className="bg-zinc-950 border border-zinc-900 rounded-2xl p-4"
                 >
                   <div className="flex items-center gap-3 mb-3">
+                    <button
+                      type="button"
+                      onClick={() => setContentActionVideo(row.video)}
+                      className="flex items-center gap-3 min-w-0 flex-1 text-left cursor-pointer"
+                      aria-label="Open content actions"
+                    >
                     <img
                       src={resolveThumbnail(row.video)}
                       className="w-16 h-9 object-cover rounded-lg border border-zinc-800 shrink-0"
@@ -1620,6 +1641,7 @@ export default function InDepthAnalyticsTest() {
                         {linkCampaignName ? ` · ${linkCampaignName}` : ''}
                       </div>
                     </div>
+                    </button>
                     <button
                       type="button"
                       onClick={() => navigate(`/videos/${row.video.id}`)}
@@ -1748,7 +1770,18 @@ export default function InDepthAnalyticsTest() {
 
                     {/* ── Content identity cell ────────────────────────── */}
                     <td className="px-6 py-4 whitespace-nowrap sticky left-0 z-10 bg-zinc-950 group-hover:bg-zinc-900 transition-colors">
-                      <div className="flex items-center gap-3">
+                      <div
+                        role="button"
+                        tabIndex={0}
+                        onClick={() => setContentActionVideo(row.video)}
+                        onKeyDown={e => {
+                          if (e.key === 'Enter' || e.key === ' ') {
+                            e.preventDefault();
+                            setContentActionVideo(row.video);
+                          }
+                        }}
+                        className="flex items-center gap-3 cursor-pointer"
+                      >
                         <img
                           src={resolveThumbnail(row.video)}
                           className="w-16 h-9 object-cover rounded-lg border border-zinc-800 shrink-0"
@@ -1866,6 +1899,79 @@ export default function InDepthAnalyticsTest() {
           </div>
         </div>
       </div>
+
+      {/* ── Content action modal (shared) ─────────────────────────────── */}
+      {contentActionVideo && (() => {
+        const originalUrl = getOriginalPostUrl(contentActionVideo);
+        return (
+          <div
+            className="fixed inset-0 z-[9500] flex items-center justify-center p-4 bg-black/70 backdrop-blur-sm"
+            onClick={() => setContentActionVideo(null)}
+          >
+            <div
+              role="dialog"
+              aria-modal="true"
+              className="w-full max-w-sm bg-zinc-950 border border-zinc-800 rounded-2xl p-5 shadow-2xl"
+              onClick={e => e.stopPropagation()}
+            >
+              <div className="flex items-start justify-between gap-3 mb-4">
+                <div className="min-w-0">
+                  <div className="text-[9px] font-black uppercase tracking-widest text-zinc-600 mb-1">
+                    Content
+                  </div>
+                  <div className="text-xs font-bold text-zinc-200 truncate">
+                    {renderContentIdentity(contentActionVideo)}
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setContentActionVideo(null)}
+                  className="p-1.5 rounded-lg text-zinc-600 hover:text-white transition-colors shrink-0"
+                  aria-label="Close"
+                >
+                  <X size={16} />
+                </button>
+              </div>
+
+              <div className="space-y-2">
+                <button
+                  type="button"
+                  disabled={!originalUrl}
+                  onClick={() => {
+                    if (!originalUrl) return;
+                    window.open(originalUrl, '_blank', 'noopener,noreferrer');
+                    setContentActionVideo(null);
+                  }}
+                  className="w-full flex items-center gap-3 px-4 py-3 rounded-xl border border-zinc-800 text-left text-xs font-bold text-zinc-300 hover:text-white hover:border-zinc-700 hover:bg-zinc-900 transition-all disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:bg-transparent disabled:hover:text-zinc-300 disabled:hover:border-zinc-800"
+                >
+                  <ExternalLink size={14} className="shrink-0" />
+                  <span className="flex-1">
+                    Open Original Post
+                    {!originalUrl && (
+                      <span className="block text-[9px] font-bold uppercase tracking-widest text-zinc-600 mt-0.5">
+                        No URL available
+                      </span>
+                    )}
+                  </span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => {
+                    const id = contentActionVideo.id;
+                    setContentActionVideo(null);
+                    navigate(`/videos/${id}`);
+                  }}
+                  className="w-full flex items-center gap-3 px-4 py-3 rounded-xl border border-zinc-800 text-left text-xs font-bold text-zinc-300 hover:text-white hover:border-zinc-700 hover:bg-zinc-900 transition-all"
+                >
+                  <VideoIcon size={14} className="shrink-0" />
+                  <span className="flex-1">Video Detail</span>
+                </button>
+              </div>
+            </div>
+          </div>
+        );
+      })()}
     </div>
   );
 }

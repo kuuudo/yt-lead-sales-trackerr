@@ -15,7 +15,7 @@
 import type { Tutorial, TutorialStep } from '../tutorialTypes';
 import { trackFirstContentGuide } from './trackFirstContentGuide';
 
-export const ONBOARDING_EXAMPLE_VIDEO_URL = 'https://youtu.be/Gh8G2uZu9O4';
+export const ONBOARDING_EXAMPLE_VIDEO_URL = 'https://www.youtube.com/watch?v=xbM0EOYwvKk';
 
 function override(step: TutorialStep): TutorialStep {
   switch (step.id) {
