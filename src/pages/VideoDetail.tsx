@@ -1,4 +1,3 @@
-
 // VideoDetail.tsx
 //
 // ARCHITECTURE: This component is a thin UI layer.
@@ -1119,14 +1118,25 @@ if (effectiveOrgId && effectiveUserId) {
           </button>
           </>
           )}
-          <a
-            href={`https://youtube.com/watch?v=${video.youtube_video_id}`}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="p-3 bg-white text-zinc-950 rounded-xl hover:bg-zinc-200 transition-all flex items-center justify-center"
-          >
-            <ExternalLink size={20} />
-          </a>
+          {video.platform_url?.trim() ? (
+            <a
+              href={video.platform_url.trim()}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="p-3 bg-white text-zinc-950 rounded-xl hover:bg-zinc-200 transition-all flex items-center justify-center"
+              title="Open original content"
+            >
+              <ExternalLink size={20} />
+            </a>
+          ) : (
+            <span
+              aria-disabled="true"
+              className="p-3 bg-white text-zinc-950 rounded-xl flex items-center justify-center opacity-40 cursor-not-allowed"
+              title="Original link unavailable"
+            >
+              <ExternalLink size={20} />
+            </span>
+          )}
         </div>
       </header>
 
