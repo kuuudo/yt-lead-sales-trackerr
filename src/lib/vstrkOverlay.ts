@@ -247,6 +247,7 @@ const OVERLAY_TARGET_DOMAINS = [
   'linkedin.com',
   'twitch.tv',
   'x.com', 'twitter.com',
+  'reddit.com',
 ];
 
 export function isOverlaySupportedUrl(raw: string): boolean {
