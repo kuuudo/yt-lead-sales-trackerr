@@ -31,6 +31,7 @@ import { useNavigate } from 'react-router-dom';
 import { supabase, Campaign, Video, LeadMagnet } from '../lib/supabase';
 import { useAuth } from '../lib/auth';
 import { useViewing } from '../lib/ViewingContext';
+import { useOverlayPreferences, openPostWithOverlay } from '../lib/vstrkOverlay';
 import {
   getAnalyticsEngine,
   buildStripeFromPurchases,
@@ -256,6 +257,7 @@ export default function InDepthAnalyticsTest() {
 
   // ── Content action modal (one shared modal for table + mobile cards) ─────
   const [contentActionVideo, setContentActionVideo] = useState<any | null>(null);
+  const { hiddenMetrics: overlayHiddenMetrics } = useOverlayPreferences(user?.id);
   const getOriginalPostUrl = (v: any): string | null =>
     (v?.platform_url && String(v.platform_url).trim()) ||
     (v?.youtube_url && String(v.youtube_url).trim()) ||
@@ -1903,6 +1905,7 @@ export default function InDepthAnalyticsTest() {
       {/* ── Content action modal (shared) ─────────────────────────────── */}
       {contentActionVideo && (() => {
         const originalUrl = getOriginalPostUrl(contentActionVideo);
+        const overlayRow = sortedVideos.find(r => r.video.id === contentActionVideo.id) ?? null;
         return (
           <div
             className="fixed inset-0 z-[9500] flex items-center justify-center p-4 bg-black/70 backdrop-blur-sm"
@@ -1939,7 +1942,18 @@ export default function InDepthAnalyticsTest() {
                   disabled={!originalUrl}
                   onClick={() => {
                     if (!originalUrl) return;
-                    window.open(originalUrl, '_blank', 'noopener,noreferrer');
+                    if (overlayRow) {
+                      void openPostWithOverlay({
+                        viewedUserId: user?.id,
+                        targetUrl: originalUrl,
+                        title: String(overlayRow.title || overlayRow.video.video_title || overlayRow.video.platform_post_id || ''),
+                        metrics: overlayRow,
+                        hiddenMetrics: overlayHiddenMetrics,
+                        operatorMemberName: isReadOnly ? viewingMemberName : null,
+                      });
+                    } else {
+                      window.open(originalUrl, '_blank', 'noopener,noreferrer');
+                    }
                     setContentActionVideo(null);
                   }}
                   className="w-full flex items-center gap-3 px-4 py-3 rounded-xl border border-zinc-800 text-left text-xs font-bold text-zinc-300 hover:text-white hover:border-zinc-700 hover:bg-zinc-900 transition-all disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:bg-transparent disabled:hover:text-zinc-300 disabled:hover:border-zinc-800"
