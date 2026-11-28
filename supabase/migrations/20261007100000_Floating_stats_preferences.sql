@@ -56,3 +56,6 @@ Does YouTube redirect from /watch to /shorts/ preserve the overlay?	Not confirme
 Does Instagram /p/ redirect to /reel/ preserve the overlay?	Not confirmed.
 Does the new VSTRK snapshot integration work with real analytics data?	Not yet.
 Does the Supabase preference system work?	Database security tests passed, but UI integration is not done.
+
+
+now i also tested operator mode, it works, and its showing the correct numbers and i think right now it only work for    (youtube , tiktok)        following doesnt work (fb, threads, IG, linkedin, twitch, x, )(the overlay is not showing at all) 

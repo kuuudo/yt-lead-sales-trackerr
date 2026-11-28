@@ -78,6 +78,7 @@ import { useNavigate } from 'react-router-dom';
 import { Campaign, supabase } from '../lib/supabase';
 import { useAuth } from '../lib/auth';
 import { useViewing } from '../lib/ViewingContext';
+import { useOverlayPreferences, openPostWithOverlay } from '../lib/vstrkOverlay';
 import {
   TABLE_COLUMNS,
   COLUMN_LABELS,
@@ -109,6 +110,7 @@ import {
 import {
   ChevronLeft, Filter, Columns, ChevronDown, ArrowUpDown, Boxes,
   Calendar, Briefcase, Megaphone, Check, User, Users, Menu, X, Loader2,
+  ExternalLink, Video as VideoIcon,
 } from 'lucide-react';
 
 import {
@@ -664,6 +666,8 @@ console.log('🔍 VIDEOS QUERY RESULT', {
       content_owner_marketer_name?: string | null;
       content_campaign_id?: string | null;
       created_via_creative?: boolean;
+      original_url?: string | null;
+      plain_title?: string | null;
       creative_promotion_id?: string | null;
     }>();
     for (const v of videosRes.data ?? []) {
@@ -691,6 +695,8 @@ console.log('🔍 VIDEOS QUERY RESULT', {
       videoDisplay.set(v.id, {
         title: renderContentIdentity(v),
         thumbnail_url: resolveThumbnail(v),
+        original_url: (v.platform_url && String(v.platform_url).trim()) || (v.youtube_url && String(v.youtube_url).trim()) || null,
+        plain_title: v.video_title ?? v.platform_post_id ?? null,
         platform: v.platform ?? null,
         created_at: v.created_at ?? null,
         content_owner_id: v.user_id ?? null,
@@ -763,6 +769,8 @@ console.log('🔍 VIDEOS QUERY RESULT', {
               content_campaign_id: v?.content_campaign_id ?? null,
               created_via_creative: !!v?.created_via_creative,
               creative_promotion_id: v?.creative_promotion_id ?? null,
+              original_url: v?.original_url ?? null,
+              plain_title: v?.plain_title ?? null,
               creative_promotion_title: (() => {
                 const cpid = v?.creative_promotion_id ?? null;
                 return cpid ? (creativePromotionTitleById.get(cpid) ?? null) : null;
@@ -1314,6 +1322,17 @@ export default function AllAssetsAnalytics() {
   const { user } = useAuth();
   const { viewingMemberId, viewingMemberName, viewingOrgId, isReadOnly, exitViewing } = useViewing();
   const effectiveViewerId = isReadOnly ? viewingMemberId : (user?.id ?? null);
+  // Floating Stats: hidden-metric preferences of the VIEWED account (Operator Mode: the viewed member).
+  const { hiddenMetrics: overlayHiddenMetrics } = useOverlayPreferences(effectiveViewerId);
+  const [contentAction, setContentAction] = useState<any | null>(null);
+  useEffect(() => {
+    if (!contentAction) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') setContentAction(null);
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [contentAction]);
   // ── Filter state (before data hook so date/source drive fetch) ───────────
   const [dateRange, setDateRange]         = useState<DateRange>('30days');
   const [customRange, setCustomRange]     = useState<CustomDateRange | null>(null);
@@ -3605,7 +3624,7 @@ export default function AllAssetsAnalytics() {
                       <td className="px-6 py-4 whitespace-nowrap">
                         <div
                           className="flex items-center gap-3 cursor-pointer"
-                          onClick={() => navigate(`/videos/${row.promoting_video.id}`)}
+                          onClick={() => setContentAction(row)}
                         >
                           <img
                             src={row.promoting_video.thumbnail_url}
@@ -3810,6 +3829,86 @@ export default function AllAssetsAnalytics() {
           </div>
         </div>
       </div>
+
+      {/* ── Content action modal (Promoting Content click) ───────────── */}
+      {contentAction && (() => {
+        const originalUrl = ((contentAction.promoting_video as any).original_url as string | null) ?? null;
+        return (
+          <div
+            className="fixed inset-0 z-[9500] flex items-center justify-center p-4 bg-black/70 backdrop-blur-sm"
+            onClick={() => setContentAction(null)}
+          >
+            <div
+              role="dialog"
+              aria-modal="true"
+              className="w-full max-w-sm bg-zinc-950 border border-zinc-800 rounded-2xl p-5 shadow-2xl"
+              onClick={e => e.stopPropagation()}
+            >
+              <div className="flex items-start justify-between gap-3 mb-4">
+                <div className="min-w-0">
+                  <div className="text-[9px] font-black uppercase tracking-widest text-zinc-600 mb-1">
+                    Content
+                  </div>
+                  <div className="text-xs font-bold text-zinc-200 truncate">
+                    {contentAction.promoting_video.title ?? 'Untitled video'}
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setContentAction(null)}
+                  className="p-1.5 rounded-lg text-zinc-600 hover:text-white transition-colors shrink-0"
+                  aria-label="Close"
+                >
+                  <X size={16} />
+                </button>
+              </div>
+
+              <div className="space-y-2">
+                <button
+                  type="button"
+                  disabled={!originalUrl}
+                  onClick={() => {
+                    if (!originalUrl) return;
+                    void openPostWithOverlay({
+                      viewedUserId: effectiveViewerId,
+                      targetUrl: originalUrl,
+                      title: String((contentAction.promoting_video as any).plain_title || ''),
+                      metrics: contentAction.metrics,
+                      hiddenMetrics: overlayHiddenMetrics,
+                      operatorMemberName: isReadOnly ? viewingMemberName : null,
+                    });
+                    setContentAction(null);
+                  }}
+                  className="w-full flex items-center gap-3 px-4 py-3 rounded-xl border border-zinc-800 text-left text-xs font-bold text-zinc-300 hover:text-white hover:border-zinc-700 hover:bg-zinc-900 transition-all disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:bg-transparent disabled:hover:text-zinc-300 disabled:hover:border-zinc-800"
+                >
+                  <ExternalLink size={14} className="shrink-0" />
+                  <span className="flex-1">
+                    Open Original Post
+                    {!originalUrl && (
+                      <span className="block text-[9px] font-bold uppercase tracking-widest text-zinc-600 mt-0.5">
+                        No URL available
+                      </span>
+                    )}
+                  </span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => {
+                    const id = contentAction.promoting_video.id;
+                    setContentAction(null);
+                    navigate(`/videos/${id}`);
+                  }}
+                  className="w-full flex items-center gap-3 px-4 py-3 rounded-xl border border-zinc-800 text-left text-xs font-bold text-zinc-300 hover:text-white hover:border-zinc-700 hover:bg-zinc-900 transition-all"
+                >
+                  <VideoIcon size={14} className="shrink-0" />
+                  <span className="flex-1">Video Detail</span>
+                </button>
+              </div>
+            </div>
+          </div>
+        );
+      })()}
     </div>
   );
 }
