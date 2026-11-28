@@ -233,8 +233,21 @@ const EXTENSION_ID: string =
 
 const SEND_TIMEOUT_MS = 1000;
 
-/** KEEP IN SYNC with ALLOWED_TARGET_DOMAINS in the extension's background.js. */
-const OVERLAY_TARGET_DOMAINS = ['youtube.com', 'youtu.be', 'tiktok.com', 'instagram.com'];
+/**
+ * KEEP IN SYNC with PLATFORM_DOMAINS in the extension's platform-keys.js
+ * (and the host lists in its manifest.json). Only decides whether a snapshot is sent;
+ * the extension itself decides whether a given page is the same content.
+ */
+const OVERLAY_TARGET_DOMAINS = [
+  'youtube.com', 'youtu.be',
+  'tiktok.com',
+  'instagram.com',
+  'facebook.com', 'fb.watch',
+  'threads.net', 'threads.com',
+  'linkedin.com',
+  'twitch.tv',
+  'x.com', 'twitter.com',
+];
 
 export function isOverlaySupportedUrl(raw: string): boolean {
   try {
