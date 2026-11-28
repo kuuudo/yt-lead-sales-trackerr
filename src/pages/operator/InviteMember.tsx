@@ -58,6 +58,8 @@ export default function InviteMember() {
     setError(null);
 
         const normalizedEmail = email.trim().toLowerCase();
+        // escape LIKE wildcards (_ and %) so they match literally in .ilike()
+        const emailPattern = normalizedEmail.replace(/[\\%_]/g, '\\$&');
 
     // ── Kaksi branch: privileged operator can add ANY existing VSTRK
     // account by email — no invitation, no acceptance. Checked before
@@ -71,7 +73,7 @@ export default function InviteMember() {
       const { data: targetProfile, error: profileError } = await supabase
         .from('profiles')
         .select('id')
-        .eq('email', normalizedEmail)
+        .ilike('email', emailPattern)
         .maybeSingle();
 
       if (profileError || !targetProfile) {
@@ -129,7 +131,7 @@ export default function InviteMember() {
     const { data: existingProfile } = await supabase
       .from('profiles')
       .select('id')
-      .eq('email', normalizedEmail)
+      .ilike('email', emailPattern)
       .maybeSingle();
 
     // 如果這個人是被自己隱藏的成員:直接取消隱藏,不走邀請/接受流程
