@@ -45,6 +45,7 @@ import AnalyticsTest from './pages/AnalyticsTest';
 import Pricing from './pages/Pricing';
 import Upgrade from './pages/Upgrade';
 import AdminBilling from './pages/AdminBilling';
+import FloatingStatsControl from './pages/FloatingStatsControl';
 import Workspace from './pages/Workspace';
 import WorkspaceHub from './pages/WorkspaceHub';
 import BoardPage from './pages/BoardPage';
@@ -907,6 +908,9 @@ if (
         <Route path="/team" element={<PageWrapper><Team /></PageWrapper>} />
         <Route path="/admin/customers" element={<PageWrapper><AdminCustomers /></PageWrapper>} />
         <Route path="/admin/billing" element={<PageWrapper><AdminBilling /></PageWrapper>} />
+        {/* Private founder-only control for Floating Stats metric visibility. Guarded in-page (user.id === KAKSI_UUID);
+            registered ONLY in the logged-in table, so logged-out visitors fall through to Auth. */}
+        <Route path="/admin/floating-stats" element={<PageWrapper><FloatingStatsControl /></PageWrapper>} />
       </Routes>
 
     </AnimatePresence>

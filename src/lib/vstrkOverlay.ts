@@ -17,8 +17,11 @@
  *      supported platform: open the plain original URL exactly as before.
  *
  * Display preferences: table `floating_stats_preferences` (user_id, hidden_metrics).
- * No row, or an empty list, means "show all 11". Preferences are loaded for the
- * account currently VIEWED (Operator Mode: the viewed member, never the operator).
+ * ONE GLOBAL setting for every account: the row owned by the founder account, edited on
+ * /admin/floating-stats and read by everyone through the SQL function
+ * get_floating_stats_hidden_metrics() (see sql/floating_stats_global_read.sql).
+ * No row, or an empty list, means "show all 11". Other accounts' own rows are ignored.
+ * If every metric is hidden, Floating Stats is effectively OFF: the post opens plainly.
  */
 
 import { useCallback, useEffect, useState } from 'react';
@@ -100,6 +103,7 @@ export async function fetchHiddenMetrics(userId: string): Promise<string[]> {
 }
 
 /**
+ * (Per-account list; no longer read by the overlay. Floating Stats now uses the global list above.)
  * Saves the hidden-metric list for the REAL logged-in account (pass authUser.id).
  * Never pass a viewed member's id: RLS only allows writing your own row.
  * At least one of the 11 metrics must stay visible.
@@ -119,13 +123,38 @@ export async function saveHiddenMetrics(actorUserId: string, hidden: string[]): 
 }
 
 /**
- * Loads the preferences of the account currently being VIEWED.
- *   InDepthAnalytics: pass `user?.id`.
- *   AssetAnalytics / control page: pass `useEffectiveIdentity().userId`.
- * Reloads whenever the id changes (operator switches A -> B, or exits viewing).
- * Preferences are only returned for the id they were loaded for, so another
- * account's preferences can never be applied. While loading, after an error,
- * or with no id, `hiddenMetrics` is the default (nothing hidden = all 11).
+ * GLOBAL setting: the hidden-metric list the founder saved on /admin/floating-stats.
+ * Readable by any signed-in account through a SECURITY DEFINER function that returns only
+ * that one row's list. Throws on error so callers can tell "none hidden" from "could not load".
+ */
+export async function fetchGlobalHiddenMetrics(): Promise<string[]> {
+  const { data, error } = await supabase.rpc('get_floating_stats_hidden_metrics');
+  if (error) throw new Error(`Failed to load Floating Stats settings: ${error.message}`);
+  return cleanHidden(data);
+}
+
+/**
+ * Saves the GLOBAL list. Pass the founder's own id (authUser.id): it writes that account's own
+ * row, which the existing own-row RLS already permits for the founder and for nobody else.
+ * An empty-visible list (all 11 hidden) is allowed and means Floating Stats is OFF.
+ */
+export async function saveGlobalHiddenMetrics(actorUserId: string, hidden: string[]): Promise<void> {
+  const known = cleanHidden(hidden).filter((k) => KNOWN_KEYS.has(k));
+  const { error } = await supabase
+    .from(PREFS_TABLE)
+    .upsert(
+      { user_id: actorUserId, hidden_metrics: known, updated_at: new Date().toISOString() },
+      { onConflict: 'user_id' },
+    );
+  if (error) throw new Error(`Failed to save Floating Stats settings: ${error.message}`);
+}
+
+/**
+ * Loads the GLOBAL hidden-metric list (same for every account, Operator Mode included).
+ * The id argument is kept so existing callers do not change: it only gates loading
+ * (no id = default) and makes the hook reload when the viewed account changes.
+ * While loading, after an error, or with no id, `hiddenMetrics` is the default
+ * (nothing hidden = all 11), so a failure can never hide data wrongly.
  */
 export function useOverlayPreferences(viewedUserId: string | null | undefined) {
   const [state, setState] = useState<{ userId: string | null; hidden: string[]; loading: boolean }>({
@@ -142,12 +171,12 @@ export function useOverlayPreferences(viewedUserId: string | null | undefined) {
     }
     let cancelled = false;
     setState((s) => ({ ...s, loading: true }));
-    fetchHiddenMetrics(viewedUserId)
+    fetchGlobalHiddenMetrics()
       .then((hidden) => {
         if (!cancelled) setState({ userId: viewedUserId, hidden, loading: false });
       })
       .catch((e) => {
-        console.warn('[vstrkOverlay] preferences unavailable, showing all metrics:', e);
+        console.warn('[vstrkOverlay] global preferences unavailable, showing all metrics:', e);
         if (!cancelled) setState({ userId: viewedUserId, hidden: EMPTY_HIDDEN, loading: false });
       });
     return () => {
@@ -178,14 +207,13 @@ export interface OverlaySnapshot {
   rows: { label: string; value: string }[];
 }
 
-/** Visible rows in catalog order. Hidden metrics are removed; if that would leave nothing, show all 11. */
+/** Visible rows in catalog order. Hidden metrics are removed. All hidden = no rows (overlay OFF). */
 export function buildOverlayRows(
   metrics: OverlayMetricsSource,
   hiddenMetrics: readonly string[],
 ): { label: string; value: string }[] {
   const hidden = new Set(hiddenMetrics);
-  let defs = OVERLAY_METRICS.filter((m) => !hidden.has(m.key));
-  if (defs.length === 0) defs = [...OVERLAY_METRICS];
+  const defs = OVERLAY_METRICS.filter((m) => !hidden.has(m.key));
   return defs.map((m) => ({ label: m.label, value: formatOverlayValue(m, metrics[m.key]) }));
 }
 
@@ -336,6 +364,7 @@ export async function openPostWithOverlay(opts: OpenPostWithOverlayOptions): Pro
 
   const snapshot = buildOverlaySnapshot(opts);
   if (!snapshot) return plain('no-secure-uuid');
+  if (snapshot.rows.length === 0) return plain('all-metrics-hidden'); // founder turned every metric OFF
 
   const sent = await sendSnapshotToExtension(snapshot);
   if (!sent.ok) return plain(sent.reason + (sent.detail ? `: ${sent.detail}` : ''));

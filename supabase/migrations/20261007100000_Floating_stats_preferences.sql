@@ -43,6 +43,34 @@ create policy "fsp_update_own"
 
 
 
+-- Floating Stats: Global metric visibility
+-- Uses Kaksi Digitals' existing preference row.
+-- No new tables or RLS policy changes.
+
+create or replace function public.get_floating_stats_hidden_metrics()
+returns jsonb
+language sql
+stable
+security definer
+set search_path = ''
+as $$
+  select coalesce(
+    (
+      select to_jsonb(p.hidden_metrics)
+      from public.floating_stats_preferences p
+      where p.user_id = 'ee2f8a30-27b6-49f8-8a00-cff679e9da14'::uuid
+      limit 1
+    ),
+    '[]'::jsonb
+  );
+$$;
+
+revoke all on function public.get_floating_stats_hidden_metrics()
+from public, anon;
+
+grant execute on function public.get_floating_stats_hidden_metrics()
+to authenticated;
+
 
   ----------------------------
   risks 
